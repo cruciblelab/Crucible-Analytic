@@ -67,6 +67,24 @@ timescale_dsn = "postgres://localhost/test"
 	if cfg.Limits.ThrottleQueueSize != 200 {
 		t.Errorf("Limits.ThrottleQueueSize = %d, want 200", cfg.Limits.ThrottleQueueSize)
 	}
+	// ASN lookup must default to disabled - a config with no [asn_lookup]
+	// section at all must never start downloading RIR files or touching
+	// its TimescaleDB table.
+	if cfg.ASNLookup.Enabled {
+		t.Error("ASNLookup.Enabled = true, want false by default")
+	}
+	if cfg.ASNLookup.ApplyToScoring {
+		t.Error("ASNLookup.ApplyToScoring = true, want false by default")
+	}
+	if cfg.ASNLookup.CacheMaxEntries != 50_000 {
+		t.Errorf("ASNLookup.CacheMaxEntries = %d, want 50000", cfg.ASNLookup.CacheMaxEntries)
+	}
+	if got, want := cfg.ASNLookup.CacheTTL(), 6*time.Hour; got != want {
+		t.Errorf("ASNLookup.CacheTTL() = %v, want %v", got, want)
+	}
+	if got, want := cfg.ASNLookup.RefreshInterval(), 7*24*time.Hour; got != want {
+		t.Errorf("ASNLookup.RefreshInterval() = %v, want %v", got, want)
+	}
 }
 
 func TestLoad_MissingBackendAddr(t *testing.T) {
@@ -259,5 +277,108 @@ throttle_queue_size = 50
 	}
 	if cfg.Limits.ThrottleQueueSize != 50 {
 		t.Errorf("ThrottleQueueSize = %d, want 50", cfg.Limits.ThrottleQueueSize)
+	}
+}
+
+func TestLoad_ASNLookupDisabledSkipsValidationOfItsOwnFields(t *testing.T) {
+	// enabled = false (or the section omitted entirely) must load fine
+	// even with nonsensical sub-fields - they're simply never consulted,
+	// the same way tls.cert_file isn't required when mode != "full".
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = false
+cache_max_entries = 0
+cache_ttl_seconds = 0
+refresh_interval_seconds = 0
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ASNLookup.Enabled {
+		t.Error("ASNLookup.Enabled = true, want false")
+	}
+}
+
+func TestLoad_ASNLookupEnabledValidatesCacheMaxEntries(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+cache_max_entries = 0
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for asn_lookup.enabled = true with cache_max_entries <= 0")
+	}
+}
+
+func TestLoad_ASNLookupEnabledValidatesCacheTTL(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+cache_ttl_seconds = -1
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for asn_lookup.enabled = true with cache_ttl_seconds <= 0")
+	}
+}
+
+func TestLoad_ASNLookupEnabledValidatesRefreshInterval(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+refresh_interval_seconds = 0
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for asn_lookup.enabled = true with refresh_interval_seconds <= 0")
+	}
+}
+
+func TestLoad_ASNLookupEnabledWithValidFieldsSucceeds(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+apply_to_scoring = true
+cache_max_entries = 1000
+cache_ttl_seconds = 3600
+refresh_interval_seconds = 86400
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.ASNLookup.Enabled {
+		t.Error("ASNLookup.Enabled = false, want true")
+	}
+	if !cfg.ASNLookup.ApplyToScoring {
+		t.Error("ASNLookup.ApplyToScoring = false, want true")
+	}
+	if cfg.ASNLookup.CacheMaxEntries != 1000 {
+		t.Errorf("CacheMaxEntries = %d, want 1000", cfg.ASNLookup.CacheMaxEntries)
+	}
+	if got, want := cfg.ASNLookup.CacheTTL(), time.Hour; got != want {
+		t.Errorf("CacheTTL() = %v, want %v", got, want)
+	}
+	if got, want := cfg.ASNLookup.RefreshInterval(), 24*time.Hour; got != want {
+		t.Errorf("RefreshInterval() = %v, want %v", got, want)
 	}
 }

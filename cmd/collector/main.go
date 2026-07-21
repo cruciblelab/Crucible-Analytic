@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/config"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
@@ -75,6 +76,32 @@ func main() {
 		ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
 	})
 
+	// ASN/country lookup is entirely optional and additive - unlike the
+	// TimescaleDB connection above, a failure to set it up here doesn't
+	// take down the collector's core purpose (proxying, fingerprinting,
+	// scoring, storage all work fine without it), so it's logged and
+	// skipped rather than fatal.
+	var lookup *asnlookup.Resolver
+	if cfg.ASNLookup.Enabled {
+		lookup, err = asnlookup.NewResolver(ctx, cfg.Storage.TimescaleDSN, asnlookup.CacheConfig{
+			MaxEntries: cfg.ASNLookup.CacheMaxEntries,
+			TTL:        cfg.ASNLookup.CacheTTL(),
+		}, logger)
+		if err != nil {
+			logger.Error("failed to set up ASN/country lookup, continuing without it", "err", err)
+			lookup = nil
+		}
+	}
+	lookupDone := make(chan struct{})
+	if lookup != nil {
+		go func() {
+			defer close(lookupDone)
+			lookup.Run(ctx, cfg.ASNLookup.RefreshInterval())
+		}()
+	} else {
+		close(lookupDone)
+	}
+
 	var server proxyServer
 	switch cfg.Mode {
 	case config.ModeFull:
@@ -107,6 +134,10 @@ func main() {
 	// closing the writer/store under it, so the last partial interval's
 	// activity isn't lost or written to an already-closed pool.
 	<-flusherDone
+	<-lookupDone
+	if lookup != nil {
+		lookup.Close()
+	}
 	writer.Close()
 	store.Close()
 

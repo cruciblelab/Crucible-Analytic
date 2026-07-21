@@ -54,12 +54,13 @@ const (
 // (simplest to write by hand) and exposed as time.Duration via the
 // accessor methods below.
 type Config struct {
-	Mode    Mode          `toml:"mode"`
-	Network NetworkConfig `toml:"network"`
-	TLS     TLSConfig     `toml:"tls"`
-	Cache   CacheConfig   `toml:"cache"`
-	Storage StorageConfig `toml:"storage"`
-	Limits  LimitsConfig  `toml:"limits"`
+	Mode      Mode            `toml:"mode"`
+	Network   NetworkConfig   `toml:"network"`
+	TLS       TLSConfig       `toml:"tls"`
+	Cache     CacheConfig     `toml:"cache"`
+	Storage   StorageConfig   `toml:"storage"`
+	Limits    LimitsConfig    `toml:"limits"`
+	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
 }
 
 // NetworkConfig covers where the collector listens and what it proxies to.
@@ -145,6 +146,37 @@ type LimitsConfig struct {
 	ThrottleQueueSize        int            `toml:"throttle_queue_size"`
 }
 
+// ASNLookupConfig configures the optional internal/asnlookup module,
+// which resolves an IP to the country it's registered to (see that
+// package's doc comment for why it doesn't resolve an ASN yet, despite
+// the section name). Disabled by default: when Enabled is false, nothing
+// else in this section is consulted, no RIR files are ever downloaded,
+// and asnlookup's TimescaleDB table is never touched.
+type ASNLookupConfig struct {
+	Enabled bool `toml:"enabled"`
+	// ApplyToScoring is accepted and validated but not yet consulted by
+	// internal/scoring - there's nothing meaningful for it to feed in
+	// while ASN itself goes unresolved (see internal/asnlookup). It's
+	// part of the config shape now so wiring it up later is a behavior
+	// change, not a schema change.
+	ApplyToScoring         bool `toml:"apply_to_scoring"`
+	CacheMaxEntries        int  `toml:"cache_max_entries"`
+	CacheTTLSeconds        int  `toml:"cache_ttl_seconds"`
+	RefreshIntervalSeconds int  `toml:"refresh_interval_seconds"`
+}
+
+// CacheTTL is how long one resolved IP is cached before the next lookup
+// re-checks the in-memory range table.
+func (a ASNLookupConfig) CacheTTL() time.Duration {
+	return time.Duration(a.CacheTTLSeconds) * time.Second
+}
+
+// RefreshInterval is how often the RIR delegated-stats files are
+// re-downloaded and re-parsed.
+func (a ASNLookupConfig) RefreshInterval() time.Duration {
+	return time.Duration(a.RefreshIntervalSeconds) * time.Second
+}
+
 func defaults() Config {
 	return Config{
 		Mode: ModePassthrough,
@@ -172,6 +204,13 @@ func defaults() Config {
 			MaxRequestsPerSecond:     500,
 			OverloadPolicy:           PolicyFailOpen,
 			ThrottleQueueSize:        200,
+		},
+		ASNLookup: ASNLookupConfig{
+			Enabled:                false,
+			ApplyToScoring:         false,
+			CacheMaxEntries:        50_000,
+			CacheTTLSeconds:        6 * 60 * 60,      // 6 hours
+			RefreshIntervalSeconds: 7 * 24 * 60 * 60, // 1 week
 		},
 	}
 }
@@ -219,6 +258,18 @@ func (c *Config) validate() error {
 	}
 	if c.Limits.OverloadPolicy == PolicyThrottle && c.Limits.ThrottleQueueSize <= 0 {
 		return fmt.Errorf("config: limits.throttle_queue_size must be positive when limits.overload_policy = %q", PolicyThrottle)
+	}
+
+	if c.ASNLookup.Enabled {
+		if c.ASNLookup.CacheMaxEntries <= 0 {
+			return fmt.Errorf("config: asn_lookup.cache_max_entries must be positive when asn_lookup.enabled = true")
+		}
+		if c.ASNLookup.CacheTTLSeconds <= 0 {
+			return fmt.Errorf("config: asn_lookup.cache_ttl_seconds must be positive when asn_lookup.enabled = true")
+		}
+		if c.ASNLookup.RefreshIntervalSeconds <= 0 {
+			return fmt.Errorf("config: asn_lookup.refresh_interval_seconds must be positive when asn_lookup.enabled = true")
+		}
 	}
 
 	return nil
