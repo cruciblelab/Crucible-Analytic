@@ -1,0 +1,33 @@
+# Copy this file to config.toml (or point --config at it directly) and
+# fill in the values marked required below. Any field left out entirely
+# keeps its default - see internal/config/config.go's defaults().
+
+# "passthrough" (default) or "full". See the README for what each means.
+mode = "passthrough"
+
+[network]
+listen_addr = ":8443"
+# Required. host:port of the site to proxy to. In both modes this is a
+# plain host:port; full mode always proxies to it over plaintext HTTP
+# (TLS is assumed to terminate here, at the collector).
+backend_addr = "127.0.0.1:8080"
+dial_timeout_seconds = 10
+# passthrough-mode only: how long to wait for a complete TLS ClientHello
+# before giving up on fingerprinting (the connection is still proxied).
+handshake_timeout_seconds = 5
+
+[tls]
+# Required only when mode = "full": the backend's real TLS certificate/key,
+# used to terminate client connections.
+cert_file = ""
+key_file = ""
+
+[cache]
+window_size_seconds = 60
+ttl_seconds = 300
+cleanup_interval_seconds = 60
+
+[storage]
+# Required. Postgres connection string for TimescaleDB.
+timescale_dsn = "postgres://collector:collector@localhost:5432/analytics"
+flush_interval_seconds = 10

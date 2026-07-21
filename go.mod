@@ -2,7 +2,10 @@ module github.com/cruciblelab/crucible-analytic
 
 go 1.23.0
 
-require github.com/jackc/pgx/v5 v5.7.6
+require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/jackc/pgx/v5 v5.7.6
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

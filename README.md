@@ -9,48 +9,72 @@ those are later phases.
 
 ## What it does
 
-The collector is a minimal TCP/TLS **passthrough** reverse proxy:
+The collector runs in one of two modes, selected by `mode` in the config
+file. Both fingerprint every connection via JA4, feed the same in-memory
+`RateStore` (a cheap two-counter sliding window, not a full request log),
+compute the same 0-100 bot-likelihood score (request rate + known-bad-JA4
+match), and batch-write summaries to TimescaleDB via `COPY` every
+`flush_interval_seconds` (default 10s). IP state idle for longer than
+`ttl_seconds` (default 5m) is automatically dropped from memory. Nothing in
+this phase blocks or rejects traffic based on the score - it's computed and
+persisted for a future phase to act on.
 
-1. It listens on `LISTEN_ADDR` and accepts raw TCP connections.
+### Passthrough mode (default)
+
+A minimal, content-blind TCP/TLS reverse proxy (`internal/proxy`):
+
+1. It listens on `listen_addr` and accepts raw TCP connections.
 2. For TLS connections, it peeks the TLS record(s) containing the
    ClientHello, parses it just enough to compute a
    [JA4](https://github.com/FoxIO-LLC/ja4) client fingerprint, and forwards
-   every byte read (and everything that follows) to `BACKEND_ADDR`
+   every byte read (and everything that follows) to `backend_addr`
    **unmodified**. It never terminates TLS, never buffers or rewrites
    application data, and never drops or delays a connection because
-   fingerprinting failed — observation is best-effort and side-channel to
+   fingerprinting failed - observation is best-effort and side-channel to
    the proxying.
-3. Each connection's source IP is recorded into an in-memory `RateStore`
-   using a cheap two-counter sliding window (previous window + current
-   window request counts), not a full request log.
-4. Every `FLUSH_INTERVAL` (default 10s), the collector snapshots every IP
-   active since the last flush, computes a simple 0-100 bot-likelihood
-   score (request rate + known-bad-JA4 match), and batch-writes the
-   summaries to TimescaleDB via `COPY`.
-5. IP state idle for longer than `IDLE_TTL` (default 5m) is automatically
-   dropped from memory.
+3. Each connection is recorded as one request in the `RateStore` - see the
+   rate-counting caveat below.
 
-Nothing in this phase blocks or rejects traffic based on the score — it's
-computed and persisted for a future phase to act on.
+**Rate counting is per TCP connection, not per HTTP request - and this is
+permanent, not a to-do.** Because the proxy never terminates TLS, the byte
+stream after the ClientHello is opaque ciphertext to it; there is no way to
+see individual request lines multiplexed over a keep-alive or HTTP/2
+connection without decrypting, which this mode deliberately doesn't do.
+This under-counts legitimate browser traffic relative to bots that churn
+through a new connection per request, which is directionally fine for bot
+detection but worth knowing when interpreting the numbers. **Full mode
+below exists specifically to fix this**, at the cost of a larger trust
+boundary.
 
-**Rate counting is per TCP connection, not per HTTP request — and for TLS
-traffic, this is permanent, not a to-do.** Because the proxy never
-terminates TLS, the byte stream after the ClientHello is opaque ciphertext
-to it; there is no way to see individual request lines multiplexed over a
-keep-alive or HTTP/2 connection without decrypting, which this
-architecture deliberately doesn't do. This under-counts legitimate browser
-traffic relative to bots that churn through a new connection per request,
-which is directionally fine for bot detection but worth knowing when
-interpreting the numbers.
+### Full mode
 
-A **"full mode" is planned** as a separate, later addition: a second,
-opt-in operating mode (selected via `MODE=passthrough|full`, passthrough
-staying the default) that actually terminates TLS and reverse-proxies HTTP
-- giving real per-request visibility (and a foundation for path-scanning
-detection in a later phase) at the cost of needing the backend's TLS
-certificate/key and a meaningfully larger trust boundary. This is a
-significant architecture addition, not a small fix, and is being designed
-separately rather than folded into this passthrough-only phase.
+A TLS-terminating HTTP reverse proxy (`internal/fullproxy`, `mode = "full"`),
+built on `net/http` + `httputil.ReverseProxy`:
+
+1. It terminates client TLS connections using `tls.cert_file`/`key_file`
+   (the backend's real certificate/key - full mode needs it, since it's
+   now the actual TLS endpoint) and reverse-proxies each request to
+   `backend_addr` over **plaintext HTTP** (the standard "TLS terminates at
+   the edge" setup; an HTTPS backend isn't supported yet).
+2. It still computes JA4 for every connection, from the *same*
+   `ja4.ParseClientHello`/`Fingerprint` passthrough mode uses - the raw
+   ClientHello bytes are captured by snooping the connection before
+   crypto/tls consumes them (`tls.ClientHelloInfo` itself only exposes a
+   parsed subset of fields, not the raw bytes JA4 needs), via the
+   `GetConfigForClient` hook and `tls.Conn.NetConn()`. This guarantees
+   identical JA4 output to passthrough mode for the same ClientHello,
+   rather than a second, separately-validated implementation.
+3. **Each real HTTP request is recorded individually** - not once per
+   connection. `net/http` itself resolves both HTTP/1.1 keep-alive and
+   HTTP/2 multiplexing into separate handler invocations, so this falls
+   out for free rather than needing custom request-boundary detection.
+   This is what full mode is *for*.
+
+Full mode's `http.Transport` to the backend explicitly sets
+`MaxIdleConnsPerHost: 100` (the zero-value default is 2, a well-known cause
+of high CPU / low throughput in Go reverse proxies fronting a single
+backend host under concurrent load - constant redial instead of connection
+reuse) along with matching `MaxIdleConns`/`IdleConnTimeout`.
 
 ## Design notes
 
@@ -83,6 +107,33 @@ separately rather than folded into this passthrough-only phase.
   exactly). Only the "t" (TLS-over-TCP) transport is implemented;
   QUIC/DTLS fingerprints are out of scope since the collector never
   terminates QUIC.
+- **Full mode's JA4 capture and HTTP/2 both came with real, non-obvious
+  gotchas** found only by writing a genuine end-to-end test (real TLS
+  handshake, real multi-request client) rather than trusting source-reading
+  alone:
+  - `tls.ClientHelloInfo` doesn't expose raw ClientHello bytes, so full
+    mode wraps the accepted connection (`snoopConn`) to capture them
+    itself, retrieved inside the `GetConfigForClient` hook via
+    `hello.Conn.(*snoopConn)` and threaded to the HTTP handler layer via
+    `http.Server.ConnContext` + `tls.Conn.NetConn()`.
+  - `http.Server`'s automatic HTTP/2 setup (triggered because
+    `httpServer.TLSConfig` is deliberately left nil - see
+    `shouldConfigureHTTP2ForServe` in Go's own `net/http` source) only
+    configures **routing** for an already-negotiated h2 connection; it does
+    **not** retroactively add `"h2"` to a `tls.Config` built independently
+    and passed to `tls.NewListener`, which is what full mode does. Without
+    `NextProtos: []string{"h2", "http/1.1"}` set explicitly on that config,
+    the real ALPN handshake would never offer h2 to any client, silently
+    defeating one of full mode's main reasons to exist. A first version of
+    this test suite passed without that line; only asserting on
+    `resp.ProtoMajor` caught it.
+  - Symmetrically, `http.Transport` on the *client* side won't
+    auto-negotiate HTTP/2 either once you set a custom `TLSClientConfig`
+    (needed for `InsecureSkipVerify` against a self-signed test cert, or
+    for any custom CA in real use) - `ForceAttemptHTTP2: true` is required
+    to opt back in. This tripped up the test client, not `fullproxy`
+    itself, but it's the same "conservative unless you opt in explicitly"
+    behavior on both sides of the connection.
 - **Cache: single in-memory store behind a `RateStore` interface.** Only
   `MemoryRateStore` exists today (no Redis), but callers depend on the
   interface so a distributed implementation can be added later without
@@ -90,6 +141,17 @@ separately rather than folded into this passthrough-only phase.
 - **Locking: one `sync.RWMutex` over a plain map**, not sharded. Both are
   reasonable at small/medium scale per the project brief; a sharded map is
   the known follow-up if lock contention shows up under real load.
+- **Config: a TOML file, not environment variables.** `internal/config`
+  parses it via [`BurntSushi/toml`](https://github.com/BurntSushi/toml) -
+  chosen over `pelletier/go-toml/v2` mainly for its long track record as
+  the de facto standard Go TOML library and its lower minimum Go version
+  (1.18 vs 1.21), which keeps this project's toolchain requirement as low
+  as possible for whatever's already on the target VPS; both are
+  zero-transitive-dependency and otherwise a close call. Fields are decoded
+  into a struct pre-populated with defaults (`toml.DecodeFile` only
+  overwrites what's actually present in the file - verified empirically,
+  not assumed), so a minimal config only needs to set what differs from
+  the defaults. See `config.example.toml`.
 - **Database: TimescaleDB via `pgx/v5`**, using `COPY` (`pgx.CopyFrom`) for
   the periodic batch flush rather than row-by-row `INSERT`s. IP addresses
   are handled as `netip.Addr` end-to-end (proxy → RateStore → storage) and
@@ -127,35 +189,44 @@ Requires Go 1.23+.
 docker compose up -d
 docker compose ps --format '{{.Name}}: {{.Health}}' # wait for "healthy"
 
-# 2. Run the collector against your backend.
-export BACKEND_ADDR=127.0.0.1:8080      # your existing site
-export DATABASE_URL="postgres://collector:collector@localhost:5432/analytics"
+# 2. Copy the example config and fill in backend_addr / timescale_dsn
+#    (and tls.cert_file/key_file if you're using mode = "full").
+cp config.example.toml config.toml
+$EDITOR config.toml
+
+# 3. Run it (looks for ./config.toml by default; override with -config).
 go run ./cmd/collector
+# or: go run ./cmd/collector -config /path/to/config.toml
 ```
 
 If you're pointing `docker compose` at an already-existing TimescaleDB
 instead, apply the schema once yourself:
 
 ```bash
-psql "$DATABASE_URL" -f internal/storage/schema.sql
+psql "$TIMESCALE_DSN" -f internal/storage/schema.sql
 ```
 
 ### Configuration
 
-All configuration is via environment variables; only the first two are
-required.
+Configuration is a single TOML file (default path `config.toml`, override
+with `-config`) - see `config.example.toml` for a fully-commented template.
+Only `network.backend_addr` and `storage.timescale_dsn` are required; every
+other field has a default. `config.toml` is gitignored since
+`timescale_dsn` typically carries credentials.
 
-| Variable            | Default  | Meaning                                                     |
-| ------------------- | -------- | ------------------------------------------------------------ |
-| `BACKEND_ADDR`       | —        | **Required.** `host:port` of the site to proxy to.           |
-| `DATABASE_URL`       | —        | **Required.** Postgres connection string for TimescaleDB.    |
-| `LISTEN_ADDR`        | `:8443`  | Address the proxy accepts connections on.                    |
-| `FLUSH_INTERVAL`     | `10s`    | How often summaries are batch-written to TimescaleDB.        |
-| `WINDOW_SIZE`        | `60s`    | Sliding-window width used for rate estimation.                |
-| `IDLE_TTL`           | `5m`     | How long an idle IP's state is kept before eviction.          |
-| `CLEANUP_INTERVAL`   | `1m`     | How often the idle-TTL sweep runs.                            |
-| `HANDSHAKE_TIMEOUT`  | `5s`     | Max time spent waiting to see a full ClientHello before giving up on fingerprinting (the connection is still proxied). |
-| `DIAL_TIMEOUT`       | `10s`    | Max time to connect to `BACKEND_ADDR`.                        |
+| Field                              | Default             | Meaning                                                        |
+| ----------------------------------- | -------------------- | --------------------------------------------------------------- |
+| `mode`                              | `"passthrough"`      | `"passthrough"` or `"full"` - see "What it does" above.         |
+| `network.listen_addr`               | `:8443`              | Address the proxy accepts connections on.                       |
+| `network.backend_addr`              | —                    | **Required.** `host:port` of the site to proxy to.               |
+| `network.dial_timeout_seconds`      | `10`                 | Max time to connect to `backend_addr`.                           |
+| `network.handshake_timeout_seconds` | `5`                  | Passthrough-only: max time waiting for a full ClientHello before giving up on fingerprinting (the connection is still proxied). |
+| `tls.cert_file` / `tls.key_file`    | —                    | **Required when `mode = "full"`.** The backend's real TLS certificate/key. |
+| `cache.window_size_seconds`         | `60`                 | Sliding-window width used for rate estimation.                   |
+| `cache.ttl_seconds`                 | `300`                | How long an idle IP's state is kept before eviction.              |
+| `cache.cleanup_interval_seconds`    | `60`                 | How often the idle-TTL sweep runs.                                |
+| `storage.timescale_dsn`             | —                    | **Required.** Postgres connection string for TimescaleDB.         |
+| `storage.flush_interval_seconds`    | `10`                 | How often summaries are batch-written to TimescaleDB.             |
 
 ## Testing
 
@@ -169,10 +240,13 @@ fragmentation) *and* against 5 real ClientHellos from FoxIO's official test
 pcaps, cross-checked against both FoxIO's own reference implementation and
 Wireshark's independent JA4 dissector
 (`internal/ja4/foxio_reference_test.go`), sliding-window math with injected
-timestamps (no sleeps), and an end-to-end proxy test that performs a
-**real** TLS handshake (self-signed cert generated in-test, stdlib only)
-through the passthrough proxy and asserts both byte-for-byte passthrough
-and a correctly-shaped extracted JA4.
+timestamps (no sleeps), and end-to-end proxy tests for *both* modes that
+perform a **real** TLS handshake (self-signed cert generated in-test,
+stdlib only): passthrough's asserts byte-for-byte passthrough and a
+correctly-shaped extracted JA4; full mode's asserts real backend responses,
+a correctly-shaped JA4, that HTTP/2 actually gets negotiated, and - the
+core point of full mode - that N requests over one connection produce N
+separate `RecordRequest` calls, not one (`internal/fullproxy/server_test.go`).
 
 `internal/storage`'s DB writer itself isn't covered by an automated
 integration test — this repo was built in a sandbox without a usable Docker
@@ -186,13 +260,7 @@ path was verified by reading the pgx source rather than by running it.
 ## Explicitly out of scope for this phase
 
 Dashboard, query API, path-scanning detection, header-consistency checks,
-weighted multi-signal correlation, and a Redis-backed `RateStore`
-implementation. The `RateStore` interface and scoring package are shaped
-to make these additive later, not to pre-build them now.
-
-The TLS-terminating **"full mode"** described above (per-request counting,
-real path visibility) is a planned but separate, not-yet-designed addition
-- expected to reuse `ja4`/`ratestore`/`scoring`/`storage` unchanged, add a
-new sibling package next to `internal/proxy`, and select via
-`MODE=passthrough|full`. None of that is implemented yet; passthrough mode
-is unaffected and unchanged by the plan.
+weighted multi-signal correlation, a Redis-backed `RateStore`
+implementation, and an HTTPS (as opposed to plaintext) backend for full
+mode. The `RateStore` interface and scoring package are shaped to make
+these additive later, not to pre-build them now.
