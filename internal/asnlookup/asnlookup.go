@@ -69,7 +69,21 @@ type Resolver struct {
 	// -ipv6.csv from local disk instead, with no network access of any
 	// kind. Empty means download from GitHub Releases, as normal.
 	localCSVPath string
-	logger       *slog.Logger
+	// Logger defaults to slog.Default() when nil - see the logger()
+	// accessor - so a Resolver value built directly (bypassing
+	// NewResolver, as some tests do) is never at risk of a nil-pointer
+	// panic the moment something needs logging.
+	Logger *slog.Logger
+}
+
+// logger returns r.Logger, falling back to slog.Default() if it was
+// never set - the same defensive pattern proxy.Server and fullproxy.Server
+// use.
+func (r *Resolver) logger() *slog.Logger {
+	if r.Logger != nil {
+		return r.Logger
+	}
+	return slog.Default()
 }
 
 // NewResolver opens a connection pool to databaseURL and verifies it's
@@ -95,15 +109,12 @@ func NewResolver(ctx context.Context, databaseURL string, cache CacheConfig, loc
 		pool.Close()
 		return nil, fmt.Errorf("asnlookup: ping database: %w", err)
 	}
-	if logger == nil {
-		logger = slog.Default()
-	}
 	return &Resolver{
 		pool:         pool,
 		httpClient:   &http.Client{Timeout: 2 * time.Minute},
 		cache:        newTTLCache(cache.MaxEntries, cache.TTL),
 		localCSVPath: localCSVPath,
-		logger:       logger,
+		Logger:       logger,
 	}, nil
 }
 
@@ -169,14 +180,14 @@ func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 func (r *Resolver) refresh(ctx context.Context) {
 	entries4, err4 := r.loadCountryCSV(ctx, countryIPv4URL, countryIPv4Filename)
 	if err4 != nil {
-		r.logger.Warn("asnlookup: ipv4 refresh failed, keeping previous table", "err", err4)
+		r.logger().Warn("asnlookup: ipv4 refresh failed, keeping previous table", "err", err4)
 	} else {
 		r.table4.Store(newRangeTable(entries4))
 	}
 
 	entries6, err6 := r.loadCountryCSV(ctx, countryIPv6URL, countryIPv6Filename)
 	if err6 != nil {
-		r.logger.Warn("asnlookup: ipv6 refresh failed, keeping previous table", "err", err6)
+		r.logger().Warn("asnlookup: ipv6 refresh failed, keeping previous table", "err", err6)
 	} else {
 		r.table6.Store(newRangeTable(entries6))
 	}
@@ -186,10 +197,10 @@ func (r *Resolver) refresh(ctx context.Context) {
 	}
 	all := append(entries4, entries6...)
 	if err := r.writeRanges(ctx, all); err != nil {
-		r.logger.Error("asnlookup: failed to persist ranges, in-memory tables still updated", "err", err)
+		r.logger().Error("asnlookup: failed to persist ranges, in-memory tables still updated", "err", err)
 		return
 	}
-	r.logger.Info("asnlookup: refresh complete", "ipv4_ranges", len(entries4), "ipv6_ranges", len(entries6))
+	r.logger().Info("asnlookup: refresh complete", "ipv4_ranges", len(entries4), "ipv6_ranges", len(entries6))
 }
 
 // loadCountryCSV returns the parsed ranges for one address family, either
