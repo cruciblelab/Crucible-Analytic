@@ -302,25 +302,37 @@ docker compose ps --format '{{.Name}}: {{.Health}}' # wait for "healthy"
 cp config.example.toml config.toml
 $EDITOR config.toml
 
-# 3. Run it (looks for ./config.toml by default; override with -config).
+# 3. ONLY if you just set asn_lookup.enabled = true in step 2: apply its
+#    schema too, once. Unlike internal/storage/schema.sql, docker-
+#    compose.yml does NOT apply this one automatically - there's no
+#    docker-entrypoint-initdb.d mount for it, since it's optional and
+#    disabled by default. Skip this step entirely if asn_lookup.enabled
+#    is false (the default) - the collector runs fine without it existing.
+psql "postgres://collector:collector@localhost:5432/analytics" -f internal/asnlookup/schema.sql
+
+# 4. Run it (looks for ./config.toml by default; override with -config).
 go run ./cmd/collector
 # or: go run ./cmd/collector -config /path/to/config.toml
 ```
 
 If you're pointing `docker compose` at an already-existing TimescaleDB
-instead, apply the schema once yourself:
+instead, apply both schemas once yourself (skip the second if you're
+leaving `asn_lookup.enabled = false`):
 
 ```bash
 psql "$TIMESCALE_DSN" -f internal/storage/schema.sql
-```
-
-If you're turning on the optional IP → country lookup
-(`asn_lookup.enabled = true`), also apply its schema the same way, once,
-before starting the collector:
-
-```bash
 psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
 ```
+
+Forgetting step 3 when `asn_lookup.enabled = true` isn't fatal - the
+collector still starts and runs normally, since a missing optional table
+is treated the same as any other refresh failure (logged, not fatal - see
+"Optional: IP → country lookup" above). It just means every lookup
+silently returns `Found: false` until you apply the schema and the next
+scheduled refresh runs, which is easy to mistake for "the RIR data just
+doesn't cover this IP" rather than "the table doesn't exist yet." Check
+the logs for `asnlookup: failed to persist ranges` if lookups seem to
+never find anything.
 
 ### Configuration
 
@@ -359,37 +371,61 @@ other field has a default. `config.toml` is gitignored since
 go test -race ./...
 ```
 
+This needs no external dependencies - no Docker, no network access,
+nothing running. Two further suites exist for real, live-dependency
+verification, each gated behind its own build tag specifically so the
+default suite above stays that way:
+
+```bash
+# Needs a real TimescaleDB: docker compose up -d first (see "Running
+# locally"), plus internal/asnlookup/schema.sql applied if you want that
+# package's suite too.
+go test -tags integration ./internal/storage/... ./internal/asnlookup/... -v
+
+# No external dependency - just slower and more timing-sensitive than the
+# default suite should be, since it fires dozens of genuinely concurrent
+# connections at a real listening proxy.Server.
+go test -tags loadtest ./internal/loadtest/... -v
+```
+
 Coverage includes a hand-rolled ClientHello parser exercised against
 independently-built byte fixtures (including truncation and multi-record
 fragmentation) *and* against 5 real ClientHellos from FoxIO's official test
 pcaps, cross-checked against both FoxIO's own reference implementation and
-Wireshark's independent JA4 dissector
-(`internal/ja4/foxio_reference_test.go`), sliding-window math with injected
-timestamps (no sleeps), and end-to-end proxy tests for *both* modes that
-perform a **real** TLS handshake (self-signed cert generated in-test,
-stdlib only): passthrough's asserts byte-for-byte passthrough and a
-correctly-shaped extracted JA4; full mode's asserts real backend responses,
-a correctly-shaped JA4, that HTTP/2 actually gets negotiated, and - the
-core point of full mode - that N requests over one connection produce N
-separate `RecordRequest` calls, not one (`internal/fullproxy/server_test.go`).
+Wireshark's independent JA4 dissector (`internal/ja4/foxio_reference_test.go`
+- both known FoxIO/Wireshark discrepancies are traced to their actual root
+cause in Wireshark's own GitLab issue tracker, not left as an unexplained
+difference), sliding-window math with injected timestamps (no sleeps), and
+end-to-end proxy tests for *both* modes that perform a **real** TLS
+handshake (self-signed cert generated in-test, stdlib only): passthrough's
+asserts byte-for-byte passthrough and a correctly-shaped extracted JA4;
+full mode's asserts real backend responses (including one explicitly
+against a plain HTTP/1.1-only backend built from `net.Listen` +
+`http.Server` with no TLS and no h2c involved at all -
+`TestServer_WorksAgainstPlainHTTP11OnlyBackend`), a correctly-shaped JA4,
+that HTTP/2 actually gets negotiated, and - the core point of full mode -
+that N requests over one connection produce N separate `RecordRequest`
+calls, not one (`internal/fullproxy/server_test.go`).
 
-`internal/storage`'s DB writer itself isn't covered by an automated
-integration test — this repo was built in a sandbox without a usable Docker
-daemon, so there was no live TimescaleDB to test against. The row-building
-and flush-scheduling logic around it (`BuildRows`, `Flusher`) is unit
-tested against a fake writer, and the pgx/`netip.Addr` ↔ `inet` encoding
-path was verified by reading the pgx source rather than by running it.
-**Run the collector against a real TimescaleDB (e.g. via the
-`docker-compose.yml` here) before depending on it.**
+`go test -tags integration ./internal/storage/... ./internal/asnlookup/...`
+confirms both packages' pgx `netip.Addr` ↔ `inet` encoding round-trips
+correctly against a real TimescaleDB - read back through a raw query, not
+just the same path that wrote it - and that `internal/storage/schema.sql`'s
+`create_hypertable` call actually took effect, not just that a plain table
+would have accepted the same writes.
 
-`internal/asnlookup` has the same gap for the same reason, scoped to the
-same small surface: the RIR-delegated-stats parser, the binary-searchable
-range table (boundary/gap/empty/nil cases), the LRU+TTL cache (eviction,
-expiry, concurrent use), and `Resolve`'s cache-then-table logic are all
-unit tested without any live dependency; an `httptest.Server` fixture
-covers the HTTP-fetch-then-parse path genuinely, without contacting a real
-RIR. Only the actual TimescaleDB write (`writeRanges`) is untested for the
-same missing-Docker reason as `internal/storage`.
+`go test -tags loadtest ./internal/loadtest/...` fires 30-100 genuinely
+concurrent connections per scenario at a real `proxy.Server` and asserts on
+aggregate outcomes, going beyond what the tightly-choreographed
+single/double-connection scenarios in `internal/proxy` and
+`internal/fullproxy`'s own limiter tests exercise: with
+`max_concurrent_connections = 10`, `fail_closed` lets almost exactly 10
+through and rejects the rest; `fail_open` proxies all of them but records
+only around 10; `throttle` with a queue of 10 eventually serves around 15
+(5 concurrent + 10 queued) out of 30; a `max_requests_per_second = 20`
+ceiling lets roughly 20 of 100 simultaneous attempts through. Assertions
+allow some slack for real scheduling variance rather than pinning to one
+exact number.
 
 ## Explicitly out of scope for this phase
 

@@ -256,3 +256,58 @@ func TestServer_ShutsDownCleanlyOnContextCancel(t *testing.T) {
 		t.Fatal("Serve did not return within 15s of context cancellation")
 	}
 }
+
+// TestServer_WorksAgainstPlainHTTP11OnlyBackend explicitly verifies full
+// mode against a backend that can only ever speak HTTP/1.1 - built
+// directly from net.Listen + http.Server rather than httptest.NewServer,
+// so that property is visible in this test's own code rather than an
+// implicit fact about a helper a reader would have to already know. Go's
+// http.Server has no built-in h2c (HTTP/2 over cleartext) support for a
+// plain, non-TLS listener, and this project doesn't import
+// golang.org/x/net/http2/h2c anywhere - so this backend is a real,
+// unambiguous negative case for "does the collector's own Transport to
+// the backend ever need or attempt h2c." It doesn't: reverseProxy's
+// Transport in Serve (server.go) has no TLSClientConfig and talks to a
+// plain "http://" URL, which net/http always speaks as HTTP/1.1 - there's
+// no h2c code path in this codebase for it to take in the first place.
+// If that ever changed and something did try to upgrade, this backend
+// would fail the request rather than silently succeeding.
+func TestServer_WorksAgainstPlainHTTP11OnlyBackend(t *testing.T) {
+	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen backend: %v", err)
+	}
+	backendSrv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.ProtoMajor != 1 {
+				t.Errorf("backend saw request ProtoMajor = %d, want 1 (HTTP/1.x)", r.ProtoMajor)
+			}
+			fmt.Fprintf(w, "backend saw %s", r.URL.Path)
+		}),
+	}
+	go backendSrv.Serve(backendLn)
+	defer backendSrv.Close()
+
+	certFile, keyFile := writeCertKeyFiles(t)
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+
+	proxyAddr := startFullProxy(t, backendLn.Addr().String(), certFile, keyFile, store)
+
+	client := newInsecureClient()
+	resp, err := client.Get(fmt.Sprintf("https://%s/plain-http11", proxyAddr))
+	if err != nil {
+		t.Fatalf("request through full mode to an HTTP/1.1-only backend: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if want := "backend saw /plain-http11"; string(body) != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+}

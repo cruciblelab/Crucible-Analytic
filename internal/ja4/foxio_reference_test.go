@@ -86,11 +86,16 @@ func TestFingerprint_MatchesFoxIOReference(t *testing.T) {
 // For 3 of the 5 fixtures, Wireshark, FoxIO, and this package all agree
 // exactly. For 2, Wireshark's dissector diverges from FoxIO's own
 // reference on specific edge cases - both are pinned and documented below
-// rather than silently ignored. We follow FoxIO in both cases (it wrote
-// the spec), and TestFingerprint_MatchesFoxIOReference already confirms
-// that; this test's job is to make sure a real, known disagreement with
-// another implementation is never quietly lost. If wiresharkJA4 differs
-// from wantJA4, divergenceNote must explain why - the test fails if one is
+// rather than silently ignored. Both divergences were traced to their
+// actual root cause in Wireshark's GitLab (issue/MR numbers in each
+// divergenceNote below) rather than left as "we didn't check why": one is
+// a side effect of a fuzzer-crash fix, the other is a confirmed, open
+// Wireshark bug that Wireshark's own maintainers agree should behave like
+// FoxIO's output. We follow FoxIO in both cases (it wrote the spec), and
+// TestFingerprint_MatchesFoxIOReference already confirms that; this
+// test's job is to make sure a real, known disagreement with another
+// implementation is never quietly lost. If wiresharkJA4 differs from
+// wantJA4, divergenceNote must explain why - the test fails if one is
 // added without the other.
 func TestFingerprint_WiresharkCrossValidation(t *testing.T) {
 	cases := []struct {
@@ -112,11 +117,22 @@ func TestFingerprint_WiresharkCrossValidation(t *testing.T) {
 			wantJA4:      "t13d151699_8daaf6152771_e5627efa2ab1",
 			wiresharkJA4: "t13d1516bd_8daaf6152771_e5627efa2ab1",
 			divergenceNote: "ALPN is 2 raw non-ASCII bytes (0xba 0xad). FoxIO's " +
-				"python/ja4.py explicitly replaces the whole 2-char token with " +
-				"\"99\" when the first byte is non-ASCII (see alpnToken's doc " +
-				"comment in ja4.go). Wireshark's dissector instead emits \"bd\" " +
-				"for this input; we did not trace Wireshark's C source to find " +
-				"out why - we match FoxIO since it's the JA4 spec's own author.",
+				"python/ja4.py replaces the whole 2-char token with \"99\" when " +
+				"either byte fails an ASCII-printable check (see alpnToken's " +
+				"doc comment in ja4.go). Wireshark substitutes per-byte instead: " +
+				"if both the first and last ALPN chars are printable it uses " +
+				"them literally, otherwise it falls back to hex nibbles - the " +
+				"high nibble of the first byte and the low nibble of the last " +
+				"(0xba's high nibble 'b' + 0xad's low nibble 'd' = \"bd\", " +
+				"exactly what we observe). Traced to Wireshark GitLab MR !12699 " +
+				"(\"TLS: JA4 fix non printable ALPN values\", " +
+				"gitlab.com/wireshark/wireshark/-/merge_requests/12699), which " +
+				"fixed a fuzzer-discovered crash (issue #19401) on exactly this " +
+				"kind of input - the nibble scheme reads as a safe way to always " +
+				"emit two valid hex characters, not a deliberate attempt to match " +
+				"or diverge from the JA4 spec. We match FoxIO since it wrote the " +
+				"spec, and this looks like a side effect of Wireshark's crash " +
+				"fix rather than a considered alternate reading of it.",
 		},
 		{
 			name:         "tls-alpn-h2.pcap",
@@ -133,10 +149,18 @@ func TestFingerprint_WiresharkCrossValidation(t *testing.T) {
 				"signature_algorithms extension, so the JA4_c pre-hash input is " +
 				"genuinely empty. FoxIO's python/ja4.py special-cases this to the " +
 				"literal \"000000000000\" (see partC's doc comment in ja4.go) " +
-				"rather than hashing an empty string. Wireshark's dissector does " +
-				"NOT apply that special case - \"e3b0c44298fc\" is simply the " +
-				"first 12 hex chars of sha256(\"\"). We match FoxIO's explicit " +
-				"special case.",
+				"rather than hashing an empty string; Wireshark hashes the empty " +
+				"input instead and gets \"e3b0c44298fc\" (the well-known " +
+				"sha256(\"\") prefix). This is a confirmed, open Wireshark bug, " +
+				"not a legitimate alternate reading of the spec: see Wireshark " +
+				"GitLab issue #20066, \"JA4_c hashes an empty field to " +
+				"e3b0c44298fc when it should be 000000000000\" " +
+				"(gitlab.com/wireshark/wireshark/-/issues/20066), which reports " +
+				"this exact expected-vs-actual pair. A sibling bug for the JA4_b " +
+				"(cipher list) segment is tracked separately as issue #20394 and " +
+				"has a fix in flight scoped to JA4_b only (MR !19076) - #20066 " +
+				"itself has no linked fix as of this writing. We match FoxIO, " +
+				"which Wireshark's own maintainers agree is correct here.",
 		},
 		{
 			name:         "tls-sni.pcapng stream 0",

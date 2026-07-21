@@ -49,3 +49,27 @@ special case) - both are pinned with an explanation in the test itself
 rather than glossed over. This package follows FoxIO in both cases, since
 FoxIO wrote the JA4 spec, but the discrepancy is real and worth knowing
 about if you're comparing output against a Wireshark capture.
+
+Both were traced to an actual root cause in Wireshark's own GitLab, not
+left as an unexplained difference:
+
+- **Non-ASCII ALPN**: Wireshark substitutes hex nibbles per-byte (high
+  nibble of the first ALPN byte, low nibble of the last) instead of
+  FoxIO's blanket `"99"` substitution. This comes from [MR
+  !12699](https://gitlab.com/wireshark/wireshark/-/merge_requests/12699),
+  which fixed a fuzzer-discovered crash ([issue
+  #19401](https://gitlab.com/wireshark/wireshark/-/issues/19401)) on
+  exactly this kind of input - the nibble scheme reads as a safe way to
+  always emit two valid hex characters, not a deliberate attempt to match
+  or diverge from the JA4 spec.
+- **Empty JA4_c input**: this is a confirmed, open Wireshark bug, not a
+  legitimate alternate reading of the spec - see [issue
+  #20066](https://gitlab.com/wireshark/wireshark/-/issues/20066), "JA4_c
+  hashes an empty field to e3b0c44298fc when it should be 000000000000,"
+  which reports this exact expected-vs-actual pair and has no linked fix
+  as of this writing. A sibling bug in the JA4_b (cipher list) segment is
+  tracked separately as [issue
+  #20394](https://gitlab.com/wireshark/wireshark/-/issues/20394) with a
+  fix in flight scoped to JA4_b only ([MR
+  !19076](https://gitlab.com/wireshark/wireshark/-/merge_requests/19076));
+  #20066 itself remains open.
