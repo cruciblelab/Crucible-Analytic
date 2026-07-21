@@ -24,13 +24,20 @@ var versionTokens = map[uint16]string{
 // is supported.
 //
 // This is a from-scratch implementation written to keep the collector
-// dependency-free. It has been cross-validated against FoxIO's own
-// reference implementation (python/ja4.py in FoxIO-LLC/ja4) using several
-// of that repo's official test pcaps - see foxio_reference_test.go for the
-// fixtures, exact source commit, and how the raw bytes were extracted.
+// dependency-free. It has been cross-validated against two independent
+// implementations - FoxIO's own reference (python/ja4.py in FoxIO-LLC/ja4,
+// the spec's original authors) and Wireshark/tshark's native JA4 dissector
+// (a separate codebase) - using several of FoxIO's official test pcaps.
+// See foxio_reference_test.go for the fixtures, exact source commit, and
+// how the raw bytes were extracted.
+//
 // That process is also how the empty-hash-segment special case below and
 // the exact ALPN-sanitization rule were derived: both diverged from an
-// earlier, unvalidated version of this function.
+// earlier, unvalidated version of this function, and both now match
+// FoxIO. It also surfaced a real, unresolved disagreement between FoxIO
+// and Wireshark on those same two edge cases; this implementation follows
+// FoxIO (it wrote the spec), and TestFingerprint_WiresharkCrossValidation
+// pins the discrepancy with an explanation rather than hiding it.
 func Fingerprint(ch *ClientHello) string {
 	return partA(ch) + "_" + partB(ch) + "_" + partC(ch)
 }

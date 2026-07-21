@@ -63,16 +63,26 @@ separately rather than folded into this passthrough-only phase.
   only the standard library. This keeps the dependency footprint at zero
   for the most security-sensitive piece of the pipeline and gives full
   control over exactly which fields feed the fingerprint. It **has now
-  been cross-validated** against FoxIO's own reference implementation
-  (`python/ja4.py` in [FoxIO-LLC/ja4](https://github.com/FoxIO-LLC/ja4),
-  the JA4 spec's original authors) using real ClientHello bytes from that
-  repo's official test pcaps and their own checked-in expected output —
-  see `internal/ja4/testdata/README.md` for exact provenance. That process
-  found and fixed two real divergences (an empty-hash-segment special case,
-  and the exact ALPN-sanitization rule), both now pinned by dedicated unit
-  tests in addition to 5 passing end-to-end reference fixtures. Only the
-  "t" (TLS-over-TCP) transport is implemented; QUIC/DTLS fingerprints are
-  out of scope since the collector never terminates QUIC.
+  been cross-validated against two independent implementations**: FoxIO's
+  own reference (`python/ja4.py` in
+  [FoxIO-LLC/ja4](https://github.com/FoxIO-LLC/ja4), the JA4 spec's
+  original authors) and Wireshark/tshark's native JA4 dissector (a
+  separate codebase) — both against real ClientHello bytes from FoxIO's
+  official test pcaps. See `internal/ja4/testdata/README.md` for exact
+  provenance. That process found and fixed two real bugs against FoxIO
+  (an empty-hash-segment special case, and the exact ALPN-sanitization
+  rule) — both now pinned by dedicated unit tests. It also surfaced a
+  **known, unresolved disagreement between FoxIO and Wireshark themselves**
+  on those same two edge cases (non-ASCII ALPN handling; the
+  empty-JA4_c-input special case); this package follows FoxIO since it
+  wrote the spec, and both fixtures are pinned with the discrepancy
+  documented inline rather than papered over — see
+  `TestFingerprint_WiresharkCrossValidation` in
+  `internal/ja4/foxio_reference_test.go`. 5 fixtures pass end-to-end
+  against both references (3 of which all three implementations agree on
+  exactly). Only the "t" (TLS-over-TCP) transport is implemented;
+  QUIC/DTLS fingerprints are out of scope since the collector never
+  terminates QUIC.
 - **Cache: single in-memory store behind a `RateStore` interface.** Only
   `MemoryRateStore` exists today (no Redis), but callers depend on the
   interface so a distributed implementation can be added later without
@@ -156,7 +166,8 @@ go test -race ./...
 Coverage includes a hand-rolled ClientHello parser exercised against
 independently-built byte fixtures (including truncation and multi-record
 fragmentation) *and* against 5 real ClientHellos from FoxIO's official test
-pcaps with expected output from their own reference implementation
+pcaps, cross-checked against both FoxIO's own reference implementation and
+Wireshark's independent JA4 dissector
 (`internal/ja4/foxio_reference_test.go`), sliding-window math with injected
 timestamps (no sleeps), and an end-to-end proxy test that performs a
 **real** TLS handshake (self-signed cert generated in-test, stdlib only)

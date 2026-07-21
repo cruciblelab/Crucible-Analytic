@@ -30,3 +30,22 @@ not a re-derivation.
 Tooling note: `tshark` isn't a project dependency - it was used only in this
 one-time, local extraction step to avoid writing a pcap/pcapng parser (or
 adding a pcap-parsing Go dependency) just to prepare test fixtures.
+
+## Independent second opinion: Wireshark's own JA4 dissector
+
+`foxio_reference_test.go` also has `TestFingerprint_WiresharkCrossValidation`,
+which cross-checks the same 5 fixtures against tshark 4.2.2's *native* JA4
+dissector (`tls.handshake.ja4` field) - a separate C codebase from FoxIO's
+Python reference, obtained via:
+
+```
+tshark -r pcap/<file> -Y "tls.handshake.type==1[&& tcp.stream==N]" -T fields -e tls.handshake.ja4
+```
+
+3 of 5 agree exactly across FoxIO, Wireshark, and this package. 2 reveal a
+real disagreement between FoxIO's reference and Wireshark's dissector on
+specific edge cases (non-ASCII ALPN sanitization; the empty-JA4_c-input
+special case) - both are pinned with an explanation in the test itself
+rather than glossed over. This package follows FoxIO in both cases, since
+FoxIO wrote the JA4 spec, but the discrepancy is real and worth knowing
+about if you're comparing output against a Wireshark capture.
