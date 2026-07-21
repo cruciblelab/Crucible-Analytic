@@ -1,0 +1,4 @@
+/collector
+/bin/
+*.test
+*.out
