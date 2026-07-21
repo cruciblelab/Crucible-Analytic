@@ -7,6 +7,71 @@ This is the **first phase only**: `Collector → Cache/Score → TimescaleDB`.
 There is no dashboard, no query API, and no path-scanning detection yet —
 those are later phases.
 
+## What this does — and doesn't do
+
+**This project does:**
+- Passively observe traffic and separate bot/human activity using JA4 TLS
+  fingerprinting plus behavioral signals (request rate), without blocking or
+  delaying anything based on that assessment.
+- Surface bot/scraper traffic transparently, alongside a 0-100 score and the
+  reason behind it (known-bad JA4 match, rate, or both).
+- In full mode, record analytics **per individual HTTP request** rather than
+  per TCP connection - an accurate request count even across HTTP/1.1
+  keep-alive or HTTP/2 multiplexed connections (see "Full mode" below). It
+  does not yet break requests down by page/path - that's path-scanning
+  detection, listed under "Explicitly out of scope for this phase" below.
+- Persist the score and underlying data to TimescaleDB, a real
+  Postgres-compatible database your own systems can query directly. A
+  purpose-built query API is a later phase, not something already built here
+  (see "Explicitly out of scope for this phase").
+
+**This project does not:**
+- **Stop network-level (volumetric) DDoS attacks.** Traffic in the
+  hundreds-of-thousands-to-millions-of-packets-per-second range needs
+  globally distributed infrastructure (Anycast, multiple scrubbing data
+  centers) to absorb - that isn't something a single process on a single
+  server can do, by design or otherwise.
+- **Act as an anti-DDoS service on its own.** It detects and scores traffic;
+  it does not block or drop it. Any blocking decision is left to your own
+  system - a WAF, a firewall, the backend application itself.
+- **Replace a CDN or a dedicated anti-DDoS service.** See "Recommended
+  deployment order" below for how this fits alongside one.
+
+## Recommended deployment order
+
+If you already run a CDN or anti-DDoS service (Cloudflare or similar), put
+it in front of this collector, not behind it:
+
+```
+Client → CDN / anti-DDoS service (filters bulk/volumetric traffic)
+       → This collector (passthrough or full mode - fine-grained, behavioral analysis)
+       → Backend (your actual site)
+```
+
+This order matters for two concrete reasons:
+
+1. **Putting the collector in front of the CDN defeats both layers at once.**
+   Raw, unfiltered traffic - including anything volumetric - would hit the
+   collector directly instead of being absorbed upstream, and the CDN would
+   never see the traffic it's meant to filter (it only sees what the
+   collector forwards to it). It can't protect what it never receives.
+2. **Behind a CDN, the JA4 fingerprint may belong to the CDN, not the
+   original client.** If the CDN terminates TLS and opens its own connection
+   to your origin, every request reaching the collector can carry the *CDN's*
+   TLS fingerprint rather than the original visitor's. This is a known
+   limitation of running behind any TLS-terminating intermediary, not
+   something this collector works around - weigh JA4-based signals
+   accordingly in that setup, and lean more on request-rate behavior.
+
+If you don't have a CDN in front (this collector is directly
+internet-facing), the `[limits]` section in `config.example.toml` gives the
+collector itself some bounded resilience against being overwhelmed - an
+`overload_policy` of `fail_open` (default), `fail_closed`, or `throttle` once
+configured concurrency/rate ceilings are exceeded. This is **not** a
+substitute for CDN or scrubbing-center-level protection: it only keeps the
+collector process itself from becoming a resource-exhaustion target, and
+does nothing to absorb volumetric traffic before it reaches your network.
+
 ## What it does
 
 The collector runs in one of two modes, selected by `mode` in the config
