@@ -25,22 +25,6 @@ const (
 	rateScoreSaturationRPS = 15.0
 )
 
-// KnownBotJA4 is a small, hardcoded starter list mapping known JA4
-// fingerprints to a human-readable label. It exists to demonstrate the
-// scoring mechanism end-to-end - the entries below are illustrative
-// placeholders, NOT a verified threat-intel feed. A later phase should
-// replace/extend this with real, maintained fingerprint data (see
-// https://github.com/FoxIO-LLC/ja4 and https://ja4db.com for public
-// references on associating JA4 values with known clients/tools).
-//
-// Must never contain "" as a key: that's the sentinel RecordRequest/Score
-// callers use for "no JA4 available" (non-TLS or unparseable traffic), and
-// an empty-string entry here would flag all of that traffic as a known bot.
-var KnownBotJA4 = map[string]string{
-	"t13i000200_aaaaaaaaaaaa_aaaaaaaaaaaa": "example-placeholder-scanner",
-	"t11i000100_bbbbbbbbbbbb_bbbbbbbbbbbb": "example-placeholder-legacy-bot",
-}
-
 // Result is the outcome of scoring one IP's current activity.
 type Result struct {
 	Score         int

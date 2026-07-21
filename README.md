@@ -33,15 +33,24 @@ The collector is a minimal TCP/TLS **passthrough** reverse proxy:
 Nothing in this phase blocks or rejects traffic based on the score — it's
 computed and persisted for a future phase to act on.
 
-**Rate counting is per TCP connection, not per HTTP request.** Because the
-proxy is deliberately content-blind (it never parses HTTP framing), it has
-no way to see individual requests multiplexed over a keep-alive or HTTP/2
-connection — each such connection counts once, however many requests it
-carries. This under-counts legitimate browser traffic relative to bots
-that churn through a new connection per request, which is directionally
-fine for bot detection but worth knowing when interpreting the numbers. A
-per-HTTP-request view would require an HTTP-aware (L7) proxy, which is out
-of scope for this phase's TCP/TLS-level design.
+**Rate counting is per TCP connection, not per HTTP request — and for TLS
+traffic, this is permanent, not a to-do.** Because the proxy never
+terminates TLS, the byte stream after the ClientHello is opaque ciphertext
+to it; there is no way to see individual request lines multiplexed over a
+keep-alive or HTTP/2 connection without decrypting, which this
+architecture deliberately doesn't do. This under-counts legitimate browser
+traffic relative to bots that churn through a new connection per request,
+which is directionally fine for bot detection but worth knowing when
+interpreting the numbers.
+
+A **"full mode" is planned** as a separate, later addition: a second,
+opt-in operating mode (selected via `MODE=passthrough|full`, passthrough
+staying the default) that actually terminates TLS and reverse-proxies HTTP
+- giving real per-request visibility (and a foundation for path-scanning
+detection in a later phase) at the cost of needing the backend's TLS
+certificate/key and a meaningfully larger trust boundary. This is a
+significant architecture addition, not a small fix, and is being designed
+separately rather than folded into this passthrough-only phase.
 
 ## Design notes
 
@@ -53,13 +62,17 @@ of scope for this phase's TCP/TLS-level design.
   `internal/ja4` implements it directly against the public JA4 spec using
   only the standard library. This keeps the dependency footprint at zero
   for the most security-sensitive piece of the pipeline and gives full
-  control over exactly which fields feed the fingerprint. It has **not**
-  been cross-validated byte-for-byte against the official reference
-  implementation (no network access to run it during development) — treat
-  it as a strong, internally-consistent fingerprint for clustering/matching
-  rather than a certified-compatible one. `internal/ja4`'s tests cover the
-  parser and the fingerprint assembly (sorting, GREASE filtering, hashing)
-  independently.
+  control over exactly which fields feed the fingerprint. It **has now
+  been cross-validated** against FoxIO's own reference implementation
+  (`python/ja4.py` in [FoxIO-LLC/ja4](https://github.com/FoxIO-LLC/ja4),
+  the JA4 spec's original authors) using real ClientHello bytes from that
+  repo's official test pcaps and their own checked-in expected output —
+  see `internal/ja4/testdata/README.md` for exact provenance. That process
+  found and fixed two real divergences (an empty-hash-segment special case,
+  and the exact ALPN-sanitization rule), both now pinned by dedicated unit
+  tests in addition to 5 passing end-to-end reference fixtures. Only the
+  "t" (TLS-over-TCP) transport is implemented; QUIC/DTLS fingerprints are
+  out of scope since the collector never terminates QUIC.
 - **Cache: single in-memory store behind a `RateStore` interface.** Only
   `MemoryRateStore` exists today (no Redis), but callers depend on the
   interface so a distributed implementation can be added later without
@@ -76,10 +89,23 @@ of scope for this phase's TCP/TLS-level design.
   the latest release bumps the required Go version to 1.25; v5.7.6 only
   needs 1.23, which keeps the toolchain requirement lower for whatever the
   target VPS already has installed.
-- **The known-bot JA4 list (`scoring.KnownBotJA4`) is illustrative, not real
-  threat intel.** It exists to demonstrate the scoring mechanism end to
-  end. Replace/extend it with real fingerprint data (e.g. from
-  [ja4db.com](https://ja4db.com)) before relying on it for anything.
+- **The known-bot JA4 list (`scoring.KnownBotJA4`) is real data, not a
+  placeholder** — 51 unique JA4 fingerprints loaded at build time (via
+  `go:embed`) from `internal/scoring/known_bots.json`, sourced from [The
+  Bot Aquarium](https://thebotaquarium.com/fingerprint/archive)'s public
+  fingerprint archive (community-submitted, classification-tagged; entries
+  classified `browser` are excluded since they're legitimate reference
+  data, not a bot signal). `ja4db.foxio.io` — the JA4 spec authors' own
+  database, and the intended primary source — turned out to require an
+  account for any bulk/API access (every endpoint returned HTTP 403
+  "Authentication credentials were not provided" without one), so it isn't
+  included here. **This is a one-time snapshot (retrieved 2026-07-21), not
+  a live feed** — there's no automatic update mechanism in this MVP, and
+  both sources' data ages; periodic manual refresh (and adding ja4db once
+  access is available) is expected follow-up work, not something to build
+  into this phase. See `internal/scoring/known_bots.json`'s own `note`
+  field for the exact sourcing/exclusion details baked into the data
+  itself.
 
 ## Running locally
 
@@ -129,11 +155,13 @@ go test -race ./...
 
 Coverage includes a hand-rolled ClientHello parser exercised against
 independently-built byte fixtures (including truncation and multi-record
-fragmentation), sliding-window math with injected timestamps (no sleeps),
-and an end-to-end proxy test that performs a **real** TLS handshake
-(self-signed cert generated in-test, stdlib only) through the passthrough
-proxy and asserts both byte-for-byte passthrough and a correctly-shaped
-extracted JA4.
+fragmentation) *and* against 5 real ClientHellos from FoxIO's official test
+pcaps with expected output from their own reference implementation
+(`internal/ja4/foxio_reference_test.go`), sliding-window math with injected
+timestamps (no sleeps), and an end-to-end proxy test that performs a
+**real** TLS handshake (self-signed cert generated in-test, stdlib only)
+through the passthrough proxy and asserts both byte-for-byte passthrough
+and a correctly-shaped extracted JA4.
 
 `internal/storage`'s DB writer itself isn't covered by an automated
 integration test — this repo was built in a sandbox without a usable Docker
@@ -150,3 +178,10 @@ Dashboard, query API, path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, and a Redis-backed `RateStore`
 implementation. The `RateStore` interface and scoring package are shaped
 to make these additive later, not to pre-build them now.
+
+The TLS-terminating **"full mode"** described above (per-request counting,
+real path visibility) is a planned but separate, not-yet-designed addition
+- expected to reuse `ja4`/`ratestore`/`scoring`/`storage` unchanged, add a
+new sibling package next to `internal/proxy`, and select via
+`MODE=passthrough|full`. None of that is implemented yet; passthrough mode
+is unaffected and unchanged by the plan.

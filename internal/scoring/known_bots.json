@@ -1,0 +1,482 @@
+{
+  "source": "https://thebotaquarium.com/fingerprint/archive",
+  "source_api": "https://thebotaquarium.com/api/fingerprint/archive",
+  "retrieved_at": "2026-07-21",
+  "note": "Community-submitted JA4 fingerprints for known automation tools/scripts, filtered to exclude entries classified 'browser' (legitimate browser reference data, not a bot signal - including them would flag real browsers as known bots). Entries sharing a JA4 across multiple submitted bot_types are merged (JA4 fingerprints the TLS stack, not the application, so e.g. many different scripts built on the same curl/libcurl version share one JA4). This is a one-time snapshot, not a live feed - see README for update guidance.",
+  "entries": [
+    {
+      "ja4": "t12d070400_67e63544eb68_b4ef8340317f",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Ktor client",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t12d2807h2_d943125447b4_a44c6288192a",
+      "bot_types": [
+        "curl"
+      ],
+      "label": "curl",
+      "example_user_agent": "curl/7.88.1",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1011h2_61a7ad8aa9b6_3fcd1a44f3e3",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "reqwest-rustls",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1011h2_61a7ad8aa9b6_f9531d972513",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Deno/2.7.10",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d111200_c5d436628c5c_2bdf419a9709",
+      "bot_types": [
+        "no_ua"
+      ],
+      "label": "no_ua",
+      "example_user_agent": "",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d111300_c5d436628c5c_ad30a7ab7733",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "RestSharp/112.1.0.0",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1114h2_5e2a75874763_89e9e4bb3419",
+      "bot_types": [
+        "java"
+      ],
+      "label": "java",
+      "example_user_agent": "okhttp/4.12.0",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d121200_6573f852a71e_08d4a299e54b",
+      "bot_types": [
+        "no_ua"
+      ],
+      "label": "no_ua",
+      "example_user_agent": "",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1314h1_f57a46bbacb6_e42f34c56612",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "xray-utls-fp-check",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1314h2_f57a46bbacb6_e42f34c56612",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "xray-utls-fp-check",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d141000_cbb2034c60b8_e7c285222651",
+      "bot_types": [
+        "go",
+        "ua_spoof"
+      ],
+      "label": "go, ua_spoof",
+      "example_user_agent": "Go-http-client/2.0",
+      "submission_count": 3
+    },
+    {
+      "ja4": "t13d1615h2_86a278354501_a54fffd0eb61",
+      "bot_types": [
+        "ua_spoof"
+      ],
+      "label": "ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:151.0) Gecko/20100101 Firefox/151.0",
+      "submission_count": 4
+    },
+    {
+      "ja4": "t13d1617h2_86a278354501_3cbfd9057e0d",
+      "bot_types": [
+        "ua_spoof"
+      ],
+      "label": "ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:152.0) Gecko/20100101 Firefox/152.0",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d171000_5b57614c22b0_78e6aca7449b",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Dart/3.4 (dart:io)",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d171200_ab0a1bf427ad_ecd0401ec68b",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "Python-urllib/3.12",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1713h1_ab0a1bf427ad_8537cf56674e",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-requests/2.30.0",
+      "submission_count": 5
+    },
+    {
+      "ja4": "t13d1713h1_ab0a1bf427ad_ecd0401ec68b",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-httpx/0.28.1",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d1715h1_5b57614c22b0_e8ed158c4d85",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Bun/1.3.11",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d1715h2_5b57614c22b0_a54fffd0eb61",
+      "bot_types": [
+        "ua_spoof"
+      ],
+      "label": "ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0",
+      "submission_count": 3
+    },
+    {
+      "ja4": "t13d1717h2_5b57614c22b0_3cbfd9057e0d",
+      "bot_types": [
+        "ua_spoof"
+      ],
+      "label": "ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d181000_e8a523a41297_78e6aca7449b",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "HTTPie",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d181100_85036bcba153_d41ae481755e",
+      "bot_types": [
+        "cloud_script",
+        "scanner",
+        "unknown"
+      ],
+      "label": "cloud_script, scanner, unknown",
+      "example_user_agent": "Mozilla/5.0",
+      "submission_count": 7
+    },
+    {
+      "ja4": "t13d1812h1_85036bcba153_d41ae481755e",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-httpx/0.28.1",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d201200_2b729b4bf6f3_89322cc15493",
+      "bot_types": [
+        "cloud_script",
+        "no_ua"
+      ],
+      "label": "cloud_script, no_ua",
+      "example_user_agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.7920",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d2013h1_2b729b4bf6f3_e24568c0d440",
+      "bot_types": [
+        "curl"
+      ],
+      "label": "curl",
+      "example_user_agent": "curl/8.19.0",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d2014h1_a09f3c656075_e42f34c56612",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "xray-utls-fp-check",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d2014h2_a09f3c656075_e42f34c56612",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "xray-utls-fp-check",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d2114h2_700b5f71ebac_c93b0d743c11",
+      "bot_types": [
+        "unknown"
+      ],
+      "label": "unknown",
+      "example_user_agent": "Mozilla/5.0 (Nintendo Switch; WifiWebAuthApplet) AppleWebKit/613.0 (KHTML, like Gecko) NF/6.0.3.29.9 NintendoBrowser/5.1.0.53365",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d260900_6d1bcf7a4624_188c7f576dcd",
+      "bot_types": [
+        "ua_spoof"
+      ],
+      "label": "ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d291300_723694b0fccc_899037bd0b8c",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Wget/1.21.3",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d3012h2_1d37bd780c83_882d495ac381",
+      "bot_types": [
+        "curl",
+        "unknown"
+      ],
+      "label": "curl, unknown",
+      "example_user_agent": "curl/8.20.0",
+      "submission_count": 5
+    },
+    {
+      "ja4": "t13d301300_1d37bd780c83_5ae85263eb3b",
+      "bot_types": [
+        "ruby"
+      ],
+      "label": "ruby",
+      "example_user_agent": "ruby-net-http",
+      "submission_count": 3
+    },
+    {
+      "ja4": "t13d3013h1_1d37bd780c83_8537cf56674e",
+      "bot_types": [
+        "php"
+      ],
+      "label": "php",
+      "example_user_agent": "GuzzleHttp/7",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d3013h2_1d37bd780c83_8537cf56674e",
+      "bot_types": [
+        "php",
+        "ruby",
+        "unknown"
+      ],
+      "label": "php, ruby, unknown",
+      "example_user_agent": "php-curl",
+      "submission_count": 3
+    },
+    {
+      "ja4": "t13d311100_e8f1e7e78f70_d41ae481755e",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "reqwest-native-tls",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d311100_e8f1e7e78f70_f6eeaf393d2e",
+      "bot_types": [
+        "cloud_script",
+        "no_ua"
+      ],
+      "label": "cloud_script, no_ua",
+      "example_user_agent": "Mozilla/5.0 (Linux; Ubuntu 22.04.4 LTS; en-US) PowerShell/7.4.2",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d311200_1d947a95fc68_7e1102d2036b",
+      "bot_types": [
+        "cloud_script",
+        "java"
+      ],
+      "label": "cloud_script, java",
+      "example_user_agent": "Apache-HttpClient/5.3",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d3112h2_e8f1e7e78f70_b26ce05bbdd6",
+      "bot_types": [
+        "curl",
+        "ua_spoof"
+      ],
+      "label": "curl, ua_spoof",
+      "example_user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+      "submission_count": 4
+    },
+    {
+      "ja4": "t13d3113h2_e8f1e7e78f70_ce5650b735ce",
+      "bot_types": [
+        "cloud_script",
+        "curl"
+      ],
+      "label": "cloud_script, curl",
+      "example_user_agent": "curl/7.81.0",
+      "submission_count": 4
+    },
+    {
+      "ja4": "t13d3213h2_85d9c3ed342d_e802cdec6a7f",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "Valve/Steam HTTP Client 1.0 (4000)",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d3612h1_bcee18a5b459_882d495ac381",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-requests/2.32.5",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d361300_bcee18a5b459_5ae85263eb3b",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-requests/2.22.0",
+      "submission_count": 3
+    },
+    {
+      "ja4": "t13d3613h1_bcee18a5b459_8537cf56674e",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-requests/2.27.1",
+      "submission_count": 5
+    },
+    {
+      "ja4": "t13d421200_73a2728739b1_ecd0401ec68b",
+      "bot_types": [
+        "python"
+      ],
+      "label": "python",
+      "example_user_agent": "python-requests/2.20.0",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d4907h2_0d8feac7bc37_7395dae3b2f3",
+      "bot_types": [
+        "curl"
+      ],
+      "label": "curl",
+      "example_user_agent": "curl/8.7.1",
+      "submission_count": 6
+    },
+    {
+      "ja4": "t13d4913h2_bd868743f55c_70ae44219175",
+      "bot_types": [
+        "no_ua"
+      ],
+      "label": "no_ua",
+      "example_user_agent": "",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d521100_b262b3658495_8e6e362c5eac",
+      "bot_types": [
+        "node"
+      ],
+      "label": "node",
+      "example_user_agent": "axios/0.30.3",
+      "submission_count": 4
+    },
+    {
+      "ja4": "t13d5212h1_b262b3658495_8e6e362c5eac",
+      "bot_types": [
+        "cloud_script"
+      ],
+      "label": "cloud_script",
+      "example_user_agent": "undici",
+      "submission_count": 1
+    },
+    {
+      "ja4": "t13d591000_a33745022dd6_1f22a2ca17c4",
+      "bot_types": [
+        "cloud_script",
+        "no_ua",
+        "node"
+      ],
+      "label": "cloud_script, no_ua, node",
+      "example_user_agent": "got (https://github.com/sindresorhus/got)",
+      "submission_count": 4
+    },
+    {
+      "ja4": "t13d5911h1_a33745022dd6_1f22a2ca17c4",
+      "bot_types": [
+        "cloud_script",
+        "no_ua"
+      ],
+      "label": "cloud_script, no_ua",
+      "example_user_agent": "node",
+      "submission_count": 2
+    },
+    {
+      "ja4": "t13d681100_13e0e9e1c501_8e6e362c5eac",
+      "bot_types": [
+        "cloud_script",
+        "no_ua"
+      ],
+      "label": "cloud_script, no_ua",
+      "example_user_agent": "Symfony HttpClient (Native)",
+      "submission_count": 2
+    }
+  ]
+}
