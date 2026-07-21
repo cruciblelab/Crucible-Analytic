@@ -85,6 +85,9 @@ timescale_dsn = "postgres://localhost/test"
 	if got, want := cfg.ASNLookup.RefreshInterval(), 7*24*time.Hour; got != want {
 		t.Errorf("ASNLookup.RefreshInterval() = %v, want %v", got, want)
 	}
+	if cfg.ASNLookup.LocalCSVPath != "" {
+		t.Errorf("ASNLookup.LocalCSVPath = %q, want empty by default (download from GitHub Releases)", cfg.ASNLookup.LocalCSVPath)
+	}
 }
 
 func TestLoad_MissingBackendAddr(t *testing.T) {
@@ -361,6 +364,7 @@ apply_to_scoring = true
 cache_max_entries = 1000
 cache_ttl_seconds = 3600
 refresh_interval_seconds = 86400
+local_csv_path = "/var/lib/crucible-analytic/geoip"
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -380,5 +384,8 @@ refresh_interval_seconds = 86400
 	}
 	if got, want := cfg.ASNLookup.RefreshInterval(), 24*time.Hour; got != want {
 		t.Errorf("RefreshInterval() = %v, want %v", got, want)
+	}
+	if want := "/var/lib/crucible-analytic/geoip"; cfg.ASNLookup.LocalCSVPath != want {
+		t.Errorf("LocalCSVPath = %q, want %q", cfg.ASNLookup.LocalCSVPath, want)
 	}
 }

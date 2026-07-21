@@ -25,7 +25,7 @@ const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics
 
 func TestResolver_RealTimescaleDB_WriteRangesThenReadBack(t *testing.T) {
 	ctx := context.Background()
-	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, nil)
+	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, "", nil)
 	if err != nil {
 		t.Fatalf("NewResolver: %v (is `docker compose up -d` running, with both schema.sql files applied?)", err)
 	}
@@ -41,48 +41,56 @@ func TestResolver_RealTimescaleDB_WriteRangesThenReadBack(t *testing.T) {
 		}
 	})
 
+	// Deliberately mixed IPv4 + IPv6 in one writeRanges call, matching how
+	// refresh() actually calls it (entries4 and entries6 appended
+	// together) - and exercising the INET column with both families, not
+	// just IPv4 the way the old BIGINT-based schema was limited to.
 	entries := []rangeEntry{
-		{start: 0xC0000200, end: 0xC00002FF, country: "US"}, // 192.0.2.0/24
-		{start: 0xC6336400, end: 0xC63367FF, country: "DE"}, // 198.51.100.0/22
+		{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.255"), country: "US"},
+		{start: netip.MustParseAddr("198.51.100.0"), end: netip.MustParseAddr("198.51.100.255"), country: "DE"},
+		{start: netip.MustParseAddr("2001:db8::"), end: netip.MustParseAddr("2001:db8::ffff"), country: "JP"},
 	}
 	if err := r.writeRanges(ctx, entries); err != nil {
 		t.Fatalf("writeRanges: %v", err)
 	}
 
 	// Read back through a raw query, not through writeRanges/CopyFrom, to
-	// actually exercise the decode direction too.
-	rows, err := r.pool.Query(ctx, "SELECT start_addr, end_addr, country FROM ip_country_ranges ORDER BY start_addr")
+	// actually exercise the decode direction too. No ORDER BY: Postgres's
+	// cross-family inet ordering isn't asserted on here, only that the
+	// same set of rows comes back - so the comparison below is by set
+	// membership, not position.
+	rows, err := r.pool.Query(ctx, "SELECT start_addr, end_addr, country FROM ip_country_ranges")
 	if err != nil {
 		t.Fatalf("query back: %v", err)
 	}
 	defer rows.Close()
 
-	var got []rangeEntry
+	got := make(map[rangeEntry]bool)
 	for rows.Next() {
-		var start, end int64
+		var start, end netip.Addr
 		var country string
 		if err := rows.Scan(&start, &end, &country); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
-		got = append(got, rangeEntry{start: uint32(start), end: uint32(end), country: country})
+		got[rangeEntry{start: start, end: end, country: country}] = true
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatalf("rows.Err: %v", err)
 	}
 
 	if len(got) != len(entries) {
-		t.Fatalf("read back %d rows, want %d: %+v", len(got), len(entries), got)
+		t.Fatalf("read back %d distinct rows, want %d: %+v", len(got), len(entries), got)
 	}
-	for i, want := range entries {
-		if got[i] != want {
-			t.Errorf("row %d = %+v, want %+v", i, got[i], want)
+	for _, want := range entries {
+		if !got[want] {
+			t.Errorf("expected row %+v not found in what was read back: %+v", want, got)
 		}
 	}
 
 	// writeRanges must fully replace the table (TRUNCATE + COPY in one
 	// transaction), not append - a second call with different data should
 	// leave no trace of the first.
-	second := []rangeEntry{{start: 1, end: 2, country: "FR"}}
+	second := []rangeEntry{{start: netip.MustParseAddr("203.0.113.1"), end: netip.MustParseAddr("203.0.113.1"), country: "FR"}}
 	if err := r.writeRanges(ctx, second); err != nil {
 		t.Fatalf("writeRanges (second call): %v", err)
 	}
@@ -99,10 +107,11 @@ func TestResolver_RealTimescaleDB_WriteRangesThenReadBack(t *testing.T) {
 // against data that actually round-tripped through TimescaleDB (rather
 // than an in-memory table injected directly, as the rest of this
 // package's tests do), closing the gap between "the parser is correct"
-// and "a real write+swap actually makes Resolve see it."
+// and "a real write+swap actually makes Resolve see it" - for both
+// address families.
 func TestResolver_RealTimescaleDB_ResolveAfterRealRefresh(t *testing.T) {
 	ctx := context.Background()
-	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, nil)
+	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, "", nil)
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -113,14 +122,18 @@ func TestResolver_RealTimescaleDB_ResolveAfterRealRefresh(t *testing.T) {
 		}
 	})
 
-	entries := []rangeEntry{{start: 0xC0000200, end: 0xC00002FF, country: "US"}}
-	if err := r.writeRanges(ctx, entries); err != nil {
+	entries4 := []rangeEntry{{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.255"), country: "US"}}
+	entries6 := []rangeEntry{{start: netip.MustParseAddr("2001:db8::"), end: netip.MustParseAddr("2001:db8::ffff"), country: "JP"}}
+	if err := r.writeRanges(ctx, append(entries4, entries6...)); err != nil {
 		t.Fatalf("writeRanges: %v", err)
 	}
-	r.table.Store(newRangeTable(entries))
+	r.table4.Store(newRangeTable(entries4))
+	r.table6.Store(newRangeTable(entries6))
 
-	got := r.Resolve(netip.MustParseAddr("192.0.2.42"))
-	if !got.Found || got.Country != "US" {
-		t.Errorf("Resolve() = %+v, want Found: true, Country: US", got)
+	if got := r.Resolve(netip.MustParseAddr("192.0.2.42")); !got.Found || got.Country != "US" {
+		t.Errorf("Resolve(IPv4) = %+v, want Found: true, Country: US", got)
+	}
+	if got := r.Resolve(netip.MustParseAddr("2001:db8::1234")); !got.Found || got.Country != "JP" {
+		t.Errorf("Resolve(IPv6) = %+v, want Found: true, Country: JP", got)
 	}
 }

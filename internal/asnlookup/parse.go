@@ -1,89 +1,69 @@
 package asnlookup
 
 import (
-	"bufio"
+	"encoding/csv"
 	"io"
 	"net/netip"
-	"strconv"
 	"strings"
 )
 
-// parseDelegatedStats reads one RIR "delegated-extended" stats file (the
-// same public, standardized format all five RIRs publish) and returns
-// every IPv4 allocation/assignment record found in it as a rangeEntry.
+// parseCountryCSV reads one sapics/ip-location-db "user-country" CSV file
+// (ipv4 or ipv6 - same three-column shape either way) and returns every
+// range it contains as a rangeEntry.
 //
-// The format is pipe-delimited, one record per line:
+// Verified directly against real downloaded data (not just the documented
+// format) before writing this: no header row, plain comma-separated,
+// e.g.:
 //
-//	registry|cc|type|start|value|date|status[|opaque-id[|extensions...]]
+//	1.0.0.0,1.0.0.255,AU
+//	1.0.4.0,1.0.7.255,AU
 //
-// Two other line shapes appear in the same file and are deliberately
-// skipped, both by the same two checks below rather than by pattern-
-// matching each shape individually:
-//   - The header line (version|registry|serial|records|startdate|enddate|
-//     UTCoffset) has 7 fields like a real record, but its 3rd field is a
-//     serial number, never the literal "ipv4".
-//   - Per-resource-type summary lines (registry|*|type|*|count|summary)
-//     have only 6 fields - one short of a real record - because they omit
-//     the status column entirely.
-//
-// ASN (type "asn") and IPv6 (type "ipv6") records are skipped too - only
-// IPv4 is in scope this phase (see the package doc comment for why ASN
-// numbers aren't resolved at all yet).
-func parseDelegatedStats(r io.Reader) ([]rangeEntry, error) {
+// A real encoding/csv reader is used rather than strings.Split(",") even
+// though country codes themselves never need quoting - the sibling ASN
+// dataset from the same project does quote fields containing commas
+// (e.g. `"Cloudflare, Inc."`), and using the same real parser for both
+// avoids a class of bug entirely rather than trusting this file's
+// specific columns never will.
+func parseCountryCSV(r io.Reader) ([]rangeEntry, error) {
+	cr := csv.NewReader(r)
+	cr.FieldsPerRecord = -1 // rows are checked for exactly 3 fields below; don't let a malformed row abort the whole file
+	cr.ReuseRecord = true
+
 	var out []rangeEntry
-	scanner := bufio.NewScanner(r)
-	// Default 64KiB max token size is more than enough for one pipe-
-	// delimited record, but be explicit rather than rely on the default.
-	scanner.Buffer(make([]byte, 0, 4096), 1<<16)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for {
+		record, err := cr.Read()
+		if err == io.EOF {
+			break
 		}
-		parts := strings.Split(line, "|")
-		if len(parts) < 7 {
-			continue // header (see above) or a summary line
+		if err != nil {
+			// A genuine CSV syntax error mid-file: stop rather than risk
+			// misreading subsequent rows from a reader in an unspecified
+			// state, but keep whatever was already parsed - a truncated
+			// prefix beats nothing.
+			break
 		}
-		if parts[2] != "ipv4" {
-			continue // header, "asn", or "ipv6" record
-		}
-
-		cc := strings.ToUpper(strings.TrimSpace(parts[1]))
-		if len(cc) != 2 || cc == "ZZ" {
-			continue // no usable (or explicitly "not disclosed") country
-		}
-
-		startAddr, err := netip.ParseAddr(parts[3])
-		if err != nil || !startAddr.Is4() {
-			continue
-		}
-		startInt, ok := ipv4ToUint32(startAddr)
-		if !ok {
+		if len(record) != 3 {
 			continue
 		}
 
-		count, err := strconv.ParseUint(parts[4], 10, 32)
-		if err != nil || count == 0 {
+		start, err := netip.ParseAddr(strings.TrimSpace(record[0]))
+		if err != nil {
 			continue
 		}
-		// RIR-delegated blocks near the top of the address space (e.g.
-		// 255.x.x.x special-use ranges occasionally listed as reserved)
-		// could in principle overflow uint32 when start+count-1 is
-		// computed; skip rather than wrap silently into a bogus range.
-		end := uint64(startInt) + count - 1
-		if end > 0xFFFFFFFF {
+		end, err := netip.ParseAddr(strings.TrimSpace(record[1]))
+		if err != nil {
+			continue
+		}
+		if start.Is4() != end.Is4() {
+			continue // shouldn't happen in a real file; a defensive guard against a mixed-family row
+		}
+
+		country := strings.ToUpper(strings.TrimSpace(record[2]))
+		if len(country) != 2 {
 			continue
 		}
 
-		out = append(out, rangeEntry{
-			start:   startInt,
-			end:     uint32(end),
-			country: cc,
-		})
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
+		out = append(out, rangeEntry{start: start, end: end, country: country})
 	}
 	return out, nil
 }

@@ -150,8 +150,8 @@ type LimitsConfig struct {
 // which resolves an IP to the country it's registered to (see that
 // package's doc comment for why it doesn't resolve an ASN yet, despite
 // the section name). Disabled by default: when Enabled is false, nothing
-// else in this section is consulted, no RIR files are ever downloaded,
-// and asnlookup's TimescaleDB table is never touched.
+// else in this section is consulted, the dataset is never downloaded or
+// read, and asnlookup's TimescaleDB table is never touched.
 type ASNLookupConfig struct {
 	Enabled bool `toml:"enabled"`
 	// ApplyToScoring is accepted and validated but not yet consulted by
@@ -163,6 +163,15 @@ type ASNLookupConfig struct {
 	CacheMaxEntries        int  `toml:"cache_max_entries"`
 	CacheTTLSeconds        int  `toml:"cache_ttl_seconds"`
 	RefreshIntervalSeconds int  `toml:"refresh_interval_seconds"`
+	// LocalCSVPath, if set, skips downloading the dataset from GitHub
+	// Releases entirely: every refresh instead reads
+	// <LocalCSVPath>/user-country-ipv4.csv and -ipv6.csv from local disk,
+	// with no network access of any kind. Useful for an offline VDS, or
+	// for operators who'd rather manage the download themselves (e.g. via
+	// their own cron job writing into that directory) than let the
+	// collector reach out to GitHub on its own schedule. Empty (the
+	// default) means download normally.
+	LocalCSVPath string `toml:"local_csv_path"`
 }
 
 // CacheTTL is how long one resolved IP is cached before the next lookup
@@ -171,8 +180,8 @@ func (a ASNLookupConfig) CacheTTL() time.Duration {
 	return time.Duration(a.CacheTTLSeconds) * time.Second
 }
 
-// RefreshInterval is how often the RIR delegated-stats files are
-// re-downloaded and re-parsed.
+// RefreshInterval is how often the dataset is re-fetched (downloaded, or
+// re-read from LocalCSVPath) and re-parsed.
 func (a ASNLookupConfig) RefreshInterval() time.Duration {
 	return time.Duration(a.RefreshIntervalSeconds) * time.Second
 }
@@ -211,6 +220,7 @@ func defaults() Config {
 			CacheMaxEntries:        50_000,
 			CacheTTLSeconds:        6 * 60 * 60,      // 6 hours
 			RefreshIntervalSeconds: 7 * 24 * 60 * 60, // 1 week
+			LocalCSVPath:           "",               // download from GitHub Releases by default
 		},
 	}
 }

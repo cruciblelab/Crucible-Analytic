@@ -52,9 +52,9 @@ overload_policy = "fail_open"
 throttle_queue_size = 200
 
 [asn_lookup]
-# Disabled by default. When false (or this whole section is omitted), no
-# RIR files are ever downloaded and asnlookup's TimescaleDB table is never
-# touched - see internal/asnlookup/schema.sql and the README before
+# Disabled by default. When false (or this whole section is omitted), the
+# dataset is never downloaded or read and asnlookup's TimescaleDB table is
+# never touched - see internal/asnlookup/schema.sql and the README before
 # turning this on (that table must be created manually first).
 enabled = false
 # Accepted and validated, but not yet consulted by scoring - see the
@@ -64,3 +64,8 @@ apply_to_scoring = false
 cache_max_entries = 50000
 cache_ttl_seconds = 21600   # 6 hours
 refresh_interval_seconds = 604800 # 1 week
+# If set, every refresh reads <local_csv_path>/user-country-ipv4.csv and
+# -ipv6.csv from local disk instead of downloading them from GitHub
+# Releases - no network access at all in that mode. Leave empty (the
+# default) to download normally.
+local_csv_path = ""

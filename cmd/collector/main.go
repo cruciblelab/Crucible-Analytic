@@ -86,7 +86,7 @@ func main() {
 		lookup, err = asnlookup.NewResolver(ctx, cfg.Storage.TimescaleDSN, asnlookup.CacheConfig{
 			MaxEntries: cfg.ASNLookup.CacheMaxEntries,
 			TTL:        cfg.ASNLookup.CacheTTL(),
-		}, logger)
+		}, cfg.ASNLookup.LocalCSVPath, logger)
 		if err != nil {
 			logger.Error("failed to set up ASN/country lookup, continuing without it", "err", err)
 			lookup = nil

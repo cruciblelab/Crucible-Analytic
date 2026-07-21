@@ -144,36 +144,35 @@ reuse) along with matching `MaxIdleConns`/`IdleConnTimeout`.
 ## Optional: IP → country lookup
 
 Disabled by default (`asn_lookup.enabled = false`). When enabled,
-`internal/asnlookup` resolves a request's IP to the country it's
-registered to, by downloading and parsing the five Regional Internet
-Registries' public "delegated-extended" stats files (ARIN, RIPE, APNIC,
-LACNIC, AFRINIC — free, no API key, no rate limit) on a schedule
-(`asn_lookup.refresh_interval_seconds`, default weekly), then answering
-lookups locally against an in-memory copy of the parsed ranges (also
+`internal/asnlookup` resolves a request's IP (IPv4 *and* IPv6) to the
+country it's registered to, using [sapics/ip-location-db](https://github.com/sapics/ip-location-db)'s
+`user-country` dataset - free, [PDDL](https://opendatacommons.org/licenses/pddl/1.0/)-licensed
+(no attribution required, though we're glad to credit it), updated daily,
+compiled from RIR delegated-stats, BGP routing archives (RouteViews / RIPE
+RIS), and RFC 8805/9632 geofeeds. Huge thanks to sapics and the
+organizations behind those underlying sources.
+
+The three-column CSVs, one per family (`user-country-ipv4.csv`,
+`user-country-ipv6.csv`) are fetched from GitHub Releases on a schedule
+(`asn_lookup.refresh_interval_seconds`, default weekly) - or, if
+`asn_lookup.local_csv_path` is set, read from that directory on local disk
+instead, with **no network access of any kind** in that mode (useful for
+an offline VDS, or if you'd rather manage the download yourself, e.g. via
+your own cron job writing into that directory). Either way, lookups are
+then answered locally against an in-memory copy of the parsed ranges (also
 mirrored to TimescaleDB for durability across restarts) - never a live
 network call, or in the common case a database call either, on the
 request path. An in-memory LRU+TTL cache
 (`asn_lookup.cache_max_entries`/`cache_ttl_seconds`, default 50,000
 entries / 6 hours) sits in front of that for repeat IPs.
 
-Two scope limits, both deliberate for this phase, not oversights:
-
-- **IPv4 only.** RIR IPv6 records are parsed and skipped; an IPv6 input
-  always resolves as not-found. IPv6 support would be additive later work,
-  not a redesign.
-- **Country, not ASN, despite the package name.** RIR delegated-stats
-  files record two independent things: which country an IP *range* is
-  registered to, and which country an ASN *number* is registered to.
-  Neither links a specific IP to the ASN that actually routes it today -
-  that's a routing-table (BGP) fact, not a registry fact, and needs a
-  fundamentally different data source (e.g. a routing-table snapshot like
-  RouteViews/CAIDA's prefix-to-AS tables). `Result.ASN` and
-  `Result.ASNName` exist in the code so a real implementation later is a
-  config change rather than a breaking one, but they're always the zero
-  value right now - never a guess, and never silently backfilled from the
-  ASN-number-registrant records this package does parse (that would
-  misattribute an IP to whichever ASN happens to share its country, which
-  has nothing to do with who actually routes that address).
+One scope limit, deliberate for this phase, not an oversight: **country,
+not ASN, despite the package name.** The `user-country` dataset carries
+only country codes - a real ASN number/organization-name lookup needs a
+different dataset from the same project (`origin-asn`), deferred to a
+later round. `Result.ASN` and `Result.ASNName` exist in the code so adding
+that later is a config change rather than a breaking one, but they're
+always the zero value right now - never a guess.
 
 `asn_lookup.apply_to_scoring` is accepted and validated but not yet
 consulted by `internal/scoring` - there's no ASN signal yet for it to feed
@@ -182,7 +181,12 @@ is a behavior change, not a schema one.
 
 Enabling this requires applying `internal/asnlookup/schema.sql` once,
 manually, first - see "Running locally" below; like the rest of this
-collector, it never runs DDL itself.
+collector, it never runs DDL itself. **If you already applied an older
+version of this schema** (`start_addr`/`end_addr` as `BIGINT`, IPv4 only),
+drop and recreate the table - this version uses `INET` columns to support
+both address families, which isn't an in-place-compatible change. This
+feature is disabled by default and was only added recently, so there's no
+expected production data to migrate.
 
 ## Design notes
 
@@ -329,7 +333,7 @@ collector still starts and runs normally, since a missing optional table
 is treated the same as any other refresh failure (logged, not fatal - see
 "Optional: IP → country lookup" above). It just means every lookup
 silently returns `Found: false` until you apply the schema and the next
-scheduled refresh runs, which is easy to mistake for "the RIR data just
+scheduled refresh runs, which is easy to mistake for "the dataset just
 doesn't cover this IP" rather than "the table doesn't exist yet." Check
 the logs for `asnlookup: failed to persist ranges` if lookups seem to
 never find anything.
@@ -363,7 +367,8 @@ other field has a default. `config.toml` is gitignored since
 | `asn_lookup.apply_to_scoring`       | `false`              | Accepted and validated, but not yet consulted by scoring - see "Optional: IP → country lookup" below. |
 | `asn_lookup.cache_max_entries`      | `50000`              | Only validated when `asn_lookup.enabled = true`. Size of the in-memory LRU result cache. |
 | `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range table. |
-| `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often the RIR delegated-stats files are re-downloaded and re-parsed. |
+| `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often the dataset is re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
+| `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4.csv`/`-ipv6.csv` from this directory instead - no network access at all in that mode. |
 
 ## Testing
 
@@ -432,9 +437,9 @@ exact number.
 Dashboard, query API, path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
-IPv6 support in `internal/asnlookup`, and real IP → ASN resolution (as
-opposed to IP → country, which is what `internal/asnlookup` actually does
-today - see "Optional: IP → country lookup" above for why that needs a
-different data source than RIR delegated-stats). The `RateStore` interface
-and scoring package are shaped to make these additive later, not to
-pre-build them now.
+and real IP → ASN resolution (as opposed to IP → country, which is what
+`internal/asnlookup` actually does today - see "Optional: IP → country
+lookup" above; ASN needs a different dataset from the same project,
+deferred to a later round, not a different architecture). The `RateStore`
+interface and scoring package are shaped to make these additive later, not
+to pre-build them now.

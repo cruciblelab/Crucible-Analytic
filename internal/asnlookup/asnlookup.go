@@ -1,33 +1,22 @@
-// Package asnlookup resolves an IP to the country it's registered to, by
-// downloading and parsing the five Regional Internet Registries' public
-// "delegated-extended" stats files - the same standardized, free,
-// rate-limit-free bulk report every RIR publishes - on a periodic
-// schedule, and answering lookups locally against an in-memory copy
-// (mirrored to TimescaleDB for durability across restarts) with no
-// per-lookup network or, in the common case, database access at all.
+// Package asnlookup resolves an IP to the country it's registered to,
+// using sapics/ip-location-db's "user-country" dataset - a free,
+// Public-Domain-licensed (PDDL, no attribution required), daily-updated
+// CSV compiled from RIR delegated-stats, BGP routing archives (RouteViews
+// / RIPE RIS), and RFC 8805/9632 geofeeds. See the README for the full
+// courtesy attribution.
 //
-// Country only, IPv4 only, this phase:
+// The dataset is fetched from GitHub Releases (or read from a local
+// directory - see Config.LocalCSVPath) on a periodic schedule, and
+// lookups are answered locally against an in-memory copy (mirrored to
+// TimescaleDB for durability across restarts) with no per-lookup network
+// or, in the common case, database access at all.
 //
-//   - IPv4 only: RIR IPv6 allocation records are skipped by the parser.
-//     IPv6 input to Resolve always returns Found: false. Adding IPv6
-//     support later is additive (a second rangeTable keyed on the
-//     128-bit address, or similar) - it isn't wired up now because it
-//     wasn't needed to validate the approach, not because it's hard.
-//
-//   - Country only, not ASN: delegated-extended files record two
-//     independent things - which country an IP range is registered to,
-//     and which country an ASN *number* is registered to. Neither
-//     record links a specific IP range to the ASN that actually routes
-//     it - that mapping is a routing-table (BGP) fact, not a registry
-//     fact, and coming from a fundamentally different data source (e.g.
-//     a routing-table snapshot like RouteViews/CAIDA's prefix-to-AS
-//     tables). Result.ASN and Result.ASNName exist so the shape of a
-//     future real ASN lookup doesn't require a breaking change, but
-//     they're always the zero value in this phase - never a guess, and
-//     never silently borrowed from the ASN-number-to-country records
-//     this package does parse (that would be actively misleading: it
-//     would attribute an IP to some country-appropriate ASN that may
-//     have nothing to do with who actually routes that address).
+// Country only, no ASN, this phase: the "user-country" dataset carries
+// only country codes. A real ASN number/organization-name lookup needs a
+// different sapics/ip-location-db dataset (origin-asn) and is explicitly
+// out of scope for this phase - Result.ASN and Result.ASNName exist so
+// adding that later is a config change, not a breaking one, but they're
+// always the zero value right now rather than a guess.
 package asnlookup
 
 import (
@@ -36,7 +25,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
-	"sort"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -50,26 +40,18 @@ type Result struct {
 	Country string // ISO 3166-1 alpha-2, e.g. "US" - "" if Found is false.
 	ASN     int    // Always 0 this phase - see the package doc comment.
 	ASNName string // Always "" this phase - see the package doc comment.
-	Found   bool   // True if IP fell inside a known RIR-registered range.
+	Found   bool   // True if IP fell inside a known registered range.
 }
 
-// rirSource is one RIR's delegated-extended stats endpoint. All five
-// publish the same file format at a well-known, stable URL.
-type rirSource struct {
-	name string
-	url  string
-}
-
-var rirSources = []rirSource{
-	{"arin", "https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest"},
-	{"ripencc", "https://ftp.ripe.net/ripe/stats/delegated-ripencc-extended-latest"},
-	{"apnic", "https://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-extended-latest"},
-	{"lacnic", "https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest"},
-	{"afrinic", "https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest"},
-}
+const (
+	countryIPv4URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv4.csv"
+	countryIPv6URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv6.csv"
+	countryIPv4Filename = "user-country-ipv4.csv"
+	countryIPv6Filename = "user-country-ipv6.csv"
+)
 
 // CacheConfig sizes the in-memory result cache sitting in front of the
-// range table. Both fields must be positive - see config validation.
+// range tables. Both fields must be positive - see config validation.
 type CacheConfig struct {
 	MaxEntries int
 	TTL        time.Duration
@@ -80,8 +62,14 @@ type Resolver struct {
 	pool       *pgxpool.Pool
 	httpClient *http.Client
 	cache      *ttlCache
-	table      atomic.Pointer[rangeTable]
-	logger     *slog.Logger
+	table4     atomic.Pointer[rangeTable]
+	table6     atomic.Pointer[rangeTable]
+	// localCSVPath, if non-empty, skips downloading entirely: refresh
+	// reads <localCSVPath>/user-country-ipv4.csv and
+	// -ipv6.csv from local disk instead, with no network access of any
+	// kind. Empty means download from GitHub Releases, as normal.
+	localCSVPath string
+	logger       *slog.Logger
 }
 
 // NewResolver opens a connection pool to databaseURL and verifies it's
@@ -92,7 +80,13 @@ type Resolver struct {
 // table doesn't exist yet, Resolver still starts up fine - Run's
 // refreshes will simply fail (logged, not fatal) and every Resolve stays
 // Found: false until the schema is applied and a refresh succeeds.
-func NewResolver(ctx context.Context, databaseURL string, cache CacheConfig, logger *slog.Logger) (*Resolver, error) {
+//
+// localCSVPath, if non-empty, makes every refresh read from
+// <localCSVPath>/user-country-ipv4.csv and -ipv6.csv on local disk
+// instead of downloading from GitHub Releases - no network call is made
+// for the dataset in that mode, ever. The database connection above still
+// applies either way; it's for durability, not for fetching the dataset.
+func NewResolver(ctx context.Context, databaseURL string, cache CacheConfig, localCSVPath string, logger *slog.Logger) (*Resolver, error) {
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("asnlookup: create pool: %w", err)
@@ -105,10 +99,11 @@ func NewResolver(ctx context.Context, databaseURL string, cache CacheConfig, log
 		logger = slog.Default()
 	}
 	return &Resolver{
-		pool:       pool,
-		httpClient: &http.Client{Timeout: 2 * time.Minute},
-		cache:      newTTLCache(cache.MaxEntries, cache.TTL),
-		logger:     logger,
+		pool:         pool,
+		httpClient:   &http.Client{Timeout: 2 * time.Minute},
+		cache:        newTTLCache(cache.MaxEntries, cache.TTL),
+		localCSVPath: localCSVPath,
+		logger:       logger,
 	}, nil
 }
 
@@ -118,8 +113,9 @@ func (r *Resolver) Close() {
 }
 
 // Resolve answers one lookup: cache first, then the in-memory range
-// table. It never blocks on network or database I/O - the only things
-// that touch either are Run's periodic refreshes, entirely off this path.
+// table for ip's address family. It never blocks on network or database
+// I/O - the only things that touch either are Run's periodic refreshes,
+// entirely off this path.
 func (r *Resolver) Resolve(ip netip.Addr) Result {
 	ip = ip.Unmap()
 	if cached, ok := r.cache.get(ip); ok {
@@ -127,11 +123,16 @@ func (r *Resolver) Resolve(ip netip.Addr) Result {
 	}
 
 	result := Result{IP: ip}
-	if ipInt, ok := ipv4ToUint32(ip); ok {
-		if country, found := r.table.Load().lookup(ipInt); found {
-			result.Country = country
-			result.Found = true
-		}
+	var table *rangeTable
+	switch {
+	case ip.Is4():
+		table = r.table4.Load()
+	case ip.Is6():
+		table = r.table6.Load()
+	}
+	if country, found := table.lookup(ip); found {
+		result.Country = country
+		result.Found = true
 	}
 	r.cache.set(ip, result)
 	return result
@@ -141,7 +142,7 @@ func (r *Resolver) Resolve(ip netip.Addr) Result {
 // until ctx is cancelled. The immediate first refresh is a deliberate
 // difference from storage.Flusher's ticker (which is fine to let wait out
 // its first full interval, since "nothing flushed yet" is a harmless
-// startup state): here, an unrefreshed table isn't neutral - every
+// startup state): here, unrefreshed tables aren't neutral - every
 // Resolve would silently report Found: false for up to a full
 // refreshInterval after every process start otherwise.
 func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
@@ -159,38 +160,53 @@ func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 	}
 }
 
-// refresh downloads and parses all five RIR sources, merges what
-// succeeded, persists it to TimescaleDB, and - only once that succeeds -
-// atomically swaps in the new table. A source that fails to download or
-// parse is logged and skipped rather than aborting the whole refresh
-// (partial, mostly-fresh data beats none); if every source fails, or the
-// database write fails, the previous table (if any) is left in place
-// rather than replaced with something empty or partial.
+// refresh loads both address families (from GitHub Releases or a local
+// directory - see loadCountryCSV), persists whatever succeeded to
+// TimescaleDB, and atomically swaps in each family's new table
+// independently. A family that fails to load or parse is logged and
+// its previous table (if any) is left in place rather than replaced with
+// something empty; the other family still updates normally.
 func (r *Resolver) refresh(ctx context.Context) {
-	var all []rangeEntry
-	for _, src := range rirSources {
-		entries, err := r.fetchAndParse(ctx, src.url)
-		if err != nil {
-			r.logger.Warn("asnlookup: source refresh failed, continuing with the rest", "source", src.name, "err", err)
-			continue
-		}
-		all = append(all, entries...)
+	entries4, err4 := r.loadCountryCSV(ctx, countryIPv4URL, countryIPv4Filename)
+	if err4 != nil {
+		r.logger.Warn("asnlookup: ipv4 refresh failed, keeping previous table", "err", err4)
+	} else {
+		r.table4.Store(newRangeTable(entries4))
 	}
-	if len(all) == 0 {
-		r.logger.Warn("asnlookup: refresh produced no usable data from any source, keeping previous table")
-		return
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].start < all[j].start })
 
+	entries6, err6 := r.loadCountryCSV(ctx, countryIPv6URL, countryIPv6Filename)
+	if err6 != nil {
+		r.logger.Warn("asnlookup: ipv6 refresh failed, keeping previous table", "err", err6)
+	} else {
+		r.table6.Store(newRangeTable(entries6))
+	}
+
+	if err4 != nil && err6 != nil {
+		return // nothing new to persist
+	}
+	all := append(entries4, entries6...)
 	if err := r.writeRanges(ctx, all); err != nil {
-		r.logger.Error("asnlookup: failed to persist ranges, keeping previous table", "err", err)
+		r.logger.Error("asnlookup: failed to persist ranges, in-memory tables still updated", "err", err)
 		return
 	}
-	r.table.Store(newRangeTable(all))
-	r.logger.Info("asnlookup: refresh complete", "ranges", len(all))
+	r.logger.Info("asnlookup: refresh complete", "ipv4_ranges", len(entries4), "ipv6_ranges", len(entries6))
 }
 
-func (r *Resolver) fetchAndParse(ctx context.Context, url string) ([]rangeEntry, error) {
+// loadCountryCSV returns the parsed ranges for one address family, either
+// by downloading url or, if r.localCSVPath is set, by reading
+// localFilename from that directory instead - no network access happens
+// in the latter case.
+func (r *Resolver) loadCountryCSV(ctx context.Context, url, localFilename string) ([]rangeEntry, error) {
+	if r.localCSVPath != "" {
+		path := filepath.Join(r.localCSVPath, localFilename)
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open local file %s: %w", path, err)
+		}
+		defer f.Close()
+		return parseCountryCSV(f)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -203,15 +219,14 @@ func (r *Resolver) fetchAndParse(ctx context.Context, url string) ([]rangeEntry,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return parseDelegatedStats(resp.Body)
+	return parseCountryCSV(resp.Body)
 }
 
 // writeRanges replaces the entire ip_country_ranges table in one
 // transaction. A full replace rather than an incremental diff: refreshes
-// are weekly by default and the whole dataset is a few hundred thousand
-// rows at most, so the "recompute everything, every time" simplicity this
-// project has favored elsewhere (e.g. skipping full-mode's overlap/CIDR
-// bookkeeping the reference architecture used) is a good trade here too.
+// are weekly by default and the whole dataset is at most a few million
+// rows, so the "recompute everything, every time" simplicity this
+// project has favored elsewhere is a good trade here too.
 func (r *Resolver) writeRanges(ctx context.Context, entries []rangeEntry) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -225,7 +240,7 @@ func (r *Resolver) writeRanges(ctx context.Context, entries []rangeEntry) error 
 	_, err = tx.CopyFrom(ctx, pgx.Identifier{"ip_country_ranges"}, []string{"start_addr", "end_addr", "country"},
 		pgx.CopyFromSlice(len(entries), func(i int) ([]any, error) {
 			e := entries[i]
-			return []any{int64(e.start), int64(e.end), e.country}, nil
+			return []any{e.start, e.end, e.country}, nil
 		}),
 	)
 	if err != nil {
