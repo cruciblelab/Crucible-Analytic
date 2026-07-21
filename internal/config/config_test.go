@@ -53,6 +53,20 @@ timescale_dsn = "postgres://localhost/test"
 	if got, want := cfg.Storage.FlushInterval(), 10*time.Second; got != want {
 		t.Errorf("Storage.FlushInterval() = %v, want %v", got, want)
 	}
+	// Limits must default to real, protective numbers - not to unlimited -
+	// so a config with no [limits] section at all is still self-protecting.
+	if cfg.Limits.MaxConcurrentConnections != 1000 {
+		t.Errorf("Limits.MaxConcurrentConnections = %d, want 1000", cfg.Limits.MaxConcurrentConnections)
+	}
+	if cfg.Limits.MaxRequestsPerSecond != 500 {
+		t.Errorf("Limits.MaxRequestsPerSecond = %d, want 500", cfg.Limits.MaxRequestsPerSecond)
+	}
+	if cfg.Limits.OverloadPolicy != PolicyFailOpen {
+		t.Errorf("Limits.OverloadPolicy = %q, want %q", cfg.Limits.OverloadPolicy, PolicyFailOpen)
+	}
+	if cfg.Limits.ThrottleQueueSize != 200 {
+		t.Errorf("Limits.ThrottleQueueSize = %d, want 200", cfg.Limits.ThrottleQueueSize)
+	}
 }
 
 func TestLoad_MissingBackendAddr(t *testing.T) {
@@ -164,5 +178,86 @@ func TestLoad_MalformedTOML(t *testing.T) {
 	path := writeTOML(t, `this is not valid toml {{{`)
 	if _, err := Load(path); err == nil {
 		t.Error("Load() error = nil, want error for malformed TOML")
+	}
+}
+
+func TestLoad_LimitsCanBeOverridden(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[limits]
+max_concurrent_connections = 5
+max_requests_per_second = 0
+overload_policy = "fail_closed"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Limits.MaxConcurrentConnections != 5 {
+		t.Errorf("MaxConcurrentConnections = %d, want 5", cfg.Limits.MaxConcurrentConnections)
+	}
+	if cfg.Limits.MaxRequestsPerSecond != 0 {
+		t.Errorf("MaxRequestsPerSecond = %d, want 0 (explicit opt-out, not the default 500)", cfg.Limits.MaxRequestsPerSecond)
+	}
+	if cfg.Limits.OverloadPolicy != PolicyFailClosed {
+		t.Errorf("OverloadPolicy = %q, want %q", cfg.Limits.OverloadPolicy, PolicyFailClosed)
+	}
+	// ThrottleQueueSize wasn't set in this file - must keep its default.
+	if cfg.Limits.ThrottleQueueSize != 200 {
+		t.Errorf("ThrottleQueueSize (unset in file) = %d, want default 200", cfg.Limits.ThrottleQueueSize)
+	}
+}
+
+func TestLoad_InvalidOverloadPolicy(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[limits]
+overload_policy = "yolo"
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for invalid limits.overload_policy")
+	}
+}
+
+func TestLoad_ThrottleWithoutQueueSizeFails(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[limits]
+overload_policy = "throttle"
+throttle_queue_size = 0
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for throttle policy with throttle_queue_size <= 0")
+	}
+}
+
+func TestLoad_ThrottleWithQueueSizeSucceeds(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[limits]
+overload_policy = "throttle"
+throttle_queue_size = 50
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Limits.OverloadPolicy != PolicyThrottle {
+		t.Errorf("OverloadPolicy = %q, want %q", cfg.Limits.OverloadPolicy, PolicyThrottle)
+	}
+	if cfg.Limits.ThrottleQueueSize != 50 {
+		t.Errorf("ThrottleQueueSize = %d, want 50", cfg.Limits.ThrottleQueueSize)
 	}
 }

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/ja4"
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
@@ -45,6 +46,14 @@ type Server struct {
 	CertFile string
 	KeyFile  string
 	Store    ratestore.RateStore
+	// Limiter bounds total concurrent requests/requests-per-second across
+	// all IPs, admitted once per HTTP request (not per connection - see
+	// limiter.Limiter.Admit's doc comment for why full mode differs from
+	// passthrough here). Nil means unlimited (mainly for tests that don't
+	// care about this dimension) - production wiring in cmd/collector
+	// always sets a real one, even if its own limits are effectively
+	// unbounded.
+	Limiter *limiter.Limiter
 	// DialTimeout bounds connecting to the backend. Defaults to 10s if <= 0.
 	DialTimeout time.Duration
 	Logger      *slog.Logger
@@ -184,18 +193,48 @@ func (s *Server) captureFingerprint(hello *tls.ClientHelloInfo) {
 	sc.setFingerprint(ja4.Fingerprint(ch))
 }
 
-// recordingHandler records one RateStore request per actual HTTP request -
-// not per connection - before forwarding to next. Because net/http itself
-// resolves both HTTP/1.1 keep-alive and HTTP/2 multiplexing into separate
-// handler invocations, this "just works" without any custom request
-// framing logic.
+// recordingHandler admits and records one RateStore request per actual
+// HTTP request - not per connection - before forwarding to next. Because
+// net/http itself resolves both HTTP/1.1 keep-alive and HTTP/2
+// multiplexing into separate handler invocations, this "just works"
+// without any custom request framing logic.
+//
+// Admission runs first: a rejected request never reaches next (or Store)
+// at all, and a degraded one reaches next but skips RecordRequest - the
+// same Proceed/Degrade/Reject split proxy.Server applies per connection,
+// just at request granularity here since that's the unit HTTP/2
+// multiplexing forces on full mode anyway.
 func (s *Server) recordingHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if sc, ok := r.Context().Value(connStateKey{}).(*snoopConn); ok {
-			if ip, ok := ipFromAddr(sc.RemoteAddr()); ok {
-				s.Store.RecordRequest(ip, sc.fingerprint(), time.Now())
+		decision, release := s.admit(r.Context())
+		if release != nil {
+			defer release()
+		}
+		if decision == limiter.DecisionReject {
+			http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		if decision == limiter.DecisionProceed {
+			if sc, ok := r.Context().Value(connStateKey{}).(*snoopConn); ok {
+				if ip, ok := ipFromAddr(sc.RemoteAddr()); ok {
+					s.Store.RecordRequest(ip, sc.fingerprint(), time.Now())
+				}
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// admit consults Limiter, treating a nil Limiter (tests, or a config with
+// every dimension explicitly unlimited) as always-proceed. Admitting on
+// the request's own context (rather than context.Background()) means a
+// client that disconnects while queued under the throttle policy stops
+// waiting immediately instead of holding a queue slot for a response
+// nobody will read.
+func (s *Server) admit(ctx context.Context) (limiter.Decision, func()) {
+	if s.Limiter == nil {
+		return limiter.DecisionProceed, nil
+	}
+	return s.Limiter.Admit(ctx)
 }

@@ -31,3 +31,22 @@ cleanup_interval_seconds = 60
 # Required. Postgres connection string for TimescaleDB.
 timescale_dsn = "postgres://collector:collector@localhost:5432/analytics"
 flush_interval_seconds = 10
+
+[limits]
+# Bounds the collector's OWN total resource usage (concurrent
+# connections/requests and requests/second, summed across all IPs) so it
+# can't become a resource-exhaustion target itself. These have real
+# defaults even if you omit this whole section - see below.
+max_concurrent_connections = 1000
+max_requests_per_second = 500
+# What happens once a limit above is exceeded:
+#   "fail_open"   (default) - keep forwarding traffic to the backend, just
+#                  skip fingerprinting/recording for the excess. The
+#                  collector never takes your site down by default.
+#   "fail_closed" - reject the excess connection/request outright.
+#   "throttle"    - queue the excess (bounded by throttle_queue_size)
+#                  until capacity frees up; falls back to fail_closed
+#                  behavior if the queue itself is full.
+overload_policy = "fail_open"
+# Only used when overload_policy = "throttle".
+throttle_queue_size = 200

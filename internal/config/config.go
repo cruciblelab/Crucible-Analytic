@@ -25,6 +25,30 @@ const (
 	ModeFull Mode = "full"
 )
 
+// OverloadPolicy selects what the collector does when the limits in
+// LimitsConfig are exceeded. It mirrors limiter.Policy's values as plain
+// strings rather than importing that package directly, the same way Mode
+// stays self-contained instead of importing proxy/fullproxy - main.go
+// does the translation when it constructs a limiter.Limiter, keeping
+// internal/limiter usable and testable without any dependency on how
+// configuration happens to be loaded.
+type OverloadPolicy string
+
+const (
+	// PolicyFailOpen is the default: skip fingerprinting/recording for
+	// traffic over the limit, but keep forwarding it to the backend
+	// normally. The collector should never, by default, be the reason a
+	// site goes down - the other two policies are opt-in.
+	PolicyFailOpen OverloadPolicy = "fail_open"
+	// PolicyFailClosed rejects connections/requests over the limit
+	// outright.
+	PolicyFailClosed OverloadPolicy = "fail_closed"
+	// PolicyThrottle queues excess connections/requests (bounded by
+	// ThrottleQueueSize) until capacity frees up, falling back to
+	// fail-closed behavior if the queue itself is full.
+	PolicyThrottle OverloadPolicy = "throttle"
+)
+
 // Config holds everything main.go needs to wire up the collector, decoded
 // from a TOML file. Durations are stored as plain seconds in the file
 // (simplest to write by hand) and exposed as time.Duration via the
@@ -35,6 +59,7 @@ type Config struct {
 	TLS     TLSConfig     `toml:"tls"`
 	Cache   CacheConfig   `toml:"cache"`
 	Storage StorageConfig `toml:"storage"`
+	Limits  LimitsConfig  `toml:"limits"`
 }
 
 // NetworkConfig covers where the collector listens and what it proxies to.
@@ -104,6 +129,22 @@ func (s StorageConfig) FlushInterval() time.Duration {
 	return time.Duration(s.FlushIntervalSeconds) * time.Second
 }
 
+// LimitsConfig bounds the collector's own total resource usage -
+// concurrent connections/requests and requests/second, summed across all
+// IPs - independent of anything in CacheConfig/RateStore, which is about
+// per-IP behavior for scoring, not the collector's own load. Without
+// this, the collector has no upper bound on concurrency and becomes a
+// resource-exhaustion target itself. Zero (including an absent
+// MaxConcurrentConnections/MaxRequestsPerSecond field) means "no limit"
+// for that one dimension - but see defaults() for why both actually
+// default to a real, protective number rather than to zero.
+type LimitsConfig struct {
+	MaxConcurrentConnections int            `toml:"max_concurrent_connections"`
+	MaxRequestsPerSecond     int            `toml:"max_requests_per_second"`
+	OverloadPolicy           OverloadPolicy `toml:"overload_policy"`
+	ThrottleQueueSize        int            `toml:"throttle_queue_size"`
+}
+
 func defaults() Config {
 	return Config{
 		Mode: ModePassthrough,
@@ -119,6 +160,18 @@ func defaults() Config {
 		},
 		Storage: StorageConfig{
 			FlushIntervalSeconds: 10,
+		},
+		Limits: LimitsConfig{
+			// Real, protective numbers by default - not zero/unlimited -
+			// so the collector is self-protecting out of the box, even
+			// for a config file with no [limits] section at all. A user
+			// who genuinely wants a dimension unlimited sets it to 0
+			// explicitly, which is then a deliberate, visible choice in
+			// their own file rather than an accidental gap.
+			MaxConcurrentConnections: 1000,
+			MaxRequestsPerSecond:     500,
+			OverloadPolicy:           PolicyFailOpen,
+			ThrottleQueueSize:        200,
 		},
 	}
 }
@@ -154,6 +207,18 @@ func (c *Config) validate() error {
 	}
 	if c.Mode == ModeFull && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		return fmt.Errorf("config: tls.cert_file and tls.key_file are required when mode = %q", ModeFull)
+	}
+
+	switch c.Limits.OverloadPolicy {
+	case "":
+		c.Limits.OverloadPolicy = PolicyFailOpen
+	case PolicyFailOpen, PolicyFailClosed, PolicyThrottle:
+	default:
+		return fmt.Errorf("config: invalid limits.overload_policy %q (want %q, %q, or %q)",
+			c.Limits.OverloadPolicy, PolicyFailOpen, PolicyFailClosed, PolicyThrottle)
+	}
+	if c.Limits.OverloadPolicy == PolicyThrottle && c.Limits.ThrottleQueueSize <= 0 {
+		return fmt.Errorf("config: limits.throttle_queue_size must be positive when limits.overload_policy = %q", PolicyThrottle)
 	}
 
 	return nil

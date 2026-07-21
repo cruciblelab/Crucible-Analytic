@@ -16,6 +16,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/config"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
@@ -67,6 +68,13 @@ func main() {
 		flusher.Run(ctx)
 	}()
 
+	lim := limiter.New(limiter.Config{
+		MaxConcurrentConnections: cfg.Limits.MaxConcurrentConnections,
+		MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
+		Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
+		ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
+	})
+
 	var server proxyServer
 	switch cfg.Mode {
 	case config.ModeFull:
@@ -76,6 +84,7 @@ func main() {
 			CertFile:    cfg.TLS.CertFile,
 			KeyFile:     cfg.TLS.KeyFile,
 			Store:       store,
+			Limiter:     lim,
 			DialTimeout: cfg.Network.DialTimeout(),
 			Logger:      logger,
 		}
@@ -84,6 +93,7 @@ func main() {
 			ListenAddr:       cfg.Network.ListenAddr,
 			BackendAddr:      cfg.Network.BackendAddr,
 			Store:            store,
+			Limiter:          lim,
 			HandshakeTimeout: cfg.Network.HandshakeTimeout(),
 			DialTimeout:      cfg.Network.DialTimeout(),
 			Logger:           logger,
