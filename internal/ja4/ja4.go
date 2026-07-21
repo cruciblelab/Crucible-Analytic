@@ -24,10 +24,13 @@ var versionTokens = map[uint16]string{
 // is supported.
 //
 // This is a from-scratch implementation written to keep the collector
-// dependency-free; it has not been cross-validated byte-for-byte against
-// the official reference implementation, so treat it as a strong,
-// internally-consistent fingerprint for clustering/matching rather than a
-// certified-compatible one.
+// dependency-free. It has been cross-validated against FoxIO's own
+// reference implementation (python/ja4.py in FoxIO-LLC/ja4) using several
+// of that repo's official test pcaps - see foxio_reference_test.go for the
+// fixtures, exact source commit, and how the raw bytes were extracted.
+// That process is also how the empty-hash-segment special case below and
+// the exact ALPN-sanitization rule were derived: both diverged from an
+// earlier, unvalidated version of this function.
 func Fingerprint(ch *ClientHello) string {
 	return partA(ch) + "_" + partB(ch) + "_" + partC(ch)
 }
@@ -74,35 +77,41 @@ func capCount(n int) int {
 }
 
 // alpnToken returns the first and last byte of the first offered ALPN
-// protocol string. Non-printable bytes are replaced with '9', matching how
-// the reference implementation handles unusual/binary ALPN identifiers. A
-// zero-length protocol name (malformed input) falls back to "00".
+// protocol string, matching python/ja4.py's to_ja4() exactly: only the
+// first (truncated) byte is checked, and if its value is non-ASCII
+// (> 0x7f), the whole token becomes "99" rather than substituting byte by
+// byte. A non-ASCII *last* byte with an ASCII first byte is not specially
+// handled by the reference either, so neither is it here. A zero-length
+// protocol name (malformed input) falls back to "00".
 func alpnToken(proto string) string {
 	if proto == "" {
 		return "00"
 	}
-	first := sanitizeALPNByte(proto[0])
-	last := sanitizeALPNByte(proto[len(proto)-1])
+	first, last := proto[0], proto[len(proto)-1]
+	if first > 0x7f {
+		return "99"
+	}
 	return string([]byte{first, last})
 }
 
-func sanitizeALPNByte(b byte) byte {
-	if b < 0x20 || b > 0x7e {
-		return '9'
-	}
-	return b
-}
-
 // partB is the truncated SHA256 of the sorted, comma-joined, 4-hex-digit
-// cipher suite list.
+// cipher suite list - or the literal "000000000000" if there are no
+// ciphers, matching the reference implementation's explicit empty-input
+// special case (it never hashes an empty string).
 func partB(ch *ClientHello) string {
+	if len(ch.CipherSuites) == 0 {
+		return emptyHashSegment
+	}
 	sorted := sortedCopy(ch.CipherSuites)
 	return truncatedSHA256(joinHex4(sorted))
 }
 
 // partC is the truncated SHA256 of the sorted, comma-joined, 4-hex-digit
 // extension list (SNI and ALPN excluded), plus the wire-order signature
-// algorithm list when present.
+// algorithm list when present - or the literal "000000000000" if that
+// combined input is empty (e.g. SNI was the only extension, and no
+// signature_algorithms extension was sent), matching the reference
+// implementation's explicit empty-input special case.
 func partC(ch *ClientHello) string {
 	var filtered []uint16
 	for _, e := range ch.Extensions {
@@ -117,8 +126,15 @@ func partC(ch *ClientHello) string {
 	if len(ch.SignatureAlgorithms) > 0 {
 		raw += "_" + joinHex4(ch.SignatureAlgorithms) // signature algorithms keep wire order, not sorted
 	}
+	if raw == "" {
+		return emptyHashSegment
+	}
 	return truncatedSHA256(raw)
 }
+
+// emptyHashSegment is what the reference implementation emits in place of
+// a JA4_b/JA4_c hash when the corresponding input list is empty.
+const emptyHashSegment = "000000000000"
 
 func sortedCopy(values []uint16) []uint16 {
 	out := append([]uint16(nil), values...)

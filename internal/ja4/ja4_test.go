@@ -122,6 +122,51 @@ func TestPartC_NoSignatureAlgorithms(t *testing.T) {
 	}
 }
 
+// TestPartB_EmptyCiphersUsesLiteralZeros and TestPartC_EmptyInputUsesLiteralZeros
+// pin down a real divergence from the official reference implementation
+// found during validation (see foxio_reference_test.go): python/ja4.py
+// never hashes an empty string for JA4_b/JA4_c, it substitutes the literal
+// "000000000000" instead. An earlier version of this code called
+// truncatedSHA256("") in these cases, which does NOT equal "000000000000".
+func TestPartB_EmptyCiphersUsesLiteralZeros(t *testing.T) {
+	ch := &ClientHello{CipherSuites: nil}
+	if got := partB(ch); got != emptyHashSegment {
+		t.Errorf("partB() with no ciphers = %s, want literal %s (not sha256(\"\"))", got, emptyHashSegment)
+	}
+}
+
+func TestPartC_EmptyInputUsesLiteralZeros(t *testing.T) {
+	// SNI is the only extension (excluded from the hash input) and there's
+	// no signature_algorithms extension: the combined pre-hash string is
+	// genuinely empty, not just a list of zero real extensions.
+	ch := &ClientHello{Extensions: []uint16{extServerName}}
+	if got := partC(ch); got != emptyHashSegment {
+		t.Errorf("partC() with only SNI/no sig-algs = %s, want literal %s (not sha256(\"\"))", got, emptyHashSegment)
+	}
+}
+
+func TestAlpnToken_NonASCIIFirstByteBecomesLiteral99(t *testing.T) {
+	// Matches python/ja4.py's to_ja4(): only the (truncated) first byte is
+	// checked; if it's non-ASCII, the WHOLE token becomes "99" rather than
+	// substituting byte by byte.
+	got := alpnToken(string([]byte{0xff, 0x41})) // first byte 0xff > 0x7f, last byte 'A'
+	if got != "99" {
+		t.Errorf("alpnToken(non-ASCII first byte) = %q, want %q", got, "99")
+	}
+}
+
+func TestAlpnToken_ASCIIFirstByteWithNonASCIILastByteIsNotSanitized(t *testing.T) {
+	// The reference implementation only checks the first byte; it does not
+	// special-case a non-ASCII last byte. Matching that exactly (rather
+	// than a more "defensively correct" independent check) is the point of
+	// cross-validation - see the Fingerprint doc comment.
+	got := alpnToken(string([]byte{'A', 0xff}))
+	want := string([]byte{'A', 0xff})
+	if got != want {
+		t.Errorf("alpnToken(ASCII first, non-ASCII last) = %q, want %q (unsanitized, matching reference)", got, want)
+	}
+}
+
 func TestFingerprint_Shape(t *testing.T) {
 	ch := &ClientHello{
 		LegacyVersion: 0x0303,
