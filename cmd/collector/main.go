@@ -56,31 +56,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	flusher := &storage.Flusher{
-		Store:     store,
-		Writer:    writer,
-		KnownBots: scoring.KnownBotJA4,
-		Interval:  cfg.Storage.FlushInterval(),
-		Logger:    logger,
-	}
-	flusherDone := make(chan struct{})
-	go func() {
-		defer close(flusherDone)
-		flusher.Run(ctx)
-	}()
-
-	lim := limiter.New(limiter.Config{
-		MaxConcurrentConnections: cfg.Limits.MaxConcurrentConnections,
-		MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
-		Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
-		ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
-	})
-
 	// ASN/country lookup is entirely optional and additive - unlike the
 	// TimescaleDB connection above, a failure to set it up here doesn't
 	// take down the collector's core purpose (proxying, fingerprinting,
 	// scoring, storage all work fine without it), so it's logged and
-	// skipped rather than fatal.
+	// skipped rather than fatal. Built before the flusher below so it can
+	// be wired in as the flusher's row-enrichment source (see the nil
+	// check right before constructing flusher).
 	var lookup *asnlookup.Resolver
 	if cfg.ASNLookup.Enabled {
 		lookup, err = asnlookup.NewResolver(ctx, cfg.Storage.TimescaleDSN, asnlookup.CacheConfig{
@@ -101,6 +83,36 @@ func main() {
 	} else {
 		close(lookupDone)
 	}
+
+	flusher := &storage.Flusher{
+		Store:     store,
+		Writer:    writer,
+		KnownBots: scoring.KnownBotJA4,
+		Interval:  cfg.Storage.FlushInterval(),
+		Logger:    logger,
+	}
+	if lookup != nil {
+		// Deliberately guarded rather than an unconditional
+		// `flusher.Resolver = lookup`: assigning a nil *asnlookup.Resolver
+		// into the storage.GeoResolver interface field would produce a
+		// non-nil interface holding a nil pointer, so BuildRows's own
+		// `resolver != nil` check would pass and it would call Resolve on
+		// a nil receiver - this guard is what keeps flusher.Resolver a
+		// true nil interface when lookup is disabled or failed to start.
+		flusher.Resolver = lookup
+	}
+	flusherDone := make(chan struct{})
+	go func() {
+		defer close(flusherDone)
+		flusher.Run(ctx)
+	}()
+
+	lim := limiter.New(limiter.Config{
+		MaxConcurrentConnections: cfg.Limits.MaxConcurrentConnections,
+		MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
+		Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
+		ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
+	})
 
 	var server proxyServer
 	switch cfg.Mode {

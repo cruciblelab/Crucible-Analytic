@@ -50,6 +50,9 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 		RequestRate:     1.5,
 		BotScore:        42,
 		IsKnownBotJA4:   true,
+		Country:         "US",
+		ASN:             64512,
+		ASNName:         "Example Org",
 	}
 	t.Cleanup(func() {
 		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, row.JA4); err != nil {
@@ -76,15 +79,18 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	var gotRate float64
 	var gotScore int16
 	var gotKnownBot bool
+	var gotCountry string
+	var gotASN int
+	var gotASNName string
 	// ORDER BY ... DESC LIMIT 1 rather than a bare WHERE: defense in depth
 	// against exactly the leftover-row bug the cleanup fix above addresses
 	// - if any previous run's cleanup ever fails for some other reason,
 	// this still reads back the row this run just wrote, not a stale one.
 	err = w.pool.QueryRow(ctx,
-		`SELECT time, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score, is_known_bot_ja4
+		`SELECT time, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score, is_known_bot_ja4, country, asn, asn_org
 		 FROM traffic_snapshots WHERE ja4 = $1 ORDER BY time DESC LIMIT 1`,
 		row.JA4,
-	).Scan(&gotTime, &gotIP, &gotJA4, &gotPrev, &gotCurr, &gotRate, &gotScore, &gotKnownBot)
+	).Scan(&gotTime, &gotIP, &gotJA4, &gotPrev, &gotCurr, &gotRate, &gotScore, &gotKnownBot, &gotCountry, &gotASN, &gotASNName)
 	if err != nil {
 		t.Fatalf("query back: %v", err)
 	}
@@ -109,6 +115,57 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	}
 	if gotKnownBot != row.IsKnownBotJA4 {
 		t.Errorf("read back IsKnownBotJA4 = %v, want %v", gotKnownBot, row.IsKnownBotJA4)
+	}
+	if gotCountry != row.Country || gotASN != row.ASN || gotASNName != row.ASNName {
+		t.Errorf("read back Country/ASN/ASNName = %q/%d/%q, want %q/%d/%q", gotCountry, gotASN, gotASNName, row.Country, row.ASN, row.ASNName)
+	}
+}
+
+// TestWriter_RealTimescaleDB_GeoColumnsDefaultToZeroValue confirms a Row
+// that leaves Country/ASN/ASNName unset (the shape every row has when
+// asn_lookup.enabled = false, i.e. what BuildRows produces with a nil
+// resolver) round-trips through the real COPY pipeline as empty
+// string/zero, not e.g. NULL or some other pgx encoding quirk for an
+// empty TEXT/zero INTEGER. Note this doesn't exercise schema.sql's own
+// DEFAULT clauses - WriteRows's CopyFrom always sends every column in
+// the columns list explicitly, so those defaults only matter for a
+// hand-written INSERT that omits the column, never for this write path.
+func TestWriter_RealTimescaleDB_GeoColumnsDefaultToZeroValue(t *testing.T) {
+	ctx := context.Background()
+	w, err := NewWriter(ctx, testDatabaseURL)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	t.Cleanup(w.Close)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	row := Row{
+		Time: now,
+		IP:   netip.MustParseAddr("203.0.113.43"),
+		JA4:  "t13d1516h2_integration_test_no_geo",
+	}
+	t.Cleanup(func() {
+		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, row.JA4); err != nil {
+			t.Logf("cleanup: delete failed: %v", err)
+		}
+	})
+
+	if _, err := w.WriteRows(ctx, []Row{row}); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+
+	var gotCountry string
+	var gotASN int
+	var gotASNName string
+	err = w.pool.QueryRow(ctx,
+		`SELECT country, asn, asn_org FROM traffic_snapshots WHERE ja4 = $1 ORDER BY time DESC LIMIT 1`,
+		row.JA4,
+	).Scan(&gotCountry, &gotASN, &gotASNName)
+	if err != nil {
+		t.Fatalf("query back: %v", err)
+	}
+	if gotCountry != "" || gotASN != 0 || gotASNName != "" {
+		t.Errorf("read back Country/ASN/ASNName = %q/%d/%q, want all zero value", gotCountry, gotASN, gotASNName)
 	}
 }
 

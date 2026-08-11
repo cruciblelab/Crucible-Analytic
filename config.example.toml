@@ -56,6 +56,8 @@ throttle_queue_size = 200
 # datasets are never downloaded or read and asnlookup's TimescaleDB tables
 # are never touched - see internal/asnlookup/schema.sql and the README
 # before turning this on (those tables must be created manually first).
+# When true, every traffic_snapshots row is also automatically enriched
+# with country/asn/asn_org at flush time - no separate flag for that.
 enabled = false
 # Accepted and validated, but not yet consulted by scoring - see the
 # README for why (country and ASN are both resolved for real now; wiring

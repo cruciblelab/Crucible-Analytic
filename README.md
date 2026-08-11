@@ -79,10 +79,12 @@ file. Both fingerprint every connection via JA4, feed the same in-memory
 `RateStore` (a cheap two-counter sliding window, not a full request log),
 compute the same 0-100 bot-likelihood score (request rate + known-bad-JA4
 match), and batch-write summaries to TimescaleDB via `COPY` every
-`flush_interval_seconds` (default 10s). IP state idle for longer than
-`ttl_seconds` (default 5m) is automatically dropped from memory. Nothing in
-this phase blocks or rejects traffic based on the score - it's computed and
-persisted for a future phase to act on.
+`flush_interval_seconds` (default 10s) - optionally enriched with each
+IP's country/ASN at the same time, if `asn_lookup.enabled = true` (see
+"Optional: IP → country / ASN lookup" below). IP state idle for longer
+than `ttl_seconds` (default 5m) is automatically dropped from memory.
+Nothing in this phase blocks or rejects traffic based on the score - it's
+computed and persisted for a future phase to act on.
 
 ### Passthrough mode (default)
 
@@ -176,18 +178,40 @@ entries / 6 hours) sits in front of that for repeat IPs.
 
 `Result.ASN` and `Result.ASNName` are real now, not placeholders - both
 datasets are fetched, parsed, and queried independently, the same way
-`Result.Country` always has been. What's still deliberately out of scope
-this phase is *using* either signal for anything: there's no country/ASN
-rule wired into `internal/limiter`, and `internal/scoring` doesn't consult
-either signal yet (see `asn_lookup.apply_to_scoring` just below). Resolving
-IP → country/ASN and acting on the result are kept as separate steps on
-purpose - this phase only covers the former.
+`Result.Country` always has been.
+
+**Every `traffic_snapshots` row is enriched with them, automatically,
+whenever `asn_lookup.enabled = true`** - no separate flag for this: it's
+the same lookup already running for `asn_lookup.enabled`'s own sake, just
+also consulted once per active IP at flush time (`internal/storage.Flusher`
+takes an optional `GeoResolver`; `cmd/collector/main.go` passes the same
+`*asnlookup.Resolver` in when the feature is on, `nil` when it's off - no
+new per-request work, since it's the flush-time snapshot being enriched,
+not the request path). Three columns, `country`/`asn`/`asn_org`, each
+independently best-effort the same way `Result`'s own fields are: `''`/`0`
+means that half wasn't resolved for this IP, not that it was checked and
+came back empty. `internal/storage/schema.sql` is self-migrating for
+this - it runs `ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS`
+for the three new columns, so re-applying it against a table created
+before this feature existed just adds them in place (verified directly
+against a live database with existing rows - they keep their other
+columns' values and simply get `''`/`0`/`''` for the three new ones,
+no drop needed).
+
+What's still deliberately out of scope this phase is *acting* on either
+signal - as opposed to just recording it, which is what the paragraph
+above does: there's no country/ASN rule wired into `internal/limiter`,
+and `internal/scoring` doesn't consult either signal yet (see
+`asn_lookup.apply_to_scoring` just below). Resolving IP → country/ASN and
+deciding something based on it are kept as separate steps on purpose -
+this phase covers resolving it and recording it, not deciding with it.
 
 `asn_lookup.apply_to_scoring` is accepted and validated but still not
 consulted by `internal/scoring` - country and ASN are both real signals
-now, but wiring either into scoring (or into a rate-limit rule) is later
-work, not this round's. It's part of the config shape now so turning it on
-later is a behavior change, not a schema one.
+now, and recorded in every snapshot, but wiring either into a scoring
+*decision* (or into a rate-limit rule) is later work, not this round's.
+It's part of the config shape now so turning it on later is a behavior
+change, not a schema one.
 
 Enabling this requires applying `internal/asnlookup/schema.sql` once,
 manually, first - see "Running locally" below; like the rest of this
@@ -346,6 +370,15 @@ psql "$TIMESCALE_DSN" -f internal/storage/schema.sql
 psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
 ```
 
+**If you already had this collector running before country/ASN
+enrichment existed** (i.e. `docker compose up -d` already created
+`traffic_snapshots` on an earlier version, so step 1's
+`docker-entrypoint-initdb.d` hook won't fire again against that existing
+volume), re-apply `internal/storage/schema.sql` yourself the same way:
+`psql "postgres://collector:collector@localhost:5432/analytics" -f internal/storage/schema.sql`.
+It's self-migrating (see "Optional: IP → country / ASN lookup" above), so
+this just adds the three new columns in place - no drop, no data loss.
+
 Forgetting step 3 when `asn_lookup.enabled = true` isn't fatal - the
 collector still starts and runs normally, since a missing optional table
 is treated the same as any other refresh failure (logged, not fatal - see
@@ -381,7 +414,7 @@ other field has a default. `config.toml` is gitignored since
 | `limits.max_requests_per_second`    | `500`                | Same, but an aggregate requests/second ceiling instead of a concurrency one. |
 | `limits.overload_policy`            | `"fail_open"`        | `"fail_open"`, `"fail_closed"`, or `"throttle"` once a limit above is exceeded - see "Recommended deployment order" above. |
 | `limits.throttle_queue_size`        | `200`                | Only used when `overload_policy = "throttle"`: bounds how many excess connections/requests can queue before falling back to `fail_closed`. |
-| `asn_lookup.enabled`                | `false`              | Turns on the optional IP → country / ASN lookup - see "Optional: IP → country / ASN lookup" below. |
+| `asn_lookup.enabled`                | `false`              | Turns on the optional IP → country / ASN lookup, and with it automatic `traffic_snapshots` enrichment - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.apply_to_scoring`       | `false`              | Accepted and validated, but not yet consulted by scoring - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.cache_max_entries`      | `50000`              | Only validated when `asn_lookup.enabled = true`. Size of the in-memory LRU result cache. |
 | `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range tables. |
@@ -439,7 +472,11 @@ just the same path that wrote it, for `ip_country_ranges` and
 containing a literal comma, the same real-data shape `parseASNCSV` is
 tested against) - and that `internal/storage/schema.sql`'s
 `create_hypertable` call actually took effect, not just that a plain table
-would have accepted the same writes.
+would have accepted the same writes. It also covers `traffic_snapshots`'s
+own `country`/`asn`/`asn_org` columns both ways: a row with real values
+round-trips correctly, and a row built the way `BuildRows` produces one
+with no resolver (`asn_lookup.enabled = false`) reads back as `''`/`0`/`''`
+rather than `NULL` or some other encoding surprise.
 
 `go test -tags loadtest ./internal/loadtest/...` fires 30-100 genuinely
 concurrent connections per scenario at a real `proxy.Server` and asserts on

@@ -14,14 +14,18 @@ type RowWriter interface {
 	WriteRows(ctx context.Context, rows []Row) (int64, error)
 }
 
-// Flusher periodically snapshots a RateStore, scores each active IP, and
-// writes the resulting rows via Writer.
+// Flusher periodically snapshots a RateStore, scores each active IP,
+// optionally enriches it with country/ASN, and writes the resulting rows
+// via Writer.
 type Flusher struct {
 	Store     ratestore.RateStore
 	Writer    RowWriter
 	KnownBots map[string]string
 	Interval  time.Duration
 	Logger    *slog.Logger
+	// Resolver, if set, enriches each row with country/ASN. Left nil when
+	// asn_lookup.enabled = false - see BuildRows.
+	Resolver GeoResolver
 }
 
 // Run flushes every f.Interval until ctx is cancelled, then performs one
@@ -59,7 +63,7 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		return
 	}
 
-	rows := BuildRows(snapshots, f.KnownBots, now)
+	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver)
 	n, err := f.Writer.WriteRows(ctx, rows)
 	if err != nil {
 		f.logger().Error("flush failed", "err", err, "attempted_rows", len(rows))

@@ -5,8 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
+
+// fakeResolver returns a canned asnlookup.Result for every IP, regardless
+// of what's asked - enough to prove BuildRows/Flusher wire a GeoResolver
+// through correctly without needing a real loaded range table.
+type fakeResolver struct {
+	result asnlookup.Result
+}
+
+func (f fakeResolver) Resolve(ip netip.Addr) asnlookup.Result {
+	return f.result
+}
 
 func TestBuildRows(t *testing.T) {
 	flushTime := time.Date(2026, 1, 1, 0, 0, 10, 0, time.UTC)
@@ -35,7 +47,7 @@ func TestBuildRows(t *testing.T) {
 		},
 	}
 
-	rows := BuildRows(snaps, knownBots, flushTime)
+	rows := BuildRows(snaps, knownBots, flushTime, nil)
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
@@ -53,6 +65,9 @@ func TestBuildRows(t *testing.T) {
 	if !r0.Time.Equal(flushTime) {
 		t.Errorf("row 0: Time = %v, want %v", r0.Time, flushTime)
 	}
+	if r0.Country != "" || r0.ASN != 0 || r0.ASNName != "" {
+		t.Errorf("row 0: Country/ASN/ASNName = %q/%d/%q, want all zero value with a nil resolver", r0.Country, r0.ASN, r0.ASNName)
+	}
 
 	r1 := rows[1]
 	if r1.IsKnownBotJA4 {
@@ -61,8 +76,47 @@ func TestBuildRows(t *testing.T) {
 }
 
 func TestBuildRows_Empty(t *testing.T) {
-	rows := BuildRows(nil, nil, time.Now())
+	rows := BuildRows(nil, nil, time.Now(), nil)
 	if len(rows) != 0 {
 		t.Errorf("len(rows) = %d, want 0 for no snapshots", len(rows))
+	}
+}
+
+func TestBuildRows_EnrichesWithResolver(t *testing.T) {
+	flushTime := time.Now()
+	snaps := []ratestore.Snapshot{
+		{IP: netip.MustParseAddr("8.8.8.8"), JA4: "", LastSeen: flushTime},
+	}
+	resolver := fakeResolver{result: asnlookup.Result{
+		IP: netip.MustParseAddr("8.8.8.8"), Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
+	}}
+
+	rows := BuildRows(snaps, nil, flushTime, resolver)
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	r0 := rows[0]
+	if r0.Country != "US" || r0.ASN != 15169 || r0.ASNName != "GOOGLE" {
+		t.Errorf("row 0: Country/ASN/ASNName = %q/%d/%q, want US/15169/GOOGLE", r0.Country, r0.ASN, r0.ASNName)
+	}
+}
+
+func TestBuildRows_ResolverNotFoundLeavesZeroValue(t *testing.T) {
+	flushTime := time.Now()
+	snaps := []ratestore.Snapshot{
+		{IP: netip.MustParseAddr("203.0.113.1"), JA4: "", LastSeen: flushTime},
+	}
+	// A resolver that ran but found nothing for this IP - distinct from a
+	// nil resolver (never even consulted); both leave the same zero
+	// value, but this exercises the actual Resolve call path.
+	resolver := fakeResolver{result: asnlookup.Result{IP: netip.MustParseAddr("203.0.113.1"), Found: false}}
+
+	rows := BuildRows(snaps, nil, flushTime, resolver)
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	r0 := rows[0]
+	if r0.Country != "" || r0.ASN != 0 || r0.ASNName != "" {
+		t.Errorf("row 0: Country/ASN/ASNName = %q/%d/%q, want all zero value when the resolver found nothing", r0.Country, r0.ASN, r0.ASNName)
 	}
 }

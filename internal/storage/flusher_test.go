@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
@@ -106,4 +107,51 @@ func TestFlusher_WriteErrorDoesNotPanic(t *testing.T) {
 	f := &Flusher{Store: store, Writer: writer, Interval: time.Hour}
 
 	f.flushOnce(context.Background(), time.Time{}, time.Now()) // must not panic
+}
+
+func TestFlusher_EnrichesRowsWithResolverWhenSet(t *testing.T) {
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("8.8.8.8"), "ja4", time.Now())
+
+	writer := &fakeWriter{}
+	f := &Flusher{
+		Store:    store,
+		Writer:   writer,
+		Interval: time.Hour,
+		Resolver: fakeResolver{result: asnlookup.Result{
+			IP: netip.MustParseAddr("8.8.8.8"), Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
+		}},
+	}
+
+	f.flushOnce(context.Background(), time.Time{}, time.Now())
+
+	rows := writer.lastCall()
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].Country != "US" || rows[0].ASN != 15169 || rows[0].ASNName != "GOOGLE" {
+		t.Errorf("row Country/ASN/ASNName = %q/%d/%q, want US/15169/GOOGLE", rows[0].Country, rows[0].ASN, rows[0].ASNName)
+	}
+}
+
+func TestFlusher_NilResolverLeavesGeoFieldsZeroValue(t *testing.T) {
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("203.0.113.7"), "ja4", time.Now())
+
+	writer := &fakeWriter{}
+	// Resolver deliberately left unset - the shape a Flusher is in when
+	// asn_lookup.enabled = false (see main.go).
+	f := &Flusher{Store: store, Writer: writer, Interval: time.Hour}
+
+	f.flushOnce(context.Background(), time.Time{}, time.Now())
+
+	rows := writer.lastCall()
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].Country != "" || rows[0].ASN != 0 || rows[0].ASNName != "" {
+		t.Errorf("row Country/ASN/ASNName = %q/%d/%q, want all zero value with no Resolver set", rows[0].Country, rows[0].ASN, rows[0].ASNName)
+	}
 }
