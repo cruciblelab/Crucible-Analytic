@@ -104,6 +104,7 @@ func main() {
 
 	flusher := &storage.Flusher{
 		Store:     store,
+		SiteID:    cfg.SiteID,
 		Writer:    writer,
 		KnownBots: scoring.KnownBotJA4,
 		Interval:  cfg.Storage.FlushInterval(),

@@ -47,7 +47,7 @@ func TestBuildRows(t *testing.T) {
 		},
 	}
 
-	rows := BuildRows(snaps, knownBots, flushTime, nil, nil)
+	rows := BuildRows(snaps, knownBots, flushTime, nil, nil, "test-site")
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
@@ -76,9 +76,27 @@ func TestBuildRows(t *testing.T) {
 }
 
 func TestBuildRows_Empty(t *testing.T) {
-	rows := BuildRows(nil, nil, time.Now(), nil, nil)
+	rows := BuildRows(nil, nil, time.Now(), nil, nil, "test-site")
 	if len(rows) != 0 {
 		t.Errorf("len(rows) = %d, want 0 for no snapshots", len(rows))
+	}
+}
+
+func TestBuildRows_StampsSiteIDOnEveryRow(t *testing.T) {
+	flushTime := time.Now()
+	snaps := []ratestore.Snapshot{
+		{IP: netip.MustParseAddr("203.0.113.1"), LastSeen: flushTime},
+		{IP: netip.MustParseAddr("203.0.113.2"), LastSeen: flushTime},
+	}
+
+	rows := BuildRows(snaps, nil, flushTime, nil, nil, "ahmetteknoloji")
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+	for i, r := range rows {
+		if r.SiteID != "ahmetteknoloji" {
+			t.Errorf("row %d: SiteID = %q, want ahmetteknoloji (every row carries the collector's own site)", i, r.SiteID)
+		}
 	}
 }
 
@@ -91,7 +109,7 @@ func TestBuildRows_EnrichesWithResolver(t *testing.T) {
 		IP: netip.MustParseAddr("8.8.8.8"), Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
 	}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil)
+	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -111,7 +129,7 @@ func TestBuildRows_ResolverNotFoundLeavesZeroValue(t *testing.T) {
 	// value, but this exercises the actual Resolve call path.
 	resolver := fakeResolver{result: asnlookup.Result{IP: netip.MustParseAddr("203.0.113.1"), Found: false}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil)
+	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -129,7 +147,7 @@ func TestBuildRows_KnownBotASNAddsScoreBonusAndFlag(t *testing.T) {
 	resolver := fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}}
 	knownBotASNs := map[int]struct{}{64512: {}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, knownBotASNs)
+	rows := BuildRows(snaps, nil, flushTime, resolver, knownBotASNs, "test-site")
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -152,7 +170,7 @@ func TestBuildRows_NilKnownBotASNsNoASNBonusEvenWithResolver(t *testing.T) {
 	}
 	resolver := fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil)
+	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}

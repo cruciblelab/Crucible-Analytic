@@ -43,6 +43,7 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	row := Row{
 		Time:            now,
+		SiteID:          "integration-test-site",
 		IP:              ip,
 		JA4:             "t13d1516h2_integration_test",
 		PrevWindowCount: 7,
@@ -84,17 +85,22 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	var gotASN int
 	var gotASNName string
 	var gotKnownBotASN bool
+	var gotSiteID string
 	// ORDER BY ... DESC LIMIT 1 rather than a bare WHERE: defense in depth
 	// against exactly the leftover-row bug the cleanup fix above addresses
 	// - if any previous run's cleanup ever fails for some other reason,
 	// this still reads back the row this run just wrote, not a stale one.
 	err = w.pool.QueryRow(ctx,
-		`SELECT time, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score, is_known_bot_ja4, country, asn, asn_org, is_known_bot_asn
+		`SELECT time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score, is_known_bot_ja4, country, asn, asn_org, is_known_bot_asn
 		 FROM traffic_snapshots WHERE ja4 = $1 ORDER BY time DESC LIMIT 1`,
 		row.JA4,
-	).Scan(&gotTime, &gotIP, &gotJA4, &gotPrev, &gotCurr, &gotRate, &gotScore, &gotKnownBot, &gotCountry, &gotASN, &gotASNName, &gotKnownBotASN)
+	).Scan(&gotTime, &gotSiteID, &gotIP, &gotJA4, &gotPrev, &gotCurr, &gotRate, &gotScore, &gotKnownBot, &gotCountry, &gotASN, &gotASNName, &gotKnownBotASN)
 	if err != nil {
 		t.Fatalf("query back: %v", err)
+	}
+
+	if gotSiteID != row.SiteID {
+		t.Errorf("read back SiteID = %q, want %q", gotSiteID, row.SiteID)
 	}
 
 	if !gotTime.Equal(row.Time) {
@@ -123,6 +129,56 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	}
 	if gotKnownBotASN != row.IsKnownBotASN {
 		t.Errorf("read back IsKnownBotASN = %v, want %v", gotKnownBotASN, row.IsKnownBotASN)
+	}
+}
+
+// TestWriter_RealTimescaleDB_TwoSitesStaySeparable is the actual point of
+// site_id: one VDS hosting two customer sites runs two collectors against
+// one database, and each site's rows must stay cleanly filterable. Writing
+// both sites' rows for the *same* IP at the *same* timestamp is
+// deliberate - it's the case where every other column collides, so only
+// site_id can tell them apart.
+func TestWriter_RealTimescaleDB_TwoSitesStaySeparable(t *testing.T) {
+	ctx := context.Background()
+	w, err := NewWriter(ctx, testDatabaseURL)
+	if err != nil {
+		t.Fatalf("NewWriter: %v", err)
+	}
+	t.Cleanup(w.Close)
+
+	const ja4 = "t13d1516h2_integration_test_two_sites"
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ip := netip.MustParseAddr("203.0.113.44")
+	rows := []Row{
+		{Time: now, SiteID: "site-a", IP: ip, JA4: ja4, BotScore: 10},
+		{Time: now, SiteID: "site-b", IP: ip, JA4: ja4, BotScore: 20},
+	}
+	t.Cleanup(func() {
+		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, ja4); err != nil {
+			t.Logf("cleanup: delete failed: %v", err)
+		}
+	})
+
+	if _, err := w.WriteRows(ctx, rows); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+
+	for _, want := range rows {
+		var gotScore int16
+		var count int
+		err := w.pool.QueryRow(ctx,
+			`SELECT count(*), max(bot_score) FROM traffic_snapshots WHERE ja4 = $1 AND site_id = $2`,
+			ja4, want.SiteID,
+		).Scan(&count, &gotScore)
+		if err != nil {
+			t.Fatalf("query back for %s: %v", want.SiteID, err)
+		}
+		if count != 1 {
+			t.Errorf("site %s: got %d rows, want exactly 1 (site_id must isolate each site's rows)", want.SiteID, count)
+		}
+		if gotScore != want.BotScore {
+			t.Errorf("site %s: bot_score = %d, want %d (rows must not be mixed up between sites)", want.SiteID, gotScore, want.BotScore)
+		}
 	}
 }
 

@@ -18,7 +18,10 @@ type RowWriter interface {
 // optionally enriches it with country/ASN, and writes the resulting rows
 // via Writer.
 type Flusher struct {
-	Store     ratestore.RateStore
+	Store ratestore.RateStore
+	// SiteID identifies which site every row this flusher writes belongs
+	// to - see config.SiteID and Row.SiteID.
+	SiteID    string
 	Writer    RowWriter
 	KnownBots map[string]string
 	Interval  time.Duration
@@ -67,7 +70,7 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		return
 	}
 
-	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver, f.KnownBotASNs)
+	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver, f.KnownBotASNs, f.SiteID)
 	n, err := f.Writer.WriteRows(ctx, rows)
 	if err != nil {
 		f.logger().Error("flush failed", "err", err, "attempted_rows", len(rows))

@@ -94,6 +94,48 @@ dimensions; if IP-level blocking is ever wanted, it's a genuinely
 different feature (an IP blocklist/allowlist), not an extension of this
 one.
 
+## Exact cumulative request counts (deferred from the read API)
+
+The read API reports `peak_window_requests` - the busiest single sliding
+window - and deliberately reports no cumulative "total requests over this
+range". That's a data-model limit, not an oversight, and it's worth
+writing down because "how many requests did my site get this week" is an
+obvious thing a customer panel will want.
+
+**Why it can't be computed from what's stored.** `traffic_snapshots` is a
+periodic *sample* of the collector's in-memory sliding window, not a
+request log. Consecutive samples of the same IP overlap (a 60s window
+sampled every 10s by default), so `sum(curr_window_count)` overcounts by
+roughly window/interval.
+
+**What was tried and rejected.** An earlier version of the API
+reconstructed a total by integrating the sampled rate over time: sum the
+per-flush total rate, multiply by the flush interval inferred from the
+gaps between flush timestamps. The arithmetic was correct and a synthetic
+test with evenly spaced, steady traffic passed exactly. It was still
+wrong in practice, and a real end-to-end run caught it: 38 requests
+actually sent, 3 reported. Two compounding reasons:
+
+1. `request_rate` averages over the *window* (60s), but the integral
+   multiplies by the *flush interval* (2-10s). A burst shorter than the
+   window is therefore scaled down by roughly that ratio.
+2. The collector only writes rows for IPs seen since the previous flush,
+   so flush events are genuinely irregular under bursty traffic - the
+   "evenly spaced samples" premise the integral rests on simply doesn't
+   hold.
+
+The lesson worth keeping: the synthetic test validated the *arithmetic*
+but not the *premise*, and only running the real thing exposed it.
+
+**What an exact total would need.** A monotonic per-IP request counter
+that `ratestore` doesn't currently keep (its two-counter sliding window
+deliberately discards history to stay O(1) per IP). Adding one means a
+new counter in `ratestore.WindowStats`, a new column, and deciding what
+happens when an IP's entry is evicted after `cache.ttl_seconds` - the
+counter would need flushing before eviction or the tail would be lost.
+That's a real design change across three packages, not a query tweak,
+which is why it isn't bolted onto the API layer.
+
 ## Tunable per-ASN scoring weight (deferred from Aşama 4)
 
 Aşama 4 (see README's "Optional: IP → country / ASN lookup") ships a

@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -55,6 +56,14 @@ const (
 // (simplest to write by hand) and exposed as time.Duration via the
 // accessor methods below.
 type Config struct {
+	// SiteID identifies which site this collector instance is fronting.
+	// Required, and stamped onto every traffic_snapshots row, so one
+	// TimescaleDB can hold several sites' data - the case when one VDS
+	// hosts more than one customer site, each with its own collector
+	// process but sharing a database. It's also the path segment the
+	// read API exposes a site under (see cmd/analytics-api), which is
+	// why the character set is restricted below rather than free-form.
+	SiteID    string          `toml:"site_id"`
 	Mode      Mode            `toml:"mode"`
 	Network   NetworkConfig   `toml:"network"`
 	TLS       TLSConfig       `toml:"tls"`
@@ -63,6 +72,12 @@ type Config struct {
 	Limits    LimitsConfig    `toml:"limits"`
 	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
 }
+
+// siteIDPattern restricts SiteID to characters that are safe unescaped in
+// a URL path segment and in a filename, so the same identifier can be used
+// verbatim in the read API's routes without any encoding step that could
+// disagree between the collector writing rows and the API reading them.
+var siteIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 // NetworkConfig covers where the collector listens and what it proxies to.
 // BackendAddr is a plain host:port in both modes: passthrough dials it
@@ -276,6 +291,17 @@ func (c *Config) validate() error {
 	case ModePassthrough, ModeFull:
 	default:
 		return fmt.Errorf("config: invalid mode %q (want %q or %q)", c.Mode, ModePassthrough, ModeFull)
+	}
+
+	// Required rather than defaulted to something like "default": an
+	// unset site_id would silently commingle two sites' rows the moment a
+	// second collector is pointed at the same database, and that's a
+	// data-integrity problem you'd only notice long after the fact.
+	if c.SiteID == "" {
+		return fmt.Errorf("config: site_id is required (identifies which site this collector's rows belong to)")
+	}
+	if !siteIDPattern.MatchString(c.SiteID) {
+		return fmt.Errorf("config: invalid site_id %q (want 1-64 characters, letters/digits/underscore/dash only)", c.SiteID)
 	}
 
 	if c.Network.BackendAddr == "" {

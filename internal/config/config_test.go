@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,7 @@ func writeTOML(t *testing.T, content string) string {
 
 func TestLoad_Defaults(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 
@@ -91,8 +93,69 @@ timescale_dsn = "postgres://localhost/test"
 	}
 }
 
+func TestLoad_MissingSiteID(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for missing site_id")
+	}
+}
+
+func TestLoad_InvalidSiteID(t *testing.T) {
+	// site_id ends up in the read API's URL paths, so anything needing
+	// escaping (or a path separator, which could change what route a
+	// request actually hits) has to be rejected up front rather than
+	// escaped inconsistently later.
+	for _, siteID := range []string{
+		"has space",
+		"has/slash",
+		"has.dot",
+		"tırnaklı",              // non-ASCII
+		strings.Repeat("a", 65), // over the 64-char cap
+	} {
+		t.Run(siteID, func(t *testing.T) {
+			path := writeTOML(t, `
+site_id = "`+siteID+`"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+`)
+			if _, err := Load(path); err == nil {
+				t.Errorf("Load() error = nil, want error for site_id %q", siteID)
+			}
+		})
+	}
+}
+
+func TestLoad_ValidSiteIDIsAccepted(t *testing.T) {
+	for _, siteID := range []string{"ahmetteknoloji", "site-a", "site_b", "Site123", "a", strings.Repeat("a", 64)} {
+		t.Run(siteID, func(t *testing.T) {
+			path := writeTOML(t, `
+site_id = "`+siteID+`"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+`)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load() error = %v, want success for site_id %q", err, siteID)
+			}
+			if cfg.SiteID != siteID {
+				t.Errorf("SiteID = %q, want %q", cfg.SiteID, siteID)
+			}
+		})
+	}
+}
+
 func TestLoad_MissingBackendAddr(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [storage]
 timescale_dsn = "postgres://localhost/test"
 `)
@@ -103,6 +166,7 @@ timescale_dsn = "postgres://localhost/test"
 
 func TestLoad_MissingTimescaleDSN(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 `)
@@ -113,6 +177,7 @@ backend_addr = "127.0.0.1:8080"
 
 func TestLoad_InvalidMode(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 mode = "bogus"
 [network]
 backend_addr = "127.0.0.1:8080"
@@ -126,6 +191,7 @@ timescale_dsn = "postgres://localhost/test"
 
 func TestLoad_FullModeRequiresCert(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 mode = "full"
 [network]
 backend_addr = "127.0.0.1:8080"
@@ -139,6 +205,7 @@ timescale_dsn = "postgres://localhost/test"
 
 func TestLoad_FullModeWithCertSucceeds(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 mode = "full"
 [network]
 backend_addr = "127.0.0.1:8080"
@@ -162,6 +229,7 @@ timescale_dsn = "postgres://localhost/test"
 
 func TestLoad_CustomValuesOverrideDefaults(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 listen_addr = ":9443"
 backend_addr = "127.0.0.1:8080"
@@ -205,6 +273,7 @@ func TestLoad_MalformedTOML(t *testing.T) {
 
 func TestLoad_LimitsCanBeOverridden(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -235,6 +304,7 @@ overload_policy = "fail_closed"
 
 func TestLoad_InvalidOverloadPolicy(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -249,6 +319,7 @@ overload_policy = "yolo"
 
 func TestLoad_ThrottleWithoutQueueSizeFails(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -264,6 +335,7 @@ throttle_queue_size = 0
 
 func TestLoad_ThrottleWithQueueSizeSucceeds(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -289,6 +361,7 @@ func TestLoad_ASNLookupDisabledSkipsValidationOfItsOwnFields(t *testing.T) {
 	// even with nonsensical sub-fields - they're simply never consulted,
 	// the same way tls.cert_file isn't required when mode != "full".
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -313,6 +386,7 @@ known_bot_asns = [-1]
 
 func TestLoad_ASNLookupEnabledValidatesCacheMaxEntries(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -328,6 +402,7 @@ cache_max_entries = 0
 
 func TestLoad_ASNLookupEnabledValidatesCacheTTL(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -343,6 +418,7 @@ cache_ttl_seconds = -1
 
 func TestLoad_ASNLookupEnabledValidatesRefreshInterval(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -358,6 +434,7 @@ refresh_interval_seconds = 0
 
 func TestLoad_ASNLookupEnabledValidatesBlockedCountries(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -373,6 +450,7 @@ blocked_countries = ["USA"]
 
 func TestLoad_ASNLookupEnabledValidatesBlockedASNs(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -388,6 +466,7 @@ blocked_asns = [0]
 
 func TestLoad_ASNLookupEnabledValidatesKnownBotASNs(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]
@@ -403,6 +482,7 @@ known_bot_asns = [-5]
 
 func TestLoad_ASNLookupEnabledWithValidFieldsSucceeds(t *testing.T) {
 	path := writeTOML(t, `
+site_id = "test-site"
 [network]
 backend_addr = "127.0.0.1:8080"
 [storage]

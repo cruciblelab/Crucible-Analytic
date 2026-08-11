@@ -17,6 +17,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- but not the ASN one (or vice versa) still gets whichever half resolved.
 CREATE TABLE IF NOT EXISTS traffic_snapshots (
     time              TIMESTAMPTZ      NOT NULL,
+    site_id           TEXT             NOT NULL DEFAULT '',
     ip                INET             NOT NULL,
     ja4               TEXT             NOT NULL DEFAULT '',
     prev_window_count INTEGER          NOT NULL,
@@ -45,6 +46,13 @@ ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS asn_org TEXT NOT NULL DEF
 -- asn_lookup.apply_to_scoring = true - see internal/scoring and the
 -- README's "Optional: IP → country / ASN lookup").
 ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS is_known_bot_asn BOOLEAN NOT NULL DEFAULT FALSE;
+-- site_id identifies which site a row belongs to, so one database can
+-- serve several collectors (one VDS hosting more than one customer site,
+-- each with its own collector process). Defaults to '' only so this
+-- migration can run against an existing table; the collector itself
+-- requires a non-empty site_id in its config, so no new row will ever
+-- carry the default.
+ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS site_id TEXT NOT NULL DEFAULT '';
 
 SELECT create_hypertable('traffic_snapshots', 'time', if_not_exists => TRUE);
 
@@ -52,3 +60,12 @@ SELECT create_hypertable('traffic_snapshots', 'time', if_not_exists => TRUE);
 -- phase will need; without it, every such query forces a full chunk scan.
 CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_ip_time
     ON traffic_snapshots (ip, time DESC);
+
+-- Supports the read API's primary access pattern - "everything for site X
+-- between times A and B" - which the ip-leading index above can't serve,
+-- since site_id isn't its leading column. Kept as a second index rather
+-- than replacing the one above: per-IP history lookups are still a real
+-- pattern, and adding an index is a self-migrating change while altering
+-- an existing one isn't.
+CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_site_time
+    ON traffic_snapshots (site_id, time DESC);

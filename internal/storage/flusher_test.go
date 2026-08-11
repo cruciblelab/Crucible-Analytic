@@ -156,6 +156,25 @@ func TestFlusher_NilResolverLeavesGeoFieldsZeroValue(t *testing.T) {
 	}
 }
 
+func TestFlusher_StampsSiteIDOnWrittenRows(t *testing.T) {
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("203.0.113.11"), "ja4", time.Now())
+
+	writer := &fakeWriter{}
+	f := &Flusher{Store: store, SiteID: "ahmetteknoloji", Writer: writer, Interval: time.Hour}
+
+	f.flushOnce(context.Background(), time.Time{}, time.Now())
+
+	rows := writer.lastCall()
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].SiteID != "ahmetteknoloji" {
+		t.Errorf("row SiteID = %q, want ahmetteknoloji", rows[0].SiteID)
+	}
+}
+
 func TestFlusher_KnownBotASNsAddsScoreBonus(t *testing.T) {
 	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
 	defer store.Close()

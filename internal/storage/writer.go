@@ -13,7 +13,7 @@ const tableName = "traffic_snapshots"
 // columns must stay in sync with the field order WriteRows encodes in and
 // with schema.sql's column list.
 var columns = []string{
-	"time", "ip", "ja4", "prev_window_count", "curr_window_count",
+	"time", "site_id", "ip", "ja4", "prev_window_count", "curr_window_count",
 	"request_rate", "bot_score", "is_known_bot_ja4",
 	"country", "asn", "asn_org", "is_known_bot_asn",
 }
@@ -50,7 +50,7 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 	n, err := w.pool.CopyFrom(ctx, pgx.Identifier{tableName}, columns, pgx.CopyFromSlice(len(rows), func(i int) ([]any, error) {
 		r := rows[i]
 		return []any{
-			r.Time, r.IP, r.JA4, r.PrevWindowCount, r.CurrWindowCount,
+			r.Time, r.SiteID, r.IP, r.JA4, r.PrevWindowCount, r.CurrWindowCount,
 			r.RequestRate, r.BotScore, r.IsKnownBotJA4,
 			r.Country, r.ASN, r.ASNName, r.IsKnownBotASN,
 		}, nil

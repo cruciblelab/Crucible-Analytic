@@ -2,6 +2,13 @@
 # fill in the values marked required below. Any field left out entirely
 # keeps its default - see internal/config/config.go's defaults().
 
+# Required. Which site this collector instance is fronting. Stamped onto
+# every row it writes, so one database can hold several sites' data (one
+# server running several collectors, one per customer site). Also the path
+# segment this site is exposed under by the read API, hence the restricted
+# character set: 1-64 chars, letters/digits/underscore/dash only.
+site_id = "example-site"
+
 # "passthrough" (default) or "full". See the README for what each means.
 mode = "passthrough"
 

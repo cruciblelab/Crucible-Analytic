@@ -3,9 +3,10 @@
 A bot-aware web analytics collector: an open-source alternative to
 Google Analytics that separately detects and surfaces bot/DDoS traffic.
 
-This is the **first phase only**: `Collector → Cache/Score → TimescaleDB`.
-There is no dashboard, no query API, and no path-scanning detection yet —
-those are later phases.
+The pipeline is `Collector → Cache/Score → TimescaleDB → read-only JSON
+API`. There is no dashboard UI and no path-scanning detection yet — those
+are later phases; the API is designed to be consumed by a panel you
+already have.
 
 ## What this does — and doesn't do
 
@@ -25,9 +26,12 @@ those are later phases.
   does not yet break requests down by page/path - that's path-scanning
   detection, listed under "Explicitly out of scope for this phase" below.
 - Persist the score and underlying data to TimescaleDB, a real
-  Postgres-compatible database your own systems can query directly. A
-  purpose-built query API is a later phase, not something already built here
-  (see "Explicitly out of scope for this phase").
+  Postgres-compatible database your own systems can query directly.
+- Serve that data back over a **read-only, token-authenticated JSON API**
+  (`cmd/analytics-api`), so an external management panel can pull each site's
+  statistics over HTTP without touching the database - see "Read-only
+  analytics API" below. The panel/dashboard UI itself is not part of this
+  project.
 
 **This project does not:**
 - **Stop network-level (volumetric) DDoS attacks.** Traffic in the
@@ -279,6 +283,86 @@ IPv6 address, which isn't an in-place-compatible change. This feature is
 disabled by default and was only added recently, so there's no expected
 production data to migrate either way.
 
+## Read-only analytics API
+
+`cmd/analytics-api` serves each site's statistics as JSON over HTTP, so a
+management panel can pull them without holding database credentials. It's
+a **separate binary from the collector**, deliberately:
+
+- One server may run several collectors (one per site) but needs only one
+  API.
+- The collector sits in the traffic path; the API shouldn't have to.
+- Giving the API a **read-only Postgres role** is only meaningful if it
+  isn't sharing a process with the writer. Every query it issues is a
+  `SELECT`; `analytics-api.example.toml` includes the `CREATE ROLE` /
+  `GRANT SELECT` snippet to set that up.
+
+### Multi-site: `site_id`
+
+Every collector stamps its configured `site_id` onto every row it writes,
+so one database can hold several sites' data - the case where one server
+hosts more than one customer site, each with its own collector process.
+`site_id` is **required** and restricted to `[a-zA-Z0-9_-]{1,64}`, since
+it's also the path segment a site is exposed under. It's required rather
+than defaulted because an unset one would silently commingle two sites'
+rows the moment a second collector pointed at the same database - a
+data-integrity problem you'd notice long after the fact.
+
+### Tokens
+
+Callers authenticate with `Authorization: Bearer <token>`. The config
+stores only each token's **SHA-256 hash**, never the token, so a leaked
+config hands over no working credential. Generate a pair with:
+
+```bash
+analytics-api -hash-token
+```
+
+Each token lists which sites it may read. Use `["*"]` for your own
+management panel (which needs every site on that server) and an explicit
+list for anything else - especially a token handed to a customer, which
+must only ever cover their own site. A token asking for a site outside its
+grant gets `403`, and `GET /api/v1/sites` returns only what that token can
+see, so other customers' site names don't leak.
+
+The tokens are bearer credentials: **terminate TLS in front of this API**.
+It binds to `127.0.0.1:8080` by default so that's a deliberate decision
+rather than an accident.
+
+### Endpoints
+
+All are `GET`, all return JSON, all accept `from`/`to` as RFC 3339
+timestamps (defaulting to the last 24 hours, capped at 90 days) and
+`bot_score_min` (0-100, default 50) to set the bot/human cutoff.
+
+| Endpoint | Returns |
+| --- | --- |
+| `/healthz` | Liveness only, no data - the one route needing no token. |
+| `/api/v1/sites` | Site IDs this token may read. |
+| `/api/v1/sites/{site}/summary` | Unique IPs, bot/human split, peak+avg request rate, busiest-window request count. |
+| `/api/v1/sites/{site}/timeseries` | The above bucketed over time; `interval` is one of `1 minute`, `5 minutes`, `15 minutes`, `1 hour` (default), `6 hours`, `1 day`, `1 week`. |
+| `/api/v1/sites/{site}/top-ips` | Highest-scoring IPs with their country/ASN/JA4 and known-bot flags; `limit` default 50, max 1000. |
+| `/api/v1/sites/{site}/countries` | Distinct IPs and bot IPs per country. |
+| `/api/v1/sites/{site}/asns` | Distinct IPs and bot IPs per ASN, with the organization name. |
+
+### What the numbers mean (and one thing they deliberately don't)
+
+`traffic_snapshots` is a periodic *sample* of the collector's sliding
+window, not a request log - so consecutive samples of the same IP overlap
+and **must not be summed**. Every figure this API reports is exact by
+construction: distinct-IP counts, max/avg over the sampled rates, and
+`peak_window_requests`, which reads the collector's own window counters at
+the single busiest flush ("your busiest minute saw N requests").
+
+There is deliberately **no cumulative "total requests" figure**. An
+earlier version computed one by integrating the sampled rate over time; it
+passed a synthetic test with steady, evenly spaced data and was still
+wrong on real traffic - a run that sent 38 requests reported 3, because
+the rate averages over the 60s window while the integral multiplied by the
+much shorter flush interval, and because bursty traffic makes flush
+spacing irregular. It was removed rather than shipped with a caveat. See
+`NOTES.md` for what an exact total would actually require.
+
 ## Design notes
 
 - **Language: Go.** Goroutines suit the high-concurrency connection model,
@@ -392,8 +476,8 @@ Requires Go 1.23+.
 docker compose up -d
 docker compose ps --format '{{.Name}}: {{.Health}}' # wait for "healthy"
 
-# 2. Copy the example config and fill in backend_addr / timescale_dsn
-#    (and tls.cert_file/key_file if you're using mode = "full").
+# 2. Copy the example config and fill in site_id / backend_addr /
+#    timescale_dsn (and tls.cert_file/key_file if using mode = "full").
 cp config.example.toml config.toml
 $EDITOR config.toml
 
@@ -409,6 +493,14 @@ psql "postgres://collector:collector@localhost:5432/analytics" -f internal/asnlo
 # 4. Run it (looks for ./config.toml by default; override with -config).
 go run ./cmd/collector
 # or: go run ./cmd/collector -config /path/to/config.toml
+
+# 5. Optionally, run the read-only API alongside it, so a panel can pull
+#    the collected statistics over HTTP. It's a separate process with its
+#    own config - see "Read-only analytics API" above.
+cp analytics-api.example.toml analytics-api.toml
+go run ./cmd/analytics-api -hash-token   # generate a token + its hash
+$EDITOR analytics-api.toml               # paste the hash, set the DSN
+go run ./cmd/analytics-api
 ```
 
 If you're pointing `docker compose` at an already-existing TimescaleDB
@@ -450,6 +542,7 @@ other field has a default. `config.toml` is gitignored since
 
 | Field                              | Default             | Meaning                                                        |
 | ----------------------------------- | -------------------- | --------------------------------------------------------------- |
+| `site_id`                           | —                    | **Required.** Which site this collector fronts; stamped on every row so one database can hold several sites. `[a-zA-Z0-9_-]{1,64}` - see "Read-only analytics API" above. |
 | `mode`                              | `"passthrough"`      | `"passthrough"` or `"full"` - see "What it does" above.         |
 | `network.listen_addr`               | `:8443`              | Address the proxy accepts connections on.                       |
 | `network.backend_addr`              | —                    | **Required.** `host:port` of the site to proxy to.               |
@@ -490,7 +583,7 @@ default suite above stays that way:
 # Needs a real TimescaleDB: docker compose up -d first (see "Running
 # locally"), plus internal/asnlookup/schema.sql applied (creates both
 # tables) if you want that package's suite too.
-go test -tags integration ./internal/storage/... ./internal/asnlookup/... -v
+go test -tags integration ./internal/storage/... ./internal/asnlookup/... ./internal/api/... -v
 
 # No external dependency - just slower and more timing-sensitive than the
 # default suite should be, since it fires dozens of genuinely concurrent
@@ -547,7 +640,31 @@ own `country`/`asn`/`asn_org`/`is_known_bot_asn` columns both ways: a row
 with real values round-trips correctly, and a row built the way
 `BuildRows` produces one with no resolver (`asn_lookup.enabled = false`)
 reads back as `''`/`0`/`''`/`false` rather than `NULL` or some other
-encoding surprise.
+encoding surprise. It also proves the point of `site_id`: two sites'
+rows written for the *same* IP at the *same* timestamp - so that every
+other column collides and only `site_id` can separate them - stay cleanly
+filterable.
+
+`internal/api` is covered at two levels. Against a fake store,
+`server_test.go` pins the security boundary: every `/api/` route rejects a
+missing or wrong token, every per-site route rejects a token whose grant
+doesn't cover that site (asserted per route, since one route forgetting
+the check would leak another customer's data), `/api/v1/sites` doesn't
+leak the names of sites a token can't read, non-`GET` methods are refused,
+malformed parameters are `400`, and a database error is genericised rather
+than echoed to the client. Against a real TimescaleDB,
+`integration_test.go` proves the SQL is valid and - most importantly -
+that **every** query is site-scoped, seeding two sites with identical IPs
+and timestamps and checking that none of `summary`, `timeseries`,
+`top-ips`, `countries`, or `asns` leaks one into the other.
+
+Both were backed up by running the real binaries end to end: a real
+collector fronting a real backend, writing to a real TimescaleDB, with the
+real API binary serving queries over HTTP using a token generated by its
+own `-hash-token` flag (cross-checked against `sha256sum`). That run is
+also what caught the cumulative-request-count defect described above -
+the unit and integration tests had both passed, because they shared the
+same wrong premise about sampling regularity that the code did.
 
 `internal/scoring/scoring_test.go` and `storage.BuildRows`/`Flusher`'s own
 tests cover the ASN scoring component the same way JA4's was already
@@ -604,7 +721,11 @@ allocations.
 
 ## Explicitly out of scope for this phase
 
-Dashboard, query API, path-scanning detection, header-consistency checks,
+A dashboard UI (the read-only API exists to feed one you already have),
+user login/session management (the API authenticates *callers* with
+tokens; authenticating *humans* belongs in the panel in front of it),
+exact cumulative request totals (see "What the numbers mean" above and
+`NOTES.md`), path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
 and a richer country/ASN rule engine beyond the flat `blocked_countries`/

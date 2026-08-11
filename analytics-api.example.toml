@@ -1,0 +1,43 @@
+# Config for the read-only analytics API (cmd/analytics-api). Copy to
+# analytics-api.toml, or point -config at it directly.
+#
+# This is a separate process and a separate config from the collector's,
+# on purpose - see cmd/analytics-api/main.go's doc comment for why.
+
+# Defaults to 127.0.0.1:8080 (loopback only). Keep it on loopback and put
+# a TLS-terminating reverse proxy in front, or bind it publicly only if
+# you're terminating TLS here yourself - the tokens below are bearer
+# credentials and must never cross the network in plaintext.
+listen_addr = "127.0.0.1:8080"
+
+# Required. Should name a READ-ONLY Postgres role - this process only ever
+# issues SELECTs, and a read-only role means a compromise of it can't
+# corrupt or delete a customer's history. Create one with:
+#
+#   CREATE ROLE analytics_reader LOGIN PASSWORD 'change-me';
+#   GRANT CONNECT ON DATABASE analytics TO analytics_reader;
+#   GRANT USAGE ON SCHEMA public TO analytics_reader;
+#   GRANT SELECT ON traffic_snapshots TO analytics_reader;
+timescale_dsn = "postgres://analytics_reader:change-me@localhost:5432/analytics"
+
+# One entry per caller. Generate the token and its hash with:
+#
+#   analytics-api -hash-token
+#
+# Store only the hash here; hand the token itself to the caller. A leaked
+# config then gives away no working credential.
+#
+# sites lists which site_ids this token may read. Use ["*"] for your own
+# management panel (which needs to see every site on this server), and an
+# explicit list for anything else - especially a token handed to a
+# customer, which must only ever cover their own site.
+
+[[tokens]]
+name = "management-panel"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+sites = ["*"]
+
+# [[tokens]]
+# name = "ahmet-teknoloji-readonly"
+# sha256 = "..."
+# sites = ["ahmetteknoloji"]

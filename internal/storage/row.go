@@ -28,7 +28,11 @@ type GeoResolver interface {
 // plus the score derived from it, ready to persist. Field set matches
 // schema.sql's traffic_snapshots table.
 type Row struct {
-	Time            time.Time
+	Time time.Time
+	// SiteID is which site this row belongs to (config.site_id) - stamped
+	// identically on every row a given collector writes, so one database
+	// can hold several sites' data.
+	SiteID          string
 	IP              netip.Addr
 	JA4             string
 	PrevWindowCount int
@@ -63,8 +67,10 @@ type Row struct {
 // separate on/off flag of its own. knownBotASNs is nil whenever
 // asn_lookup.apply_to_scoring = false (the default); see scoring.Score for
 // why that alone is enough to make the ASN scoring component a no-op,
-// without BuildRows needing its own separate check.
-func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flushTime time.Time, resolver GeoResolver, knownBotASNs map[int]struct{}) []Row {
+// without BuildRows needing its own separate check. siteID is stamped
+// unchanged onto every row - it identifies the collector's own site, not
+// anything derived per-snapshot.
+func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flushTime time.Time, resolver GeoResolver, knownBotASNs map[int]struct{}, siteID string) []Row {
 	rows := make([]Row, 0, len(snapshots))
 	for _, snap := range snapshots {
 		var geo asnlookup.Result
@@ -75,6 +81,7 @@ func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flus
 		result := scoring.Score(snap.EstimatedRate, snap.JA4, knownBots, geo.ASN, knownBotASNs)
 		rows = append(rows, Row{
 			Time:            flushTime,
+			SiteID:          siteID,
 			IP:              snap.IP,
 			JA4:             snap.JA4,
 			PrevWindowCount: snap.PrevWindowCount,
