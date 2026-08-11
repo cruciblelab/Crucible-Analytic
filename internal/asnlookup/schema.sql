@@ -30,3 +30,19 @@ CREATE TABLE IF NOT EXISTS ip_country_ranges (
 -- copy rebuilt on every refresh (see asnlookup.go) specifically so a
 -- per-request hot path never depends on a database round trip.
 CREATE INDEX IF NOT EXISTS idx_ip_country_ranges_start ON ip_country_ranges (start_addr);
+
+-- ASN ranges: a separate table, not columns bolted onto
+-- ip_country_ranges, because the country and ASN datasets are
+-- independently sourced with their own, unrelated range boundaries (see
+-- the package doc comment in asnlookup.go) - merging them into one row
+-- per range would need real overlap-resolution logic this project has
+-- deliberately stayed away from.
+CREATE TABLE IF NOT EXISTS ip_asn_ranges (
+    start_addr INET    NOT NULL,
+    end_addr   INET    NOT NULL,
+    asn        INTEGER NOT NULL,
+    asn_org    TEXT    NOT NULL,
+    PRIMARY KEY (start_addr, end_addr)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ip_asn_ranges_start ON ip_asn_ranges (start_addr);

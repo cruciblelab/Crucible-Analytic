@@ -6,9 +6,9 @@ import (
 )
 
 func TestRangeTable_LookupWithinBounds(t *testing.T) {
-	table := newRangeTable([]rangeEntry{
-		{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.99"), country: "US"},
-		{start: netip.MustParseAddr("198.51.100.0"), end: netip.MustParseAddr("198.51.100.99"), country: "DE"},
+	table := newRangeTable([]rangeEntry[string]{
+		{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.99"), value: "US"},
+		{start: netip.MustParseAddr("198.51.100.0"), end: netip.MustParseAddr("198.51.100.99"), value: "DE"},
 	})
 
 	tests := []struct {
@@ -37,11 +37,11 @@ func TestRangeTable_LookupWithinBounds(t *testing.T) {
 }
 
 func TestRangeTable_IPv6LookupWithinBounds(t *testing.T) {
-	table := newRangeTable([]rangeEntry{
+	table := newRangeTable([]rangeEntry[string]{
 		{
-			start:   netip.MustParseAddr("2001:db8::"),
-			end:     netip.MustParseAddr("2001:db8::ffff"),
-			country: "JP",
+			start: netip.MustParseAddr("2001:db8::"),
+			end:   netip.MustParseAddr("2001:db8::ffff"),
+			value: "JP",
 		},
 	})
 
@@ -57,9 +57,9 @@ func TestRangeTable_IPv6LookupWithinBounds(t *testing.T) {
 }
 
 func TestRangeTable_UnsortedInputIsSorted(t *testing.T) {
-	table := newRangeTable([]rangeEntry{
-		{start: netip.MustParseAddr("198.51.100.0"), end: netip.MustParseAddr("198.51.100.99"), country: "DE"},
-		{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.99"), country: "US"},
+	table := newRangeTable([]rangeEntry[string]{
+		{start: netip.MustParseAddr("198.51.100.0"), end: netip.MustParseAddr("198.51.100.99"), value: "DE"},
+		{start: netip.MustParseAddr("192.0.2.0"), end: netip.MustParseAddr("192.0.2.99"), value: "US"},
 	})
 	if country, found := table.lookup(netip.MustParseAddr("192.0.2.50")); !found || country != "US" {
 		t.Errorf("lookup(192.0.2.50) = (%q, %v), want (US, true)", country, found)
@@ -70,22 +70,22 @@ func TestRangeTable_UnsortedInputIsSorted(t *testing.T) {
 }
 
 func TestRangeTable_EmptyTable(t *testing.T) {
-	table := newRangeTable(nil)
+	table := newRangeTable[string](nil)
 	if _, found := table.lookup(netip.MustParseAddr("192.0.2.1")); found {
 		t.Error("lookup on an empty table found a result, want none")
 	}
 }
 
 func TestRangeTable_NilTable(t *testing.T) {
-	var table *rangeTable
+	var table *rangeTable[string]
 	if _, found := table.lookup(netip.MustParseAddr("192.0.2.1")); found {
 		t.Error("lookup on a nil *rangeTable found a result, want none")
 	}
 }
 
 func TestRangeTable_SingleEntry(t *testing.T) {
-	table := newRangeTable([]rangeEntry{
-		{start: netip.MustParseAddr("192.0.2.10"), end: netip.MustParseAddr("192.0.2.20"), country: "FR"},
+	table := newRangeTable([]rangeEntry[string]{
+		{start: netip.MustParseAddr("192.0.2.10"), end: netip.MustParseAddr("192.0.2.20"), value: "FR"},
 	})
 	if country, found := table.lookup(netip.MustParseAddr("192.0.2.15")); !found || country != "FR" {
 		t.Errorf("lookup(192.0.2.15) = (%q, %v), want (FR, true)", country, found)
@@ -95,5 +95,27 @@ func TestRangeTable_SingleEntry(t *testing.T) {
 	}
 	if _, found := table.lookup(netip.MustParseAddr("192.0.2.21")); found {
 		t.Error("lookup(192.0.2.21) found a result, want none (above the only range)")
+	}
+}
+
+// TestRangeTable_GenericOverASNInfo proves rangeTable actually works for
+// a second, different payload type - not just string (country) - since
+// the whole point of making it generic was to share this logic between
+// the country and ASN datasets rather than duplicating it.
+func TestRangeTable_GenericOverASNInfo(t *testing.T) {
+	table := newRangeTable([]rangeEntry[asnInfo]{
+		{start: netip.MustParseAddr("8.8.8.0"), end: netip.MustParseAddr("8.8.8.255"), value: asnInfo{asn: 15169, org: "GOOGLE"}},
+	})
+
+	info, found := table.lookup(netip.MustParseAddr("8.8.8.8"))
+	if !found {
+		t.Fatal("lookup(8.8.8.8) found = false, want true")
+	}
+	if info.asn != 15169 || info.org != "GOOGLE" {
+		t.Errorf("lookup(8.8.8.8) = %+v, want {asn: 15169, org: GOOGLE}", info)
+	}
+
+	if _, found := table.lookup(netip.MustParseAddr("8.8.9.1")); found {
+		t.Error("lookup(8.8.9.1) found a result, want none (outside the only range)")
 	}
 }

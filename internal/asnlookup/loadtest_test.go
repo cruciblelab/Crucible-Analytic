@@ -82,11 +82,12 @@ func TestLoadTest_TTLCache_HitRatioUnderRealisticAccessPattern(t *testing.T) {
 // nil http.Client (which only proves a crash didn't happen if the network
 // path were taken), this points httpClient at a real, running
 // httptest.Server configured to fail the test outright if it ever
-// receives a single request, and drives loadCountryCSV for both address
-// families - not just one. (writeRanges/refresh's DB-persisting tail is
-// intentionally not exercised here - that needs a live TimescaleDB, see
-// integration_test.go - this test is specifically about the data-loading
-// path local_csv_path affects, which doesn't touch the database at all.)
+// receives a single request, and drives loadCountryCSV and loadASNCSV for
+// both address families each - not just one dataset/family. (writeCountryRanges/
+// writeASNRanges/refresh's DB-persisting tail is intentionally not
+// exercised here - that needs a live TimescaleDB, see integration_test.go
+// - this test is specifically about the data-loading path local_csv_path
+// affects, which doesn't touch the database at all.)
 func TestLoadTest_LocalCSVPath_NeverContactsNetwork(t *testing.T) {
 	contacted := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,10 +98,16 @@ func TestLoadTest_LocalCSVPath_NeverContactsNetwork(t *testing.T) {
 
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, countryIPv4Filename), []byte("192.0.2.0,192.0.2.255,US\n"), 0o644); err != nil {
-		t.Fatalf("writing ipv4 fixture: %v", err)
+		t.Fatalf("writing country ipv4 fixture: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, countryIPv6Filename), []byte("2001:db8::,2001:db8::ffff,JP\n"), 0o644); err != nil {
-		t.Fatalf("writing ipv6 fixture: %v", err)
+		t.Fatalf("writing country ipv6 fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, asnIPv4Filename), []byte("192.0.2.0,192.0.2.255,64512,Example Org\n"), 0o644); err != nil {
+		t.Fatalf("writing asn ipv4 fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, asnIPv6Filename), []byte("2001:db8::,2001:db8::ffff,64513,Example Org JP\n"), 0o644); err != nil {
+		t.Fatalf("writing asn ipv6 fixture: %v", err)
 	}
 
 	r := &Resolver{
@@ -115,15 +122,29 @@ func TestLoadTest_LocalCSVPath_NeverContactsNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCountryCSV(ipv6): %v", err)
 	}
+	asnEntries4, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename)
+	if err != nil {
+		t.Fatalf("loadASNCSV(ipv4): %v", err)
+	}
+	asnEntries6, err := r.loadASNCSV(context.Background(), asnIPv6URL, asnIPv6Filename)
+	if err != nil {
+		t.Fatalf("loadASNCSV(ipv6): %v", err)
+	}
 
 	if contacted {
-		t.Fatal("loadCountryCSV contacted the network server despite local_csv_path being set")
+		t.Fatal("loadCountryCSV/loadASNCSV contacted the network server despite local_csv_path being set")
 	}
-	if len(entries4) != 1 || entries4[0].country != "US" {
-		t.Errorf("ipv4 entries = %+v, want one US entry", entries4)
+	if len(entries4) != 1 || entries4[0].value != "US" {
+		t.Errorf("country ipv4 entries = %+v, want one US entry", entries4)
 	}
-	if len(entries6) != 1 || entries6[0].country != "JP" {
-		t.Errorf("ipv6 entries = %+v, want one JP entry", entries6)
+	if len(entries6) != 1 || entries6[0].value != "JP" {
+		t.Errorf("country ipv6 entries = %+v, want one JP entry", entries6)
+	}
+	if len(asnEntries4) != 1 || asnEntries4[0].value.asn != 64512 || asnEntries4[0].value.org != "Example Org" {
+		t.Errorf("asn ipv4 entries = %+v, want one AS64512 Example Org entry", asnEntries4)
+	}
+	if len(asnEntries6) != 1 || asnEntries6[0].value.asn != 64513 || asnEntries6[0].value.org != "Example Org JP" {
+		t.Errorf("asn ipv6 entries = %+v, want one AS64513 Example Org JP entry", asnEntries6)
 	}
 }
 
@@ -137,9 +158,9 @@ func TestLoadTest_LocalCSVPath_NeverContactsNetwork(t *testing.T) {
 // cancellation, with no leak.
 //
 // localCSVPath points at a directory that doesn't exist, so refresh's
-// immediate first call fails to load either family and returns before
-// ever touching the database - letting this test exercise Run's full
-// goroutine lifecycle without needing a live TimescaleDB (see
+// immediate first call fails to load either dataset, either family, and
+// returns before ever touching the database - letting this test exercise
+// Run's full goroutine lifecycle without needing a live TimescaleDB (see
 // integration_test.go for the DB-write path itself).
 func TestLoadTest_NewResolverAloneStartsNoBackgroundActivity(t *testing.T) {
 	before := runtime.NumGoroutine()

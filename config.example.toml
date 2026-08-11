@@ -53,19 +53,20 @@ throttle_queue_size = 200
 
 [asn_lookup]
 # Disabled by default. When false (or this whole section is omitted), the
-# dataset is never downloaded or read and asnlookup's TimescaleDB table is
-# never touched - see internal/asnlookup/schema.sql and the README before
-# turning this on (that table must be created manually first).
+# datasets are never downloaded or read and asnlookup's TimescaleDB tables
+# are never touched - see internal/asnlookup/schema.sql and the README
+# before turning this on (those tables must be created manually first).
 enabled = false
 # Accepted and validated, but not yet consulted by scoring - see the
-# README for why (this module resolves country, not ASN, this phase).
+# README for why (country and ASN are both resolved for real now; wiring
+# either into scoring or into a rate-limit rule is later work).
 apply_to_scoring = false
 # Only validated when enabled = true.
 cache_max_entries = 50000
 cache_ttl_seconds = 21600   # 6 hours
 refresh_interval_seconds = 604800 # 1 week
-# If set, every refresh reads <local_csv_path>/user-country-ipv4.csv and
-# -ipv6.csv from local disk instead of downloading them from GitHub
-# Releases - no network access at all in that mode. Leave empty (the
-# default) to download normally.
+# If set, every refresh reads <local_csv_path>/user-country-ipv4.csv,
+# -ipv6.csv, origin-asn-ipv4.csv and -ipv6.csv from local disk instead of
+# downloading them from GitHub Releases - no network access at all in that
+# mode. Leave empty (the default) to download normally.
 local_csv_path = ""

@@ -147,41 +147,42 @@ type LimitsConfig struct {
 }
 
 // ASNLookupConfig configures the optional internal/asnlookup module,
-// which resolves an IP to the country it's registered to (see that
-// package's doc comment for why it doesn't resolve an ASN yet, despite
-// the section name). Disabled by default: when Enabled is false, nothing
-// else in this section is consulted, the dataset is never downloaded or
-// read, and asnlookup's TimescaleDB table is never touched.
+// which resolves an IP to both the country it's registered to and the ASN
+// that routes it (see that package's doc comment for why the two datasets
+// are kept independent rather than merged). Disabled by default: when
+// Enabled is false, nothing else in this section is consulted, neither
+// dataset is ever downloaded or read, and asnlookup's TimescaleDB tables
+// are never touched.
 type ASNLookupConfig struct {
 	Enabled bool `toml:"enabled"`
 	// ApplyToScoring is accepted and validated but not yet consulted by
-	// internal/scoring - there's nothing meaningful for it to feed in
-	// while ASN itself goes unresolved (see internal/asnlookup). It's
-	// part of the config shape now so wiring it up later is a behavior
-	// change, not a schema change.
+	// internal/scoring - country and ASN are both resolved for real, but
+	// wiring either into scoring (or into a rate-limit rule) is later
+	// work. It's part of the config shape now so wiring it up later is a
+	// behavior change, not a schema change.
 	ApplyToScoring         bool `toml:"apply_to_scoring"`
 	CacheMaxEntries        int  `toml:"cache_max_entries"`
 	CacheTTLSeconds        int  `toml:"cache_ttl_seconds"`
 	RefreshIntervalSeconds int  `toml:"refresh_interval_seconds"`
-	// LocalCSVPath, if set, skips downloading the dataset from GitHub
+	// LocalCSVPath, if set, skips downloading either dataset from GitHub
 	// Releases entirely: every refresh instead reads
-	// <LocalCSVPath>/user-country-ipv4.csv and -ipv6.csv from local disk,
-	// with no network access of any kind. Useful for an offline VDS, or
-	// for operators who'd rather manage the download themselves (e.g. via
-	// their own cron job writing into that directory) than let the
-	// collector reach out to GitHub on its own schedule. Empty (the
-	// default) means download normally.
+	// <LocalCSVPath>/user-country-ipv4.csv, -ipv6.csv, origin-asn-ipv4.csv
+	// and -ipv6.csv from local disk, with no network access of any kind.
+	// Useful for an offline VDS, or for operators who'd rather manage the
+	// download themselves (e.g. via their own cron job writing into that
+	// directory) than let the collector reach out to GitHub on its own
+	// schedule. Empty (the default) means download normally.
 	LocalCSVPath string `toml:"local_csv_path"`
 }
 
 // CacheTTL is how long one resolved IP is cached before the next lookup
-// re-checks the in-memory range table.
+// re-checks the in-memory range tables.
 func (a ASNLookupConfig) CacheTTL() time.Duration {
 	return time.Duration(a.CacheTTLSeconds) * time.Second
 }
 
-// RefreshInterval is how often the dataset is re-fetched (downloaded, or
-// re-read from LocalCSVPath) and re-parsed.
+// RefreshInterval is how often both datasets are re-fetched (downloaded,
+// or re-read from LocalCSVPath) and re-parsed.
 func (a ASNLookupConfig) RefreshInterval() time.Duration {
 	return time.Duration(a.RefreshIntervalSeconds) * time.Second
 }

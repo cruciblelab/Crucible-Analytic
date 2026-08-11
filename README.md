@@ -141,52 +141,69 @@ of high CPU / low throughput in Go reverse proxies fronting a single
 backend host under concurrent load - constant redial instead of connection
 reuse) along with matching `MaxIdleConns`/`IdleConnTimeout`.
 
-## Optional: IP → country lookup
+## Optional: IP → country / ASN lookup
 
 Disabled by default (`asn_lookup.enabled = false`). When enabled,
-`internal/asnlookup` resolves a request's IP (IPv4 *and* IPv6) to the
-country it's registered to, using [sapics/ip-location-db](https://github.com/sapics/ip-location-db)'s
-`user-country` dataset - free, [PDDL](https://opendatacommons.org/licenses/pddl/1.0/)-licensed
+`internal/asnlookup` resolves a request's IP (IPv4 *and* IPv6) to both the
+country it's registered to and the ASN that routes it (number + org name,
+e.g. `15169` / `GOOGLE`), using two [sapics/ip-location-db](https://github.com/sapics/ip-location-db)
+datasets - `user-country` and `origin-asn` - free, [PDDL](https://opendatacommons.org/licenses/pddl/1.0/)-licensed
 (no attribution required, though we're glad to credit it), updated daily,
 compiled from RIR delegated-stats, BGP routing archives (RouteViews / RIPE
 RIS), and RFC 8805/9632 geofeeds. Huge thanks to sapics and the
 organizations behind those underlying sources.
 
-The three-column CSVs, one per family (`user-country-ipv4.csv`,
-`user-country-ipv6.csv`) are fetched from GitHub Releases on a schedule
+Four CSVs total - two datasets x two address families
+(`user-country-ipv4.csv`/`-ipv6.csv`, three columns each; `origin-asn-ipv4.csv`/`-ipv6.csv`,
+four columns each) - are fetched from GitHub Releases on a schedule
 (`asn_lookup.refresh_interval_seconds`, default weekly) - or, if
-`asn_lookup.local_csv_path` is set, read from that directory on local disk
-instead, with **no network access of any kind** in that mode (useful for
-an offline VDS, or if you'd rather manage the download yourself, e.g. via
-your own cron job writing into that directory). Either way, lookups are
-then answered locally against an in-memory copy of the parsed ranges (also
-mirrored to TimescaleDB for durability across restarts) - never a live
-network call, or in the common case a database call either, on the
-request path. An in-memory LRU+TTL cache
+`asn_lookup.local_csv_path` is set, all four are read from that directory
+on local disk instead, with **no network access of any kind** in that mode
+(useful for an offline VDS, or if you'd rather manage the download
+yourself, e.g. via your own cron job writing into that directory). Either
+way, lookups are then answered locally against four independent in-memory
+range tables - country x {v4,v6}, ASN x {v4,v6} - also mirrored to
+TimescaleDB for durability across restarts, never a live network call, or
+in the common case a database call either, on the request path. Country
+and ASN are resolved independently per lookup: an IP can be found in one
+dataset and not the other, and `Result.Found` is true if *either*
+succeeds, since the two datasets are sourced separately with their own
+unrelated range boundaries - see the package doc comment in
+`internal/asnlookup/asnlookup.go` for why they're kept as four separate
+tables rather than merged into one. An in-memory LRU+TTL cache
 (`asn_lookup.cache_max_entries`/`cache_ttl_seconds`, default 50,000
 entries / 6 hours) sits in front of that for repeat IPs.
 
-One scope limit, deliberate for this phase, not an oversight: **country,
-not ASN, despite the package name.** The `user-country` dataset carries
-only country codes - a real ASN number/organization-name lookup needs a
-different dataset from the same project (`origin-asn`), deferred to a
-later round. `Result.ASN` and `Result.ASNName` exist in the code so adding
-that later is a config change rather than a breaking one, but they're
-always the zero value right now - never a guess.
+`Result.ASN` and `Result.ASNName` are real now, not placeholders - both
+datasets are fetched, parsed, and queried independently, the same way
+`Result.Country` always has been. What's still deliberately out of scope
+this phase is *using* either signal for anything: there's no country/ASN
+rule wired into `internal/limiter`, and `internal/scoring` doesn't consult
+either signal yet (see `asn_lookup.apply_to_scoring` just below). Resolving
+IP → country/ASN and acting on the result are kept as separate steps on
+purpose - this phase only covers the former.
 
-`asn_lookup.apply_to_scoring` is accepted and validated but not yet
-consulted by `internal/scoring` - there's no ASN signal yet for it to feed
-into scoring with. It's part of the config shape now so wiring it up later
-is a behavior change, not a schema one.
+`asn_lookup.apply_to_scoring` is accepted and validated but still not
+consulted by `internal/scoring` - country and ASN are both real signals
+now, but wiring either into scoring (or into a rate-limit rule) is later
+work, not this round's. It's part of the config shape now so turning it on
+later is a behavior change, not a schema one.
 
 Enabling this requires applying `internal/asnlookup/schema.sql` once,
 manually, first - see "Running locally" below; like the rest of this
-collector, it never runs DDL itself. **If you already applied an older
-version of this schema** (`start_addr`/`end_addr` as `BIGINT`, IPv4 only),
-drop and recreate the table - this version uses `INET` columns to support
-both address families, which isn't an in-place-compatible change. This
-feature is disabled by default and was only added recently, so there's no
-expected production data to migrate.
+collector, it never runs DDL itself. It now creates **two** tables,
+`ip_country_ranges` and `ip_asn_ranges` - if you already applied an
+earlier version of this file that only had `ip_country_ranges` (`INET`
+columns, IPv4+IPv6), just re-apply it: every statement is `CREATE
+TABLE`/`CREATE INDEX ... IF NOT EXISTS`, so this only adds `ip_asn_ranges`
+alongside the existing table, no drop needed (verified directly against a
+live database with pre-existing data in `ip_country_ranges` - it's left
+untouched). **If you're instead still on the very first version**
+(`start_addr`/`end_addr` as `BIGINT`, IPv4 only, country only), drop
+`ip_country_ranges` and recreate both tables - `BIGINT` can't hold an
+IPv6 address, which isn't an in-place-compatible change. This feature is
+disabled by default and was only added recently, so there's no expected
+production data to migrate either way.
 
 ## Design notes
 
@@ -307,11 +324,12 @@ cp config.example.toml config.toml
 $EDITOR config.toml
 
 # 3. ONLY if you just set asn_lookup.enabled = true in step 2: apply its
-#    schema too, once. Unlike internal/storage/schema.sql, docker-
-#    compose.yml does NOT apply this one automatically - there's no
-#    docker-entrypoint-initdb.d mount for it, since it's optional and
-#    disabled by default. Skip this step entirely if asn_lookup.enabled
-#    is false (the default) - the collector runs fine without it existing.
+#    schema too, once (creates both the country and ASN range tables).
+#    Unlike internal/storage/schema.sql, docker-compose.yml does NOT apply
+#    this one automatically - there's no docker-entrypoint-initdb.d mount
+#    for it, since it's optional and disabled by default. Skip this step
+#    entirely if asn_lookup.enabled is false (the default) - the collector
+#    runs fine without it existing.
 psql "postgres://collector:collector@localhost:5432/analytics" -f internal/asnlookup/schema.sql
 
 # 4. Run it (looks for ./config.toml by default; override with -config).
@@ -331,12 +349,12 @@ psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
 Forgetting step 3 when `asn_lookup.enabled = true` isn't fatal - the
 collector still starts and runs normally, since a missing optional table
 is treated the same as any other refresh failure (logged, not fatal - see
-"Optional: IP → country lookup" above). It just means every lookup
+"Optional: IP → country / ASN lookup" above). It just means every lookup
 silently returns `Found: false` until you apply the schema and the next
-scheduled refresh runs, which is easy to mistake for "the dataset just
-doesn't cover this IP" rather than "the table doesn't exist yet." Check
-the logs for `asnlookup: failed to persist ranges` if lookups seem to
-never find anything.
+scheduled refresh runs, which is easy to mistake for "neither dataset
+covers this IP" rather than "the tables don't exist yet." Check the logs
+for `asnlookup: failed to persist country ranges` / `asnlookup: failed to
+persist asn ranges` if lookups seem to never find anything.
 
 ### Configuration
 
@@ -363,12 +381,12 @@ other field has a default. `config.toml` is gitignored since
 | `limits.max_requests_per_second`    | `500`                | Same, but an aggregate requests/second ceiling instead of a concurrency one. |
 | `limits.overload_policy`            | `"fail_open"`        | `"fail_open"`, `"fail_closed"`, or `"throttle"` once a limit above is exceeded - see "Recommended deployment order" above. |
 | `limits.throttle_queue_size`        | `200`                | Only used when `overload_policy = "throttle"`: bounds how many excess connections/requests can queue before falling back to `fail_closed`. |
-| `asn_lookup.enabled`                | `false`              | Turns on the optional IP → country lookup - see "Optional: IP → country lookup" below. |
-| `asn_lookup.apply_to_scoring`       | `false`              | Accepted and validated, but not yet consulted by scoring - see "Optional: IP → country lookup" below. |
+| `asn_lookup.enabled`                | `false`              | Turns on the optional IP → country / ASN lookup - see "Optional: IP → country / ASN lookup" below. |
+| `asn_lookup.apply_to_scoring`       | `false`              | Accepted and validated, but not yet consulted by scoring - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.cache_max_entries`      | `50000`              | Only validated when `asn_lookup.enabled = true`. Size of the in-memory LRU result cache. |
-| `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range table. |
-| `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often the dataset is re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
-| `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4.csv`/`-ipv6.csv` from this directory instead - no network access at all in that mode. |
+| `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range tables. |
+| `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often both datasets are re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
+| `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4/6.csv` and `origin-asn-ipv4/6.csv` from this directory instead - no network access at all in that mode. |
 
 ## Testing
 
@@ -383,14 +401,15 @@ default suite above stays that way:
 
 ```bash
 # Needs a real TimescaleDB: docker compose up -d first (see "Running
-# locally"), plus internal/asnlookup/schema.sql applied if you want that
-# package's suite too.
+# locally"), plus internal/asnlookup/schema.sql applied (creates both
+# tables) if you want that package's suite too.
 go test -tags integration ./internal/storage/... ./internal/asnlookup/... -v
 
 # No external dependency - just slower and more timing-sensitive than the
 # default suite should be, since it fires dozens of genuinely concurrent
-# connections at a real listening proxy.Server.
-go test -tags loadtest ./internal/loadtest/... -v
+# connections at a real listening proxy.Server, or drives a realistic
+# 100k-request cache access pattern.
+go test -tags loadtest ./internal/loadtest/... ./internal/asnlookup/... -v
 ```
 
 Coverage includes a hand-rolled ClientHello parser exercised against
@@ -415,7 +434,10 @@ calls, not one (`internal/fullproxy/server_test.go`).
 `go test -tags integration ./internal/storage/... ./internal/asnlookup/...`
 confirms both packages' pgx `netip.Addr` ↔ `inet` encoding round-trips
 correctly against a real TimescaleDB - read back through a raw query, not
-just the same path that wrote it - and that `internal/storage/schema.sql`'s
+just the same path that wrote it, for `ip_country_ranges` and
+`ip_asn_ranges` independently (including an ASN organization name
+containing a literal comma, the same real-data shape `parseASNCSV` is
+tested against) - and that `internal/storage/schema.sql`'s
 `create_hypertable` call actually took effect, not just that a plain table
 would have accepted the same writes.
 
@@ -432,14 +454,40 @@ ceiling lets roughly 20 of 100 simultaneous attempts through. Assertions
 allow some slack for real scheduling variance rather than pinning to one
 exact number.
 
+`go test -tags loadtest ./internal/asnlookup/...` covers this package's
+own load/scale behavior separately: a realistic 80/20 hot-set cache access
+pattern (`TestLoadTest_TTLCache_HitRatioUnderRealisticAccessPattern`), a
+stronger proof that `local_csv_path` makes zero network calls across all
+four dataset files - not just a nil-client crash-avoidance check
+(`TestLoadTest_LocalCSVPath_NeverContactsNetwork`), and a goroutine-leak
+check across `Run`'s full start/refresh/cancel lifecycle
+(`TestLoadTest_NewResolverAloneStartsNoBackgroundActivity`). A further
+`TestScale_RealDatasetMemoryAndParseTime` and two `BenchmarkResolve_*`
+benchmarks are gated behind an additional env var, since they need the
+real, fully-downloaded datasets rather than small fixtures:
+
+```bash
+ASNLOOKUP_SCALE_TEST_DIR=/path/to/dir go test -tags loadtest ./internal/asnlookup/... -run TestScale -bench BenchmarkResolve -benchmem -v
+```
+
+Measured against the real, full `user-country`/`origin-asn` CSVs: 556,155
+country ranges + 561,993 ASN ranges across all four files, parsed in ~1.5s
+total and retaining ~135 MB of heap for all four in-memory tables combined
+- the number a running collector with `asn_lookup.enabled = true` actually
+holds, not an estimate. A warm `Resolve` (cache hit) takes ~103 ns/op with
+zero allocations; a cold one (cache miss, genuinely falling through to
+both the country and ASN binary searches) takes ~1.12 µs/op with 2
+allocations.
+
 ## Explicitly out of scope for this phase
 
 Dashboard, query API, path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
-and real IP → ASN resolution (as opposed to IP → country, which is what
-`internal/asnlookup` actually does today - see "Optional: IP → country
-lookup" above; ASN needs a different dataset from the same project,
-deferred to a later round, not a different architecture). The `RateStore`
-interface and scoring package are shaped to make these additive later, not
-to pre-build them now.
+and *acting* on the country/ASN data `internal/asnlookup` now resolves -
+no country/ASN-based rate-limit rule wired into `internal/limiter`, and no
+ASN-based scoring signal wired into `internal/scoring` yet (see "Optional:
+IP → country / ASN lookup" above; resolving the data and acting on it are
+kept as separate phases on purpose). The `RateStore` interface and scoring
+package are shaped to make these additive later, not to pre-build them
+now.
