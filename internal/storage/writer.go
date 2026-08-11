@@ -15,7 +15,7 @@ const tableName = "traffic_snapshots"
 var columns = []string{
 	"time", "ip", "ja4", "prev_window_count", "curr_window_count",
 	"request_rate", "bot_score", "is_known_bot_ja4",
-	"country", "asn", "asn_org",
+	"country", "asn", "asn_org", "is_known_bot_asn",
 }
 
 // Writer persists Rows to TimescaleDB using COPY, which for the batch
@@ -52,7 +52,7 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 		return []any{
 			r.Time, r.IP, r.JA4, r.PrevWindowCount, r.CurrWindowCount,
 			r.RequestRate, r.BotScore, r.IsKnownBotJA4,
-			r.Country, r.ASN, r.ASNName,
+			r.Country, r.ASN, r.ASNName, r.IsKnownBotASN,
 		}, nil
 	}))
 	if err != nil {

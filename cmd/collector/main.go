@@ -90,6 +90,18 @@ func main() {
 	// check it against.
 	geoBlocklist := limiter.NewGeoBlocklist(cfg.ASNLookup.BlockedCountries, cfg.ASNLookup.BlockedASNs)
 
+	// nil unless apply_to_scoring is explicitly on and at least one ASN
+	// is configured - map lookups against a nil map are safe and always
+	// miss, so scoring.Score doesn't need its own separate on/off switch
+	// for this beyond the map being nil or not.
+	var knownBotASNs map[int]struct{}
+	if cfg.ASNLookup.ApplyToScoring && len(cfg.ASNLookup.KnownBotASNs) > 0 {
+		knownBotASNs = make(map[int]struct{}, len(cfg.ASNLookup.KnownBotASNs))
+		for _, asn := range cfg.ASNLookup.KnownBotASNs {
+			knownBotASNs[asn] = struct{}{}
+		}
+	}
+
 	flusher := &storage.Flusher{
 		Store:     store,
 		Writer:    writer,
@@ -106,6 +118,11 @@ func main() {
 		// a nil receiver - this guard is what keeps flusher.Resolver a
 		// true nil interface when lookup is disabled or failed to start.
 		flusher.Resolver = lookup
+		// knownBotASNs is only meaningful alongside a real resolver (no
+		// resolver means every row's ASN is 0, which scoring.Score never
+		// matches anyway - see its own zero-value guard), so it's wired
+		// here too rather than unconditionally.
+		flusher.KnownBotASNs = knownBotASNs
 	}
 	flusherDone := make(chan struct{})
 	go func() {

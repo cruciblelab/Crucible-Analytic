@@ -44,21 +44,36 @@ type Row struct {
 	Country string
 	ASN     int
 	ASNName string
+	// IsKnownBotASN mirrors IsKnownBotJA4, but for ASN: true when ASN
+	// matched knownBotASNs. Always false when knownBotASNs is nil/empty
+	// (asn_lookup.apply_to_scoring = false, the default) or resolver is
+	// nil - see scoring.Score.
+	IsKnownBotASN bool
 }
 
 // BuildRows converts RateStore snapshots into storage-ready rows,
-// computing each one's bot score and (if resolver is non-nil)
-// country/ASN along the way. It's a pure function so the
+// resolving each one's country/ASN first (if resolver is non-nil) so that
+// already-resolved ASN can feed straight into scoring.Score - no second
+// Resolve() call needed for the scoring signal on top of the one storage
+// enrichment already makes. It's a pure function so the
 // scoring/row-shaping logic is unit-testable without a live database or a
 // real resolver. resolver may be nil - when asn_lookup.enabled = false,
 // main.go passes no resolver at all, and every row's Country/ASN/ASNName
 // simply stay at their zero value rather than this function needing a
-// separate on/off flag of its own.
-func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flushTime time.Time, resolver GeoResolver) []Row {
+// separate on/off flag of its own. knownBotASNs is nil whenever
+// asn_lookup.apply_to_scoring = false (the default); see scoring.Score for
+// why that alone is enough to make the ASN scoring component a no-op,
+// without BuildRows needing its own separate check.
+func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flushTime time.Time, resolver GeoResolver, knownBotASNs map[int]struct{}) []Row {
 	rows := make([]Row, 0, len(snapshots))
 	for _, snap := range snapshots {
-		result := scoring.Score(snap.EstimatedRate, snap.JA4, knownBots)
-		row := Row{
+		var geo asnlookup.Result
+		if resolver != nil {
+			geo = resolver.Resolve(snap.IP)
+		}
+
+		result := scoring.Score(snap.EstimatedRate, snap.JA4, knownBots, geo.ASN, knownBotASNs)
+		rows = append(rows, Row{
 			Time:            flushTime,
 			IP:              snap.IP,
 			JA4:             snap.JA4,
@@ -67,14 +82,11 @@ func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flus
 			RequestRate:     snap.EstimatedRate,
 			BotScore:        int16(result.Score),
 			IsKnownBotJA4:   result.IsKnownBotJA4,
-		}
-		if resolver != nil {
-			geo := resolver.Resolve(snap.IP)
-			row.Country = geo.Country
-			row.ASN = geo.ASN
-			row.ASNName = geo.ASNName
-		}
-		rows = append(rows, row)
+			Country:         geo.Country,
+			ASN:             geo.ASN,
+			ASNName:         geo.ASNName,
+			IsKnownBotASN:   result.IsKnownBotASN,
+		})
 	}
 	return rows
 }

@@ -155,3 +155,58 @@ func TestFlusher_NilResolverLeavesGeoFieldsZeroValue(t *testing.T) {
 		t.Errorf("row Country/ASN/ASNName = %q/%d/%q, want all zero value with no Resolver set", rows[0].Country, rows[0].ASN, rows[0].ASNName)
 	}
 }
+
+func TestFlusher_KnownBotASNsAddsScoreBonus(t *testing.T) {
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("203.0.113.9"), "ja4", time.Now())
+
+	writer := &fakeWriter{}
+	f := &Flusher{
+		Store:        store,
+		Writer:       writer,
+		Interval:     time.Hour,
+		Resolver:     fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}},
+		KnownBotASNs: map[int]struct{}{64512: {}},
+	}
+
+	f.flushOnce(context.Background(), time.Time{}, time.Now())
+
+	rows := writer.lastCall()
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if !rows[0].IsKnownBotASN {
+		t.Error("row IsKnownBotASN = false, want true (ASN matches KnownBotASNs)")
+	}
+	if rows[0].BotScore <= 0 {
+		t.Errorf("row BotScore = %d, want > 0 for a known-bot ASN", rows[0].BotScore)
+	}
+}
+
+func TestFlusher_NilKnownBotASNsNoScoreBonusEvenWithResolver(t *testing.T) {
+	// The shape asn_lookup.apply_to_scoring = false (the default) leaves
+	// main.go in: Resolver may still be set (storage enrichment), but
+	// KnownBotASNs stays nil, so ASN must never affect BotScore.
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("203.0.113.10"), "ja4", time.Now())
+
+	writer := &fakeWriter{}
+	f := &Flusher{
+		Store:    store,
+		Writer:   writer,
+		Interval: time.Hour,
+		Resolver: fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}},
+	}
+
+	f.flushOnce(context.Background(), time.Time{}, time.Now())
+
+	rows := writer.lastCall()
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].IsKnownBotASN || rows[0].BotScore != 0 {
+		t.Errorf("row IsKnownBotASN = %v, BotScore = %d, want false/0 with nil KnownBotASNs", rows[0].IsKnownBotASN, rows[0].BotScore)
+	}
+}

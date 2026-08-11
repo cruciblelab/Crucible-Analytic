@@ -59,9 +59,9 @@ throttle_queue_size = 200
 # When true, every traffic_snapshots row is also automatically enriched
 # with country/asn/asn_org at flush time - no separate flag for that.
 enabled = false
-# Accepted and validated, but not yet consulted by scoring - see the
-# README for why (country and ASN are both resolved for real now; wiring
-# either into scoring or into a rate-limit rule is later work).
+# Turns on the ASN scoring signal (known_bot_asns below): a matching ASN
+# adds a flat bonus to the bot-likelihood score. False (the default)
+# means internal/scoring never even sees an ASN - see the README.
 apply_to_scoring = false
 # Only validated when enabled = true.
 cache_max_entries = 50000
@@ -72,3 +72,14 @@ refresh_interval_seconds = 604800 # 1 week
 # downloading them from GitHub Releases - no network access at all in that
 # mode. Leave empty (the default) to download normally.
 local_csv_path = ""
+# A match on either list below rejects the connection/request outright,
+# regardless of limits.overload_policy - see the README. Both empty (the
+# default) means no blocking, and no extra Resolve() call added to the
+# request path either.
+blocked_countries = []   # e.g. ["CN", "RU"] - ISO 3166-1 alpha-2, case-insensitive
+blocked_asns = []        # e.g. [64512]
+# Only consulted when apply_to_scoring = true, above. A separate list
+# from blocked_asns: these ASNs aren't blocked, just add a flat bonus to
+# the score (a blocked ASN never reaches scoring, so reusing blocked_asns
+# here wouldn't do anything).
+known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendation

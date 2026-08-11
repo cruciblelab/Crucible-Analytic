@@ -17,7 +17,8 @@ those are later phases.
   section - which blocks by explicit policy, not by the bot-likelihood score
   this bullet is about.)
 - Surface bot/scraper traffic transparently, alongside a 0-100 score and the
-  reason behind it (known-bad JA4 match, rate, or both).
+  reason behind it (known-bad JA4 match, request rate, known-bad ASN, or any
+  combination).
 - In full mode, record analytics **per individual HTTP request** rather than
   per TCP connection - an accurate request count even across HTTP/1.1
   keep-alive or HTTP/2 multiplexed connections (see "Full mode" below). It
@@ -234,19 +235,33 @@ per-rule-policy engine (e.g. "always allow ASN X regardless of load",
 design and the open questions a future version of it would need to
 resolve.
 
-What's still deliberately out of scope this phase is wiring either
-signal into a *scoring* decision: `internal/scoring` doesn't consult
-country or ASN yet (see `asn_lookup.apply_to_scoring` just below).
-Resolving, recording, and blocking by IP → country/ASN are all real now;
-scoring is the one piece still deferred.
+**`asn_lookup.apply_to_scoring` / `asn_lookup.known_bot_asns` add a real
+ASN scoring signal**, mirroring `KnownBotJA4`'s existing flat-bonus
+shape: when `apply_to_scoring = true`, a resolved ASN matching
+`known_bot_asns` adds `scoring.maxASNScore` (20 points, weighted below
+JA4's 30 - an ASN match is a weaker, more circumstantial signal than a
+specific fingerprint match, since plenty of legitimate traffic also
+originates from cloud/hosting ASNs) to the 0-100 score, alongside the
+existing rate and JA4 components (all three sum, capped at 100). This
+costs no extra lookup: `storage.BuildRows` already resolves each
+snapshot's ASN for storage enrichment (the paragraph above), and simply
+reuses that same value for scoring. `false` (the default) means
+`internal/scoring` never even sees an ASN or a known-bot-ASN set -
+`scoring.Score`'s ASN component is then always 0, byte-for-byte the same
+behavior as before this existed. `known_bot_asns` is a *separate* list
+from `blocked_asns`: a blocked ASN is rejected before it ever reaches
+scoring, so reusing that list here wouldn't do anything - block and
+"flag as more suspicious but still let through" are different actions,
+kept as different config. `traffic_snapshots` gets one more column for
+this, `is_known_bot_asn` (mirrors `is_known_bot_ja4`), the same
+self-migrating `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` pattern as
+`country`/`asn`/`asn_org`.
 
-`asn_lookup.apply_to_scoring` is accepted and validated but still not
-consulted by `internal/scoring` - country and ASN are resolved, recorded
-in every snapshot, and already usable for blocking (see
-`blocked_countries`/`blocked_asns` above), but wiring either into a
-scoring *decision* is later work, not this round's. It's part of the
-config shape now so turning it on later is a behavior change, not a
-schema one.
+This completes the original four-phase plan for country/ASN
+intelligence: resolve it, record it, block by it, and score by it are
+all real now. What's left deliberately deferred is the richer
+per-rule-policy blocking engine described in `NOTES.md` - a flat
+denylist and a flat scoring bonus, not per-rule tuning.
 
 Enabling this requires applying `internal/asnlookup/schema.sql` once,
 manually, first - see "Running locally" below; like the rest of this
@@ -406,13 +421,14 @@ psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
 ```
 
 **If you already had this collector running before country/ASN
-enrichment existed** (i.e. `docker compose up -d` already created
-`traffic_snapshots` on an earlier version, so step 1's
+enrichment or ASN scoring existed** (i.e. `docker compose up -d` already
+created `traffic_snapshots` on an earlier version, so step 1's
 `docker-entrypoint-initdb.d` hook won't fire again against that existing
 volume), re-apply `internal/storage/schema.sql` yourself the same way:
 `psql "postgres://collector:collector@localhost:5432/analytics" -f internal/storage/schema.sql`.
 It's self-migrating (see "Optional: IP → country / ASN lookup" above), so
-this just adds the three new columns in place - no drop, no data loss.
+this just adds the new columns (`country`/`asn`/`asn_org`/`is_known_bot_asn`)
+in place - no drop, no data loss.
 
 Forgetting step 3 when `asn_lookup.enabled = true` isn't fatal - the
 collector still starts and runs normally, since a missing optional table
@@ -450,13 +466,14 @@ other field has a default. `config.toml` is gitignored since
 | `limits.overload_policy`            | `"fail_open"`        | `"fail_open"`, `"fail_closed"`, or `"throttle"` once a limit above is exceeded - see "Recommended deployment order" above. |
 | `limits.throttle_queue_size`        | `200`                | Only used when `overload_policy = "throttle"`: bounds how many excess connections/requests can queue before falling back to `fail_closed`. |
 | `asn_lookup.enabled`                | `false`              | Turns on the optional IP → country / ASN lookup, and with it automatic `traffic_snapshots` enrichment - see "Optional: IP → country / ASN lookup" below. |
-| `asn_lookup.apply_to_scoring`       | `false`              | Accepted and validated, but not yet consulted by scoring - see "Optional: IP → country / ASN lookup" below. |
+| `asn_lookup.apply_to_scoring`       | `false`              | Turns on the ASN scoring signal (`asn_lookup.known_bot_asns` below) - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.cache_max_entries`      | `50000`              | Only validated when `asn_lookup.enabled = true`. Size of the in-memory LRU result cache. |
 | `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range tables. |
 | `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often both datasets are re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
 | `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4/6.csv` and `origin-asn-ipv4/6.csv` from this directory instead - no network access at all in that mode. |
 | `asn_lookup.blocked_countries`      | `[]`                 | ISO 3166-1 alpha-2 codes (case-insensitive); a match rejects the connection/request outright, regardless of `limits.overload_policy` - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.blocked_asns`           | `[]`                 | ASN numbers; same reject behavior as `blocked_countries`, checked independently. |
+| `asn_lookup.known_bot_asns`         | `[]`                 | ASN numbers; only consulted when `apply_to_scoring = true`. A match adds a flat bonus to the bot-likelihood score instead of blocking - a separate list from `blocked_asns`, since a blocked ASN never reaches scoring. |
 
 ## Testing
 
@@ -526,10 +543,26 @@ containing a literal comma, the same real-data shape `parseASNCSV` is
 tested against) - and that `internal/storage/schema.sql`'s
 `create_hypertable` call actually took effect, not just that a plain table
 would have accepted the same writes. It also covers `traffic_snapshots`'s
-own `country`/`asn`/`asn_org` columns both ways: a row with real values
-round-trips correctly, and a row built the way `BuildRows` produces one
-with no resolver (`asn_lookup.enabled = false`) reads back as `''`/`0`/`''`
-rather than `NULL` or some other encoding surprise.
+own `country`/`asn`/`asn_org`/`is_known_bot_asn` columns both ways: a row
+with real values round-trips correctly, and a row built the way
+`BuildRows` produces one with no resolver (`asn_lookup.enabled = false`)
+reads back as `''`/`0`/`''`/`false` rather than `NULL` or some other
+encoding surprise.
+
+`internal/scoring/scoring_test.go` and `storage.BuildRows`/`Flusher`'s own
+tests cover the ASN scoring component the same way JA4's was already
+covered: a matching ASN adds exactly `maxASNScore`, a non-matching one
+adds nothing, `asn == 0` (unresolved) never matches even against an
+attacker-controlled `knownBotASNs` map, a `nil` `knownBotASNs` is a
+complete no-op (not a panic), and rate + JA4 + ASN combine and clamp at
+`MaxScore` together. Beyond the unit level, a real running collector
+binary confirms the actual wiring: same IP, same fixture-resolved ASN,
+`known_bot_asns` configured to match it - `bot_score` came back `20`
+(exactly `maxASNScore`, since the request rate was too low to contribute)
+with `is_known_bot_asn = true` when `apply_to_scoring = true`, and `0`/
+`false` for the identical setup with only `apply_to_scoring = false`
+changed - ruling out the score having come from anywhere other than the
+ASN check actually being consulted.
 
 `go test -tags loadtest ./internal/loadtest/...` fires 30-100 genuinely
 concurrent connections per scenario at a real `proxy.Server` and asserts on
@@ -574,13 +607,13 @@ allocations.
 Dashboard, query API, path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
-an ASN-based scoring signal wired into `internal/scoring` (see "Optional:
-IP → country / ASN lookup" above and `asn_lookup.apply_to_scoring`), and a
-richer country/ASN rule engine beyond the flat `blocked_countries`/
-`blocked_asns` denylist - e.g. a per-rule policy (always-allow a specific
-ASN, throttle a specific country at N req/s) rather than every match
-meaning the same unconditional reject. That richer version was
-deliberately scoped out rather than built now; see `NOTES.md` for its
-design and the open questions it would need to resolve. The `RateStore`
-interface and scoring package are shaped to make these additive later,
-not to pre-build them now.
+and a richer country/ASN rule engine beyond the flat `blocked_countries`/
+`blocked_asns` denylist and flat `known_bot_asns` scoring bonus - e.g. a
+per-rule policy (always-allow a specific ASN regardless of load, throttle
+a specific country at N req/s) rather than every blocklist match meaning
+the same unconditional reject, or a tunable per-ASN scoring weight rather
+than one flat bonus for every match. That richer version was deliberately
+scoped out rather than built now; see `NOTES.md` for its design and the
+open questions it would need to resolve. The `RateStore` interface and
+scoring package are shaped to make these additive later, not to pre-build
+them now.

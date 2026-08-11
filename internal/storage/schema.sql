@@ -26,19 +26,25 @@ CREATE TABLE IF NOT EXISTS traffic_snapshots (
     is_known_bot_ja4  BOOLEAN          NOT NULL DEFAULT FALSE,
     country           TEXT             NOT NULL DEFAULT '',
     asn               INTEGER          NOT NULL DEFAULT 0,
-    asn_org           TEXT             NOT NULL DEFAULT ''
+    asn_org           TEXT             NOT NULL DEFAULT '',
+    is_known_bot_asn  BOOLEAN          NOT NULL DEFAULT FALSE
 );
 
 -- ADD COLUMN IF NOT EXISTS, not a version comment plus a manual-migration
 -- instruction: unlike internal/asnlookup/schema.sql's BIGINT -> INET
 -- change (a real type change on an existing column, not safely
--- automatable), these three columns are purely additive with defaults -
--- so this file is self-migrating. Running it again against a table
--- created before country/ASN enrichment existed just adds the columns in
--- place; no drop/recreate needed, here or in the README.
+-- automatable), these columns are purely additive with defaults - so this
+-- file is self-migrating. Running it again against a table created before
+-- country/ASN enrichment (or ASN scoring) existed just adds the columns
+-- in place; no drop/recreate needed, here or in the README.
 ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT '';
 ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS asn INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS asn_org TEXT NOT NULL DEFAULT '';
+-- is_known_bot_asn mirrors is_known_bot_ja4: true when the resolved ASN
+-- matched asn_lookup.known_bot_asns at flush time (only ever true when
+-- asn_lookup.apply_to_scoring = true - see internal/scoring and the
+-- README's "Optional: IP → country / ASN lookup").
+ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS is_known_bot_asn BOOLEAN NOT NULL DEFAULT FALSE;
 
 SELECT create_hypertable('traffic_snapshots', 'time', if_not_exists => TRUE);
 

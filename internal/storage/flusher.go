@@ -26,6 +26,10 @@ type Flusher struct {
 	// Resolver, if set, enriches each row with country/ASN. Left nil when
 	// asn_lookup.enabled = false - see BuildRows.
 	Resolver GeoResolver
+	// KnownBotASNs feeds scoring.Score's ASN component. Left nil when
+	// asn_lookup.apply_to_scoring = false (the default) - see BuildRows
+	// and scoring.Score for why nil alone is enough to make it a no-op.
+	KnownBotASNs map[int]struct{}
 }
 
 // Run flushes every f.Interval until ctx is cancelled, then performs one
@@ -63,7 +67,7 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		return
 	}
 
-	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver)
+	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver, f.KnownBotASNs)
 	n, err := f.Writer.WriteRows(ctx, rows)
 	if err != nil {
 		f.logger().Error("flush failed", "err", err, "attempted_rows", len(rows))

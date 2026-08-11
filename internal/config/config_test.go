@@ -300,6 +300,7 @@ cache_ttl_seconds = 0
 refresh_interval_seconds = 0
 blocked_countries = ["not-a-country-code"]
 blocked_asns = [-1]
+known_bot_asns = [-1]
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -385,6 +386,21 @@ blocked_asns = [0]
 	}
 }
 
+func TestLoad_ASNLookupEnabledValidatesKnownBotASNs(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+known_bot_asns = [-5]
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for a non-positive known_bot_asns entry")
+	}
+}
+
 func TestLoad_ASNLookupEnabledWithValidFieldsSucceeds(t *testing.T) {
 	path := writeTOML(t, `
 [network]
@@ -400,6 +416,7 @@ refresh_interval_seconds = 86400
 local_csv_path = "/var/lib/crucible-analytic/geoip"
 blocked_countries = ["CN", "ru"]
 blocked_asns = [64512, 64513]
+known_bot_asns = [64514, 64515]
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -428,5 +445,8 @@ blocked_asns = [64512, 64513]
 	}
 	if want := []int{64512, 64513}; !slices.Equal(cfg.ASNLookup.BlockedASNs, want) {
 		t.Errorf("BlockedASNs = %v, want %v", cfg.ASNLookup.BlockedASNs, want)
+	}
+	if want := []int{64514, 64515}; !slices.Equal(cfg.ASNLookup.KnownBotASNs, want) {
+		t.Errorf("KnownBotASNs = %v, want %v", cfg.ASNLookup.KnownBotASNs, want)
 	}
 }

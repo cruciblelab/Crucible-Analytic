@@ -93,3 +93,43 @@ it isn't keyed by IP. Country/ASN stay the only supported match
 dimensions; if IP-level blocking is ever wanted, it's a genuinely
 different feature (an IP blocklist/allowlist), not an extension of this
 one.
+
+## Tunable per-ASN scoring weight (deferred from Aşama 4)
+
+Aşama 4 (see README's "Optional: IP → country / ASN lookup") ships a
+**flat bonus**: `asn_lookup.known_bot_asns`, any match adds the same
+`scoring.maxASNScore` (20 points) regardless of which ASN matched -
+mirroring `KnownBotJA4`'s own flat-bonus shape (`maxJA4Score`, every
+known-bad JA4 worth the same 30 points) rather than inventing a new
+weighted shape just for ASN. That's the same "don't build the richer
+thing until it's needed" reasoning as the denylist above, not an
+oversight.
+
+A richer version would let the *weight* vary per ASN - e.g. a
+data-center/hosting ASN scored higher than a residential-ISP-adjacent
+one that merely happens to host some bots - via a config shape like:
+
+```toml
+[[asn_lookup.known_bot_asns]]
+asn    = 16509   # AWS
+weight = 25
+
+[[asn_lookup.known_bot_asns]]
+asn    = 8075    # Microsoft/Azure
+weight = 15
+```
+
+replacing the current flat `known_bot_asns = [16509, 8075]` list. Same
+open question as the blocking engine's rule ordering (point 1 above)
+would resurface in a smaller form here too: multiple weighted matches
+still just sum like today's flat bonus does, so there isn't real
+ordering ambiguity for scoring the way there is for block-vs-allow
+policy - the harder part would be sourcing defensible per-ASN weights at
+all (see the "known hosting/datacenter ASN" data-source question raised
+and deliberately not pursued during Aşama 4's design discussion - a
+curated classification dataset is a real research question, not
+something to assume exists, the same "verify before building on it"
+discipline this whole project has followed for its other external data
+sources). `internal/scoring`'s `Score` signature would need `asn int,
+knownBotASNs map[int]struct{}` to become something like `knownBotASNWeights
+map[int]int` - a small, mechanical change, not an architectural one.

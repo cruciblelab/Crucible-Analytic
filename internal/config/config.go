@@ -156,12 +156,14 @@ type LimitsConfig struct {
 // are never touched.
 type ASNLookupConfig struct {
 	Enabled bool `toml:"enabled"`
-	// ApplyToScoring is accepted and validated but not yet consulted by
-	// internal/scoring - country and ASN are both resolved for real, and
-	// BlockedCountries/BlockedASNs below already consume them for
-	// blocking, but wiring either into a scoring *decision* is later
-	// work. It's part of the config shape now so wiring it up later is a
-	// behavior change, not a schema change.
+	// ApplyToScoring gates KnownBotASNs below: when false (the default),
+	// internal/scoring never sees an ASN or a known-bot-ASN set at all,
+	// so its ASN component always contributes 0, identical to today's
+	// behavior. When true, storage.Flusher is wired with a
+	// map[int]struct{} built from KnownBotASNs, and each flush's
+	// scoring.Score call gets the snapshot's already-resolved ASN (the
+	// same Resolve() call already made for storage enrichment - no extra
+	// lookup) alongside it.
 	ApplyToScoring         bool `toml:"apply_to_scoring"`
 	CacheMaxEntries        int  `toml:"cache_max_entries"`
 	CacheTTLSeconds        int  `toml:"cache_ttl_seconds"`
@@ -189,6 +191,14 @@ type ASNLookupConfig struct {
 	// now.
 	BlockedCountries []string `toml:"blocked_countries"`
 	BlockedASNs      []int    `toml:"blocked_asns"`
+	// KnownBotASNs is a separate list from BlockedASNs, only consulted
+	// when ApplyToScoring = true: matching ASNs add a flat bonus to the
+	// score (see scoring.maxASNScore) instead of being blocked outright.
+	// A blocked ASN is rejected before it ever reaches scoring, so
+	// reusing BlockedASNs here wouldn't do anything - these need to be
+	// separately configured lists for separate purposes (deny vs. flag
+	// as more suspicious but still let through).
+	KnownBotASNs []int `toml:"known_bot_asns"`
 }
 
 // CacheTTL is how long one resolved IP is cached before the next lookup
@@ -240,6 +250,7 @@ func defaults() Config {
 			LocalCSVPath:           "",               // download from GitHub Releases by default
 			BlockedCountries:       nil,              // no blocking by default
 			BlockedASNs:            nil,
+			KnownBotASNs:           nil, // no ASN scoring signal by default
 		},
 	}
 }
@@ -307,6 +318,11 @@ func (c *Config) validate() error {
 		for _, asn := range c.ASNLookup.BlockedASNs {
 			if asn <= 0 {
 				return fmt.Errorf("config: asn_lookup.blocked_asns entry %d must be positive", asn)
+			}
+		}
+		for _, asn := range c.ASNLookup.KnownBotASNs {
+			if asn <= 0 {
+				return fmt.Errorf("config: asn_lookup.known_bot_asns entry %d must be positive", asn)
 			}
 		}
 	}
