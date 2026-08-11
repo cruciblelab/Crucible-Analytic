@@ -84,6 +84,12 @@ func main() {
 		close(lookupDone)
 	}
 
+	// nil if both lists are empty (the default) - see NewGeoBlocklist.
+	// Only actually wired into a server below when lookup is also
+	// non-nil, since a blocklist is meaningless without a resolver to
+	// check it against.
+	geoBlocklist := limiter.NewGeoBlocklist(cfg.ASNLookup.BlockedCountries, cfg.ASNLookup.BlockedASNs)
+
 	flusher := &storage.Flusher{
 		Store:     store,
 		Writer:    writer,
@@ -117,7 +123,7 @@ func main() {
 	var server proxyServer
 	switch cfg.Mode {
 	case config.ModeFull:
-		server = &fullproxy.Server{
+		srv := &fullproxy.Server{
 			ListenAddr:  cfg.Network.ListenAddr,
 			BackendAddr: cfg.Network.BackendAddr,
 			CertFile:    cfg.TLS.CertFile,
@@ -127,8 +133,16 @@ func main() {
 			DialTimeout: cfg.Network.DialTimeout(),
 			Logger:      logger,
 		}
+		if lookup != nil {
+			// Same nil-pointer-in-interface guard as flusher.Resolver
+			// above: only assign Resolver when lookup is a real,
+			// non-nil *asnlookup.Resolver.
+			srv.GeoBlocklist = geoBlocklist
+			srv.Resolver = lookup
+		}
+		server = srv
 	default: // config.ModePassthrough, and validated by config.Load otherwise
-		server = &proxy.Server{
+		srv := &proxy.Server{
 			ListenAddr:       cfg.Network.ListenAddr,
 			BackendAddr:      cfg.Network.BackendAddr,
 			Store:            store,
@@ -137,6 +151,11 @@ func main() {
 			DialTimeout:      cfg.Network.DialTimeout(),
 			Logger:           logger,
 		}
+		if lookup != nil {
+			srv.GeoBlocklist = geoBlocklist
+			srv.Resolver = lookup
+		}
+		server = srv
 	}
 	logger.Info("starting collector", "mode", cfg.Mode)
 

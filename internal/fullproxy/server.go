@@ -25,13 +25,24 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/netip"
 	"net/url"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/ja4"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
+
+// Resolver resolves an IP to country/ASN info for GeoBlocklist checks.
+// *asnlookup.Resolver implements this; a narrow interface (rather than a
+// direct dependency on *asnlookup.Resolver) so tests can substitute a
+// fake instead of needing real loaded range tables - the same reasoning
+// behind storage.GeoResolver and proxy.Resolver.
+type Resolver interface {
+	Resolve(ip netip.Addr) asnlookup.Result
+}
 
 // Server is a TLS-terminating HTTP reverse proxy fronting a single
 // plaintext HTTP backend.
@@ -54,6 +65,14 @@ type Server struct {
 	// always sets a real one, even if its own limits are effectively
 	// unbounded.
 	Limiter *limiter.Limiter
+	// GeoBlocklist and Resolver together gate requests by country/ASN,
+	// checked before Limiter and independent of it - see geoBlocked. Both
+	// nil (the default - asn_lookup disabled, or enabled with no
+	// blocklist entries) skips the check entirely, including the
+	// Resolve() call, so this costs nothing extra on the request path
+	// unless blocking is actually configured.
+	GeoBlocklist *limiter.GeoBlocklist
+	Resolver     Resolver
 	// DialTimeout bounds connecting to the backend. Defaults to 10s if <= 0.
 	DialTimeout time.Duration
 	Logger      *slog.Logger
@@ -199,13 +218,31 @@ func (s *Server) captureFingerprint(hello *tls.ClientHelloInfo) {
 // multiplexing into separate handler invocations, this "just works"
 // without any custom request framing logic.
 //
-// Admission runs first: a rejected request never reaches next (or Store)
+// The geo-block check runs first, ahead of and independent of Limiter's
+// own decision (same reasoning as proxy.Server.handleConn - see
+// GeoBlocklist's doc comment): a match is rejected with 403 before ever
+// consuming a Limiter concurrency slot, distinct from the 503 the
+// existing overload rejection below returns, so the two reasons a
+// request was refused stay distinguishable in logs/responses. Limiter
+// admission runs next: a rejected request never reaches next (or Store)
 // at all, and a degraded one reaches next but skips RecordRequest - the
 // same Proceed/Degrade/Reject split proxy.Server applies per connection,
 // just at request granularity here since that's the unit HTTP/2
 // multiplexing forces on full mode anyway.
 func (s *Server) recordingHandler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sc, _ := r.Context().Value(connStateKey{}).(*snoopConn)
+		var remoteIP netip.Addr
+		var haveIP bool
+		if sc != nil {
+			remoteIP, haveIP = ipFromAddr(sc.RemoteAddr())
+		}
+
+		if haveIP && s.geoBlocked(remoteIP) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
 		decision, release := s.admit(r.Context())
 		if release != nil {
 			defer release()
@@ -215,12 +252,8 @@ func (s *Server) recordingHandler(next http.Handler) http.Handler {
 			return
 		}
 
-		if decision == limiter.DecisionProceed {
-			if sc, ok := r.Context().Value(connStateKey{}).(*snoopConn); ok {
-				if ip, ok := ipFromAddr(sc.RemoteAddr()); ok {
-					s.Store.RecordRequest(ip, sc.fingerprint(), time.Now())
-				}
-			}
+		if decision == limiter.DecisionProceed && haveIP {
+			s.Store.RecordRequest(remoteIP, sc.fingerprint(), time.Now())
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -237,4 +270,15 @@ func (s *Server) admit(ctx context.Context) (limiter.Decision, func()) {
 		return limiter.DecisionProceed, nil
 	}
 	return s.Limiter.Admit(ctx)
+}
+
+// geoBlocked reports whether remoteIP's country/ASN matches GeoBlocklist.
+// Always false if GeoBlocklist or Resolver is nil, so callers never need
+// to null-check both themselves.
+func (s *Server) geoBlocked(remoteIP netip.Addr) bool {
+	if s.GeoBlocklist == nil || s.Resolver == nil {
+		return false
+	}
+	geo := s.Resolver.Resolve(remoteIP)
+	return s.GeoBlocklist.Blocked(geo.Country, geo.ASN)
 }

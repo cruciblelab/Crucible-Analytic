@@ -14,19 +14,31 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
+// Resolver resolves an IP to country/ASN info for GeoBlocklist checks.
+// *asnlookup.Resolver implements this; a narrow interface (rather than a
+// direct dependency on *asnlookup.Resolver) so tests can substitute a
+// fake instead of needing real loaded range tables - the same reasoning
+// behind storage.GeoResolver.
+type Resolver interface {
+	Resolve(ip netip.Addr) asnlookup.Result
+}
+
 // Server proxies TCP connections from ListenAddr to BackendAddr, recording
 // a JA4-fingerprinted request per connection into Store. It never rejects
 // or delays a connection because fingerprinting failed or timed out - the
-// whole point is to observe, not gate. Limiter (see internal/limiter) is
-// the one thing that *does* gate connections, bounding the collector's
-// own total resource usage independent of per-IP behavior.
+// whole point is to observe, not gate. Two things *do* gate connections:
+// Limiter (see internal/limiter), bounding the collector's own total
+// resource usage independent of per-IP behavior, and GeoBlocklist,
+// rejecting specific countries/ASNs independent of load.
 type Server struct {
 	ListenAddr  string
 	BackendAddr string
@@ -37,6 +49,14 @@ type Server struct {
 	// always sets a real one, even if its own limits are effectively
 	// unbounded.
 	Limiter *limiter.Limiter
+	// GeoBlocklist and Resolver together gate connections by country/ASN,
+	// checked before Limiter and independent of it - see geoBlocked. Both
+	// nil (the default - asn_lookup disabled, or enabled with no
+	// blocklist entries) skips the check entirely, including the
+	// Resolve() call, so this costs nothing extra on the request path
+	// unless blocking is actually configured.
+	GeoBlocklist *limiter.GeoBlocklist
+	Resolver     Resolver
 
 	// HandshakeTimeout bounds how long sniffing waits to see a complete
 	// ClientHello before giving up and proxying unfingerprinted. Zero
@@ -98,6 +118,20 @@ func (s *Server) logger() *slog.Logger {
 func (s *Server) handleConn(conn net.Conn) {
 	defer conn.Close()
 
+	remoteIP, ok := ipFromAddr(conn.RemoteAddr())
+	if !ok {
+		s.logger().Warn("proxy: could not parse remote address, dropping connection", "addr", conn.RemoteAddr().String())
+		return
+	}
+
+	if s.geoBlocked(remoteIP) {
+		// Rejected before ever consuming a Limiter concurrency slot or
+		// dialing the backend - a geo-block is unconditional, checked
+		// ahead of and independent of Limiter's own decision (see
+		// GeoBlocklist's doc comment for why).
+		return
+	}
+
 	decision, release := s.admit()
 	if release != nil {
 		defer release()
@@ -116,12 +150,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	remoteIP, ok := ipFromAddr(conn.RemoteAddr())
-	if !ok {
-		s.logger().Warn("proxy: could not parse remote address, dropping connection", "addr", conn.RemoteAddr().String())
-		return
-	}
-
 	peeked, fingerprint := sniffClientHello(conn, s.HandshakeTimeout)
 	s.Store.RecordRequest(remoteIP, fingerprint, time.Now())
 
@@ -135,6 +163,17 @@ func (s *Server) admit() (limiter.Decision, func()) {
 		return limiter.DecisionProceed, nil
 	}
 	return s.Limiter.Admit(context.Background())
+}
+
+// geoBlocked reports whether remoteIP's country/ASN matches GeoBlocklist.
+// Always false if GeoBlocklist or Resolver is nil, so callers never need
+// to null-check both themselves.
+func (s *Server) geoBlocked(remoteIP netip.Addr) bool {
+	if s.GeoBlocklist == nil || s.Resolver == nil {
+		return false
+	}
+	geo := s.Resolver.Resolve(remoteIP)
+	return s.GeoBlocklist.Blocked(geo.Country, geo.ASN)
 }
 
 // pipeToBackend dials BackendAddr and splices clientReader (everything the

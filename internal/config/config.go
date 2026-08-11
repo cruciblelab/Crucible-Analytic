@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -156,8 +157,9 @@ type LimitsConfig struct {
 type ASNLookupConfig struct {
 	Enabled bool `toml:"enabled"`
 	// ApplyToScoring is accepted and validated but not yet consulted by
-	// internal/scoring - country and ASN are both resolved for real, but
-	// wiring either into scoring (or into a rate-limit rule) is later
+	// internal/scoring - country and ASN are both resolved for real, and
+	// BlockedCountries/BlockedASNs below already consume them for
+	// blocking, but wiring either into a scoring *decision* is later
 	// work. It's part of the config shape now so wiring it up later is a
 	// behavior change, not a schema change.
 	ApplyToScoring         bool `toml:"apply_to_scoring"`
@@ -173,6 +175,20 @@ type ASNLookupConfig struct {
 	// directory) than let the collector reach out to GitHub on its own
 	// schedule. Empty (the default) means download normally.
 	LocalCSVPath string `toml:"local_csv_path"`
+	// BlockedCountries and BlockedASNs configure limiter.GeoBlocklist - a
+	// request whose resolved country or ASN matches either list is
+	// rejected outright, regardless of limits.overload_policy (blocking
+	// by geography/ASN is a deliberate security decision, not
+	// collector-load-shedding). Both empty (the default) means no
+	// blocking - and, importantly, means main.go never wires a resolver
+	// into the proxy's admission path at all, so enabling asn_lookup for
+	// storage enrichment alone (see Aşama 2) costs nothing extra on the
+	// request path. Country codes are case-insensitive (normalized like
+	// asnlookup's own parser); see NOTES.md for the richer per-rule-policy
+	// version of this that was deliberately deferred rather than built
+	// now.
+	BlockedCountries []string `toml:"blocked_countries"`
+	BlockedASNs      []int    `toml:"blocked_asns"`
 }
 
 // CacheTTL is how long one resolved IP is cached before the next lookup
@@ -222,6 +238,8 @@ func defaults() Config {
 			CacheTTLSeconds:        6 * 60 * 60,      // 6 hours
 			RefreshIntervalSeconds: 7 * 24 * 60 * 60, // 1 week
 			LocalCSVPath:           "",               // download from GitHub Releases by default
+			BlockedCountries:       nil,              // no blocking by default
+			BlockedASNs:            nil,
 		},
 	}
 }
@@ -280,6 +298,16 @@ func (c *Config) validate() error {
 		}
 		if c.ASNLookup.RefreshIntervalSeconds <= 0 {
 			return fmt.Errorf("config: asn_lookup.refresh_interval_seconds must be positive when asn_lookup.enabled = true")
+		}
+		for _, country := range c.ASNLookup.BlockedCountries {
+			if len(strings.TrimSpace(country)) != 2 {
+				return fmt.Errorf("config: asn_lookup.blocked_countries entry %q is not a 2-letter ISO 3166-1 alpha-2 code", country)
+			}
+		}
+		for _, asn := range c.ASNLookup.BlockedASNs {
+			if asn <= 0 {
+				return fmt.Errorf("config: asn_lookup.blocked_asns entry %d must be positive", asn)
+			}
 		}
 	}
 

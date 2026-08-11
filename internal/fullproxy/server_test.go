@@ -22,8 +22,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
+
+// fakeResolver returns a canned asnlookup.Result for every IP, regardless
+// of what's asked - enough to test GeoBlocklist wiring without needing a
+// real loaded range table.
+type fakeResolver struct {
+	result asnlookup.Result
+}
+
+func (f fakeResolver) Resolve(ip netip.Addr) asnlookup.Result {
+	return f.result
+}
 
 // writeCertKeyFiles generates an in-memory, stdlib-only self-signed TLS
 // certificate and writes it to two temp files, the way Server expects to
@@ -125,6 +138,104 @@ func newInsecureClient() *http.Client {
 			ForceAttemptHTTP2: true,
 		},
 		Timeout: 5 * time.Second,
+	}
+}
+
+// startFullProxyWithGeoBlock is startFullProxy plus GeoBlocklist/Resolver,
+// for the geo-blocking tests below - kept separate from startFullProxy
+// rather than adding optional params to it, since only these two tests
+// need it.
+func startFullProxyWithGeoBlock(t *testing.T, backendAddr, certFile, keyFile string, store ratestore.RateStore, blocklist *limiter.GeoBlocklist, resolver Resolver) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+
+	srv := &Server{
+		BackendAddr:  backendAddr,
+		CertFile:     certFile,
+		KeyFile:      keyFile,
+		Store:        store,
+		DialTimeout:  2 * time.Second,
+		GeoBlocklist: blocklist,
+		Resolver:     resolver,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErrCh := make(chan error, 1)
+	go func() { serveErrCh <- srv.Serve(ctx, ln) }()
+
+	t.Cleanup(func() {
+		cancel()
+		if err := <-serveErrCh; err != nil {
+			t.Errorf("Serve returned error after shutdown: %v", err)
+		}
+	})
+
+	return ln.Addr().String()
+}
+
+func TestServer_GeoBlockedRequestGets403AndIsNotRecorded(t *testing.T) {
+	backend := startBackend(t)
+	certFile, keyFile := writeCertKeyFiles(t)
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+
+	blocklist := limiter.NewGeoBlocklist([]string{"CN"}, nil)
+	resolver := fakeResolver{result: asnlookup.Result{Country: "CN", Found: true}}
+	proxyAddr := startFullProxyWithGeoBlock(t, backend.Listener.Addr().String(), certFile, keyFile, store, blocklist, resolver)
+
+	client := newInsecureClient()
+	resp, err := client.Get(fmt.Sprintf("https://%s/blocked", proxyAddr))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (Forbidden)", resp.StatusCode, http.StatusForbidden)
+	}
+
+	snaps := store.Snapshot(time.Time{}, time.Now())
+	if len(snaps) != 0 {
+		t.Errorf("RateStore has %d entries, want 0 - a geo-blocked request must never reach RecordRequest", len(snaps))
+	}
+}
+
+func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
+	backend := startBackend(t)
+	certFile, keyFile := writeCertKeyFiles(t)
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+
+	// A real blocklist is configured, it just doesn't match this
+	// request's (fake-resolved) country - proves GeoBlocklist being
+	// non-nil doesn't itself change behavior, only an actual match does.
+	blocklist := limiter.NewGeoBlocklist([]string{"CN"}, nil)
+	resolver := fakeResolver{result: asnlookup.Result{Country: "US", Found: true}}
+	proxyAddr := startFullProxyWithGeoBlock(t, backend.Listener.Addr().String(), certFile, keyFile, store, blocklist, resolver)
+
+	client := newInsecureClient()
+	resp, err := client.Get(fmt.Sprintf("https://%s/not-blocked", proxyAddr))
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatalf("reading body: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+	if want := "backend saw /not-blocked"; string(body) != want {
+		t.Errorf("body = %q, want %q", body, want)
+	}
+
+	snaps := store.Snapshot(time.Time{}, time.Now())
+	if len(snaps) != 1 {
+		t.Errorf("RateStore has %d entries, want 1 (the non-blocked request should still be recorded)", len(snaps))
 	}
 }
 

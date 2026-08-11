@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -297,6 +298,8 @@ enabled = false
 cache_max_entries = 0
 cache_ttl_seconds = 0
 refresh_interval_seconds = 0
+blocked_countries = ["not-a-country-code"]
+blocked_asns = [-1]
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -352,6 +355,36 @@ refresh_interval_seconds = 0
 	}
 }
 
+func TestLoad_ASNLookupEnabledValidatesBlockedCountries(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+blocked_countries = ["USA"]
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for a 3-letter blocked_countries entry")
+	}
+}
+
+func TestLoad_ASNLookupEnabledValidatesBlockedASNs(t *testing.T) {
+	path := writeTOML(t, `
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+blocked_asns = [0]
+`)
+	if _, err := Load(path); err == nil {
+		t.Error("Load() error = nil, want error for a non-positive blocked_asns entry")
+	}
+}
+
 func TestLoad_ASNLookupEnabledWithValidFieldsSucceeds(t *testing.T) {
 	path := writeTOML(t, `
 [network]
@@ -365,6 +398,8 @@ cache_max_entries = 1000
 cache_ttl_seconds = 3600
 refresh_interval_seconds = 86400
 local_csv_path = "/var/lib/crucible-analytic/geoip"
+blocked_countries = ["CN", "ru"]
+blocked_asns = [64512, 64513]
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -387,5 +422,11 @@ local_csv_path = "/var/lib/crucible-analytic/geoip"
 	}
 	if want := "/var/lib/crucible-analytic/geoip"; cfg.ASNLookup.LocalCSVPath != want {
 		t.Errorf("LocalCSVPath = %q, want %q", cfg.ASNLookup.LocalCSVPath, want)
+	}
+	if want := []string{"CN", "ru"}; !slices.Equal(cfg.ASNLookup.BlockedCountries, want) {
+		t.Errorf("BlockedCountries = %v, want %v (validation checks well-formedness, not casing - normalization happens in limiter.NewGeoBlocklist)", cfg.ASNLookup.BlockedCountries, want)
+	}
+	if want := []int{64512, 64513}; !slices.Equal(cfg.ASNLookup.BlockedASNs, want) {
+		t.Errorf("BlockedASNs = %v, want %v", cfg.ASNLookup.BlockedASNs, want)
 	}
 }

@@ -17,8 +17,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
+
+// fakeResolver returns a canned asnlookup.Result for every IP, regardless
+// of what's asked - enough to test GeoBlocklist wiring without needing a
+// real loaded range table.
+type fakeResolver struct {
+	result asnlookup.Result
+}
+
+func (f fakeResolver) Resolve(ip netip.Addr) asnlookup.Result {
+	return f.result
+}
 
 // generateSelfSignedCert creates an in-memory, stdlib-only self-signed TLS
 // certificate for the test backend - no fixture files, no dependency on
@@ -206,5 +219,126 @@ func TestServer_PlaintextPassthroughUnaffected(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("echoed data = %q, want %q (plaintext must pass through unmodified)", got, want)
+	}
+}
+
+// startProxyWithGeoBlock is startProxy plus GeoBlocklist/Resolver, for the
+// geo-blocking tests below - kept separate from startProxy rather than
+// adding optional params to it, since only these two tests need it.
+func startProxyWithGeoBlock(t *testing.T, backendAddr string, store ratestore.RateStore, blocklist *limiter.GeoBlocklist, resolver Resolver) string {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+
+	srv := &Server{
+		BackendAddr:      backendAddr,
+		Store:            store,
+		HandshakeTimeout: 2 * time.Second,
+		DialTimeout:      2 * time.Second,
+		GeoBlocklist:     blocklist,
+		Resolver:         resolver,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	serveErrCh := make(chan error, 1)
+	go func() { serveErrCh <- srv.Serve(ctx, ln) }()
+
+	t.Cleanup(func() {
+		cancel()
+		if err := <-serveErrCh; err != nil {
+			t.Errorf("Serve returned error after shutdown: %v", err)
+		}
+	})
+
+	return ln.Addr().String()
+}
+
+func TestServer_GeoBlockedConnectionIsRejectedBeforeBackendDial(t *testing.T) {
+	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen backend: %v", err)
+	}
+	defer backendLn.Close()
+	dialed := false
+	go func() {
+		conn, err := backendLn.Accept()
+		if err == nil {
+			dialed = true
+			conn.Close()
+		}
+	}()
+
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+
+	blocklist := limiter.NewGeoBlocklist([]string{"CN"}, nil)
+	resolver := fakeResolver{result: asnlookup.Result{Country: "CN", Found: true}}
+	proxyAddr := startProxyWithGeoBlock(t, backendLn.Addr().String(), store, blocklist, resolver)
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+	conn.Write([]byte("should never reach the backend"))
+
+	// The proxy must close its side without ever proxying anything back -
+	// a Read here should see EOF (or at worst some error), never actual
+	// echoed bytes, since a geo-blocked connection is closed immediately
+	// (defer conn.Close() in handleConn) rather than piped anywhere.
+	buf := make([]byte, 1)
+	if n, err := conn.Read(buf); err != io.EOF && n != 0 {
+		t.Errorf("Read after geo-blocked connect = (%d, %v), want (0, EOF) - connection should be closed immediately, not proxied", n, err)
+	}
+
+	time.Sleep(100 * time.Millisecond) // let the backend goroutine's Accept fire, if it's going to
+	if dialed {
+		t.Error("backend was dialed despite the connection being geo-blocked")
+	}
+
+	snap := store.Snapshot(time.Time{}, time.Now())
+	if len(snap) != 0 {
+		t.Errorf("RateStore has %d entries, want 0 - a geo-blocked connection must never reach RecordRequest", len(snap))
+	}
+}
+
+func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
+	backendLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen backend: %v", err)
+	}
+	defer backendLn.Close()
+
+	want := []byte("not blocked, should echo fine")
+	startEchoBackend(t, backendLn, len(want))
+
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+
+	// A real blocklist is configured, it just doesn't match this
+	// connection's (fake-resolved) country - proves GeoBlocklist being
+	// non-nil doesn't itself change behavior, only an actual match does.
+	blocklist := limiter.NewGeoBlocklist([]string{"CN"}, nil)
+	resolver := fakeResolver{result: asnlookup.Result{Country: "US", Found: true}}
+	proxyAddr := startProxyWithGeoBlock(t, backendLn.Addr().String(), store, blocklist, resolver)
+
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.Write(want); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	got := make([]byte, len(want))
+	if _, err := io.ReadFull(conn, got); err != nil {
+		t.Fatalf("ReadFull: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("echoed data = %q, want %q", got, want)
 	}
 }

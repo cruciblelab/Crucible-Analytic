@@ -12,7 +12,10 @@ those are later phases.
 **This project does:**
 - Passively observe traffic and separate bot/human activity using JA4 TLS
   fingerprinting plus behavioral signals (request rate), without blocking or
-  delaying anything based on that assessment.
+  delaying anything based on that assessment. (The one, unrelated exception:
+  an optional, operator-configured country/ASN denylist - see the next
+  section - which blocks by explicit policy, not by the bot-likelihood score
+  this bullet is about.)
 - Surface bot/scraper traffic transparently, alongside a 0-100 score and the
   reason behind it (known-bad JA4 match, rate, or both).
 - In full mode, record analytics **per individual HTTP request** rather than
@@ -31,9 +34,13 @@ those are later phases.
   globally distributed infrastructure (Anycast, multiple scrubbing data
   centers) to absorb - that isn't something a single process on a single
   server can do, by design or otherwise.
-- **Act as an anti-DDoS service on its own.** It detects and scores traffic;
-  it does not block or drop it. Any blocking decision is left to your own
-  system - a WAF, a firewall, the backend application itself.
+- **Act as a general-purpose anti-DDoS service or WAF on its own.** It
+  detects and scores traffic without blocking or dropping it on the basis
+  of that score - the one exception is an optional, narrow,
+  operator-configured country/ASN denylist (off by default; see "Optional:
+  IP → country / ASN lookup"), not a general blocking/mitigation engine.
+  Any blocking decision beyond that is left to your own system - a WAF, a
+  firewall, the backend application itself.
 - **Replace a CDN or a dedicated anti-DDoS service.** See "Recommended
   deployment order" below for how this fits alongside one.
 
@@ -83,8 +90,12 @@ match), and batch-write summaries to TimescaleDB via `COPY` every
 IP's country/ASN at the same time, if `asn_lookup.enabled = true` (see
 "Optional: IP → country / ASN lookup" below). IP state idle for longer
 than `ttl_seconds` (default 5m) is automatically dropped from memory.
-Nothing in this phase blocks or rejects traffic based on the score - it's
-computed and persisted for a future phase to act on.
+Nothing in this phase blocks or rejects traffic based on the *score* -
+it's computed and persisted for a future phase to act on. The one
+exception is an optional country/ASN denylist (`asn_lookup.blocked_countries`/
+`blocked_asns`), which is unrelated to scoring: it's a deliberate,
+operator-configured block, not a behavioral judgment the collector makes
+on its own.
 
 ### Passthrough mode (default)
 
@@ -198,20 +209,44 @@ against a live database with existing rows - they keep their other
 columns' values and simply get `''`/`0`/`''` for the three new ones,
 no drop needed).
 
-What's still deliberately out of scope this phase is *acting* on either
-signal - as opposed to just recording it, which is what the paragraph
-above does: there's no country/ASN rule wired into `internal/limiter`,
-and `internal/scoring` doesn't consult either signal yet (see
-`asn_lookup.apply_to_scoring` just below). Resolving IP → country/ASN and
-deciding something based on it are kept as separate steps on purpose -
-this phase covers resolving it and recording it, not deciding with it.
+**`asn_lookup.blocked_countries` / `asn_lookup.blocked_asns` block traffic
+by country/ASN**, checked once per connection (passthrough mode) or once
+per HTTP request (full mode) - the resolved country or ASN is compared
+against a `limiter.GeoBlocklist` before `internal/limiter`'s own
+concurrency/rate admission runs, and a match is an **unconditional
+reject regardless of `limits.overload_policy`**: blocking by
+geography/ASN is a deliberate security decision, not
+collector-load-shedding behavior, so it isn't subject to `fail_open`'s
+"never block a legitimate site" guarantee the way an ordinary overload
+rejection is. A geo-blocked connection never dials the backend and is
+never recorded - passthrough closes the TCP connection outright; full
+mode returns `403 Forbidden`, distinct from the `503 Service Unavailable`
+an ordinary overload rejection returns, so the two reasons a request was
+refused stay distinguishable in logs and responses. Both lists empty
+(the default) means no blocking - and, importantly, no `Resolve()` call
+added to the request path either: `cmd/collector/main.go` only wires a
+resolver into the proxy at all when at least one blocklist entry is
+configured, so enabling `asn_lookup` for storage enrichment alone (the
+paragraph above) still costs nothing extra per request. Country codes
+are case-insensitive. This is a flat denylist by design, not a richer
+per-rule-policy engine (e.g. "always allow ASN X regardless of load",
+"throttle country Y at N req/s") - see `NOTES.md` for that deferred
+design and the open questions a future version of it would need to
+resolve.
+
+What's still deliberately out of scope this phase is wiring either
+signal into a *scoring* decision: `internal/scoring` doesn't consult
+country or ASN yet (see `asn_lookup.apply_to_scoring` just below).
+Resolving, recording, and blocking by IP → country/ASN are all real now;
+scoring is the one piece still deferred.
 
 `asn_lookup.apply_to_scoring` is accepted and validated but still not
-consulted by `internal/scoring` - country and ASN are both real signals
-now, and recorded in every snapshot, but wiring either into a scoring
-*decision* (or into a rate-limit rule) is later work, not this round's.
-It's part of the config shape now so turning it on later is a behavior
-change, not a schema one.
+consulted by `internal/scoring` - country and ASN are resolved, recorded
+in every snapshot, and already usable for blocking (see
+`blocked_countries`/`blocked_asns` above), but wiring either into a
+scoring *decision* is later work, not this round's. It's part of the
+config shape now so turning it on later is a behavior change, not a
+schema one.
 
 Enabling this requires applying `internal/asnlookup/schema.sql` once,
 manually, first - see "Running locally" below; like the rest of this
@@ -420,6 +455,8 @@ other field has a default. `config.toml` is gitignored since
 | `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range tables. |
 | `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often both datasets are re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
 | `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4/6.csv` and `origin-asn-ipv4/6.csv` from this directory instead - no network access at all in that mode. |
+| `asn_lookup.blocked_countries`      | `[]`                 | ISO 3166-1 alpha-2 codes (case-insensitive); a match rejects the connection/request outright, regardless of `limits.overload_policy` - see "Optional: IP → country / ASN lookup" below. |
+| `asn_lookup.blocked_asns`           | `[]`                 | ASN numbers; same reject behavior as `blocked_countries`, checked independently. |
 
 ## Testing
 
@@ -463,6 +500,22 @@ against a plain HTTP/1.1-only backend built from `net.Listen` +
 that HTTP/2 actually gets negotiated, and - the core point of full mode -
 that N requests over one connection produce N separate `RecordRequest`
 calls, not one (`internal/fullproxy/server_test.go`).
+
+Both proxy packages also have real-network geo-blocking tests (a fake
+`Resolver` stands in for a loaded `*asnlookup.Resolver`, but the
+connection/TLS/HTTP handling around it is exactly the same real machinery
+the other end-to-end tests use): a blocklist match closes the connection
+before ever dialing the backend in passthrough mode
+(`TestServer_GeoBlockedConnectionIsRejectedBeforeBackendDial`), returns
+`403` without ever calling `RecordRequest` in full mode
+(`TestServer_GeoBlockedRequestGets403AndIsNotRecorded`), and a configured
+but non-matching blocklist proxies normally in both
+(`TestServer_NonMatching*`) - proving GeoBlocklist being non-nil doesn't
+itself change behavior, only an actual match does.
+`internal/limiter/geoblock_test.go` covers `GeoBlocklist` itself in
+isolation: case-insensitive country matching, ASN matching, that an
+unresolved lookup (`""`/`0`) never matches a rule, and that a nil
+blocklist is always a no-op.
 
 `go test -tags integration ./internal/storage/... ./internal/asnlookup/...`
 confirms both packages' pgx `netip.Addr` ↔ `inet` encoding round-trips
@@ -521,10 +574,13 @@ allocations.
 Dashboard, query API, path-scanning detection, header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
-and *acting* on the country/ASN data `internal/asnlookup` now resolves -
-no country/ASN-based rate-limit rule wired into `internal/limiter`, and no
-ASN-based scoring signal wired into `internal/scoring` yet (see "Optional:
-IP → country / ASN lookup" above; resolving the data and acting on it are
-kept as separate phases on purpose). The `RateStore` interface and scoring
-package are shaped to make these additive later, not to pre-build them
-now.
+an ASN-based scoring signal wired into `internal/scoring` (see "Optional:
+IP → country / ASN lookup" above and `asn_lookup.apply_to_scoring`), and a
+richer country/ASN rule engine beyond the flat `blocked_countries`/
+`blocked_asns` denylist - e.g. a per-rule policy (always-allow a specific
+ASN, throttle a specific country at N req/s) rather than every match
+meaning the same unconditional reject. That richer version was
+deliberately scoped out rather than built now; see `NOTES.md` for its
+design and the open questions it would need to resolve. The `RateStore`
+interface and scoring package are shaped to make these additive later,
+not to pre-build them now.
