@@ -34,6 +34,13 @@ CREATE TABLE IF NOT EXISTS panel_users (
     -- having no read access to anything else and the database not being
     -- exposed; see the README.
     totp_secret   TEXT        NOT NULL DEFAULT '',
+    -- The last TOTP time step accepted for this account, so a code
+    -- cannot be presented twice. Codes are valid across three 30-second
+    -- steps to tolerate clock drift, which means one observed over a
+    -- shoulder or captured by a phishing proxy stays usable for up to
+    -- ninety seconds - ample for an attacker who already has the
+    -- password and is waiting for exactly that. See VerifyTOTP.
+    totp_last_step BIGINT     NOT NULL DEFAULT 0,
     -- The operator (whoever hosts this), as distinct from a customer who
     -- owns one site. Superadmins see every site.
     is_superadmin BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -46,6 +53,12 @@ CREATE TABLE IF NOT EXISTS panel_users (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_login_at TIMESTAMPTZ
 );
+
+-- Self-migrating, the same convention internal/storage/schema.sql
+-- follows: CREATE TABLE IF NOT EXISTS does nothing to a table that
+-- already exists, so a column added to the definition above reaches an
+-- existing deployment only through an explicit ALTER.
+ALTER TABLE panel_users ADD COLUMN IF NOT EXISTS totp_last_step BIGINT NOT NULL DEFAULT 0;
 
 -- Session storage for alexedwards/scs. The column names and types are
 -- fixed by that package; only the table name is ours.
