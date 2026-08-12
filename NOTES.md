@@ -68,38 +68,45 @@ this)
    between Dengeli and Tam Crucible.
 4. Retention policies on both analytics tables via TimescaleDB's own
    `add_retention_policy`, plus the panel setting that drives them.
-5. Collector and beacon re-read operational settings periodically and
-   apply what can honestly be applied while running.
+5. **Move the operational keys out of the TOML files into
+   `panel_settings`**, leaving only the eight bootstrap keys behind. The
+   full division is written out under "For any of this to work"; without
+   this step the repair catalogue has nothing it can actually change.
+6. Collector and beacon re-read those settings periodically and apply
+   what can honestly be applied while running - keeping the last known
+   values when the read fails, never falling back to defaults.
 
 **B. Observability** (what makes SSH avoidable)
-6. `panel_logs` with its own short retention, a self-expiring verbose
+7. `panel_logs` with its own short retention, a self-expiring verbose
    toggle, and the same NUL/UTF-8 sanitising the beacon needs.
-7. `panel_operations` - the operation journal, with correlation IDs,
+8. `panel_operations` - the operation journal, with correlation IDs,
    before/after values and rollback state.
-8. The health page, surfacing counters the services already keep.
-9. The health-scoped token and the authenticated health route on the
-   read API.
+9. The repair operations themselves: thirty-nine named, typed, bounded
+   functions (the catalogue below), each journaled.
+10. The health page, surfacing counters the services already keep.
+11. The support token and the authenticated health route on the read
+    API.
 
 **C. The panel's HTTP surface**
-10. Turkish message catalogue, templates, embedded HTMX, CSS.
-11. First-run detection and the developer wizard.
-12. The owner wizard, with the confirmation-gated door to the technical
+12. Turkish message catalogue, templates, embedded HTMX, CSS.
+13. First-run detection and the developer wizard.
+14. The owner wizard, with the confirmation-gated door to the technical
     one.
-13. Login, two-factor, account settings, member management.
-14. The developer-access approval screen (the request banner, approve
+15. Login, two-factor, account settings, member management.
+16. The developer-access approval screen (the request banner, approve
     and deny).
 
 **D. The dashboard itself**
-15. Site picker, then the six-card default view per site.
-16. Drill-downs: pages, sources, campaigns, devices, countries, events.
-17. Developer-mode layers on the same pages: fingerprints, ASNs,
+17. Site picker, then the six-card default view per site.
+18. Drill-downs: pages, sources, campaigns, devices, countries, events.
+19. Developer-mode layers on the same pages: fingerprints, ASNs,
     scores, the crossover views, raw export.
-18. Settings pages, each change opening the streaming operation modal.
+20. Settings pages, each change opening the streaming operation modal.
 
 **E. Consolidation and hardening**
-19. `cmd/crucible` with subcommands and one config file.
-20. The `Sprintf`-near-SQL test.
-21. README rewrite for the whole product rather than the collector.
+21. `cmd/crucible` with subcommands and one config file.
+22. The `Sprintf`-near-SQL test.
+23. README rewrite for the whole product rather than the collector.
 
 Two things deliberately **not** on this list, so they are not assumed:
 a mobile app, and any form of alerting to end customers (email,
@@ -339,11 +346,202 @@ review; it is not something a running system can be talked into.
 This sounds *less* powerful than a SQL box and is in practice more
 useful. In a real incident nobody wants to compose SQL against a schema
 they half-remember at speed; they want "retention is wrong, set it to
-90". Twenty well-chosen operations cover almost every real incident,
-and none of them can be turned against the customer whose data this is.
+90". A well-chosen catalogue covers almost every real incident, and
+none of its entries can be turned against the customer whose data this
+is.
 
-The honest cost, stated so nobody is surprised later: the twenty-first
-incident needs SSH. That is the trade, and it is the right one.
+The size of that catalogue is the whole question, and an earlier draft
+of this note answered it with four examples, which was far too thin to
+support the claim being made. If SSH is genuinely to be almost never
+needed, the catalogue has to be written out properly - so it is, below.
+
+### The operation catalogue
+
+Grouped by what actually breaks. Every entry is a named Go function
+with typed parameters, validated against explicit bounds before it
+reaches the database, journaled with a correlation ID, and reversible
+wherever reversing it is meaningful.
+
+**A. Collection has stopped, or the numbers are wrong**
+
+1. `FlushNow()` - push the pending buffer to Postgres. Parameterless.
+   The answer to "kayıtlar on dakikadır gelmiyor" when the flush timer
+   has wedged, and the first thing to try because it is free.
+2. `SetFlushInterval(seconds)` - 1..300. Slow disk wants a longer one;
+   diagnosing wants a shorter one.
+3. `PauseCollection(site)` / `ResumeCollection(site)` - stop *recording*
+   without stopping the proxy. The safe move mid-incident: traffic keeps
+   reaching the customer's site, the disk stops filling, nobody loses a
+   sale while we work.
+4. `ReloadIPData()` - re-read the ASN/country tables. Parameterless. The
+   answer to "ülkeler yanlış" or "ülke sütunu tamamen boş".
+5. `SetASNLookupMode(mode)` - closed enum, `off` | `country_only` |
+   `full`. Both a privacy setting and the fix for lookup eating the CPU.
+6. `SetASNSource(source)` - closed enum over sources compiled into the
+   binary. `local_csv` selects a path from a fixed allowlist of
+   directories; it is not a free-text path, because a free-text path is
+   a file-read primitive.
+7. `SetTrustedProxies(prefixes)` - parsed to `netip.Prefix` values,
+   never stored or compared as text. This one earns its place at the
+   top: sitting behind Cloudflare with an empty trusted-proxy list makes
+   every visitor look like the same IP, which makes *every other number
+   in the system* wrong at once. It is the most common real
+   misconfiguration there is and today it costs an SSH session.
+8. `SetLimits(maxConcurrent, maxRPS)` - 1..100000 each. The fix when the
+   collector itself has become the bottleneck.
+9. `SetOverloadPolicy(policy)` - `fail_open` | `fail_closed` |
+   `throttle`.
+10. `SetThrottleQueueSize(n)` - 0..10000.
+11. `SetBotScoreThreshold(site, score)` - 0..100. The answer to "gerçek
+    müşterilerim bot sayılıyor", which is a tuning problem and should
+    never have needed a shell.
+12. `SetBlockedCountries(codes)` / `SetBlockedASNs(asns)` - country codes
+    validated against a compiled-in ISO 3166-1 list, ASNs bounded to the
+    assigned range. Wrong entries here silently discard real traffic, so
+    the operation shows the last 24 hours' hit count per rule before
+    accepting the change.
+13. `SetKnownBotASNs(asns)` - the scoring signal, same validation.
+
+**B. The disk and the database**
+
+14. `ShowTableSizes()` - read-only, and first in this group because it is
+    the first question every time.
+15. `SetRetention(table, days)` - closed table enum, 1..3650. Refuses to
+    shorten retention without a second confirmation naming how many rows
+    that would delete, because "set it to 30" against two years of data
+    is destructive and should feel like it.
+16. `RunRetentionNow()` - don't wait for the scheduled job.
+17. `SetCompressionPolicy(table, afterDays)` - 1..3650. Usually the
+    better answer than deleting: the customer keeps their history and
+    gets most of the disk back.
+18. `ApplyPendingMigrations()` - runs the project's own
+    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` blocks. The DDL comes
+    from a file compiled into the binary, never from a parameter, and is
+    idempotent by construction. This single operation removes the most
+    common reason we reach for `psql` today: an upgrade that added a
+    column to a schema file nobody re-applied.
+19. `CreateMissingIndexes()` - same shape, compiled-in list,
+    `CREATE INDEX CONCURRENTLY IF NOT EXISTS`.
+20. `ReindexTable(table)` / `AnalyzeTable(table)` / `VacuumTable(table)` -
+    closed enum over this project's own tables. `AnalyzeTable` is the fix
+    for "dashboard birden yavaşladı" more often than anything else.
+21. `ShowSlowQueries()` - read-only, from `pg_stat_statements` when it is
+    available and skipped cleanly when it is not.
+
+**C. Access, and getting locked out**
+
+22. `SendOwnerPasswordReset(userID)` - issues a single-use link to the
+    address already on the account. **We never see, set or choose a
+    password.** The distinction matters: an operation that set a
+    password would be an operation that impersonates the owner.
+23. `DisableTOTP(userID, reason)` - the genuinely stuck case, phone lost
+    and no recovery code. Deliberately the loudest operation in the
+    catalogue: it requires a written reason, writes an audit entry, and
+    raises a banner in the owner's panel that only the owner can dismiss.
+    It is the entry most open to abuse, so it is the entry that cannot be
+    performed quietly.
+24. `EndAllSessions(userID)` - the stolen-laptop button.
+25. `UnlockLoginThrottle(emailOrIP)` - clears the throttle after a
+    customer locked themselves out guessing their own password.
+26. `GrantOwnership(userID, siteID)` - recovery from "the only owner left
+    the company", which otherwise strands a deployment permanently.
+27. `RevokeAPIToken(id)` / `RevokeAllTokens(siteID)` - the leaked-token
+    response, at the speed a leaked token deserves.
+28. `SetDeveloperMode(userID, enabled)` - turning a technical customer's
+    own developer view on for them over the phone, rather than talking
+    them through finding the toggle.
+
+**D. The beacon**
+
+29. `ShowBeaconStatus(site)` - last event, events in the last hour,
+    rejected count **and the reason for each rejection class**. Read-only
+    and always the first question: "JS verisi hiç gelmiyor" is usually a
+    site not on the allowlist, and today finding that out means reading
+    logs over SSH.
+30. `ShowBeaconSnippet(site)` - the exact `<script>` tag with their site
+    ID already filled in. Removes an entire category of support call.
+31. `SetBeaconSites(sites)` - the allowlist, validated against the site-ID
+    character set.
+32. `SetBeaconBuffer(size, batch, flushSeconds)` - bounded.
+33. `TestBeaconIngest(site)` - writes one synthetic event, flagged as
+    synthetic so it never pollutes real figures, then reports whether it
+    arrived and how long it took. Proves the whole path without asking
+    the customer to go and load their own site while we watch.
+
+**E. Depth, logging and profile**
+
+34. `SetAnalyticsProfile(site, profile)` - `hafif` | `dengeli` | `tam`.
+35. `SetVerboseLogging(site, minutes)` - 1..120, self-expiring, because
+    verbose logging left on by accident is how the disk fills.
+36. `SetLogRetention(days)` / `SetLogLevel(service, level)` - closed
+    enums.
+37. `ExportDiagnosticBundle()` - one file containing settings, health,
+    recent WARN+ logs and table sizes, with values redacted. For the
+    cases that do end up needing a human to read everything at once,
+    without that human needing a shell to collect it.
+
+**F. Process control**
+
+38. `RestartService(service)` - closed enum over our own four services.
+    No command string, no arguments, no path. Implemented as **exit
+    cleanly and let systemd restart us**: the panel never spawns
+    anything. That is the important property - a repair surface that can
+    only *stop* processes cannot be turned into one that starts arbitrary
+    ones, no matter what is done to it.
+39. `ReloadConfig(service)` - re-read what remains in the file, without a
+    restart.
+
+That is thirty-nine operations, and the shape of the list is the point:
+almost all of them are settings changes and read-only inspections, and
+the handful that are genuinely powerful (23, 26, 15) are each wrapped in
+something that makes them impossible to do quietly.
+
+### For any of this to work, the settings have to move to the database
+
+The catalogue above quietly assumes something that is **not true today**,
+and the assumption is the real work: an operation can only change a
+setting that is changeable at runtime. Right now almost every value in
+section A lives in a TOML file, so the actual repair procedure is `ssh` +
+`vim` + `systemctl restart` - precisely what this whole design exists to
+avoid. Writing the catalogue therefore forces a migration, and the line
+has to be drawn deliberately rather than discovered halfway through.
+
+**Stays in the config file** - only what must exist *before* the
+database can be reached, plus what identifies this machine:
+
+- `timescale_dsn` - unavoidable and self-evident: you cannot consult the
+  database to find out how to reach the database.
+- `listen_addr` for each service, and `backend_addr` / `mode` for the
+  proxy. Changing where a process listens is a restart anyway.
+- `tls.cert_file`, `tls.key_file` - read at startup, tied to the
+  filesystem.
+- `site_id` for the collector - it names which deployment this is, and a
+  deployment that could rename itself from the database is a deployment
+  that could be talked into writing into someone else's site.
+
+Roughly eight keys. Short enough to read in full during installation and
+then never open again, which is its own goal.
+
+**Moves to `panel_settings`, read live:** `trusted_proxies`; the whole of
+`[limits]`; the whole of `[asn_lookup]` including both blocklists and the
+scoring list; `flush_interval_seconds`; the beacon's buffer sizes and
+batch sizes; the beacon's site allowlist; the analytics profile and
+per-site depth; retention and compression policies; the bot-score
+threshold; cache window and TTLs; log level and log retention.
+
+**How a running service notices.** Not a signal and not a restart: each
+service re-reads its settings row on a short interval and swaps the live
+values atomically. The operation modal waits for that acknowledgement
+before reporting "uygulandı", so the word means the change is in effect
+rather than merely written down.
+
+**The cost, stated before it surprises anyone:** this makes the database
+a dependency of the collector's *behaviour*, not only of its storage. So
+the failure mode has to be written deliberately - **if the settings read
+fails, keep the last known values.** The naive version (on error, fall
+back to defaults) would silently reset a customer's tuning during a
+database blip, which is a worse outcome than a stale setting and far
+harder to notice.
 
 ### The operation journal
 
@@ -417,15 +615,27 @@ nothing surfaces them.
 
 ### What still requires SSH, stated plainly
 
-A panel cannot repair a panel that is not running. These stay physical:
+A panel cannot repair a panel that is not running, and no catalogue
+changes that. These stay physical:
 
 - the process will not start, or crashes on boot
-- the database will not start
-- the disk is full at the OS level
-- TLS certificate renewal
+- the database will not start, or will not accept connections
+- the disk is full at the OS level - once writes fail, the operation
+  journal that would record the repair cannot be written either
+- TLS certificate renewal, and anything else about the filesystem
 - upgrading the binary
+- restoring from a backup
+- the eight config-file keys above: DSN, listen addresses, TLS paths,
+  `site_id`
+- the panel itself being the broken component
 
-Anything promising otherwise would be lying about where the boundary is.
+The honest observation about that list: **every entry is an install-time
+or machine-level concern, not an "analitik yanlış / veri gelmiyor /
+ayarı değiştir" concern.** That is the actual claim being made here.
+"Everything without SSH" is not achievable and is not what is being
+promised; what is achievable is that the entire class of problem
+customers actually telephone about is repairable from the panel, and the
+residue is the class where the machine itself needs a human.
 
 ### Health monitoring: we poll them, they never call us
 
@@ -442,24 +652,54 @@ telephone them and ask for developer access, exactly as if they had
 called us first. Being able to make that call before the customer
 notices is most of the value.
 
-The uncomfortable part, written down rather than glossed over:
-**polling requires a standing credential, and a standing credential
-looks like the standing access this design just finished removing.**
-The resolution is a credential that cannot be used for access:
+### The support token: read everything, write nothing
 
-- A **health-scoped token**, not a site token. It can read the health
-  endpoint and nothing else - no traffic data, no beacon events, no
-  accounts, no settings, and no writes of any kind. The scope is
-  enforced in the authorizer, not by convention.
-- The health response says whether subsystems are working, never what
-  they saw: "collector last flushed 4 minutes ago", never a visitor, an
-  address or a page.
-- Granted by an explicit opt-in during setup, listed in the panel
-  alongside the API tokens, revocable in one click, and its last use
-  shown so an owner can see we are actually looking.
+An earlier draft proposed restricting this to a health-only scope. That
+was too narrow for the actual job. Monitoring a customer's deployment
+means answering questions that need the analytics themselves: is their
+SEO working, are real visitors arriving at all, is a newly launched site
+getting traffic, did the numbers fall off a cliff last Tuesday. None of
+that is visible in a liveness check.
 
-That keeps the promise intact, because it is monitoring rather than
-access: the token cannot read a single row of the customer's data.
+So the support token reads **everything the read API serves**, across
+every site - it is an ordinary wildcard token in the shape
+`api.Token{Sites: []string{"*"}}` that already exists. What makes it
+safe is not its scope but the wall behind it:
+
+- The read API's database role can only `SELECT`. A token cannot write
+  through an API that has nothing to write with, so "read-only" is
+  enforced by PostgreSQL rather than by application code that could
+  have a bug in it.
+- Only the SHA-256 is stored, at both ends. A leaked database or config
+  file hands over no working credential.
+- It reaches only the read API. It is not a panel session: it cannot
+  change a setting, add a member, mint another token or approve
+  developer access.
+
+Health is simply one of the things it can read, rather than the only
+thing.
+
+**The part that has to be got right, stated plainly:** this is standing
+access to a customer's business data after handover. Traffic volumes,
+which pages sell, when the campaigns landed - that is commercially
+sensitive information about someone else's company. Read-only does not
+make it not access.
+
+What separates legitimate vendor monitoring from the back door this
+design exists to avoid is not the capability. It is whether the owner
+knows and can say no. So:
+
+- The token is **listed in the owner's panel** under a plain name -
+  "Crucible destek erişimi" - beside their own API tokens, not hidden
+  in a developer-only page they never open.
+- It is **revocable in one click**, by them, without asking us.
+- Its **last use is shown**, so "are they actually looking at my data"
+  has an answer they can check themselves rather than take on trust.
+- Creating it is an audit entry like any other.
+
+A customer who revokes it loses proactive support and keeps everything
+else; that trade is theirs to make. Making it revocable is also what
+makes it honest to describe the deployment as theirs.
 
 The endpoint itself belongs on the read API, which is already
 token-authenticated and already read-only. `/healthz` stays as it is -
