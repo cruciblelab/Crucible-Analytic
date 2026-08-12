@@ -53,6 +53,58 @@ shares its process, and putting attacker-supplied JSON parsing in the
 collector would hand the one component that must never go down a threat
 surface it currently doesn't have.
 
+### What is left, in order
+
+Written down because "is that all of it?" deserves an answer that does
+not change each time it is asked. Everything below is planned in detail
+in the sections further down; this is the sequence.
+
+**A. Operational settings and retention** (nothing above works without
+this)
+1. `panel_settings` table, per-site and global, typed values.
+2. The three profiles as named sets of defaults that write individual
+   settings.
+3. `asn_lookup` gains a country-only mode - the memory difference
+   between Dengeli and Tam Crucible.
+4. Retention policies on both analytics tables via TimescaleDB's own
+   `add_retention_policy`, plus the panel setting that drives them.
+5. Collector and beacon re-read operational settings periodically and
+   apply what can honestly be applied while running.
+
+**B. Observability** (what makes SSH avoidable)
+6. `panel_logs` with its own short retention, a self-expiring verbose
+   toggle, and the same NUL/UTF-8 sanitising the beacon needs.
+7. `panel_operations` - the operation journal, with correlation IDs,
+   before/after values and rollback state.
+8. The health page, surfacing counters the services already keep.
+9. The health-scoped token and the authenticated health route on the
+   read API.
+
+**C. The panel's HTTP surface**
+10. Turkish message catalogue, templates, embedded HTMX, CSS.
+11. First-run detection and the developer wizard.
+12. The owner wizard, with the confirmation-gated door to the technical
+    one.
+13. Login, two-factor, account settings, member management.
+14. The developer-access approval screen (the request banner, approve
+    and deny).
+
+**D. The dashboard itself**
+15. Site picker, then the six-card default view per site.
+16. Drill-downs: pages, sources, campaigns, devices, countries, events.
+17. Developer-mode layers on the same pages: fingerprints, ASNs,
+    scores, the crossover views, raw export.
+18. Settings pages, each change opening the streaming operation modal.
+
+**E. Consolidation and hardening**
+19. `cmd/crucible` with subcommands and one config file.
+20. The `Sprintf`-near-SQL test.
+21. README rewrite for the whole product rather than the collector.
+
+Two things deliberately **not** on this list, so they are not assumed:
+a mobile app, and any form of alerting to end customers (email,
+webhooks). Both are reasonable later; neither is in this arc.
+
 ### Deployment topology (decided, not incidental)
 
 The collector is a reverse proxy, so it **must** run in each site's
@@ -230,12 +282,24 @@ confirmation rather than a hidden page is deliberate: it is their
 server, and a technical owner should not have to ask us for access to
 their own settings.
 
-## Operating a customer's deployment without logging into it (planned)
+## Operating a customer's deployment from the panel instead of SSH
 
-The goal: when a customer breaks something and calls, we diagnose and
-fix it from the panel, and SSH is the last resort rather than the first
-move. The constraint stated alongside it: no injection, no open door,
-no back door in the database.
+The goal: when a customer breaks something and calls, we ask for
+developer access, sign in to **their panel in a browser**, diagnose and
+fix it there. SSH into the machine is the last resort rather than the
+first move.
+
+To be unambiguous, because the wording "remote" invited exactly the
+wrong reading: **there is one way in and it is the one already built.**
+`crucible dev-access request` on the server, the owner approves it in
+their panel, a single-use link. No second mechanism, no login from our
+infrastructure into theirs, nothing that bypasses the owner's consent.
+The whole difference being discussed here is `ssh root@vds` +
+`journalctl` + `psql` versus the same person looking at the same
+deployment through its own panel.
+
+The constraint stated alongside it: no injection, no open door, no back
+door in the database.
 
 **These two pull against each other, and pretending otherwise is how
 back doors get built.** A panel that can repair a deployment is by
@@ -363,15 +427,44 @@ A panel cannot repair a panel that is not running. These stay physical:
 
 Anything promising otherwise would be lying about where the boundary is.
 
-### Phoning home: off unless asked
+### Health monitoring: we poll them, they never call us
 
-An outbound heartbeat would tell us a deployment is down without
-waiting for a phone call, which is genuinely useful. It is also a
-customer's server making unrequested outbound connections to us, which
-is a reasonable definition of the back door they asked not to have. So
-it is opt-in, off by default, and its address is a config value rather
-than something compiled in - and when it is on, the panel says so
-visibly rather than only in a settings page nobody reads.
+An earlier draft of this note proposed an outbound heartbeat - the
+deployment reporting to us. That was the wrong direction and is
+rejected: a customer's server opening unrequested connections to its
+vendor is a fair definition of the back door this design exists to
+avoid, and it is unpleasant to explain no matter how it is configured.
+
+The correct shape is a **pull**: an authenticated health endpoint on
+the deployment, which our own system polls on a schedule. Nothing
+leaves the customer's machine unasked; when a poll reports trouble we
+telephone them and ask for developer access, exactly as if they had
+called us first. Being able to make that call before the customer
+notices is most of the value.
+
+The uncomfortable part, written down rather than glossed over:
+**polling requires a standing credential, and a standing credential
+looks like the standing access this design just finished removing.**
+The resolution is a credential that cannot be used for access:
+
+- A **health-scoped token**, not a site token. It can read the health
+  endpoint and nothing else - no traffic data, no beacon events, no
+  accounts, no settings, and no writes of any kind. The scope is
+  enforced in the authorizer, not by convention.
+- The health response says whether subsystems are working, never what
+  they saw: "collector last flushed 4 minutes ago", never a visitor, an
+  address or a page.
+- Granted by an explicit opt-in during setup, listed in the panel
+  alongside the API tokens, revocable in one click, and its last use
+  shown so an owner can see we are actually looking.
+
+That keeps the promise intact, because it is monitoring rather than
+access: the token cannot read a single row of the customer's data.
+
+The endpoint itself belongs on the read API, which is already
+token-authenticated and already read-only. `/healthz` stays as it is -
+unauthenticated, dataless, for load balancers - and the detailed
+version is a separate authenticated route.
 
 ## Injection and the database's blast radius
 
