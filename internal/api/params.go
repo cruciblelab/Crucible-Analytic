@@ -92,6 +92,29 @@ func ParseLimit(q url.Values, def int) (int, error) {
 	return n, nil
 }
 
+// maxOffset caps how far a caller can page into a result set. Deep
+// offsets are increasingly expensive for Postgres (it still walks the
+// skipped rows), and a UI that genuinely needs to reach past this should
+// narrow its time range instead.
+const maxOffset = 100_000
+
+// ParseOffset reads a pagination offset, defaulting to 0 and rejecting
+// negatives or anything past maxOffset.
+func ParseOffset(q url.Values) (int, error) {
+	raw := q.Get("offset")
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid offset %q (want a number)", raw)
+	}
+	if n < 0 || n > maxOffset {
+		return 0, fmt.Errorf("offset %d out of range (want 0..%d)", n, maxOffset)
+	}
+	return n, nil
+}
+
 // ParseBotScoreMin reads the bot-score cutoff used to split bot from
 // human IPs, defaulting to DefaultBotScoreMin. Bounded to 0..100 to match
 // scoring.MaxScore's range.

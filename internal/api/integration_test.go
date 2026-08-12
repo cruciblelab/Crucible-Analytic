@@ -16,9 +16,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -47,6 +49,25 @@ type seedRow struct {
 // database.
 func newTestStore(t *testing.T, marker string, rows []seedRow) *Store {
 	t.Helper()
+	return seedStore(t, rows, func(r seedRow) string { return marker })
+}
+
+// newTestStoreWithJA4 is newTestStore for tests that need each row to
+// carry its own fingerprint (the JA4 breakdown, which groups by it)
+// rather than a shared cleanup marker.
+func newTestStoreWithJA4(t *testing.T, marker string, rows []seedRow) *Store {
+	t.Helper()
+	return seedStore(t, rows, func(r seedRow) string { return r.ja4 })
+}
+
+// seedStore opens a Store, inserts rows with ja4 chosen by ja4For, and
+// cleans up afterwards.
+//
+// Cleanup deletes by the site_ids that were seeded rather than by a JA4
+// marker: rows carrying their own fingerprint have no shared marker to
+// match on, and every test here already uses a site_id unique to itself.
+func seedStore(t *testing.T, rows []seedRow, ja4For func(seedRow) string) *Store {
+	t.Helper()
 
 	store, err := NewStore(context.Background(), testDatabaseURL)
 	if err != nil {
@@ -59,9 +80,16 @@ func newTestStore(t *testing.T, marker string, rows []seedRow) *Store {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	seededSites := map[string]struct{}{}
+	for _, r := range rows {
+		seededSites[r.site] = struct{}{}
+	}
 	t.Cleanup(func() {
-		if _, err := pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, marker); err != nil {
-			t.Logf("cleanup: delete failed: %v", err)
+		for site := range seededSites {
+			if _, err := pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE site_id = $1`, site); err != nil {
+				t.Logf("cleanup: deleting site %s failed: %v", site, err)
+			}
 		}
 	})
 
@@ -71,7 +99,7 @@ func newTestStore(t *testing.T, marker string, rows []seedRow) *Store {
 			  (time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate,
 			   bot_score, is_known_bot_ja4, country, asn, asn_org, is_known_bot_asn)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-			r.at, r.site, r.ip, marker, r.prevWin, r.currWin, r.rate,
+			r.at, r.site, r.ip, ja4For(r), r.prevWin, r.currWin, r.rate,
 			r.score, r.botJA4, r.country, r.asn, r.asnOrg, r.botASN)
 		if err != nil {
 			t.Fatalf("seeding row %+v: %v", r, err)
@@ -206,7 +234,7 @@ func TestStore_RealTimescaleDB_SiteIsolation(t *testing.T) {
 		t.Errorf("site-a BotIPs = %d, want 0 (site-b's high-scoring IP must not leak)", summary.BotIPs)
 	}
 
-	countries, err := store.Countries(ctx, "site-a", from, to, 10, DefaultBotScoreMin)
+	countries, _, err := store.Countries(ctx, "site-a", from, to, 10, 0, DefaultBotScoreMin)
 	if err != nil {
 		t.Fatalf("Countries: %v", err)
 	}
@@ -216,7 +244,7 @@ func TestStore_RealTimescaleDB_SiteIsolation(t *testing.T) {
 		}
 	}
 
-	asns, err := store.ASNs(ctx, "site-a", from, to, 10, DefaultBotScoreMin)
+	asns, _, err := store.ASNs(ctx, "site-a", from, to, 10, 0, DefaultBotScoreMin)
 	if err != nil {
 		t.Fatalf("ASNs: %v", err)
 	}
@@ -226,7 +254,7 @@ func TestStore_RealTimescaleDB_SiteIsolation(t *testing.T) {
 		}
 	}
 
-	ips, err := store.TopIPs(ctx, "site-a", from, to, 10)
+	ips, _, err := store.TopIPs(ctx, "site-a", from, to, 10, 0)
 	if err != nil {
 		t.Fatalf("TopIPs: %v", err)
 	}
@@ -246,6 +274,281 @@ func TestStore_RealTimescaleDB_SiteIsolation(t *testing.T) {
 			t.Errorf("site-a timeseries bucket reports %d bot IPs, want 0: %+v", b.BotIPs, b)
 		}
 	}
+
+	// The endpoints added after the first cut have to be held to the same
+	// standard - a new query that forgot its site_id filter would leak
+	// exactly the same way, and would be easy to miss.
+	dist, err := store.ScoreDistribution(ctx, "site-a", from, to)
+	if err != nil {
+		t.Fatalf("ScoreDistribution: %v", err)
+	}
+	for _, b := range dist {
+		if b.Min >= 90 && b.UniqueIPs != 0 {
+			t.Errorf("site-a score distribution has %d IPs in the 90+ band, want 0 (only site-b scored 99)", b.UniqueIPs)
+		}
+	}
+
+	snaps, total, err := store.Snapshots(ctx, "site-a", from, to, 10, 0)
+	if err != nil {
+		t.Fatalf("Snapshots: %v", err)
+	}
+	if total != 2 || len(snaps) != 2 {
+		t.Errorf("site-a snapshots = %d rows (total %d), want 2 - site-b's rows must not appear", len(snaps), total)
+	}
+
+	// site-b's IP 203.0.113.2 never appeared under site-a, so asking
+	// site-a about it must report "not found" rather than site-b's data.
+	detail, err := store.IPDetail(ctx, "site-a", netip.MustParseAddr("203.0.113.2"), from, to, 100)
+	if err != nil {
+		t.Fatalf("IPDetail: %v", err)
+	}
+	if detail.Found {
+		t.Errorf("site-a IPDetail found an IP that only exists under site-b: %+v", detail)
+	}
+
+	// The shared IP does exist under site-a, but must carry site-a's
+	// numbers, not site-b's.
+	shared, err := store.IPDetail(ctx, "site-a", netip.MustParseAddr("203.0.113.1"), from, to, 100)
+	if err != nil {
+		t.Fatalf("IPDetail: %v", err)
+	}
+	if !shared.Found || shared.PeakScore != 10 || shared.Country != "US" {
+		t.Errorf("site-a IPDetail = %+v, want found with score 10 and country US (site-b's 99/DE must not leak)", shared)
+	}
+
+	ja4s, _, err := store.JA4s(ctx, "site-a", from, to, 10, 0, DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("JA4s: %v", err)
+	}
+	for _, j := range ja4s {
+		if j.UniqueIPs != 1 {
+			t.Errorf("site-a ja4 group %+v counts %d IPs, want 1 - site-b's IPs must not be counted", j, j.UniqueIPs)
+		}
+	}
+}
+
+func TestStore_RealTimescaleDB_JA4sLabelsKnownBots(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_ja4"
+
+	// Pick a fingerprint that's genuinely in the embedded known-bot list,
+	// so the label lookup is exercised against real data rather than one
+	// invented for the test.
+	var knownJA4 string
+	for ja4 := range scoring.KnownBotJA4 {
+		knownJA4 = ja4
+		break
+	}
+	if knownJA4 == "" {
+		t.Skip("no known-bot JA4 fingerprints embedded")
+	}
+
+	store := newTestStoreWithJA4(t, marker, []seedRow{
+		{site: "site-ja4", ip: "203.0.113.1", at: base, score: 90, botJA4: true, ja4: knownJA4},
+		{site: "site-ja4", ip: "203.0.113.2", at: base, score: 10, ja4: "t13d1516h2_notabot_xxxx"},
+		{site: "site-ja4", ip: "203.0.113.3", at: base, score: 0, ja4: ""}, // plaintext, no fingerprint
+	})
+
+	stats, total, err := store.JA4s(context.Background(), "site-ja4", base.Add(-time.Minute), base.Add(time.Minute), 10, 0, DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("JA4s: %v", err)
+	}
+	if total != 3 {
+		t.Errorf("total = %d, want 3 distinct fingerprints (including the empty one)", total)
+	}
+
+	var sawLabel, sawEmpty bool
+	for _, s := range stats {
+		if s.JA4 == knownJA4 {
+			if s.Label != scoring.KnownBotJA4[knownJA4] {
+				t.Errorf("known JA4 %q label = %q, want %q", s.JA4, s.Label, scoring.KnownBotJA4[knownJA4])
+			}
+			if !s.IsKnownBotJA4 {
+				t.Errorf("known JA4 %q has IsKnownBotJA4 = false", s.JA4)
+			}
+			sawLabel = true
+		}
+		if s.JA4 == "" {
+			if !s.Empty {
+				t.Error("the empty-fingerprint group is not flagged Empty")
+			}
+			sawEmpty = true
+		}
+	}
+	if !sawLabel {
+		t.Error("the known-bot fingerprint never came back")
+	}
+	if !sawEmpty {
+		t.Error("traffic with no fingerprint was dropped instead of grouped under an empty key")
+	}
+}
+
+func TestStore_RealTimescaleDB_ScoreDistributionCoversEveryBand(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_dist"
+
+	store := newTestStore(t, marker, []seedRow{
+		{site: "site-dist", ip: "203.0.113.1", at: base, score: 5},   // band 0
+		{site: "site-dist", ip: "203.0.113.2", at: base, score: 55},  // band 5
+		{site: "site-dist", ip: "203.0.113.3", at: base, score: 100}, // band 9 (folded)
+	})
+
+	buckets, err := store.ScoreDistribution(context.Background(), "site-dist", base.Add(-time.Minute), base.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("ScoreDistribution: %v", err)
+	}
+	if len(buckets) != 10 {
+		t.Fatalf("got %d buckets, want all 10 bands present (including empty ones, so a chart needn't fill gaps)", len(buckets))
+	}
+	if buckets[0].UniqueIPs != 1 || buckets[5].UniqueIPs != 1 || buckets[9].UniqueIPs != 1 {
+		t.Errorf("buckets = %+v, want one IP each in bands 0, 5 and 9", buckets)
+	}
+	if buckets[9].Max != 100 {
+		t.Errorf("top band Max = %d, want 100 (a perfect score folds into the top band, not an 11th)", buckets[9].Max)
+	}
+	if buckets[1].UniqueIPs != 0 {
+		t.Errorf("band 1 = %d, want 0", buckets[1].UniqueIPs)
+	}
+}
+
+func TestStore_RealTimescaleDB_IPDetailReturnsTimeline(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_ipdetail"
+
+	store := newTestStore(t, marker, []seedRow{
+		{site: "site-ip", ip: "203.0.113.1", at: base, rate: 1, score: 20, currWin: 10, country: "US", asn: 111, asnOrg: "AAA"},
+		{site: "site-ip", ip: "203.0.113.1", at: base.Add(10 * time.Second), rate: 3, score: 80, currWin: 30, country: "US", asn: 111, asnOrg: "AAA", botASN: true},
+	})
+
+	got, err := store.IPDetail(context.Background(), "site-ip", netip.MustParseAddr("203.0.113.1"), base.Add(-time.Minute), base.Add(time.Minute), 100)
+	if err != nil {
+		t.Fatalf("IPDetail: %v", err)
+	}
+	if !got.Found {
+		t.Fatal("Found = false, want true")
+	}
+	if got.PeakScore != 80 || got.PeakRequestRate != 3 || got.PeakWindowRequests != 30 {
+		t.Errorf("peaks = score %d, rate %v, window %d; want 80/3/30", got.PeakScore, got.PeakRequestRate, got.PeakWindowRequests)
+	}
+	if got.Country != "US" || got.ASN != 111 || got.ASNName != "AAA" || !got.IsKnownBotASN {
+		t.Errorf("enrichment = %q/%d/%q botASN=%v, want US/111/AAA/true", got.Country, got.ASN, got.ASNName, got.IsKnownBotASN)
+	}
+	if got.Snapshots != 2 || len(got.Timeline) != 2 {
+		t.Fatalf("Snapshots = %d, timeline = %d points; want 2 and 2", got.Snapshots, len(got.Timeline))
+	}
+	if !got.Timeline[0].Time.Before(got.Timeline[1].Time) {
+		t.Error("timeline is not in ascending time order")
+	}
+	if got.FirstSeen.After(got.LastSeen) {
+		t.Errorf("FirstSeen %v is after LastSeen %v", got.FirstSeen, got.LastSeen)
+	}
+}
+
+func TestStore_RealTimescaleDB_IPDetailNotFoundIsNotAnError(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	store := newTestStore(t, "t13d_api_ipmissing", nil)
+
+	got, err := store.IPDetail(context.Background(), "site-none", netip.MustParseAddr("203.0.113.99"), base, base.Add(time.Minute), 100)
+	if err != nil {
+		t.Fatalf("IPDetail: %v", err)
+	}
+	if got.Found {
+		t.Error("Found = true for an IP with no snapshots")
+	}
+	if got.Timeline == nil {
+		t.Error("Timeline = nil, want an empty non-nil slice so it serialises as []")
+	}
+}
+
+func TestStore_RealTimescaleDB_OverviewCoversSeveralSitesAtOnce(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_overview"
+
+	store := newTestStore(t, marker, []seedRow{
+		{site: "zzz-ov-a", ip: "203.0.113.1", at: base, rate: 1, score: 90},
+		{site: "zzz-ov-a", ip: "203.0.113.2", at: base, rate: 2, score: 10},
+		{site: "zzz-ov-b", ip: "203.0.113.3", at: base, rate: 5, score: 10},
+	})
+	ctx := context.Background()
+	from, to := base.Add(-time.Minute), base.Add(time.Minute)
+
+	// Restricted to the two seeded sites, so other tests' data can't
+	// affect the assertions.
+	got, err := store.Overview(ctx, []string{"zzz-ov-a", "zzz-ov-b"}, from, to, DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d sites, want 2: %+v", len(got), got)
+	}
+	// Ordered by unique IPs descending, so site-a (2 IPs) comes first.
+	if got[0].SiteID != "zzz-ov-a" || got[0].UniqueIPs != 2 || got[0].BotIPs != 1 || got[0].HumanIPs != 1 {
+		t.Errorf("first site = %+v, want zzz-ov-a with 2 IPs (1 bot, 1 human)", got[0])
+	}
+	if got[1].SiteID != "zzz-ov-b" || got[1].UniqueIPs != 1 || got[1].PeakRequestRate != 5 {
+		t.Errorf("second site = %+v, want zzz-ov-b with 1 IP and peak rate 5", got[1])
+	}
+}
+
+func TestStore_RealTimescaleDB_OverviewRestrictsToTheGivenSites(t *testing.T) {
+	// The nil-means-everything behaviour is what a wildcard token gets;
+	// an explicit list must exclude everything else, which is what stops
+	// one customer's token seeing another's row in the overview.
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_ovscope"
+
+	store := newTestStore(t, marker, []seedRow{
+		{site: "zzz-scope-a", ip: "203.0.113.1", at: base, rate: 1},
+		{site: "zzz-scope-b", ip: "203.0.113.2", at: base, rate: 1},
+	})
+
+	got, err := store.Overview(context.Background(), []string{"zzz-scope-a"}, base.Add(-time.Minute), base.Add(time.Minute), DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("Overview: %v", err)
+	}
+	if len(got) != 1 || got[0].SiteID != "zzz-scope-a" {
+		t.Errorf("Overview = %+v, want only zzz-scope-a", got)
+	}
+}
+
+func TestStore_RealTimescaleDB_PaginationPagesThroughResults(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	marker := "t13d_api_paging"
+
+	rows := make([]seedRow, 0, 5)
+	for i := 1; i <= 5; i++ {
+		rows = append(rows, seedRow{
+			site: "site-page", ip: fmt.Sprintf("203.0.113.%d", i), at: base,
+			rate: float64(i), score: int16(i * 10),
+		})
+	}
+	store := newTestStore(t, marker, rows)
+	ctx := context.Background()
+	from, to := base.Add(-time.Minute), base.Add(time.Minute)
+
+	first, total, err := store.TopIPs(ctx, "site-page", from, to, 2, 0)
+	if err != nil {
+		t.Fatalf("TopIPs page 1: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("total = %d, want 5 (the full count, not the page size)", total)
+	}
+	second, _, err := store.TopIPs(ctx, "site-page", from, to, 2, 2)
+	if err != nil {
+		t.Fatalf("TopIPs page 2: %v", err)
+	}
+	if len(first) != 2 || len(second) != 2 {
+		t.Fatalf("page sizes = %d and %d, want 2 each", len(first), len(second))
+	}
+	// Pages must not overlap - which needs a total ordering, hence the
+	// tie-breaking ORDER BY column in the query.
+	for _, a := range first {
+		for _, b := range second {
+			if a.IP == b.IP {
+				t.Errorf("IP %s appears on both pages; the ordering isn't total", a.IP)
+			}
+		}
+	}
 }
 
 func TestStore_RealTimescaleDB_TopIPsOrdersBySuspicion(t *testing.T) {
@@ -258,7 +561,7 @@ func TestStore_RealTimescaleDB_TopIPsOrdersBySuspicion(t *testing.T) {
 		{site: "site-top", ip: "203.0.113.3", at: base, rate: 2, score: 60, country: "FR", asn: 333, asnOrg: "CCC"},
 	})
 
-	ips, err := store.TopIPs(context.Background(), "site-top", base.Add(-time.Minute), base.Add(time.Minute), 10)
+	ips, _, err := store.TopIPs(context.Background(), "site-top", base.Add(-time.Minute), base.Add(time.Minute), 10, 0)
 	if err != nil {
 		t.Fatalf("TopIPs: %v", err)
 	}
@@ -289,7 +592,7 @@ func TestStore_RealTimescaleDB_LimitIsHonoured(t *testing.T) {
 	}
 	store := newTestStore(t, marker, rows)
 
-	ips, err := store.TopIPs(context.Background(), "site-limit", base.Add(-time.Minute), base.Add(time.Minute), 3)
+	ips, _, err := store.TopIPs(context.Background(), "site-limit", base.Add(-time.Minute), base.Add(time.Minute), 3, 0)
 	if err != nil {
 		t.Fatalf("TopIPs: %v", err)
 	}
@@ -351,13 +654,13 @@ func TestStore_RealTimescaleDB_EmptyRangeReturnsEmptyNotError(t *testing.T) {
 	if b, err := store.Timeseries(ctx, "site-nonexistent", from, to, "1 hour", DefaultBotScoreMin); err != nil || b == nil {
 		t.Errorf("Timeseries = (%v, %v), want an empty non-nil slice and no error", b, err)
 	}
-	if ips, err := store.TopIPs(ctx, "site-nonexistent", from, to, 10); err != nil || ips == nil {
+	if ips, _, err := store.TopIPs(ctx, "site-nonexistent", from, to, 10, 0); err != nil || ips == nil {
 		t.Errorf("TopIPs = (%v, %v), want an empty non-nil slice and no error", ips, err)
 	}
-	if c, err := store.Countries(ctx, "site-nonexistent", from, to, 10, DefaultBotScoreMin); err != nil || c == nil {
+	if c, _, err := store.Countries(ctx, "site-nonexistent", from, to, 10, 0, DefaultBotScoreMin); err != nil || c == nil {
 		t.Errorf("Countries = (%v, %v), want an empty non-nil slice and no error", c, err)
 	}
-	if a, err := store.ASNs(ctx, "site-nonexistent", from, to, 10, DefaultBotScoreMin); err != nil || a == nil {
+	if a, _, err := store.ASNs(ctx, "site-nonexistent", from, to, 10, 0, DefaultBotScoreMin); err != nil || a == nil {
 		t.Errorf("ASNs = (%v, %v), want an empty non-nil slice and no error", a, err)
 	}
 }

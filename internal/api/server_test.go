@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +24,54 @@ type fakeStore struct {
 	gotFrom, gotTo time.Time
 	gotInterval    string
 	gotLimit       int
+	gotOffset      int
 	gotBotScoreMin int
+	gotIP          netip.Addr
+	gotSites       []string
 }
 
 func (f *fakeStore) Sites(ctx context.Context) ([]string, error) {
 	return f.sites, f.err
+}
+
+func (f *fakeStore) Overview(ctx context.Context, sites []string, from, to time.Time, botScoreMin int) ([]SiteOverview, error) {
+	f.gotSites, f.gotFrom, f.gotTo, f.gotBotScoreMin = sites, from, to, botScoreMin
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []SiteOverview{{SiteID: "site-a", UniqueIPs: 3, BotIPs: 1, HumanIPs: 2}}, nil
+}
+
+func (f *fakeStore) JA4s(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]JA4Stat, int, error) {
+	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset, f.gotBotScoreMin = siteID, from, to, limit, offset, botScoreMin
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	return []JA4Stat{{JA4: "t13d1516h2_abc_def", UniqueIPs: 2}}, 1, nil
+}
+
+func (f *fakeStore) ScoreDistribution(ctx context.Context, siteID string, from, to time.Time) ([]ScoreBucket, error) {
+	f.gotSite, f.gotFrom, f.gotTo = siteID, from, to
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []ScoreBucket{{Min: 0, Max: 9, UniqueIPs: 5}}, nil
+}
+
+func (f *fakeStore) IPDetail(ctx context.Context, siteID string, ip netip.Addr, from, to time.Time, limit int) (IPDetail, error) {
+	f.gotSite, f.gotIP, f.gotFrom, f.gotTo, f.gotLimit = siteID, ip, from, to, limit
+	if f.err != nil {
+		return IPDetail{}, f.err
+	}
+	return IPDetail{SiteID: siteID, IP: ip.String(), Found: true, PeakScore: 90, Timeline: []IPTimelinePoint{}}, nil
+}
+
+func (f *fakeStore) Snapshots(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]Snapshot, int, error) {
+	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset = siteID, from, to, limit, offset
+	if f.err != nil {
+		return nil, 0, f.err
+	}
+	return []Snapshot{{IP: "203.0.113.1", BotScore: 10}}, 1, nil
 }
 
 func (f *fakeStore) Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error) {
@@ -46,28 +90,28 @@ func (f *fakeStore) Timeseries(ctx context.Context, siteID string, from, to time
 	return []Bucket{{Time: from, UniqueIPs: 2, BotIPs: 1}}, nil
 }
 
-func (f *fakeStore) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit int) ([]IPStat, error) {
-	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit = siteID, from, to, limit
+func (f *fakeStore) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
+	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset = siteID, from, to, limit, offset
 	if f.err != nil {
-		return nil, f.err
+		return nil, 0, f.err
 	}
-	return []IPStat{{IP: "203.0.113.1", PeakScore: 90}}, nil
+	return []IPStat{{IP: "203.0.113.1", PeakScore: 90}}, 1, nil
 }
 
-func (f *fakeStore) Countries(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error) {
-	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotBotScoreMin = siteID, from, to, limit, botScoreMin
+func (f *fakeStore) Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
+	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset, f.gotBotScoreMin = siteID, from, to, limit, offset, botScoreMin
 	if f.err != nil {
-		return nil, f.err
+		return nil, 0, f.err
 	}
-	return []GroupStat{{Key: "US", UniqueIPs: 2, BotIPs: 1}}, nil
+	return []GroupStat{{Key: "US", UniqueIPs: 2, BotIPs: 1}}, 1, nil
 }
 
-func (f *fakeStore) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error) {
-	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotBotScoreMin = siteID, from, to, limit, botScoreMin
+func (f *fakeStore) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
+	f.gotSite, f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset, f.gotBotScoreMin = siteID, from, to, limit, offset, botScoreMin
 	if f.err != nil {
-		return nil, f.err
+		return nil, 0, f.err
 	}
-	return []GroupStat{{Key: "15169", Label: "GOOGLE", UniqueIPs: 2}}, nil
+	return []GroupStat{{Key: "15169", Label: "GOOGLE", UniqueIPs: 2}}, 1, nil
 }
 
 // fixedNow is the clock every test server uses, so default time ranges
@@ -106,11 +150,16 @@ func TestServer_RequiresAuthOnEveryAPIRoute(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/v1/sites",
+		"/api/v1/overview",
 		"/api/v1/sites/site-a/summary",
 		"/api/v1/sites/site-a/timeseries",
 		"/api/v1/sites/site-a/top-ips",
 		"/api/v1/sites/site-a/countries",
 		"/api/v1/sites/site-a/asns",
+		"/api/v1/sites/site-a/ja4",
+		"/api/v1/sites/site-a/score-distribution",
+		"/api/v1/sites/site-a/ips/203.0.113.1",
+		"/api/v1/sites/site-a/snapshots",
 	} {
 		t.Run(path, func(t *testing.T) {
 			w := do(h, http.MethodGet, path, "")
@@ -161,7 +210,7 @@ func TestServer_SiteAuthorizationCoversEveryPerSiteRoute(t *testing.T) {
 	// forgot the check would leak another customer's data, so this is
 	// asserted per route rather than assumed from one sample.
 	h := newTestServer(t, &fakeStore{})
-	for _, suffix := range []string{"summary", "timeseries", "top-ips", "countries", "asns"} {
+	for _, suffix := range []string{"summary", "timeseries", "top-ips", "countries", "asns", "ja4", "score-distribution", "ips/203.0.113.1", "snapshots"} {
 		t.Run(suffix, func(t *testing.T) {
 			w := do(h, http.MethodGet, "/api/v1/sites/site-b/"+suffix, "ahmet-secret")
 			if w.Code != http.StatusForbidden {
@@ -306,11 +355,16 @@ func TestServer_ResponsesAreJSON(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/v1/sites",
+		"/api/v1/overview",
 		"/api/v1/sites/site-a/summary",
 		"/api/v1/sites/site-a/timeseries",
 		"/api/v1/sites/site-a/top-ips",
 		"/api/v1/sites/site-a/countries",
 		"/api/v1/sites/site-a/asns",
+		"/api/v1/sites/site-a/ja4",
+		"/api/v1/sites/site-a/score-distribution",
+		"/api/v1/sites/site-a/ips/203.0.113.1",
+		"/api/v1/sites/site-a/snapshots",
 	} {
 		t.Run(path, func(t *testing.T) {
 			w := do(h, http.MethodGet, path, "panel-secret")
@@ -322,6 +376,114 @@ func TestServer_ResponsesAreJSON(t *testing.T) {
 			}
 			if !json.Valid(w.Body.Bytes()) {
 				t.Errorf("body is not valid JSON: %s", w.Body)
+			}
+		})
+	}
+}
+
+func TestServer_OverviewScopesToTheTokensSites(t *testing.T) {
+	// The scoping decision lives in the handler, not the store, so it's
+	// worth asserting on directly: a wildcard token must pass nil (no
+	// restriction), and an enumerated token must pass exactly its grant -
+	// otherwise the overview would show every customer to everyone.
+	store := &fakeStore{}
+	h := newTestServer(t, store)
+
+	if w := do(h, http.MethodGet, "/api/v1/overview", "panel-secret"); w.Code != http.StatusOK {
+		t.Fatalf("panel overview status = %d, want 200: %s", w.Code, w.Body)
+	}
+	if store.gotSites != nil {
+		t.Errorf("wildcard token passed sites = %v, want nil (no restriction)", store.gotSites)
+	}
+
+	if w := do(h, http.MethodGet, "/api/v1/overview", "ahmet-secret"); w.Code != http.StatusOK {
+		t.Fatalf("ahmet overview status = %d, want 200: %s", w.Code, w.Body)
+	}
+	if len(store.gotSites) != 1 || store.gotSites[0] != "site-a" {
+		t.Errorf("scoped token passed sites = %v, want [site-a]", store.gotSites)
+	}
+}
+
+func TestServer_IPDetailParsesAndPassesTheIP(t *testing.T) {
+	store := &fakeStore{}
+	h := newTestServer(t, store)
+
+	w := do(h, http.MethodGet, "/api/v1/sites/site-a/ips/203.0.113.7", "panel-secret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+	}
+	if want := netip.MustParseAddr("203.0.113.7"); store.gotIP != want {
+		t.Errorf("ip passed to store = %v, want %v", store.gotIP, want)
+	}
+}
+
+func TestServer_IPDetailAcceptsIPv6(t *testing.T) {
+	store := &fakeStore{}
+	h := newTestServer(t, store)
+
+	w := do(h, http.MethodGet, "/api/v1/sites/site-a/ips/2001:db8::1", "panel-secret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+	}
+	if want := netip.MustParseAddr("2001:db8::1"); store.gotIP != want {
+		t.Errorf("ip passed to store = %v, want %v", store.gotIP, want)
+	}
+}
+
+func TestServer_IPDetailRejectsAMalformedIP(t *testing.T) {
+	// A bad IP must be a clear 400, not a database error surfacing as 500.
+	h := newTestServer(t, &fakeStore{})
+	for _, bad := range []string{"not-an-ip", "999.999.999.999", "203.0.113.1.5"} {
+		t.Run(bad, func(t *testing.T) {
+			w := do(h, http.MethodGet, "/api/v1/sites/site-a/ips/"+bad, "panel-secret")
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d (body: %s)", w.Code, http.StatusBadRequest, w.Body)
+			}
+		})
+	}
+}
+
+func TestServer_PaginationReachesTheStoreAndIsEchoedBack(t *testing.T) {
+	store := &fakeStore{}
+	h := newTestServer(t, store)
+
+	for _, path := range []string{"top-ips", "countries", "asns", "ja4", "snapshots"} {
+		t.Run(path, func(t *testing.T) {
+			w := do(h, http.MethodGet, "/api/v1/sites/site-a/"+path+"?limit=5&offset=10", "panel-secret")
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+			}
+			if store.gotLimit != 5 || store.gotOffset != 10 {
+				t.Errorf("store got limit=%d offset=%d, want 5/10", store.gotLimit, store.gotOffset)
+			}
+
+			// The paging metadata has to come back too, or a UI can't
+			// render "showing 11-15 of N".
+			var got struct {
+				Limit  *int `json:"limit"`
+				Offset *int `json:"offset"`
+				Total  *int `json:"total"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decoding response: %v", err)
+			}
+			if got.Limit == nil || got.Offset == nil || got.Total == nil {
+				t.Errorf("response is missing limit/offset/total: %s", w.Body)
+			}
+		})
+	}
+}
+
+func TestServer_InvalidOffsetIs400(t *testing.T) {
+	h := newTestServer(t, &fakeStore{})
+	for _, target := range []string{
+		"/api/v1/sites/site-a/top-ips?offset=abc",
+		"/api/v1/sites/site-a/top-ips?offset=-1",
+		"/api/v1/sites/site-a/top-ips?offset=999999999",
+	} {
+		t.Run(target, func(t *testing.T) {
+			if w := do(h, http.MethodGet, target, "panel-secret"); w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 			}
 		})
 	}

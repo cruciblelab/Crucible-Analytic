@@ -26,6 +26,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -252,22 +253,32 @@ func (s *Store) Timeseries(ctx context.Context, siteID string, from, to time.Tim
 
 // IPStat is one IP's activity within a range, as reported by TopIPs.
 type IPStat struct {
-	IP              string    `json:"ip"`
-	PeakScore       int       `json:"peak_score"`
-	PeakRequestRate float64   `json:"peak_request_rate"`
-	Country         string    `json:"country"`
-	ASN             int       `json:"asn"`
-	ASNName         string    `json:"asn_name"`
-	IsKnownBotJA4   bool      `json:"is_known_bot_ja4"`
-	IsKnownBotASN   bool      `json:"is_known_bot_asn"`
-	JA4             string    `json:"ja4"`
-	LastSeen        time.Time `json:"last_seen"`
-	Snapshots       int       `json:"snapshots"`
+	IP              string  `json:"ip"`
+	PeakScore       int     `json:"peak_score"`
+	PeakRequestRate float64 `json:"peak_request_rate"`
+	Country         string  `json:"country"`
+	ASN             int     `json:"asn"`
+	ASNName         string  `json:"asn_name"`
+	IsKnownBotJA4   bool    `json:"is_known_bot_ja4"`
+	IsKnownBotASN   bool    `json:"is_known_bot_asn"`
+	JA4             string  `json:"ja4"`
+	// JA4Label is the human-readable bot name for JA4 where it's a
+	// recognised fingerprint, so a table can show "Googlebot" rather than
+	// a 40-character hash.
+	JA4Label  string    `json:"ja4_label,omitempty"`
+	LastSeen  time.Time `json:"last_seen"`
+	Snapshots int       `json:"snapshots"`
 }
 
 // TopIPs returns the highest-scoring IPs for a site over [from, to),
-// most suspicious first.
-func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit int) ([]IPStat, error) {
+// most suspicious first, alongside the total number of distinct IPs so a
+// caller can page through them.
+func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
+	total, err := s.countDistinct(ctx, `ip`, siteID, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := s.pool.Query(ctx, `
 		SELECT ip,
 		       max(bot_score),
@@ -289,12 +300,12 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 		FROM traffic_snapshots
 		WHERE site_id = $1 AND time >= $2 AND time < $3
 		GROUP BY ip
-		ORDER BY max(bot_score) DESC, max(request_rate) DESC
-		LIMIT $4`,
-		siteID, from, to, limit,
+		ORDER BY max(bot_score) DESC, max(request_rate) DESC, ip
+		LIMIT $4 OFFSET $5`,
+		siteID, from, to, limit, offset,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("api: top ips: %w", err)
+		return nil, 0, fmt.Errorf("api: top ips: %w", err)
 	}
 	defer rows.Close()
 
@@ -306,12 +317,13 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 		)
 		if err := rows.Scan(&ip, &stat.PeakScore, &stat.PeakRequestRate, &stat.Country, &stat.ASN,
 			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.LastSeen, &stat.Snapshots); err != nil {
-			return nil, fmt.Errorf("api: scan ip stat: %w", err)
+			return nil, 0, fmt.Errorf("api: scan ip stat: %w", err)
 		}
 		stat.IP = ip.String()
+		stat.JA4Label = scoring.KnownBotJA4[stat.JA4]
 		stats = append(stats, stat)
 	}
-	return stats, rows.Err()
+	return stats, total, rows.Err()
 }
 
 // GroupStat is one country's or one ASN's share of a site's traffic.
@@ -328,7 +340,12 @@ type GroupStat struct {
 // Countries breaks a site's distinct IPs down by country, busiest first.
 // IPs whose country never resolved are grouped under an empty key rather
 // than dropped, so the numbers still add up to the site's total.
-func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error) {
+func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
+	total, err := s.countDistinct(ctx, `country`, siteID, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, max(country) AS country, max(bot_score) AS peak_score
@@ -336,22 +353,29 @@ func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
 		)
-		SELECT country, count(*), count(*) FILTER (WHERE peak_score >= $5)
+		SELECT country, count(*), count(*) FILTER (WHERE peak_score >= $6)
 		FROM per_ip
 		GROUP BY country
 		ORDER BY count(*) DESC, country
-		LIMIT $4`,
-		siteID, from, to, limit, botScoreMin,
+		LIMIT $4 OFFSET $5`,
+		siteID, from, to, limit, offset, botScoreMin,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("api: countries: %w", err)
+		return nil, 0, fmt.Errorf("api: countries: %w", err)
 	}
 	defer rows.Close()
-	return scanGroupStats(rows, false)
+
+	stats, err := scanGroupStats(rows, false)
+	return stats, total, err
 }
 
 // ASNs breaks a site's distinct IPs down by ASN, busiest first.
-func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error) {
+func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
+	total, err := s.countDistinct(ctx, `asn`, siteID, from, to)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, max(asn) AS asn, max(asn_org) AS asn_org, max(bot_score) AS peak_score
@@ -359,18 +383,20 @@ func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, lim
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
 		)
-		SELECT asn::text, max(asn_org), count(*), count(*) FILTER (WHERE peak_score >= $5)
+		SELECT asn::text, max(asn_org), count(*), count(*) FILTER (WHERE peak_score >= $6)
 		FROM per_ip
 		GROUP BY asn
 		ORDER BY count(*) DESC, asn
-		LIMIT $4`,
-		siteID, from, to, limit, botScoreMin,
+		LIMIT $4 OFFSET $5`,
+		siteID, from, to, limit, offset, botScoreMin,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("api: asns: %w", err)
+		return nil, 0, fmt.Errorf("api: asns: %w", err)
 	}
 	defer rows.Close()
-	return scanGroupStats(rows, true)
+
+	stats, err := scanGroupStats(rows, true)
+	return stats, total, err
 }
 
 // scanGroupStats reads the shared shape Countries and ASNs both return.

@@ -331,19 +331,45 @@ rather than an accident.
 
 ### Endpoints
 
-All are `GET`, all return JSON, all accept `from`/`to` as RFC 3339
-timestamps (defaulting to the last 24 hours, capped at 90 days) and
-`bot_score_min` (0-100, default 50) to set the bot/human cutoff.
+All are `GET` and return JSON. Common query parameters:
+
+| Parameter | Applies to | Default | Meaning |
+| --- | --- | --- | --- |
+| `from` / `to` | everything except `/healthz` | last 24 hours | RFC 3339 timestamps; the range is capped at 90 days. |
+| `bot_score_min` | anything with a bot/human split | `50` | 0-100 cutoff at or above which an IP counts as a bot. |
+| `limit` / `offset` | the list endpoints | `50` / `0` | Page size (max 1000) and offset (max 100,000). Those responses also carry `total`, so a UI can render "showing 51-100 of 1,234". |
+| `interval` | `timeseries` | `1 hour` | One of `1 minute`, `5 minutes`, `15 minutes`, `1 hour`, `6 hours`, `1 day`, `1 week`. |
 
 | Endpoint | Returns |
 | --- | --- |
 | `/healthz` | Liveness only, no data - the one route needing no token. |
 | `/api/v1/sites` | Site IDs this token may read. |
+| `/api/v1/overview` | Every site the token can read, each with its headline numbers, in **one** request - built for a panel's landing page so it doesn't have to fan out per customer. |
 | `/api/v1/sites/{site}/summary` | Unique IPs, bot/human split, peak+avg request rate, busiest-window request count. |
-| `/api/v1/sites/{site}/timeseries` | The above bucketed over time; `interval` is one of `1 minute`, `5 minutes`, `15 minutes`, `1 hour` (default), `6 hours`, `1 day`, `1 week`. |
-| `/api/v1/sites/{site}/top-ips` | Highest-scoring IPs with their country/ASN/JA4 and known-bot flags; `limit` default 50, max 1000. |
+| `/api/v1/sites/{site}/timeseries` | Unique IPs, bot IPs and rates bucketed over time, for charts. |
+| `/api/v1/sites/{site}/top-ips` | Highest-scoring IPs with their country/ASN/JA4, known-bot flags and last-seen time. |
+| `/api/v1/sites/{site}/ips/{ip}` | One IP's full detail plus its snapshot timeline - the drill-down behind a row in `top-ips`. Returns `found: false` (not 404) when that IP has no activity in the range, since that's an ordinary answer. |
 | `/api/v1/sites/{site}/countries` | Distinct IPs and bot IPs per country. |
 | `/api/v1/sites/{site}/asns` | Distinct IPs and bot IPs per ASN, with the organization name. |
+| `/api/v1/sites/{site}/ja4` | Distinct IPs per **TLS fingerprint**, with the known-bot label resolved from `internal/scoring`'s embedded list - so a table can show "Googlebot" rather than a raw hash. Traffic with no usable fingerprint (plaintext HTTP, or an unparseable ClientHello) is grouped under an empty key flagged `empty`, rather than dropped, so the numbers still add up. |
+| `/api/v1/sites/{site}/score-distribution` | Bot-score histogram in fixed 10-point bands. All ten bands are always present, including empty ones, so a chart needn't synthesise gaps. |
+| `/api/v1/sites/{site}/snapshots` | Raw rows, newest first - for CSV export, or for checking where an aggregate number came from. |
+
+### What this API cannot tell you
+
+Worth stating plainly before a UI is designed around it, because these are
+limits of what the collector *records*, not of the API: there is **no
+page/path breakdown, no referrer, no user agent, and no session or
+pageview concept**. The collector observes connections and requests at the
+IP/TLS level and never inspects URLs or headers, so those simply don't
+exist in the data. Path-level analytics is listed under "Explicitly out of
+scope for this phase" and would need collection changes first, not just a
+new endpoint.
+
+What it *does* give you that a conventional analytics tool doesn't is the
+bot dimension on every one of the views above: not just "how many
+visitors", but how many of them were automated, from which networks, and
+carrying which TLS fingerprints.
 
 ### What the numbers mean (and one thing they deliberately don't)
 
@@ -656,7 +682,11 @@ than echoed to the client. Against a real TimescaleDB,
 `integration_test.go` proves the SQL is valid and - most importantly -
 that **every** query is site-scoped, seeding two sites with identical IPs
 and timestamps and checking that none of `summary`, `timeseries`,
-`top-ips`, `countries`, or `asns` leaks one into the other.
+`top-ips`, `countries`, `asns`, `ja4`, `score-distribution`, `snapshots`
+or the per-IP detail leaks one into the other. The route-coverage lists
+are deliberately exhaustive rather than sampled, so an endpoint added
+later that forgets its site filter fails the suite instead of quietly
+shipping.
 
 Both were backed up by running the real binaries end to end: a real
 collector fronting a real backend, writing to a real TimescaleDB, with the

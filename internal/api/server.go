@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"time"
 )
 
@@ -16,11 +17,16 @@ import (
 // exercised without a live database.
 type Querier interface {
 	Sites(ctx context.Context) ([]string, error)
+	Overview(ctx context.Context, sites []string, from, to time.Time, botScoreMin int) ([]SiteOverview, error)
 	Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error)
 	Timeseries(ctx context.Context, siteID string, from, to time.Time, interval string, botScoreMin int) ([]Bucket, error)
-	TopIPs(ctx context.Context, siteID string, from, to time.Time, limit int) ([]IPStat, error)
-	Countries(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error)
-	ASNs(ctx context.Context, siteID string, from, to time.Time, limit, botScoreMin int) ([]GroupStat, error)
+	TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error)
+	Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error)
+	ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error)
+	JA4s(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]JA4Stat, int, error)
+	ScoreDistribution(ctx context.Context, siteID string, from, to time.Time) ([]ScoreBucket, error)
+	IPDetail(ctx context.Context, siteID string, ip netip.Addr, from, to time.Time, limit int) (IPDetail, error)
+	Snapshots(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]Snapshot, int, error)
 }
 
 // Server serves the read-only JSON API.
@@ -58,11 +64,16 @@ func (s *Server) Handler() http.Handler {
 	// other than GET on these paths gets a 405 from the mux itself rather
 	// than needing a check in every handler.
 	mux.HandleFunc("GET /api/v1/sites", s.handleSites)
+	mux.HandleFunc("GET /api/v1/overview", s.handleOverview)
 	mux.HandleFunc("GET /api/v1/sites/{site}/summary", s.siteHandler(s.handleSummary))
 	mux.HandleFunc("GET /api/v1/sites/{site}/timeseries", s.siteHandler(s.handleTimeseries))
 	mux.HandleFunc("GET /api/v1/sites/{site}/top-ips", s.siteHandler(s.handleTopIPs))
 	mux.HandleFunc("GET /api/v1/sites/{site}/countries", s.siteHandler(s.handleCountries))
 	mux.HandleFunc("GET /api/v1/sites/{site}/asns", s.siteHandler(s.handleASNs))
+	mux.HandleFunc("GET /api/v1/sites/{site}/ja4", s.siteHandler(s.handleJA4s))
+	mux.HandleFunc("GET /api/v1/sites/{site}/score-distribution", s.siteHandler(s.handleScoreDistribution))
+	mux.HandleFunc("GET /api/v1/sites/{site}/ips/{ip}", s.siteHandler(s.handleIPDetail))
+	mux.HandleFunc("GET /api/v1/sites/{site}/snapshots", s.siteHandler(s.handleSnapshots))
 
 	// Unauthenticated on purpose: it reports only that the process is up,
 	// no data at all, so a load balancer or uptime check can use it
@@ -202,74 +213,197 @@ func (s *Server) handleTimeseries(w http.ResponseWriter, r *http.Request, site s
 }
 
 func (s *Server) handleTopIPs(w http.ResponseWriter, r *http.Request, site string) {
+	p, ok := s.parseListParams(w, r)
+	if !ok {
+		return
+	}
+
+	ips, total, err := s.Store.TopIPs(r.Context(), site, p.from, p.to, p.limit, p.offset)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p.envelope(site, "ips", ips, total))
+}
+
+func (s *Server) handleCountries(w http.ResponseWriter, r *http.Request, site string) {
+	p, ok := s.parseListParams(w, r)
+	if !ok {
+		return
+	}
+
+	stats, total, err := s.Store.Countries(r.Context(), site, p.from, p.to, p.limit, p.offset, p.botScoreMin)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p.envelope(site, "countries", stats, total))
+}
+
+func (s *Server) handleASNs(w http.ResponseWriter, r *http.Request, site string) {
+	p, ok := s.parseListParams(w, r)
+	if !ok {
+		return
+	}
+
+	stats, total, err := s.Store.ASNs(r.Context(), site, p.from, p.to, p.limit, p.offset, p.botScoreMin)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p.envelope(site, "asns", stats, total))
+}
+
+func (s *Server) handleJA4s(w http.ResponseWriter, r *http.Request, site string) {
+	p, ok := s.parseListParams(w, r)
+	if !ok {
+		return
+	}
+
+	stats, total, err := s.Store.JA4s(r.Context(), site, p.from, p.to, p.limit, p.offset, p.botScoreMin)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p.envelope(site, "ja4", stats, total))
+}
+
+func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request, site string) {
+	p, ok := s.parseListParams(w, r)
+	if !ok {
+		return
+	}
+
+	snaps, total, err := s.Store.Snapshots(r.Context(), site, p.from, p.to, p.limit, p.offset)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p.envelope(site, "snapshots", snaps, total))
+}
+
+func (s *Server) handleScoreDistribution(w http.ResponseWriter, r *http.Request, site string) {
+	from, to, err := ParseRange(r.URL.Query(), s.now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	buckets, err := s.Store.ScoreDistribution(r.Context(), site, from, to)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"site_id": site, "from": from, "to": to, "buckets": buckets})
+}
+
+func (s *Server) handleIPDetail(w http.ResponseWriter, r *http.Request, site string) {
 	q := r.URL.Query()
 	from, to, err := ParseRange(q, s.now())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	limit, err := ParseLimit(q, 500)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Parsed rather than passed through: an unparseable value should be a
+	// clear 400, not a database error, and pgx needs a real netip.Addr to
+	// bind against an inet column anyway.
+	ip, err := netip.ParseAddr(r.PathValue("ip"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid ip %q", r.PathValue("ip")))
+		return
+	}
+
+	detail, err := s.Store.IPDetail(r.Context(), site, ip.Unmap(), from, to, limit)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	from, to, err := ParseRange(q, s.now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	botScoreMin, err := ParseBotScoreMin(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	tok, _ := r.Context().Value(tokenContextKey{}).(Token)
+	// nil means "no restriction" to the store; only a wildcard token gets
+	// that, and an enumerated token is restricted to exactly its grant so
+	// it can never see another customer's row here.
+	var sites []string
+	if !tok.CanRead(WildcardSite) {
+		sites = tok.Sites
+	}
+
+	overview, err := s.Store.Overview(r.Context(), sites, from, to, botScoreMin)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "bot_score_min": botScoreMin, "sites": overview})
+}
+
+// listParams is the parameter set every paginated list endpoint shares.
+type listParams struct {
+	from, to    time.Time
+	limit       int
+	offset      int
+	botScoreMin int
+}
+
+// envelope wraps a page of results with the paging metadata a UI needs to
+// render "showing X-Y of Z", under a key naming what the rows are.
+func (p listParams) envelope(site, key string, rows any, total int) map[string]any {
+	return map[string]any{
+		"site_id": site,
+		"from":    p.from,
+		"to":      p.to,
+		"limit":   p.limit,
+		"offset":  p.offset,
+		"total":   total,
+		key:       rows,
+	}
+}
+
+// parseListParams reads the shared list parameters, writing the 400
+// itself and reporting ok=false if any is invalid.
+func (s *Server) parseListParams(w http.ResponseWriter, r *http.Request) (listParams, bool) {
+	q := r.URL.Query()
+	from, to, err := ParseRange(q, s.now())
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return listParams{}, false
 	}
 	limit, err := ParseLimit(q, 50)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return listParams{}, false
 	}
-
-	ips, err := s.Store.TopIPs(r.Context(), site, from, to, limit)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"site_id": site, "from": from, "to": to, "ips": ips})
-}
-
-func (s *Server) handleCountries(w http.ResponseWriter, r *http.Request, site string) {
-	from, to, limit, botScoreMin, ok := s.parseGroupParams(w, r)
-	if !ok {
-		return
-	}
-
-	stats, err := s.Store.Countries(r.Context(), site, from, to, limit, botScoreMin)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"site_id": site, "from": from, "to": to, "countries": stats})
-}
-
-func (s *Server) handleASNs(w http.ResponseWriter, r *http.Request, site string) {
-	from, to, limit, botScoreMin, ok := s.parseGroupParams(w, r)
-	if !ok {
-		return
-	}
-
-	stats, err := s.Store.ASNs(r.Context(), site, from, to, limit, botScoreMin)
-	if err != nil {
-		s.fail(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"site_id": site, "from": from, "to": to, "asns": stats})
-}
-
-// parseGroupParams reads the parameter set the two breakdown endpoints
-// share, writing the 400 itself and reporting ok=false if any is invalid.
-func (s *Server) parseGroupParams(w http.ResponseWriter, r *http.Request) (from, to time.Time, limit, botScoreMin int, ok bool) {
-	q := r.URL.Query()
-	from, to, err := ParseRange(q, s.now())
+	offset, err := ParseOffset(q)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return listParams{}, false
 	}
-	limit, err = ParseLimit(q, 50)
+	botScoreMin, err := ParseBotScoreMin(q)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		return listParams{}, false
 	}
-	botScoreMin, err = ParseBotScoreMin(q)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	return from, to, limit, botScoreMin, true
+	return listParams{from: from, to: to, limit: limit, offset: offset, botScoreMin: botScoreMin}, true
 }
 
 // fail logs the real error and returns a generic one, so a database error
