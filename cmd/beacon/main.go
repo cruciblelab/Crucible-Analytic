@@ -1,0 +1,203 @@
+// Command beacon receives client-side analytics events from the
+// JavaScript snippet embedded in the sites being measured, and writes
+// them to the beacon_events table.
+//
+// It is the second of this project's two data sources. The collector
+// sees every connection but no URLs; the beacon sees URLs, referrers
+// and custom events but only from clients that run JavaScript. Neither
+// is complete alone, which is the point of running both against one
+// database - see internal/beacon's package documentation.
+//
+// It runs as its own process rather than inside the collector or the
+// read API because it is the only part of the system the whole internet
+// may POST to, and because it writes: folding it into the collector
+// would put attacker-supplied JSON parsing in the traffic path, and
+// folding it into the API would end that process's read-only database
+// role.
+//
+// Printing the snippet to embed:
+//
+//	beacon -snippet https://example.com mysite
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/beacon"
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
+)
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	configPath := flag.String("config", "beacon.toml", "path to the TOML config file")
+	snippet := flag.Bool("snippet", false, "print the <script> tag to embed, given a base URL and a site id, then exit")
+	flag.Parse()
+
+	if *snippet {
+		if err := printSnippet(flag.Args()); err != nil {
+			logger.Error("could not print snippet", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	cfg, err := beacon.LoadConfig(*configPath)
+	if err != nil {
+		logger.Error("config error", "err", err)
+		os.Exit(1)
+	}
+
+	trustedProxies, err := beacon.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		// Already validated by LoadConfig; re-checked because silently
+		// trusting nothing after a parse failure would look like a
+		// working deployment recording every visitor as 127.0.0.1.
+		logger.Error("invalid trusted_proxies", "err", err)
+		os.Exit(1)
+	}
+
+	// Fail fast rather than on the first visitor: without working
+	// randomness there is no safe visitor ID to derive (see
+	// beacon.VisitorIDs.ID), and discovering that at startup is much
+	// better than discovering it under traffic.
+	visitors, err := beacon.NewVisitorIDs()
+	if err != nil {
+		logger.Error("could not initialize visitor ids", "err", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	writer, err := beacon.NewWriter(ctx, cfg.TimescaleDSN, beacon.WriterConfig{
+		BufferSize:    cfg.Buffer.Size,
+		BatchSize:     cfg.Buffer.BatchSize,
+		FlushInterval: cfg.Buffer.FlushInterval(),
+		Logger:        logger,
+	})
+	if err != nil {
+		logger.Error("failed to connect to TimescaleDB", "err", err)
+		os.Exit(1)
+	}
+
+	// Optional and additive, exactly as in the collector: a failure here
+	// costs country/ASN columns, not event collection, so it is logged
+	// and skipped rather than fatal.
+	var lookup *asnlookup.Resolver
+	if cfg.ASNLookup.Enabled {
+		lookup, err = asnlookup.NewResolver(ctx, cfg.TimescaleDSN, asnlookup.CacheConfig{
+			MaxEntries: cfg.ASNLookup.CacheMaxEntries,
+			TTL:        cfg.ASNLookup.CacheTTL(),
+		}, cfg.ASNLookup.LocalCSVPath, logger)
+		if err != nil {
+			logger.Error("failed to set up ASN/country lookup, continuing without it", "err", err)
+			lookup = nil
+		} else {
+			// Non-negotiable in this process. The collector on the same
+			// database TRUNCATEs and rebuilds ip_country_ranges and
+			// ip_asn_ranges on its own refresh schedule; a second writer
+			// doing the same would repeatedly destroy the first one's
+			// data and leave both seeing an empty table mid-load.
+			lookup.SkipRangePersistence = true
+		}
+	}
+	lookupDone := make(chan struct{})
+	if lookup != nil {
+		go func() {
+			defer close(lookupDone)
+			lookup.Run(ctx, cfg.ASNLookup.RefreshInterval())
+		}()
+	} else {
+		close(lookupDone)
+	}
+
+	// The writer outlives the server on purpose: it must keep accepting
+	// rows until the last in-flight request has been handled, so it gets
+	// its own context that is cancelled only after the server has fully
+	// shut down.
+	writerCtx, stopWriter := context.WithCancel(context.Background())
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		writer.Run(writerCtx)
+	}()
+
+	srv := &beacon.Server{
+		ListenAddr:     cfg.ListenAddr,
+		PathPrefix:     cfg.PathPrefix,
+		Sites:          cfg.Sites,
+		Sink:           writer,
+		Visitors:       visitors,
+		ClientIP:       beacon.ClientIPResolver{TrustedProxies: trustedProxies},
+		AllowedOrigins: cfg.AllowedOrigins,
+		Logger:         logger,
+	}
+	if lookup != nil {
+		// Guarded, not unconditional: assigning a nil *asnlookup.Resolver
+		// into the interface field would leave a non-nil interface
+		// holding a nil pointer, and Server's own `Resolver != nil` check
+		// would then call Resolve on it. Same trap as in the collector's
+		// flusher wiring.
+		srv.Resolver = lookup
+	}
+	if cfg.Limits.MaxConcurrentRequests > 0 || cfg.Limits.MaxRequestsPerSecond > 0 {
+		srv.Limiter = limiter.New(limiter.Config{
+			MaxConcurrentConnections: cfg.Limits.MaxConcurrentRequests,
+			MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
+			Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
+			ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
+		})
+	}
+
+	serveErr := srv.ListenAndServe(ctx)
+
+	// Only now that no new event can arrive: drain the buffer, then let
+	// go of the connection pool the drain needs.
+	stopWriter()
+	<-writerDone
+	<-lookupDone
+	writer.Close()
+	if lookup != nil {
+		lookup.Close()
+	}
+
+	accepted, dropped, rejected := srv.Counters()
+	written, writerDropped := writer.Counters()
+	logger.Info("shutdown complete",
+		"accepted", accepted, "dropped_by_server", dropped, "rejected", rejected,
+		"written", written, "dropped_total", writerDropped)
+
+	if serveErr != nil {
+		logger.Error("beacon server error", "err", serveErr)
+		os.Exit(1)
+	}
+}
+
+// printSnippet emits the exact tag to paste into a site's HTML. The
+// endpoint is derived from the script's own URL at runtime (see
+// beacon.js), so the base URL is the only thing that has to be right.
+func printSnippet(args []string) error {
+	if len(args) != 2 {
+		return fmt.Errorf("usage: beacon -snippet <base-url> <site-id>\n  e.g. beacon -snippet https://example.com mysite")
+	}
+	base, site := strings.TrimRight(args[0], "/"), args[1]
+
+	fmt.Printf("<script defer src=%q data-site=%q></script>\n", base+beacon.DefaultPathPrefix+"/ca.js", site)
+	fmt.Println()
+	fmt.Println("Serve that path from the site's own origin - forward")
+	fmt.Printf("  %s/\n", beacon.DefaultPathPrefix)
+	fmt.Println("to this process from whatever terminates TLS for the site. Same-origin")
+	fmt.Println("keeps it out of the URL patterns content blockers match on, and means")
+	fmt.Println("no CORS is involved at all.")
+	return nil
+}

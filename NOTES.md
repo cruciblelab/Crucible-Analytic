@@ -24,9 +24,25 @@ Built and verified against real infrastructure, in order:
    SHA-256-hashed bearer tokens and per-token site grants; 11 endpoints
    (overview, summary, timeseries, top-ips, per-IP detail, countries,
    asns, ja4, score-distribution, snapshots, sites).
+6. **Client-side beacon** - `cmd/beacon`, a third binary serving a 2.1 KB
+   (gzipped) JS snippet and ingesting the events it sends into
+   `beacon_events`: pages, referrers, campaigns, browsers, devices,
+   custom events, cookieless visitor IDs. Verified end to end by driving
+   the real snippet in a real headless Chromium against the real binary.
 
 `site_id` is required in the collector config and stamped on every row,
-so one database can serve several sites.
+so one database can serve several sites. The beacon takes an allowlist of
+the same identifiers, so both sources land under one key.
+
+### Three binaries, deliberately
+
+`cmd/collector` writes and sits in the traffic path; `cmd/analytics-api`
+only reads and is token-gated; `cmd/beacon` writes and is the only thing
+the whole internet may POST to. Each split buys a specific guarantee:
+the API's read-only database role is only meaningful while no writer
+shares its process, and putting attacker-supplied JSON parsing in the
+collector would hand the one component that must never go down a threat
+surface it currently doesn't have.
 
 ### Deployment topology (decided, not incidental)
 
@@ -143,14 +159,18 @@ dimensions; if IP-level blocking is ever wanted, it's a genuinely
 different feature (an IP blocklist/allowlist), not an extension of this
 one.
 
-## Page/path, referrer, user agent and session analytics (never collected)
+## Page/path, referrer, user agent and session analytics
 
-The single biggest gap between what this project produces and what a
-customer expects from the word "analytics". Written up in full because
-it's a product decision, not a small missing endpoint, and because the
-obvious first instinct - "just add a `/pages` endpoint" - doesn't work.
+**Resolved by the beacon (source 6 above); the collector-side half is
+still open.** Kept in full because the reasoning is what decided the
+architecture, and because the collector-side option below is still a live
+choice for something the beacon structurally cannot do.
 
-### What's missing, and why, per mode
+This was the single biggest gap between what the collector produces and
+what a customer expects from the word "analytics", and the obvious first
+instinct - "just add a `/pages` endpoint" - was never going to work.
+
+### What's missing from the *collector*, and why, per mode
 
 - **Passthrough mode: cryptographically impossible.** The proxy never
   decrypts TLS. The URL, headers, referrer and user agent are all inside
@@ -164,11 +184,17 @@ obvious first instinct - "just add a `/pages` endpoint" - doesn't work.
   `RateStore.RecordRequest`. So this half is a scope decision that could
   be revisited, not a physical limit.
 
-Session/pageview/bounce-rate concepts don't exist in either mode: there
-is no cookie, no client-side identifier, and no notion of a visit - only
-IP-level activity.
+Session/pageview/bounce-rate concepts don't exist in either mode at the
+proxy level: there is no cookie, no client-side identifier, and no notion
+of a visit - only IP-level activity. That is what the beacon supplies.
 
-### Why "just record the path" is harder than it looks
+### Why "just record the path" *in the collector* is harder than it looks
+
+Still deferred, and still worth doing eventually - the beacon does not
+replace it, because a path scanner probing `/wp-admin`, `/.env`,
+`/phpmyadmin` never runs a line of JavaScript and is therefore invisible
+to the beacon by construction. Collector-side path visibility is the only
+way to see it.
 
 `ratestore` keeps O(1) state per IP on purpose. Keying by (IP, path)
 multiplies that by an **attacker-controlled** number of distinct paths -
@@ -189,42 +215,92 @@ Either way it only ever works in full mode, so the panel would show path
 data for some customers and not others depending on their deployment -
 which needs a deliberate UX answer, not silence.
 
-### The alternative worth considering first: a JS beacon
+### What was built instead: the JS beacon (`internal/beacon`)
 
-The conventional approach (Umami, Plausible, Matomo, GA) is a script tag
-on the customer's site posting pageview, referrer, screen size and a
-session identifier. That yields exactly the missing fields, works
-identically in both modes because it doesn't depend on the proxy at all,
-and is a well-understood pattern.
+The conventional approach (Umami, Plausible, Matomo, GA): a script tag on
+the customer's site posting pageview, referrer, screen size and an
+identifier. It yields exactly the missing fields, works identically in
+both collector modes because it doesn't depend on the proxy at all, and
+is a well-understood pattern.
 
-The important part is that the two sources are **complementary rather
+The decisive argument was that the two sources are **complementary rather
 than redundant**:
 
 - A JS beacon only fires for clients that execute JavaScript, so it is
   nearly blind to bots - which is why conventional analytics
   systematically under-reports automated traffic.
-- This collector sees every connection including the ones that never run
-  a line of JS, and fingerprints them.
+- The collector sees every connection including the ones that never run a
+  line of JS, and fingerprints them.
 
 Together they answer both "what did real humans do on which pages" and
 "what actually hit the server, human or not" - and the second is the
-thing conventional tools can't give. That framing is worth keeping in
-mind before treating the beacon as merely catching up to competitors.
+thing conventional tools can't give. `beacon_events.ip` is the join key
+that makes it one question rather than two.
 
-### Caveat that already applies today: unique IP is not unique visitor
+Decisions worth not re-litigating:
 
-Worth stating wherever "unique_ips" is presented to a customer as
-"visitors":
+- **Its own binary.** It is the only component the entire internet may
+  POST to, and it writes; sharing a process with either the collector or
+  the read-only API would give away a guarantee each of those currently
+  has.
+- **Bot user agents are flagged (`is_bot_ua`), never dropped.** A client
+  that runs JavaScript *and* admits to being a bot is the most
+  interesting row in the table. The real end-to-end run demonstrated
+  this: Playwright's headless Chromium was correctly flagged.
+- **Query strings are allowlisted, not stored raw** (`utm_*`, `ref`,
+  `gclid`, `fbclid`, `msclkid`). Real query strings carry reset tokens and
+  email addresses, and an analytics table has a wider audience than the
+  application's own database.
+- **`asn_lookup` stays off in the beacon when a collector shares the
+  host.** Geography is recoverable by joining on `ip`; enabling it loads a
+  second ~135 MB copy of the range tables. When it *is* enabled, the
+  beacon sets `SkipRangePersistence` - which is the same
+  `TRUNCATE`+`COPY` collision the deployment-topology note above warns
+  about, showing up for real inside one machine.
+
+### Resolved: unique IP is not unique visitor
+
+This used to be an unavoidable caveat wherever `unique_ips` was presented
+as "visitors":
 
 - **CGNAT undercounts.** Mobile carriers (including the major Turkish
-  ones) put many subscribers behind one address, so a busy mobile
-  audience collapses into far fewer IPs than people.
+  ones) put many subscribers behind one address.
 - **Dynamic addressing overcounts.** One person across several days
   appears as several IPs.
 
-Neither is fixable at the IP layer - it's inherent to identifying people
-by address. A JS beacon with a session identifier is what resolves it,
-which is another reason the two approaches pair well.
+Neither is fixable at the IP layer. `beacon_events.visitor_id` is the
+answer: `HMAC(daily_salt, site_id ‖ ip ‖ user_agent)` with the salt held
+only in memory and rotated every 24h. Two browsers behind one CGNAT
+address separate; one IPv6 device separates *less* than it would
+otherwise, because the address is truncated to its `/64` first (RFC 8981
+privacy extensions rotate the low 64 bits daily and would otherwise mint
+a new "visitor" every rotation).
+
+The trade, stated plainly: restarting the beacon mid-day counts one
+visitor twice. Persisting the salt would fix that and would also make the
+IDs recoverable from a database backup - which is the property the
+accuracy is being spent to avoid. `unique_ips` from `traffic_snapshots`
+still carries the old caveat; it is the right number for "how many
+addresses hit us", not for "how many people".
+
+### Next phase: read endpoints for `beacon_events`
+
+The beacon writes; nothing reads it back over HTTP yet. When that is
+built, two things are already decided by the schema:
+
+- **Sessions are derived at read time, not assigned at ingest.** A
+  session is one visitor's events with gaps under ~30 minutes, which is a
+  `lag(time) OVER (PARTITION BY visitor_id ORDER BY time)` window
+  function - exactly what `idx_beacon_events_visitor_time` exists for.
+  Assigning session IDs at ingest would make the ingest path stateful,
+  which is the one thing it must not be: it would need per-visitor memory
+  that an attacker controls the cardinality of.
+- **The interesting endpoints are the joins, not the pageview counts.**
+  Top pages, referrers and browsers are table stakes and any tool has
+  them. "Which IPs hit us but never ran JavaScript", "which visitors
+  arrived from an ASN the collector scores as hostile", and "what share
+  of our traffic is JS-capable at all" are the ones this project can
+  answer and Umami cannot.
 
 ## Exact cumulative request counts (deferred from the read API)
 

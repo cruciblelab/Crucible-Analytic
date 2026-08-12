@@ -22,9 +22,14 @@ already have.
   combination).
 - In full mode, record analytics **per individual HTTP request** rather than
   per TCP connection - an accurate request count even across HTTP/1.1
-  keep-alive or HTTP/2 multiplexed connections (see "Full mode" below). It
-  does not yet break requests down by page/path - that's path-scanning
-  detection, listed under "Explicitly out of scope for this phase" below.
+  keep-alive or HTTP/2 multiplexed connections (see "Full mode" below). The
+  collector itself never breaks requests down by page/path; that comes from
+  the beacon below instead.
+- Collect **page-level analytics from a client-side JavaScript beacon**
+  (`cmd/beacon`) - pages, referrers, campaigns, browsers, devices and custom
+  events, with cookieless visitor identification. This is a second, separate
+  data source that complements the collector rather than duplicating it, and
+  the two join on IP - see "Client-side beacon" below.
 - Persist the score and underlying data to TimescaleDB, a real
   Postgres-compatible database your own systems can query directly.
 - Serve that data back over a **read-only, token-authenticated JSON API**
@@ -360,16 +365,26 @@ All are `GET` and return JSON. Common query parameters:
 Worth stating plainly before a UI is designed around it, because these are
 limits of what the collector *records*, not of the API: there is **no
 page/path breakdown, no referrer, no user agent, and no session or
-pageview concept**. The collector observes connections and requests at the
-IP/TLS level and never inspects URLs or headers, so those simply don't
-exist in the data. Path-level analytics is listed under "Explicitly out of
-scope for this phase" and would need collection changes first, not just a
-new endpoint.
+pageview concept** in `traffic_snapshots`. The collector observes
+connections and requests at the IP/TLS level and never inspects URLs or
+headers, so those simply don't exist in that table.
 
-What it *does* give you that a conventional analytics tool doesn't is the
-bot dimension on every one of the views above: not just "how many
+That gap is what the client-side beacon fills, from the other direction -
+see "Client-side beacon" below. It writes to its own table
+(`beacon_events`), and reading it back is not yet part of this API: these
+endpoints still serve `traffic_snapshots` only.
+
+What this API *does* give you that a conventional analytics tool doesn't
+is the bot dimension on every one of the views above: not just "how many
 visitors", but how many of them were automated, from which networks, and
 carrying which TLS fingerprints.
+
+One caveat that applies to every visitor-ish number here: **a unique IP is
+not a unique visitor.** CGNAT - which every Turkish mobile carrier uses -
+puts very many real people behind one address, and dynamic reassignment
+splits one person across several addresses over time. Neither is fixable
+at the IP layer. `beacon_events.visitor_id` is the number to use when you
+need "visitors" to mean people.
 
 ### What the numbers mean (and one thing they deliberately don't)
 
@@ -388,6 +403,117 @@ the rate averages over the 60s window while the integral multiplied by the
 much shorter flush interval, and because bursty traffic makes flush
 spacing irregular. It was removed rather than shipped with a caveat. See
 `NOTES.md` for what an exact total would actually require.
+
+## Client-side beacon
+
+`cmd/beacon` is the project's **second data source**: a small JavaScript
+snippet embedded in the measured site, plus an ingest endpoint that writes
+what it reports into a `beacon_events` table.
+
+### Why two sources rather than one
+
+The two see genuinely different populations, and each is blind where the
+other sees:
+
+| | Collector (`traffic_snapshots`) | Beacon (`beacon_events`) |
+|---|---|---|
+| Sees | Every connection that reaches the site | Only clients that execute JavaScript |
+| Knows | IP, JA4 fingerprint, request rate, bot score, country/ASN | Page, referrer, campaign, title, screen, language, custom events |
+| Bots | Sees and fingerprints them | Structurally near-blind to them |
+| Visitor identity | IP only, which is not a person | Cookieless per-person ID |
+
+This is exactly why conventional analytics tools systematically
+under-report automated traffic: a beacon only fires for something that ran
+a script. Running both against one database is what closes the gap.
+`beacon_events.ip` is the join key, so questions neither table can answer
+alone become one query - most usefully **"which of the IPs that hit us
+actually ran JavaScript?"**, and its inverse, a client that both runs
+JavaScript *and* self-identifies as a bot.
+
+### Deployment
+
+Serve it from the site's **own origin**. Point whatever terminates TLS for
+the site at the beacon process for one path prefix:
+
+```nginx
+location /_ca/ {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+then embed (`beacon -snippet https://example.com mysite` prints this):
+
+```html
+<script defer src="https://example.com/_ca/ca.js" data-site="mysite"></script>
+```
+
+Same-origin keeps it out of the URL patterns content blockers match on,
+and means no CORS is involved at all. A separate origin also works - the
+snippet derives the endpoint from its own `src`, and CORS defaults to
+allowing every origin, which is safe here because the endpoint is
+write-only and its success response is an empty `204`.
+
+**`trusted_proxies` is not optional behind a reverse proxy.** Everything
+arrives from `127.0.0.1` there, so the real address only exists in
+`X-Forwarded-For` - and that is just a request header anyone can set. The
+beacon reads it only when the immediate peer is a network you listed. Set
+too broadly, any client can choose its own IP, and with it its own
+country, ASN and visitor ID.
+
+### Privacy model
+
+- **No cookies, and no consent banner needed.**
+  `visitor_id = HMAC(daily_salt, site_id ‖ ip ‖ user_agent)`, the
+  construction Plausible popularized. The salt is random, held only in
+  memory, and replaced every 24 hours, so an old ID cannot be re-derived
+  from an IP afterwards even by whoever holds the database. The cost,
+  stated plainly: restarting the process mid-day counts one visitor twice.
+- **Query strings are not stored raw.** Only `utm_*`, `ref`, `gclid`,
+  `fbclid` and `msclkid` survive, re-serialized in sorted order. Real query
+  strings routinely carry password-reset tokens, invite codes and email
+  addresses, and an analytics table has a far wider audience than the
+  application's own database. A referrer's query string is dropped
+  entirely.
+- **Bot user agents are flagged, never dropped** (`is_bot_ua`). A client
+  that runs JavaScript and admits to being a bot is the most interesting
+  row in the table, not noise. Filter on the column when you want humans.
+
+### Operational shape
+
+- Its **own process and own database role.** It is the only component the
+  whole internet may POST to, and it writes - so it shares neither the
+  collector's traffic path nor the API's read-only role.
+- **Events are buffered and written with `COPY`**, never inline, so a
+  database hiccup cannot become latency on a visitor's page. A clean
+  shutdown drains the buffer; a crash loses what was in it. Enqueue never
+  blocks - a full buffer drops and says so in the logs.
+- **`[limits]` works exactly as in the collector**, applied to beacon
+  requests. `fail_open` means "accept the request, drop the event" here,
+  since there is no backend behind this to protect.
+- **`asn_lookup` is off by default and should stay off** when a collector
+  runs on the same host: it already resolves country/ASN for every IP, and
+  the beacon's geography can be recovered by joining on `ip` at no memory
+  cost. Turning it on loads a second full copy of the range tables (~135 MB)
+  into this process. When it *is* on, the beacon sets
+  `SkipRangePersistence` - two processes rebuilding the shared
+  `ip_country_ranges` / `ip_asn_ranges` tables on independent schedules
+  would repeatedly destroy each other's data.
+
+### The snippet
+
+`internal/beacon/beacon.js`, served verbatim from the binary via
+`go:embed` - what ships is what is in the file, with no build step. It is
+**2.1 KB over the wire** (gzipped), the same size class as Umami and
+Plausible. It is served with its comments intact rather than minified:
+for a script site owners are right to be suspicious of, being readable in
+a browser's view-source is worth more than the ~1 KB.
+
+It sends an automatic pageview on load, follows SPA navigation by hooking
+`history.pushState`/`replaceState` and `popstate`, and exposes
+`crucible('event', 'name')` for custom events. Same-origin referrers are
+dropped in the browser, before they are ever sent. Opt out on one browser
+with `localStorage.setItem('crucible.disabled', '1')`.
 
 ## Design notes
 
@@ -527,6 +653,15 @@ cp analytics-api.example.toml analytics-api.toml
 go run ./cmd/analytics-api -hash-token   # generate a token + its hash
 $EDITOR analytics-api.toml               # paste the hash, set the DSN
 go run ./cmd/analytics-api
+
+# 6. Optionally, run the client-side beacon too, for page-level analytics
+#    the collector cannot see. Another separate process with its own
+#    config and its own schema - see "Client-side beacon" above.
+psql "postgres://collector:collector@localhost:5432/analytics" -f internal/beacon/schema.sql
+cp beacon.example.toml beacon.toml
+$EDITOR beacon.toml                      # set sites, DSN, trusted_proxies
+go run ./cmd/beacon
+go run ./cmd/beacon -snippet https://example.com mysite  # tag to embed
 ```
 
 If you're pointing `docker compose` at an already-existing TimescaleDB
@@ -608,8 +743,9 @@ default suite above stays that way:
 ```bash
 # Needs a real TimescaleDB: docker compose up -d first (see "Running
 # locally"), plus internal/asnlookup/schema.sql applied (creates both
-# tables) if you want that package's suite too.
-go test -tags integration ./internal/storage/... ./internal/asnlookup/... ./internal/api/... -v
+# tables) if you want that package's suite too, and
+# internal/beacon/schema.sql for the beacon's.
+go test -tags integration ./internal/storage/... ./internal/asnlookup/... ./internal/api/... ./internal/beacon/... -v
 
 # No external dependency - just slower and more timing-sensitive than the
 # default suite should be, since it fires dozens of genuinely concurrent
@@ -749,13 +885,49 @@ zero allocations; a cold one (cache miss, genuinely falling through to
 both the country and ASN binary searches) takes ~1.12 µs/op with 2
 allocations.
 
+`internal/beacon` is covered at three levels. Unit tests pin the parts
+that face hostile input directly: that only allowlisted campaign
+parameters survive a query string (a `session_token` in a URL must never
+reach an analytics table), that a forwarded header from an *untrusted*
+peer is ignored so a client cannot choose its own IP, that the visitor ID
+separates two browsers behind one CGNAT address and *joins* two IPv6
+addresses in one `/64` (privacy-extension rotation would otherwise invent
+a new visitor daily), that field boundaries in the ID hash are
+unambiguous, and that a real Cubot phone is not classified as a crawler
+while Googlebot and an unknown `Foobot/1.0` both are.
+
+Against a real TimescaleDB, `-tags integration` proves the COPY column
+list actually matches `schema.sql` by reading a fully-populated row back
+through a raw query, that the shutdown drain writes what it was holding,
+that `Enqueue` drops rather than blocking on a full buffer, and - the one
+that most needed a real database - that a payload carrying a NUL byte and
+invalid UTF-8 does **not** fail the batch it shares with innocent rows.
+It also runs the actual `beacon_events` ⋈ `traffic_snapshots` join, and
+asserts an IP that sent no beacon event is not reported as having run
+JavaScript.
+
+Neither of those covers the snippet itself, so it was verified by
+**driving `internal/beacon/beacon.js` in a real headless Chromium against
+the real `cmd/beacon` binary and a real database**. A page load, a
+`crucible('event', …)` call and a `history.pushState` navigation produced
+exactly three rows: the referrer split to `www.google.com` with its search
+terms dropped, `utm_*` kept but a `secret_token` parameter discarded, one
+stable `visitor_id` across all three, and `is_bot_ua = true` - because
+Playwright's Chromium is headless, which is precisely the "runs
+JavaScript and is automated" population the beacon exists to make visible.
+
 ## Explicitly out of scope for this phase
 
 A dashboard UI (the read-only API exists to feed one you already have),
 user login/session management (the API authenticates *callers* with
 tokens; authenticating *humans* belongs in the panel in front of it),
-exact cumulative request totals (see "What the numbers mean" above and
-`NOTES.md`), path-scanning detection, header-consistency checks,
+**read endpoints for `beacon_events`** (the beacon collects the data;
+serving it back over the API is the next phase, and until then it is
+queried in SQL), exact cumulative request totals (see "What the numbers
+mean" above and `NOTES.md`), path-scanning detection by the collector
+itself (the beacon reports paths from the client, which is a different
+thing - it cannot see a scanner that never runs JavaScript),
+header-consistency checks,
 weighted multi-signal correlation, a Redis-backed `RateStore`
 implementation, an HTTPS (as opposed to plaintext) backend for full mode,
 and a richer country/ASN rule engine beyond the flat `blocked_countries`/

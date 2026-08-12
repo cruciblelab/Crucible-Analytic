@@ -81,6 +81,19 @@ type Resolver struct {
 	// local directory instead, with no network access of any kind. Empty
 	// means download from GitHub Releases, as normal.
 	localCSVPath string
+	// SkipRangePersistence stops refresh from writing the datasets back
+	// to ip_country_ranges/ip_asn_ranges. In-memory lookups are
+	// unaffected; only the persisted copy is skipped.
+	//
+	// This exists because writeCountryRanges/writeASNRanges TRUNCATE
+	// those tables before repopulating them, which is correct for one
+	// writer and actively destructive for two: a second process
+	// refreshing on its own schedule would repeatedly blow away the
+	// first one's rows, and both would see the table empty for the
+	// duration of the other's load. Any process that resolves IPs
+	// against a database some *other* process already refreshes - the
+	// beacon alongside a collector, for instance - must set this.
+	SkipRangePersistence bool
 	// Logger defaults to slog.Default() when nil - see the logger()
 	// accessor - so a Resolver value built directly (bypassing
 	// NewResolver, as some tests do) is never at risk of a nil-pointer
@@ -224,6 +237,10 @@ func (r *Resolver) refreshCountry(ctx context.Context) {
 	if err4 != nil && err6 != nil {
 		return // nothing new to persist
 	}
+	if r.SkipRangePersistence {
+		r.logger().Info("asnlookup: country refresh complete (in-memory only)", "ipv4_ranges", len(entries4), "ipv6_ranges", len(entries6))
+		return
+	}
 	if err := r.writeCountryRanges(ctx, append(entries4, entries6...)); err != nil {
 		r.logger().Error("asnlookup: failed to persist country ranges, in-memory tables still updated", "err", err)
 		return
@@ -247,6 +264,10 @@ func (r *Resolver) refreshASN(ctx context.Context) {
 	}
 
 	if err4 != nil && err6 != nil {
+		return
+	}
+	if r.SkipRangePersistence {
+		r.logger().Info("asnlookup: asn refresh complete (in-memory only)", "ipv4_ranges", len(entries4), "ipv6_ranges", len(entries6))
 		return
 	}
 	if err := r.writeASNRanges(ctx, append(entries4, entries6...)); err != nil {

@@ -1,0 +1,94 @@
+# Config for the client-side beacon ingest (cmd/beacon). Copy to
+# beacon.toml, or point -config at it directly.
+#
+# A separate process and config from both the collector's and the read-only
+# API's, on purpose - see cmd/beacon/main.go's doc comment for why.
+#
+# Apply internal/beacon/schema.sql once before starting this; like the rest
+# of the project, it never runs DDL itself.
+
+# Defaults to 127.0.0.1:8081 (loopback only). The recommended deployment
+# has the site's own web server forwarding /_ca/ here, so binding publicly
+# should be a deliberate edit rather than something that happens by
+# omission.
+listen_addr = "127.0.0.1:8081"
+
+# Where /ca.js and /event mount. Defaults to /_ca. Short and unbranded on
+# purpose: filter lists block analytics by URL pattern, and a path
+# containing "analytics" or "track" is the easiest thing for them to match.
+# path_prefix = "/_ca"
+
+# Required. Should name a role that can INSERT into beacon_events and
+# nothing else:
+#
+#   CREATE ROLE beacon_writer LOGIN PASSWORD 'change-me';
+#   GRANT CONNECT ON DATABASE analytics TO beacon_writer;
+#   GRANT USAGE ON SCHEMA public TO beacon_writer;
+#   GRANT INSERT ON beacon_events TO beacon_writer;
+timescale_dsn = "postgres://beacon_writer:change-me@localhost:5432/analytics"
+
+# Required. The site_ids this beacon accepts events for. The snippet is
+# public and its data-site attribute is a claim anyone can copy, so this
+# allowlist is the only thing stopping an arbitrary caller from writing
+# rows under someone else's site. Must match the collector's site_id
+# exactly, or the two data sources will never join.
+sites = ["mysite"]
+
+# The networks whose X-Forwarded-For / X-Real-IP headers are believed.
+#
+# NOT OPTIONAL behind a reverse proxy: every request arrives from 127.0.0.1
+# there, so the real visitor address exists only in a forwarded header. But
+# those are just request headers - anyone can set them. Listing a network
+# here says "this proxy is mine and I trust what it reports". Set it too
+# broadly and any client can choose its own IP, and with it its own
+# country, its own ASN and its own visitor ID.
+#
+# Leave empty when the beacon is exposed directly: forwarded headers are
+# then ignored entirely, which is the correct behavior.
+trusted_proxies = ["127.0.0.1/32"]
+
+# Narrows CORS. Empty (the default) allows every origin, which is safe
+# here: the endpoint is write-only, its success response is an empty 204,
+# and it is called with credentials omitted - so there is no response
+# content for another origin to read and no ambient authority to abuse.
+# allowed_origins = ["https://example.com"]
+
+# In-memory write buffer. Events are batched and written with COPY rather
+# than inserted inline, so a database hiccup cannot become latency on a
+# visitor's page. The trade: events still buffered when the process is
+# *killed* are lost. A clean shutdown drains them.
+[buffer]
+# How many rows may wait at once. Past this, Enqueue drops rather than
+# blocking - backpressure must never reach a visitor's browser.
+size = 10000
+# Rows that force an immediate write before the interval is up.
+batch_size = 500
+# The longest a row waits before being written.
+flush_interval_seconds = 2
+
+# Bounds this process's own resource use, exactly as the collector's
+# [limits] does. Zero or absent means no limit for that dimension.
+[limits]
+# max_concurrent_requests = 0
+# max_requests_per_second = 0
+# fail_open (default), fail_closed, or throttle. Note that fail_open means
+# something slightly different here than in the collector: there is no
+# backend behind the beacon to keep serving, so it accepts the request and
+# drops the event.
+# overload_policy = "fail_open"
+# throttle_queue_size = 0
+
+# Country/ASN enrichment of beacon events. OFF by default, and that is the
+# recommendation whenever a collector runs on the same host: it already
+# resolves and stores country/ASN for every IP it sees, and every beacon
+# event comes from a browser that necessarily connected through it - so the
+# geography can be recovered at read time by joining on ip, at no memory
+# cost. Turning this on loads a second full copy of the range tables
+# (~135 MB) into this process. Worth it only when the beacon runs somewhere
+# the collector does not.
+[asn_lookup]
+enabled = false
+# cache_max_entries = 100000
+# cache_ttl_seconds = 3600
+# refresh_interval_seconds = 86400
+# local_csv_path = "/var/lib/crucible/ip-data"
