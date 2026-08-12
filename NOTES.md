@@ -29,6 +29,9 @@ Built and verified against real infrastructure, in order:
    `beacon_events`: pages, referrers, campaigns, browsers, devices,
    custom events, cookieless visitor IDs. Verified end to end by driving
    the real snippet in a real headless Chromium against the real binary.
+7. **Read API for both sources** - 17 more endpoints on the same
+   read-only binary: `/beacon/` for people and pageviews, `/crossover/`
+   for the questions that need both tables at once. 28 routes total.
 
 `site_id` is required in the collector config and stamped on every row,
 so one database can serve several sites. The beacon takes an allowlist of
@@ -283,24 +286,63 @@ accuracy is being spent to avoid. `unique_ips` from `traffic_snapshots`
 still carries the old caveat; it is the right number for "how many
 addresses hit us", not for "how many people".
 
-### Next phase: read endpoints for `beacon_events`
+### Read endpoints for `beacon_events` (built)
 
-The beacon writes; nothing reads it back over HTTP yet. When that is
-built, two things are already decided by the schema:
+17 endpoints under `/beacon/` and `/crossover/`, served by the same
+read-only `analytics-api` process. Decisions worth not re-litigating:
 
 - **Sessions are derived at read time, not assigned at ingest.** A
-  session is one visitor's events with gaps under ~30 minutes, which is a
-  `lag(time) OVER (PARTITION BY visitor_id ORDER BY time)` window
-  function - exactly what `idx_beacon_events_visitor_time` exists for.
-  Assigning session IDs at ingest would make the ingest path stateful,
-  which is the one thing it must not be: it would need per-visitor memory
-  that an attacker controls the cardinality of.
-- **The interesting endpoints are the joins, not the pageview counts.**
-  Top pages, referrers and browsers are table stakes and any tool has
-  them. "Which IPs hit us but never ran JavaScript", "which visitors
-  arrived from an ASN the collector scores as hostile", and "what share
-  of our traffic is JS-capable at all" are the ones this project can
-  answer and Umami cannot.
+  session is one visitor's events with gaps under 30 minutes, computed
+  with `lag(time) OVER (PARTITION BY visitor_id ORDER BY time)` - which
+  is exactly what `idx_beacon_events_visitor_time` exists for. Assigning
+  session IDs at ingest would make that path stateful, needing
+  per-visitor memory whose cardinality an attacker controls: the same
+  objection that keeps the collector from keying by (IP, path).
+  The timeout is a constant, not a parameter, so two charts in one panel
+  can't report different session counts for the same traffic.
+- **`bots` is an explicit parameter defaulting to `exclude`.** There is
+  no single honest answer - a customer asking for "pageviews" means
+  human ones, but silently discarding automated traffic is the exact
+  behavior this project criticizes in conventional tools. A named
+  parameter with a documented default and the value echoed in every
+  response resolves it without hiding anything.
+- **`bot_score_min` on a `/beacon/` route is a 400, not an ignore.** It
+  is the collector's behavioral score and beacon events have no such
+  column, so accepting it would hand back an unfiltered number to a
+  caller who believed it was filtered. Quietly wrong numbers are the
+  failure this project has already paid for once (`EstimatedRequests`).
+- **`/beacon/countries` falls back to `traffic_snapshots`.** The
+  recommended deployment leaves the beacon's own geo lookup off, so
+  without the join on `ip` the endpoint would return one large empty
+  group for every correctly-configured install. The beacon's own value
+  wins where it has one.
+- **`/crossover/` takes no `bots` filter.** The question is whether
+  anything from an address executed JavaScript; a headless browser that
+  ran the snippet really did run it, whatever its User-Agent claims.
+
+The endpoints worth having built this for are the crossover ones. Top
+pages and referrers are table stakes that any tool has; "which addresses
+hit us but never ran JavaScript", "what share of our traffic is
+JS-capable at all", and "which clients render pages *and* look
+automated" need both sources and are what a beacon-only tool structurally
+cannot answer.
+
+### Still open on the read side
+
+- **No beacon numbers in `/api/v1/overview`.** That endpoint aggregates
+  several sites' collector figures in one request for a panel's landing
+  page; the beacon equivalent would need a second cross-site query and
+  a decision about what a mixed row means when one site has only one of
+  the two sources running.
+- **Sessions are truncated at the range boundary.** One that began
+  before `from` is cut at it, so a very narrow range inflates session
+  counts and depresses durations. Standard for range-scoped
+  sessionization, and the reason a panel should prefer whole days - but
+  it means session counts are not additive across adjacent ranges.
+- **Session-heavy endpoints sort the whole range.** `summary`,
+  `timeseries`, `entry-pages` and `exit-pages` sort by (visitor, time)
+  for the window function. Fine at one site's volume on a local
+  database; a continuous aggregate would be the answer if it ever isn't.
 
 ## Exact cumulative request counts (deferred from the read API)
 

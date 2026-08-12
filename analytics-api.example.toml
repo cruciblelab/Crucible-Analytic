@@ -18,6 +18,13 @@ listen_addr = "127.0.0.1:8080"
 #   GRANT CONNECT ON DATABASE analytics TO analytics_reader;
 #   GRANT USAGE ON SCHEMA public TO analytics_reader;
 #   GRANT SELECT ON traffic_snapshots TO analytics_reader;
+#   GRANT SELECT ON beacon_events TO analytics_reader;
+#
+# Both tables: the /beacon/ endpoints read the second, and the
+# /crossover/ endpoints join the two. Granting only the first leaves
+# those endpoints returning 500s while everything else works, which is a
+# confusing failure to debug - so grant both even if the beacon isn't
+# running yet.
 timescale_dsn = "postgres://analytics_reader:change-me@localhost:5432/analytics"
 
 # One entry per caller. Generate the token and its hash with:

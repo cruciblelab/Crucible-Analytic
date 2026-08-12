@@ -32,9 +32,11 @@ already have.
   the two join on IP - see "Client-side beacon" below.
 - Persist the score and underlying data to TimescaleDB, a real
   Postgres-compatible database your own systems can query directly.
-- Serve that data back over a **read-only, token-authenticated JSON API**
-  (`cmd/analytics-api`), so an external management panel can pull each site's
-  statistics over HTTP without touching the database - see "Read-only
+- Serve **both** sources back over a read-only, token-authenticated JSON
+  API (`cmd/analytics-api`), so an external management panel can pull each
+  site's statistics over HTTP without touching the database - 28
+  endpoints, including the cross-source ones that answer "which of the
+  addresses that hit us actually rendered a page". See "Read-only
   analytics API" below. The panel/dashboard UI itself is not part of this
   project.
 
@@ -298,9 +300,12 @@ a **separate binary from the collector**, deliberately:
   API.
 - The collector sits in the traffic path; the API shouldn't have to.
 - Giving the API a **read-only Postgres role** is only meaningful if it
-  isn't sharing a process with the writer. Every query it issues is a
-  `SELECT`; `analytics-api.example.toml` includes the `CREATE ROLE` /
-  `GRANT SELECT` snippet to set that up.
+  isn't sharing a process with either writer - the collector or the
+  beacon. Every query it issues is a `SELECT`;
+  `analytics-api.example.toml` includes the `CREATE ROLE` / `GRANT
+  SELECT` snippet to set that up. Grant it on **both** tables: the
+  `/beacon/` endpoints read `beacon_events` and the `/crossover/` ones
+  join it to `traffic_snapshots`.
 
 ### Multi-site: `site_id`
 
@@ -341,9 +346,12 @@ All are `GET` and return JSON. Common query parameters:
 | Parameter | Applies to | Default | Meaning |
 | --- | --- | --- | --- |
 | `from` / `to` | everything except `/healthz` | last 24 hours | RFC 3339 timestamps; the range is capped at 90 days. |
-| `bot_score_min` | anything with a bot/human split | `50` | 0-100 cutoff at or above which an IP counts as a bot. |
+| `bot_score_min` | anything with a bot/human split, and the `/crossover/` endpoints | `50` | 0-100 cutoff at or above which an IP counts as a bot. **Rejected with a 400 on `/beacon/` endpoints**, which have no such column - see "Client-side endpoints" below. |
+| `bots` | the `/beacon/` endpoints | `exclude` | `exclude`, `include` or `only`, selecting whether events from self-identified bot user agents are counted. Echoed back in every response. |
 | `limit` / `offset` | the list endpoints | `50` / `0` | Page size (max 1000) and offset (max 100,000). Those responses also carry `total`, so a UI can render "showing 51-100 of 1,234". |
-| `interval` | `timeseries` | `1 hour` | One of `1 minute`, `5 minutes`, `15 minutes`, `1 hour`, `6 hours`, `1 day`, `1 week`. |
+| `interval` | either `timeseries` | `1 hour` | One of `1 minute`, `5 minutes`, `15 minutes`, `1 hour`, `6 hours`, `1 day`, `1 week`. |
+
+#### Collector-side (`traffic_snapshots`)
 
 | Endpoint | Returns |
 | --- | --- |
@@ -360,6 +368,50 @@ All are `GET` and return JSON. Common query parameters:
 | `/api/v1/sites/{site}/score-distribution` | Bot-score histogram in fixed 10-point bands. All ten bands are always present, including empty ones, so a chart needn't synthesise gaps. |
 | `/api/v1/sites/{site}/snapshots` | Raw rows, newest first - for CSV export, or for checking where an aggregate number came from. |
 
+#### Client-side (`beacon_events`)
+
+These count **people and pageviews**, where the endpoints above count
+addresses and connections. The two are not interchangeable and should
+not be charted against each other: an IP is not a visitor, and a visitor
+who never ran JavaScript is not here at all.
+
+`bots` defaults to `exclude`, so a panel that passes nothing gets human
+numbers. That default is a filter, not a fact - `exclude` drops
+*self-identified* bots, which is every honest crawler and no dishonest
+one. For the dishonest ones, see `/crossover/js-bots`.
+
+| Endpoint | Returns |
+| --- | --- |
+| `/api/v1/beacon/sites` | Site IDs with beacon data, which is not necessarily the same list as `/api/v1/sites` - a site can have one collection process running and not the other. |
+| `/api/v1/sites/{site}/beacon/summary` | Pageviews, custom events, visitors, sessions, bounce rate, pages per session, average session duration. |
+| `/api/v1/sites/{site}/beacon/timeseries` | Pageviews, visitors and sessions bucketed over time. A session is counted in the bucket it *started* in, so the column never sums to more than the range's own total. |
+| `/api/v1/sites/{site}/beacon/pages` | Pageviews and visitors per path. |
+| `/api/v1/sites/{site}/beacon/entry-pages` | Which pages sessions began on - the landing pages acquisition actually reaches, usually a more actionable list than the most-viewed pages. |
+| `/api/v1/sites/{site}/beacon/exit-pages` | Which pages sessions ended on. "Ended" means "last page with a recorded event", so a session still in progress at `to` lands here too. |
+| `/api/v1/sites/{site}/beacon/referrers` | Traffic per referring host. Same-origin referrers are dropped in the browser and never stored, so the empty group is genuinely "direct or unknown", not internal navigation. |
+| `/api/v1/sites/{site}/beacon/campaigns` | Traffic per campaign, with the stored query string decoded into its individual `utm_*`/`gclid`/`fbclid` parameters. Only visits that carried at least one is counted. |
+| `/api/v1/sites/{site}/beacon/browsers` | Traffic per browser. |
+| `/api/v1/sites/{site}/beacon/operating-systems` | Traffic per OS. |
+| `/api/v1/sites/{site}/beacon/devices` | Traffic per form factor (`desktop`/`mobile`/`tablet`). Bots have no form factor and fall into the empty group. |
+| `/api/v1/sites/{site}/beacon/languages` | Traffic per browser language. |
+| `/api/v1/sites/{site}/beacon/countries` | Traffic per country, taken from the beacon's own column where it has one and otherwise **recovered by joining `traffic_snapshots` on IP**. That fallback is the normal path: the recommended deployment leaves the beacon's own geo lookup off, and without the join it would return one large empty group. |
+| `/api/v1/sites/{site}/beacon/events` | Named custom events with their counts and how many distinct people raised them - which separates "300 clicks from one person" from "300 people clicked once". |
+| `/api/v1/sites/{site}/beacon/raw` | Raw stored events, newest first, for export. |
+
+#### Cross-source (both tables)
+
+The endpoints no single-source tool can offer, and the reason both
+processes write to one database. None takes a `bots` filter: the
+question is whether *anything* from an address executed JavaScript, and
+a headless browser that ran the snippet really did run it whatever its
+User-Agent claims.
+
+| Endpoint | Returns |
+| --- | --- |
+| `/api/v1/sites/{site}/crossover/summary` | How much of the traffic that reached the site actually rendered a page: addresses seen, how many ran JavaScript, and the same split per bot-score band. The expected shape is a downward slope; a high-score band with high coverage is automation sophisticated enough to render pages. Also reports `beacon_only_ips`, which should be 0 - anything else means the collector isn't really in the path, or the beacon's `trusted_proxies` is wrong. |
+| `/api/v1/sites/{site}/crossover/silent-ips` | The addresses the collector saw that never sent a beacon event, most suspicious first. This is the population a conventional analytics tool reports as not existing. |
+| `/api/v1/sites/{site}/crossover/js-bots` | Addresses that ran the snippet **and** either self-identified as a bot or were scored above `bot_score_min` by the collector. A headless browser looks like an ordinary visitor in client-side data alone; what gives it away is the other source - a JA4 that doesn't match the browser it claims to be, a request rate no human produces, a datacentre ASN. |
+
 ### What this API cannot tell you
 
 Worth stating plainly before a UI is designed around it, because these are
@@ -369,22 +421,29 @@ pageview concept** in `traffic_snapshots`. The collector observes
 connections and requests at the IP/TLS level and never inspects URLs or
 headers, so those simply don't exist in that table.
 
-That gap is what the client-side beacon fills, from the other direction -
-see "Client-side beacon" below. It writes to its own table
-(`beacon_events`), and reading it back is not yet part of this API: these
-endpoints still serve `traffic_snapshots` only.
+That gap is what the client-side beacon fills, from the other direction,
+and the `/beacon/` endpoints above serve it. Two things remain genuinely
+unanswerable by either source:
+
+- **Which paths a non-JavaScript client requested.** The beacon reports
+  paths from the browser, so a scanner probing `/wp-admin` and `/.env`
+  never appears in them - it runs no script. Seeing that needs
+  collector-side path collection, which is listed under "Explicitly out
+  of scope" and discussed in `NOTES.md`.
+- **A cumulative request total.** See "What the numbers mean" below.
 
 What this API *does* give you that a conventional analytics tool doesn't
-is the bot dimension on every one of the views above: not just "how many
-visitors", but how many of them were automated, from which networks, and
-carrying which TLS fingerprints.
+is the bot dimension on every collector-side view, plus the `/crossover/`
+endpoints - "which of the addresses that hit us actually rendered a
+page", which needs both sources and is exactly what a beacon-only tool
+cannot see.
 
-One caveat that applies to every visitor-ish number here: **a unique IP is
-not a unique visitor.** CGNAT - which every Turkish mobile carrier uses -
-puts very many real people behind one address, and dynamic reassignment
-splits one person across several addresses over time. Neither is fixable
-at the IP layer. `beacon_events.visitor_id` is the number to use when you
-need "visitors" to mean people.
+One caveat that applies to every collector-side visitor-ish number:
+**a unique IP is not a unique visitor.** CGNAT - which every Turkish
+mobile carrier uses - puts very many real people behind one address, and
+dynamic reassignment splits one person across several addresses over
+time. Neither is fixable at the IP layer. `visitors` from the `/beacon/`
+endpoints is the number to use when you need it to mean people.
 
 ### What the numbers mean (and one thing they deliberately don't)
 
@@ -916,14 +975,36 @@ stable `visitor_id` across all three, and `is_bot_ua = true` - because
 Playwright's Chromium is headless, which is precisely the "runs
 JavaScript and is automated" population the beacon exists to make visible.
 
+The read endpoints were verified the same way, end to end rather than
+only against fixtures: two browser contexts (one keeping Playwright's
+headless user agent, one overriding it with desktop Chrome) produced
+4 pageviews, 1 custom event and 2 visitors, and every figure the API
+then reported was checked against what the browser had actually done.
+`bots=exclude|include|only` returned 2/4/2 pageviews and 1/2/1 visitors;
+entry pages were the two pages the sessions started on and exit pages
+the two they ended on, with the middle page in neither; campaigns
+decoded back into their `utm_*` parameters; and **`/beacon/countries`
+returned `TR` for events that carried no country of their own** -
+recovered through the join to `traffic_snapshots`, which is the path a
+recommended deployment always takes. On the crossover side, three
+collector-side addresses of which one had run the snippet gave
+`js_coverage: 0.33`, the two scrapers in `silent-ips` ranked by score,
+and the headless context in `js-bots`.
+
+`internal/api`'s route lists are deliberately exhaustive rather than
+sampled - every one of the 28 routes is asserted to reject a missing
+token, to reject a token whose grant doesn't cover the site, to refuse
+non-`GET`, and to return JSON. The seven `/beacon/` breakdowns share one
+handler wired from a map, so there is also a test that each route
+reaches its *own* query: without it, pointing `/browsers` at the devices
+breakdown would fail nothing.
+
 ## Explicitly out of scope for this phase
 
 A dashboard UI (the read-only API exists to feed one you already have),
 user login/session management (the API authenticates *callers* with
 tokens; authenticating *humans* belongs in the panel in front of it),
-**read endpoints for `beacon_events`** (the beacon collects the data;
-serving it back over the API is the next phase, and until then it is
-queried in SQL), exact cumulative request totals (see "What the numbers
+exact cumulative request totals (see "What the numbers
 mean" above and `NOTES.md`), path-scanning detection by the collector
 itself (the beacon reports paths from the client, which is a different
 thing - it cannot see a scanner that never runs JavaScript),

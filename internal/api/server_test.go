@@ -28,6 +28,12 @@ type fakeStore struct {
 	gotBotScoreMin int
 	gotIP          netip.Addr
 	gotSites       []string
+	gotBots        BotFilter
+	// gotCall records which store method the last request reached. The
+	// seven beacon breakdown routes share one handler and are wired from
+	// a map, so a copy-paste slip there would route /browsers to the
+	// devices query with nothing else failing - this is what catches it.
+	gotCall string
 }
 
 func (f *fakeStore) Sites(ctx context.Context) ([]string, error) {

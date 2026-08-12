@@ -15,7 +15,22 @@ import (
 // Querier is the read-only data access the handlers need. *Store
 // implements it; tests substitute a fake so the HTTP/auth layer can be
 // exercised without a live database.
+//
+// Composed of three interfaces rather than written as one long list,
+// because the split is meaningful: TrafficQuerier reads
+// traffic_snapshots, BeaconQuerier reads beacon_events, and
+// CrossoverQuerier reads both - so an endpoint's group tells you which
+// of the two collection processes has to be running for it to return
+// anything.
 type Querier interface {
+	TrafficQuerier
+	BeaconQuerier
+	CrossoverQuerier
+}
+
+// TrafficQuerier is the read-only access the collector-side handlers
+// need.
+type TrafficQuerier interface {
 	Sites(ctx context.Context) ([]string, error)
 	Overview(ctx context.Context, sites []string, from, to time.Time, botScoreMin int) ([]SiteOverview, error)
 	Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error)
@@ -74,6 +89,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/sites/{site}/score-distribution", s.siteHandler(s.handleScoreDistribution))
 	mux.HandleFunc("GET /api/v1/sites/{site}/ips/{ip}", s.siteHandler(s.handleIPDetail))
 	mux.HandleFunc("GET /api/v1/sites/{site}/snapshots", s.siteHandler(s.handleSnapshots))
+
+	// The client-side and cross-source endpoints, in their own file
+	// because they read a different table and speak a different
+	// vocabulary - visitors and sessions rather than addresses.
+	s.registerBeaconRoutes(mux)
 
 	// Unauthenticated on purpose: it reports only that the process is up,
 	// no data at all, so a load balancer or uptime check can use it
