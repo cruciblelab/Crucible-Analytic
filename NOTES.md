@@ -140,6 +140,35 @@ Switching to "Hafif" writes the individual settings; the panel then
 shows "Hafif (değiştirilmiş)" if any of them is later touched. Anything
 else would mean two sources of truth for the same behavior.
 
+### The dashboard is written to Tam Crucible; profiles subtract data
+
+The panel is designed for the full product, and lighter profiles remove
+*data*, never pages. Every view exists in every profile. When the
+current profile does not collect what a view needs, the view says so
+plainly and links to the setting that would change it:
+
+> Bu veri şu anki modda toplanmıyor. → Dengeli moda geç
+
+Three things follow, and all three are easy to get wrong:
+
+- **A view is never hidden.** Hiding it means a customer who upgrades
+  their profile never discovers what they bought, and a customer
+  comparing us to a competitor sees a shorter feature list than we have.
+- **"Not collected" is never rendered as zero.** Showing "0 bot" when
+  bot detection is switched off is a lie in exactly the way this project
+  refuses elsewhere - the same distinction `beacon_events`' empty-group
+  flag and `asnlookup`'s `''`-means-unresolved convention already make.
+  Zero means we looked and found none. Absent means we did not look.
+- **The profile is stated on any view it affects**, so a screenshot of a
+  number always carries the context needed to read it.
+
+Note the separation this creates, which is worth keeping straight:
+**the profile decides what is collected, developer mode decides what is
+shown.** A Tam Crucible deployment with developer mode off still gathers
+everything - the owner simply is not looking at fingerprints today.
+Turning the toggle on reveals data that already exists rather than
+starting collection.
+
 ### Where settings live, and who sees them
 
 Two kinds, split by who is responsible for them:
@@ -200,6 +229,184 @@ deployment by accident is a support call at best. Making it a
 confirmation rather than a hidden page is deliberate: it is their
 server, and a technical owner should not have to ask us for access to
 their own settings.
+
+## Operating a customer's deployment without logging into it (planned)
+
+The goal: when a customer breaks something and calls, we diagnose and
+fix it from the panel, and SSH is the last resort rather than the first
+move. The constraint stated alongside it: no injection, no open door,
+no back door in the database.
+
+**These two pull against each other, and pretending otherwise is how
+back doors get built.** A panel that can repair a deployment is by
+construction a remote control surface for it, and every capability
+added to help us is a capability available to anyone who compromises
+the panel. The design below is an attempt to get most of the diagnostic
+value while giving up almost none of the safety, by separating two
+things that are usually conflated.
+
+### Diagnosis and repair are different powers
+
+- **Diagnosis** - reading logs, seeing system state, running read-only
+  health checks. Low risk: it reveals operational data to someone who
+  already has developer access. Should be generous.
+- **Repair** - changing what the system does. High risk, and therefore
+  a *finite, typed* set of named operations rather than a general
+  ability to change things.
+
+Making the second one finite is the whole design.
+
+### No general-purpose escape hatch. Ever.
+
+Specifically ruled out, permanently:
+
+- a "run SQL" box
+- a config-file textarea
+- shell command execution
+- a "restart" that takes a command string
+- any operation whose parameter is code, a query, a path, or a hostname
+  the panel then connects to
+
+Each repair is a named Go function with typed, validated parameters -
+`SetRetentionDays(int)`, `SetProfile(ProfileName)`, `ReloadIPData()`,
+`RotateAPIToken(id)`. Adding one is a code change that goes through
+review; it is not something a running system can be talked into.
+
+This sounds *less* powerful than a SQL box and is in practice more
+useful. In a real incident nobody wants to compose SQL against a schema
+they half-remember at speed; they want "retention is wrong, set it to
+90". Twenty well-chosen operations cover almost every real incident,
+and none of them can be turned against the customer whose data this is.
+
+The honest cost, stated so nobody is surprised later: the twenty-first
+incident needs SSH. That is the trade, and it is the right one.
+
+### The operation journal
+
+The audit log answers "who did what". Diagnosing a break needs "what
+happened while they did it", which is a different and much more verbose
+record, so it is a second table with its own much shorter retention.
+
+Every settings change becomes an **operation** with:
+
+- a correlation ID, carried through every log line the change produces
+- the actor and the audit entry it belongs to
+- the setting's value before and after
+- each step and its outcome
+- on failure, the full error chain and whether the change was rolled
+  back
+
+That last field matters most. "Bir şeyi ayarlarken hata olmuş" is only
+answerable if a half-applied change is recorded as half-applied rather
+than silently left in place.
+
+### The modal that streams the operation
+
+Every settings change opens a window that streams that operation's own
+log lines, then closes. Two corrections to how this should work:
+
+- **It streams the operation's lines, not everything.** A modal showing
+  the whole system's log during an unrelated change is noise, and noise
+  is what people learn to click through without reading. The
+  correlation ID is what makes this possible.
+- **Nothing is ever padded or invented to look busy.** The stated
+  secondary purpose is to make a non-technical customer think twice
+  before playing with settings, and real system logs already do that
+  perfectly well. Fabricated or inflated lines would be theatre, and
+  the first technical customer who reads them carefully would stop
+  trusting everything else the panel says. The deterrent has to be a
+  side effect of honesty, not a feature - otherwise it costs more than
+  it buys.
+
+### Log persistence, and its own budget
+
+All four services already log through `log/slog`. A second handler
+writes to a `panel_logs` table so the panel can show them without SSH.
+
+The obvious trap: a log table becomes the largest table in the
+database, which is precisely the disk problem identified above. So:
+
+- WARN and above persisted by default.
+- A per-site "ayrıntılı kayıt" toggle that raises it to DEBUG **and
+  expires by itself** (an hour, say). Verbose logging that stays on
+  because somebody forgot is how disks fill.
+- Its own retention, much shorter than the analytics tables'.
+- Bounded line length, and the same NUL/UTF-8 sanitising
+  `internal/beacon` already needs - log lines contain user-controlled
+  text, and one hostile string must not be able to break the writer.
+
+### The system health page
+
+The single highest-value thing for "minimize VDS entry" is not repair,
+it is knowing what is wrong before anybody calls. A read-only page
+answering, per deployment:
+
+- is the collector flushing, and when did it last succeed
+- is the beacon receiving events, and when was the last one
+- how large are the tables, is retention configured and running
+- are the IP range tables loaded and how old are they
+- is the read API reachable
+- recent write failures, dropped-event counts, throttled logins
+
+All of this is already measured internally today - the counters exist,
+nothing surfaces them.
+
+### What still requires SSH, stated plainly
+
+A panel cannot repair a panel that is not running. These stay physical:
+
+- the process will not start, or crashes on boot
+- the database will not start
+- the disk is full at the OS level
+- TLS certificate renewal
+- upgrading the binary
+
+Anything promising otherwise would be lying about where the boundary is.
+
+### Phoning home: off unless asked
+
+An outbound heartbeat would tell us a deployment is down without
+waiting for a phone call, which is genuinely useful. It is also a
+customer's server making unrequested outbound connections to us, which
+is a reasonable definition of the back door they asked not to have. So
+it is opt-in, off by default, and its address is a config value rather
+than something compiled in - and when it is on, the panel says so
+visibly rather than only in a settings page nobody reads.
+
+## Injection and the database's blast radius
+
+"Enjeksiyon olmasın, veritabanında açık kapı olmasın" deserves a
+concrete answer rather than a reassurance, because it is already mostly
+true structurally and the remaining work is keeping it that way.
+
+What holds today:
+
+- Every query in every package uses bound parameters. Values never
+  become SQL text.
+- There are exactly two places where a string is formatted into a
+  query, both interpolating a **column name from a closed set of
+  package constants** that no request can reach:
+  `api.Store.countDistinct` and `api.Store.beaconBreakdown`. Both carry
+  a comment saying so, and `breakdownExpr` is a distinct type
+  specifically so a request-derived string cannot be passed by
+  accident.
+- Role separation limits the blast radius even on total compromise of
+  one component. The panel's role cannot read `traffic_snapshots` or
+  `beacon_events` at all; the read API cannot write anything; the
+  beacon can only insert into one table.
+
+What to add:
+
+- **A test that fails when a new `Sprintf` appears near SQL.** Grep the
+  package source for query-building patterns and assert the set of
+  interpolating call sites matches a known list. It is a crude check
+  and it is exactly the crude check that catches the one careless line
+  added at 2am two years from now.
+- Settings values reach SQL only as bound parameters, never as
+  identifiers. A setting that must name a column or table is a design
+  error; the mapping belongs in Go, keyed by a validated enum.
+- The panel's repair operations validate their typed parameters against
+  explicit bounds before any of them reaches the database.
 
 ## Panel design principle: plain surface, unlimited depth
 
