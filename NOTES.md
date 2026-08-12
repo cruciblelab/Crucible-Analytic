@@ -32,6 +32,12 @@ Built and verified against real infrastructure, in order:
 7. **Read API for both sources** - 17 more endpoints on the same
    read-only binary: `/beacon/` for people and pageviews, `/crossover/`
    for the questions that need both tables at once. 28 routes total.
+8. **Panel data and auth layer** - `internal/panel`: accounts with
+   argon2id, per-site roles resolved through one choke point,
+   Postgres-backed sessions, replay-resistant TOTP, CSRF, an
+   append-only audit log, and consent-gated developer access. The HTTP
+   surface (wizards, dashboard views) is designed but not yet built -
+   see the two planning sections below.
 
 `site_id` is required in the collector config and stamped on every row,
 so one database can serve several sites. The beacon takes an allowlist of
@@ -72,6 +78,146 @@ would all `TRUNCATE`+`COPY` the shared `ip_country_ranges` /
 other. The local-storage topology avoids that entirely; any future move
 to central storage has to solve it (one designated refresher, or
 `local_csv_path` everywhere).
+
+## Analytics depth: how much of this to actually run (planned, not built)
+
+This system collects considerably more than a conventional analytics
+tool, and that is a cost as well as a feature. A shop owner with a
+thousand visitors a month does not need JA4 fingerprinting, and running
+it for them means memory, disk and CPU spent on a question they never
+ask. The answer is not to make it lighter - the depth is the product -
+but to make the depth **chosen**.
+
+### What actually costs something
+
+Measured or structural, not guessed:
+
+| Knob | Cost when on | Cost when off |
+| --- | --- | --- |
+| IP intelligence, full (`asn_lookup`) | ~135 MB resident, four range tables, periodic CSV download | 0; country and ASN columns stay empty |
+| IP intelligence, country only | ~65-70 MB (half the tables) | — |
+| Collector fingerprinting | CPU per connection, per-IP sliding-window state | 0; no bot dimension at all |
+| Flush interval (10s default) | one row per active IP per flush | 60s is six times fewer rows |
+| Beacon | one row per pageview/event; negligible CPU | 0; no page-level data |
+| **Retention** | **unbounded - see below** | — |
+
+The largest of these is the one currently missing entirely.
+
+### The retention gap (a real defect, not a preference)
+
+There is no retention policy anywhere in this project. Neither
+`traffic_snapshots` nor `beacon_events` is ever trimmed, and neither
+schema declares a TimescaleDB retention policy. On a customer VDS that
+means the disk fills, slowly and silently, and the first symptom is the
+collector failing to write - i.e. the traffic path degrading because of
+an analytics table.
+
+Retention has to become a first-class setting with a conservative
+default (90 days is a reasonable starting point and matches the read
+API's `maxRange`), implemented with TimescaleDB's own
+`add_retention_policy` rather than a cron job doing DELETEs, because
+dropping whole chunks is nearly free and deleting rows is not.
+
+### Profiles rather than knobs
+
+Nobody buying this can reason about flush intervals. The panel offers
+three presets, and developer mode exposes every underlying setting for
+whoever wants them:
+
+- **Hafif** - beacon only, no fingerprinting, no IP intelligence.
+  Roughly what Umami costs and roughly what Umami tells you: visitors,
+  pages, sources, devices, campaigns. The honest positioning is "this
+  mode is not why you bought this".
+- **Dengeli** (default) - beacon plus collector with JA4 and rate
+  scoring, IP intelligence in country-only mode. The bot dimension is
+  present; the ASN half of the range tables is not loaded.
+- **Tam Crucible** - everything, including ASN, the crossover views and
+  raw export.
+- **Özel** - each setting individually, in developer mode.
+
+A profile is a named set of defaults, not a mode the code branches on.
+Switching to "Hafif" writes the individual settings; the panel then
+shows "Hafif (değiştirilmiş)" if any of them is later touched. Anything
+else would mean two sources of truth for the same behavior.
+
+### Where settings live, and who sees them
+
+Two kinds, split by who is responsible for them:
+
+- **Deployment settings** - database DSNs, listen addresses, TLS
+  certificate paths, trusted proxies. Config file only, set by us
+  through developer access. These never appear in the customer's panel:
+  they are not decisions a shop owner should be asked to make, and a
+  form that can change a DSN is a form that can point the panel at
+  somebody else's database.
+- **Operational settings** - analytics profile, retention, flush
+  interval, IP-intelligence mode, geo blocking, scoring thresholds.
+  Stored in the database, editable in developer mode.
+
+The second kind is new: everything today is config-file only. The
+collector and beacon will need to re-read operational settings
+periodically (a minute is fine) and apply what can be applied live.
+Some settings cannot be - a listen address, a TLS certificate - and
+those stay in the config file rather than pretending to be editable.
+The split is by *whether it can honestly take effect*, not by
+convenience.
+
+## Setup: two wizards, one handover (planned, not built)
+
+Installation is done by us; ownership is not. The two are separate
+flows, and the handover between them is the moment the developer's
+standing access ends (see the developer-access section above).
+
+### The developer wizard
+
+Reached through developer access while no account exists. Covers the
+technical ground: database connectivity and schema application, which
+sites exist, collector mode and backend, TLS, trusted proxies, the
+analytics profile, retention. It ends by confirming the deployment is
+ready to hand over.
+
+### The owner wizard
+
+The first thing the customer sees. Creates their account, names the
+site in language they use, sets the timezone, shows the snippet to
+embed, offers to invite colleagues. It must never *require* a technical
+step, because those are already done - where it needs a technical
+value, it shows what the developer configured rather than an empty
+field.
+
+### The "geliştirici sihirbazı" door
+
+The owner wizard carries an unobtrusive link to the technical wizard,
+for owners who are technical themselves. The first click does not open
+it. It warns:
+
+> Bu bölüm geliştiriciniz tarafından tamamlandı. Yine de baştan yapmak
+> isterseniz onaylayın.
+
+Confirming opens the full technical wizard. The warning exists because
+the common case is somebody exploring, and reconfiguring a working
+deployment by accident is a support call at best. Making it a
+confirmation rather than a hidden page is deliberate: it is their
+server, and a technical owner should not have to ask us for access to
+their own settings.
+
+## Panel design principle: plain surface, unlimited depth
+
+"Görsel açıdan sade, derinlik açısından uçsuz bucaksız." Concretely,
+what that has to mean when writing the pages:
+
+- The default view is six cards and one chart, in ordinary Turkish. No
+  fingerprints, no ASNs, no scores, no English jargon.
+- Every number is a door. A card is clickable and leads somewhere that
+  explains it; nothing is a dead end.
+- Developer mode adds **layers to the same pages**, not new pages full
+  of jargon. The pages page gains columns; it does not become a
+  different pages page.
+- Nothing technical is visible until asked for, and asking for it is one
+  toggle in one place.
+- Depth is reached by clicking, never by reading. If a view needs a
+  paragraph of explanation to be usable, the view is wrong - the
+  paragraph belongs in a tooltip on the one term that needs it.
 
 ## Richer country/ASN rule engine (deferred from Aşama 3)
 
