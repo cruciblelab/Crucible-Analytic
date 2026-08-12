@@ -5,6 +5,55 @@ that) - this is where design decisions that were deliberately deferred
 get written down in enough detail that picking them back up later doesn't
 require re-deriving the reasoning from scratch.
 
+## Where the project stands
+
+Built and verified against real infrastructure, in order:
+
+1. **Collector** - passthrough (TCP/TLS, never decrypts) and full
+   (TLS-terminating) modes, JA4 fingerprinting, per-IP sliding-window
+   rate tracking, 0-100 bot score, batch flush to TimescaleDB.
+2. **Self-protection** - `[limits]` with fail_open / fail_closed /
+   throttle policies, proven under real concurrent load.
+3. **IP intelligence** - country + ASN resolved from sapics/ip-location-db
+   (`user-country`, `origin-asn`), four in-memory range tables, ~135 MB
+   for the full real dataset, ~103 ns cache-hit lookups.
+4. **Acting on it** - country/ASN denylist (unconditional reject,
+   independent of overload policy) and an ASN scoring signal
+   (`known_bot_asns`, gated by `apply_to_scoring`).
+5. **Read API** - `cmd/analytics-api`, a separate read-only binary with
+   SHA-256-hashed bearer tokens and per-token site grants; 11 endpoints
+   (overview, summary, timeseries, top-ips, per-IP detail, countries,
+   asns, ja4, score-distribution, snapshots, sites).
+
+`site_id` is required in the collector config and stamped on every row,
+so one database can serve several sites.
+
+### Deployment topology (decided, not incidental)
+
+The collector is a reverse proxy, so it **must** run in each site's
+traffic path - that isn't a choice. Storage and the API could have been
+centralised but deliberately weren't:
+
+- Each site's collector writes to a TimescaleDB **local to that VDS**.
+- The management panel **pulls** over the read-only HTTP API with a token.
+- No customer VDS ever needs to expose a database, and no central
+  database needs credentials distributed to customer machines.
+
+This was chosen over a central database because sites are mixed (some on
+the operator's servers, some on customers' own), because exposing a
+read-only HTTPS API is a much smaller attack surface than exposing
+Postgres, and because it leaves central aggregation available later
+without touching the collector: the panel can mirror what it pulls into
+its own store, which becomes the "central analytics" by pull rather than
+push.
+
+A consequence worth remembering: with a central database, N collectors
+would all `TRUNCATE`+`COPY` the shared `ip_country_ranges` /
+`ip_asn_ranges` tables on their own refresh schedules and stomp each
+other. The local-storage topology avoids that entirely; any future move
+to central storage has to solve it (one designated refresher, or
+`local_csv_path` everywhere).
+
 ## Richer country/ASN rule engine (deferred from Aşama 3)
 
 Aşama 3 (see README's "Optional: IP → country / ASN lookup") ships a
@@ -93,6 +142,89 @@ it isn't keyed by IP. Country/ASN stay the only supported match
 dimensions; if IP-level blocking is ever wanted, it's a genuinely
 different feature (an IP blocklist/allowlist), not an extension of this
 one.
+
+## Page/path, referrer, user agent and session analytics (never collected)
+
+The single biggest gap between what this project produces and what a
+customer expects from the word "analytics". Written up in full because
+it's a product decision, not a small missing endpoint, and because the
+obvious first instinct - "just add a `/pages` endpoint" - doesn't work.
+
+### What's missing, and why, per mode
+
+- **Passthrough mode: cryptographically impossible.** The proxy never
+  decrypts TLS. The URL, headers, referrer and user agent are all inside
+  the encrypted stream. No amount of work on the storage or API layer
+  changes that; the bytes aren't readable by design, which is also the
+  mode's main selling point ("point it at your site, it never sees your
+  users' data").
+- **Full mode: available but deliberately not recorded.** Here TLS *is*
+  terminated, so `recordingHandler` genuinely holds `r.URL.Path`,
+  `r.Header`, everything. It passes only `(ip, ja4, time)` to
+  `RateStore.RecordRequest`. So this half is a scope decision that could
+  be revisited, not a physical limit.
+
+Session/pageview/bounce-rate concepts don't exist in either mode: there
+is no cookie, no client-side identifier, and no notion of a visit - only
+IP-level activity.
+
+### Why "just record the path" is harder than it looks
+
+`ratestore` keeps O(1) state per IP on purpose. Keying by (IP, path)
+multiplies that by an **attacker-controlled** number of distinct paths -
+`/x1`, `/x2`, ... is a trivial way to blow up memory. This is precisely
+the unbounded-key-space concern `internal/limiter`'s own doc comment
+already cites for why it isn't keyed by IP.
+
+A real implementation therefore needs one of:
+
+- **Bounded top-K per site** (count-min sketch / heavy hitters), giving
+  "your 50 busiest paths" rather than exact per-path totals.
+- **A separate append-only table** written per request rather than per
+  flush - accurate, but that's a request log, a fundamentally different
+  storage shape and cost profile from the snapshot table this project is
+  built around.
+
+Either way it only ever works in full mode, so the panel would show path
+data for some customers and not others depending on their deployment -
+which needs a deliberate UX answer, not silence.
+
+### The alternative worth considering first: a JS beacon
+
+The conventional approach (Umami, Plausible, Matomo, GA) is a script tag
+on the customer's site posting pageview, referrer, screen size and a
+session identifier. That yields exactly the missing fields, works
+identically in both modes because it doesn't depend on the proxy at all,
+and is a well-understood pattern.
+
+The important part is that the two sources are **complementary rather
+than redundant**:
+
+- A JS beacon only fires for clients that execute JavaScript, so it is
+  nearly blind to bots - which is why conventional analytics
+  systematically under-reports automated traffic.
+- This collector sees every connection including the ones that never run
+  a line of JS, and fingerprints them.
+
+Together they answer both "what did real humans do on which pages" and
+"what actually hit the server, human or not" - and the second is the
+thing conventional tools can't give. That framing is worth keeping in
+mind before treating the beacon as merely catching up to competitors.
+
+### Caveat that already applies today: unique IP is not unique visitor
+
+Worth stating wherever "unique_ips" is presented to a customer as
+"visitors":
+
+- **CGNAT undercounts.** Mobile carriers (including the major Turkish
+  ones) put many subscribers behind one address, so a busy mobile
+  audience collapses into far fewer IPs than people.
+- **Dynamic addressing overcounts.** One person across several days
+  appears as several IPs.
+
+Neither is fixable at the IP layer - it's inherent to identifying people
+by address. A JS beacon with a session identifier is what resolves it,
+which is another reason the two approaches pair well.
 
 ## Exact cumulative request counts (deferred from the read API)
 
