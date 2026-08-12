@@ -53,7 +53,7 @@ func newTestStore(t *testing.T, ns string) *Store {
 		for _, sql := range []string{
 			`DELETE FROM panel_audit_log WHERE site_id LIKE $1 OR actor_label LIKE $1`,
 			`DELETE FROM panel_login_attempts WHERE email LIKE $1`,
-			`DELETE FROM panel_dev_logins WHERE label LIKE $1`,
+			`DELETE FROM panel_dev_access WHERE reason LIKE $1`,
 			`DELETE FROM panel_site_members WHERE site_id LIKE $1`,
 			`DELETE FROM panel_users WHERE email LIKE $1`,
 		} {
@@ -520,47 +520,224 @@ func TestStore_RealDB_AuditOutlivesItsActor(t *testing.T) {
 	}
 }
 
-func TestStore_RealDB_DevLoginIsSingleUse(t *testing.T) {
-	ns := "panel-devlogin"
-	s := newTestStore(t, ns)
-	ctx := context.Background()
-	from := netip.MustParseAddr("198.51.100.7")
-
-	token, err := s.MintDevLogin(ctx, "label-"+ns, time.Minute)
+// wipeUsers empties panel_users so a test can observe the deployment in
+// its "nobody owns this yet" state.
+//
+// That state is a global property of the database, not something a test
+// can namespace its way around, so these tests deliberately clear the
+// whole table. Safe against the throwaway docker database the
+// integration suite targets; do not point this suite at anything you
+// care about.
+func wipeUsers(t *testing.T) {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
 	if err != nil {
-		t.Fatalf("MintDevLogin: %v", err)
+		t.Fatalf("pgxpool.New: %v", err)
 	}
-	if token == "" {
-		t.Fatal("MintDevLogin returned an empty token")
-	}
-
-	label, err := s.RedeemDevLogin(ctx, token, from)
-	if err != nil {
-		t.Fatalf("first redemption: %v", err)
-	}
-	if label != "label-"+ns {
-		t.Errorf("label = %q", label)
-	}
-
-	if _, err := s.RedeemDevLogin(ctx, token, from); !errors.Is(err, ErrDevLoginInvalid) {
-		t.Errorf("second redemption gave %v, want ErrDevLoginInvalid", err)
-	}
-	if _, err := s.RedeemDevLogin(ctx, "not-a-real-token", from); !errors.Is(err, ErrDevLoginInvalid) {
-		t.Errorf("unknown token gave %v, want ErrDevLoginInvalid", err)
+	defer pool.Close()
+	if _, err := pool.Exec(context.Background(), `DELETE FROM panel_users`); err != nil {
+		t.Fatalf("wiping users: %v", err)
 	}
 }
 
-// This token grants operator authority, so "usually single-use" is not
-// good enough. Read-then-update would let two simultaneous requests both
-// pass; the redemption is one statement precisely to stop that.
-func TestStore_RealDB_ConcurrentDevLoginRedemptionAdmitsOne(t *testing.T) {
+// Before anyone owns the deployment there is nobody to ask, and
+// installing the system is exactly what developer access is for.
+func TestStore_RealDB_DevAccessIsAutoApprovedBeforeSetup(t *testing.T) {
+	ns := "panel-devboot"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	token, req, err := s.RequestDevAccess(ctx, "kurulum-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if !req.AutoApproved || req.ApprovedAt == nil {
+		t.Fatalf("request was not auto-approved with no accounts present: %+v", req)
+	}
+
+	grant, err := s.RedeemDevAccess(ctx, token, netip.MustParseAddr("198.51.100.7"))
+	if err != nil {
+		t.Fatalf("redeeming a bootstrap link: %v", err)
+	}
+	if !grant.Bootstrap {
+		t.Error("the grant did not report itself as a bootstrap session")
+	}
+	if grant.ExpiresAt.Before(time.Now()) {
+		t.Error("the session expired before it began")
+	}
+}
+
+// The rule the whole approval flow exists for: shell access is enough
+// to get in before anyone has an account, and stops being enough the
+// moment somebody does. An installer link left over from setup must not
+// quietly remain a way in afterwards.
+func TestStore_RealDB_BootstrapLinkDiesWhenAnAccountAppears(t *testing.T) {
+	ns := "panel-devboot-dies"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	token, req, err := s.RequestDevAccess(ctx, "kurulum-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if !req.AutoApproved {
+		t.Fatalf("expected an auto-approved request, got %+v", req)
+	}
+
+	// The site owner finishes setup. The link has not expired and has
+	// never been used - and must now be dead anyway.
+	mustUser(t, s, ns, "owner", false)
+
+	if _, err := s.RedeemDevAccess(ctx, token, netip.MustParseAddr("198.51.100.7")); !errors.Is(err, ErrDevAccessInvalid) {
+		t.Fatalf("a bootstrap link still worked after the owner created their account: %v", err)
+	}
+}
+
+// Once there is an owner, a request is inert until they say yes.
+func TestStore_RealDB_DevAccessNeedsApprovalAfterSetup(t *testing.T) {
+	ns := "panel-devapprove"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	owner := mustUser(t, s, ns, "owner", false)
+
+	token, req, err := s.RequestDevAccess(ctx, "bakim-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if req.AutoApproved || req.ApprovedAt != nil {
+		t.Fatalf("a request was auto-approved despite an account existing: %+v", req)
+	}
+	if !req.Pending() {
+		t.Error("a fresh request does not report itself as pending")
+	}
+
+	// Unapproved: the token exists but opens nothing.
+	if _, err := s.RedeemDevAccess(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevAccessInvalid) {
+		t.Fatalf("an unapproved link was redeemable: %v", err)
+	}
+
+	pending, err := s.PendingDevAccess(ctx)
+	if err != nil {
+		t.Fatalf("PendingDevAccess: %v", err)
+	}
+	if len(pending) != 1 || pending[0].ID != req.ID || pending[0].Reason != "bakim-"+ns {
+		t.Fatalf("pending list = %+v, want the one request with its reason", pending)
+	}
+
+	if err := s.ApproveDevAccess(ctx, req.ID, owner); err != nil {
+		t.Fatalf("ApproveDevAccess: %v", err)
+	}
+
+	grant, err := s.RedeemDevAccess(ctx, token, netip.Addr{})
+	if err != nil {
+		t.Fatalf("redeeming an approved link: %v", err)
+	}
+	if grant.Bootstrap {
+		t.Error("a human-approved grant reported itself as a bootstrap session")
+	}
+	// Single use still holds.
+	if _, err := s.RedeemDevAccess(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevAccessInvalid) {
+		t.Errorf("an approved link was redeemable twice: %v", err)
+	}
+}
+
+func TestStore_RealDB_DeniedDevAccessStaysDenied(t *testing.T) {
+	ns := "panel-devdeny"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	owner := mustUser(t, s, ns, "owner", false)
+	token, req, err := s.RequestDevAccess(ctx, "reddedilecek-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+
+	if err := s.DenyDevAccess(ctx, req.ID, owner); err != nil {
+		t.Fatalf("DenyDevAccess: %v", err)
+	}
+	if _, err := s.RedeemDevAccess(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevAccessInvalid) {
+		t.Errorf("a denied link was redeemable: %v", err)
+	}
+	// A refusal cannot be quietly reversed: the developer has to ask
+	// again, so the owner sees a fresh request rather than a decision
+	// they already made being overwritten.
+	if err := s.ApproveDevAccess(ctx, req.ID, owner); !errors.Is(err, ErrDevAccessDecided) {
+		t.Errorf("a denied request was approvable afterwards: %v", err)
+	}
+	if err := s.DenyDevAccess(ctx, req.ID, owner); !errors.Is(err, ErrDevAccessDecided) {
+		t.Errorf("denying twice succeeded: %v", err)
+	}
+}
+
+// Two owners deciding at the same moment - one approving, one denying -
+// must not both succeed, or the record would say the request was
+// approved and denied.
+func TestStore_RealDB_ConcurrentDevAccessDecisionAdmitsOne(t *testing.T) {
+	ns := "panel-devdecide"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	first := mustUser(t, s, ns, "ownerone", false)
+	second := mustUser(t, s, ns, "ownertwo", false)
+	_, req, err := s.RequestDevAccess(ctx, "yaris-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	start := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		errs[0] = s.ApproveDevAccess(context.Background(), req.ID, first)
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		errs[1] = s.DenyDevAccess(context.Background(), req.ID, second)
+	}()
+	close(start)
+	wg.Wait()
+
+	decided := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			decided++
+		case errors.Is(err, ErrDevAccessDecided):
+		default:
+			t.Errorf("unexpected error: %v", err)
+		}
+	}
+	if decided != 1 {
+		t.Errorf("%d of 2 simultaneous decisions succeeded, want exactly 1", decided)
+	}
+}
+
+// This grants operator authority, so "usually single-use" is not good
+// enough: the redemption is one statement precisely so concurrent
+// attempts cannot both pass.
+func TestStore_RealDB_ConcurrentDevAccessRedemptionAdmitsOne(t *testing.T) {
 	ns := "panel-devrace"
 	s := newTestStore(t, ns)
 	ctx := context.Background()
+	wipeUsers(t)
 
-	token, err := s.MintDevLogin(ctx, "label-"+ns, time.Minute)
+	owner := mustUser(t, s, ns, "owner", false)
+	token, req, err := s.RequestDevAccess(ctx, "yaris-"+ns, time.Hour, time.Hour)
 	if err != nil {
-		t.Fatalf("MintDevLogin: %v", err)
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if err := s.ApproveDevAccess(ctx, req.ID, owner); err != nil {
+		t.Fatalf("ApproveDevAccess: %v", err)
 	}
 
 	const attempts = 16
@@ -572,7 +749,7 @@ func TestStore_RealDB_ConcurrentDevLoginRedemptionAdmitsOne(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, results[i] = s.RedeemDevLogin(context.Background(), token, netip.MustParseAddr("198.51.100.7"))
+			_, results[i] = s.RedeemDevAccess(context.Background(), token, netip.MustParseAddr("198.51.100.7"))
 		}()
 	}
 	close(start)
@@ -583,7 +760,7 @@ func TestStore_RealDB_ConcurrentDevLoginRedemptionAdmitsOne(t *testing.T) {
 		switch {
 		case err == nil:
 			succeeded++
-		case errors.Is(err, ErrDevLoginInvalid):
+		case errors.Is(err, ErrDevAccessInvalid):
 		default:
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -593,50 +770,101 @@ func TestStore_RealDB_ConcurrentDevLoginRedemptionAdmitsOne(t *testing.T) {
 	}
 }
 
-func TestStore_RealDB_DevLoginExpires(t *testing.T) {
+func TestStore_RealDB_DevAccessExpires(t *testing.T) {
 	ns := "panel-devexpiry"
 	s := newTestStore(t, ns)
 	ctx := context.Background()
+	wipeUsers(t)
 
-	token, err := s.MintDevLogin(ctx, "label-"+ns, time.Minute)
+	owner := mustUser(t, s, ns, "owner", false)
+	token, req, err := s.RequestDevAccess(ctx, "eskiyecek-"+ns, time.Hour, time.Hour)
 	if err != nil {
-		t.Fatalf("MintDevLogin: %v", err)
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if err := s.ApproveDevAccess(ctx, req.ID, owner); err != nil {
+		t.Fatalf("ApproveDevAccess: %v", err)
 	}
 
-	// Age the row rather than minting it pre-expired: MintDevLogin
-	// treats a non-positive TTL as "use the default", so the only way to
-	// reach this state through the API is the way it happens in
-	// production - by time passing.
+	// Age the row rather than minting it pre-expired: a non-positive TTL
+	// means "use the default", so the only way to reach this state
+	// through the API is the way it happens in production - time passing.
 	pool, err := pgxpool.New(ctx, testDatabaseURL)
 	if err != nil {
 		t.Fatalf("pgxpool.New: %v", err)
 	}
 	defer pool.Close()
 	if _, err := pool.Exec(ctx,
-		`UPDATE panel_dev_logins SET expires_at = now() - interval '1 second' WHERE label = $1`,
-		"label-"+ns); err != nil {
-		t.Fatalf("ageing the link: %v", err)
+		`UPDATE panel_dev_access SET request_expires_at = now() - interval '1 second' WHERE id = $1`,
+		req.ID); err != nil {
+		t.Fatalf("ageing the request: %v", err)
 	}
 
-	if _, err := s.RedeemDevLogin(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevLoginInvalid) {
+	if _, err := s.RedeemDevAccess(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevAccessInvalid) {
 		t.Errorf("an expired link redeemed: %v", err)
+	}
+	if pending, err := s.PendingDevAccess(ctx); err != nil || len(pending) != 0 {
+		t.Errorf("an expired request is still listed as pending: %+v (%v)", pending, err)
 	}
 }
 
-// A non-positive TTL means "use the default", never "already expired" -
-// a caller that forgot to pass one should get a usable link, not a dead
-// one that fails confusingly at redemption time.
-func TestStore_RealDB_DevLoginZeroTTLUsesTheDefault(t *testing.T) {
+// An expired request cannot be revived by approving it late: the owner
+// would think they were granting a fresh visit.
+func TestStore_RealDB_ExpiredDevAccessCannotBeApproved(t *testing.T) {
+	ns := "panel-devlate"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	wipeUsers(t)
+
+	owner := mustUser(t, s, ns, "owner", false)
+	_, req, err := s.RequestDevAccess(ctx, "gec-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+
+	pool, err := pgxpool.New(ctx, testDatabaseURL)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	defer pool.Close()
+	if _, err := pool.Exec(ctx,
+		`UPDATE panel_dev_access SET request_expires_at = now() - interval '1 second' WHERE id = $1`,
+		req.ID); err != nil {
+		t.Fatalf("ageing the request: %v", err)
+	}
+
+	if err := s.ApproveDevAccess(ctx, req.ID, owner); !errors.Is(err, ErrDevAccessDecided) {
+		t.Errorf("an expired request was approvable: %v", err)
+	}
+}
+
+func TestStore_RealDB_DevAccessDefaultsAndHistory(t *testing.T) {
 	ns := "panel-devttl"
 	s := newTestStore(t, ns)
 	ctx := context.Background()
+	wipeUsers(t)
 
-	token, err := s.MintDevLogin(ctx, "label-"+ns, 0)
+	// Zero durations mean "use the defaults", never "already expired" -
+	// a caller that forgot to pass one should get a usable request, not
+	// a dead one that fails confusingly later.
+	_, req, err := s.RequestDevAccess(ctx, "varsayilan-"+ns, 0, 0)
 	if err != nil {
-		t.Fatalf("MintDevLogin: %v", err)
+		t.Fatalf("RequestDevAccess: %v", err)
 	}
-	if _, err := s.RedeemDevLogin(ctx, token, netip.Addr{}); err != nil {
-		t.Errorf("a link minted with a zero TTL was not usable: %v", err)
+	if req.SessionTTL != DefaultSessionTTL {
+		t.Errorf("SessionTTL = %v, want the default %v", req.SessionTTL, DefaultSessionTTL)
+	}
+	if until := time.Until(req.RequestExpiresAt); until <= 0 || until > DefaultRequestTTL+time.Minute {
+		t.Errorf("request expires in %v, want about the default %v", until, DefaultRequestTTL)
+	}
+
+	// The history is what lets an owner see who asked and what happened,
+	// including requests that were never approved.
+	recent, err := s.RecentDevAccess(ctx, 10)
+	if err != nil {
+		t.Fatalf("RecentDevAccess: %v", err)
+	}
+	if len(recent) == 0 || recent[0].Reason != "varsayilan-"+ns {
+		t.Errorf("recent = %+v, want the request just made", recent)
 	}
 }
 

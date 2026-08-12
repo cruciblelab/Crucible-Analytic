@@ -143,15 +143,22 @@ type Principal struct {
 // ordinary user did the work.
 const DeveloperLabel = "Geliştirici"
 
-// developerPrincipal is what a redeemed one-time login becomes.
+// developerPrincipal is what a redeemed developer access link becomes.
 //
-// It carries superadmin authority, and that is the honest design rather
-// than a shortcut: the link can only be minted by running a command on
-// the server, and anyone who can do that can already read the config
-// file, the database password, and therefore everything. Pretending to
-// restrict it would add friction for the developer and no security. The
-// real controls are that the link is single-use, short-lived, and that
-// every action it takes is filed under a visibly different identity.
+// It carries superadmin authority, and that is honest rather than a
+// shortcut: whoever redeemed it can run commands on the server, so they
+// can already read the config, the database password, and therefore
+// everything. Pretending to restrict what they see inside the panel
+// would add friction and no security.
+//
+// The controls that do matter are elsewhere, in devaccess.go: before
+// anyone owns the deployment the link is granted automatically, because
+// installing the system is the job and there is nobody to ask; once an
+// account exists it is inert until that owner approves it, and any
+// outstanding bootstrap link dies at that same moment. Access during
+// installation does not quietly become access afterwards. On top of
+// that the link is single-use, time-boxed, and everything it does is
+// filed under a visibly separate identity.
 func developerPrincipal() Principal {
 	return Principal{
 		Kind:       PrincipalDeveloper,

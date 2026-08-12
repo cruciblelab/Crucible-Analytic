@@ -144,27 +144,61 @@ CREATE TABLE IF NOT EXISTS panel_api_tokens (
 CREATE INDEX IF NOT EXISTS idx_panel_api_tokens_live
     ON panel_api_tokens (created_at DESC) WHERE revoked_at IS NULL;
 
--- Single-use developer logins, minted by `crucible dev-login` on the
--- server itself.
+-- Developer access, requested by `crucible dev-access request` on the
+-- server itself and - once anyone owns this deployment - approved from
+-- the panel by that owner.
 --
--- The authority here is shell access to the machine: someone who can
--- run the command can already read the config and the database
--- password, so this grants nothing they did not have - it just gives
--- them a way in that is time-limited, single-use, and distinctly
--- labelled in the audit log rather than an anonymous shared password.
-CREATE TABLE IF NOT EXISTS panel_dev_logins (
-    id         BIGSERIAL   PRIMARY KEY,
-    sha256     TEXT        NOT NULL UNIQUE,
-    label      TEXT        NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    expires_at TIMESTAMPTZ NOT NULL,
-    -- Set atomically when redeemed; a second attempt with the same
-    -- token finds it non-NULL and fails.
-    used_at    TIMESTAMPTZ,
-    used_from  INET
+-- The rule this table exists to enforce: shell access to the machine is
+-- enough to get in *before* anyone has an account, and is not enough
+-- afterwards. Installing the system is our job; reading a customer's
+-- traffic once it is theirs is not, and "we could read the database
+-- anyway" is a reason to make the access visible and consented to, not
+-- a reason to skip asking.
+--
+-- Superseded panel_dev_logins, which had no approval step. Dropped
+-- rather than migrated: it only ever held single-use tokens with a
+-- fifteen-minute life, so there is nothing in it worth carrying over.
+DROP TABLE IF EXISTS panel_dev_logins;
+
+CREATE TABLE IF NOT EXISTS panel_dev_access (
+    id       BIGSERIAL PRIMARY KEY,
+    sha256   TEXT      NOT NULL UNIQUE,
+    -- Why access is being asked for. Shown to the owner making the
+    -- decision, and kept afterwards so the audit trail says what the
+    -- visit was for.
+    reason   TEXT      NOT NULL DEFAULT '',
+    requested_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- How long the owner has to decide, and therefore how long an
+    -- unapproved request stays usable at all.
+    request_expires_at TIMESTAMPTZ NOT NULL,
+    -- How long the session lasts once the link is redeemed, so approving
+    -- grants a visit rather than a standing key.
+    session_ttl_seconds INTEGER NOT NULL,
+
+    approved_at    TIMESTAMPTZ,
+    approved_by    BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+    approved_label TEXT NOT NULL DEFAULT '',
+    -- TRUE when the request was granted because no account existed yet.
+    -- Kept as its own column rather than inferred from approved_by being
+    -- NULL, because redemption treats the two differently: a
+    -- human-approved grant stays valid, a bootstrap one dies the moment
+    -- somebody owns this deployment.
+    auto_approved  BOOLEAN NOT NULL DEFAULT FALSE,
+
+    denied_at TIMESTAMPTZ,
+    denied_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+
+    -- Set atomically on redemption; a second attempt finds it non-NULL.
+    used_at            TIMESTAMPTZ,
+    used_from          INET,
+    session_expires_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_panel_dev_logins_expiry ON panel_dev_logins (expires_at);
+-- The panel polls for outstanding requests to show the owner a banner,
+-- so "pending, not yet expired" has to be cheap.
+CREATE INDEX IF NOT EXISTS idx_panel_dev_access_pending
+    ON panel_dev_access (requested_at DESC)
+    WHERE used_at IS NULL AND denied_at IS NULL;
 
 -- Login attempts, for throttling and for seeing an attack in progress.
 --

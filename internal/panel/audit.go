@@ -12,14 +12,26 @@ import (
 // be filtered reliably and a typo cannot create a second spelling of an
 // event that already exists.
 const (
-	ActionSetupCompleted   = "setup.completed"
-	ActionLoginSucceeded   = "login.succeeded"
-	ActionLoginFailed      = "login.failed"
-	ActionLoginThrottled   = "login.throttled"
-	ActionLogout           = "logout"
-	ActionDevLoginMinted   = "dev_login.minted"
-	ActionDevLoginRedeemed = "dev_login.redeemed"
-	ActionDevLoginRejected = "dev_login.rejected"
+	ActionSetupCompleted = "setup.completed"
+	ActionLoginSucceeded = "login.succeeded"
+	ActionLoginFailed    = "login.failed"
+	ActionLoginThrottled = "login.throttled"
+	ActionLogout         = "logout"
+
+	// Developer access, in the order it happens: the developer asks from
+	// the server, the owner decides in the panel, the link is redeemed.
+	// Each step is its own entry so the record shows who consented to
+	// what, not merely that somebody got in.
+	ActionDevAccessRequested = "dev_access.requested"
+	ActionDevAccessApproved  = "dev_access.approved"
+	ActionDevAccessDenied    = "dev_access.denied"
+	ActionDevAccessRedeemed  = "dev_access.redeemed"
+	ActionDevAccessRejected  = "dev_access.rejected"
+	// ActionDevAccessBootstrap marks a session granted because nobody
+	// owned the deployment yet. Distinct from an approved one because
+	// nobody consented to it - there was nobody to ask - and that
+	// difference should be visible forever afterwards.
+	ActionDevAccessBootstrap = "dev_access.bootstrap"
 
 	ActionPasswordChanged  = "account.password_changed"
 	ActionTOTPEnabled      = "account.totp_enabled"
