@@ -109,8 +109,15 @@ yüzeyi yok. Var olan, kimlik doğrulama çekirdeği.
 
 ## 2. Kalan iş — tam sıra
 
-23 madde, beş grup. Sıra bağımlılıktan geliyor: A olmadan B'nin
-onaracak bir şeyi yok, B olmadan C'nin gösterecek bir şeyi yok.
+34 madde beş grupta (A–E), artı ertelenen 3 madde (F). Sıra
+bağımlılıktan geliyor: A olmadan B'nin onaracak bir şeyi yok, B olmadan
+C'nin gösterecek bir şeyi yok.
+
+⚠️ işaretli maddeler, ilk taslakta **hiç yoktu** ve sonradan bulunan
+gerçek boşluklar: A7 (IP/KVKK), A8 (zaman dilimi), A9 (ziyaretçi
+gizlilik kartı), B6 (çok müşterili yalıtım), B7 (sürüm), C6
+(yapılandırılabilir kart seti), C7 (boş durumlar / API kesintisi /
+e-posta yolu), D7 (arama motoru botları).
 
 ---
 
@@ -268,9 +275,122 @@ bayat bir ayardan daha kötü ve fark edilmesi çok daha zor bir sonuçtur.
 bağımlılığı yapar, yalnız depolamasının değil. Kabul ediliyor, çünkü
 alternatif SSH.
 
-**Bitti ölçütü:** veritabanı bağlantısı kesilirken servisin son değerle
+**Bitti ölçütü (A6):** veritabanı bağlantısı kesilirken servisin son değerle
 çalışmaya devam ettiğini gösteren test; ayar değişiminin bir aralık
 içinde etki ettiğini gösteren test; `-race` altında temiz.
+
+---
+
+#### A7 — IP saklama modu: tam veya maskeli
+
+**Ne:** IP adresi KVKK/GDPR anlamında kişisel veridir ve bugün iki
+tabloda da tam olarak saklanıyor. Bu bir ayar olur, iki değerli:
+
+| Mod | Ne saklanır | Ne kaybedilir |
+|---|---|---|
+| `tam` | Bugünkü hâl | — |
+| `maskeli` | IPv4 son oktet sıfırlanır, IPv6 /64'e kırpılır | Kesişim birleşimi zayıflar, "şu IP ne yaptı" görünümü anlamsızlaşır |
+
+**Karar:** Müşteriye kurulum sırasında sorulur. "KVKK ile uğraşmak
+istemiyorum, sorun çıkmasın" diyen müşteri için **tam maskeli** seçilir.
+Hukuki metinleri gerçek hukukçular hazırlayacak; bizim işimiz teknik
+karşılığını sunmak.
+
+**Dikkat — bunun bir maliyeti var ve gizlenmemeli:** maskeli modda
+`beacon_events.ip` ile `traffic_snapshots.ip` birleşimi zayıflar. O
+birleşim projenin ayırt edici tezi (§0). Maskeli mod seçildiğinde
+kesişim görünümleri "bu kurulumda IP maskeleme açık olduğu için sınırlı"
+der — sıfır göstermez, gizlenmez (§D5 kuralı).
+
+**Bitti ölçütü:** maskeleme yazma anında uygulanıyor (sonradan değil —
+maskelenmemiş veri diske hiç değmiyor); mod değişimi geçmişe dönük
+değil ve panel bunu açıkça söylüyor.
+
+---
+
+#### A8 — Zaman dilimi ⚠️ **planda hiç yoktu**
+
+**Ne:** Bugün okuma API'sinde hiçbir zaman dilimi kavramı yok.
+`time_bucket($6::interval, time)` çağrılarının hiçbiri zaman dilimi
+almıyor — yani her gruplama UTC.
+
+**Neden sorun:** İstanbul'daki bir mağaza sahibi "dün kaç ziyaretçi"
+dediğinde UTC dünü değil, İstanbul dününü kastediyor. Üç saatlik kayma
+şu anlama gelir: gece 00:00-03:00 arası trafik bir önceki güne yazılır,
+"bugün" kartı yanlış, günlük grafiğin sınırları kayık, haftalık
+karşılaştırma tutarsız.
+
+**Yapılacak:** Site başına zaman dilimi ayarı (sihirbazda zaten
+soruluyor, ama hiçbir yere bağlanmıyor). `time_bucket` çağrıları
+zaman dilimi argümanı alır; gün sınırları o dilimde hesaplanır.
+
+**Dosyalar:** `internal/api/store.go`, `store_beacon.go`, `params.go`
+
+**Bitti ölçütü:** UTC+3'te 23:30'da gelen bir olayın "bugün"e
+yazıldığını doğrulayan test; DST geçişi olan bir dilimle (örn.
+Europe/Berlin) gün sınırı testi.
+
+---
+
+#### A9 — Ziyaretçi gizlilik kartı ve veri silme talebi ⚠️ **yeni özellik**
+
+**Ne:** Müşterinin çerez/gizlilik sayfasına gömülen küçük bir JS kartı.
+Sitenin **ziyaretçisi** kendisi hakkında ne tutulduğunu görür ve
+"analitik verilerimi sil" diyebilir. Kart Crucible markası taşımaz —
+sitenin kendi gizlilik sayfasının parçası gibi görünür.
+
+**Kimlik iddia edilmez, türetilir.** "Asla taklit olmamalı" şartının
+tamamının cevabı budur. Kart bir kimlik göndermez; sunucu, isteğin
+kendisinden (IP + user agent + o günün tuzu) beacon'ın yazdığı
+`visitor_id`'nin **aynısını** hesaplar. Başkasının verisini silmeyi
+isteyemezsin, çünkü başkasının IP+UA'sını sunamazsın.
+
+**Kapsam, dürüstçe.** Günlük tuz yalnız bellekte ve 24 saatte dönüyor.
+Dünkü satırlar, artık var olmayan bir tuzdan türemiş farklı bir
+`visitor_id` taşıyor — **onları bulamayız.** Bu bir eksiklik gibi
+görünüyor; aslında tasarımın gizlilik özelliğinin ta kendisi ve kartta
+böyle yazılmalı:
+
+> Bugünkü kayıtlarınız silindi. Daha eski kayıtlar sizinle
+> ilişkilendirilemiyor — bu teknik olarak imkânsız — ve N gün içinde
+> kendiliğinden siliniyor.
+
+Çoğu analitik sağlayıcısının söyleyemeyeceği bir cümle, ve reklam değil,
+mimarinin sonucu.
+
+**Gelecek için: localStorage opt-out.** Silme geçmişi kapatır, opt-out
+geleceği kapatır. `beacon.js` localStorage'da bir bayrak arar; varsa hiç
+göndermez. Sunucuda durum yok, kimlik yok, çerez yok — ve taklit
+edilecek bir şey de yok, çünkü yalnızca kendi verini bastırabilir.
+
+**Silme, beacon'a DELETE yetkisi vermeden.** Kritik kısım: beacon rolü
+bugün yalnız `INSERT` yapabiliyor ve öyle kalmalı. DELETE vermek, ele
+geçirilmiş bir beacon'ın tüm analitiği silebilmesi demektir. Bunun
+yerine kuyruk:
+
+1. Beacon, `beacon_erasure_requests` tablosuna bir satır **ekler** —
+   zaten yapabildiği tek şey.
+2. Satır, o an hesaplanmış `visitor_id`'yi ve talep zamanını taşır.
+3. `DELETE` yetkisi olan ayrı bir süreç kuyruğu boşaltır.
+
+**Beacon'ın yetkisi hiç genişlemez.** Talep "24 saat içinde işlenir" —
+KVKK'nın 30 günlük yasal süresinin çok içinde.
+
+**Token neden var:** kart, silme talebini tek bir kimliksiz POST olarak
+göndermez. Önce kısa ömürlü bir onay token'ı alır (sunucuda yalnız
+SHA-256'sı durur), ziyaretçi onaylar, talep token'la gelir. İki adımlı
+olması CSRF'i ve kazara/otomatik tetiklenmeyi engeller.
+
+**Açık uç bırakmama:** kart yalnız o siteyi ve yalnız türetilmiş kimliği
+okur; varlık/sayım sızdırmaz (veri yoksa "bugün size ait kayıt yok" der,
+bu da zaten kendisi hakkında bir bilgi); hız sınırlı; başka hiçbir
+tabloya erişimi yok.
+
+**Bitti ölçütü:** başka bir IP/UA'dan gelen isteğin farklı bir
+`visitor_id` türettiğini ve dolayısıyla başkasının satırına
+dokunamadığını gösteren test; beacon rolünün hâlâ `DELETE`
+yapamadığını doğrulayan rol testi; token olmadan silme talebinin
+reddedildiğini gösteren test.
 
 ---
 
@@ -411,6 +531,51 @@ açabilmek, değerin büyük kısmıdır.
 
 ---
 
+#### B6 — Çok müşterili VDS'te yalıtım ⚠️ **belirtilmişti, planlanmamıştı**
+
+**Şart, kullanıcının kendi sözleriyle:** "Tek VDS'te 3 farklı müşteri 3
+farklı web sitesi olabilir ama hepsi ayrı kendi içinde olacak."
+
+Bu bugün yalnızca `panel_site_members` ile kısmen sağlanıyor. Sızıntı
+yüzeyi denetlenmedi. Denetlenmesi gerekenler:
+
+- **Site seçici**, kullanıcının üye olmadığı sitelerin *varlığını* bile
+  sızdırmamalı. "Site bulunamadı" ile "erişiminiz yok" aynı cevabı
+  vermeli.
+- **Denetim kaydı** site kapsamlı okunmalı; A sitesinin admini B
+  sitesinin kayıtlarını görmemeli. `panel_audit_log`'ta hesap düzeyi
+  eylemler (`site_id = ''`) ayrı ele alınmalı.
+- **`panel_logs` en tehlikeli yer.** Log satırları paylaşılan bir
+  süreçten geliyor ve serbest metin. Bir collector log satırı başka bir
+  müşterinin alan adını, IP'sini ya da site kimliğini içerebilir. Log
+  gösterimi site kimliğine göre filtrelenmeli **ve** filtrelenemeyen
+  satırlar (süreç düzeyi) yalnız geliştirici moduna görünmeli.
+- **Hata sayfaları ve yığın izleri** müşteriye asla ham gitmemeli.
+- `overview` ucu birden çok siteyi tek istekte topluyor — token'ın
+  kapsamıyla kesişimi test edilmeli.
+
+**Bitti ölçütü:** her uç için "A sitesinin kullanıcısı B sitesinin
+verisine ulaşamaz" testi; log filtresinin başka müşterinin alan adını
+içeren satırı sızdırmadığını gösteren test.
+
+---
+
+#### B7 — Sürüm kavramı ⚠️ **hiç yoktu**
+
+**Ne:** Projede hiçbir yerde sürüm numarası yok. `ApplyPendingMigrations`
+hangi sürümden hangi sürüme gidildiğini bilmiyor; sağlık yoklaması
+müşterinin hangi yapıda olduğunu söylemiyor.
+
+**Neden gerekli:** On iki müşteriyi izlerken "hangisi hâlâ eski yapıda"
+temel bir soru. Ayrıca bir hata raporunu doğru sürüme bağlamak
+gerekiyor.
+
+**Yapılacak:** derleme zamanı `-ldflags` ile gömülen sürüm + commit;
+`crucible version`; sağlık sayfasında ve sağlık yoklaması cevabında
+sürüm; `panel_operations`'ta operasyonun hangi sürümde çalıştığı.
+
+---
+
 ### C. Panelin HTTP yüzeyi
 
 #### C1 — Türkçe katalog, şablonlar, gömülü HTMX, CSS
@@ -474,6 +639,74 @@ WHERE sha256 = $1
 
 Son satır kuralın kendisi: makineye kabuk erişimi, **kimsenin hesabı
 yokken** girmeye yeter; **sonrasında yetmez.**
+
+#### C6 — Görünür kart seti, kurulum başına yapılandırılır ⚠️ **yeni**
+
+**Karar (kullanıcı):** Müşterinin panelinde hangi kartların göründüğü
+sabit değil, **ayardır** — geliştirici sihirbazında biz belirleriz.
+
+Mantığı şu: sıradan, teknik olmayan bir kişi "DDoS sayısı", "bot parmak
+izi" ne demek bilmez. Kuruluma başlarken **müşteriye ne istediğini
+sorarız**, sihirbazı ona göre yaparız, istediklerini açarız. Müşteri
+panelde yalnız onları görür. Sonradan geliştirici ayarlarını açıp
+girerse, oradan kendisi de ekleyebilir — "İnsan", "Bot", "Tarayıcıyla
+gezenler", "Tüm bağlantılar" gibi.
+
+**Bu, plandaki iki eksene bir üçüncüsünü ekliyor** ve üçünü karıştırmamak
+gerek:
+
+| Eksen | Neyi belirler | Nerede ayarlanır |
+|---|---|---|
+| **Profil** | Ne *toplanır* | Ayarlar (Hafif / Dengeli / Tam) |
+| **Kart seti** | Ne *gösterilir* (bu kurulumda) | Geliştirici sihirbazı, sonra geliştirici ayarları |
+| **Geliştirici modu** | Teknik katmanlar *açık mı* | Kullanıcı başına anahtar |
+
+**Bu, çözdüğü asıl sorun:** collector "ziyaretçi"si (ayrı IP) ile beacon
+"ziyaretçi"si (HMAC kimlik) **farklı sayılar** ve sistematik olarak
+farklı — aynı IP iki farklı tarayıcıyla gelirse collector 1, beacon 2
+sayar; bot'lar beacon'da varsayılan olarak dışlanır, collector'da
+sayılır. Panelde ikisini etiketsiz yan yana koymak, müşterinin güvenini
+ilk bakışta kaybettirir. Kart setini yapılandırılabilir yapmak bunu
+kökten çözer: varsayılan olarak müşteriye **tek bir anlaşılır sayı**
+gösterilir, geri kalanı isteyene açılır.
+
+**Bitti ölçütü:** kart seti `panel_settings`'te; sihirbaz onu yazıyor;
+geliştirici ayarlarından değiştirilebiliyor; kapalı bir kartın verisi
+API'den hiç istenmiyor (boşuna sorgu yok).
+
+#### C7 — Boş durumlar, API kesintisi, ve e-posta yolu
+
+Üç küçük ama gerçek boşluk:
+
+**Boş durumlar.** Kurulumdan sonraki ilk saat, müşterinin ürünün
+çalışıp çalışmadığına karar verdiği andır ve planda hiç yoktu. Kritik
+ayrım (§D5'in aynı kuralı): **"snippet henüz hiç görülmedi"** ile
+**"snippet çalışıyor, henüz ziyaretçi yok"** aynı şey değil ve ikisi de
+"0" olarak çizilmemeli. Birincisi bir kurulum hatası, ikincisi normal
+bir pazartesi sabahı.
+
+**Okuma API'si düştüğünde.** Panelin tek sert bağımlılığı bu ve ne
+göstereceği yazılmamıştı. Karar: panel çalışmaya devam eder (ayarlar,
+üyeler, sağlık hepsi `panel_*` tablolarından okunur), yalnız analitik
+kartları "veri kaynağına şu an ulaşılamıyor" der ve sağlık sayfasına
+bağlantı verir. Sıfır göstermez.
+
+**E-posta yolu — projede hiç yok** (`grep`: sıfır SMTP/mail). Ama iki
+planlı özellik e-posta gerektiriyor: `SendOwnerPasswordReset` (22.
+operasyon) bir bağlantı yolluyor, ve sahip sihirbazı "meslektaş davetini
+öneriyor".
+
+**Karar: e-posta zorunlu olmasın.** Gerekçe kullanıcının kendi
+kısıtından geliyor — "kurulum ve çalıştırma yükünü azaltacak şekilde
+olmalı, 'şurada şunu ayarla' istemiyorum". Bir SMTP sunucusu
+yapılandırmak tam olarak o yük.
+
+- **Varsayılan (e-postasız):** şifre sıfırlama bağlantısı operasyonu
+  çalıştıran kişinin ekranında görünür, sahibe telefonla/WhatsApp'la
+  iletilir. Davet bağlantısı, davet eden yöneticinin ekranında görünür,
+  meslektaşına nasıl isterse öyle yollar.
+- **İsteğe bağlı SMTP:** yapılandırılmışsa bağlantılar e-postayla gider.
+  Ürün onsuz eksiksiz çalışır.
 
 ---
 
@@ -546,6 +779,41 @@ veriyi görünür kılar.
   kullanılabilir olmak için bir paragraf açıklama gerektiriyorsa görünüm
   yanlıştır — paragraf, gerekli olan tek terimin ipucu balonuna aittir.
 
+#### D7 — Arama motoru botları sayfası ⚠️ **fırsat, boşluk değil**
+
+**Ne:** "Googlebot siteme ne sıklıkla geliyor, hangi sayfalara bakıyor,
+ne zaman son geldi."
+
+**Neden bu bizde özel:** Collector, JS çalıştırmayan istemcileri de
+görüyor — Googlebot, Bingbot, YandexBot dâhil. Beacon tabanlı hiçbir
+analitik aracı (Umami, Plausible, GA'nın kendisi) bunu **göremez**;
+crawler JS çalıştırmaz. Search Console gecikmeli ve örneklenmiş
+gösterir; biz gerçek zamanlı ve tam gösterebiliriz.
+
+**Neden planda olmalıydı:** Kullanıcının destek token'ını isterken
+verdiği ilk gerekçe "SEO çalışıyor mu" idi. O soruya doğrudan cevap
+veren tek görünüm bu ve D2'nin listesinde yoktu. Elimizdeki verinin en
+iyi ürün karşılığı.
+
+**Not:** teknik olmayan müşteri için bile anlaşılır — "Google siteni
+son 7 günde 340 kez ziyaret etti" cümlesi jargon değil.
+
+#### D8 — Sahibe dönük uyarı şeridi
+
+Planda B4 sağlık sayfası **geliştirici** tarafı için var. Sahibin,
+geliştirici moduna hiç girmeden bir şeyin bozuk olduğunu öğrenmesi için
+karşılığı yoktu.
+
+Panelin üstünde, yalnız gerçekten bir şey varken görünen dar bir şerit:
+
+> Beacon 3 gündür veri almıyor. → Ne yapmalı
+
+Kapsam dışı olan **e-posta/webhook uyarısı** değil bu; müşteri zaten
+paneldeyken görmesi gereken şey. Gürültü olmaması için katı kural:
+yalnız eyleme dönüştürülebilir ve kesin durumlar (veri akışı durdu,
+disk kritik, snippet hiç görülmedi). "Trafiğiniz düştü" gibi yorum
+gerektiren hiçbir şey buraya girmez.
+
 ---
 
 ### E. Birleştirme ve sertleştirme
@@ -569,6 +837,38 @@ satırı yakalayacak olan tam da bu kaba kontroldür.
 #### E3 — README'nin ürün olarak yeniden yazımı
 
 Bugünkü README collector'ı anlatıyor. Ürün dört parça.
+
+---
+
+### F. Sonraya bırakılanlar (karar verildi: bu yayda değil)
+
+Bunlar **kapsam dışı değil, ertelenmiş**. Fark önemli: §7'dekiler
+yapılmayacak, buradakiler sonra yapılacak.
+
+#### F1 — Yedekleme
+
+**Neden gerekli:** §5 "yedekten dönme"yi SSH gerektiren işler arasında
+sayıyor — ama projede **yedek alma hiç planlanmamış.** Geri yüklenecek
+bir şey olmadan geri yükleme prosedürü anlamsız. Müşterinin analitik
+geçmişi ürünün kendisi; tek diske emanet edilmiş durumda.
+
+**Kapsam:** zamanlanmış `pg_dump`, belgelenmiş geri yükleme adımları,
+panelde `ShowLastBackup()` göstergesi, sağlık sayfasında "son başarılı
+yedek" satırı.
+
+#### F2 — Kurulum betiği
+
+Postgres + TimescaleDB, **dört veritabanı rolü ve GRANT'ları**, systemd
+unit dosyaları, TLS. Tek betik. Rol ayrımı bu projenin güvenlik
+temelinin yarısı ve şu an elle kuruluyor — yani yanlış kurulabilir.
+Betik, 13. müşteriyi yarım günden on dakikaya indirir ve rol ayrımını
+kurulumun garantisi hâline getirir.
+
+#### F3 — Filo izleme paneli
+
+Bizim tarafımızda: kurulum listesi, destek token'ları, yoklama
+zamanlayıcısı, tek ekranda hepsinin sağlığı. Müşteri sayısı azken elle
+de yoklanabilir; sayı artınca gerekli olur.
 
 ---
 
@@ -743,11 +1043,36 @@ olursa madde olur.
 
 ---
 
+## 6.5 Hâlâ karara bağlanmamış tek şey: "site" tam olarak nedir
+
+`site_id` bugün collector'ın yapılandırma dosyasındaki bir dize. Ama
+gerçek bir mağaza `example.com`, `www.example.com` ve
+`shop.example.com` üzerinden gelebilir; bazıları `.com` ve `.com.tr`
+ikizi tutar.
+
+**Öneri:** `site_id` birim olarak kalır; beacon'ın site beyaz listesi
+`site_id` başına bir **alan adı listesi** kabul eder. Böylece üç alan
+adı tek siteye yazar ve panelde tek sayı görünür. Ayrı görmek isteyen
+ayrı `site_id` verir.
+
+Bu, bugünkü şemayı hiç değiştirmiyor — yalnız beyaz listenin şeklini
+değiştiriyor (`sites = ["mysite"]` yerine `site_id → [alan adları]`
+eşlemesi). A5'te beyaz liste zaten veritabanına taşınıyor, dolayısıyla
+maliyeti neredeyse sıfır. Onaylanırsa A5'in içine girer.
+
+---
+
 ## 7. Kapsam dışı — varsayılmasın diye
 
+Buradakiler **yapılmayacak**. Ertelenenler için §F'ye bak — ikisi farklı
+şey.
+
 - **Mobil uygulama.**
-- **Son müşteriye uyarı** (e-posta, webhook). Sağlık yoklaması bizim
-  tarafımızda; müşteriye giden otomatik uyarı bu yayda yok.
+- **Son müşteriye otomatik uyarı** (e-posta, webhook). Sağlık yoklaması
+  bizim tarafımızda. Not: §D8'deki panel içi uyarı şeridi bunun yerine
+  geçmiyor, farklı bir şey — müşteri zaten paneldeyken gördüğü.
+- **Faturalama / abonelik.** Tek VDS'te üç müşteri olabilir ama
+  müşterinin ödeme durumu bu sistemin bileceği bir şey değil.
 - **Merkezî analitik.** Topoloji bunu sonradan mümkün bırakıyor (panel
   çektiğini kendi deposuna aynalayabilir — itme değil çekme yoluyla
   "merkezî analitik"), ama şimdi yapılmıyor. Yapılırsa çözülmesi gereken
@@ -761,32 +1086,48 @@ olursa madde olur.
 ## 8. Sıra ve bağımlılık haritası
 
 ```
-A1 panel_settings ─┬─> A2 profiller ──────────────┐
-                   ├─> A4 saklama süresi ─────────┤
+A1 panel_settings ─┬─> A2 profiller ───────────────┐
+                   ├─> A4 saklama süresi ──────────┤
+                   ├─> A7 IP modu (tam/maskeli) ───┤
+                   ├─> A8 zaman dilimi ────────────┤
                    └─> A5 TOML→DB göçü ─> A6 canlı okuma
-                                                   │
-A3 yalnız-ülke modu ───────────────────────────────┤
-                                                   ▼
-                              B1 panel_logs ─> B2 operasyon günlüğü
-                                                   │
-                                                   ├─> B3 39 operasyon
-                                                   ├─> B4 sağlık sayfası
-                                                   └─> B5 destek token'ı
-                                                   │
-                                                   ▼
+                                                    │
+A3 yalnız-ülke modu ────────────────────────────────┤
+A9 gizlilik kartı (beacon+kuyruk, bağımsız) ────────┤
+                                                    ▼
+                               B1 panel_logs ─> B2 operasyon günlüğü
+                                                    │
+                        ┌───────────────────────────┤
+                        ├─> B3 39 operasyon         │
+                        ├─> B4 sağlık sayfası       │
+                        ├─> B5 destek token'ı       │
+                        ├─> B6 çok müşterili yalıtım│
+                        └─> B7 sürüm ───────────────┤
+                                                    ▼
               C1 şablonlar ─> C2 gel. sihirbazı ─> C3 sahip sihirbazı
-                           └> C4 giriş/üye ─> C5 onay ekranı
-                                                   │
-                                                   ▼
-                      D1 site seçici ─> D2 detaylar ─> D3 gel. katmanları
-                                                   └─> D4 ayar + akan pencere
-                                                   │
-                                                   ▼
+                           ├> C4 giriş/üye ─> C5 onay ekranı
+                           ├> C6 kart seti (C2'de yazılır)
+                           └> C7 boş durum / API kesintisi / davet bağlantısı
+                                                    │
+                                                    ▼
+              D1 site seçici ─> D2 detaylar ─┬─> D3 gel. katmanları
+                                             ├─> D4 ayar + akan pencere
+                                             ├─> D7 arama motoru botları
+                                             └─> D8 sahibe uyarı şeridi
+                                                    │
+                                                    ▼
                                 E1 tek binary ─> E2 Sprintf testi ─> E3 README
+                                                    │
+                                                    ▼
+                              F1 yedekleme ─ F2 kurulum betiği ─ F3 filo
 ```
 
 **En kritik tek bağımlılık A5.** Yapılmazsa B3'ün değiştirecek bir şeyi
 yoktur ve tüm "SSH'siz onarım" iddiası çöker.
+
+**A9 bağımsız yürüyebilir.** Ziyaretçi gizlilik kartı beacon tarafında
+duruyor ve panelin hiçbir parçasını beklemiyor; sıraya bakmadan
+yapılabilir.
 
 ---
 
