@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
@@ -47,7 +48,7 @@ func TestBuildRows(t *testing.T) {
 		},
 	}
 
-	rows := BuildRows(snaps, knownBots, flushTime, nil, nil, "test-site")
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", KnownBots: knownBots, IPMode: privacy.IPFull})
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
@@ -76,7 +77,7 @@ func TestBuildRows(t *testing.T) {
 }
 
 func TestBuildRows_Empty(t *testing.T) {
-	rows := BuildRows(nil, nil, time.Now(), nil, nil, "test-site")
+	rows := BuildRows(nil, time.Now(), RowOptions{SiteID: "test-site"})
 	if len(rows) != 0 {
 		t.Errorf("len(rows) = %d, want 0 for no snapshots", len(rows))
 	}
@@ -89,7 +90,7 @@ func TestBuildRows_StampsSiteIDOnEveryRow(t *testing.T) {
 		{IP: netip.MustParseAddr("203.0.113.2"), LastSeen: flushTime},
 	}
 
-	rows := BuildRows(snaps, nil, flushTime, nil, nil, "ahmetteknoloji")
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "ahmetteknoloji"})
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
@@ -109,7 +110,7 @@ func TestBuildRows_EnrichesWithResolver(t *testing.T) {
 		IP: netip.MustParseAddr("8.8.8.8"), Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
 	}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -129,7 +130,7 @@ func TestBuildRows_ResolverNotFoundLeavesZeroValue(t *testing.T) {
 	// value, but this exercises the actual Resolve call path.
 	resolver := fakeResolver{result: asnlookup.Result{IP: netip.MustParseAddr("203.0.113.1"), Found: false}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -147,7 +148,9 @@ func TestBuildRows_KnownBotASNAddsScoreBonusAndFlag(t *testing.T) {
 	resolver := fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}}
 	knownBotASNs := map[int]struct{}{64512: {}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, knownBotASNs, "test-site")
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", Resolver: resolver, KnownBotASNs: knownBotASNs, IPMode: privacy.IPFull,
+	})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -170,7 +173,7 @@ func TestBuildRows_NilKnownBotASNsNoASNBonusEvenWithResolver(t *testing.T) {
 	}
 	resolver := fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}}
 
-	rows := BuildRows(snaps, nil, flushTime, resolver, nil, "test-site")
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -178,4 +181,71 @@ func TestBuildRows_NilKnownBotASNsNoASNBonusEvenWithResolver(t *testing.T) {
 	if r0.IsKnownBotASN || r0.BotScore != 0 {
 		t.Errorf("row 0: IsKnownBotASN = %v, BotScore = %d, want false/0 with nil knownBotASNs", r0.IsKnownBotASN, r0.BotScore)
 	}
+}
+
+// --- IP storage mode (A7) ---
+
+// The zero value masks. A caller that adds a field to RowOptions and
+// forgets to set the mode gets coarser data, never personal data on
+// disk.
+func TestBuildRows_MasksByDefault(t *testing.T) {
+	flushTime := time.Now()
+	snaps := []ratestore.Snapshot{
+		{IP: netip.MustParseAddr("185.23.45.178"), LastSeen: flushTime},
+	}
+
+	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site"})
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	if rows[0].IP != netip.MustParseAddr("185.23.45.0") {
+		t.Errorf("IP = %v, want the masked 185.23.45.0; an unset mode stored the whole address", rows[0].IP)
+	}
+}
+
+// Country and ASN are resolved from the whole address, then the address
+// is masked. Resolving from a masked address would answer about the
+// network's registration rather than the visitor's, and the countries
+// would quietly start being different with nothing to say why.
+func TestBuildRows_ResolvesGeographyBeforeMasking(t *testing.T) {
+	flushTime := time.Now()
+	whole := netip.MustParseAddr("8.8.8.8")
+	snaps := []ratestore.Snapshot{{IP: whole, LastSeen: flushTime}}
+
+	var asked []netip.Addr
+	resolver := recordingResolver{
+		seen: &asked,
+		result: asnlookup.Result{
+			IP: whole, Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
+		},
+	}
+
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPMasked,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+
+	if len(asked) != 1 || asked[0] != whole {
+		t.Errorf("the resolver was asked about %v, want the whole address %v", asked, whole)
+	}
+	if rows[0].IP != netip.MustParseAddr("8.8.8.0") {
+		t.Errorf("stored IP = %v, want the masked 8.8.8.0", rows[0].IP)
+	}
+	if rows[0].Country != "US" || rows[0].ASN != 15169 {
+		t.Errorf("masking cost the geography: %q/%d", rows[0].Country, rows[0].ASN)
+	}
+}
+
+// recordingResolver notes which addresses it was asked about, which is
+// how the ordering above is asserted rather than assumed.
+type recordingResolver struct {
+	result asnlookup.Result
+	seen   *[]netip.Addr
+}
+
+func (r recordingResolver) Resolve(ip netip.Addr) asnlookup.Result {
+	*r.seen = append(*r.seen, ip)
+	return r.result
 }

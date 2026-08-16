@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
 // Settings are the operational values a deployment can change while it
@@ -131,6 +133,27 @@ const (
 	KeyAnalyticsCompressAfterDays Key = "analytics.compress_after_days"
 )
 
+// The privacy settings.
+const (
+	// KeyPrivacyIPStorage is whether stored addresses are whole or
+	// masked. "masked" by default, on legal advice.
+	//
+	// Masking is applied when the row is written, and as the last step
+	// before writing: the whole address derives the visitor id and
+	// resolves country and ASN first, then is masked. In the other order
+	// masking would quietly degrade geography and visitor counts too,
+	// and nothing would say so.
+	KeyPrivacyIPStorage Key = "privacy.ip_storage"
+)
+
+// The IP storage modes.
+const (
+	// IPStorageFull keeps the whole address.
+	IPStorageFull = "full"
+	// IPStorageMasked keeps IPv4 to /24 and IPv6 to /64.
+	IPStorageMasked = "masked"
+)
+
 // Definition describes one setting: what it is, what values it admits,
 // and what it is called in the panel.
 type Definition struct {
@@ -155,6 +178,24 @@ type Definition struct {
 	// sees nothing happen will assume the panel is broken rather than
 	// that the setting needs a restart.
 	Live bool
+	// RequiresDeveloperPassword marks a setting that carries legal
+	// weight: one that changes what personal data is stored, or for how
+	// long. Changing it needs the developer password from the config
+	// file, every time - see internal/devgate.
+	//
+	// Being in developer mode is not enough. That says who you are;
+	// this asks whether you are entitled to make this particular change,
+	// and the answer has to come from somebody with access to the
+	// server rather than to the panel.
+	RequiresDeveloperPassword bool
+	// GateReason is why this particular setting is guarded, in Turkish.
+	//
+	// Per setting rather than one blanket sentence, because "this needs
+	// a password" invites the person to look for the password, while
+	// "this decides whether whole IP addresses are stored" tells them
+	// what they are about to do. The second is what makes the prompt
+	// worth interrupting somebody with.
+	GateReason string
 }
 
 // registry is every setting this system has. Adding one is a code change
@@ -177,6 +218,11 @@ var registry = map[Key]Definition{
 		Help:      "Örneğin utm_term. Hukuki bir karar gerektirdiği için sürüm değil, ayar.",
 		Developer: true,
 		Live:      true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Bu liste, hangi kampanya parametresinin diske hiç yazılmayacağını " +
+			"belirler. utm_term bazı reklam kurulumlarında ziyaretçinin gerçek arama " +
+			"metnini taşır; listeden çıkarmak o metni saklamaya başlamak demektir.",
 	},
 	KeyCampaignExtraParams: {
 		Key: KeyCampaignExtraParams, Scope: ScopeGlobal, Kind: KindStringList,
@@ -185,6 +231,11 @@ var registry = map[Key]Definition{
 		Help:      "Sitenin kendi parametreleri. Büyük/küçük harfe duyarlı eşleşir.",
 		Developer: true,
 		Live:      true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Buraya eklenen her ad, içeriğini bizim denetlemediğimiz bir alanı " +
+			"saklamaya karar vermektir. Sitenin o parametreye ne koyduğu " +
+			"bilinmeden eklenmemeli.",
 	},
 	KeyCampaignStoreClickID: {
 		Key: KeyCampaignStoreClickID, Scope: ScopeGlobal, Kind: KindBool,
@@ -193,6 +244,10 @@ var registry = map[Key]Definition{
 		Help:      "Kapalıyken yalnızca hangi reklam ağı olduğu saklanır. Her tıklamada benzersiz olduğu için varsayılan kapalı.",
 		Developer: true,
 		Live:      true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Ham tıklama kimliği her tıklamada benzersizdir; saklandığında " +
+			"reklam ağının kayıtlarıyla eşleştirilebilen kalıcı bir tanımlayıcıya dönüşür.",
 	},
 	KeyLogRetentionDays: {
 		Key: KeyLogRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
@@ -200,6 +255,11 @@ var registry = map[Key]Definition{
 		Label:     "Günlük kaydı saklama süresi (gün)",
 		Help:      "Sıradan kayıtlar (erişim, alım, uygulama) bu süre sonunda silinir.",
 		Developer: true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Erişim kayıtları IP adresi içerir. Süreyi uzatmak kişisel veriyi " +
+			"daha uzun tutmak, kısaltmak ise saklama yükümlülüğü varsa onu ihlal " +
+			"etmek olabilir. İki yön de hukuki karardır.",
 	},
 	KeyLogImportantRetentionDays: {
 		Key: KeyLogImportantRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
@@ -207,6 +267,10 @@ var registry = map[Key]Definition{
 		Label:     "Önemli kayıtları saklama süresi (gün)",
 		Help:      "Güvenlik, kimlik doğrulama ve denetim kayıtları. Bunlar bir yıl sonra sorulanlardır.",
 		Developer: true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "\"Kim girdi, ne zaman\" kaydı budur. Kısaltmak, bir olay " +
+			"soruşturulurken cevabın artık var olmaması anlamına gelir.",
 	},
 	KeyLogArchiveAfterDays: {
 		Key: KeyLogArchiveAfterDays, Scope: ScopeGlobal, Kind: KindInt,
@@ -234,6 +298,10 @@ var registry = map[Key]Definition{
 		Default: 90, Min: 1, Max: 3650,
 		Label: "Analitik verisi saklama süresi (gün)",
 		Help:  "Bu süreden eski ziyaret kayıtları silinir.",
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Ziyaret kayıtlarının ne kadar süre saklanacağı, KVKK'nın " +
+			"\"gerektiğinden uzun tutma\" ilkesinin doğrudan konusudur.",
 	},
 	KeyAnalyticsCompressAfterDays: {
 		Key: KeyAnalyticsCompressAfterDays, Scope: ScopeSite, Kind: KindInt,
@@ -241,6 +309,21 @@ var registry = map[Key]Definition{
 		Label:     "Kaç gün sonra sıkıştırılsın",
 		Help:      "Geçmiş korunur, diskin çoğu geri alınır.",
 		Developer: true,
+	},
+	KeyPrivacyIPStorage: {
+		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,
+		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked},
+		Label: "IP adresi saklama biçimi",
+		Help: "masked: IPv4 son oktet sıfırlanır, IPv6 /64'e kırpılır. Varsayılan budur. " +
+			"full: adres olduğu gibi saklanır; kesişim görünümleri keskinleşir, " +
+			"saklanan kişisel veri artar. Değişiklik geçmişe dönük değildir.",
+		Developer: true,
+		Live:      true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "IP adresi KVKK/GDPR anlamında kişisel veridir ve bu ayar onun " +
+			"tam mı yoksa maskeli mi saklanacağına karar verir. Hukukçu görüşü " +
+			"maskeli yönünde; varsayılan da odur.",
 	},
 }
 
@@ -385,12 +468,78 @@ type Setting struct {
 	UpdatedBy *int64
 }
 
+// GateAction is the action name an authorization must carry to change a
+// guarded setting.
+//
+// A function rather than the bare key, so the two sides cannot drift
+// apart: the handler that asks for authorization and the store that
+// checks it both call this, and a change to the naming is one edit. The
+// prefix leaves room for guarded operations that are not settings.
+func GateAction(key Key) string { return "setting:" + string(key) }
+
+// ErrDeveloperPasswordRequired is returned when a guarded setting is
+// written without a valid, current authorization.
+var ErrDeveloperPasswordRequired = fmt.Errorf("panel: this setting requires the developer password")
+
+// GuardedKeys lists every setting the developer password protects,
+// sorted. For the panel, and for the test that checks this list against
+// what the handlers actually ask authorization for.
+func GuardedKeys() []Key {
+	out := []Key{}
+	for key, def := range registry {
+		if def.RequiresDeveloperPassword {
+			out = append(out, key)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
 // SetSetting validates and stores a value.
 //
 // site must be empty for a global setting and non-empty for a site one;
 // the mismatch is refused rather than quietly stored under the wrong
 // scope, where it would read back as "unset" forever.
+//
+// It refuses guarded settings outright - those go through
+// SetGuardedSetting. The refusal is here, on the one write path, rather
+// than in the handler that happens to exist today: a call site added
+// next year cannot forget a check it is unable to compile without.
 func (s *Store) SetSetting(ctx context.Context, key Key, site string, value any, actorID *int64) error {
+	if def, ok := registry[key]; ok && def.RequiresDeveloperPassword {
+		return fmt.Errorf("%w (%s)", ErrDeveloperPasswordRequired, key)
+	}
+	return s.setSetting(ctx, key, site, value, actorID)
+}
+
+// SetGuardedSetting stores a value for a setting that carries legal
+// weight.
+//
+// The authorization can only have come from a successful
+// devgate.Gate.Verify, cannot be constructed by any other package, names
+// exactly this setting, and expires seconds after it was granted. Those
+// four properties together are what "the password is asked every single
+// time" means in code rather than in a comment.
+//
+// It accepts unguarded settings too, so a form that saves a mixed set
+// does not need two code paths and cannot pick the wrong one.
+func (s *Store) SetGuardedSetting(ctx context.Context, key Key, site string, value any, actorID *int64, auth devgate.Authorization) error {
+	def, ok := registry[key]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	if def.RequiresDeveloperPassword && !auth.Authorizes(GateAction(key)) {
+		// One error for "no authorization", "an authorization for
+		// something else" and "an authorization that has expired".
+		// Nothing useful is done differently between them, and the
+		// caller that could tell them apart is the caller that would
+		// start retrying with the wrong one.
+		return fmt.Errorf("%w (%s)", ErrDeveloperPasswordRequired, key)
+	}
+	return s.setSetting(ctx, key, site, value, actorID)
+}
+
+func (s *Store) setSetting(ctx context.Context, key Key, site string, value any, actorID *int64) error {
 	def, ok := registry[key]
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
@@ -523,7 +672,34 @@ func (s *Store) ListSettings(ctx context.Context, site string) ([]Setting, error
 }
 
 // ResetSetting removes a stored value so the default applies again.
+//
+// Guarded settings are refused here too, and that is not a formality.
+// Resetting is a change of value like any other, and for at least one
+// guarded setting it moves in the dangerous direction: the default for
+// campaign.drop_params is the empty list, so "reset" means "start
+// storing utm_term again". A gate that covered writes but not resets
+// would have a way around it that reads as tidying up.
 func (s *Store) ResetSetting(ctx context.Context, key Key, site string) error {
+	if def, ok := registry[key]; ok && def.RequiresDeveloperPassword {
+		return fmt.Errorf("%w (%s)", ErrDeveloperPasswordRequired, key)
+	}
+	return s.resetSetting(ctx, key, site)
+}
+
+// ResetGuardedSetting removes a stored value for a guarded setting,
+// against a fresh authorization.
+func (s *Store) ResetGuardedSetting(ctx context.Context, key Key, site string, auth devgate.Authorization) error {
+	def, ok := registry[key]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	if def.RequiresDeveloperPassword && !auth.Authorizes(GateAction(key)) {
+		return fmt.Errorf("%w (%s)", ErrDeveloperPasswordRequired, key)
+	}
+	return s.resetSetting(ctx, key, site)
+}
+
+func (s *Store) resetSetting(ctx context.Context, key Key, site string) error {
 	if _, ok := registry[key]; !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
 // fakeSink records what the handler produced, so the HTTP layer can be
@@ -60,6 +61,11 @@ func newTestServer(t *testing.T, sink Sink) *Server {
 		Sink:     sink,
 		Visitors: newTestVisitorIDs(t),
 		Now:      func() time.Time { return time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC) },
+		// Full, so the tests about *which* address the server resolved
+		// can assert that address exactly. Masking is a separate
+		// question with its own tests below, and mixing the two would
+		// leave every address assertion here quietly testing both.
+		IPMode: privacy.IPFull,
 	}
 }
 
@@ -451,5 +457,113 @@ func TestServer_HonorsACustomPathPrefix(t *testing.T) {
 	}
 	if len(sink.all()) != 1 {
 		t.Error("no row was stored under the custom prefix")
+	}
+}
+
+// --- IP storage mode (A7) ---
+
+// The default is what ends up in production, because it is the value
+// nobody looks at. A Server built without an IPMode - by a test, or by a
+// future caller that forgets the field - must mask.
+func TestServer_MasksTheAddressByDefault(t *testing.T) {
+	sink := &fakeSink{}
+	s := &Server{
+		Sites:    []string{"acme"},
+		Sink:     sink,
+		Visitors: newTestVisitorIDs(t),
+		// No IPMode set at all.
+	}
+
+	post(t, s, `{"site":"acme","type":"pageview","url":"/"}`)
+
+	if got := sink.only(t).IP; got != netip.MustParseAddr("203.0.113.0") {
+		t.Errorf("IP = %v, want the masked 203.0.113.0; an unset mode stored the whole address", got)
+	}
+}
+
+// Masking happens after the visitor id is derived and after country and
+// ASN are resolved. Doing it first would degrade both, and nothing in
+// the output would say why - the numbers would simply be different.
+func TestServer_MasksAfterDerivingTheVisitorIDAndResolvingGeography(t *testing.T) {
+	masked := &fakeSink{}
+	maskedServer := newTestServer(t, masked)
+	maskedServer.IPMode = privacy.IPMasked
+	maskedServer.Resolver = fakeResolver{result: asnlookup.Result{Country: "TR", ASN: 9121, ASNName: "TURKTELEKOM", Found: true}}
+
+	full := &fakeSink{}
+	fullServer := newTestServer(t, full)
+	fullServer.Resolver = fakeResolver{result: asnlookup.Result{Country: "TR", ASN: 9121, ASNName: "TURKTELEKOM", Found: true}}
+
+	post(t, maskedServer, `{"site":"acme","type":"pageview","url":"/"}`)
+	post(t, fullServer, `{"site":"acme","type":"pageview","url":"/"}`)
+
+	maskedRow, fullRow := masked.only(t), full.only(t)
+
+	if maskedRow.IP != netip.MustParseAddr("203.0.113.0") {
+		t.Errorf("masked IP = %v, want 203.0.113.0", maskedRow.IP)
+	}
+	if fullRow.IP != netip.MustParseAddr("203.0.113.9") {
+		t.Errorf("full IP = %v, want 203.0.113.9", fullRow.IP)
+	}
+
+	// The two servers share a visitor-id salt only if they were built
+	// from the same VisitorIDs, which they are not - so compare what can
+	// be compared: masking must not have emptied either field.
+	if maskedRow.VisitorID == "" {
+		t.Error("masking left the visitor id empty; it was derived from the masked address")
+	}
+	if maskedRow.Country != "TR" || maskedRow.ASN != 9121 {
+		t.Errorf("masking cost the geography: country %q, asn %d", maskedRow.Country, maskedRow.ASN)
+	}
+}
+
+// Two visitors in one /24 must reach the same stored address - that is
+// the cost of masking, and the crossover views have to be able to say
+// so. Asserted rather than assumed.
+func TestServer_MaskingCollapsesA24(t *testing.T) {
+	sink := &fakeSink{}
+	s := newTestServer(t, sink)
+	s.IPMode = privacy.IPMasked
+
+	post(t, s, `{"site":"acme","type":"pageview","url":"/"}`, func(r *http.Request) {
+		r.RemoteAddr = "203.0.113.9:41234"
+	})
+	post(t, s, `{"site":"acme","type":"pageview","url":"/"}`, func(r *http.Request) {
+		r.RemoteAddr = "203.0.113.200:41234"
+	})
+
+	rows := sink.all()
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	if rows[0].IP != rows[1].IP {
+		t.Errorf("two addresses in one /24 stored as %v and %v", rows[0].IP, rows[1].IP)
+	}
+
+	// And they are still counted as two visitors, because the id was
+	// derived before masking. Losing this is the failure the ordering
+	// exists to prevent.
+	if rows[0].VisitorID == rows[1].VisitorID {
+		t.Error("two visitors in one /24 collapsed to a single visitor id; masking ran before the id was derived")
+	}
+}
+
+func TestServer_SetIPModeTakesEffectOnTheNextEvent(t *testing.T) {
+	sink := &fakeSink{}
+	s := newTestServer(t, sink) // starts on full
+
+	post(t, s, `{"site":"acme","type":"pageview","url":"/one"}`)
+	s.SetIPMode(privacy.IPMasked)
+	post(t, s, `{"site":"acme","type":"pageview","url":"/two"}`)
+
+	rows := sink.all()
+	if len(rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(rows))
+	}
+	if rows[0].IP != netip.MustParseAddr("203.0.113.9") {
+		t.Errorf("the event before the switch = %v, want the full address", rows[0].IP)
+	}
+	if rows[1].IP != netip.MustParseAddr("203.0.113.0") {
+		t.Errorf("the event after the switch = %v, want the masked address", rows[1].IP)
 	}
 }

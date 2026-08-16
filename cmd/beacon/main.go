@@ -167,6 +167,7 @@ func main() {
 		ClientIP:       beacon.ClientIPResolver{TrustedProxies: trustedProxies},
 		AllowedOrigins: cfg.AllowedOrigins,
 		Campaign:       cfg.Campaign.Policy(),
+		IPMode:         cfg.Privacy.IPMode(),
 		Logger:         logger,
 	}
 	if lookup != nil {
@@ -186,12 +187,27 @@ func main() {
 		})
 	}
 
+	// Seeded from the config so the first applySettings call reports the
+	// mode the process is actually starting on, rather than reporting a
+	// change from nothing.
+	lastIPMode := cfg.Privacy.IPMode()
+	logger.Info("ip storage mode", "mode", lastIPMode.String())
+
 	// Apply once before serving, then on the source's own interval. The
 	// static config is the fallback for every value, so a settings table
 	// that is empty or unreachable changes nothing.
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
 		srv.SetSites(live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+
+		// Logged on change rather than every minute: this decides what
+		// personal data the process writes, so a silent switch would be
+		// the one change nobody could account for afterwards.
+		if mode := cfg.Privacy.Live(live); mode != lastIPMode {
+			logger.Info("ip storage mode changed", "from", lastIPMode.String(), "to", mode.String())
+			lastIPMode = mode
+		}
+		srv.SetIPMode(lastIPMode)
 
 		// The log level, and any temporary raise to debug. The raise
 		// expires by itself: "turn on debug, reproduce it, turn it off"

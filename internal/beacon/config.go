@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
@@ -54,8 +55,34 @@ type Config struct {
 	Limits         LimitsConfig    `toml:"limits"`
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
 	Campaign       CampaignConfig  `toml:"campaign"`
+	Privacy        PrivacyConfig   `toml:"privacy"`
 	Settings       SettingsConfig  `toml:"settings"`
 	Logging        logging.Config  `toml:"logging"`
+}
+
+// PrivacyConfig decides what personal data reaches the disk. It mirrors
+// the collector's section of the same name, and it has to: the two write
+// the columns the crossover join compares, so a deployment that masked
+// one and not the other would produce a join that finds nothing.
+type PrivacyConfig struct {
+	// IPStorage is "masked" (the default) or "full". Empty means masked
+	// - a config file written before this setting existed stores less
+	// rather than more.
+	IPStorage string `toml:"ip_storage"`
+}
+
+// IPMode resolves the configured value, defaulting to masked.
+func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
+
+// Live resolves the mode in force, preferring the panel's setting over
+// the config file and falling back to the file when nothing is stored.
+func (p PrivacyConfig) Live(source *settings.Source) privacy.IPMode {
+	if source == nil {
+		return p.IPMode()
+	}
+	return privacy.ParseIPMode(source.String(
+		settings.KeyPrivacyIPStorage, "", string(p.IPMode()),
+		[]string{string(privacy.IPFull), string(privacy.IPMasked)}))
 }
 
 // CampaignConfig tunes which query parameters reach the database.

@@ -317,4 +317,5 @@ const (
 	KeyCampaignStoreClickID = "campaign.store_click_ids"
 	KeyLogLevel             = "logs.level"
 	KeyLogVerboseUntil      = "logs.verbose_until"
+	KeyPrivacyIPStorage     = "privacy.ip_storage"
 )

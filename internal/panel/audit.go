@@ -49,6 +49,20 @@ const (
 
 	ActionTokenCreated = "token.created"
 	ActionTokenRevoked = "token.revoked"
+
+	// Settings changes. Recorded with the old and the new value, because
+	// "who set the retention to 3650 days" is a question that gets asked
+	// months later, when the only thing anybody remembers is that it
+	// used to be different.
+	ActionSettingChanged = "setting.changed"
+	ActionSettingReset   = "setting.reset"
+
+	// Developer password attempts, on the settings that carry legal
+	// weight. Both outcomes, because a record of failures alone cannot
+	// show that the successful attempt at 03:00 followed an hour of
+	// failures from the same address.
+	ActionDevPasswordGranted = "dev_password.granted"
+	ActionDevPasswordRefused = "dev_password.refused"
 )
 
 // AuditEntry is one recorded action.

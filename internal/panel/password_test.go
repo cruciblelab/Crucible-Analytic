@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 )
 
 const goodPassword = "dogru-parola-12345"
@@ -142,7 +144,7 @@ func TestVerifyPassword_RefusesAbsurdCostParameters(t *testing.T) {
 // rather than a hand-written string that could never have matched.
 func hashWith(password string, memory, time uint32, threads uint8) string {
 	salt := []byte("saltsaltsaltsalt")
-	key := argon2.IDKey([]byte(password), salt, time, memory, threads, argon2KeyLen)
+	key := argon2.IDKey([]byte(password), salt, time, memory, threads, argon2id.KeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, memory, time, threads,
 		base64.RawStdEncoding.EncodeToString(salt),

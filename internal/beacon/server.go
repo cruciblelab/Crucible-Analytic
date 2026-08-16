@@ -20,6 +20,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
 //go:embed beacon.js
@@ -102,6 +103,10 @@ type Server struct {
 	// Limiter is optional; nil means no admission control.
 	Limiter  *limiter.Limiter
 	ClientIP ClientIPResolver
+	// IPMode decides how much of each address is stored. Empty masks -
+	// see ipMode, and privacy.DefaultIPMode for why the fallback goes
+	// that way.
+	IPMode privacy.IPMode
 	// AllowedOrigins narrows CORS. Empty means every origin is allowed,
 	// which is safe here and not the usual laxness it looks like: the
 	// endpoint is write-only, its success response is an empty 204, and
@@ -126,6 +131,7 @@ type Server struct {
 	// exactly as it did before live settings existed.
 	liveCampaign atomic.Pointer[CampaignPolicy]
 	liveSites    atomic.Pointer[[]string]
+	liveIPMode   atomic.Pointer[privacy.IPMode]
 
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
@@ -290,9 +296,14 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		geo = s.Resolver.Resolve(ip)
 	}
 
+	// The whole address has now done both jobs that need it: the visitor
+	// id above and the country/ASN lookup just now. What goes into the
+	// row - and therefore onto the disk - is masked from here on. Moving
+	// this line above either of those would quietly degrade both, and
+	// nothing in the output would say why.
 	row := BuildRow(event, Enrichment{
 		Time:      s.now(),
-		IP:        ip,
+		IP:        privacy.MaskIP(ip, s.ipMode()),
 		VisitorID: visitorID,
 		UserAgent: ParseUserAgent(userAgent),
 		Country:   geo.Country,
@@ -439,6 +450,28 @@ func (s *Server) campaignPolicy() CampaignPolicy {
 		return *live
 	}
 	return s.Campaign
+}
+
+// SetIPMode swaps how much of each address is stored.
+//
+// Live, because the change a customer's counsel asks for should not wait
+// for a maintenance window. It is not retroactive: rows already written
+// keep whatever was in force when they were written, and the panel says
+// so rather than implying a switch cleans up history.
+func (s *Server) SetIPMode(mode privacy.IPMode) { s.liveIPMode.Store(&mode) }
+
+// ipMode is the mode in force right now.
+func (s *Server) ipMode() privacy.IPMode {
+	if live := s.liveIPMode.Load(); live != nil {
+		return *live
+	}
+	if s.IPMode != "" {
+		return s.IPMode
+	}
+	// Nothing configured anywhere masks. A server constructed without
+	// this field - in a test, or by a future caller that forgets - must
+	// not be the one that stores whole addresses.
+	return privacy.DefaultIPMode
 }
 
 // sites is the allowlist in force right now.

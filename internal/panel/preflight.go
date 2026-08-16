@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
 // Preflight is the list of things that cannot be done from the panel,
@@ -99,6 +101,11 @@ type PreflightConfig struct {
 	// short timeout - a wizard must not hang because a service is
 	// wedged rather than merely down.
 	HTTPClient *http.Client
+	// DeveloperGate is the gate guarding the settings with legal weight.
+	// Nil skips its check rather than reporting it missing: "the wizard
+	// was not told" and "there is no developer password" are different
+	// facts and must not print the same line.
+	DeveloperGate *devgate.Gate
 	// Now supplies the clock, for tests.
 	Now func() time.Time
 }
@@ -136,6 +143,7 @@ func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckRe
 		s.checkAPIIsReadOnly(ctx, cfg.Roles),
 		s.checkRetentionPolicies(ctx),
 		s.checkConfiguredRolesExist(ctx, cfg.Roles),
+		checkDeveloperPassword(cfg.DeveloperGate),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		checkBackups(),
@@ -497,6 +505,45 @@ func (s *Store) roleHasPrivilege(ctx context.Context, role, table, privilege str
 	return has, nil
 }
 
+// checkDeveloperPassword reports whether the settings with legal weight
+// can be changed from the panel at all.
+//
+// Not required, and that is a considered choice rather than leniency.
+// Without a developer password those settings stay at their defaults,
+// and the defaults are the privacy-preserving values - masked addresses,
+// ninety days, no raw click identifiers. A deployment that wants them
+// frozen there has made a defensible decision, and a wizard that refused
+// to finish would be pushing the installer to weaken it. What the check
+// must not do is stay quiet: somebody will eventually try to change one
+// of these and needs to know why they cannot.
+func checkDeveloperPassword(gate *devgate.Gate) CheckResult {
+	result := CheckResult{
+		ID: "config.developer_password", Label: "Geliştirici şifresi (hukuki ağırlıklı ayarlar)",
+		Severity: SeverityRecommended,
+	}
+	if gate == nil {
+		result.Status, result.Detail = CheckSkip, "Geliştirici kapısı bu kontrole verilmedi."
+		return result
+	}
+
+	guarded := make([]string, 0, len(GuardedKeys()))
+	for _, key := range GuardedKeys() {
+		guarded = append(guarded, string(key))
+	}
+
+	if !gate.Configured() {
+		result.Status = CheckWarn
+		result.Detail = fmt.Sprintf(
+			"Tanımlı değil. Şu %d ayar varsayılanında donmuş durumda ve panelden değiştirilemez: %s",
+			len(guarded), strings.Join(guarded, ", "))
+		result.Fix = "go run ./cmd/devpass  →  çıktıyı yapılandırma dosyasındaki [developer] password_hash alanına yazın"
+		return result
+	}
+	result.Status = CheckPass
+	result.Detail = fmt.Sprintf("Tanımlı. %d ayar her değişiklikte şifre soruyor.", len(guarded))
+	return result
+}
+
 // checkConfiguredRolesExist catches a typo in a role name.
 //
 // Without it, a misspelled role makes the two isolation checks silently
@@ -755,6 +802,16 @@ func ManualSteps() []ManualStep {
 			Why: "Veritabanına nasıl ulaşılacağını veritabanına soramazsınız. DSN, dinleme " +
 				"adresleri, TLS yolları ve site kimliği bu yüzden dosyada kalır.",
 			Command: "crucible.toml: timescale_dsn, listen_addr, backend_addr, mode, tls.*, site_id",
+		},
+		{
+			ID: "config.developer_password", Label: "Geliştirici şifresi hash'i",
+			Why: "Hukuki ağırlığı olan ayarlar (IP saklama biçimi, saklama süreleri, " +
+				"kampanya parametreleri) her değişiklikte ayrı bir şifre ister. O şifre " +
+				"veritabanında değil yapılandırma dosyasında durur - kasıtlı olarak: " +
+				"paneli ele geçiren bir şeyin erişemeyeceği tek yer orası. Düz metin " +
+				"değil, hash yazılır.",
+			Command:   "go run ./cmd/devpass  →  [developer] password_hash = \"$argon2id$...\"",
+			CheckedBy: "config.developer_password",
 		},
 		{
 			ID: "logs.dir", Label: "Günlük dizini ve izinleri",

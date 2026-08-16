@@ -13,6 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
 // Mode selects which proxy implementation main.go wires up.
@@ -73,8 +74,30 @@ type Config struct {
 	Storage   StorageConfig   `toml:"storage"`
 	Limits    LimitsConfig    `toml:"limits"`
 	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
+	Privacy   PrivacyConfig   `toml:"privacy"`
 	Logging   logging.Config  `toml:"logging"`
 }
+
+// PrivacyConfig decides what personal data reaches the disk.
+//
+// Its own section rather than a key under [storage], because these are
+// not storage decisions - they are answers to legal questions, and
+// somebody reading the file to check what this deployment keeps should
+// find them together and not have to know which subsystem implements
+// them.
+type PrivacyConfig struct {
+	// IPStorage is "masked" (the default) or "full".
+	//
+	// An empty value means masked, so a config file written before this
+	// setting existed - and every config file that simply does not
+	// mention it - stores less rather than more. That direction is the
+	// whole point: the value nobody sets is the one that ends up in
+	// production.
+	IPStorage string `toml:"ip_storage"`
+}
+
+// IPMode resolves the configured value, defaulting to masked.
+func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
 
 // siteIDPattern restricts SiteID to characters that are safe unescaped in
 // a URL path segment and in a filename, so the same identifier can be used
@@ -354,6 +377,18 @@ func (c *Config) validate() error {
 				return fmt.Errorf("config: asn_lookup.known_bot_asns entry %d must be positive", asn)
 			}
 		}
+	}
+
+	// Rejected here even though privacy.ParseIPMode would quietly fall
+	// back to masked. The two are answering different questions: at
+	// runtime a bad value must not stop a running service, but at
+	// startup somebody is standing at the file and can fix it, and a
+	// deployment that wrote "tam" expecting full addresses should be
+	// told it did not get them rather than discovering it in a year.
+	if v := strings.TrimSpace(c.Privacy.IPStorage); v != "" &&
+		v != string(privacy.IPFull) && v != string(privacy.IPMasked) {
+		return fmt.Errorf("config: privacy.ip_storage must be %q or %q, got %q",
+			privacy.IPMasked, privacy.IPFull, c.Privacy.IPStorage)
 	}
 
 	return nil

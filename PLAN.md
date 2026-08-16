@@ -463,30 +463,103 @@ içinde etki ettiğini gösteren test; `-race` altında temiz.
 
 ---
 
-#### A7 — IP saklama modu: tam veya maskeli
+#### A7 — IP saklama modu: tam veya maskeli ✅ **yapıldı**
 
-**Ne:** IP adresi KVKK/GDPR anlamında kişisel veridir ve bugün iki
-tabloda da tam olarak saklanıyor. Bu bir ayar olur, iki değerli:
+**Ne:** IP adresi KVKK/GDPR anlamında kişisel veridir ve bu faza kadar
+iki tabloda da tam olarak saklanıyordu. Artık ayar:
 
 | Mod | Ne saklanır | Ne kaybedilir |
 |---|---|---|
-| `tam` | Bugünkü hâl | — |
-| `maskeli` | IPv4 son oktet sıfırlanır, IPv6 /64'e kırpılır | Kesişim birleşimi zayıflar, "şu IP ne yaptı" görünümü anlamsızlaşır |
+| `full` | Adresin tamamı | — |
+| `masked` **(varsayılan)** | IPv4 son oktet sıfırlanır (/24), IPv6 /64'e kırpılır | Kesişim birleşimi zayıflar, "şu IP ne yaptı" görünümü bir aralığa bakar |
 
-**Karar:** Müşteriye kurulum sırasında sorulur. "KVKK ile uğraşmak
-istemiyorum, sorun çıkmasın" diyen müşteri için **tam maskeli** seçilir.
-Hukuki metinleri gerçek hukukçular hazırlayacak; bizim işimiz teknik
-karşılığını sunmak.
+**Karar — hukukçudan geldi:** varsayılan **maskeli**. Bu, planın açık
+kararlarından biriydi ve artık kapalı. Sunucular bize ait olacağı için
+varsayılanın güvenli tarafta durması gerekiyor: bir kurulumu yapan
+kişinin hiçbir şey seçmemesi, en çok veri saklayan moda düşmek anlamına
+gelmemeli.
+
+**Sıralama, bu maddenin can alıcı yeri:** maskeleme **yazma anında**
+uygulanır, ama **son adımda**. Tam adres önce ziyaretçi kimliğini
+türetir ve ülke/ASN'yi çözer, sonra maskelenip satıra yazılır. Ters
+sırada yapılsaydı maskeleme sessizce coğrafyayı ve ziyaretçi sayımını da
+bozardı — kimse fark etmeden. Tam adres belleğin dışına hiç çıkmaz:
+diske değen değer zaten maskelidir.
 
 **Dikkat — bunun bir maliyeti var ve gizlenmemeli:** maskeli modda
 `beacon_events.ip` ile `traffic_snapshots.ip` birleşimi zayıflar. O
-birleşim projenin ayırt edici tezi (§0). Maskeli mod seçildiğinde
-kesişim görünümleri "bu kurulumda IP maskeleme açık olduğu için sınırlı"
-der — sıfır göstermez, gizlenmez (§D5 kuralı).
+birleşim projenin ayırt edici tezi (§0). İki taraf da aynı biçimde
+maskelendiği için birleşim **çalışmaya devam eder**, ama /24 çözünürlükte
+— aynı aralıktaki iki farklı ziyaretçi tek satır gibi görünebilir.
+Kesişim görünümleri bunu söyleyecek; sıfır göstermeyecek, gizlemeyecek
+(§D5 kuralı, sahibi **D5**).
 
-**Bitti ölçütü:** maskeleme yazma anında uygulanıyor (sonradan değil —
-maskelenmemiş veri diske hiç değmiyor); mod değişimi geçmişe dönük
-değil ve panel bunu açıkça söylüyor.
+**Geçmişe dönük değil, ve bu kayıt altında:** mod değiştiğinde eski
+satırlar olduğu gibi kalır. Panelin "hepsi maskeli" diyebilmesi için
+değişimin *ne zaman* olduğunu bilmesi gerekir — bu ayrı bir sütun
+gerektirmez, çünkü ayar değişimi zaten denetim kaydına (`panel_audit_log`)
+yazılıyor ve o kayıt silinemez.
+
+**Bitti ölçütü:** ✅ maskeleme yazma anında uygulanıyor; ✅ ülke/ASN ve
+ziyaretçi kimliği tam adresten türetiliyor; ✅ ayar canlı (yeniden
+başlatma gerekmiyor); ✅ gerçek tarayıcıyla, gerçek veritabanında iki mod
+da doğrulandı.
+
+---
+
+#### A7.5 — Geliştirici şifresi kapısı ✅ **yapıldı**
+
+**Ne:** Geliştirici ayarlarının **hepsi** değil, yalnız **hukuki sorun
+çıkarabilecek olanları** her değiştirilişinde ayrı bir şifre ister.
+Şifre yapılandırma dosyasından gelir, **hash'li** saklanır ve **her
+seferinde** sorulur — oturum yok, "5 dakika açık kalsın" yok.
+
+**Neden ayrı bir şifre:** panel şifresi "sen kimsin" sorusunu
+cevaplıyor. Bu şifre başka bir soruyu cevaplıyor: "bu değişikliği
+yapmaya yetkin var mı". İkisi aynı anahtar olursa, panele girmiş
+herkes — müşteri, müşterinin stajyeri, oturumu çalınmış bir yönetici —
+saklanan kişisel verinin kapsamını sessizce değiştirebilir. Uyarı metni
+bunu açıkça söyler: *geliştirici, hukuki sorun çıkarabilecek alanlar
+için şifre kuralı getirdi.*
+
+**Mekanizma, `internal/devgate` — bilerek ayrı paket.** Panelin veri
+katmanını sürüklemeden istenen yere import edilebilir. Veritabanı
+bilmez, HTTP bilmez; sadece doğrular.
+
+| Kural | Nasıl zorlanıyor |
+|---|---|
+| Şifre asla düz metin durmaz | Yapılandırmada yalnız `password_hash` var. Düz metin alanı **açılışta reddedilir**, yok sayılmaz |
+| Her seferinde sorulur | `Verify` bir oturum değil, **saniyeler ömürlü** bir yetki döndürür. Saklanan bir yetki yaşlanır ve reddedilir |
+| Yetki taklit edilemez | `Authorization` yapısının geçerlilik alanı dışa kapalı. Başka bir paket geçerli bir tane **üretemez** — derleyici zorluyor, kural değil |
+| Yetki başka işe kaydırılamaz | Yetki hangi ayar için alındıysa ona bağlıdır. Bir ayar için alınıp başkasına kullanılamaz |
+| Şifre yoksa kapı kapalıdır | Hash tanımlı değilse korumalı ayar **değiştirilemez**. Varsayılan zaten güvenli değer olduğu için bu, kaybedilen bir yetenek değil |
+| Denemenin maliyeti sınırlı | argon2 çağrıları seri, kuyruk sınırlı, ardışık hatalar pencereli sayaçla durduruluyor. Yoksa kapının kendisi 19 MiB'lık bir DoS aracı olurdu |
+| Her deneme kayda geçer | Başarılı da başarısız da: `auth` kategorisine `logging.Attempt`, denetim kaydına ayrı eylem |
+
+**Korumalı ayarlar** (bu listeyi genişletmek kod değişikliğidir):
+
+| Ayar | Neden hukuki |
+|---|---|
+| `privacy.ip_storage` | Kişisel verinin ta kendisi |
+| `analytics.retention_days` | Ne kadar süre saklandığı |
+| `logs.retention_days`, `logs.important_retention_days` | Loglar IP içerir; kısaltmak da uzatmak da hukuki karar |
+| `campaign.drop_params` | `utm_term` gerçek arama metni taşıyabilir |
+| `campaign.extra_params` | İçeriğini bizim denetlemediğimiz alanları saklamak |
+| `campaign.store_click_ids` | Tıklama başına benzersiz, kalıcı tanımlayıcı |
+
+`logs.level` bilerek **korumasız**: bir destek çağrısının ilk hamlesi o,
+ve debug'a çıkmak saklanan veri kümesini değiştirmez.
+
+**Zorlama noktası — kritik:** kapı HTTP katmanında değil, **tek yazma
+yolunda**. `SetSetting` korumalı bir anahtarı reddeder; onları yalnız
+`SetGuardedSetting` yazabilir ve o da geçerli bir `Authorization`
+olmadan çalışmaz. Yarın başka bir çağrı yeri eklenirse kapıyı atlaması
+mümkün değil — unutmakla değil, derlememekle sonuçlanır.
+
+**Bitti ölçütü:** ✅ hash'li; ✅ her seferinde soruluyor (saklanan yetki
+reddediliyor, testle kanıtlı); ✅ yanlış şifre yazamıyor; ✅ şifre yoksa
+korumalı ayar yazılamıyor; ✅ gerçek tarayıcıdan gerçek form gönderimiyle
+doğrulandı.
 
 ---
 

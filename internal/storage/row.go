@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
@@ -55,34 +56,64 @@ type Row struct {
 	IsKnownBotASN bool
 }
 
-// BuildRows converts RateStore snapshots into storage-ready rows,
-// resolving each one's country/ASN first (if resolver is non-nil) so that
-// already-resolved ASN can feed straight into scoring.Score - no second
-// Resolve() call needed for the scoring signal on top of the one storage
-// enrichment already makes. It's a pure function so the
-// scoring/row-shaping logic is unit-testable without a live database or a
-// real resolver. resolver may be nil - when asn_lookup.enabled = false,
-// main.go passes no resolver at all, and every row's Country/ASN/ASNName
-// simply stay at their zero value rather than this function needing a
-// separate on/off flag of its own. knownBotASNs is nil whenever
-// asn_lookup.apply_to_scoring = false (the default); see scoring.Score for
-// why that alone is enough to make the ASN scoring component a no-op,
-// without BuildRows needing its own separate check. siteID is stamped
-// unchanged onto every row - it identifies the collector's own site, not
-// anything derived per-snapshot.
-func BuildRows(snapshots []ratestore.Snapshot, knownBots map[string]string, flushTime time.Time, resolver GeoResolver, knownBotASNs map[int]struct{}, siteID string) []Row {
+// RowOptions are the deployment-wide inputs BuildRows needs, as opposed
+// to the per-snapshot ones.
+//
+// A struct rather than more positional parameters. The list had reached
+// six, several of them nil-able and two of them maps, and the next
+// caller to swap two of those by accident would have got a working
+// program that answered a different question - which is the failure mode
+// this project has already paid for once.
+type RowOptions struct {
+	// SiteID is stamped unchanged onto every row. It identifies the
+	// collector's own site, not anything derived per-snapshot.
+	SiteID string
+	// KnownBots maps a JA4 fingerprint to a bot name, for scoring.
+	KnownBots map[string]string
+	// KnownBotASNs feeds scoring.Score's ASN component. Nil whenever
+	// asn_lookup.apply_to_scoring = false (the default); see
+	// scoring.Score for why nil alone makes it a no-op.
+	KnownBotASNs map[int]struct{}
+	// Resolver enriches each row with country/ASN. Nil when
+	// asn_lookup.enabled = false, in which case Country/ASN/ASNName stay
+	// at their zero values rather than this needing an on/off flag.
+	Resolver GeoResolver
+	// IPMode decides how much of each address is stored.
+	//
+	// The zero value masks. That is deliberate: a caller that forgets
+	// this field gets the privacy-preserving behaviour rather than the
+	// other one, and the mistake shows up as coarser data instead of as
+	// personal data on disk.
+	IPMode privacy.IPMode
+}
+
+// BuildRows converts RateStore snapshots into storage-ready rows.
+//
+// Country and ASN are resolved first, so the already-resolved ASN feeds
+// straight into scoring.Score without a second lookup. The address is
+// masked *after* that, and that ordering is the point: resolving from a
+// masked address would return the network's registration rather than the
+// visitor's, and nothing in the output would say so - the countries
+// would just quietly start being different.
+//
+// It is a pure function, so the scoring and row-shaping logic is
+// testable without a database or a real resolver.
+func BuildRows(snapshots []ratestore.Snapshot, flushTime time.Time, opts RowOptions) []Row {
 	rows := make([]Row, 0, len(snapshots))
 	for _, snap := range snapshots {
 		var geo asnlookup.Result
-		if resolver != nil {
-			geo = resolver.Resolve(snap.IP)
+		if opts.Resolver != nil {
+			geo = opts.Resolver.Resolve(snap.IP)
 		}
 
-		result := scoring.Score(snap.EstimatedRate, snap.JA4, knownBots, geo.ASN, knownBotASNs)
+		result := scoring.Score(snap.EstimatedRate, snap.JA4, opts.KnownBots, geo.ASN, opts.KnownBotASNs)
 		rows = append(rows, Row{
-			Time:            flushTime,
-			SiteID:          siteID,
-			IP:              snap.IP,
+			Time:   flushTime,
+			SiteID: opts.SiteID,
+			// Last use of the whole address. What goes into the row -
+			// and therefore onto the disk - is already masked; there is
+			// no window in which an unmasked row exists.
+			IP:              privacy.MaskIP(snap.IP, opts.IPMode),
 			JA4:             snap.JA4,
 			PrevWindowCount: snap.PrevWindowCount,
 			CurrWindowCount: snap.CurrWindowCount,

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
@@ -56,6 +57,10 @@ func TestFlusher_Run_FlushesOnTickerAndOnShutdown(t *testing.T) {
 		Store:    store,
 		Writer:   writer,
 		Interval: 30 * time.Millisecond,
+		// Full, so this test asserts which address the flusher picked up
+		// rather than also asserting how it was masked - that has its
+		// own tests in row_test.go.
+		IPMode: privacy.IPFull,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

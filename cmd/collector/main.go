@@ -125,7 +125,13 @@ func main() {
 		KnownBots: scoring.KnownBotJA4,
 		Interval:  cfg.Storage.FlushInterval(),
 		Logger:    logger,
+		IPMode:    cfg.Privacy.IPMode(),
 	}
+	// Said out loud at startup, because it decides what personal data
+	// this process writes and it is the one setting nobody will
+	// remember choosing. An operator reading the first ten lines of the
+	// log should be able to answer "does this store whole addresses".
+	logger.Info("ip storage mode", "mode", flusher.IPMode.String())
 	if lookup != nil {
 		// Deliberately guarded rather than an unconditional
 		// `flusher.Resolver = lookup`: assigning a nil *asnlookup.Resolver

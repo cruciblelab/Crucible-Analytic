@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 )
 
@@ -33,6 +34,9 @@ type Flusher struct {
 	// asn_lookup.apply_to_scoring = false (the default) - see BuildRows
 	// and scoring.Score for why nil alone is enough to make it a no-op.
 	KnownBotASNs map[int]struct{}
+	// IPMode decides how much of each address is written. The zero value
+	// masks - see storage.RowOptions.
+	IPMode privacy.IPMode
 }
 
 // Run flushes every f.Interval until ctx is cancelled, then performs one
@@ -70,7 +74,13 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		return
 	}
 
-	rows := BuildRows(snapshots, f.KnownBots, now, f.Resolver, f.KnownBotASNs, f.SiteID)
+	rows := BuildRows(snapshots, now, RowOptions{
+		SiteID:       f.SiteID,
+		KnownBots:    f.KnownBots,
+		KnownBotASNs: f.KnownBotASNs,
+		Resolver:     f.Resolver,
+		IPMode:       f.IPMode,
+	})
 	n, err := f.Writer.WriteRows(ctx, rows)
 	if err != nil {
 		f.logger().Error("flush failed", "err", err, "attempted_rows", len(rows))
