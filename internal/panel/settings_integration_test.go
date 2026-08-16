@@ -215,3 +215,47 @@ func TestSettings_ListReportsWhatWasStored(t *testing.T) {
 		t.Errorf("ListSettings did not return the stored setting: %+v", list)
 	}
 }
+
+// The two lists of setting keys - the panel's registry and the names
+// internal/settings reads - must agree. A key the panel defines that no
+// service reads is a setting that does nothing; a key a service reads
+// that the panel does not define is a setting nobody can change.
+//
+// Checked here rather than by importing internal/settings into the
+// panel: the dependency deliberately points one way, so a beacon never
+// drags the panel's data layer into the one process the whole internet
+// can reach.
+func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
+	// The names internal/settings/live.go declares, copied. If this list
+	// and that one drift, one of them is wrong and this test says so.
+	readByServices := []Key{
+		"beacon.sites",
+		"campaign.drop_params",
+		"campaign.extra_params",
+		"campaign.store_click_ids",
+		"logs.level",
+	}
+	for _, key := range readByServices {
+		def, ok := Lookup(key)
+		if !ok {
+			t.Errorf("a service reads %q but the panel does not define it, so nobody can change it", key)
+			continue
+		}
+		if !def.Live && key != "logs.level" {
+			t.Errorf("%q is read live by a service but is not marked Live, so the panel will "+
+				"tell a customer it needs a restart when it does not", key)
+		}
+	}
+
+	// And the reverse: everything marked Live must actually be read.
+	read := map[Key]bool{}
+	for _, key := range readByServices {
+		read[key] = true
+	}
+	for _, def := range AllDefinitions() {
+		if def.Live && !read[def.Key] {
+			t.Errorf("%q is marked Live but no service reads it, so the panel promises an "+
+				"immediate effect that never happens", def.Key)
+		}
+	}
+}

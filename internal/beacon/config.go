@@ -10,6 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
 // siteIDPattern must stay identical to config.siteIDPattern in the
@@ -53,6 +54,7 @@ type Config struct {
 	Limits         LimitsConfig    `toml:"limits"`
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
 	Campaign       CampaignConfig  `toml:"campaign"`
+	Settings       SettingsConfig  `toml:"settings"`
 	Logging        logging.Config  `toml:"logging"`
 }
 
@@ -210,4 +212,32 @@ func (c Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// SettingsConfig controls how often live settings are re-read.
+type SettingsConfig struct {
+	// IntervalSeconds between reads. Zero takes the package default.
+	IntervalSeconds int `toml:"interval_seconds"`
+}
+
+// Interval is the polling period.
+func (s SettingsConfig) Interval() time.Duration {
+	if s.IntervalSeconds <= 0 {
+		return time.Minute
+	}
+	return time.Duration(s.IntervalSeconds) * time.Second
+}
+
+// Live overlays whatever the panel has stored onto the file's campaign
+// configuration, and returns the resulting policy.
+//
+// The file is the fallback for every field, so an empty or unreachable
+// settings table leaves behaviour exactly as configured. That ordering
+// is the point: turning on live settings must not be able to change what
+// a deployment does until somebody deliberately sets something.
+func (c CampaignConfig) Live(src *settings.Source) CampaignPolicy {
+	drop := src.Strings(settings.KeyCampaignDropParams, "", c.DropParams)
+	extra := src.Strings(settings.KeyCampaignExtraParams, "", c.ExtraParams)
+	storeClickIDs := src.Bool(settings.KeyCampaignStoreClickID, "", c.StoreClickIDs)
+	return NewCampaignPolicy(drop, extra, storeClickIDs)
 }

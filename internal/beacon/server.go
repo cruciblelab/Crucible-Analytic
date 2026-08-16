@@ -120,6 +120,13 @@ type Server struct {
 	// Now supplies event timestamps; nil means time.Now.
 	Now func() time.Time
 
+	// live holds settings the panel can change while this process is
+	// serving. Nil pointers mean "nothing has overridden the static
+	// configuration", so a Server built without a settings source behaves
+	// exactly as it did before live settings existed.
+	liveCampaign atomic.Pointer[CampaignPolicy]
+	liveSites    atomic.Pointer[[]string]
+
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
 	rejected     atomic.Uint64
@@ -291,7 +298,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		Country:   geo.Country,
 		ASN:       geo.ASN,
 		ASNOrg:    geo.ASNName,
-	}, s.Campaign)
+	}, s.campaignPolicy())
 
 	if s.Sink.Enqueue(row) {
 		s.accepted.Add(1)
@@ -404,8 +411,52 @@ func (s *Server) logForwardedClaim(r *http.Request) {
 			slog.String(logging.KeyPeer, peer.String()))...)
 }
 
+// SetCampaignPolicy swaps the policy every subsequent request uses.
+//
+// Atomic rather than mutex-guarded because it is read on the hot path of
+// every event and written roughly once a minute; a request that started
+// under the old policy finishes under it, which is the correct
+// granularity - a single event is either wholly old-policy or wholly
+// new, never half of each.
+func (s *Server) SetCampaignPolicy(p CampaignPolicy) { s.liveCampaign.Store(&p) }
+
+// SetSites swaps the allowlist.
+//
+// The most common support call this makes answerable without SSH: a
+// customer adds a second domain, and today that is a config edit and a
+// restart.
+func (s *Server) SetSites(sites []string) {
+	// Copied, so a caller that later reuses its slice cannot mutate what
+	// this server is authorising against.
+	out := make([]string, len(sites))
+	copy(out, sites)
+	s.liveSites.Store(&out)
+}
+
+// campaignPolicy is the policy in force right now.
+func (s *Server) campaignPolicy() CampaignPolicy {
+	if live := s.liveCampaign.Load(); live != nil {
+		return *live
+	}
+	return s.Campaign
+}
+
+// sites is the allowlist in force right now.
+//
+// An empty live list is ignored rather than obeyed. A settings row that
+// somehow ended up empty would otherwise silently stop every site from
+// reporting, and "all analytics stopped" is a far worse failure than
+// "the new site is not accepted yet" - so the static configuration wins
+// over an empty override.
+func (s *Server) sites() []string {
+	if live := s.liveSites.Load(); live != nil && len(*live) > 0 {
+		return *live
+	}
+	return s.Sites
+}
+
 func (s *Server) allowsSite(site string) bool {
-	for _, allowed := range s.Sites {
+	for _, allowed := range s.sites() {
 		if allowed == site {
 			return true
 		}

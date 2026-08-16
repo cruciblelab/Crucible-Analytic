@@ -25,6 +25,14 @@ listen_addr = "127.0.0.1:8081"
 #   GRANT CONNECT ON DATABASE analytics TO beacon_writer;
 #   GRANT USAGE ON SCHEMA public TO beacon_writer;
 #   GRANT INSERT ON beacon_events TO beacon_writer;
+#   GRANT SELECT ON panel_settings TO beacon_writer;
+#
+# That last grant is what lets the panel change this process's behaviour
+# without an SSH session. It is a deliberate, minimal widening: one
+# table, read-only, holding no personal data and no credentials. It does
+# not let the beacon read analytics, users, sessions or tokens. Omit it
+# and everything still works - the process simply keeps running on this
+# file, which is why a failed settings read is logged rather than fatal.
 timescale_dsn = "postgres://beacon_writer:change-me@localhost:5432/analytics"
 
 # Required. The site_ids this beacon accepts events for. The snippet is
@@ -185,3 +193,18 @@ enabled = false
 #
 # These are also panel settings (logs.* in developer mode), which is
 # where they are meant to be changed once a deployment is handed over.
+
+# How often live settings are re-read from panel_settings.
+#
+# Every value below and in [campaign] can be overridden from the panel;
+# this file is the fallback for each one, so an empty or unreachable
+# settings table changes nothing. When a read fails the last known values
+# are kept - never the defaults, because resetting a customer's tuning
+# during a database blip would be worse than a stale value and far
+# harder to notice.
+#
+# Live today: campaign.drop_params, campaign.extra_params,
+# campaign.store_click_ids, beacon.sites. Everything else still needs a
+# restart, and the panel says so rather than pretending otherwise.
+[settings]
+# interval_seconds = 60

@@ -29,11 +29,13 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
 func main() {
@@ -147,6 +149,15 @@ func main() {
 		writer.Run(writerCtx)
 	}()
 
+	// Live settings. Optional: a deployment that never grants
+	// SELECT on panel_settings simply keeps running on its config file,
+	// which is why the failure here is logged rather than fatal.
+	settingsCtx, stopSettings := context.WithCancel(context.Background())
+	live := settings.New(settingsCtx, writer.Pool(), settings.Config{
+		Interval: cfg.Settings.Interval(),
+		Logger:   logger,
+	})
+
 	srv := &beacon.Server{
 		ListenAddr:     cfg.ListenAddr,
 		PathPrefix:     cfg.PathPrefix,
@@ -175,7 +186,38 @@ func main() {
 		})
 	}
 
+	// Apply once before serving, then on the source's own interval. The
+	// static config is the fallback for every value, so a settings table
+	// that is empty or unreachable changes nothing.
+	applySettings := func() {
+		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
+		srv.SetSites(live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+	}
+	applySettings()
+
+	settingsDone := make(chan struct{})
+	go func() {
+		defer close(settingsDone)
+		ticker := time.NewTicker(cfg.Settings.Interval())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-settingsCtx.Done():
+				return
+			case <-ticker.C:
+				if err := live.Refresh(settingsCtx); err != nil {
+					logger.Warn("settings: read failed, keeping the last known values",
+						"err", err, "consecutive_failures", live.Failures())
+					continue
+				}
+				applySettings()
+			}
+		}
+	}()
+
 	serveErr := srv.ListenAndServe(ctx)
+	stopSettings()
+	<-settingsDone
 
 	// Only now that no new event can arrive: drain the buffer, then let
 	// go of the connection pool the drain needs.

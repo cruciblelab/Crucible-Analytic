@@ -95,6 +95,31 @@ const (
 	KeyLogVerboseUntil Key = "logs.verbose_until"
 )
 
+// The settings a running service applies without a restart.
+//
+// Live-applicable is a property of the setting, not a preference: a
+// campaign policy is a pure function and can be swapped between
+// requests, while a buffer size is a channel capacity fixed when the
+// channel was made. The panel has to say which is which, or a customer
+// changes a value and cannot tell why nothing happened.
+const (
+	// KeyBeaconSites is the beacon's allowlist. Live.
+	//
+	// The most common support call this makes answerable without SSH: a
+	// customer adds a second domain.
+	KeyBeaconSites Key = "beacon.sites"
+	// KeyCampaignDropParams removes standard query parameters. Live.
+	//
+	// The one that motivated all of this: when a customer's counsel says
+	// utm_term must not be stored, the answer should be a panel setting
+	// rather than a release.
+	KeyCampaignDropParams Key = "campaign.drop_params"
+	// KeyCampaignExtraParams keeps additional parameters. Live.
+	KeyCampaignExtraParams Key = "campaign.extra_params"
+	// KeyCampaignStoreClickID keeps raw ad click identifiers. Live.
+	KeyCampaignStoreClickID Key = "campaign.store_click_ids"
+)
+
 // The analytics lifecycle settings.
 const (
 	// KeyAnalyticsRetentionDays is how long traffic_snapshots and
@@ -124,6 +149,12 @@ type Definition struct {
 	Help  string
 	// Developer marks a setting that only appears in developer mode.
 	Developer bool
+	// Live marks a setting a running service applies without a restart.
+	//
+	// The panel shows this, because a customer who changes a value and
+	// sees nothing happen will assume the panel is broken rather than
+	// that the setting needs a restart.
+	Live bool
 }
 
 // registry is every setting this system has. Adding one is a code change
@@ -131,6 +162,38 @@ type Definition struct {
 // operations follow and for the same reason: a running system should not
 // be talkable into a setting nobody designed.
 var registry = map[Key]Definition{
+	KeyBeaconSites: {
+		Key: KeyBeaconSites, Scope: ScopeGlobal, Kind: KindStringList,
+		Default:   []string{},
+		Label:     "Kabul edilen siteler",
+		Help:      "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
+		Developer: true,
+		Live:      true,
+	},
+	KeyCampaignDropParams: {
+		Key: KeyCampaignDropParams, Scope: ScopeGlobal, Kind: KindStringList,
+		Default:   []string{},
+		Label:     "Saklanmayacak kampanya parametreleri",
+		Help:      "Örneğin utm_term. Hukuki bir karar gerektirdiği için sürüm değil, ayar.",
+		Developer: true,
+		Live:      true,
+	},
+	KeyCampaignExtraParams: {
+		Key: KeyCampaignExtraParams, Scope: ScopeGlobal, Kind: KindStringList,
+		Default:   []string{},
+		Label:     "Ek olarak saklanacak parametreler",
+		Help:      "Sitenin kendi parametreleri. Büyük/küçük harfe duyarlı eşleşir.",
+		Developer: true,
+		Live:      true,
+	},
+	KeyCampaignStoreClickID: {
+		Key: KeyCampaignStoreClickID, Scope: ScopeGlobal, Kind: KindBool,
+		Default:   false,
+		Label:     "Ham reklam tıklama kimliğini sakla",
+		Help:      "Kapalıyken yalnızca hangi reklam ağı olduğu saklanır. Her tıklamada benzersiz olduğu için varsayılan kapalı.",
+		Developer: true,
+		Live:      true,
+	},
 	KeyLogRetentionDays: {
 		Key: KeyLogRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
 		Default: 14, Min: 1, Max: 3650,

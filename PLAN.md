@@ -321,7 +321,44 @@ göç ettirilip dosyadan yok sayılır ve bu bir denetim kaydı üretir.
 
 ---
 
-#### A6 — Servislerin ayarı canlı okuması
+#### A6 — Servislerin ayarı canlı okuması ✅ **mekanizma yapıldı, kablolama sürüyor**
+
+**Yapıldı:** `internal/settings` — servislerin `panel_settings`'i yoklayıp
+canlı değer değiştirdiği kaynak. Beacon'da bağlı: `campaign.drop_params`,
+`campaign.extra_params`, `campaign.store_click_ids`, `beacon.sites`.
+
+**Aşılması gereken mimari engel vardı** ve kararı yazıya geçiriyorum:
+her servisin veritabanı rolü kendi tablosuyla sınırlı — `beacon_writer`
+yalnızca `INSERT ON beacon_events` yapabiliyordu, `panel_settings`'i
+okuyamıyordu. Üç seçenek vardı:
+
+| Seçenek | Neden seçilmedi / seçildi |
+|---|---|
+| **`GRANT SELECT ON panel_settings`** | **Seçildi.** Tek tablo, salt okuma, kişisel veri yok, kimlik bilgisi yok. Beacon'a analitiği, kullanıcıları, oturumları veya token'ları okuma yetkisi vermiyor. |
+| HTTP üzerinden panelden çekmek | Tüm internetin zaten ulaşabildiği sürece yeni bir kimlik doğrulama yüzeyi eklerdi |
+| Panelin anlık görüntü dosyası yazması | Karşılığı olmayan bir senkronizasyon sorunu getirirdi |
+
+**Grant verilmezse her şey çalışmaya devam eder** — süreç yapılandırma
+dosyasıyla yürür. Ayar okuması başarısızlığı bu yüzden ölümcül değil,
+kayıtlı.
+
+**Canlı uygulanabilirlik ayarın özelliği, tercih değil.** Kampanya
+politikası saf bir fonksiyon, istekler arasında değiştirilebilir; tampon
+boyutu ise kanal oluşturulurken sabitlenmiş bir kapasite. `Definition`
+artık `Live` bayrağı taşıyor ve **panel bunu söylüyor** — yoksa müşteri
+değeri değiştirir, hiçbir şey olmaz ve paneli bozuk sanır.
+
+Panelin tanımladığı `Live` anahtarlar ile servislerin gerçekten okuduğu
+anahtarların aynı olduğunu doğrulayan bir test var: birinde olup
+diğerinde olmayan anahtar, ya hiçbir şey yapmayan bir ayar ya da kimsenin
+değiştiremediği bir ayardır.
+
+**Kalan kablolama** (mekanik): collector limitleri, geo blok listeleri,
+bot skor eşiği, flush aralığı; log seviyesi ve `verbose_until`.
+
+##### Eski not
+
+
 
 **Ne:** collector ve beacon, ayar satırını kısa aralıkla (bir dakika
 uygun) yeniden okur ve canlı değerleri atomik olarak değiştirir.

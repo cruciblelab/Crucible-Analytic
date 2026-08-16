@@ -252,6 +252,14 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 	return n, nil
 }
 
+// Pool exposes the connection pool so a service can read settings
+// through the same one rather than opening a second.
+//
+// Sharing is deliberate: a second pool would double this process's
+// connection footprint on a database that is also serving the collector,
+// and settings are read once a minute - there is nothing to isolate.
+func (w *Writer) Pool() *pgxpool.Pool { return w.pool }
+
 // Close releases the connection pool. Call after Run has returned, so
 // the shutdown drain still has a working connection.
 func (w *Writer) Close() {
