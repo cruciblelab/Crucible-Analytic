@@ -135,11 +135,23 @@ func NewCampaignPolicy(drop, extra []string, storeClickIDs bool) CampaignPolicy 
 		extra:         make(map[string]bool, len(extra)),
 		storeClickIDs: storeClickIDs,
 	}
+	// Standard parameter names are canonically lower-case (utm_source, not
+	// UTM_Source), so folding case here turns a capitalised entry into a
+	// working one. Unknown names are rejected at config load, so a typo
+	// still fails at startup rather than silently dropping nothing.
 	for _, name := range drop {
 		p.dropped[strings.ToLower(strings.TrimSpace(name))] = true
 	}
+	// Extras are NOT case-folded, and that asymmetry is deliberate.
+	//
+	// They are matched against the raw parameter name a browser sent, and
+	// query-string keys are case-sensitive: a site that emits "?Partner="
+	// needs "Partner" configured. Folding these to lower case - which an
+	// earlier version did - made such an entry match nothing at all, with
+	// no error and no log line. The parameter simply never appeared, which
+	// is the worst way for a configuration option to fail.
 	for _, name := range extra {
-		name = strings.ToLower(strings.TrimSpace(name))
+		name = strings.TrimSpace(name)
 		if name == "" {
 			continue
 		}

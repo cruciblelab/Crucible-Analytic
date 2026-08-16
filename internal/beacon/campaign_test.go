@@ -193,3 +193,47 @@ func TestCampaignPolicy_RepeatedParameterKeepsOnlyTheFirst(t *testing.T) {
 		t.Errorf("Source = %q, want first", c.Source)
 	}
 }
+
+// Extra parameters are matched against what a browser actually sent, and
+// query-string keys are case-sensitive. An earlier version folded the
+// configured name to lower case, so `extra_params = ["Partner"]` against
+// a site emitting "?Partner=" matched nothing at all - no error, no log
+// line, the parameter simply never appeared. That is the worst way for a
+// configuration option to fail, so it has a test.
+func TestCampaignPolicy_ExtraParametersMatchTheCaseTheSiteSends(t *testing.T) {
+	cases := map[string]struct {
+		configured string
+		sent       string
+		wantKept   bool
+	}{
+		"exact match, capitalised": {"Partner", "Partner", true},
+		"exact match, lower case":  {"partner", "partner", true},
+		"case differs":             {"partner", "Partner", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := NewCampaignPolicy(nil, []string{tc.configured}, false)
+			_, query := p.Apply(url.Values{tc.sent: []string{"acme"}})
+			if kept := strings.Contains(query, "acme"); kept != tc.wantKept {
+				t.Errorf("configured %q, site sent %q: kept=%v want %v (query %q)",
+					tc.configured, tc.sent, kept, tc.wantKept, query)
+			}
+		})
+	}
+}
+
+// Standard names are canonically lower case, so a capitalised entry in
+// drop_params must still work.
+func TestCampaignPolicy_DropParamsIgnoresConfiguredCase(t *testing.T) {
+	p := NewCampaignPolicy([]string{"UTM_Term", "  utm_content  "}, nil, false)
+	c, _ := applyRaw(t, p, "utm_term=x&utm_content=y&utm_source=keep")
+	if c.Term != "" {
+		t.Errorf("Term = %q, want empty (UTM_Term should drop utm_term)", c.Term)
+	}
+	if c.Content != "" {
+		t.Errorf("Content = %q, want empty (whitespace should be trimmed)", c.Content)
+	}
+	if c.Source != "keep" {
+		t.Errorf("Source = %q, want keep", c.Source)
+	}
+}

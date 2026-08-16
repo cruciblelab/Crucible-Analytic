@@ -277,3 +277,125 @@ func TestBeaconTitles_IsItsOwnDimension(t *testing.T) {
 		t.Errorf("empty-title group = %d pageviews (found=%v), want 2", pv, found)
 	}
 }
+
+// Every read method must honour the campaign filter. This is the
+// behavioural half of the guard in store_beacon_guard_test.go: that one
+// checks the source still follows the parameter convention, this one
+// checks the convention still produces the right answer.
+//
+// Exhaustive on purpose. The failure this defends against is a query
+// whose filter silently stops applying - which returns *more* rows than
+// asked for, looks entirely plausible, and would be found by a customer
+// rather than by us.
+func TestCampaignFilter_IsHonouredByEveryReadMethod(t *testing.T) {
+	store, p := campaignSeed(t, "camp-every")
+	ctx := context.Background()
+
+	// A filter that matches nothing at all. Any method that ignores it
+	// returns rows.
+	nothing := p
+	nothing.campaign = campaignFilter{source: "no-such-source"}
+
+	groups := map[string]func(context.Context, string, beaconParams) ([]BeaconGroupStat, int, error){
+		"BeaconPages":            store.BeaconPages,
+		"BeaconTitles":           store.BeaconTitles,
+		"BeaconReferrers":        store.BeaconReferrers,
+		"BeaconBrowsers":         store.BeaconBrowsers,
+		"BeaconOperatingSystems": store.BeaconOperatingSystems,
+		"BeaconDevices":          store.BeaconDevices,
+		"BeaconLanguages":        store.BeaconLanguages,
+		"BeaconCountries":        store.BeaconCountries,
+		"BeaconUTMSources":       store.BeaconUTMSources,
+		"BeaconUTMMediums":       store.BeaconUTMMediums,
+		"BeaconUTMCampaigns":     store.BeaconUTMCampaigns,
+		"BeaconUTMTerms":         store.BeaconUTMTerms,
+		"BeaconUTMContents":      store.BeaconUTMContents,
+		"BeaconRefs":             store.BeaconRefs,
+		"BeaconClickSources":     store.BeaconClickSources,
+	}
+	for name, query := range groups {
+		t.Run(name, func(t *testing.T) {
+			// Sanity: unfiltered, this method returns something. Without
+			// this the empty assertion below would pass for a method that
+			// never returns anything.
+			if rows, _, err := query(ctx, "camp-every", p); err != nil {
+				t.Fatalf("unfiltered: %v", err)
+			} else if len(rows) == 0 {
+				t.Fatalf("unfiltered returned nothing; the assertion below would be vacuous")
+			}
+
+			rows, total, err := query(ctx, "camp-every", nothing)
+			if err != nil {
+				t.Fatalf("filtered: %v", err)
+			}
+			if len(rows) != 0 || total != 0 {
+				t.Errorf("ignored the campaign filter: %d rows (total %d), want none: %+v", len(rows), total, rows)
+			}
+		})
+	}
+
+	// The differently-shaped methods, checked individually.
+	t.Run("BeaconEntryPages", func(t *testing.T) {
+		rows, total, err := store.BeaconEntryPages(ctx, "camp-every", nothing)
+		if err != nil {
+			t.Fatalf("BeaconEntryPages: %v", err)
+		}
+		if len(rows) != 0 || total != 0 {
+			t.Errorf("ignored the filter: %+v", rows)
+		}
+	})
+	t.Run("BeaconExitPages", func(t *testing.T) {
+		rows, total, err := store.BeaconExitPages(ctx, "camp-every", nothing)
+		if err != nil {
+			t.Fatalf("BeaconExitPages: %v", err)
+		}
+		if len(rows) != 0 || total != 0 {
+			t.Errorf("ignored the filter: %+v", rows)
+		}
+	})
+	t.Run("BeaconCampaigns", func(t *testing.T) {
+		rows, total, err := store.BeaconCampaigns(ctx, "camp-every", nothing)
+		if err != nil {
+			t.Fatalf("BeaconCampaigns: %v", err)
+		}
+		if len(rows) != 0 || total != 0 {
+			t.Errorf("ignored the filter: %+v", rows)
+		}
+	})
+	t.Run("BeaconEvents", func(t *testing.T) {
+		rows, total, err := store.BeaconEvents(ctx, "camp-every", nothing)
+		if err != nil {
+			t.Fatalf("BeaconEvents: %v", err)
+		}
+		if len(rows) != 0 || total != 0 {
+			t.Errorf("ignored the filter: %+v", rows)
+		}
+	})
+	t.Run("BeaconRaw", func(t *testing.T) {
+		rows, total, err := store.BeaconRaw(ctx, "camp-every", nothing)
+		if err != nil {
+			t.Fatalf("BeaconRaw: %v", err)
+		}
+		if len(rows) != 0 || total != 0 {
+			t.Errorf("ignored the filter: %+v", rows)
+		}
+	})
+	t.Run("BeaconSummary", func(t *testing.T) {
+		s, err := store.BeaconSummary(ctx, "camp-every", p.from, p.to, p.bots, nothing.campaign)
+		if err != nil {
+			t.Fatalf("BeaconSummary: %v", err)
+		}
+		if s.Pageviews != 0 || s.Visitors != 0 || s.Sessions != 0 {
+			t.Errorf("ignored the filter: %+v", s)
+		}
+	})
+	t.Run("BeaconTimeseries", func(t *testing.T) {
+		buckets, err := store.BeaconTimeseries(ctx, "camp-every", p.from, p.to, "1 hour", p.bots, nothing.campaign)
+		if err != nil {
+			t.Fatalf("BeaconTimeseries: %v", err)
+		}
+		if len(buckets) != 0 {
+			t.Errorf("ignored the filter: %+v", buckets)
+		}
+	})
+}

@@ -116,6 +116,12 @@ enabled = false
 # Every entry here is a decision to store something this project has no
 # control over the contents of. Add a name only after checking what the
 # site actually puts in it.
+#
+# Matched CASE-SENSITIVELY against what the browser sent, because query
+# string keys are case-sensitive. A site emitting "?Partner=" needs
+# "Partner" here; "partner" would match nothing. (drop_params above is
+# the opposite - standard names are canonically lower case, so its case
+# is ignored.)
 # extra_params = ["partner"]
 
 # Keep the raw gclid/fbclid/msclkid value, not just which ad network it
