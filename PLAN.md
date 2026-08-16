@@ -250,7 +250,19 @@ onarım kataloğu bir kâğıt parçası olarak kalır ve gerçek prosedür hâl
 `flush_interval_seconds`; beacon tampon/parti boyutları; beacon site
 beyaz listesi; analitik profili ve site başına derinlik; saklama ve
 sıkıştırma politikaları; bot skor eşiği; önbellek pencere ve TTL'leri;
-log seviyesi ve log saklama süresi.
+log seviyesi ve log saklama süresi; **`[campaign]`'in tamamı**
+(`drop_params`, `extra_params`, `store_click_ids`).
+
+`[campaign]` özellikle önemli, çünkü diğerlerinden farklı bir sebeple
+oradadır: hukuki bir cevabın karşılığıdır. Müşterinin avukatı "utm_term
+saklanmasın" dediğinde bunun bir SSH oturumu gerektirmesi, A5'in var
+olma sebebinin ta kendisidir.
+
+**Saklama modu değişimi geçmişe dönük değildir.** Bir ayarı kapatmak,
+o ana kadar toplanmış veriyi silmez. Panel bunu açıkça söylemeli, ve
+"artık toplamıyoruz" ile "hiç toplamadık" ayrımı (§D5) burada da
+geçerli. Geçmişi de temizlemek gerekiyorsa bu ayrı bir onarım
+operasyonudur (§4, B grubu), ayarın yan etkisi değil.
 
 **Bitti ölçütü:** `collector.example.toml` sekiz anahtara inmiş; her
 taşınan ayar için "dosyada yoksa veritabanından okunur" testi; geriye
@@ -1042,6 +1054,28 @@ olursa madde olur.
 | Ülke/ASN kural motoru yalnız engelleme listesi | Kural başına politika motoru gerçek ek karmaşıklık; gerçek ihtiyaç çıkana kadar bekliyor |
 
 ---
+
+## 6.2 Kampanya fazından kalan riskler ve verilen kararlar
+
+Kampanya çalışması beş risk bıraktı. İkisi kapatıldı, üçü **bilinçli
+olarak açık bırakıldı** — çünkü kusur değil, ya karar ya ölçüm
+bekliyorlar. Bir riski kapatmak, onu kodlamak demek değildir; neyin
+kapatılmayacağına da karar vermek gerekir.
+
+**Kapatıldı:**
+
+| Risk | Neden bu fazda | Ne yapıldı |
+|---|---|---|
+| Parametre kaydırması sessizce yanlış cevap verebilir | Bu projenin **zaten bir kez ödediği** hata modu (kümülatif istek sayısı: aritmetik doğru, öncül yanlış, yalnız gerçek çalıştırma yakaladı). En riskli anı şimdi — 17 sorgu yeni numaralandı ve konvansiyon henüz alışkanlık değil. | İki koruma: kaynağı okuyup konvansiyonu doğrulayan yapısal test, ve 22 okuma metodunun tamamının filtreyi uyguladığını canlı veritabanında kanıtlayan davranışsal test. |
+| `extra_params` büyük/küçük harf uyuşmazlığı | **Gerçek kusurdu**, risk değil. Sessizce hiçbir şey yapmıyordu — hata yok, log yok, veri yok. | Ekstralar yazıldığı harfle korunuyor; `drop_params` harf katlamaya devam ediyor (standart isimler zaten küçük harf ve bilinmeyen isim açılışta reddediliyor). |
+
+**Bilinçli olarak açık:**
+
+| Risk | Neden şimdi değil |
+|---|---|
+| `utm_term` varsayılan olarak açık | Bu bir **hukuki cevap bekliyor**, teknik bir eksik değil. Mekanizma yazıldı ve doğrulandı; avukatın cevabı gelmeden varsayılanı çevirmek, kararı onun yerine vermek olur. |
+| Kısmi indeks kampanyasız sorguları hızlandırmıyor | **Ölçüm bekliyor.** Gerçek hacimde sorun olduğuna dair hiçbir veri yok, ve olmayan bir performans sorunu için indeks eklemek diskin bedelini kesin, faydasını varsayımsal yapar. |
+| Filtre "kampanyası olmayan"ı seçemiyor | Sorgu dizesinde üç durum (ayarlanmamış / boş / değer) iki duruma sığmıyor, ve cevap kırılımın kendi boş grubundan **zaten alınabiliyor**. Gerçek bir kayıp değil; sınır koda yorum olarak yazıldı. |
 
 ## 6.5 Hâlâ karara bağlanmamış tek şey: "site" tam olarak nedir
 
