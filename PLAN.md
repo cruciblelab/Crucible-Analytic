@@ -126,7 +126,7 @@ e-posta yolu), D7 (arama motoru botları).
 > Bunlar olmadan aşağıdakilerin hiçbiri çalışmaz. Grup A, panelin
 > "ayar" kelimesinin bir anlamı olmasını sağlar.
 
-#### A1 — `panel_settings` tablosu
+#### A1 — `panel_settings` tablosu ✅ **yapıldı**
 
 **Ne:** Site başına ve genel, tipli değer saklayan tek tablo.
 
@@ -154,9 +154,59 @@ sütun veya tablo adlandırması tasarım hatasıdır.
 fonksiyonu var, sınırlar açıkça yazılı (örn. `flush_interval` 1..300).
 Doğrulama **yazmadan önce**, okurken değil.
 
-**Bitti ölçütü:** bilinmeyen anahtar reddediliyor; sınır dışı değer
-reddediliyor; eşzamanlı iki yazma testi son yazanın kazandığını ve
-`updated_by`'ın doğru olduğunu gösteriyor.
+**Yazıldı ve doğrulandı:** bilinmeyen anahtar reddediliyor; sınır dışı
+değer reddediliyor; kapsam uyuşmazlığı (genel ayara site verilmesi)
+reddediliyor; site değeri genel değeri geçiyor; **elle veritabanına
+sokulmuş sınır dışı bir değer okunurken varsayılana düşüyor** — eski bir
+yapının veya elle düzenlemenin, servise yazıldığı sınırların dışında bir
+değer verememesi için. Saklanan bir değeri geri okurken de doğrulamak,
+argon2 maliyet parametrelerini sınırlamakla aynı gerekçe.
+
+---
+
+#### A1.5 — Günlük kaydı yaşam döngüsü ✅ **yapıldı**
+
+**Ne:** Logların ömrü tek sayı değil **üç aşama**, ve aşamalar tüm
+logların eşit değerde olmamasından doğuyor.
+
+`access` ve `ingest` devasa ve yaklaşık bir hafta ilginç. `security`,
+`auth` ve `audit` küçük ve **bir yıl sonra sorulan** tam olarak bunlar —
+"kim girdi, ne zaman". Tek bir saklama süresi ya ikinci grubu atardı ya
+birinci grubu sonsuza kadar tutardı; ve diski dolduran birinci grup, ki
+dolan disk collector'ı durdurur — analitik özelliğinin trafik yolunu
+düşürmesi, bu projenin her yerde reddettiği şey.
+
+| Aşama | Ne olur | Varsayılan |
+|---|---|---|
+| **Düz metin** | Okunuyor, dokunulmuyor | ilk 7 gün |
+| **Arşiv** | Yerinde sıkıştırılır, **okunabilir kalır** | 7. günden sonra |
+| **Silme** | Kategorisinin süresi dolunca | sıradan 14 gün, önemli 365 gün |
+
+Ölçülen: **247 KB → 83 KB**, ve tek başına sıkıştırma testinde
+**%6**. Yani bir yıllık güvenlik kaydı, beş haftalık sıkıştırılmamış
+kadar yer tutuyor.
+
+**Ayarlar geliştirici modunda** (`panel_settings` kayıtları):
+`logs.retention_days`, `logs.important_retention_days`,
+`logs.archive_after_days`, `logs.level`, `logs.verbose_until`.
+
+**Bilerek yazılan kurallar:**
+
+- **Yazılmakta olan gün asla ellenmez.** Dosyaları açık; açık bir dosyayı
+  sıkıştırmak, sürecin hâlâ eklediği tanıtıcıyı budar.
+- **Arşiv, saklamadan önce gelmeli.** `LogLifecycle`, arşivleme süresi
+  saklama süresini geçerse onu kırpar — aksi hâlde bir gün, hiç
+  sıkıştırılmadan silinir ve bu geri alınamaz.
+- **Sıkıştırma geçici dosyaya yazılıp yeniden adlandırılır.** Orijinalin
+  üzerine yazmak, yarıda kalan bir çökmede budanmış bir log bırakır; ve
+  sessizce yarısı eksik bir log, büyük bir logdan kötüdür.
+- **Tanınmayan dosya ve dizinlere dokunulmaz.** Bu paketin yazmadığı bir
+  şey, başkasının koyduğu bir şeydir.
+
+**Bakım açılışta bir kez çalışır**, arka planda zamanlayıcıyla değil:
+silme ile yazma yarışmasın diye. Aylarca çalışan süreç için panelin
+onarım operasyonu (§4, B grubu) var — görünmeyen bir zamanlayıcıdan
+iyidir.
 
 ---
 

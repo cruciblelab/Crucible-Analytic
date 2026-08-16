@@ -2,7 +2,9 @@ package logging
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -497,4 +499,218 @@ func TestIsSecretKey(t *testing.T) {
 			t.Errorf("IsSecretKey(%q) = true; redaction is too broad", key)
 		}
 	}
+}
+
+// --- lifecycle ---
+
+// A day old enough to archive is compressed; one still recent is left
+// readable.
+func TestMaintain_CompressesOldDaysAndLeavesRecentOnes(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+
+	// Two days of history, written by moving the clock.
+	for _, day := range []time.Time{
+		time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC),  // 19 days old
+		time.Date(2026, 5, 18, 10, 0, 0, 0, time.UTC), // 2 days old
+	} {
+		now = day
+		logger := slog.New(NewHandler(tree, HandlerConfig{}))
+		logger.Info("some traffic", In(CategoryAccess))
+	}
+	now = time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+
+	report, err := tree.Maintain(Lifecycle{ArchiveAfterDays: 7, RetentionDays: 30, ImportantRetentionDays: 365})
+	if err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+	if report.Archived != 1 {
+		t.Errorf("archived %d files, want 1 (only the 19-day-old one)", report.Archived)
+	}
+	if _, err := os.Stat(filepath.Join(tree.DayDir("2026-05-01"), "access.log.gz")); err != nil {
+		t.Errorf("the old day was not compressed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tree.DayDir("2026-05-18"), "access.log")); err != nil {
+		t.Errorf("the recent day should still be plain text: %v", err)
+	}
+}
+
+// A compressed log has to still be readable, or archiving is just a
+// slower delete.
+func TestMaintain_ArchivedLogsAreStillReadable(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+	slog.New(NewHandler(tree, HandlerConfig{})).Warn("a thing worth keeping", In(CategorySecurity))
+
+	now = time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	if _, err := tree.Maintain(DefaultLifecycle()); err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+
+	f, err := os.Open(filepath.Join(tree.DayDir("2026-05-01"), "security.log.gz"))
+	if err != nil {
+		t.Fatalf("opening the archive: %v", err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("gzip.NewReader: %v", err)
+	}
+	raw, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatalf("reading the archive: %v", err)
+	}
+	if !strings.Contains(string(raw), "a thing worth keeping") {
+		t.Errorf("the archived record is missing: %q", raw)
+	}
+}
+
+// The point of the split: the noisy categories go, the ones somebody
+// asks about a year later stay.
+func TestMaintain_KeepsImportantCategoriesLongerThanOrdinaryOnes(t *testing.T) {
+	now := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+
+	logger := slog.New(NewHandler(tree, HandlerConfig{}))
+	logger.Info("a pageview", In(CategoryAccess))
+	logger.Warn("a refused login", In(CategoryAuth))
+	logger.Warn("a refused claim", In(CategorySecurity))
+
+	// Sixty days later: past the ordinary retention, far short of the
+	// important one.
+	now = now.AddDate(0, 0, 60)
+	report, err := tree.Maintain(Lifecycle{ArchiveAfterDays: 7, RetentionDays: 14, ImportantRetentionDays: 365})
+	if err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+	if report.Deleted == 0 {
+		t.Error("nothing was deleted; the ordinary categories are past retention")
+	}
+
+	day := tree.DayDir("2026-01-10")
+	if _, err := os.Stat(filepath.Join(day, "access.log.gz")); !os.IsNotExist(err) {
+		if _, err2 := os.Stat(filepath.Join(day, "access.log")); !os.IsNotExist(err2) {
+			t.Error("access log survived past its retention")
+		}
+	}
+	for _, kept := range []string{"auth.log.gz", "security.log.gz"} {
+		if _, err := os.Stat(filepath.Join(day, kept)); err != nil {
+			t.Errorf("%s was deleted, but important categories are kept for a year: %v", kept, err)
+		}
+	}
+}
+
+// The day being written to must never be touched: its files are open,
+// and compressing one would truncate the handle still being appended to.
+func TestMaintain_NeverTouchesTheActiveDay(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+	logger := slog.New(NewHandler(tree, HandlerConfig{}))
+	logger.Info("first", In(CategoryApp))
+
+	// A policy that would archive and delete everything if it applied.
+	if _, err := tree.Maintain(Lifecycle{ArchiveAfterDays: 0, RetentionDays: 0, ImportantRetentionDays: 0}); err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+
+	// Still writable, and still holding the earlier record.
+	logger.Info("second", In(CategoryApp))
+	lines := readLines(t, filepath.Join(tree.DayDir("2026-05-20"), "app.log"))
+	if len(lines) != 2 {
+		t.Errorf("app.log has %d lines, want 2; maintenance disturbed the active day", len(lines))
+	}
+}
+
+func TestMaintain_RemovesADayDirectoryOnceEverythingInItHasGone(t *testing.T) {
+	now := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+	slog.New(NewHandler(tree, HandlerConfig{})).Info("a pageview", In(CategoryAccess))
+
+	now = now.AddDate(0, 0, 400) // past every retention
+	report, err := tree.Maintain(Lifecycle{ArchiveAfterDays: 7, RetentionDays: 14, ImportantRetentionDays: 365})
+	if err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+	if report.RemovedDays != 1 {
+		t.Errorf("removed %d day directories, want 1", report.RemovedDays)
+	}
+	if _, err := os.Stat(tree.DayDir("2026-01-10")); !os.IsNotExist(err) {
+		t.Error("the emptied day directory survived")
+	}
+}
+
+func TestMaintain_LeavesFilesItDidNotCreate(t *testing.T) {
+	now := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+	slog.New(NewHandler(tree, HandlerConfig{})).Info("x", In(CategoryAccess))
+
+	foreign := filepath.Join(tree.DayDir("2026-01-10"), "somebody-elses-notes.txt")
+	if err := os.WriteFile(foreign, []byte("keep me"), filePerm); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	now = now.AddDate(0, 0, 400)
+	if _, err := tree.Maintain(DefaultLifecycle()); err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("maintenance removed a file it did not create: %v", err)
+	}
+}
+
+func TestCategoryOfFile(t *testing.T) {
+	cases := map[string]struct {
+		want Category
+		ok   bool
+	}{
+		"auth.log":      {CategoryAuth, true},
+		"auth.log.gz":   {CategoryAuth, true},
+		"auth.3.log":    {CategoryAuth, true},
+		"auth.3.log.gz": {CategoryAuth, true},
+		"security.log":  {CategorySecurity, true},
+		"notes.txt":     {"", false},
+		"made-up.log":   {"", false},
+		"":              {"", false},
+	}
+	for name, want := range cases {
+		got, ok := categoryOfFile(name)
+		if ok != want.ok || got != want.want {
+			t.Errorf("categoryOfFile(%q) = %q/%v, want %q/%v", name, got, ok, want.want, want.ok)
+		}
+	}
+}
+
+func TestUsage_SplitsPlainFromCompressed(t *testing.T) {
+	now := time.Date(2026, 5, 1, 10, 0, 0, 0, time.UTC)
+	tree := newTestTree(t, &now)
+	logger := slog.New(NewHandler(tree, HandlerConfig{}))
+	for i := 0; i < 50; i++ {
+		logger.Info("a reasonably long line so compression has something to do", In(CategoryAccess))
+	}
+
+	before, err := tree.Usage()
+	if err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if before.PlainBytes == 0 || before.CompressedBytes != 0 {
+		t.Fatalf("before = %+v, want plain bytes and no compressed ones", before)
+	}
+
+	now = now.AddDate(0, 0, 20)
+	if _, err := tree.Maintain(Lifecycle{ArchiveAfterDays: 7, RetentionDays: 100, ImportantRetentionDays: 365}); err != nil {
+		t.Fatalf("Maintain: %v", err)
+	}
+
+	after, err := tree.Usage()
+	if err != nil {
+		t.Fatalf("Usage: %v", err)
+	}
+	if after.CompressedBytes == 0 {
+		t.Error("nothing is reported as compressed after archiving")
+	}
+	if after.Total() >= before.Total() {
+		t.Errorf("archiving did not reduce the footprint: %d -> %d", before.Total(), after.Total())
+	}
+	t.Logf("footprint %d -> %d bytes (%.0f%% of the original)",
+		before.Total(), after.Total(), 100*float64(after.Total())/float64(before.Total()))
 }

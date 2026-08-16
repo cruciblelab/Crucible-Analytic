@@ -232,3 +232,40 @@ CREATE TABLE IF NOT EXISTS panel_login_attempts (
 -- need to be cheap to scan by time.
 CREATE INDEX IF NOT EXISTS idx_panel_login_attempts_email ON panel_login_attempts (email, at DESC);
 CREATE INDEX IF NOT EXISTS idx_panel_login_attempts_ip ON panel_login_attempts (ip, at DESC);
+
+-- Operational settings: the values a deployment can change while it is
+-- running, as opposed to the handful of bootstrap values that must exist
+-- in a config file before the database is reachable.
+--
+-- The split is what decides whether a support call needs SSH. Anything
+-- here is fixable from the panel; anything in the config file is not.
+--
+-- `key` is deliberately TEXT with no foreign key, and is nonetheless not
+-- a free string: the application validates every key against a closed
+-- registry (internal/panel/settings.go) before writing, and rejects
+-- anything it does not know. Enforcing that in the database would mean a
+-- CHECK constraint listing every key, which would turn adding a setting
+-- into a migration for no additional safety - the panel role is the only
+-- writer here.
+--
+-- `value` is JSONB rather than a text column plus a type column, so a
+-- list-valued setting does not need its own encoding convention.
+CREATE TABLE IF NOT EXISTS panel_settings (
+    scope      TEXT        NOT NULL CHECK (scope IN ('global', 'site')),
+    -- Empty for a global setting. The CHECK below keeps the two from
+    -- drifting apart: a row claiming to be global while naming a site
+    -- would read back as "unset" forever, which is the worst kind of
+    -- storage bug because nothing errors.
+    site_id    TEXT        NOT NULL DEFAULT '',
+    key        TEXT        NOT NULL,
+    value      JSONB       NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by BIGINT      REFERENCES panel_users(id) ON DELETE SET NULL,
+    PRIMARY KEY (scope, site_id, key),
+    CHECK ((scope = 'global') = (site_id = ''))
+);
+
+-- "What is this key set to for this site, falling back to the
+-- deployment-wide row" is the read every service performs on its refresh
+-- interval, so it has to be an index lookup rather than a scan.
+CREATE INDEX IF NOT EXISTS idx_panel_settings_key ON panel_settings (key, site_id);

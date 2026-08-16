@@ -16,15 +16,38 @@ type Config struct {
 	Dir string `toml:"dir"`
 	// Level is "debug", "info", "warn" or "error". Empty means info.
 	Level string `toml:"level"`
-	// RetentionDays is how many day-directories to keep. Zero takes
-	// DefaultRetentionDays; negative disables pruning.
+	// RetentionDays is how long an ordinary category is kept. Zero takes
+	// the default; negative disables deletion.
 	RetentionDays int `toml:"retention_days"`
+	// ImportantRetentionDays is how long security, auth and audit are
+	// kept. They are small and are exactly what somebody asks for a year
+	// later, so they get their own, much longer figure.
+	ImportantRetentionDays int `toml:"important_retention_days"`
+	// ArchiveAfterDays compresses a day's files once they are older than
+	// this. Zero takes the default; negative disables compression.
+	ArchiveAfterDays int `toml:"archive_after_days"`
 	// MaxFileMB rotates a category file once it exceeds this. Zero takes
 	// the default.
 	MaxFileMB int `toml:"max_file_mb"`
 	// AlsoStderr keeps writing to stderr alongside the tree. Useful
 	// under systemd, where journald collects stderr anyway.
 	AlsoStderr bool `toml:"also_stderr"`
+}
+
+// Lifecycle turns the configured numbers into a retention policy,
+// filling in the defaults for anything left at zero.
+func (c Config) Lifecycle() Lifecycle {
+	policy := DefaultLifecycle()
+	if c.RetentionDays != 0 {
+		policy.RetentionDays = c.RetentionDays
+	}
+	if c.ImportantRetentionDays != 0 {
+		policy.ImportantRetentionDays = c.ImportantRetentionDays
+	}
+	if c.ArchiveAfterDays != 0 {
+		policy.ArchiveAfterDays = c.ArchiveAfterDays
+	}
+	return policy
 }
 
 // ParseLevel turns the configured name into a level.
@@ -79,15 +102,20 @@ func Setup(service string, cfg Config) (*slog.Logger, func(), error) {
 		}
 	}
 
-	// Prune once at startup rather than on a timer. A service that runs
-	// for months rolls day directories as it goes, and one that restarts
-	// daily prunes daily; a background goroutine would buy the remaining
-	// case at the cost of a deletion racing a write.
-	if _, err := tree.Prune(); err != nil {
-		// Not fatal. A tree that cannot be pruned still logs, and
-		// refusing to start over stale directories would turn a disk
-		// housekeeping problem into an outage.
-		fmt.Fprintf(os.Stderr, "logging: prune failed: %v\n", err)
+	// One maintenance pass at startup rather than a background timer. A
+	// service that runs for months rolls day directories as it goes, and
+	// one that restarts daily maintains daily; a goroutine would buy the
+	// remaining case at the cost of a deletion racing a write. The
+	// panel's repair operation covers the long-running case explicitly,
+	// which is better than a timer nobody can see.
+	if report, err := tree.Maintain(cfg.Lifecycle()); err != nil {
+		// Not fatal. A tree that cannot be maintained still logs, and
+		// refusing to start over disk housekeeping would turn a
+		// tidiness problem into an outage.
+		fmt.Fprintf(os.Stderr, "logging: maintenance failed: %v\n", err)
+	} else if report.Archived > 0 || report.Deleted > 0 {
+		fmt.Fprintf(os.Stderr, "logging: archived %d, deleted %d, reclaimed %d bytes\n",
+			report.Archived, report.Deleted, report.BytesReclaimed)
 	}
 
 	return slog.New(handler), func() { _ = tree.Close() }, nil

@@ -165,3 +165,23 @@ enabled = false
 # server declined to believe, which is the answer to "why do all my
 # visitors have the same IP". It is verbose by design - in a correct
 # deployment it never fires, in a broken one it fires on every request.
+#
+# The log lifecycle has three stages, not one, because not all logs are
+# equally worth keeping. access and ingest are enormous and interesting
+# for about a week; security, auth and audit are small and are exactly
+# what somebody asks for a year later. A single retention figure would
+# either throw the second group away or keep the first group forever.
+#
+#   plain text  ->  compressed in place  ->  deleted
+#               (archive_after_days)     (retention_days, or
+#                                         important_retention_days for
+#                                         security/auth/audit)
+#
+# A compressed day is still readable and roughly a tenth of the size, so
+# keeping a year of security logs costs about what five weeks of them
+# cost uncompressed.
+# important_retention_days = 365
+# archive_after_days = 7
+#
+# These are also panel settings (logs.* in developer mode), which is
+# where they are meant to be changed once a deployment is handed over.
