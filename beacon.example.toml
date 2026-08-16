@@ -204,7 +204,25 @@ enabled = false
 # harder to notice.
 #
 # Live today: campaign.drop_params, campaign.extra_params,
-# campaign.store_click_ids, beacon.sites. Everything else still needs a
-# restart, and the panel says so rather than pretending otherwise.
+# campaign.store_click_ids, beacon.sites, privacy.ip_storage, logs.level
+# and logs.verbose_until. Everything else still needs a restart, and the
+# panel says so rather than pretending otherwise.
 [settings]
 # interval_seconds = 60
+
+# ---------------------------------------------------------------------
+# What personal data reaches the disk. Mirrors the collector's section of
+# the same name, and has to: the two write the columns the crossover join
+# compares, so masking one and not the other would leave that join
+# finding nothing - with no error to say why.
+[privacy]
+# "masked" (the default) or "full". An absent or empty value means
+# masked. See config.example.toml for what the mode costs and why the
+# masking happens where it does.
+#
+# Live: changing privacy.ip_storage from the panel takes effect on the
+# next event, without a restart. It is not retroactive - rows already
+# written keep whatever was in force when they were written.
+#
+# Changing it needs the developer password, every time.
+# ip_storage = "masked"

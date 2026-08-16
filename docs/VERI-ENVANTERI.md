@@ -45,7 +45,7 @@ Ziyaretçinin hangi sayfaya gittiği bu tabloda **yoktur ve yazılamaz**.
 |---|---|---|---|
 | `time` | zaman damgası | Özetin alındığı an | Tek başına hayır |
 | `site_id` | metin | Hangi site | Hayır |
-| `ip` | IP adresi | **Ziyaretçinin IP adresi** | **Evet** |
+| `ip` | IP adresi | **Ziyaretçinin IP adresi — varsayılan olarak maskeli** (bkz. Bölüm 1.5) | **Evet** |
 | `ja4` | metin | TLS parmak izi (aşağıya bakınız) | Tartışmalı — aşağıda açıklandı |
 | `prev_window_count` | tam sayı | Önceki penceredeki istek sayısı | Hayır |
 | `curr_window_count` | tam sayı | Mevcut penceredeki istek sayısı | Hayır |
@@ -61,6 +61,41 @@ Ziyaretçinin hangi sayfaya gittiği bu tabloda **yoktur ve yazılamaz**.
 adresi (URL), sayfa başlığı, yönlendiren site, çerez, oturum kimliği,
 kullanıcı adı, e-posta, form içeriği. Şemada bunlar için **sütun
 yoktur.**
+
+### 1.5 IP maskeleme — varsayılan davranış (2026-08-16'dan itibaren)
+
+Hukukçu görüşü doğrultusunda **varsayılan maskelidir** ve bu, yazılımın
+kendiliğinden yaptığı şeydir; bir kurulum hiçbir ayar yapmazsa maskeli
+saklar.
+
+| Mod | Ne saklanır | Örnek |
+|---|---|---|
+| `masked` **(varsayılan)** | IPv4 son okteti sıfırlanır (/24), IPv6 /64'e kırpılır | `185.23.45.178` → `185.23.45.0` |
+| `full` | Adres olduğu gibi | `185.23.45.178` |
+
+**Maskeleme yazma anında olur, sonradan değil.** Maskelenmemiş adres
+diske hiç değmez: bellekte kalır, işini yapar, satır yazılırken
+maskelenir. Yani "önce tam kaydedip sonra temizleme" diye bir aşama
+yoktur — temizlenecek bir şey hiç oluşmaz.
+
+**Tam adresin bellekte yaptığı iki iş** (ikisi de kişisel veri
+üretmez):
+1. Ziyaretçi kimliğini türetir (Bölüm 2.3'teki `visitor_id`) — bu, aynı
+   /24 arkasındaki iki kişinin ayrı sayılabilmesini sağlar.
+2. Ülke/operatör çözümlemesi yapar — maskeli adresten çözümlenseydi
+   sonuç ziyaretçinin değil, ağ bloğunun kaydına ait olurdu.
+
+**Maskelemenin bedeli, açıkça:** iki veri kaynağını birleştiren analiz
+(collector ↔ beacon) /24 çözünürlüğünde çalışır. Aynı /24 içindeki iki
+farklı ziyaretçi bu birleşimde tek satır gibi görünebilir. Panel bunu
+gizlemez; ilgili görünümler "bu kurulumda IP maskeleme açık" der.
+
+**Geriye dönük değildir.** Mod değiştiğinde eski satırlar olduğu gibi
+kalır. Değişimin ne zaman yapıldığı, kim tarafından yapıldığı ve önceki
+değerin ne olduğu **silinemez denetim kaydına** yazılır
+(`panel_audit_log`).
+
+**Bu ayarı değiştirmek ayrı bir şifre ister** — Bölüm 8.5.
 
 ### JA4 (TLS parmak izi) hakkında — hukukçu için önemli ayrım
 
@@ -112,7 +147,7 @@ Sayfa görüntüleme başına bir satır.
 | `click_id` | metin | Ham tıklama kimliği — **varsayılan olarak BOŞ**, aşağıya bakınız | **Evet, saklanırsa** |
 | `referrer_host` | metin | Gelinen sitenin alan adı (`google.com`) | Hayır |
 | `referrer_path` | metin | Gelinen sitedeki yol — **sorgu dizesi tamamen atılır** | Hayır |
-| `ip` | IP adresi | **Ziyaretçinin IP adresi** (iki tabloyu birleştiren anahtar) | **Evet** |
+| `ip` | IP adresi | **Ziyaretçinin IP adresi — varsayılan olarak maskeli** (iki tabloyu birleştiren anahtar; bkz. Bölüm 1.5) | **Evet** |
 | `browser` | metin | Sunucuda User-Agent'tan çıkarılır (`Chrome`) | Hayır |
 | `os` | metin | Sunucuda çıkarılır (`Windows`) | Hayır |
 | `device` | metin | `desktop` / `mobile` / `tablet` | Hayır |
@@ -324,12 +359,9 @@ süresinden bağımsız olarak işleyen teknik bir kısıttır.
 
 Bunlar **yazılmadı**, kararlaştırıldı:
 
-**IP saklama modu seçeneği.** İki değerli bir ayar:
-- `tam` — bugünkü hâl, IP adresi tam saklanır.
-- `maskeli` — IPv4'ün son okteti sıfırlanır, IPv6 /64'e kırpılır.
-
-Müşteri "KVKK ile uğraşmak istemiyorum" derse maskeli mod seçilir.
-Teknik bedeli: iki veri kaynağını birleştiren analiz zayıflar.
+> **Not (2026-08-16):** Bu bölümde daha önce "planlanan" diye duran **IP
+> saklama modu artık yazıldı ve varsayılanı maskeli.** Ayrıntısı Bölüm
+> 1.5'te. Aşağıdakiler hâlâ yazılmamış olanlardır.
 
 **Ziyaretçiye dönük gizlilik kartı.** Sitenin gizlilik/çerez sayfasına
 gömülebilen küçük bir bileşen. Ziyaretçi kendisi hakkında ne
@@ -373,6 +405,46 @@ Bu, tedarikçiye müşterinin analitik verisine erişim sağladığı için,
 muhtemelen bir **veri işleyen sözleşmesi** gerektirir. Jeton
 oluşturulmazsa tedarikçinin hiçbir erişimi olmaz.
 
+### 8.5 Hukuki ağırlıklı ayarların ayrı şifreye bağlanması
+
+Yukarıdaki erişim kuralları "panele kim girebilir" sorusunu
+cevaplıyor. Ondan ayrı bir soru daha var: **panele girmiş biri, saklanan
+kişisel verinin kapsamını tek başına değiştirebilmeli mi?**
+
+Cevabımız hayır. Aşağıdaki yedi ayarın her değişikliği, panel
+şifresinden **başka** bir şifre ister:
+
+| Ayar | Neye karar verir |
+|---|---|
+| `privacy.ip_storage` | IP tam mı maskeli mi saklanır (Bölüm 1.5) |
+| `analytics.retention_days` | Ziyaret kayıtlarının saklama süresi |
+| `logs.retention_days` | Erişim kayıtlarının (IP içerir) saklama süresi |
+| `logs.important_retention_days` | Güvenlik/kimlik doğrulama kayıtlarının süresi |
+| `campaign.drop_params` | Hangi kampanya parametresi hiç yazılmaz (`utm_term` dâhil) |
+| `campaign.extra_params` | İçeriğini denetlemediğimiz ek alanların saklanması |
+| `campaign.store_click_ids` | Ham reklam tıklama kimliğinin saklanması |
+
+Bu şifrenin özellikleri, hukuki değerlendirmeyi ilgilendirdiği ölçüde:
+
+- **Veritabanında değil, sunucudaki yapılandırma dosyasında durur** ve
+  orada da yalnızca **hash'lenmiş** hâliyle bulunur. Düz metin hiçbir
+  yerde saklanmaz; hash'ten şifre geri türetilemez.
+- **Her değişiklikte yeniden sorulur.** Oturum açık kalmaz, "bir kez
+  girdim, on dakika geçerli" yoktur. Bu bir tercih değil, kodun yapısal
+  özelliği: doğrulamanın ürettiği yetki saniyeler içinde geçersizleşir
+  ve yalnızca o tek ayar için geçerlidir.
+- **Her deneme — başarılı da başarısız da — silinemez denetim kaydına
+  yazılır** (`panel_audit_log`), kim denedi, hangi ayar için, hangi
+  adresten.
+- **Şifre tanımlı değilse bu ayarlar hiç değiştirilemez** ve
+  varsayılanlarında (en korumacı değerlerde) kalır.
+
+Pratik sonucu: müşterinin personeli, panele tam yetkiyle girmiş olsa
+bile, saklanan kişisel verinin kapsamını kendi başına genişletemez.
+Bunun için sunucuya erişimi olan tarafın (Crucible) katılımı gerekir —
+ki bu da yukarıdaki işleyen/sorumlu tartışmasının kayda geçen bir
+parçasıdır.
+
 ---
 
 ## 9. Güvenlik önlemleri — teknik ve idari tedbirler başlığı için
@@ -398,8 +470,10 @@ oluşturulmazsa tedarikçinin hiçbir erişimi olmaz.
 
 ## 10. Hukukçuya sorulmasını önerdiğimiz sorular
 
-1. IP adresi **tam mı, maskeli mi** saklanmalı? (Maskeli mod ürünün bir
-   analiz yeteneğini zayıflatır — bu bir maliyet/uyum dengesidir.)
+1. ~~IP adresi **tam mı, maskeli mi** saklanmalı?~~ **Cevaplandı:
+   maskeli.** Yazıldı ve varsayılan yapıldı (Bölüm 1.5). Kalan soru
+   dar: belirli bir müşteri için tam adres gerekçelendirilebilir mi, ve
+   gerekçelendirilirse bu neye dayanır?
 2. **Saklama süresi** ne olmalı? Varsayılan öneri 90 gün.
 3. **Açık rıza gerekli mi?** Sistem çerez kullanmadığı, kalıcı
    tanımlayıcı üretmediği ve siteler arası takip yapamadığı için meşru
@@ -430,6 +504,16 @@ doğrulanabilir:
 | Bölüm | Kaynak dosya |
 |---|---|
 | 1 | `internal/storage/schema.sql` |
+| 1.5 | `internal/privacy/ip.go`, `internal/storage/row.go`, `internal/beacon/server.go` |
 | 2 | `internal/beacon/schema.sql`, `internal/beacon/event.go`, `internal/beacon/visitor.go`, `internal/beacon/beacon.js` |
 | 3 | `internal/panel/schema.sql` |
 | 4 | `internal/asnlookup/schema.sql` |
+| 8.5 | `internal/devgate/devgate.go`, `internal/panel/settings.go` (`GuardedKeys`) |
+
+Bölüm 1.5 ve 8.5'teki iddialar ayrıca **çalışan sistemde** doğrulandı,
+belgeden değil: gerçek bir tarayıcı gerçek beacon sürecine olay
+gönderdi ve veritabanına düşen değer okundu; şifre kapısı gerçek bir
+form üzerinden, gerçek bir tarayıcıyla denendi. Testleri:
+`internal/privacy/ip_test.go`, `internal/beacon/server_test.go`,
+`internal/panel/settings_integration_test.go`,
+`internal/panel/devpassword_browser_test.go`.

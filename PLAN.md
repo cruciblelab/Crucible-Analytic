@@ -26,19 +26,20 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-16. Bu bölüm her faz sonunda güncellenir ve
-belgenin geri kalanını okumadan "nerede kaldık" sorusunu cevaplar.*
+*Son güncelleme: 2026-08-16 (A7 + A7.5 sonrası). Bu bölüm her faz
+sonunda güncellenir ve belgenin geri kalanını okumadan "nerede kaldık"
+sorusunu cevaplar.*
 
-**Rakamlar:** 15 iç paket, ~28.800 satır Go, 51 test dosyası, 3 çalışan
-binary. Panel binary'si (`cmd/panel`) **henüz yok** — en büyük tek
-boşluk bu.
+**Rakamlar:** 18 iç paket, 4 binary (`collector`, `beacon`,
+`analytics-api`, `devpass`), 56 test dosyası. Panel binary'si
+(`cmd/panel`) **henüz yok** — en büyük tek boşluk bu.
 
 ### Gruplar
 
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **bitti** | — |
-| **A** Ayarlar ve saklama | 🟡 **3/9** | A2, A3, A4, A5, A7, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **5/10** | A2, A3, A4, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **1/8** | C1, C2, C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
@@ -57,8 +58,13 @@ boşluk bu.
   kategori bazlı saklama (sıradan 14 gün, önemli 365 gün), ölçülen %6
 - **A6** *(mekanizma)* Canlı ayar okuma — son bilinen değeri koruyan
   önbellek; beacon'da 5 ayar bağlı
-- **C2.5** Kurulum sihirbazının son adımı — 10 manuel adım, 13 otomatik
+- **C2.5** Kurulum sihirbazının son adımı — 11 manuel adım, 14 otomatik
   kontrol, ikisi negatif (rol yalıtımı)
+- **A7** IP saklama modu — **varsayılan maskeli** (hukukçu kararı),
+  yazma anında ve son adımda; ülke/ASN ve ziyaretçi kimliği tam
+  adresten türetiliyor
+- **A7.5** Geliştirici şifresi kapısı — 7 hukuki ağırlıklı ayar, her
+  seferinde soruluyor, hash'li, yapılandırma dosyasından
 
 ### Sıradaki üç iş, önem sırasıyla
 
@@ -78,6 +84,9 @@ boşluk bu.
 |---|---|
 | Panelde "Kontrol et" düğmesi yok | C1–C7 |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
+| **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
+| **Collector'da mod yalnız dosyadan okunuyor, canlı değil** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok) |
+| **Mod değişiminin tarihi denetim kaydından okunmalı** | **D5** (mekanizma hazır: `ActionSettingChanged` eski değeri taşıyor) |
 | `logs.level` yalnız beacon'da bağlı | A6-devam |
 | Collector tarafı canlı ayarlar (limit, geo, skor, flush) | A6-devam |
 | Sıkıştırılmış log görüntüleyicide açılmalı | B1 |
@@ -85,13 +94,15 @@ boşluk bu.
 | Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
 | `GRANT SELECT` elle veriliyor | F2 |
 | Verbose penceresi kullanıcıya yerel saatte gösterilmeli | C4 |
-| `utm_term` varsayılanı | **hukukçudan cevap bekliyor** |
+| **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C1–C7** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
+| `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
 
 ### Beklenen kararlar (senden)
 
-1. **IP tam mı maskeli mi** — hukukçu girdisi, A7'ye girecek
+1. ~~**IP tam mı maskeli mi**~~ — ✅ **cevaplandı: maskeli.** Yazıldı,
+   varsayılan yapıldı, doğrulandı (A7)
 2. **Analitik saklama süresi** (öneri 90 gün) — A4'e girecek
 3. **"Site" tanımı** — alt alan adları tek site mi (öneri: evet, A5'e
    girer, maliyeti ~sıfır)
@@ -1462,7 +1473,19 @@ Her fazın sonunda kalan riskler burada toplanıyor ve **hangi fazın işi
 olduğu** yazılıyor. Bir riski "kalan" diye bırakmak, onu unutmakla aynı
 şey değil — ama ancak sahibi belliyse.
 
-**Bu fazda kapatıldı:**
+**A7 + A7.5 fazında kapatıldı:**
+
+| Risk | Nasıl |
+|---|---|
+| IP tam saklanıyordu, karar beklemedeydi | Hukukçu cevabı geldi: **varsayılan maskeli.** Ayar değil, varsayılan önemliydi — okunmayan ayar üretime giden ayardır, o yüzden her geri düşüş noktası (boş config anahtarı, bozuk ayar satırı, doldurulmamış struct alanı) maskeliye düşüyor |
+| Maskeleme coğrafyayı ve ziyaretçi sayımını sessizce bozabilirdi | Sıralama teste bağlandı: çözümleyiciye **hangi adresin sorulduğu** doğrulanıyor, yalnız çıktı değil. İki ziyaretçi aynı /24'te tek satıra düşüyor ama **iki ayrı ziyaretçi kimliği** üretiyor |
+| İki yazıcı farklı maskeleyebilirdi | Tek paket (`internal/privacy`). Kesişim birleşiminin karşılaştırdığı iki sütunu yazan taraflar aynı fonksiyonu çağırıyor; bir bitlik anlaşmazlık o birleşimi **hatasız biçimde boş** döndürürdü |
+| Hukuki ağırlıklı ayarları panele giren herkes değiştirebiliyordu | Ayrı şifre, yapılandırma dosyasından, hash'li, **her seferinde**. Kural hatırlamaya değil derlemeye bağlı: `SetSetting` korumalı anahtarı reddediyor, yetkinin geçerlilik alanı dışa kapalı |
+| Sıfırlama kapıyı atlatabilirdi | `ResetSetting` de korumalı. `campaign.drop_params` varsayılanı boş liste — "varsayılana dön" demek "utm_term'i saklamaya başla" demek |
+| Kapının kendisi 19 MiB'lık DoS aracı olabilirdi | Doğrulamalar seri, kuyruk sınırlı, ardışık hatalar pencereli sayaçla durduruluyor |
+| Yanlış yazılmış hash sonsuza kadar "yanlış şifre" gibi görünürdü | Açılışta reddediliyor. Düz metin şifre alanı da: yok sayılmıyor, **hata veriyor** |
+
+**Önceki fazlarda kapatılanlar:**
 
 | Risk | Nasıl |
 |---|---|

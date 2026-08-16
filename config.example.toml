@@ -90,3 +90,30 @@ blocked_asns = []        # e.g. [64512]
 # the score (a blocked ASN never reaches scoring, so reusing blocked_asns
 # here wouldn't do anything).
 known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendation
+
+# ---------------------------------------------------------------------
+# What personal data reaches the disk.
+#
+# Its own section rather than a key under [storage], because these are
+# not storage decisions - they are answers to legal questions, and
+# somebody reading this file to find out what the deployment keeps should
+# find them together.
+[privacy]
+# "masked" (the default) or "full".
+#
+# masked zeroes an IPv4 address's last octet (/24) and truncates IPv6 to
+# /64. An absent or empty value means masked: the setting nobody sets is
+# the one that ends up in production, so it has to be the one that stores
+# less.
+#
+# The masking happens when the row is built, and as the last step - the
+# whole address derives the visitor id and resolves country and ASN
+# first. So masked mode costs neither geography nor visitor counts. What
+# it does cost is resolution in the crossover join between
+# traffic_snapshots and beacon_events: two visitors in one /24 become one
+# row there. The panel says so rather than showing a smaller number
+# without explanation.
+#
+# Changing this from the panel requires the developer password - see the
+# [developer] section in the panel's config and cmd/devpass.
+# ip_storage = "masked"

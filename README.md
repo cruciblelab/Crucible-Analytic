@@ -530,6 +530,17 @@ country, ASN and visitor ID.
 
 ### Privacy model
 
+- **IP addresses are masked by default.** IPv4 keeps its /24, IPv6 its
+  /64, in both `traffic_snapshots` and `beacon_events`. The masking
+  happens when the row is built and as the *last* step: the whole address
+  derives the visitor id and resolves country and ASN first, so masked
+  mode costs neither of those. What it does cost is resolution in the
+  crossover join - two visitors in one /24 become one row there - and the
+  views that use it say so rather than quietly showing a smaller number.
+  An unset config key, an unreadable settings row and an unset struct
+  field all mean masked: the value nobody sets is the one that reaches
+  production. Set `privacy.ip_storage = "full"` to keep whole addresses,
+  which needs the developer password (below).
 - **No cookies, and no consent banner needed.**
   `visitor_id = HMAC(daily_salt, site_id ‖ ip ‖ user_agent)`, the
   construction Plausible popularized. The salt is random, held only in
@@ -804,6 +815,57 @@ other field has a default. `config.toml` is gitignored since
 | `asn_lookup.blocked_countries`      | `[]`                 | ISO 3166-1 alpha-2 codes (case-insensitive); a match rejects the connection/request outright, regardless of `limits.overload_policy` - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.blocked_asns`           | `[]`                 | ASN numbers; same reject behavior as `blocked_countries`, checked independently. |
 | `asn_lookup.known_bot_asns`         | `[]`                 | ASN numbers; only consulted when `apply_to_scoring = true`. A match adds a flat bonus to the bot-likelihood score instead of blocking - a separate list from `blocked_asns`, since a blocked ASN never reaches scoring. |
+| `privacy.ip_storage`                | `"masked"`           | `"masked"` (IPv4 /24, IPv6 /64) or `"full"`. Empty means masked. Applied when the row is built, after the visitor id and the geography are derived from the whole address - see "Privacy model" above. |
+
+## The developer password
+
+A short list of settings changes what personal data this deployment
+stores, or for how long: `privacy.ip_storage`,
+`analytics.retention_days`, `logs.retention_days`,
+`logs.important_retention_days`, `campaign.drop_params`,
+`campaign.extra_params`, `campaign.store_click_ids`.
+
+Changing any of them from the panel needs a second password, separate
+from the one the operator logged in with. The panel password answers
+"who are you"; this one answers "may you make this particular change",
+and its answer has to come from somebody with access to the server
+rather than to the panel.
+
+It lives in the config file, only as an argon2id hash:
+
+```bash
+go run ./cmd/devpass          # prompts twice, no echo
+```
+
+```toml
+[developer]
+password_hash = "$argon2id$v=19$m=19456,t=2,p=1$..."
+```
+
+Putting a plaintext password in a `password` key is refused at startup
+rather than ignored, and a mistyped hash is refused too - otherwise it
+would behave exactly like a permanently wrong password, with nothing
+anywhere to say why.
+
+Four properties are worth knowing before relying on it:
+
+- **It is asked every single time.** Verifying produces an
+  authorization that names one setting and expires in seconds, so
+  nothing can hold one to skip the next prompt. There is no session.
+- **With no hash configured, the gate is shut.** Those settings keep
+  their defaults and cannot be changed from the panel at all. Since the
+  defaults are the privacy-preserving values, failing closed costs
+  nothing that should be free. The setup wizard reports this
+  (`config.developer_password`) rather than leaving it to be discovered
+  by being refused.
+- **Every attempt is recorded**, granted or refused, in the append-only
+  audit log - which the panel's database role may INSERT into but not
+  UPDATE or DELETE.
+- **Repeated failures stop being answered.** One verification is
+  deliberately ~19 MiB of argon2 work, so verifications are serialised
+  behind a bounded queue and a run of wrong answers closes the gate for
+  a while. Without that, the gate would be a denial-of-service amplifier
+  aimed at the machine the collector runs on.
 
 ## Testing
 

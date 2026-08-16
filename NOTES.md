@@ -1153,3 +1153,135 @@ The largest remaining gap is stated plainly because it shapes what to do
 next: every one of those is a callable function and none of them is
 clickable. `cmd/panel` does not exist. Group C is what turns a tested
 data layer into a product, and everything under it is already tested.
+
+## Masked addresses, and a second password on the settings that carry weight
+
+Two things landed together because they answer one question from
+opposite ends: what personal data does this keep, and who gets to change
+that answer.
+
+### The default is the decision
+
+Counsel's answer on IP storage was masked, so masked is what the
+software does. The option to store whole addresses exists, but almost
+nothing about this change is about the option - it is about the default,
+because the default is what runs.
+
+Nobody installing this will read every setting. Whatever the unread ones
+say is what ends up in production, on every deployment, permanently. So
+every path that could produce a mode now produces `masked` when it has
+nothing better to go on: an absent `[privacy]` section, an empty
+`ip_storage` key, a settings row containing a typo, a `RowOptions` a
+future caller forgot to fill in, a `beacon.Server` built without the
+field. None of those is a case anyone plans for. All of them happen.
+
+There is one deliberate asymmetry. `privacy.ParseIPMode` falls back
+silently, because it is read on the request path from a table a running
+service does not control, and a bad value there must not stop the
+service. `config.Validate` refuses the same bad value outright, because
+somebody is standing at the file and can fix it, and a deployment that
+wrote `tam` expecting whole addresses should be told it did not get them
+rather than finding out in a year.
+
+### The ordering is the whole trick
+
+Masking happens when the row is built, and as the last step before it is
+built. The whole address does two jobs first: it derives the cookieless
+visitor id, and it resolves country and ASN. Then it is masked, and the
+masked value is what exists from there on.
+
+Get that order wrong and nothing breaks. Two visitors behind one /24
+would collapse into one visitor id, and the geography would resolve the
+network's registration instead of the visitor's. No error, no log line -
+just numbers that are quietly different from the ones the customer had
+last week. That failure mode is the reason there is a test asserting
+which address the resolver was *asked* about, rather than only asserting
+what came out.
+
+The masking itself lives in `internal/privacy` rather than in each
+writer, and that is not tidiness. The collector and the beacon write the
+two columns the crossover join compares. Two implementations that
+disagree by one bit would make that join return nothing, and returning
+nothing looks exactly like "this customer has no crossover traffic".
+
+### What masking costs, said out loud
+
+The crossover join still works, at /24 resolution. Two visitors in one
+/24 become one row there. That is a real loss on the project's own
+distinguishing feature, and the honest thing is for the affected views to
+say so - not to show a smaller number with no explanation, and not to
+hide the feature. That is D5's rule, and it now has a concrete case to
+apply it to.
+
+Switching modes is not retroactive, which raises a question the panel has
+to answer honestly: it cannot claim "all addresses are masked" when some
+rows predate the switch. It does not need a per-row column for that. The
+setting change is already in the append-only audit log, with its old
+value and its timestamp, so the panel can say when masking started
+instead of implying it was always on.
+
+### Why the second password is not the panel password
+
+The panel password answers "who are you". Changing whether whole IP
+addresses are stored asks something else: "are you entitled to make this
+particular change". If those are the same key, then everyone who can
+reach the panel - the customer, their intern, whoever picked up a stolen
+session - can quietly widen what this system keeps about people. Those
+are not operational settings. They are the ones somebody has to answer
+for afterwards.
+
+So the second password comes from the config file, which means changing
+it needs a shell on the server, which means neither the customer nor
+anything that compromised the panel process can change it without also
+getting one. It is stored only as an argon2id hash. A plaintext
+`password` key exists in the config struct purely so that putting a
+password there is a startup error with a useful message instead of an
+unrecognised key that TOML drops without a word.
+
+### Making the rules structural rather than remembered
+
+Every rule here is enforced by something that fails loudly, because a
+rule enforced by everyone remembering is a rule with a half-life:
+
+- *Asked every time.* `Verify` returns an `Authorization` that names one
+  action and expires in seconds. A handler that stashed one to save the
+  user a second prompt would find it useless a moment later, and there
+  is a test that says so.
+- *Cannot be forged.* The field that makes an `Authorization` valid is
+  unexported and has no setter. Another package can declare one; it
+  cannot make a valid one. That is the compiler, not a review checklist.
+- *Cannot be moved sideways.* Verifying to change the log retention does
+  not authorize turning masking off.
+- *Cannot be routed around.* `SetSetting` refuses guarded keys outright.
+  Only `SetGuardedSetting` writes them, and only against an
+  authorization. A call site added next year cannot forget a check it is
+  unable to compile without - which is why the check lives on the write
+  path rather than in the handler that happens to exist today.
+- *Reset is a write.* `ResetSetting` is guarded too. For
+  `campaign.drop_params` the default is the empty list, so "reset to
+  default" means "start storing utm_term again". A gate covering writes
+  but not resets would have a way around it that reads as tidying up.
+
+Two smaller decisions worth recording. The gate fails closed when no hash
+is configured, which is only acceptable because the defaults are the
+privacy-preserving values - fail-closed on a setting whose default was
+the permissive one would be a different and much worse decision. And
+verifications are serialised behind a bounded queue, because one argon2
+run is deliberately ~19 MiB: an endpoint that runs one per request is an
+amplifier pointed at the machine the collector is supposed to be
+protecting. The gate that took the site down when somebody leaned on it
+would not have been protecting anything.
+
+### Why it is its own package
+
+`internal/devgate` knows nothing about databases or HTTP. It verifies,
+throttles, and reports; the caller supplies an audit hook. That is what
+lets it be imported wherever a guarded operation turns up next -
+purging analytics, exporting a customer's data, rotating a token -
+without dragging the panel's data layer along behind it.
+
+`internal/argon2id` came out of the same work for a duller reason: the
+panel and the gate both need PHC parsing with bounds checks on what a
+stored hash claims about its own cost, and two copies of those checks
+would be two places to forget them. The whole value of a bound like
+"refuse m=16777216 before argon2 sees it" is that it is never missing.

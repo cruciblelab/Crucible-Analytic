@@ -4,8 +4,12 @@ package panel
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"os"
 	"testing"
+
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
 // A hand-run demonstration against whatever is actually deployed, so the
@@ -20,6 +24,18 @@ func TestPreflightDemo(t *testing.T) {
 	}
 	store := newTestStore(t, "demo")
 
+	// Built from whatever hash the deployment actually has, so the run
+	// shows the real state rather than skipping the check. An empty
+	// CRUCIBLE_DEV_PASSWORD_HASH is itself a real state - it is what a
+	// deployment that never ran cmd/devpass looks like - and the warning
+	// it produces is the informative one.
+	gate, err := devgate.New(
+		devgate.Config{PasswordHash: os.Getenv("CRUCIBLE_DEV_PASSWORD_HASH")},
+		devgate.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatalf("devgate.New: %v", err)
+	}
+
 	results := store.RunPreflight(context.Background(), PreflightConfig{
 		LogDir:  logDir,
 		DataDir: "/",
@@ -27,7 +43,8 @@ func TestPreflightDemo(t *testing.T) {
 			"beacon": "http://127.0.0.1:8081/healthz",
 			"api":    "http://127.0.0.1:8080/healthz",
 		},
-		Roles: PreflightRoles{Beacon: "beacon_writer", API: "analytics_reader", Panel: "panel_user"},
+		Roles:         PreflightRoles{Beacon: "beacon_writer", API: "analytics_reader", Panel: "panel_user"},
+		DeveloperGate: gate,
 	})
 
 	icon := map[CheckStatus]string{CheckPass: "OK  ", CheckFail: "HATA", CheckWarn: "UYAR", CheckSkip: "----"}
