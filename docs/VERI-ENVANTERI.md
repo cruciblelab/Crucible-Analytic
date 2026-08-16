@@ -445,6 +445,17 @@ Bunun için sunucuya erişimi olan tarafın (Crucible) katılımı gerekir —
 ki bu da yukarıdaki işleyen/sorumlu tartışmasının kayda geçen bir
 parçasıdır.
 
+**Müşteri de bu ayarlara erişir — ama değiştiremez.** Bu ayrım
+kasıtlıdır ve gerekçesi ikilidir: (1) bunlar normalde doğrudan
+sunucudaki yapılandırmadan verilen ayarlardır, panelden değiştirilmesi
+sistemin işleyişini bozabilir; (2) bir kısmı — Bölüm 8.5'teki yedi
+ayar — hangi kişisel verinin ne kadar süre saklandığına karar verir.
+Müşteri değeri ve gerekçesini görür, kilidi ve nedenini okur;
+değişiklik gerekiyorsa geliştiriciye iletir ve geliştirici sunucuya
+bağlanıp yapar. Bu, veri sorumlusu/işleyen ayrımı açısından kayda
+değer olabilir: **kapsamı genişletme kararı fiilen geliştiricinin
+katılımını gerektirir.**
+
 **Ama gizlenmiyor.** Bu, hukuki değerlendirme açısından önemli olabilir:
 müşteri bu yedi ayarın **hepsini, güncel değerleriyle ve gerekçeleriyle
 birlikte** kendi panelinde görür. Göremediği tek şey değiştirme

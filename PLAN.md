@@ -71,7 +71,12 @@ sorusunu cevaplar.*
   site için hedefli temizlik
 - **A7.6** Görünürlük ≠ yazılabilirlik — müşteri **her ayarı görür**
   (değeri, kaynağı, gerekçesi), geliştirici ayarlarında kontrol yok,
-  hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir
+  hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir.
+  Kilit metni üç şeyi söylüyor: ne olduğu, **ne bozulacağı**, ve ne
+  yapılacağı ("bize iletin, sunucuya bağlanıp biz yaparız"). Bugün
+  kayıttaki **her ayar** geliştiriciye ait, yani müşterinin ayar sayfası
+  tamamen salt-okunur — bu bilinçli, ve müşteriye açık bir ayar
+  eklendiğinde testin kırılması bunu tekrar sordurmak için
 
 ### Sıradaki üç iş, önem sırasıyla
 

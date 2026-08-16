@@ -310,6 +310,12 @@ var registry = map[Key]Definition{
 		Default: 90, Min: 1, Max: 3650,
 		Label: "Analitik verisi saklama süresi (gün)",
 		Help:  "Bu süreden eski ziyaret kayıtları silinir.",
+		// Both flags, and the second is not redundant. The password is
+		// the stronger guard, but if it were ever lifted this setting
+		// would fall back to operator-owned rather than all the way to
+		// customer-writable. A guard that degrades to the safe state
+		// when it is removed is worth the duplicated line.
+		Developer: true,
 
 		RequiresDeveloperPassword: true,
 		GateReason: "Ziyaret kayıtlarının ne kadar süre saklanacağı, KVKK'nın " +

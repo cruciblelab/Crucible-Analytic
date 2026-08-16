@@ -1419,3 +1419,41 @@ its config file, because the collector has no live-settings reader yet.
 Two tables configured in two places is a gap, not a design, and it
 belongs to A6-devam. It is written in both config files so that whoever
 meets it knows it is known.
+
+## Why a customer may not change a developer setting
+
+Worth writing down plainly, because the reason is not "they are ours" -
+that is an assertion, and an assertion is what makes a panel feel
+arbitrary.
+
+The reason is what would actually happen. These settings mirror what is
+normally given directly in the server's configuration. A customer
+changing one from the panel either disturbs how the system runs, or
+switches on a technical surface whose output then has to be interpreted -
+fingerprints, per-address detail, debug logging. Neither is something to
+find out by trying it on a live deployment, and neither is something the
+customer signed up to operate. On top of that, seven of them decide what
+personal data is kept and for how long, which is a different kind of
+problem again.
+
+So the lock notice says three things and the tests enforce all three:
+what it is, what would go wrong, and what to do instead - "tell us and we
+will connect and do it". The third is the one usually left out, and it is
+the one that decides whether the customer feels governed or stonewalled.
+
+Two safety properties came out of stating it this way:
+
+**Guarded implies operator-owned.** analytics.retention_days was guarded
+by the password but not marked Developer, so lifting the password guard
+would have handed it straight to the customer rather than dropping it
+back to read-only. A guard should degrade to the safe state when it is
+removed, not to the permissive one. There is now a test asserting every
+guarded setting carries both flags.
+
+**Every setting is currently operator-owned.** That means a customer's
+settings page is entirely read-only today, which is intended rather than
+an oversight - but it also means the writable path is unreachable for a
+customer, so nothing exercises it. A test asserts the current state, and
+it is written to fail the moment a customer-facing setting is added. That
+failure is the reminder to ask whether the new setting really is theirs
+to change.

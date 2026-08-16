@@ -109,26 +109,44 @@ func (a Access) MayAttemptDeveloperPassword() bool {
 	return a.operator() && a.Can(CapManageSettings)
 }
 
-// Lock notices. Turkish, because they are read by the customer.
+// Lock notices. Turkish, because the customer reads them.
+//
+// Each says three things, in this order: that the setting is not theirs
+// to change, *why* - in terms of what would actually go wrong - and what
+// to do instead. The last part matters as much as the first. A customer
+// told only "you cannot change this" is a customer who concludes the
+// panel is broken or that we are being difficult; a customer told "tell
+// us and we will connect and do it" has been given the actual route.
 const (
 	// LockNoticeOperator explains an ordinary operator-owned setting.
-	LockNoticeOperator = "Bu ayarı geliştirici yönetiyor. Sunucular geliştiricinin " +
-		"sorumluluğunda olduğu için panelden değiştirilemez — ama gizlenmiyor: " +
-		"değerini ve ne işe yaradığını burada görebilirsiniz. Değişmesi " +
-		"gerekiyorsa geliştiriciye iletin."
+	//
+	// The reason is concrete rather than proprietary: these mirror what
+	// is normally set on the server itself, and changing one either
+	// disturbs how the system runs or switches on technical surfaces
+	// that then have to be interpreted. Neither is a thing to discover
+	// by trying it on a live deployment.
+	LockNoticeOperator = "Bu ayarı geliştirici yönetiyor. Normalde doğrudan sunucudaki " +
+		"yapılandırmadan verilen ayarlardır; buradan değiştirilmesi ya sistemin " +
+		"işleyişini bozar ya da yorumlanması ayrı bilgi isteyen teknik alanları " +
+		"açar. Bu yüzden değeri görünür, kontrolü kapalıdır. Değişmesi gerekiyorsa " +
+		"bize iletin: sunucuya bağlanıp biz yaparız."
 
 	// LockNoticeLegal explains a guarded one. It says more, because the
-	// reason is different in kind: not "we own the machine" but "this
-	// decides what personal data is kept".
+	// reason is different in kind: not "this could break something" but
+	// "this decides what personal data is kept".
 	LockNoticeLegal = "Bu ayar hukuki sorumluluk doğuran bir ayardır: hangi kişisel " +
 		"verinin saklandığına veya ne kadar süre tutulduğuna karar verir. " +
 		"Geliştirici bu alanlar için ayrı bir şifre kuralı getirdi ve şifre " +
 		"sunucudaki yapılandırma dosyasında durur; panelden — tam yetkili bir " +
-		"hesapla bile — değiştirilemez. Değeri ve gerekçesi burada açıkça yazılıdır."
+		"hesapla bile — değiştirilemez. Değeri ve gerekçesi burada açıkça yazılıdır. " +
+		"Değişmesi gerekiyorsa bize iletin: sunucuya bağlanıp biz yaparız."
 
 	// LockNoticeViewer explains the ordinary "your role does not include
-	// changing settings" case, which is not about the operator at all.
-	LockNoticeViewer = "Bu ayarı görebilirsiniz; değiştirmek için ayar yönetimi yetkisi gerekir."
+	// changing settings" case, which is not about the operator at all -
+	// and must not be worded as if it were, or a viewer would go asking
+	// us for something their own owner can grant.
+	LockNoticeViewer = "Bu ayarı görebilirsiniz; değiştirmek için ayar yönetimi yetkisi gerekir. " +
+		"Bu yetkiyi kendi hesabınızın sahibi verebilir."
 )
 
 // SettingView is one row of the settings page: what the setting is, what

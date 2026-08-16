@@ -1,6 +1,9 @@
 package panel
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The rule, as a table: who sees what, and who may touch it.
 //
@@ -151,4 +154,73 @@ func reasonsSuffix(p DeveloperPasswordPrompt) string {
 		out += "\n\n- " + reason.Label + ": " + reason.Reason
 	}
 	return out
+}
+
+// A customer stopped at a control has three questions, and the notice
+// has to answer all three or it produces a support ticket instead of an
+// understanding: what is this, why can't I, and what do I do now.
+//
+// The third is the one usually left out, and it is the one that decides
+// whether the customer feels governed or stonewalled.
+func TestLockNotices_SayWhyAndWhatToDoNext(t *testing.T) {
+	for name, notice := range map[string]string{
+		"operator-owned": LockNoticeOperator,
+		"legal":          LockNoticeLegal,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(notice, "bize iletin") {
+				t.Errorf("the notice does not tell the customer what to do instead:\n%s", notice)
+			}
+			if !strings.Contains(notice, "biz yaparız") {
+				// "We will connect and do it" - the reassurance that the
+				// thing they want is possible, just not by them.
+				t.Errorf("the notice does not say we will do it for them:\n%s", notice)
+			}
+		})
+	}
+
+	// The operator-owned notice explains the actual risk rather than
+	// asserting ownership. "The servers are ours" is true and useless;
+	// "changing this disturbs how the system runs" is the reason.
+	for _, want := range []string{"sunucudaki", "işleyişini bozar", "teknik"} {
+		if !strings.Contains(LockNoticeOperator, want) {
+			t.Errorf("the operator notice does not mention %q:\n%s", want, LockNoticeOperator)
+		}
+	}
+
+	// A viewer's lock is not about us at all, and must not send them to
+	// us for something their own owner can grant.
+	if strings.Contains(LockNoticeViewer, "geliştirici") {
+		t.Errorf("a viewer is told to go to the developer for a permission their owner grants:\n%s", LockNoticeViewer)
+	}
+}
+
+// Every setting in the registry is currently operator-owned, so a
+// customer's settings page is entirely read-only. That is the intended
+// state today, not an oversight - but it makes the writable path
+// unreachable for a customer, so it is asserted rather than assumed. A
+// future customer-facing setting (a timezone, a dashboard preference)
+// will make this fail, and the failure is the reminder to check that it
+// really is theirs to change.
+func TestRegistry_EverySettingIsCurrentlyOperatorOwned(t *testing.T) {
+	customer := Access{Principal: Principal{Kind: PrincipalUser}, Role: RoleOwner, Member: true}
+	for _, def := range AllDefinitions() {
+		if access := customer.AccessTo(def); access.Editable() {
+			t.Errorf("%s is customer-writable (%s); if that is intended, this test needs updating "+
+				"and the setting needs a reason it is safe for a customer to change", def.Key, access)
+		}
+	}
+}
+
+// A guarded setting must also be operator-owned. The password is the
+// stronger guard, but if it were ever lifted the setting should fall
+// back to read-only rather than all the way to customer-writable.
+func TestRegistry_GuardedSettingsDegradeToOperatorOwned(t *testing.T) {
+	for _, key := range GuardedKeys() {
+		def, _ := Lookup(key)
+		if !def.Developer {
+			t.Errorf("%s is guarded but not marked Developer; removing the password guard "+
+				"would hand it straight to the customer", key)
+		}
+	}
 }
