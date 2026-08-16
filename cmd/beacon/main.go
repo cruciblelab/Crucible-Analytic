@@ -35,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
@@ -248,8 +249,62 @@ func main() {
 		}
 	}()
 
+	// Retention. Its own goroutine on its own, much slower schedule:
+	// applying the policy is idempotent, but a site keeping less than the
+	// deployment gets a row-level delete each pass, and running that
+	// every minute would scan for nothing sixty times an hour.
+	//
+	// A failure here is logged, not fatal. Without a policy the table
+	// grows, which is a problem measured in weeks; refusing to accept
+	// events is a problem measured in seconds.
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+
+		manager, err := retention.NewManager(writer.Pool(), retention.TableBeaconEvents)
+		if err != nil {
+			logger.Error("retention: not configured", "err", err)
+			return
+		}
+		apply := func() {
+			// The live allowlist, not the config file's: a site added
+			// from the panel is one this process is writing rows for, so
+			// its retention has to be read too.
+			policy := cfg.RetentionPolicy(live, live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+			report, err := manager.Apply(settingsCtx, policy)
+			if err != nil {
+				logger.Warn("retention: could not apply", "err", err, logging.In(logging.CategoryError))
+				return
+			}
+			if report.PolicyChanged {
+				logger.Info("retention policy changed", "table", string(report.Table),
+					"from_days", report.PreviousDays, "to_days", report.PolicyDays)
+			}
+			if rows := report.Rows(); rows > 0 {
+				// Said out loud: this is the path that deletes rows rather
+				// than dropping chunks, and how much it removed is the
+				// number somebody will ask about.
+				logger.Info("retention: trimmed sites keeping less than the deployment",
+					"rows", rows, "sites", len(report.SiteRows))
+			}
+		}
+		apply()
+
+		ticker := time.NewTicker(cfg.Retention.Interval())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-settingsCtx.Done():
+				return
+			case <-ticker.C:
+				apply()
+			}
+		}
+	}()
+
 	serveErr := srv.ListenAndServe(ctx)
 	stopSettings()
+	<-retentionDone
 	<-settingsDone
 
 	// Only now that no new event can arrive: drain the buffer, then let

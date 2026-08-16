@@ -1351,3 +1351,71 @@ that nothing used. Those are worth deleting on sight. Something
 eventually constructs the object the weaker path accepts, and it is
 granted authority by accident. One condition is checkable; two are a
 question nobody re-asks.
+
+## Retention: the per-site setting a chunk cannot express
+
+Nothing in this project deleted a visit record until now. Both
+hypertables grew forever, on a machine that also serves the customer's
+site, where the first symptom of a full disk is the collector failing to
+write - an analytics feature taking down the traffic path, which is the
+outcome refused everywhere else in this design.
+
+The obvious implementation is a nightly `DELETE`. It is the wrong one:
+TimescaleDB stores a hypertable as time-ranged chunks, and dropping a
+chunk unlinks a file while deleting rows rewrites pages, updates indexes
+and leaves the space to VACUUM. At a year of traffic those are not two
+versions of the same operation.
+
+Then the collision: retention is a **per-site** setting, and a chunk
+holds every site's rows for its time range. "Site A's rows older than 30
+days" cannot be expressed as a chunk drop at all.
+
+The resolution is to let each mechanism do what it is good at. The
+hypertable policy uses the **longest** retention any site asks for -
+cheap, daily, and structurally incapable of removing data a site still
+wants. A site asking for *less* than that gets the difference removed by
+a targeted delete, which is the one thing chunks cannot express. In the
+ordinary case, where every site uses the deployment-wide figure, the
+row-level path never runs at all.
+
+Doing it the other way round is the trap worth naming: a policy set to
+the *shortest* value would destroy the data of every site that asked to
+keep more, and it would look exactly like the feature working.
+
+### DryRun, because shortening destroys
+
+"90 days to 30" is a number somebody types without picturing what it
+removes. `DryRun` reports the row count before anything happens, so the
+panel can say "this will delete 4.2 million rows" at the only moment
+that is useful. It is tested by asserting that the count is right *and*
+that the rows are still there afterwards - a dry run that quietly did
+the work would pass a test that only checked the number.
+
+### Remove, then add
+
+TimescaleDB refuses a second retention policy on one hypertable. An
+implementation that only ever called `add_retention_policy` would work
+the first time and fail on every change after it, and the failure would
+read as a permissions problem rather than what it is. So every apply
+removes first with `if_exists => true`. Re-applying the same figure is a
+no-op, which matters because a service calls this on a timer.
+
+### The table name is a closed set
+
+`add_retention_policy` takes its interval as a value but its table as an
+identifier, and an identifier cannot be a bound parameter. So the table
+name is the one string in this package that gets interpolated - which is
+why `Table` is a two-member closed set, validated at every entry point,
+with the count and delete statements written out per table as complete
+literals. `Table` is a string type, so a caller can write
+`Table(userInput)` and the compiler will not object; the validation is
+what makes that harmless, and there is a test that feeds it
+`beacon_events; DROP TABLE panel_users`.
+
+### One gap, named rather than hidden
+
+The beacon reads retention from the panel; the collector reads it from
+its config file, because the collector has no live-settings reader yet.
+Two tables configured in two places is a gap, not a design, and it
+belongs to A6-devam. It is written in both config files so that whoever
+meets it knows it is known.

@@ -62,6 +62,11 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 }
 
 // Close releases the connection pool. Safe to call once.
+// Pool exposes the connection pool for work that is not row writing -
+// today, installing this table's retention policy. Deliberately narrow:
+// the caller gets the pool, not a second writer.
+func (w *Writer) Pool() *pgxpool.Pool { return w.pool }
+
 func (w *Writer) Close() {
 	w.pool.Close()
 }

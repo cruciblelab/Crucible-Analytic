@@ -39,7 +39,7 @@ sorusunu cevaplar.*
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **bitti** | — |
-| **A** Ayarlar ve saklama | 🟡 **6/11** | A2, A3, A4, A5, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **7/11** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **1/8** | C1, C2, C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
@@ -65,6 +65,10 @@ sorusunu cevaplar.*
   adresten türetiliyor
 - **A7.5** Geliştirici şifresi kapısı — 7 hukuki ağırlıklı ayar, her
   seferinde soruluyor, hash'li, yapılandırma dosyasından
+- **A4** Saklama politikaları — iki hypertable'da gerçek
+  `add_retention_policy`; chunk düşürme, satır silme değil; en uzun
+  saklama isteyen siteyi koruyan politika + yalnız daha azını isteyen
+  site için hedefli temizlik
 - **A7.6** Görünürlük ≠ yazılabilirlik — müşteri **her ayarı görür**
   (değeri, kaynağı, gerekçesi), geliştirici ayarlarında kontrol yok,
   hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir
@@ -76,10 +80,9 @@ sorusunu cevaplar.*
    `Controls`, oturum, CSRF, TOTP, geliştirici erişimi — hepsi
    çağrılabilir fonksiyon. Eksik olan tek şey onları bir sayfaya
    bağlamak.
-2. **A4 — analitik saklama politikaları.** Preflight'ın iki uyarısından
-   birini kapatır ve planın "gerçek kusur" diye işaretlediği tek şey bu.
-3. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
+2. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
    göç olmadan çoğu ayar hâlâ SSH ister.
+3. **A2/A3 — kalan operasyonel ayarlar.**
 
 ### Açık riskler ve sahipleri
 
@@ -88,7 +91,8 @@ sorusunu cevaplar.*
 | Panelde "Kontrol et" düğmesi yok | C1–C7 |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
-| **Collector'da mod yalnız dosyadan okunuyor, canlı değil** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok) |
+| **Collector'da mod ve saklama süresi yalnız dosyadan okunuyor** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok — iki tablo şu an iki ayrı yerden yapılandırılıyor) |
+| **Saklama değişikliği en geç bir saat içinde etkili** | bilinçli — uygulamak idempotent ama kısa saklamalı site için her turda satır silme demek; dakikada bir çalıştırmak boşuna tarama olurdu |
 | **Mod değişiminin tarihi denetim kaydından okunmalı** | **D5** (mekanizma hazır: `ActionSettingChanged` eski değeri taşıyor) |
 | `logs.level` yalnız beacon'da bağlı | A6-devam |
 | Collector tarafı canlı ayarlar (limit, geo, skor, flush) | A6-devam |
@@ -340,7 +344,7 @@ ayrıştırılmadığını (yalnız boş kalmadığını) doğrulayan test; bell
 
 ---
 
-#### A4 — Saklama süresi politikaları
+#### A4 — Saklama süresi politikaları ✅ **yapıldı**
 
 **Ne:** `traffic_snapshots` ve `beacon_events` için TimescaleDB'nin kendi
 `add_retention_policy`'si, artı bunu süren panel ayarı.
@@ -358,9 +362,30 @@ yolunun bozulması demek.
 Cron `DELETE` değil, chunk düşürme — biri neredeyse bedava, diğeri
 değil.
 
-**Bitti ölçütü:** politikanın gerçekten kayıtlı olduğunu
-`timescaledb_information.jobs`'tan okuyan entegrasyon testi; süre
-kısaltmanın kaç satır sileceğini önden raporlayan fonksiyon.
+**Sonradan çıkan asıl mesele — chunk ile site çakışması:** saklama
+süresi *site başına* bir ayar, ama bir chunk o zaman aralığındaki **her
+sitenin** satırlarını tutuyor. "A sitesinin 30 günden eski satırları"
+chunk düşürerek ifade edilemiyor. Çözüm ikisini işine göre ayırmak:
+
+- **Hypertable politikası**, herhangi bir sitenin istediği **en uzun**
+  süreyi kullanır. Ucuz, günlük çalışır, ve hâlâ istenen veriyi asla
+  silemez.
+- **Daha azını isteyen site**, aradaki farkı hedefli bir silme ile
+  kaybeder. Yalnız o site için, yalnız gerçekten kısa bir değer
+  tanımlıysa, ve her sitenin aynı süreyi kullandığı sıradan durumda
+  **hiç çalışmaz**.
+
+Tersi — politikayı en kısa değere kurmak — daha çok saklamak isteyen her
+sitenin verisini sessizce yok ederdi ve özellik çalışıyormuş gibi
+görünürdü.
+
+**Bitti ölçütü:** ✅ politika `timescaledb_information.jobs`'tan okunarak
+doğrulandı (iki tabloda da); ✅ üç kez uygulamak tek iş bırakıyor, aynı
+değeri tekrar uygulamak no-op; ✅ `DryRun` kaç satır sileceğini önden
+söylüyor ve hiçbir şey silmiyor; ✅ gerçek satırlarla, yalnız kısa
+isteyen sitenin satırı silindi; ✅ gerçek binary'ler gerçek politikayı
+kurdu (beacon 45→panelden 120, collector 200); ✅ preflight uyarısı
+kapandı.
 
 ---
 

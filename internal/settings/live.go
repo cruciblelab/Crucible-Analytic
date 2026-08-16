@@ -318,4 +318,5 @@ const (
 	KeyLogLevel             = "logs.level"
 	KeyLogVerboseUntil      = "logs.verbose_until"
 	KeyPrivacyIPStorage     = "privacy.ip_storage"
+	KeyAnalyticsRetention   = "analytics.retention_days"
 )

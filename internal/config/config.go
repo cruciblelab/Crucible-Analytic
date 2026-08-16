@@ -14,6 +14,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
+	"github.com/cruciblelab/crucible-analytic/internal/retention"
 )
 
 // Mode selects which proxy implementation main.go wires up.
@@ -75,6 +76,7 @@ type Config struct {
 	Limits    LimitsConfig    `toml:"limits"`
 	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
 	Privacy   PrivacyConfig   `toml:"privacy"`
+	Retention RetentionConfig `toml:"retention"`
 	Logging   logging.Config  `toml:"logging"`
 }
 
@@ -98,6 +100,43 @@ type PrivacyConfig struct {
 
 // IPMode resolves the configured value, defaulting to masked.
 func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
+
+// RetentionConfig bounds how long traffic_snapshots is kept.
+//
+// The collector reads this from its file rather than from the panel,
+// because the collector has no live-settings reader yet (A6-devam). The
+// beacon does, so beacon_events already follows the panel. The two
+// tables are therefore configured in different places for now, which is
+// a gap worth naming rather than papering over.
+type RetentionConfig struct {
+	// Days is the retention. Zero, or anything out of range, takes the
+	// default of 90 - out-of-range is treated as unset rather than
+	// clamped, so a config saying 20000 is visible as a mistake.
+	Days int `toml:"days"`
+	// IntervalHours is how often the policy is re-applied. Zero takes an
+	// hour.
+	IntervalHours int `toml:"interval_hours"`
+}
+
+// DefaultRetentionDays matches the panel's default and the read API's
+// maximum range.
+const DefaultRetentionDays = 90
+
+// Resolved is the configured retention, or the default.
+func (r RetentionConfig) Resolved() int {
+	if r.Days >= retention.MinDays && r.Days <= retention.MaxDays {
+		return r.Days
+	}
+	return DefaultRetentionDays
+}
+
+// Interval is how often to re-apply, defaulting to an hour.
+func (r RetentionConfig) Interval() time.Duration {
+	if r.IntervalHours > 0 {
+		return time.Duration(r.IntervalHours) * time.Hour
+	}
+	return time.Hour
+}
 
 // siteIDPattern restricts SiteID to characters that are safe unescaped in
 // a URL path segment and in a filename, so the same identifier can be used

@@ -226,3 +226,28 @@ enabled = false
 #
 # Changing it needs the developer password, every time.
 # ip_storage = "masked"
+
+# ---------------------------------------------------------------------
+# How long analytics data is kept.
+#
+# Until this existed nothing deleted a visit record, and both hypertables
+# grew forever - on a machine that also serves the site, where the first
+# symptom of a full disk is the collector failing to write.
+[retention]
+# The fallback when the panel has no figure stored. 90 days matches the
+# panel's default and the read API's maximum range.
+# days = 90
+#
+# How often the policy is re-applied. Hourly by default, deliberately
+# slower than the settings tick: applying is idempotent, but a site
+# keeping less than the deployment gets a row-level delete each pass and
+# running that every minute would scan for nothing sixty times an hour.
+# interval_hours = 1
+#
+# What actually happens: TimescaleDB gets a retention policy that drops
+# whole chunks older than the *longest* retention any site asks for -
+# cheap, and it can never remove data a site still wants. A site that
+# asked to keep less than that gets the difference removed by a targeted
+# delete, which is the one thing chunk-dropping cannot express. In the
+# ordinary case where every site uses the same figure, no row-level
+# delete ever runs.

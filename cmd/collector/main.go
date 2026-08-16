@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/config"
@@ -21,6 +22,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
+	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
 )
@@ -147,6 +149,44 @@ func main() {
 		// here too rather than unconditionally.
 		flusher.KnownBotASNs = knownBotASNs
 	}
+	// Retention, on its own slow schedule. A failure is logged rather
+	// than fatal: without a policy the table grows, which is a problem
+	// measured in weeks, while refusing to start is a problem measured
+	// in seconds - and this process is in the traffic path.
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+
+		manager, err := retention.NewManager(writer.Pool(), retention.TableTrafficSnapshots)
+		if err != nil {
+			logger.Error("retention: not configured", "err", err)
+			return
+		}
+		apply := func() {
+			report, err := manager.Apply(ctx, retention.Policy{Days: cfg.Retention.Resolved()})
+			if err != nil {
+				logger.Warn("retention: could not apply", "err", err, logging.In(logging.CategoryError))
+				return
+			}
+			if report.PolicyChanged {
+				logger.Info("retention policy changed", "table", string(report.Table),
+					"from_days", report.PreviousDays, "to_days", report.PolicyDays)
+			}
+		}
+		apply()
+
+		ticker := time.NewTicker(cfg.Retention.Interval())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				apply()
+			}
+		}
+	}()
+
 	flusherDone := make(chan struct{})
 	go func() {
 		defer close(flusherDone)
@@ -205,6 +245,7 @@ func main() {
 	// closing the writer/store under it, so the last partial interval's
 	// activity isn't lost or written to an already-closed pool.
 	<-flusherDone
+	<-retentionDone
 	<-lookupDone
 	if lookup != nil {
 		lookup.Close()

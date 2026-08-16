@@ -117,3 +117,20 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # Changing this from the panel requires the developer password - see the
 # [developer] section in the panel's config and cmd/devpass.
 # ip_storage = "masked"
+
+# ---------------------------------------------------------------------
+# How long traffic_snapshots is kept.
+#
+# Read from this file rather than from the panel, because the collector
+# has no live-settings reader yet. The beacon does, so beacon_events
+# already follows the panel - the two tables are configured in different
+# places for now, which is a gap rather than a design.
+[retention]
+# 90 days, matching the panel's default and the read API's maximum range.
+# Out of range is treated as unset, not clamped: a config saying 20000
+# should be visible as a mistake.
+# days = 90
+#
+# How often the policy is re-applied. Hourly is plenty - installing it is
+# idempotent and TimescaleDB runs the drop on its own schedule.
+# interval_hours = 1

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
+	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
@@ -56,6 +57,7 @@ type Config struct {
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
 	Campaign       CampaignConfig  `toml:"campaign"`
 	Privacy        PrivacyConfig   `toml:"privacy"`
+	Retention      RetentionConfig `toml:"retention"`
 	Settings       SettingsConfig  `toml:"settings"`
 	Logging        logging.Config  `toml:"logging"`
 }
@@ -267,4 +269,67 @@ func (c CampaignConfig) Live(src *settings.Source) CampaignPolicy {
 	extra := src.Strings(settings.KeyCampaignExtraParams, "", c.ExtraParams)
 	storeClickIDs := src.Bool(settings.KeyCampaignStoreClickID, "", c.StoreClickIDs)
 	return NewCampaignPolicy(drop, extra, storeClickIDs)
+}
+
+// RetentionPolicy resolves how long this deployment keeps analytics
+// data, preferring the panel's settings over the config file.
+//
+// The per-site figures come from the sites this process is configured to
+// accept. A site nobody serves cannot have its retention read, and does
+// not need to be: nothing is writing rows for it.
+func (c Config) RetentionPolicy(source *settings.Source, sites []string) retention.Policy {
+	policy := retention.Policy{Days: c.Retention.Resolved(), PerSite: map[string]int{}}
+	if source == nil {
+		return policy
+	}
+
+	policy.Days = source.Int(settings.KeyAnalyticsRetention, "", policy.Days, retention.MinDays, retention.MaxDays)
+	for _, site := range sites {
+		days := source.Int(settings.KeyAnalyticsRetention, site, policy.Days, retention.MinDays, retention.MaxDays)
+		if days != policy.Days {
+			// Only the sites that differ. An entry equal to the
+			// deployment-wide figure would put a site on the row-delete
+			// path for no reason - see internal/retention.
+			policy.PerSite[site] = days
+		}
+	}
+	return policy
+}
+
+// RetentionConfig is the [retention] section.
+type RetentionConfig struct {
+	// Days is the fallback when the panel has no figure stored. Zero
+	// takes DefaultRetentionDays.
+	Days int `toml:"days"`
+	// IntervalHours is how often the policy is re-applied. Zero takes
+	// the default.
+	//
+	// Hourly rather than on the settings tick: applying is idempotent,
+	// but a site with a shorter retention than the deployment gets a
+	// row-level delete each time, and running that every minute would
+	// scan for nothing sixty times an hour.
+	IntervalHours int `toml:"interval_hours"`
+}
+
+// DefaultRetentionDays matches the panel's own default and the read
+// API's maximum range.
+const DefaultRetentionDays = 90
+
+// Resolved is the configured retention, or the default when the file
+// says nothing usable. Out-of-range is treated as unset rather than
+// clamped: a config saying 20000 days is a mistake, and silently turning
+// it into ten years would hide it.
+func (r RetentionConfig) Resolved() int {
+	if r.Days >= retention.MinDays && r.Days <= retention.MaxDays {
+		return r.Days
+	}
+	return DefaultRetentionDays
+}
+
+// Interval resolves how often to re-apply, defaulting to an hour.
+func (r RetentionConfig) Interval() time.Duration {
+	if r.IntervalHours > 0 {
+		return time.Duration(r.IntervalHours) * time.Hour
+	}
+	return time.Hour
 }
