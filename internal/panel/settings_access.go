@@ -157,6 +157,29 @@ const (
 		"Bu yetkiyi kendi hesabınızın sahibi verebilir."
 )
 
+// DeveloperModeNotice is what the dashboard shows when somebody opens
+// developer mode.
+//
+// A warning rather than a barrier, and the difference is the whole
+// point. What is behind the toggle is bot scoring, device
+// fingerprinting, rate windows and DDoS detection - readings that mean
+// something to whoever built them and mean something *else* to whoever
+// reads them cold. A shop owner wants how many people came and from
+// where; handed a JA4 hash and a score of 61, they will reach a
+// conclusion, and it will be the wrong one.
+//
+// So the panel says so, once, at the door - and then lets them in. They
+// own the deployment. Locking the page would be deciding on their behalf
+// what they are allowed to understand about their own system, which is
+// not ours to decide.
+const DeveloperModeNotice = "Geliştirici ayarları teknik ölçümler içerir: bot olasılık " +
+	"skoru, cihaz/TLS parmak izi, istek hızı pencereleri, saldırı tespiti. " +
+	"Bu değerler nasıl hesaplandıkları bilinmeden yorumlandığında yanıltıcı " +
+	"olabilir — bir sayının yüksek olması tek başına bir sorun anlamına " +
+	"gelmez. Teknik bilginiz yoksa bu bölümdeki ayarları değiştirmemenizi " +
+	"öneririz; görüntülemek serbesttir ve hiçbir riski yoktur. Emin " +
+	"olmadığınız bir ayar için bize sorun."
+
 // SettingView is one row of the settings page: what the setting is, what
 // it currently is, and what this principal may do about it.
 type SettingView struct {

@@ -67,11 +67,21 @@ type Config struct {
 // the columns the crossover join compares, so a deployment that masked
 // one and not the other would produce a join that finds nothing.
 type PrivacyConfig struct {
-	// IPStorage is "masked" (the default) or "full". Empty means masked
-	// - a config file written before this setting existed stores less
-	// rather than more.
+	// IPStorage is "masked" (the default), "full" or "hashed". Empty
+	// means masked - a config file written before this setting existed
+	// stores less rather than more.
 	IPStorage string `toml:"ip_storage"`
+	// IPHashKey keys the pseudonym in hashed mode.
+	//
+	// Both writers must carry the same key or the crossover join finds
+	// nothing, and the failure is silent - which is why the key lives in
+	// a file an operator copies between the two rather than being
+	// generated per process.
+	IPHashKey string `toml:"ip_hash_key"`
 }
+
+// HashKey returns the configured key as bytes.
+func (p PrivacyConfig) HashKey() []byte { return []byte(p.IPHashKey) }
 
 // IPMode resolves the configured value, defaulting to masked.
 func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
@@ -84,7 +94,7 @@ func (p PrivacyConfig) Live(source *settings.Source) privacy.IPMode {
 	}
 	return privacy.ParseIPMode(source.String(
 		settings.KeyPrivacyIPStorage, "", string(p.IPMode()),
-		[]string{string(privacy.IPFull), string(privacy.IPMasked)}))
+		[]string{string(privacy.IPFull), string(privacy.IPMasked), string(privacy.IPHashed)}))
 }
 
 // CampaignConfig tunes which query parameters reach the database.

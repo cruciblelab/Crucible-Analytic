@@ -128,6 +128,7 @@ func main() {
 		Interval:  cfg.Storage.FlushInterval(),
 		Logger:    logger,
 		IPMode:    cfg.Privacy.IPMode(),
+		IPHashKey: cfg.Privacy.HashKey(),
 	}
 	// Said out loud at startup, because it decides what personal data
 	// this process writes and it is the one setting nobody will

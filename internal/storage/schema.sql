@@ -69,3 +69,11 @@ CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_ip_time
 -- an existing one isn't.
 CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_site_time
     ON traffic_snapshots (site_id, time DESC);
+
+-- Hashed IP storage - see internal/beacon/schema.sql for the reasoning.
+-- The two tables must agree exactly: they are the two halves of the
+-- crossover join.
+ALTER TABLE traffic_snapshots ALTER COLUMN ip DROP NOT NULL;
+ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS ip_hash BYTEA;
+CREATE INDEX IF NOT EXISTS traffic_snapshots_ip_hash_idx
+    ON traffic_snapshots (site_id, ip_hash, time DESC) WHERE ip_hash IS NOT NULL;

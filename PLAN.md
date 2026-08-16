@@ -74,6 +74,14 @@ sorusunu cevaplar.*
   hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir.
   Kilit metni üç şeyi söylüyor: ne olduğu, **ne bozulacağı**, ve ne
   yapılacağı ("bize iletin, sunucuya bağlanıp biz yaparız")
+- **A7.8** `hashed` IP modu — adres hiç saklanmıyor, yerine anahtarlı
+  takma değer; kesişim birleşimi tek paylaşılan ifadeye taşındı
+  (`COALESCE(ip_hash, inet_send(ip))`), yapısal test çıplak `ip`
+  birleşimini yasaklıyor. **Hukukçunun "biz bile bilemeyiz" varsayımı
+  tam karşılanmıyor** — anahtarı tutan taraf /24'ü saniyede kırar;
+  envanterde açık soru olarak yazıldı
+- **A7.9** Geliştirici modu uyarısı — kapıda uyarı, kilit değil:
+  "teknik bilginiz yoksa değiştirmeyin, görüntülemenin riski yok"
 - **A7.7** *(düzeltme)* **Geliştirici modu bir sayfadır, yetki değil.**
   Erişimi üç soru belirliyor ve yalnız ikisi kontrolü kapatabiliyor:
   (1) config dosyasında mı — öyleyse panelden **kimse** değiştiremez,

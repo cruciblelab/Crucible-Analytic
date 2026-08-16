@@ -1,6 +1,7 @@
 package privacy
 
 import (
+	"bytes"
 	"net/netip"
 	"testing"
 )
@@ -84,5 +85,78 @@ func TestParseIPMode_FallsBackToMasked(t *testing.T) {
 	}
 	if DefaultIPMode != IPMasked {
 		t.Errorf("the default is %s; legal advice was masked, and the default is what ends up in production", DefaultIPMode)
+	}
+}
+
+// --- hashed mode ---
+
+var testKey = []byte("otuz-iki-baytlik-test-anahtari!!")
+
+// The property the crossover join rests on: equal inputs, equal
+// pseudonyms - including across the two spellings of an IPv4 address,
+// which the two writers see differently depending on the socket.
+func TestHashIP_PreservesEqualityAcrossWriters(t *testing.T) {
+	fromCollector := HashIP(netip.MustParseAddr("::ffff:185.23.45.178"), testKey)
+	fromBeacon := HashIP(netip.MustParseAddr("185.23.45.178"), testKey)
+
+	if len(fromBeacon) != HashLen {
+		t.Fatalf("hash is %d bytes, want %d", len(fromBeacon), HashLen)
+	}
+	if !bytes.Equal(fromCollector, fromBeacon) {
+		t.Fatalf("the two writers produced %x and %x for one visitor; the join would find nothing",
+			fromCollector, fromBeacon)
+	}
+
+	// And the same /24 collapses, exactly as masked mode does - hashing
+	// adds pseudonymity, not resolution.
+	if !bytes.Equal(HashIP(netip.MustParseAddr("185.23.45.9"), testKey), fromBeacon) {
+		t.Error("two addresses in one /24 hashed differently")
+	}
+	if bytes.Equal(HashIP(netip.MustParseAddr("185.23.46.9"), testKey), fromBeacon) {
+		t.Error("a different /24 hashed the same")
+	}
+}
+
+// A different deployment must not produce the same pseudonyms, or two
+// customers' databases would be joinable to each other.
+func TestHashIP_IsKeyed(t *testing.T) {
+	other := []byte("bambaska-otuz-iki-baytlik-anaht!")
+	if bytes.Equal(HashIP(netip.MustParseAddr("185.23.45.178"), testKey),
+		HashIP(netip.MustParseAddr("185.23.45.178"), other)) {
+		t.Error("two different keys produced the same pseudonym")
+	}
+}
+
+// A missing or short key returns nothing rather than hashing anyway.
+// Hashing with a weak key would produce a value that looks like a
+// pseudonym and reverses in microseconds, which is worse than storing
+// nothing - it would be believed.
+func TestHashIP_RefusesAWeakKey(t *testing.T) {
+	for name, key := range map[string][]byte{
+		"nil":     nil,
+		"empty":   {},
+		"short":   []byte("kisa-anahtar"),
+		"one off": make([]byte, MinHashKeyLen-1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := HashIP(netip.MustParseAddr("185.23.45.178"), key); got != nil {
+				t.Errorf("a %s key produced %x", name, got)
+			}
+		})
+	}
+	if HashIP(netip.Addr{}, testKey) != nil {
+		t.Error("an invalid address produced a pseudonym")
+	}
+}
+
+func TestIPMode_HashedIsRecognisedAndDescribesItself(t *testing.T) {
+	if got := ParseIPMode("hashed"); got != IPHashed {
+		t.Errorf("ParseIPMode(\"hashed\") = %s", got)
+	}
+	if !IPHashed.Hashes() || !IPHashed.Masks() {
+		t.Error("hashed mode must report both that it masks and that it hashes")
+	}
+	if IPMasked.Hashes() || IPFull.Hashes() {
+		t.Error("only hashed mode hashes")
 	}
 }

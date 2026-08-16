@@ -152,6 +152,15 @@ const (
 	IPStorageFull = "full"
 	// IPStorageMasked keeps IPv4 to /24 and IPv6 to /64.
 	IPStorageMasked = "masked"
+	// IPStorageHashed masks and then replaces the address with a keyed
+	// pseudonym, so no address is stored at all.
+	//
+	// What it buys, precisely: an address cannot be recovered from the
+	// database alone. It does not put the addresses beyond the reach of
+	// whoever also holds the key - a /24 has about 16.7 million possible
+	// values and trying them all against a known key takes under a
+	// second. The panel must not claim more than that.
+	IPStorageHashed = "hashed"
 )
 
 // Definition describes one setting: what it is, what values it admits,
@@ -313,8 +322,8 @@ var registry = map[Key]Definition{
 	KeyAnalyticsRetentionDays: {
 		Key: KeyAnalyticsRetentionDays, Scope: ScopeSite, Kind: KindInt,
 		Default: 90, Min: 1, Max: 3650,
-		Label: "Analitik verisi saklama süresi (gün)",
-		Help:  "Bu süreden eski ziyaret kayıtları silinir.",
+		Label:     "Analitik verisi saklama süresi (gün)",
+		Help:      "Bu süreden eski ziyaret kayıtları silinir.",
 		Developer: true,
 
 		RequiresDeveloperPassword: true,
@@ -330,11 +339,14 @@ var registry = map[Key]Definition{
 	},
 	KeyPrivacyIPStorage: {
 		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,
-		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked},
+		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked, IPStorageHashed},
 		Label: "IP adresi saklama biçimi",
 		Help: "masked: IPv4 son oktet sıfırlanır, IPv6 /64'e kırpılır. Varsayılan budur. " +
 			"full: adres olduğu gibi saklanır; kesişim görünümleri keskinleşir, " +
-			"saklanan kişisel veri artar. Değişiklik geçmişe dönük değildir.",
+			"saklanan kişisel veri artar. hashed: adres maskelenir ve yerine anahtarlı " +
+			"bir takma değer yazılır — veritabanında adres hiç bulunmaz. " +
+			"Değişiklik geçmişe dönük değildir; mod değişince eski satırlarla yeniler " +
+			"kesişim birleşiminde eşleşmez.",
 		Developer: true,
 		Live:      true,
 

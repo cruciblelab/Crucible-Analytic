@@ -110,6 +110,10 @@ type Row struct {
 	ReferrerPath string
 
 	IP netip.Addr
+	// IPHash is the keyed pseudonym written in hashed mode, nil
+	// otherwise. Exactly one of IP and IPHash ever carries a value: a
+	// row with both would be storing the address it set out not to.
+	IPHash []byte
 
 	Browser string
 	OS      string
@@ -151,8 +155,11 @@ func (e Event) Validate() error {
 // Enrichment is what the server knows about a request that the payload
 // itself cannot be trusted for (or does not carry at all).
 type Enrichment struct {
-	Time      time.Time
-	IP        netip.Addr
+	Time time.Time
+	IP   netip.Addr
+	// IPHash is the keyed pseudonym written in hashed mode, nil
+	// otherwise. Exactly one of IP and IPHash ever carries a value.
+	IPHash    []byte
 	VisitorID string
 	UserAgent UserAgent
 	Country   string
@@ -189,7 +196,8 @@ func BuildRow(e Event, en Enrichment, policy CampaignPolicy) Row {
 		ReferrerHost: refHost,
 		ReferrerPath: refPath,
 
-		IP: en.IP,
+		IP:     en.IP,
+		IPHash: en.IPHash,
 
 		Browser: en.UserAgent.Browser,
 		OS:      en.UserAgent.OS,
@@ -316,4 +324,25 @@ func truncateRunes(s string, maxRunes int) string {
 		}
 	}
 	return s
+}
+
+// storedIP and storedIPHash render the row's two mutually exclusive
+// address columns for the COPY.
+//
+// Both must become a real SQL NULL when unset, and an invalid
+// netip.Addr is not one - handing it straight to pgx would either error
+// or write something nobody intended. Doing the conversion here means
+// the writer cannot forget it.
+func (r Row) storedIP() any {
+	if !r.IP.IsValid() {
+		return nil
+	}
+	return r.IP
+}
+
+func (r Row) storedIPHash() any {
+	if len(r.IPHash) == 0 {
+		return nil
+	}
+	return r.IPHash
 }

@@ -1516,3 +1516,74 @@ configured - but the fill step skips any entry marked secret regardless
 of what the caller passed. The test hands it a map containing real-shaped
 credentials for exactly that reason: the guarantee is on the type, not on
 the caller remembering.
+
+## Hashed addresses: what the mode buys, and the sentence it does not earn
+
+Counsel's position was: mask and hash the addresses so that even we
+cannot know them, and then keeping the ASN name and country is
+unproblematic. The mode is built. The premise is not quite met, and
+saying so is more useful than building something that lets a false
+sentence into a privacy notice.
+
+**What it buys.** No address reaches the disk at all. `ip` is NULL and a
+keyed pseudonym takes its place, so a stolen backup, an imaged disk, a
+SQL injection or a compromised read-only API yields nothing - none of
+them include the key.
+
+**What it does not buy.** An IPv4 /24 has about 16.7 million possible
+values. Trying every one against a known key takes a fraction of a second
+on a laptop. So the honest claim is "an address cannot be recovered from
+the data alone", not "nobody can ever recover it". The key lives in the
+same config file as the database password, which means the party who
+could reverse it is exactly the party who could already read everything.
+
+Getting to the stronger claim would mean destroying the key after
+deployment - and then no new rows can be written and the crossover join
+stops working, which is the product's distinguishing feature. That trade
+is a decision for the customer and their counsel, not one to make quietly
+in code. It is written into the data inventory as an explicit question
+back to them.
+
+### Equality is all the join needed
+
+The pleasant surprise: hashing preserves equality, and equality is the
+only thing the crossover join uses. Two processes hashing the same masked
+address with the same key produce the same pseudonym, so the join still
+works at exactly the /24 resolution masked mode gives.
+
+Every crossover query now joins on one shared expression,
+`COALESCE(ip_hash, inet_send(ip))`, which yields a comparable value in
+either mode. Two properties fall out of it and both are wanted: rows
+written before a mode switch never join rows written after (the
+encodings differ, so they compare unequal - correct, because nothing can
+tell whether they are the same visitor), and a row with neither column
+set joins nothing, because NULL is not equal to NULL.
+
+### NULL rather than a placeholder
+
+The address column had to become nullable. The alternative - a fixed
+placeholder address in every row - would have kept the constraint and
+every existing query compiling, and it was the wrong choice: a query that
+forgot to switch columns would join every row to every other row and
+return a plausible, entirely false number. With NULL it returns nothing,
+which is visibly wrong. Fail-visibly beats fail-silently, especially for
+a number somebody will put in a report.
+
+A structural test reads the crossover source and fails on any `a.ip =
+b.ip` comparison, because the next person to add a query there will reach
+for the obvious spelling.
+
+## The developer-mode warning
+
+What is behind the toggle is bot scoring, TLS fingerprints, rate windows
+and attack detection. Those readings mean one thing to whoever built them
+and something else to whoever reads them cold: a shop owner handed a JA4
+hash and a score of 61 will reach a conclusion, and it will be the wrong
+one.
+
+So the dashboard warns at the door - and then lets them in. A warning,
+not a barrier. They own the deployment, and locking the page would be
+deciding on their behalf what they are allowed to understand about their
+own system. The wording says plainly that looking carries no risk, and
+that the thing to be careful about is changing something whose effect
+they cannot predict.

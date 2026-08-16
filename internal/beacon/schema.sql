@@ -143,3 +143,19 @@ CREATE INDEX IF NOT EXISTS idx_beacon_events_campaign
     ON beacon_events (site_id, utm_source, utm_medium, utm_campaign, time DESC)
     WHERE utm_source <> '' OR utm_medium <> '' OR utm_campaign <> ''
        OR ref <> '' OR click_source <> '';
+
+-- Hashed IP storage (privacy.ip_storage = "hashed").
+--
+-- In that mode no address is stored at all: ip is left NULL and this
+-- column carries HMAC(key, masked_ip) instead. The crossover join moves
+-- to this column, which still works because hashing preserves equality -
+-- see internal/privacy.
+--
+-- NULL rather than a placeholder address, deliberately. A query that
+-- forgets to switch columns then returns nothing, which is visibly
+-- wrong; a shared placeholder would join every row to every other row
+-- and return a plausible number that is completely false.
+ALTER TABLE beacon_events ALTER COLUMN ip DROP NOT NULL;
+ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS ip_hash BYTEA;
+CREATE INDEX IF NOT EXISTS beacon_events_ip_hash_idx
+    ON beacon_events (site_id, ip_hash, time DESC) WHERE ip_hash IS NOT NULL;

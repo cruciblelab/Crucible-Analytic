@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -134,7 +135,9 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 		t.Errorf("Time = %v, want %v", got.Time, want.Time)
 	}
 	got.Time, want.Time = time.Time{}, time.Time{}
-	if got != want {
+	// reflect.DeepEqual rather than !=: Row carries the ip_hash byte
+	// slice now, and a slice makes the struct uncomparable.
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip changed the row:\n got %+v\nwant %+v", got, want)
 	}
 }

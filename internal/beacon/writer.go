@@ -18,7 +18,7 @@ const tableName = "beacon_events"
 var columns = []string{
 	"time", "site_id", "visitor_id", "event_type", "event_name",
 	"path", "query", "title", "referrer_host", "referrer_path",
-	"ip", "browser", "os", "device", "is_bot_ua",
+	"ip", "ip_hash", "browser", "os", "device", "is_bot_ua",
 	"screen_w", "screen_h", "language", "country", "asn", "asn_org",
 	"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
 	"ref", "click_source", "click_id",
@@ -239,7 +239,7 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 		return []any{
 			r.Time, r.SiteID, r.VisitorID, r.EventType, r.EventName,
 			r.Path, r.Query, r.Title, r.ReferrerHost, r.ReferrerPath,
-			r.IP, r.Browser, r.OS, r.Device, r.IsBotUA,
+			r.storedIP(), r.storedIPHash(), r.Browser, r.OS, r.Device, r.IsBotUA,
 			r.ScreenW, r.ScreenH, r.Language, r.Country, r.ASN, r.ASNOrg,
 			r.Campaign.Source, r.Campaign.Medium, r.Campaign.Name,
 			r.Campaign.Term, r.Campaign.Content, r.Campaign.Ref,

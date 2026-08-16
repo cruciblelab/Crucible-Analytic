@@ -96,7 +96,13 @@ type PrivacyConfig struct {
 	// whole point: the value nobody sets is the one that ends up in
 	// production.
 	IPStorage string `toml:"ip_storage"`
+	// IPHashKey keys the pseudonym in hashed mode. Must match the
+	// beacon's, or the crossover join silently finds nothing.
+	IPHashKey string `toml:"ip_hash_key"`
 }
+
+// HashKey returns the configured key as bytes.
+func (p PrivacyConfig) HashKey() []byte { return []byte(p.IPHashKey) }
 
 // IPMode resolves the configured value, defaulting to masked.
 func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
@@ -425,9 +431,17 @@ func (c *Config) validate() error {
 	// deployment that wrote "tam" expecting full addresses should be
 	// told it did not get them rather than discovering it in a year.
 	if v := strings.TrimSpace(c.Privacy.IPStorage); v != "" &&
-		v != string(privacy.IPFull) && v != string(privacy.IPMasked) {
-		return fmt.Errorf("config: privacy.ip_storage must be %q or %q, got %q",
-			privacy.IPMasked, privacy.IPFull, c.Privacy.IPStorage)
+		v != string(privacy.IPFull) && v != string(privacy.IPMasked) && v != string(privacy.IPHashed) {
+		return fmt.Errorf("config: privacy.ip_storage must be %q, %q or %q, got %q",
+			privacy.IPMasked, privacy.IPFull, privacy.IPHashed, c.Privacy.IPStorage)
+	}
+	// Refused at startup rather than falling back, because the fallback
+	// here is the dangerous direction: hashed mode with no usable key
+	// stores neither an address nor a pseudonym, so the deployment would
+	// quietly collect nothing joinable and look like it was working.
+	if c.Privacy.IPMode().Hashes() && len(c.Privacy.HashKey()) < privacy.MinHashKeyLen {
+		return fmt.Errorf("config: privacy.ip_hash_key must be at least %d bytes when ip_storage = %q",
+			privacy.MinHashKeyLen, privacy.IPHashed)
 	}
 
 	return nil

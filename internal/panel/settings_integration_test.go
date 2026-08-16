@@ -429,35 +429,36 @@ func TestGuardedSettings_EveryAttemptIsAudited(t *testing.T) {
 	ctx := context.Background()
 	gate := testGate(t, store)
 
-	base, _, err := store.Audit(ctx, AuditFilter{Limit: 200})
-	if err != nil {
-		t.Fatalf("Audit: %v", err)
+	// Counted by action against the database directly, not by the length
+	// of a capped page. The page-length version passed until the audit
+	// table grew past the limit, at which point both reads returned the
+	// same 200 rows and the difference was always zero - a test that
+	// stops testing once the system has been used a while is worse than
+	// no test, because it keeps reporting success.
+	countAttempts := func() (granted, refused int) {
+		t.Helper()
+		if err := store.Pool().QueryRow(ctx, `
+			SELECT count(*) FILTER (WHERE action = $1), count(*) FILTER (WHERE action = $2)
+			FROM panel_audit_log WHERE actor_label = $3`,
+			ActionDevPasswordGranted, ActionDevPasswordRefused, "denetim@example.com").
+			Scan(&granted, &refused); err != nil {
+			t.Fatalf("counting audit entries: %v", err)
+		}
+		return granted, refused
 	}
-	before := len(base)
+	grantedBefore, refusedBefore := countAttempts()
 
 	gate.Verify(ctx, devgate.Request{
 		Actions: []string{GateAction(KeyPrivacyIPStorage)}, Password: "yanlis-sifre-1234",
 		Actor: "denetim@example.com", ActorKind: string(PrincipalUser), Peer: "203.0.113.9",
 	})
-	authorize(t, gate, KeyPrivacyIPStorage)
+	gate.Verify(ctx, devgate.Request{
+		Actions: []string{GateAction(KeyPrivacyIPStorage)}, Password: testDevPassword,
+		Actor: "denetim@example.com", ActorKind: string(PrincipalUser), Peer: "203.0.113.9",
+	})
 
-	entries, _, err := store.Audit(ctx, AuditFilter{Limit: 200})
-	if err != nil {
-		t.Fatalf("Audit: %v", err)
-	}
-	if len(entries)-before < 2 {
-		t.Fatalf("recorded %d new audit entries, want at least 2 (one refused, one granted)", len(entries)-before)
-	}
-
-	var granted, refused bool
-	for _, e := range entries {
-		switch e.Action {
-		case ActionDevPasswordGranted:
-			granted = true
-		case ActionDevPasswordRefused:
-			refused = true
-		}
-	}
+	grantedAfter, refusedAfter := countAttempts()
+	granted, refused := grantedAfter > grantedBefore, refusedAfter > refusedBefore
 	if !granted {
 		t.Error("the successful attempt was not audited")
 	}

@@ -251,3 +251,10 @@ enabled = false
 # delete, which is the one thing chunk-dropping cannot express. In the
 # ordinary case where every site uses the same figure, no row-level
 # delete ever runs.
+#
+# ip_hash_key must match the collector's exactly - see
+# config.example.toml for what hashed mode does and does not protect
+# against. At least 32 bytes; hashed mode refuses to start without one,
+# because hashing with a weak key produces a value that looks like a
+# pseudonym and reverses in microseconds.
+# ip_hash_key = ""

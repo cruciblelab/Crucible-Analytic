@@ -107,10 +107,10 @@ func TestMayAttemptDeveloperPassword(t *testing.T) {
 		// not the operator. There is one route to operator status and
 		// this is not it.
 		"developer kind without superadmin": {Access{Principal: Principal{Kind: PrincipalDeveloper}}, false},
-		"site owner":        {Access{Principal: Principal{}, Role: RoleOwner}, false},
-		"site admin":        {Access{Principal: Principal{}, Role: RoleAdmin}, false},
-		"viewer":            {Access{Principal: Principal{}, Role: RoleViewer}, false},
-		"nobody":            {Access{}, false},
+		"site owner":                        {Access{Principal: Principal{}, Role: RoleOwner}, false},
+		"site admin":                        {Access{Principal: Principal{}, Role: RoleAdmin}, false},
+		"viewer":                            {Access{Principal: Principal{}, Role: RoleViewer}, false},
+		"nobody":                            {Access{}, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

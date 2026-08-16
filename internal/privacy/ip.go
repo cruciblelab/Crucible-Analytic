@@ -13,6 +13,8 @@
 package privacy
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"net/netip"
 )
 
@@ -65,6 +67,8 @@ func ParseIPMode(value string) IPMode {
 		return IPFull
 	case IPMasked:
 		return IPMasked
+	case IPHashed:
+		return IPHashed
 	default:
 		return DefaultIPMode
 	}
@@ -75,6 +79,10 @@ func (m IPMode) String() string { return string(m) }
 
 // Masks reports whether this mode reduces the stored address.
 func (m IPMode) Masks() bool { return m != IPFull }
+
+// Hashes reports whether this mode stores a pseudonym instead of an
+// address. In hashed mode the address column is left empty entirely.
+func (m IPMode) Hashes() bool { return m == IPHashed }
 
 // MaskIP applies the mode to an address.
 //
@@ -122,4 +130,86 @@ func MaskIP(ip netip.Addr, mode IPMode) netip.Addr {
 		return netip.Addr{}
 	}
 	return prefix.Addr()
+}
+
+// --- Hashed mode ---
+//
+// A third mode, added on legal advice: mask the address, then replace it
+// with a keyed hash, so what reaches the disk is a pseudonym rather than
+// an address at all.
+//
+// # What this actually protects against, stated exactly
+//
+// It protects the database. A stolen backup, an imaged disk, a SQL
+// injection, a compromised read-only API - none of them yield an
+// address, because none of them include the key.
+//
+// It does *not* make the addresses unknowable to whoever holds the key.
+// This is worth stating plainly rather than letting it be assumed: an
+// IPv4 /24 network has about 16.7 million possible values, and trying
+// every one of them against a known key takes a fraction of a second on
+// an ordinary laptop. The hash is not a one-way door for anybody who has
+// both halves.
+//
+// So the honest claim is: "an address cannot be recovered from the data
+// alone", not "nobody can ever recover it". Anyone relying on the
+// stronger claim - in a privacy notice, or in advice from counsel -
+// should be told which of the two they actually have. The key lives in
+// the same config file as the database password, so the party who can
+// reverse it is exactly the party who could already read everything.
+//
+// # Why the join still works
+//
+// Hashing preserves equality, which is all the crossover join needs.
+// Two processes hashing the same masked address with the same key
+// produce the same pseudonym, so beacon_events and traffic_snapshots
+// still line up - at the same /24 resolution masked mode gives, and with
+// no address on either side.
+
+// IPHashed masks the address and then replaces it with a keyed hash.
+const IPHashed IPMode = "hashed"
+
+// HashLen is the stored pseudonym's length in bytes.
+//
+// 16 rather than the full 32: enough that two different networks
+// colliding is not a practical concern at any volume this project will
+// see, and half the storage on a column that appears in every row of the
+// largest tables.
+const HashLen = 16
+
+// MinHashKeyLen bounds the configured key.
+//
+// Thirty-two bytes because a short key is the one that makes brute force
+// easy in the direction that matters: not guessing the address, but
+// guessing the key from a known address-and-hash pair, which anybody who
+// can visit the site can produce for themselves.
+const MinHashKeyLen = 32
+
+// HashIP turns an address into the pseudonym stored in hashed mode.
+//
+// The address is masked first, so two visitors on one /24 hash alike -
+// the resolution is exactly what masked mode gives, and the mode adds
+// only the property that the value is no longer an address.
+//
+// An empty key returns nil rather than hashing with nothing. A caller
+// that stored the result would be storing a value derived from a
+// publicly known function of the address, which is worse than useless:
+// it would look like a pseudonym and reverse in microseconds.
+func HashIP(ip netip.Addr, key []byte) []byte {
+	if len(key) < MinHashKeyLen || !ip.IsValid() {
+		return nil
+	}
+	masked := MaskIP(ip, IPMasked)
+	if !masked.IsValid() {
+		return nil
+	}
+
+	// The 16-byte form for both families, so an IPv4 address and its
+	// IPv4-in-IPv6 spelling cannot hash differently - the two writers
+	// would otherwise fail to join, for a reason nothing would report.
+	full := masked.As16()
+
+	mac := hmac.New(sha256.New, key)
+	mac.Write(full[:])
+	return mac.Sum(nil)[:HashLen]
 }

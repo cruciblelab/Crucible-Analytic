@@ -107,6 +107,11 @@ type Server struct {
 	// see ipMode, and privacy.DefaultIPMode for why the fallback goes
 	// that way.
 	IPMode privacy.IPMode
+	// IPHashKey keys the pseudonym in hashed mode. Without one, hashed
+	// mode stores neither an address nor a pseudonym - see
+	// privacy.HashIP for why hashing with a weak key is worse than not
+	// hashing at all.
+	IPHashKey []byte
 	// AllowedOrigins narrows CORS. Empty means every origin is allowed,
 	// which is safe here and not the usual laxness it looks like: the
 	// endpoint is write-only, its success response is an empty 204, and
@@ -301,9 +306,14 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	// row - and therefore onto the disk - is masked from here on. Moving
 	// this line above either of those would quietly degrade both, and
 	// nothing in the output would say why.
+	mode := s.ipMode()
 	row := BuildRow(event, Enrichment{
-		Time:      s.now(),
-		IP:        privacy.MaskIP(ip, s.ipMode()),
+		Time: s.now(),
+		// Exactly one of these carries a value. In hashed mode the
+		// address column is left empty entirely and the pseudonym takes
+		// its place; in every other mode the reverse.
+		IP:        storedAddress(ip, mode),
+		IPHash:    storedPseudonym(ip, mode, s.IPHashKey),
 		VisitorID: visitorID,
 		UserAgent: ParseUserAgent(userAgent),
 		Country:   geo.Country,
@@ -472,6 +482,22 @@ func (s *Server) ipMode() privacy.IPMode {
 	// this field - in a test, or by a future caller that forgets - must
 	// not be the one that stores whole addresses.
 	return privacy.DefaultIPMode
+}
+
+// storedAddress and storedPseudonym split one decision in two, so the
+// call site reads as the invariant it is enforcing.
+func storedAddress(ip netip.Addr, mode privacy.IPMode) netip.Addr {
+	if mode.Hashes() {
+		return netip.Addr{}
+	}
+	return privacy.MaskIP(ip, mode)
+}
+
+func storedPseudonym(ip netip.Addr, mode privacy.IPMode, key []byte) []byte {
+	if !mode.Hashes() {
+		return nil
+	}
+	return privacy.HashIP(ip, key)
 }
 
 // sites is the allowlist in force right now.

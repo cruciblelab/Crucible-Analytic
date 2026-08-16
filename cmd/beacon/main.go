@@ -169,6 +169,7 @@ func main() {
 		AllowedOrigins: cfg.AllowedOrigins,
 		Campaign:       cfg.Campaign.Policy(),
 		IPMode:         cfg.Privacy.IPMode(),
+		IPHashKey:      cfg.Privacy.HashKey(),
 		Logger:         logger,
 	}
 	if lookup != nil {

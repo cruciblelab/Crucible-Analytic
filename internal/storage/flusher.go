@@ -37,6 +37,8 @@ type Flusher struct {
 	// IPMode decides how much of each address is written. The zero value
 	// masks - see storage.RowOptions.
 	IPMode privacy.IPMode
+	// IPHashKey keys the pseudonym in hashed mode.
+	IPHashKey []byte
 }
 
 // Run flushes every f.Interval until ctx is cancelled, then performs one
@@ -80,6 +82,7 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		KnownBotASNs: f.KnownBotASNs,
 		Resolver:     f.Resolver,
 		IPMode:       f.IPMode,
+		IPHashKey:    f.IPHashKey,
 	})
 	n, err := f.Writer.WriteRows(ctx, rows)
 	if err != nil {

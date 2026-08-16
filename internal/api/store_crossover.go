@@ -75,6 +75,24 @@ type CrossoverSummary struct {
 
 // CrossoverSummary computes JavaScript coverage for one site over
 // [from, to).
+
+// joinKey is the expression every crossover query joins on.
+//
+// The two tables carry an address in `ip` or a keyed pseudonym in
+// `ip_hash`, depending on the deployment's privacy.ip_storage mode -
+// never both. inet_send renders an address as bytea, so this yields one
+// comparable value whichever column is in use, and the five queries
+// below can share a single definition rather than each deciding for
+// itself.
+//
+// Two properties fall out of it, and both are wanted. A row written
+// while the deployment stored addresses never joins one written after it
+// switched to pseudonyms: the encodings differ, so they compare
+// unequal - which is correct, because nothing can tell whether they are
+// the same visitor. And a row with neither column set joins nothing at
+// all, because NULL is not equal to NULL.
+const joinKey = `COALESCE(ip_hash, inet_send(ip))`
+
 func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to time.Time) (CrossoverSummary, error) {
 	out := CrossoverSummary{SiteID: siteID, From: from, To: to}
 
@@ -82,20 +100,20 @@ func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to ti
 	// tagged with whether the beacon also heard from it.
 	const joinedCTE = `
 		WITH collector_ips AS (
-		    SELECT ip, max(bot_score) AS peak_score
+		    SELECT ` + joinKey + ` AS join_key, max(bot_score) AS peak_score
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
-		    GROUP BY ip
+		    GROUP BY ` + joinKey + `
 		),
 		beacon_ips AS (
-		    SELECT DISTINCT ip
+		    SELECT DISTINCT ` + joinKey + ` AS join_key
 		    FROM beacon_events
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		),
 		joined AS (
-		    SELECT c.ip, c.peak_score, (b.ip IS NOT NULL) AS ran_js
+		    SELECT c.join_key, c.peak_score, (b.join_key IS NOT NULL) AS ran_js
 		    FROM collector_ips c
-		    LEFT JOIN beacon_ips b ON b.ip = c.ip
+		    LEFT JOIN beacon_ips b ON b.join_key = c.join_key
 		)`
 
 	err := s.pool.QueryRow(ctx, joinedCTE+`
@@ -103,7 +121,7 @@ func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to ti
 		    (SELECT count(*) FROM joined),
 		    (SELECT count(*) FROM joined WHERE ran_js),
 		    (SELECT count(*) FROM beacon_ips b
-		       WHERE NOT EXISTS (SELECT 1 FROM collector_ips c WHERE c.ip = b.ip))`,
+		       WHERE NOT EXISTS (SELECT 1 FROM collector_ips c WHERE c.join_key = b.join_key))`,
 		siteID, from, to,
 	).Scan(&out.IPsSeen, &out.IPsRanJS, &out.BeaconOnlyIPs)
 	if err != nil {
@@ -169,32 +187,34 @@ func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to ti
 func (s *Store) SilentIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
 	const silentCTE = `
 		WITH beacon_ips AS (
-		    SELECT DISTINCT ip
+		    SELECT DISTINCT ` + joinKey + ` AS join_key
 		    FROM beacon_events
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		),
 		silent AS (
-		    SELECT *
+		    SELECT t.*, ` + joinKey + ` AS join_key
 		    FROM traffic_snapshots t
 		    WHERE t.site_id = $1 AND t.time >= $2 AND t.time < $3
-		      AND NOT EXISTS (SELECT 1 FROM beacon_ips b WHERE b.ip = t.ip)
+		      AND NOT EXISTS (
+		          SELECT 1 FROM beacon_ips b
+		          WHERE b.join_key = COALESCE(t.ip_hash, inet_send(t.ip)))
 		)`
 
 	var total int
-	if err := s.pool.QueryRow(ctx, silentCTE+`SELECT count(DISTINCT ip) FROM silent`,
+	if err := s.pool.QueryRow(ctx, silentCTE+`SELECT count(DISTINCT join_key) FROM silent`,
 		siteID, from, to,
 	).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("api: silent ips total: %w", err)
 	}
 
 	rows, err := s.pool.Query(ctx, silentCTE+`
-		SELECT ip, max(bot_score), max(request_rate),
+		SELECT max(ip), max(bot_score), max(request_rate),
 		       COALESCE(max(country), ''), COALESCE(max(asn), 0), COALESCE(max(asn_org), ''),
 		       bool_or(is_known_bot_ja4), bool_or(is_known_bot_asn),
 		       COALESCE(max(ja4), ''), max(time), count(*)
 		FROM silent
-		GROUP BY ip
-		ORDER BY max(bot_score) DESC, max(request_rate) DESC, ip
+		GROUP BY join_key
+		ORDER BY max(bot_score) DESC, max(request_rate) DESC, max(ip)
 		LIMIT $4 OFFSET $5`,
 		siteID, from, to, limit, offset,
 	)
@@ -263,7 +283,7 @@ type JSBot struct {
 func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]JSBot, int, error) {
 	const jsBotsCTE = `
 		WITH beacon_agg AS (
-		    SELECT ip,
+		    SELECT ` + joinKey + ` AS join_key, max(ip) AS ip,
 		           count(*) FILTER (WHERE event_type = 'pageview') AS pageviews,
 		           count(DISTINCT visitor_id) AS visitors,
 		           bool_or(is_bot_ua) AS bot_ua,
@@ -276,10 +296,10 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 		           max(time) AS last_seen
 		    FROM beacon_events
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
-		    GROUP BY ip
+		    GROUP BY ` + joinKey + `
 		),
 		collector_agg AS (
-		    SELECT ip, max(bot_score) AS peak_score,
+		    SELECT ` + joinKey + ` AS join_key, max(bot_score) AS peak_score,
 		           COALESCE(max(ja4), '') AS ja4,
 		           COALESCE(max(country), '') AS country,
 		           COALESCE(max(asn), 0) AS asn,
@@ -288,7 +308,7 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 		           bool_or(is_known_bot_asn) AS known_asn
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
-		    GROUP BY ip
+		    GROUP BY ` + joinKey + `
 		),
 		suspects AS (
 		    SELECT b.ip, COALESCE(c.peak_score, 0) AS peak_score, b.bot_ua,
@@ -299,7 +319,7 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 		           COALESCE(c.known_asn, false) AS known_asn,
 		           b.pageviews, b.visitors, b.first_seen, b.last_seen
 		    FROM beacon_agg b
-		    LEFT JOIN collector_agg c ON c.ip = b.ip
+		    LEFT JOIN collector_agg c ON c.join_key = b.join_key
 		    WHERE b.bot_ua OR COALESCE(c.peak_score, 0) >= $4
 		)`
 

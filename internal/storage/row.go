@@ -33,8 +33,12 @@ type Row struct {
 	// SiteID is which site this row belongs to (config.site_id) - stamped
 	// identically on every row a given collector writes, so one database
 	// can hold several sites' data.
-	SiteID          string
-	IP              netip.Addr
+	SiteID string
+	IP     netip.Addr
+	// IPHash is the keyed pseudonym written in hashed mode, and nil in
+	// every other mode. Exactly one of IP and IPHash carries a value:
+	// a row with both would be storing the address it set out not to.
+	IPHash          []byte
 	JA4             string
 	PrevWindowCount int
 	CurrWindowCount int
@@ -85,6 +89,8 @@ type RowOptions struct {
 	// other one, and the mistake shows up as coarser data instead of as
 	// personal data on disk.
 	IPMode privacy.IPMode
+	// IPHashKey keys the pseudonym in hashed mode. Ignored otherwise.
+	IPHashKey []byte
 }
 
 // BuildRows converts RateStore snapshots into storage-ready rows.
@@ -113,7 +119,8 @@ func BuildRows(snapshots []ratestore.Snapshot, flushTime time.Time, opts RowOpti
 			// Last use of the whole address. What goes into the row -
 			// and therefore onto the disk - is already masked; there is
 			// no window in which an unmasked row exists.
-			IP:              privacy.MaskIP(snap.IP, opts.IPMode),
+			IP:              storedIP(snap.IP, opts),
+			IPHash:          storedIPHash(snap.IP, opts),
 			JA4:             snap.JA4,
 			PrevWindowCount: snap.PrevWindowCount,
 			CurrWindowCount: snap.CurrWindowCount,
@@ -127,4 +134,47 @@ func BuildRows(snapshots []ratestore.Snapshot, flushTime time.Time, opts RowOpti
 		})
 	}
 	return rows
+}
+
+// storedIP and storedIPHash decide, together, what the row carries.
+//
+// Split into two named functions rather than written inline because the
+// invariant is easy to state and easy to break: in hashed mode the
+// address column is empty and the pseudonym carries the value, in every
+// other mode the reverse. Two functions that each answer one half make
+// that readable at the call site.
+func storedIP(ip netip.Addr, opts RowOptions) netip.Addr {
+	if opts.IPMode.Hashes() {
+		return netip.Addr{}
+	}
+	return privacy.MaskIP(ip, opts.IPMode)
+}
+
+func storedIPHash(ip netip.Addr, opts RowOptions) []byte {
+	if !opts.IPMode.Hashes() {
+		return nil
+	}
+	return privacy.HashIP(ip, opts.IPHashKey)
+}
+
+// storedIP and storedIPHash render the row's two mutually exclusive
+// address columns for the COPY.
+//
+// Methods rather than raw fields at the call site because both have to
+// become a real SQL NULL when unset, and an invalid netip.Addr is not
+// one - handing it straight to pgx would either error or write something
+// nobody intended. Doing the conversion here means the writer cannot
+// forget it.
+func (r Row) storedIP() any {
+	if !r.IP.IsValid() {
+		return nil
+	}
+	return r.IP
+}
+
+func (r Row) storedIPHash() any {
+	if len(r.IPHash) == 0 {
+		return nil
+	}
+	return r.IPHash
 }
