@@ -170,20 +170,25 @@ type Definition struct {
 	// Label and Help are Turkish, because they are read in the panel.
 	Label string
 	Help  string
-	// Developer marks a setting the operator owns rather than the
-	// customer.
+	// Developer marks a setting shown behind the developer-mode toggle.
 	//
-	// It controls who may *change* it, not who may see it. A customer
-	// with full rights on their own panel sees every one of these, with
-	// its value and its explanation, and cannot edit it - the servers
-	// belong to the operator, so these are the operator's to answer for.
-	//
-	// Hiding them would be the worse design. A setting nobody can see is
-	// a setting nobody can ask about, and the customer's own deployment
-	// would have behaviour they cannot account for. Showing the value
-	// and withholding the control says the true thing: this is decided,
-	// it is decided by us, and here is what it is.
+	// Grouping and visibility, not permission. A customer may turn
+	// developer mode on and reach every one of these; what stops them
+	// changing one is never this flag, but one of the two below. Reading
+	// it as a permission was a mistake worth naming: it made a technical
+	// setting and a legally sensitive one look identical to the code,
+	// when the only thing they share is that a shop owner does not want
+	// them on the front page.
 	Developer bool
+	// ConfigFileOnly marks a setting that lives in a service's config
+	// file rather than the settings table, and therefore cannot be
+	// changed from the panel by anybody - the operator included.
+	//
+	// Shown anyway, and that is the point: a value nobody can see is a
+	// value nobody can ask about, and the customer is left unable to
+	// account for their own deployment. What the panel offers here is
+	// the value and where it lives, not a control it could not honour.
+	ConfigFileOnly bool
 	// Live marks a setting a running service applies without a restart.
 	//
 	// The panel shows this, because a customer who changes a value and
@@ -310,11 +315,6 @@ var registry = map[Key]Definition{
 		Default: 90, Min: 1, Max: 3650,
 		Label: "Analitik verisi saklama süresi (gün)",
 		Help:  "Bu süreden eski ziyaret kayıtları silinir.",
-		// Both flags, and the second is not redundant. The password is
-		// the stronger guard, but if it were ever lifted this setting
-		// would fall back to operator-owned rather than all the way to
-		// customer-writable. A guard that degrades to the safe state
-		// when it is removed is worth the duplicated line.
 		Developer: true,
 
 		RequiresDeveloperPassword: true,

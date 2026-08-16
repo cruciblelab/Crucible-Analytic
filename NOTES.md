@@ -1450,10 +1450,69 @@ back to read-only. A guard should degrade to the safe state when it is
 removed, not to the permissive one. There is now a test asserting every
 guarded setting carries both flags.
 
-**Every setting is currently operator-owned.** That means a customer's
-settings page is entirely read-only today, which is intended rather than
-an oversight - but it also means the writable path is unreachable for a
-customer, so nothing exercises it. A test asserts the current state, and
-it is written to fail the moment a customer-facing setting is added. That
-failure is the reminder to ask whether the new setting really is theirs
-to change.
+**Every setting is currently operator-owned.** *(Corrected below - this
+turned out to be the over-application, not the rule.)*
+
+### The correction: developer mode is a page, not a permission
+
+The rule above was wrong, and wrong in the direction that quietly takes
+capability away. `Developer: true` had been reading as "the customer may
+not change this", which locked the entire developer settings page - and
+the customer is meant to have full access to developer mode.
+
+Three questions decide access now, and only the first two can withhold a
+control:
+
+1. **Does it live in a config file?** Then nobody edits it from the
+   panel, the operator included. A listening socket is bound once; you
+   cannot ask the database how to reach the database. Offering a control
+   there would be offering something the panel cannot honour.
+2. **Does it carry legal or ethical weight?** Then only the operator may
+   change it, against the password, every time. Seven settings, listed
+   explicitly rather than derived from a flag - somebody has to have
+   decided that each one really does decide what personal data is kept,
+   and a test that read the flag back would only be asserting that the
+   code equals itself.
+3. **Otherwise** it is ordinary, and whoever may manage settings may
+   change it. Customer included, developer mode or not.
+
+Being a developer-mode setting decides which page it appears on. Nothing
+else. Conflating that with permission made a log-compression schedule and
+an IP-masking mode look identical to the code, when the only thing they
+share is that a shop owner does not want either on their front page.
+
+Five settings moved back to the customer: log archiving, log level, the
+verbose window, chunk compression, and the beacon's own site allowlist.
+The last one is the clearest case - a customer adding their second domain
+was exactly the support call the settings table was built to answer
+without SSH, and the old rule had taken it away again.
+
+## Showing config-file settings without a control
+
+A customer asking "which address does my beacon listen on" should be able
+to look. The value is not the panel's to change - it is read once at
+startup from a file on disk - but that is a reason to withhold the
+control, not the information.
+
+So there is a registry of the config-file keys with a label and an
+explanation each, and the panel renders them read-only. Three details
+turned out to matter:
+
+**The notice must say the limit applies to everyone.** "You may not
+change this" sends a customer looking for who may. "Nobody changes this
+from the panel, the developer included" tells them the shape of the
+answer, which is that it needs somebody on the server.
+
+**Unknown and empty are different facts.** A value the panel cannot see
+is a fact about the panel; a value that is empty in the file is a fact
+about the deployment. Rendering both as a blank would have a customer
+chasing something that is set. The entry carries `Known` alongside
+`Value` so the panel can say which it is.
+
+**Secrets are named but never carry a value.** A connection string holds
+a password and the developer hash is a credential. Both are in the list -
+leaving them out would put a hole in the account of how the deployment is
+configured - but the fill step skips any entry marked secret regardless
+of what the caller passed. The test hands it a map containing real-shaped
+credentials for exactly that reason: the guarantee is on the type, not on
+the caller remembering.

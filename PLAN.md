@@ -73,10 +73,16 @@ sorusunu cevaplar.*
   (değeri, kaynağı, gerekçesi), geliştirici ayarlarında kontrol yok,
   hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir.
   Kilit metni üç şeyi söylüyor: ne olduğu, **ne bozulacağı**, ve ne
-  yapılacağı ("bize iletin, sunucuya bağlanıp biz yaparız"). Bugün
-  kayıttaki **her ayar** geliştiriciye ait, yani müşterinin ayar sayfası
-  tamamen salt-okunur — bu bilinçli, ve müşteriye açık bir ayar
-  eklendiğinde testin kırılması bunu tekrar sordurmak için
+  yapılacağı ("bize iletin, sunucuya bağlanıp biz yaparız")
+- **A7.7** *(düzeltme)* **Geliştirici modu bir sayfadır, yetki değil.**
+  Erişimi üç soru belirliyor ve yalnız ikisi kontrolü kapatabiliyor:
+  (1) config dosyasında mı — öyleyse panelden **kimse** değiştiremez,
+  geliştirici dâhil; (2) hukuki/etik ağırlığı var mı — öyleyse yalnız
+  işletmeci, her seferinde şifreyle; (3) değilse sıradan ayar, müşteri
+  değiştirir. Beş ayar müşteriye geri döndü (log arşivleme, log
+  seviyesi, verbose penceresi, sıkıştırma, beacon site listesi). Ayrıca
+  **config dosyası ayarları salt-okunur listeleniyor** — parola taşıyan
+  alanların yalnız varlığı yazılı, değeri hiçbir yerde gösterilmiyor
 
 ### Sıradaki üç iş, önem sırasıyla
 

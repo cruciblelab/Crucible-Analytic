@@ -592,10 +592,11 @@ func defaultValueFor(t *testing.T, def Definition) any {
 
 func customerAccess() Access {
 	// The most authority the panel can give a customer: owner of their
-	// own site, with a real membership row. The servers are still not
-	// theirs.
+	// own site, with a real membership row. UserID stays zero so the
+	// audit row records the label without a foreign key to a user this
+	// test never created.
 	return Access{
-		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com", UserID: 7},
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
 		Role:      RoleOwner,
 		Member:    true,
 	}
@@ -608,6 +609,10 @@ func operatorAccess() Access {
 // The customer sees every setting, including the ones they cannot touch,
 // with the value that is actually in force. Hiding them would leave them
 // unable to account for their own deployment.
+//
+// "Cannot touch" now means exactly one thing: the setting carries legal
+// weight, or it lives in a config file. Being a developer-mode setting is
+// not one of them.
 func TestSettingsView_ShowsTheCustomerEverything(t *testing.T) {
 	store := settingsStore(t)
 	ctx := context.Background()
@@ -656,6 +661,10 @@ func TestSettingsView_ShowsTheCustomerEverything(t *testing.T) {
 		if !row.Access.Editable() && row.Lock == "" {
 			t.Errorf("%s is not editable and gives no reason", row.Definition.Key)
 		}
+		if !row.Access.Editable() && !row.Definition.RequiresDeveloperPassword && !row.Definition.ConfigFileOnly {
+			t.Errorf("%s is withheld from the customer without carrying legal weight "+
+				"and without living in a config file", row.Definition.Key)
+		}
 		if row.Access.Editable() && row.Lock != "" {
 			t.Errorf("%s is editable but carries a lock notice", row.Definition.Key)
 		}
@@ -698,11 +707,19 @@ func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
 		t.Errorf("the value became %q despite the refusal", got)
 	}
 
-	// The same for an operator-owned setting that carries no password at
-	// all: no gate involved, still not theirs to change.
-	err = store.ApplySetting(ctx, customer, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{})
-	if !errors.Is(err, ErrSettingNotWritable) {
-		t.Errorf("the customer changed an operator-owned setting (err = %v)", err)
+	// But a developer-mode setting that carries no legal weight *is*
+	// theirs. Developer mode decides which page a setting appears on,
+	// not who may touch it, and asserting the opposite here was the
+	// mistake this test now guards against.
+	unweighted := Access{
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
+		Role:      RoleOwner, Member: true,
+	}
+	if err := store.ApplySetting(ctx, unweighted, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{}); err != nil {
+		t.Errorf("the customer could not change a setting with no legal weight: %v", err)
+	}
+	if got, _ := store.GetIntSetting(ctx, KeyLogArchiveAfterDays, ""); got != 3 {
+		t.Errorf("logs.archive_after_days = %d, want 3", got)
 	}
 
 	// And clearing is a change like any other.

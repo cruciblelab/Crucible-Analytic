@@ -75,21 +75,30 @@ func (a Access) operator() bool {
 }
 
 // AccessTo reports what this principal may do with this setting.
+//
+// Three questions in order, and only the first two can withhold a
+// control:
+//
+//  1. Does it live in a config file? Then nobody edits it here, the
+//     operator included - the panel cannot honour a control it does not
+//     own.
+//  2. Does it carry legal or ethical weight? Then only the operator may
+//     change it, and only against the password, every time.
+//  3. Otherwise it is an ordinary setting, and whoever may manage
+//     settings may change it - customer included, developer mode or
+//     not.
+//
+// Being a developer-mode setting is not one of the questions. It decides
+// which page a setting appears on, not who may touch it.
 func (a Access) AccessTo(def Definition) SettingAccess {
-	operator := a.operator()
-
-	// Guarded settings first, so the lock is what a customer sees on
-	// exactly the settings that carry legal weight - including a viewer,
-	// who would otherwise see the same plain read-only rendering as an
-	// ordinary developer setting and learn less than the truth.
+	if def.ConfigFileOnly {
+		return SettingReadOnly
+	}
 	if def.RequiresDeveloperPassword {
-		if operator && a.Can(CapManageSettings) {
+		if a.operator() && a.Can(CapManageSettings) {
 			return SettingGated
 		}
 		return SettingLocked
-	}
-	if def.Developer && !operator {
-		return SettingReadOnly
 	}
 	if !a.Can(CapManageSettings) {
 		return SettingReadOnly
@@ -118,18 +127,17 @@ func (a Access) MayAttemptDeveloperPassword() bool {
 // panel is broken or that we are being difficult; a customer told "tell
 // us and we will connect and do it" has been given the actual route.
 const (
-	// LockNoticeOperator explains an ordinary operator-owned setting.
+	// LockNoticeConfigFile explains a setting that lives in a config file.
 	//
-	// The reason is concrete rather than proprietary: these mirror what
-	// is normally set on the server itself, and changing one either
-	// disturbs how the system runs or switches on technical surfaces
-	// that then have to be interpreted. Neither is a thing to discover
-	// by trying it on a live deployment.
-	LockNoticeOperator = "Bu ayarı geliştirici yönetiyor. Normalde doğrudan sunucudaki " +
-		"yapılandırmadan verilen ayarlardır; buradan değiştirilmesi ya sistemin " +
-		"işleyişini bozar ya da yorumlanması ayrı bilgi isteyen teknik alanları " +
-		"açar. Bu yüzden değeri görünür, kontrolü kapalıdır. Değişmesi gerekiyorsa " +
-		"bize iletin: sunucuya bağlanıp biz yaparız."
+	// Not a permission at all, which is why it says so plainly. Nobody
+	// changes this from the panel - the operator sees the same message.
+	// A deployment's listen address or database credentials are read
+	// once at startup from a file on disk, and a panel offering to edit
+	// them would be offering something it cannot deliver.
+	LockNoticeConfigFile = "Bu ayar sunucudaki yapılandırma dosyasında durur, veritabanında " +
+		"değil — bu yüzden panelden kimse değiştiremez, geliştirici de dâhil. " +
+		"Değeri burada görünür, çünkü kurulumunuzun nasıl çalıştığını görebilmeniz " +
+		"gerekir. Değişmesi gerekiyorsa bize iletin: sunucuya bağlanıp biz yaparız."
 
 	// LockNoticeLegal explains a guarded one. It says more, because the
 	// reason is different in kind: not "this could break something" but
@@ -217,8 +225,8 @@ func (s *Store) SettingsView(ctx context.Context, a Access, site string) ([]Sett
 		case SettingLocked:
 			view.Lock = LockNoticeLegal
 		case SettingReadOnly:
-			if def.Developer && !a.operator() {
-				view.Lock = LockNoticeOperator
+			if def.ConfigFileOnly {
+				view.Lock = LockNoticeConfigFile
 			} else {
 				view.Lock = LockNoticeViewer
 			}
