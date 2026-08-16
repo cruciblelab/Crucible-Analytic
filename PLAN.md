@@ -353,8 +353,17 @@ anahtarların aynı olduğunu doğrulayan bir test var: birinde olup
 diğerinde olmayan anahtar, ya hiçbir şey yapmayan bir ayar ya da kimsenin
 değiştiremediği bir ayardır.
 
-**Kalan kablolama** (mekanik): collector limitleri, geo blok listeleri,
-bot skor eşiği, flush aralığı; log seviyesi ve `verbose_until`.
+**Log seviyesi de canlı.** `slog.LevelVar` üzerinden: seviye her kayıtta
+okunuyor, yani değişiklik bir sonraki satırda etki ediyor.
+`logs.verbose_until` **kendi kendine sönüyor** — "debug aç, sorunu
+tekrarla, kapat" bir destek çağrısının gerçekten uzandığı tek log ayarı
+ve son adımı unutmak diskin dolma yoludur. Pencere ortasında yeniden
+başlayan süreç ayrıntılı olarak geri gelir; bozuk bir zaman damgası
+"açık değil" sayılır, çünkü hatalı bir değer bir kurulumu sonsuza kadar
+debug'da tutmamalı.
+
+**Kalan kablolama** (mekanik, A6-devam): collector limitleri, geo blok
+listeleri, bot skor eşiği, flush aralığı.
 
 ##### Eski not
 
@@ -1299,6 +1308,34 @@ olursa madde olur.
 | Ülke/ASN kural motoru yalnız engelleme listesi | Kural başına politika motoru gerçek ek karmaşıklık; gerçek ihtiyaç çıkana kadar bekliyor |
 
 ---
+
+## 6.1 Açık risklerin fazlara dağıtımı
+
+Her fazın sonunda kalan riskler burada toplanıyor ve **hangi fazın işi
+olduğu** yazılıyor. Bir riski "kalan" diye bırakmak, onu unutmakla aynı
+şey değil — ama ancak sahibi belliyse.
+
+**Bu fazda kapatıldı:**
+
+| Risk | Nasıl |
+|---|---|
+| `syscall.Statfs` build kısıtı yok — **panel paketi Windows'ta derlenmiyordu** | Ölçüm `preflight_disk_linux.go` / `_other.go` olarak ayrıldı. Linux dışında dürüst "ölçülemedi" döner; derleme hatası da tahmin de değil |
+| Disk kontrolü tek birime bakıyordu | Log ve veri **ayrı birimlerde olur** ve ilk dolan log birimidir. İkisi de ölçülüyor |
+| Rol adı yazım hatası sessizce atlanıyordu | `grants.roles_exist` uyarıyor. Yanlış yazılmış rol, iki yalıtım kontrolünü **doğrulanmış gibi geçirirdi** — doğrulanmamış kontrolden kötü tek sonuç bu |
+| `logs.level` okunuyor ama uygulanmıyordu | `slog.LevelVar` ile canlı. `logs.verbose_until` **kendi kendine sönüyor**, yeniden başlatma penceresini korur, bozuk zaman damgası "açık değil" sayılır |
+
+**Sahibi belirlenen, sonraki fazlara dağıtılan:**
+
+| Risk | Faz | Neden orada |
+|---|---|---|
+| Panelde "Kontrol et" düğmesi yok | **C1–C7** | `RunPreflight` çağrılabilir; HTTP yüzeyi C'nin işi |
+| Doğrulanamayan 5 adım ayrı gösterilmeli | **C2.5** | `UncheckedSteps()` hazır; ayrı gösterme şablon işi |
+| Sıkıştırılmış log paneldeki görüntüleyicide açılmalı | **B1** | `.log.gz` okuma, log görüntüleyicinin parçası |
+| Bakım yalnız açılışta çalışıyor | **B3** | Uzun ömürlü süreç için onarım operasyonu; arka plan zamanlayıcısı bilerek reddedildi |
+| Collector tarafı canlı ayarlar (limitler, geo, skor eşiği, flush) | **A6-devam** | Mekanizma hazır, kablolama mekanik |
+| `GRANT SELECT` elle veriliyor | **F2** | Kurulum betiği; preflight zaten uyarıyor |
+| Log hacmi ölçülmedi | **B4** | Sağlık sayfası zaten disk ve tablo boyutu gösterecek |
+| Anahtar listesi iki yerde | — | Bağımlılık tek yöne baksın diye bilinçli; test uyuşmayı yakalıyor |
 
 ## 6.2 Kampanya fazından kalan riskler ve verilen kararlar
 

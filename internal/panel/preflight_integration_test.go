@@ -293,3 +293,39 @@ func TestPreflight_SettingsGrantSkipsWhenRolesWereNeverSeparated(t *testing.T) {
 		t.Errorf("status = %s, want skip for roles that do not exist: %s", got.Status, got.Detail)
 	}
 }
+
+// A misspelled role makes both isolation checks silently inapplicable:
+// has_table_privilege reports no privileges for a role nobody created,
+// so "cannot read analytics" passes for a role that does not exist. The
+// isolation would look verified when nothing was verified.
+func TestPreflight_WarnsAboutARoleNameThatDoesNotExist(t *testing.T) {
+	store := newTestStore(t, "preflight-typo")
+	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
+		Roles: PreflightRoles{Panel: "panl_usr_typo", API: "collector"},
+	}), "grants.roles_exist")
+
+	if got.Status != CheckWarn {
+		t.Errorf("status = %s, want warn for a misspelled role: %s", got.Status, got.Detail)
+	}
+	if !strings.Contains(got.Detail, "panl_usr_typo") {
+		t.Errorf("detail does not name the missing role: %s", got.Detail)
+	}
+}
+
+// Logs and the database routinely live on different volumes, and the log
+// volume is the one that fills first.
+func TestPreflight_MeasuresBothVolumes(t *testing.T) {
+	store := newTestStore(t, "preflight-disk")
+	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
+		DataDir: "/", LogDir: t.TempDir(),
+	}), "disk.free")
+
+	if got.Status != CheckPass {
+		t.Fatalf("status = %s: %s", got.Status, got.Detail)
+	}
+	for _, want := range []string{"veri", "kayıt"} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("detail does not report the %q volume: %s", want, got.Detail)
+		}
+	}
+}

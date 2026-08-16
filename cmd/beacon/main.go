@@ -65,7 +65,7 @@ func main() {
 	// Now that the config is known, swap the bootstrap logger for the
 	// structured tree. Everything after this point is filed by
 	// category and by day; anything before it went to stderr.
-	treeLogger, closeLogs, err := logging.Setup("beacon", cfg.Logging)
+	treeLogger, logControls, closeLogs, err := logging.Setup("beacon", cfg.Logging)
 	if err != nil {
 		logger.Error("logging setup failed", "err", err)
 		os.Exit(1)
@@ -192,6 +192,23 @@ func main() {
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
 		srv.SetSites(live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+
+		// The log level, and any temporary raise to debug. The raise
+		// expires by itself: "turn on debug, reproduce it, turn it off"
+		// is the one log setting a support call actually reaches for, and
+		// leaving it on is how a disk fills.
+		configured, err := logging.ParseLevel(
+			live.String(settings.KeyLogLevel, "", cfg.Logging.Level, []string{"debug", "info", "warn", "error"}))
+		if err != nil {
+			configured = logControls.Base()
+		}
+		before := logControls.Level()
+		after := logControls.Apply(configured, live.String(settings.KeyLogVerboseUntil, "", "", nil), time.Now())
+		if after != before {
+			// Logged at the new level's own severity would risk being
+			// invisible; Info is always written and this is rare.
+			logger.Info("logging level changed", "from", before.String(), "to", after.String())
+		}
 	}
 	applySettings()
 

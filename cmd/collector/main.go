@@ -50,7 +50,7 @@ func main() {
 	// Now that the config is known, swap the bootstrap logger for the
 	// structured tree. Everything after this point is filed by
 	// category and by day; anything before it went to stderr.
-	treeLogger, closeLogs, err := logging.Setup("collector", cfg.Logging)
+	treeLogger, logControls, closeLogs, err := logging.Setup("collector", cfg.Logging)
 	if err != nil {
 		logger.Error("logging setup failed", "err", err)
 		os.Exit(1)
@@ -58,6 +58,7 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
+	_ = logControls
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

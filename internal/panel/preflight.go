@@ -2,13 +2,13 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -135,8 +135,9 @@ func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckRe
 		s.checkPanelIsolation(ctx, cfg.Roles),
 		s.checkAPIIsReadOnly(ctx, cfg.Roles),
 		s.checkRetentionPolicies(ctx),
+		s.checkConfiguredRolesExist(ctx, cfg.Roles),
 		checkLogDir(cfg.LogDir),
-		checkFreeSpace(cfg.DataDir, cfg.MinFreeBytes),
+		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		checkBackups(),
 	}
 	for _, name := range sortedKeys(cfg.ServiceURLs) {
@@ -496,6 +497,55 @@ func (s *Store) roleHasPrivilege(ctx context.Context, role, table, privilege str
 	return has, nil
 }
 
+// checkConfiguredRolesExist catches a typo in a role name.
+//
+// Without it, a misspelled role makes the two isolation checks silently
+// inapplicable: has_table_privilege reports no privileges for a role
+// nobody created, so "cannot read analytics" passes for a role that does
+// not exist. The isolation would look verified when nothing was
+// verified, which is the one outcome worse than an unverified check.
+func (s *Store) checkConfiguredRolesExist(ctx context.Context, roles PreflightRoles) CheckResult {
+	result := CheckResult{
+		ID: "grants.roles_exist", Severity: SeverityRecommended,
+		Label: "Yapılandırılan roller veritabanında var mı",
+	}
+	configured := map[string]string{
+		"collector": roles.Collector, "beacon": roles.Beacon,
+		"api": roles.API, "panel": roles.Panel,
+	}
+
+	var missing []string
+	var named int
+	for _, which := range []string{"collector", "beacon", "api", "panel"} {
+		role := configured[which]
+		if role == "" {
+			continue
+		}
+		named++
+		exists, err := s.roleExists(ctx, role)
+		if err != nil {
+			result.Status, result.Detail = CheckSkip, "Roller sorgulanamadı: "+err.Error()
+			return result
+		}
+		if !exists {
+			missing = append(missing, fmt.Sprintf("%s (%s)", role, which))
+		}
+	}
+	if named == 0 {
+		result.Status, result.Detail = CheckSkip, "Rol adı verilmedi."
+		return result
+	}
+	if len(missing) > 0 {
+		result.Status = CheckWarn
+		result.Detail = "Yapılandırmada adı geçip veritabanında bulunmayan rol: " + strings.Join(missing, ", ") +
+			". Yazım hatasıysa, o role bakan yetki kontrolleri hiçbir şeyi doğrulamadan geçer."
+		result.Fix = `psql "$DSN" -c "\du"  # gerçek rol adlarını listeler`
+		return result
+	}
+	result.Status, result.Detail = CheckPass, fmt.Sprintf("Adı geçen %d rolün hepsi mevcut.", named)
+	return result
+}
+
 // roleExists reports whether a database role is defined.
 func (s *Store) roleExists(ctx context.Context, role string) (bool, error) {
 	var exists bool
@@ -550,29 +600,50 @@ func checkLogDir(dir string) CheckResult {
 	return result
 }
 
-func checkFreeSpace(path string, minFree uint64) CheckResult {
+// checkFreeSpace measures the volumes the deployment writes to.
+//
+// Both are checked, not one: the logs and the database are routinely on
+// different volumes, and a check that looked only at the data directory
+// would report plenty of room while the log volume filled - which is the
+// one that fills first.
+func checkFreeSpace(paths map[string]string, minFree uint64) CheckResult {
 	result := CheckResult{
 		ID: "disk.free", Severity: SeverityRecommended,
 		Label: "Disk boş alanı",
 	}
-	if path == "" {
-		result.Status, result.Detail = CheckSkip, "Veri dizini verilmedi."
+	if len(paths) == 0 {
+		result.Status, result.Detail = CheckSkip, "Ölçülecek dizin verilmedi."
 		return result
 	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		result.Status, result.Detail = CheckSkip, path+" ölçülemedi: "+err.Error()
+
+	var reports []string
+	var low []string
+	var measured int
+	for _, name := range sortedKeys(paths) {
+		free, err := freeBytes(paths[name])
+		if err != nil {
+			reports = append(reports, fmt.Sprintf("%s: ölçülemedi (%v)", name, err))
+			continue
+		}
+		measured++
+		reports = append(reports, fmt.Sprintf("%s: %s boş", name, humanBytes(free)))
+		if free < minFree {
+			low = append(low, name)
+		}
+	}
+	if measured == 0 {
+		result.Status, result.Detail = CheckSkip, strings.Join(reports, "; ")
 		return result
 	}
-	free := stat.Bavail * uint64(stat.Bsize)
-	if free < minFree {
+	if len(low) > 0 {
 		result.Status = CheckFail
-		result.Detail = fmt.Sprintf("%s üzerinde %s boş alan var (en az %s bekleniyor). "+
-			"Dolan disk collector'ı durdurur.", path, humanBytes(free), humanBytes(minFree))
+		result.Detail = strings.Join(reports, "; ") +
+			fmt.Sprintf(". %s birimi %s altında; dolan disk collector'ı durdurur.",
+				strings.Join(low, ", "), humanBytes(minFree))
 		result.Fix = "Saklama sürelerini kısaltın veya diski büyütün."
 		return result
 	}
-	result.Status, result.Detail = CheckPass, fmt.Sprintf("%s üzerinde %s boş alan var.", path, humanBytes(free))
+	result.Status, result.Detail = CheckPass, strings.Join(reports, "; ")
 	return result
 }
 
@@ -740,3 +811,7 @@ func UncheckedSteps() []ManualStep {
 	}
 	return out
 }
+
+// errNoPath is what freeBytes returns for an empty path, so both
+// implementations agree on that case.
+var errNoPath = errors.New("dizin verilmedi")

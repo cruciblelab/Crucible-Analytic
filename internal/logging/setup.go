@@ -72,14 +72,21 @@ func ParseLevel(name string) (slog.Level, error) {
 // When Dir is empty this returns an ordinary stderr logger and a no-op
 // cleanup, so nothing in a service's startup path has to branch on
 // whether file logging is configured.
-func Setup(service string, cfg Config) (*slog.Logger, func(), error) {
-	level, err := ParseLevel(cfg.Level)
+func Setup(service string, cfg Config) (*slog.Logger, *Controls, func(), error) {
+	configured, err := ParseLevel(cfg.Level)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
+	// A LevelVar rather than a fixed level: slog reads it on every
+	// record, so a level change takes effect on the next line instead of
+	// the next restart.
+	level := &slog.LevelVar{}
+	level.Set(configured)
+	controls := &Controls{level: level, base: configured}
+
 	if cfg.Dir == "" {
-		return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})), func() {}, nil
+		return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})), controls, func() {}, nil
 	}
 
 	tree, err := NewTree(TreeConfig{
@@ -89,7 +96,7 @@ func Setup(service string, cfg Config) (*slog.Logger, func(), error) {
 		MaxFileBytes:  int64(cfg.MaxFileMB) << 20,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	var handler slog.Handler = NewHandler(tree, HandlerConfig{Level: level})
@@ -118,7 +125,7 @@ func Setup(service string, cfg Config) (*slog.Logger, func(), error) {
 			report.Archived, report.Deleted, report.BytesReclaimed)
 	}
 
-	return slog.New(handler), func() { _ = tree.Close() }, nil
+	return slog.New(handler), controls, func() { _ = tree.Close() }, nil
 }
 
 // teeHandler writes each record to two handlers.
