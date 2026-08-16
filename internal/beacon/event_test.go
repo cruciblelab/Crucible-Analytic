@@ -42,7 +42,7 @@ func TestBuildRow_SplitsPathFromQueryAndKeepsOnlyCampaignParams(t *testing.T) {
 		// reach an analytics table: it is a credential, and the panel
 		// has a far wider audience than the application's own database.
 		URL: "/checkout?utm_source=newsletter&session_token=secret&utm_medium=email",
-	}, Enrichment{})
+	}, Enrichment{}, DefaultCampaignPolicy())
 
 	if row.Path != "/checkout" {
 		t.Errorf("Path = %q, want /checkout", row.Path)
@@ -58,15 +58,15 @@ func TestBuildRow_SplitsPathFromQueryAndKeepsOnlyCampaignParams(t *testing.T) {
 }
 
 func TestBuildRow_QueryOrderDoesNotChangeTheStoredValue(t *testing.T) {
-	first := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/p?utm_source=a&utm_campaign=b"}, Enrichment{})
-	second := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/p?utm_campaign=b&utm_source=a"}, Enrichment{})
+	first := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/p?utm_source=a&utm_campaign=b"}, Enrichment{}, DefaultCampaignPolicy())
+	second := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/p?utm_campaign=b&utm_source=a"}, Enrichment{}, DefaultCampaignPolicy())
 	if first.Query != second.Query {
 		t.Errorf("query serialization is order-dependent: %q vs %q", first.Query, second.Query)
 	}
 }
 
 func TestBuildRow_AbsoluteURLKeepsOnlyThePath(t *testing.T) {
-	row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "https://somewhere-else.example/admin?x=1"}, Enrichment{})
+	row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "https://somewhere-else.example/admin?x=1"}, Enrichment{}, DefaultCampaignPolicy())
 	if row.Path != "/admin" {
 		t.Errorf("Path = %q, want /admin", row.Path)
 	}
@@ -83,7 +83,7 @@ func TestBuildRow_NormalizesPaths(t *testing.T) {
 		"/about":  "/about",
 	}
 	for in, want := range cases {
-		if got := BuildRow(Event{Site: "s", Type: TypePageview, URL: in}, Enrichment{}).Path; got != want {
+		if got := BuildRow(Event{Site: "s", Type: TypePageview, URL: in}, Enrichment{}, DefaultCampaignPolicy()).Path; got != want {
 			t.Errorf("URL %q -> Path %q, want %q", in, got, want)
 		}
 	}
@@ -95,7 +95,7 @@ func TestBuildRow_SplitsReferrerAndDropsItsQuery(t *testing.T) {
 		Type:     TypePageview,
 		URL:      "/",
 		Referrer: "https://WWW.Google.com/search?q=private+search+terms",
-	}, Enrichment{})
+	}, Enrichment{}, DefaultCampaignPolicy())
 
 	if row.ReferrerHost != "www.google.com" {
 		t.Errorf("ReferrerHost = %q, want www.google.com (lowercased)", row.ReferrerHost)
@@ -110,7 +110,7 @@ func TestBuildRow_SplitsReferrerAndDropsItsQuery(t *testing.T) {
 
 func TestBuildRow_ReferrerWithoutAHostIsDropped(t *testing.T) {
 	for _, referrer := range []string{"/internal/page", "not a url at all", ""} {
-		row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", Referrer: referrer}, Enrichment{})
+		row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", Referrer: referrer}, Enrichment{}, DefaultCampaignPolicy())
 		if row.ReferrerHost != "" {
 			t.Errorf("referrer %q -> host %q, want empty", referrer, row.ReferrerHost)
 		}
@@ -118,18 +118,18 @@ func TestBuildRow_ReferrerWithoutAHostIsDropped(t *testing.T) {
 }
 
 func TestBuildRow_NameOnlyKeptForNamedEvents(t *testing.T) {
-	pageview := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", Name: "leftover"}, Enrichment{})
+	pageview := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", Name: "leftover"}, Enrichment{}, DefaultCampaignPolicy())
 	if pageview.EventName != "" {
 		t.Errorf("EventName = %q on a pageview, want empty", pageview.EventName)
 	}
-	named := BuildRow(Event{Site: "s", Type: TypeEvent, URL: "/", Name: "signup"}, Enrichment{})
+	named := BuildRow(Event{Site: "s", Type: TypeEvent, URL: "/", Name: "signup"}, Enrichment{}, DefaultCampaignPolicy())
 	if named.EventName != "signup" {
 		t.Errorf("EventName = %q, want signup", named.EventName)
 	}
 }
 
 func TestBuildRow_ClampsScreenDimensions(t *testing.T) {
-	row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", ScreenW: -5, ScreenH: 1 << 30}, Enrichment{})
+	row := BuildRow(Event{Site: "s", Type: TypePageview, URL: "/", ScreenW: -5, ScreenH: 1 << 30}, Enrichment{}, DefaultCampaignPolicy())
 	if row.ScreenW != 0 {
 		t.Errorf("ScreenW = %d, want 0 for a negative input", row.ScreenW)
 	}
@@ -149,7 +149,7 @@ func TestBuildRow_CarriesEnrichmentThrough(t *testing.T) {
 		Country:   "TR",
 		ASN:       15169,
 		ASNOrg:    "GOOGLE",
-	})
+	}, DefaultCampaignPolicy())
 
 	if !row.Time.Equal(now) || row.IP != ip || row.VisitorID != "abc123" {
 		t.Errorf("enrichment identity fields lost: %+v", row)
@@ -220,7 +220,7 @@ func TestBuildRow_TruncatesOverlongFields(t *testing.T) {
 		Site: "s", Type: TypeEvent, Name: long,
 		URL: "/" + long, Title: long, Language: long,
 		Referrer: "https://" + strings.Repeat("h", 400) + ".example/" + long,
-	}, Enrichment{})
+	}, Enrichment{}, DefaultCampaignPolicy())
 
 	for field, spec := range map[string]struct {
 		got string

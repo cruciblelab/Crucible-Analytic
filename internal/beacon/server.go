@@ -110,7 +110,12 @@ type Server struct {
 	// constrains browsers, and anything determined to post junk here
 	// would not be using one.
 	AllowedOrigins []string
-	Logger         *slog.Logger
+	// Campaign decides which query parameters survive into storage. The
+	// zero value keeps every standard parameter and stores no raw click
+	// identifiers, which is DefaultCampaignPolicy - so a Server built
+	// without setting this behaves safely rather than storing nothing.
+	Campaign CampaignPolicy
+	Logger   *slog.Logger
 	// Now supplies event timestamps; nil means time.Now.
 	Now func() time.Time
 
@@ -279,7 +284,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		Country:   geo.Country,
 		ASN:       geo.ASN,
 		ASNOrg:    geo.ASNName,
-	})
+	}, s.Campaign)
 
 	if s.Sink.Enqueue(row) {
 		s.accepted.Add(1)

@@ -160,7 +160,7 @@ func TestWriter_RealTimescaleDB_HostilePayloadDoesNotPoisonTheBatch(t *testing.T
 		Time:      time.Now().UTC(),
 		IP:        netip.MustParseAddr("203.0.113.9"),
 		VisitorID: "0123456789abcdef0123456789abcdef",
-	})
+	}, DefaultCampaignPolicy())
 
 	batch := []Row{testRow(site, "/before"), hostile, testRow(site, "/after")}
 	n, err := writer.WriteRows(context.Background(), batch)
@@ -392,7 +392,7 @@ func TestWriter_RealTimescaleDB_StoresLongButValidText(t *testing.T) {
 		Time:      time.Now().UTC(),
 		IP:        netip.MustParseAddr("203.0.113.9"),
 		VisitorID: "0123456789abcdef0123456789abcdef",
-	})
+	}, DefaultCampaignPolicy())
 
 	if _, err := writer.WriteRows(context.Background(), []Row{row}); err != nil {
 		t.Fatalf("WriteRows on a maximal row: %v", err)

@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"net/netip"
 	"net/url"
-	"sort"
+
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -101,6 +101,11 @@ type Row struct {
 	Query     string
 	Title     string
 
+	// Campaign is Query split into groupable dimensions. The two are
+	// written together and describe the same acquisition context; see
+	// CampaignPolicy.Apply for why both are stored.
+	Campaign Campaign
+
 	ReferrerHost string
 	ReferrerPath string
 
@@ -160,8 +165,8 @@ type Enrichment struct {
 // which is the only thing standing between a hostile payload and the
 // database - is unit-testable without an HTTP server or a live
 // connection, the same reasoning behind storage.BuildRows.
-func BuildRow(e Event, en Enrichment) Row {
-	path, query := splitURL(e.URL)
+func BuildRow(e Event, en Enrichment, policy CampaignPolicy) Row {
+	path, campaign, query := splitURL(e.URL, policy)
 	refHost, refPath := splitReferrer(e.Referrer)
 
 	name := ""
@@ -178,6 +183,8 @@ func BuildRow(e Event, en Enrichment) Row {
 		Path:      path,
 		Query:     query,
 		Title:     sanitizeText(e.Title, maxTitleLen),
+
+		Campaign: campaign,
 
 		ReferrerHost: refHost,
 		ReferrerPath: refPath,
@@ -205,10 +212,10 @@ func BuildRow(e Event, en Enrichment) Row {
 // query parameters; the scheme and host are dropped, since the server
 // already knows which site this is and a payload-supplied host is not
 // evidence of anything.
-func splitURL(raw string) (path, query string) {
+func splitURL(raw string, policy CampaignPolicy) (path string, campaign Campaign, query string) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "/", ""
+		return "/", Campaign{}, ""
 	}
 
 	// An unparseable URL is not worth rejecting the event over - the
@@ -216,10 +223,11 @@ func splitURL(raw string) (path, query string) {
 	// string as a path and let sanitizeText make it safe.
 	u, err := url.Parse(raw)
 	if err != nil {
-		return normalizePath(sanitizeText(raw, maxPathLen)), ""
+		return normalizePath(sanitizeText(raw, maxPathLen)), Campaign{}, ""
 	}
 
-	return normalizePath(sanitizeText(u.Path, maxPathLen)), sanitizeQuery(u.Query())
+	campaign, query = policy.Apply(u.Query())
+	return normalizePath(sanitizeText(u.Path, maxPathLen)), campaign, query
 }
 
 // normalizePath guarantees a leading slash, so "/pricing" and "pricing"
@@ -232,64 +240,6 @@ func normalizePath(p string) string {
 		return "/" + p
 	}
 	return p
-}
-
-// campaignParams is the complete set of query parameters worth keeping.
-//
-// Storing the raw query string would be easier and is what several
-// analytics tools do, but query strings routinely carry password-reset
-// tokens, invite codes, session identifiers and email addresses. Those
-// would then sit in an analytics table forever, readable by anyone with
-// a panel token - a much wider audience than the application's own
-// database. An allowlist means a new parameter is invisible until
-// someone deliberately adds it here, which is the right default for a
-// field this project has no control over the contents of.
-var campaignParams = map[string]bool{
-	"utm_source":   true,
-	"utm_medium":   true,
-	"utm_campaign": true,
-	"utm_term":     true,
-	"utm_content":  true,
-	"ref":          true,
-	"gclid":        true,
-	"fbclid":       true,
-	"msclkid":      true,
-}
-
-// sanitizeQuery keeps only campaignParams, re-serialized in sorted order
-// so that "?utm_source=x&utm_medium=y" and "?utm_medium=y&utm_source=x"
-// produce one row rather than two.
-func sanitizeQuery(values url.Values) string {
-	kept := make(url.Values, len(values))
-	for key, vals := range values {
-		if !campaignParams[key] || len(vals) == 0 {
-			continue
-		}
-		// Only the first value: a repeated parameter is either a mistake
-		// or an attempt to inflate the stored string, and neither is
-		// worth a multi-valued column.
-		kept.Set(key, sanitizeText(vals[0], maxQueryLen))
-	}
-	if len(kept) == 0 {
-		return ""
-	}
-
-	keys := make([]string, 0, len(kept))
-	for key := range kept {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	var b strings.Builder
-	for _, key := range keys {
-		if b.Len() > 0 {
-			b.WriteByte('&')
-		}
-		b.WriteString(url.QueryEscape(key))
-		b.WriteByte('=')
-		b.WriteString(url.QueryEscape(kept.Get(key)))
-	}
-	return truncateRunes(b.String(), maxQueryLen)
 }
 
 // splitReferrer breaks document.referrer into the host you group by and

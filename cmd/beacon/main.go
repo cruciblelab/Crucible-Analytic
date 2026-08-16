@@ -140,6 +140,7 @@ func main() {
 		Visitors:       visitors,
 		ClientIP:       beacon.ClientIPResolver{TrustedProxies: trustedProxies},
 		AllowedOrigins: cfg.AllowedOrigins,
+		Campaign:       cfg.Campaign.Policy(),
 		Logger:         logger,
 	}
 	if lookup != nil {

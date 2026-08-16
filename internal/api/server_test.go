@@ -29,6 +29,7 @@ type fakeStore struct {
 	gotIP          netip.Addr
 	gotSites       []string
 	gotBots        BotFilter
+	gotCampaign    campaignFilter
 	// gotCall records which store method the last request reached. The
 	// seven beacon breakdown routes share one handler and are wired from
 	// a map, so a copy-paste slip there would route /browsers to the

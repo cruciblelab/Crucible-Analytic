@@ -9,7 +9,7 @@ listeler. Her satır, kaynak koddaki şema dosyalarından birebir
 `internal/beacon/schema.sql`, `internal/panel/schema.sql`), tarif veya
 tahmin değildir.
 
-Son güncelleme: 2026-08-13
+Son güncelleme: 2026-08-16
 
 ---
 
@@ -102,6 +102,14 @@ Sayfa görüntüleme başına bir satır.
 | `path` | metin | Sayfa yolu (`/urunler/ayakkabi`) — **sorgu dizesi hariç** | Tek başına hayır |
 | `query` | metin | **Yalnızca izin listesindeki kampanya parametreleri** — aşağıda | Hayır |
 | `title` | metin | Sayfa başlığı | Hayır |
+| `utm_source` | metin | Kampanya kaynağı (`instagram`) | Hayır |
+| `utm_medium` | metin | Kampanya kanalı (`email`) | Hayır |
+| `utm_campaign` | metin | Kampanya adı (`bahar-indirimi`) | Hayır |
+| `utm_term` | metin | Anahtar kelime — **aşağıdaki uyarıya bakınız** | Duruma bağlı |
+| `utm_content` | metin | Kampanya varyantı (`mavi-buton`) | Hayır |
+| `ref` | metin | UTM kullanmayan sitelerin kısaltması | Hayır |
+| `click_source` | metin | Hangi reklam ağından tıklandı: `google` / `facebook` / `microsoft` / boş | Hayır |
+| `click_id` | metin | Ham tıklama kimliği — **varsayılan olarak BOŞ**, aşağıya bakınız | **Evet, saklanırsa** |
 | `referrer_host` | metin | Gelinen sitenin alan adı (`google.com`) | Hayır |
 | `referrer_path` | metin | Gelinen sitedeki yol — **sorgu dizesi tamamen atılır** | Hayır |
 | `ip` | IP adresi | **Ziyaretçinin IP adresi** (iki tabloyu birleştiren anahtar) | **Evet** |
@@ -175,8 +183,57 @@ için kaynak koda elle eklenmesi gerekir.
 
 **Yönlendiren sitenin (referrer) sorgu dizesi ise tamamen atılır** —
 tek bir parametresi bile saklanmaz. Örnek olarak: bir kullanıcı
-Google'da arama yapıp siteye geldiğinde, **arama terimi saklanmaz**;
-yalnızca `google.com` saklanır.
+Google'da **organik** arama yapıp siteye geldiğinde, **arama terimi
+saklanmaz**; yalnızca `google.com` saklanır.
+
+Bu liste **kurulum başına ayarlanabilir** (`[campaign]` bölümü): standart
+bir parametre çıkarılabilir, listede olmayan bir parametre eklenebilir.
+Yani hukukçunun kararı kod değişikliği değil, yapılandırma satırı olur.
+
+### ⚠️ `utm_term` — hukukçunun bilmesi gereken tek istisna
+
+Yukarıda "arama terimi saklanmaz" dedik ve bu **organik arama için
+kesinlikle doğrudur.** Ücretli reklamda bir istisna vardır:
+
+`utm_term` normalde reklam verenin **satın aldığı anahtar kelimeyi**
+taşır (kullanıcının yazdığını değil). Ancak reklam veren, Google Ads'te
+`{keyword}` yerine `{searchterm}` kullanacak şekilde ayarlarsa,
+**kullanıcının gerçekten yazdığı arama** bu alana düşebilir. Bu, reklam
+verenin yapılandırmasına bağlıdır ve bizim kontrolümüzde değildir.
+
+Bu nedenle `utm_term` tek satırlık bir ayarla tamamen kapatılabilir:
+
+```toml
+[campaign]
+drop_params = ["utm_term"]
+```
+
+Kapatıldığında sütun boş kalır ve değer saklanan sorgu dizesine de
+girmez.
+
+### ⚠️ Reklam tıklama kimlikleri (`gclid` / `fbclid` / `msclkid`)
+
+Bunlar diğer kampanya parametrelerinden **farklıdır** ve ayrı
+değerlendirilmelidir. `utm_*` değerleri sabit etiketlerdir — `instagram`
+yazar, herkeste aynıdır. Tıklama kimlikleri ise **her tıklamada
+benzersizdir**; reklam platformu üretir.
+
+Biz onları bir kişiye çeviremeyiz — o eşleştirme yalnızca
+Google/Meta/Microsoft'un kendi sisteminde vardır. Ama benzersiz oldukları
+için "kişisel veri değil" demek doğru olmaz.
+
+**Varsayılan davranış: ham tıklama kimliği SAKLANMAZ.** Saklanan tek şey
+`click_source` sütunudur — yani "bir Google reklamından tıklanmış"
+bilgisi. Bu, analiz açısından değerli olan kısımdır ve hiç kimseyi
+tanımlamaz.
+
+Gerekçe: ham kimliğin tek meşru kullanımı, dönüşümleri reklam
+platformuna geri yüklemektir — bu proje bunu yapmaz. Hiçbir şeyin
+tüketmediği benzersiz bir tanımlayıcıyı saklamak, envanterde
+açıklanması gereken ve gerekçelendirilemeyen bir şeydir.
+
+Müşteri isterse `campaign.store_click_ids = true` ile açılabilir; o
+durumda `click_id` sütunu dolar ve bu belgede ayrıca beyan edilmelidir.
 
 ---
 
@@ -232,7 +289,10 @@ saklanamazlar:
 - **Ad, soyad, e-posta, telefon, adres, TCKN, ödeme bilgisi** — sistemin
   bu alanlar için hiçbir sütunu yoktur.
 - **Ham sorgu dizesi** (Bölüm 2'ye bakınız).
-- **Arama terimleri** (yönlendiren sorgu dizesi tamamen atılır).
+- **Organik arama terimleri** (yönlendiren sorgu dizesi tamamen atılır).
+  Ücretli reklamdaki `utm_term` istisnası için Bölüm 2'ye bakınız.
+- **Ham reklam tıklama kimliği** — varsayılan olarak saklanmaz; yalnızca
+  hangi reklam ağı olduğu (`click_source`) saklanır.
 - **Siteler arası takip** — yapısal olarak imkânsız (Bölüm 2, madde 3).
 - **Üçüncü taraflara aktarım.** Reklam ağı, veri simsarı, harici
   analitik servisi bulunmaz.
@@ -354,6 +414,11 @@ oluşturulmazsa tedarikçinin hiçbir erişimi olmaz.
 8. Ziyaretçinin **silme talebi**, teknik olarak yalnız günün kayıtlarını
    kapsayabiliyor (eskisi zaten ilişkilendirilemiyor). Bu, mevzuat
    açısından yeterli bir karşılık mı?
+9. **`utm_term` saklanmalı mı?** Ücretli reklamda kullanıcının gerçek
+   arama terimini taşıyabiliyor (Bölüm 2). Tek satırlık ayarla
+   kapatılabilir.
+10. **Ham reklam tıklama kimliği** varsayılan olarak saklanmıyor. Bu
+    tercih doğru mu, yoksa müşterinin reklam ölçümü için gerekli mi?
 
 ---
 

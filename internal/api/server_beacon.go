@@ -9,9 +9,17 @@ import (
 // BeaconQuerier is the read-only access the beacon handlers need.
 type BeaconQuerier interface {
 	BeaconSites(ctx context.Context) ([]string, error)
-	BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter) (BeaconSummary, error)
-	BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter) ([]BeaconBucket, error)
+	BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error)
+	BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error)
 	BeaconPages(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconTitles(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconUTMSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconUTMMediums(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconUTMCampaigns(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconUTMTerms(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconUTMContents(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconRefs(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
+	BeaconClickSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
 	BeaconEntryPages(ctx context.Context, siteID string, p beaconParams) ([]SessionPathStat, int, error)
 	BeaconExitPages(ctx context.Context, siteID string, p beaconParams) ([]SessionPathStat, int, error)
 	BeaconReferrers(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
@@ -77,6 +85,14 @@ func (s *Server) registerBeaconRoutes(mux *http.ServeMux) {
 		"devices":           {"devices", BeaconQuerier.BeaconDevices},
 		"languages":         {"languages", BeaconQuerier.BeaconLanguages},
 		"countries":         {"countries", BeaconQuerier.BeaconCountries},
+		"titles":            {"titles", BeaconQuerier.BeaconTitles},
+		"utm-sources":       {"utm_sources", BeaconQuerier.BeaconUTMSources},
+		"utm-mediums":       {"utm_mediums", BeaconQuerier.BeaconUTMMediums},
+		"utm-campaigns":     {"utm_campaigns", BeaconQuerier.BeaconUTMCampaigns},
+		"utm-terms":         {"utm_terms", BeaconQuerier.BeaconUTMTerms},
+		"utm-contents":      {"utm_contents", BeaconQuerier.BeaconUTMContents},
+		"refs":              {"refs", BeaconQuerier.BeaconRefs},
+		"click-sources":     {"click_sources", BeaconQuerier.BeaconClickSources},
 	} {
 		mux.HandleFunc("GET /api/v1/sites/{site}/beacon/"+path, s.siteHandler(s.beaconGroupHandler(group.key, group.query)))
 	}
@@ -120,7 +136,12 @@ func (s *Server) parseBeaconParams(w http.ResponseWriter, r *http.Request) (beac
 		writeError(w, http.StatusBadRequest, err.Error())
 		return beaconParams{}, false
 	}
-	return beaconParams{from: from, to: to, limit: limit, offset: offset, bots: bots}, true
+	campaign, err := ParseCampaignFilter(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return beaconParams{}, false
+	}
+	return beaconParams{from: from, to: to, limit: limit, offset: offset, bots: bots, campaign: campaign}, true
 }
 
 func (s *Server) handleBeaconSites(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +181,13 @@ func (s *Server) handleBeaconSummary(w http.ResponseWriter, r *http.Request, sit
 		return
 	}
 
-	summary, err := s.Store.BeaconSummary(r.Context(), site, from, to, bots)
+	campaign, err := ParseCampaignFilter(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	summary, err := s.Store.BeaconSummary(r.Context(), site, from, to, bots, campaign)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -190,7 +217,13 @@ func (s *Server) handleBeaconTimeseries(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	buckets, err := s.Store.BeaconTimeseries(r.Context(), site, from, to, interval, bots)
+	campaign, err := ParseCampaignFilter(q)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	buckets, err := s.Store.BeaconTimeseries(r.Context(), site, from, to, interval, bots, campaign)
 	if err != nil {
 		s.fail(w, r, err)
 		return

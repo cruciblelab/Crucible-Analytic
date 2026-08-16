@@ -24,7 +24,8 @@ func (f *fakeStore) BeaconSites(ctx context.Context) ([]string, error) {
 	return f.sites, f.err
 }
 
-func (f *fakeStore) BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter) (BeaconSummary, error) {
+func (f *fakeStore) BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error) {
+	f.gotCampaign = campaign
 	f.gotCall, f.gotSite, f.gotFrom, f.gotTo, f.gotBots = "BeaconSummary", siteID, from, to, bots
 	if f.err != nil {
 		return BeaconSummary{}, f.err
@@ -32,7 +33,8 @@ func (f *fakeStore) BeaconSummary(ctx context.Context, siteID string, from, to t
 	return BeaconSummary{SiteID: siteID, From: from, To: to, Bots: string(bots), Pageviews: 9, Visitors: 4, Sessions: 5}, nil
 }
 
-func (f *fakeStore) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter) ([]BeaconBucket, error) {
+func (f *fakeStore) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
+	f.gotCampaign = campaign
 	f.gotCall, f.gotSite, f.gotFrom, f.gotTo, f.gotInterval, f.gotBots = "BeaconTimeseries", siteID, from, to, interval, bots
 	if f.err != nil {
 		return nil, f.err
@@ -45,6 +47,7 @@ func (f *fakeStore) BeaconTimeseries(ctx context.Context, siteID string, from, t
 func (f *fakeStore) captureBeacon(call, siteID string, p beaconParams) {
 	f.gotCall, f.gotSite = call, siteID
 	f.gotFrom, f.gotTo, f.gotLimit, f.gotOffset, f.gotBots = p.from, p.to, p.limit, p.offset, p.bots
+	f.gotCampaign = p.campaign
 }
 
 func (f *fakeStore) group(call, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
@@ -79,6 +82,38 @@ func (f *fakeStore) BeaconDevices(ctx context.Context, siteID string, p beaconPa
 
 func (f *fakeStore) BeaconLanguages(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
 	return f.group("BeaconLanguages", siteID, p)
+}
+
+func (f *fakeStore) BeaconTitles(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconTitles", siteID, p)
+}
+
+func (f *fakeStore) BeaconUTMSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconUTMSources", siteID, p)
+}
+
+func (f *fakeStore) BeaconUTMMediums(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconUTMMediums", siteID, p)
+}
+
+func (f *fakeStore) BeaconUTMCampaigns(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconUTMCampaigns", siteID, p)
+}
+
+func (f *fakeStore) BeaconUTMTerms(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconUTMTerms", siteID, p)
+}
+
+func (f *fakeStore) BeaconUTMContents(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconUTMContents", siteID, p)
+}
+
+func (f *fakeStore) BeaconRefs(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconRefs", siteID, p)
+}
+
+func (f *fakeStore) BeaconClickSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return f.group("BeaconClickSources", siteID, p)
 }
 
 func (f *fakeStore) BeaconCountries(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
@@ -243,6 +278,14 @@ func TestServer_EachBreakdownRouteReachesItsOwnQuery(t *testing.T) {
 		"devices":           "BeaconDevices",
 		"languages":         "BeaconLanguages",
 		"countries":         "BeaconCountries",
+		"titles":            "BeaconTitles",
+		"utm-sources":       "BeaconUTMSources",
+		"utm-mediums":       "BeaconUTMMediums",
+		"utm-campaigns":     "BeaconUTMCampaigns",
+		"utm-terms":         "BeaconUTMTerms",
+		"utm-contents":      "BeaconUTMContents",
+		"refs":              "BeaconRefs",
+		"click-sources":     "BeaconClickSources",
 	}
 	for path, wantCall := range cases {
 		t.Run(path, func(t *testing.T) {

@@ -74,6 +74,77 @@ type beaconParams struct {
 	limit    int
 	offset   int
 	bots     BotFilter
+	campaign campaignFilter
+}
+
+// campaignFilter narrows every beacon query to one acquisition campaign,
+// so questions like "which pages did the Instagram campaign's visitors
+// actually read" are answerable rather than needing a separate export.
+//
+// Empty means "no filter on this dimension". The consequence, stated
+// because it is a real limit rather than an oversight: traffic that
+// carried *no* utm_source cannot be selected *for*, only left unfiltered.
+// Filtering for the absence of a campaign would need a third state
+// (unset / set-to-empty / set-to-value) in a query string that has only
+// two, and "show me traffic with no campaign" is answerable from the
+// breakdown's own empty group instead.
+type campaignFilter struct {
+	source   string
+	medium   string
+	campaign string
+}
+
+// maxCampaignFilterLen bounds a filter value. It is compared against a
+// stored column, never interpolated, so this is about refusing to build
+// an absurd query rather than about safety.
+const maxCampaignFilterLen = 256
+
+// ParseCampaignFilter reads the utm_source / utm_medium / utm_campaign
+// query parameters.
+func ParseCampaignFilter(q url.Values) (campaignFilter, error) {
+	var f campaignFilter
+	for _, field := range []struct {
+		name string
+		into *string
+	}{
+		{"utm_source", &f.source},
+		{"utm_medium", &f.medium},
+		{"utm_campaign", &f.campaign},
+	} {
+		raw := q.Get(field.name)
+		if len(raw) > maxCampaignFilterLen {
+			return campaignFilter{}, fmt.Errorf("%s is too long (max %d characters)", field.name, maxCampaignFilterLen)
+		}
+		*field.into = raw
+	}
+	return f, nil
+}
+
+// args returns the three filter values in the fixed order
+// beaconFilterCTE binds them ($5, $6, $7).
+func (f campaignFilter) args() []any {
+	return []any{f.source, f.medium, f.campaign}
+}
+
+// active reports whether any dimension is being filtered, so a response
+// can say so.
+func (f campaignFilter) active() bool {
+	return f != campaignFilter{}
+}
+
+// beaconArgs builds the fixed leading arguments every query in
+// store_beacon.go binds, in the order beaconFilterCTE documents. Callers
+// append their own trailing arguments ($8 onward).
+//
+// A helper rather than seven literals repeated at seventeen call sites:
+// the previous shape made adding one parameter a seventeen-place edit
+// where a single missed position would produce a query that still ran and
+// answered the wrong question.
+func beaconArgs(siteID string, p beaconParams, extra ...any) []any {
+	args := make([]any, 0, 7+len(extra))
+	args = append(args, siteID, p.from, p.to, string(p.bots))
+	args = append(args, p.campaign.args()...)
+	return append(args, extra...)
 }
 
 // envelope wraps a page of beacon results, mirroring listParams.envelope
@@ -81,7 +152,7 @@ type beaconParams struct {
 // score threshold - so a response always carries enough to explain
 // itself.
 func (p beaconParams) envelope(site, key string, rows any, total int) map[string]any {
-	return map[string]any{
+	env := map[string]any{
 		"site_id": site,
 		"from":    p.from,
 		"to":      p.to,
@@ -91,4 +162,14 @@ func (p beaconParams) envelope(site, key string, rows any, total int) map[string
 		"bots":    string(p.bots),
 		key:       rows,
 	}
+	if p.campaign.active() {
+		// Echoed only when set, so the common response shape is unchanged
+		// and a filtered one is unmistakable.
+		env["campaign"] = map[string]string{
+			"utm_source":   p.campaign.source,
+			"utm_medium":   p.campaign.medium,
+			"utm_campaign": p.campaign.campaign,
+		}
+	}
+	return env
 }

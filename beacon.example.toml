@@ -92,3 +92,39 @@ enabled = false
 # cache_ttl_seconds = 3600
 # refresh_interval_seconds = 86400
 # local_csv_path = "/var/lib/crucible/ip-data"
+
+# Which query-string parameters reach the database.
+#
+# Configuration rather than a constant because the answer is a legal
+# question as much as a technical one, and legal answers differ per
+# deployment and change after the fact.
+[campaign]
+# Standard parameters this deployment refuses. Must name one of:
+#   utm_source utm_medium utm_campaign utm_term utm_content
+#   ref gclid fbclid msclkid
+#
+# utm_term is the usual candidate. It normally holds the keyword an
+# advertiser bid on, but an ad platform can be configured to substitute
+# the visitor's actual search text instead - so whether it may be stored
+# depends on how the customer advertises and what their counsel says.
+# drop_params = ["utm_term"]
+
+# Additional, non-standard parameters to keep. They appear in the stored
+# `query` string but get no column of their own, so they are visible
+# rather than groupable.
+#
+# Every entry here is a decision to store something this project has no
+# control over the contents of. Add a name only after checking what the
+# site actually puts in it.
+# extra_params = ["partner"]
+
+# Keep the raw gclid/fbclid/msclkid value, not just which ad network it
+# came from.
+#
+# False by default, deliberately. The identifier is unique per click by
+# construction and resolvable to a person by the network that issued it
+# (never by us), and its only legitimate use - uploading offline
+# conversions back to that network - is something this project does not
+# do. With this off, `click_source` still records that a Google/Meta/
+# Microsoft ad click happened, which is the part worth analysing.
+# store_click_ids = false

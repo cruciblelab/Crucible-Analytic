@@ -40,6 +40,16 @@ type beaconSeed struct {
 	botUA     bool
 	language  string
 	country   string
+
+	// Campaign dimensions. Left empty by tests that do not care, which
+	// is the same "no acquisition context" a plain visit produces.
+	utmSource   string
+	utmMedium   string
+	utmCampaign string
+	utmTerm     string
+	utmContent  string
+	ref         string
+	clickSource string
 }
 
 // seedBeacon opens a Store, inserts beacon rows, and deletes exactly the
@@ -95,10 +105,13 @@ func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 			INSERT INTO beacon_events
 			  (time, site_id, visitor_id, event_type, event_name, path, query, title,
 			   referrer_host, referrer_path, ip, browser, os, device, is_bot_ua,
-			   screen_w, screen_h, language, country, asn, asn_org)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8,'',$9,$10,$11,$12,$13,1920,1080,$14,$15,0,'')`,
+			   screen_w, screen_h, language, country, asn, asn_org,
+			   utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, click_source)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8,'',$9,$10,$11,$12,$13,1920,1080,$14,$15,0,'',
+			        $16,$17,$18,$19,$20,$21,$22)`,
 			r.at, r.site, r.visitor, eventType, r.eventName, path, r.query,
-			r.referrer, ip, r.browser, r.os, r.device, r.botUA, r.language, r.country)
+			r.referrer, ip, r.browser, r.os, r.device, r.botUA, r.language, r.country,
+			r.utmSource, r.utmMedium, r.utmCampaign, r.utmTerm, r.utmContent, r.ref, r.clickSource)
 		if err != nil {
 			t.Fatalf("seeding beacon row %+v: %v", r, err)
 		}
@@ -152,7 +165,7 @@ func TestStore_RealTimescaleDB_SessionsSplitOnTheTimeout(t *testing.T) {
 		{site: site, visitor: "v2", at: base.Add(time.Minute), path: "/a"},
 	})
 
-	got, err := store.BeaconSummary(context.Background(), site, base.Add(-time.Minute), base.Add(2*time.Hour), BotsExclude)
+	got, err := store.BeaconSummary(context.Background(), site, base.Add(-time.Minute), base.Add(2*time.Hour), BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconSummary: %v", err)
 	}
@@ -192,7 +205,7 @@ func TestStore_RealTimescaleDB_CustomEventsAreCountedSeparately(t *testing.T) {
 	})
 	from, to := base.Add(-time.Minute), base.Add(time.Hour)
 
-	summary, err := store.BeaconSummary(context.Background(), site, from, to, BotsExclude)
+	summary, err := store.BeaconSummary(context.Background(), site, from, to, BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconSummary: %v", err)
 	}
@@ -236,7 +249,7 @@ func TestStore_RealTimescaleDB_BotFilterSelectsThePopulation(t *testing.T) {
 		{BotsInclude, 3},
 		{BotsOnly, 1},
 	} {
-		got, err := store.BeaconSummary(context.Background(), site, from, to, tc.bots)
+		got, err := store.BeaconSummary(context.Background(), site, from, to, tc.bots, campaignFilter{})
 		if err != nil {
 			t.Fatalf("BeaconSummary(%s): %v", tc.bots, err)
 		}
@@ -454,7 +467,7 @@ func TestStore_RealTimescaleDB_TimeseriesBucketsSessionsByTheirStart(t *testing.
 		{site: site, visitor: "v2", at: base.Add(90 * time.Minute), path: "/a"},
 	})
 
-	buckets, err := store.BeaconTimeseries(context.Background(), site, base, base.Add(4*time.Hour), "1 hour", BotsExclude)
+	buckets, err := store.BeaconTimeseries(context.Background(), site, base, base.Add(4*time.Hour), "1 hour", BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconTimeseries: %v", err)
 	}
@@ -647,7 +660,7 @@ func TestStore_RealTimescaleDB_BeaconSiteIsolation(t *testing.T) {
 	from, to := base.Add(-time.Minute), base.Add(time.Hour)
 	p := testBeaconParams(from, to)
 
-	summary, err := store.BeaconSummary(ctx, siteA, from, to, BotsExclude)
+	summary, err := store.BeaconSummary(ctx, siteA, from, to, BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconSummary: %v", err)
 	}
@@ -796,7 +809,7 @@ func TestStore_RealTimescaleDB_EmptyRangeIsZeroNotAnError(t *testing.T) {
 	to := time.Now().UTC()
 	p := testBeaconParams(from, to)
 
-	summary, err := store.BeaconSummary(ctx, "api-beacon-nonexistent", from, to, BotsExclude)
+	summary, err := store.BeaconSummary(ctx, "api-beacon-nonexistent", from, to, BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconSummary on an empty site: %v", err)
 	}

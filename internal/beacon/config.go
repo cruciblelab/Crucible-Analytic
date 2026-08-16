@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -14,6 +15,13 @@ import (
 // have written would produce beacon_events rows that no
 // traffic_snapshots row can ever join to.
 var siteIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+// paramNamePattern bounds a configured extra query parameter name.
+// Narrow on purpose: the name is compared against what a browser sent,
+// never interpolated anywhere, and keeping it to an obvious character
+// set means a typo in the config is an error at startup rather than a
+// parameter that silently never matches.
+var paramNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 // Config is the beacon's own TOML config, separate from both the
 // collector's and the read API's because all three are separate
@@ -42,6 +50,40 @@ type Config struct {
 	Buffer         BufferConfig    `toml:"buffer"`
 	Limits         LimitsConfig    `toml:"limits"`
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
+	Campaign       CampaignConfig  `toml:"campaign"`
+}
+
+// CampaignConfig tunes which query parameters reach the database.
+//
+// It is configuration rather than a constant because the answer is a
+// legal question as much as a technical one, and legal answers differ
+// per deployment and change after the fact. See CampaignPolicy.
+type CampaignConfig struct {
+	// DropParams removes standard parameters this deployment refuses.
+	//
+	// utm_term is the usual candidate: it normally holds the keyword an
+	// advertiser bid on, but an ad platform can be configured to
+	// substitute the visitor's actual search text instead - so whether
+	// it may be stored depends on how the customer advertises and what
+	// their counsel says about it.
+	DropParams []string `toml:"drop_params"`
+	// ExtraParams keeps additional, non-standard parameters. They appear
+	// in the stored query string but get no column of their own, so they
+	// are visible rather than groupable.
+	//
+	// Every addition here is a decision to store something this project
+	// has no control over the contents of. Add a name only after
+	// checking what the site actually puts in it.
+	ExtraParams []string `toml:"extra_params"`
+	// StoreClickIDs keeps the raw gclid/fbclid/msclkid value rather than
+	// only which network it came from. False by default - see the
+	// click_id column comment in schema.sql.
+	StoreClickIDs bool `toml:"store_click_ids"`
+}
+
+// Policy turns the config into the runtime policy.
+func (c CampaignConfig) Policy() CampaignPolicy {
+	return NewCampaignPolicy(c.DropParams, c.ExtraParams, c.StoreClickIDs)
 }
 
 // BufferConfig sizes the in-memory write buffer. Zero values take
@@ -138,6 +180,17 @@ func (c Config) validate() error {
 	case "", "fail_open", "fail_closed", "throttle":
 	default:
 		return fmt.Errorf("beacon: invalid limits.overload_policy %q (want fail_open, fail_closed or throttle)", c.Limits.OverloadPolicy)
+	}
+	for _, name := range c.Campaign.DropParams {
+		if _, known := indexOf(standardParams, strings.ToLower(strings.TrimSpace(name))); !known {
+			return fmt.Errorf("beacon: campaign.drop_params %q is not a standard parameter (one of %s)",
+				name, strings.Join(standardParams, ", "))
+		}
+	}
+	for _, name := range c.Campaign.ExtraParams {
+		if !paramNamePattern.MatchString(strings.TrimSpace(name)) {
+			return fmt.Errorf("beacon: invalid campaign.extra_params entry %q (want 1-64 characters, letters/digits/underscore/dash)", name)
+		}
 	}
 	if c.ASNLookup.Enabled {
 		if c.ASNLookup.CacheMaxEntries <= 0 {

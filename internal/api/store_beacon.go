@@ -20,25 +20,38 @@ import (
 const sessionTimeout = "30 minutes"
 
 // beaconFilterCTE is the first CTE of every query in this file: it
-// narrows beacon_events to one site, one time range, and one bot
-// population.
+// narrows beacon_events to one site, one time range, one bot population,
+// and optionally one acquisition campaign.
 //
-// The bots predicate is written against a bound parameter rather than
+// Every predicate is written against a bound parameter rather than
 // string-built, so nothing about it depends on request text reaching the
-// SQL. Reading it: 'include' passes everything; otherwise the row is kept
-// exactly when its is_bot_ua matches whether the caller asked for
-// 'only'.
+// SQL. Reading the bots line: 'include' passes everything; otherwise the
+// row is kept exactly when its is_bot_ua matches whether the caller asked
+// for 'only'. Reading the campaign lines: an empty string means "no filter on this
+// dimension", which is why an empty utm_source cannot be filtered *for* -
+// see beaconParams.
+//
+// Parameter layout, fixed for every query in this file so that adding one
+// never renumbers another:
+//
+//	$1 site   $2 from   $3 to   $4 bots
+//	$5 utm_source   $6 utm_medium   $7 utm_campaign
+//	$8 session timeout (only where sessionCTEs is appended)
+//	then the query's own limit/offset/interval
 const beaconFilterCTE = `
 	WITH filtered AS (
 	    SELECT *
 	    FROM beacon_events
 	    WHERE site_id = $1 AND time >= $2 AND time < $3
 	      AND ($4::text = 'include' OR ($4::text = 'only') = is_bot_ua)
+	      AND ($5::text = '' OR utm_source = $5::text)
+	      AND ($6::text = '' OR utm_medium = $6::text)
+	      AND ($7::text = '' OR utm_campaign = $7::text)
 	)`
 
 // sessionCTEs sessionizes `filtered` into `sessions`, one row per event
 // tagged with which session of that visitor it belongs to. Appended to
-// beaconFilterCTE by the queries that need sessions; $5 is the timeout.
+// beaconFilterCTE by the queries that need sessions; $8 is the timeout.
 //
 // Sessions are derived here, at read time, rather than assigned when the
 // event arrives. Assigning at ingest would require the beacon to hold
@@ -50,7 +63,7 @@ const sessionCTEs = `,
 	marked AS (
 	    SELECT visitor_id, time, event_type, path,
 	           CASE WHEN lag(time) OVER w IS NULL
-	                  OR time - lag(time) OVER w > $5::interval
+	                  OR time - lag(time) OVER w > $8::interval
 	                THEN 1 ELSE 0 END AS starts
 	    FROM filtered
 	    WINDOW w AS (PARTITION BY visitor_id ORDER BY time)
@@ -110,8 +123,9 @@ type BeaconSummary struct {
 // so a very narrow range inflates session counts and depresses
 // durations. This is the standard behavior of range-scoped
 // sessionization, and the reason a panel should prefer whole days.
-func (s *Store) BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter) (BeaconSummary, error) {
+func (s *Store) BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error) {
 	out := BeaconSummary{SiteID: siteID, From: from, To: to, Bots: string(bots)}
+	p := beaconParams{from: from, to: to, bots: bots, campaign: campaign}
 
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+sessionCTEs+`,
 		per_session AS (
@@ -128,7 +142,7 @@ func (s *Store) BeaconSummary(ctx context.Context, siteID string, from, to time.
 		    (SELECT count(*) FROM per_session),
 		    (SELECT count(*) FROM per_session WHERE pageviews <= 1),
 		    (SELECT COALESCE(avg(extract(epoch FROM duration)), 0) FROM per_session)`,
-		siteID, from, to, string(bots), sessionTimeout,
+		beaconArgs(siteID, p, sessionTimeout)...,
 	).Scan(&out.Pageviews, &out.Events, &out.Visitors, &out.Sessions, &out.BouncedSessions, &out.AvgSessionSeconds)
 	if err != nil {
 		return BeaconSummary{}, fmt.Errorf("api: beacon summary: %w", err)
@@ -158,7 +172,8 @@ type BeaconBucket struct {
 
 // BeaconTimeseries buckets client-side activity over [from, to).
 // interval must already have been validated by ParseInterval.
-func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter) ([]BeaconBucket, error) {
+func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
+	p := beaconParams{from: from, to: to, bots: bots, campaign: campaign}
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+sessionCTEs+`,
 		session_starts AS (
 		    SELECT min(time) AS started
@@ -166,14 +181,14 @@ func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to ti
 		    GROUP BY visitor_id, session_seq
 		),
 		per_bucket AS (
-		    SELECT time_bucket($6::interval, time) AS bucket,
+		    SELECT time_bucket($9::interval, time) AS bucket,
 		           count(*) FILTER (WHERE event_type = 'pageview') AS pageviews,
 		           count(DISTINCT visitor_id) AS visitors
 		    FROM filtered
 		    GROUP BY bucket
 		),
 		per_bucket_sessions AS (
-		    SELECT time_bucket($6::interval, started) AS bucket, count(*) AS sessions
+		    SELECT time_bucket($9::interval, started) AS bucket, count(*) AS sessions
 		    FROM session_starts
 		    GROUP BY bucket
 		)
@@ -184,7 +199,7 @@ func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to ti
 		FROM per_bucket b
 		LEFT JOIN per_bucket_sessions sx USING (bucket)
 		ORDER BY b.bucket`,
-		siteID, from, to, string(bots), sessionTimeout, interval,
+		beaconArgs(siteID, p, sessionTimeout, interval)...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("api: beacon timeseries: %w", err)
@@ -225,11 +240,29 @@ type breakdownExpr string
 
 const (
 	byPath         breakdownExpr = "path"
+	byTitle        breakdownExpr = "title"
 	byReferrerHost breakdownExpr = "referrer_host"
 	byBrowser      breakdownExpr = "browser"
 	byOS           breakdownExpr = "os"
 	byDevice       breakdownExpr = "device"
 	byLanguage     breakdownExpr = "language"
+
+	// The campaign dimensions. Each is groupable on its own, which is
+	// the entire reason they are columns rather than pieces of the
+	// stored query string: grouping by that string answers "which exact
+	// campaign link performed best" and cannot answer "how much did
+	// Instagram bring in total", because one source spread over five
+	// campaigns appears as five unrelated rows.
+	byUTMSource   breakdownExpr = "utm_source"
+	byUTMMedium   breakdownExpr = "utm_medium"
+	byUTMCampaign breakdownExpr = "utm_campaign"
+	byUTMTerm     breakdownExpr = "utm_term"
+	byUTMContent  breakdownExpr = "utm_content"
+	byRef         breakdownExpr = "ref"
+	// byClickSource groups paid clicks by ad network. The click
+	// identifier itself is deliberately not a breakdown dimension: it is
+	// unique per click, so grouping by it yields one row per visit.
+	byClickSource breakdownExpr = "click_source"
 )
 
 // beaconBreakdown groups the filtered events by one column, busiest
@@ -256,8 +289,8 @@ func (s *Store) beaconBreakdown(ctx context.Context, siteID string, expr breakdo
 		-- equal counts could swap places between page 1 and page 2 of the
 		-- same paginated walk and be shown twice or not at all.
 		ORDER BY pageviews DESC, visitors DESC, 1
-		LIMIT $5 OFFSET $6`, expr),
-		siteID, p.from, p.to, string(p.bots), p.limit, p.offset,
+		LIMIT $8 OFFSET $9`, expr),
+		beaconArgs(siteID, p, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon breakdown by %s: %w", expr, err)
@@ -272,7 +305,7 @@ func (s *Store) beaconCountDistinct(ctx context.Context, siteID string, expr bre
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+fmt.Sprintf(`
 		SELECT count(DISTINCT %s) FROM filtered`, expr),
-		siteID, p.from, p.to, string(p.bots),
+		beaconArgs(siteID, p)...,
 	).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("api: beacon count distinct %s: %w", expr, err)
@@ -295,6 +328,51 @@ func scanBeaconGroupStats(rows interface {
 		stats = append(stats, stat)
 	}
 	return stats, rows.Err()
+}
+
+// BeaconTitles breaks client-side traffic down by page title.
+//
+// A separate dimension from path rather than a nicety: a shop owner
+// recognizes "Kadın Spor Ayakkabı" and does not recognize
+// "/c/1042?v=3", and one page can carry several paths (paginated,
+// parameterized) that all mean the same thing to them.
+func (s *Store) BeaconTitles(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byTitle, p)
+}
+
+// BeaconUTMSources breaks traffic down by utm_source alone.
+func (s *Store) BeaconUTMSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byUTMSource, p)
+}
+
+// BeaconUTMMediums breaks traffic down by utm_medium alone.
+func (s *Store) BeaconUTMMediums(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byUTMMedium, p)
+}
+
+// BeaconUTMCampaigns breaks traffic down by utm_campaign alone.
+func (s *Store) BeaconUTMCampaigns(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byUTMCampaign, p)
+}
+
+// BeaconUTMTerms breaks traffic down by utm_term alone.
+func (s *Store) BeaconUTMTerms(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byUTMTerm, p)
+}
+
+// BeaconUTMContents breaks traffic down by utm_content alone.
+func (s *Store) BeaconUTMContents(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byUTMContent, p)
+}
+
+// BeaconRefs breaks traffic down by the informal `ref` parameter.
+func (s *Store) BeaconRefs(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byRef, p)
+}
+
+// BeaconClickSources breaks paid traffic down by ad network.
+func (s *Store) BeaconClickSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
+	return s.beaconBreakdown(ctx, siteID, byClickSource, p)
 }
 
 // BeaconPages breaks client-side traffic down by path.
@@ -354,7 +432,7 @@ func (s *Store) BeaconCampaigns(ctx context.Context, siteID string, p beaconPara
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+`
 		SELECT count(DISTINCT query) FROM filtered WHERE query <> ''`,
-		siteID, p.from, p.to, string(p.bots),
+		beaconArgs(siteID, p)...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon campaigns total: %w", err)
@@ -368,8 +446,8 @@ func (s *Store) BeaconCampaigns(ctx context.Context, siteID string, p beaconPara
 		WHERE query <> ''
 		GROUP BY query
 		ORDER BY pageviews DESC, visitors DESC, query
-		LIMIT $5 OFFSET $6`,
-		siteID, p.from, p.to, string(p.bots), p.limit, p.offset,
+		LIMIT $8 OFFSET $9`,
+		beaconArgs(siteID, p, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon campaigns: %w", err)
@@ -418,7 +496,7 @@ func (s *Store) BeaconEvents(ctx context.Context, siteID string, p beaconParams)
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+`
 		SELECT count(DISTINCT event_name) FROM filtered WHERE event_type = 'event'`,
-		siteID, p.from, p.to, string(p.bots),
+		beaconArgs(siteID, p)...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon events total: %w", err)
@@ -430,8 +508,8 @@ func (s *Store) BeaconEvents(ctx context.Context, siteID string, p beaconParams)
 		WHERE event_type = 'event'
 		GROUP BY event_name
 		ORDER BY count(*) DESC, event_name
-		LIMIT $5 OFFSET $6`,
-		siteID, p.from, p.to, string(p.bots), p.limit, p.offset,
+		LIMIT $8 OFFSET $9`,
+		beaconArgs(siteID, p, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon events: %w", err)
@@ -498,7 +576,7 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+sessionCTEs+boundary+`
 		SELECT count(DISTINCT path) FROM boundary`,
-		siteID, p.from, p.to, string(p.bots), sessionTimeout,
+		beaconArgs(siteID, p, sessionTimeout)...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon boundary pages total: %w", err)
@@ -509,8 +587,8 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 		FROM boundary
 		GROUP BY path
 		ORDER BY count(*) DESC, path
-		LIMIT $6 OFFSET $7`,
-		siteID, p.from, p.to, string(p.bots), sessionTimeout, p.limit, p.offset,
+		LIMIT $9 OFFSET $10`,
+		beaconArgs(siteID, p, sessionTimeout, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon boundary pages: %w", err)
@@ -557,7 +635,7 @@ func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconPara
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+geoCTE+`
 		SELECT count(DISTINCT country) FROM resolved`,
-		siteID, p.from, p.to, string(p.bots),
+		beaconArgs(siteID, p)...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon countries total: %w", err)
@@ -570,8 +648,8 @@ func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconPara
 		FROM resolved
 		GROUP BY country
 		ORDER BY pageviews DESC, visitors DESC, country
-		LIMIT $5 OFFSET $6`,
-		siteID, p.from, p.to, string(p.bots), p.limit, p.offset,
+		LIMIT $8 OFFSET $9`,
+		beaconArgs(siteID, p, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon countries: %w", err)
@@ -616,7 +694,7 @@ type BeaconEvent struct {
 func (s *Store) BeaconRaw(ctx context.Context, siteID string, p beaconParams) ([]BeaconEvent, int, error) {
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+`SELECT count(*) FROM filtered`,
-		siteID, p.from, p.to, string(p.bots),
+		beaconArgs(siteID, p)...,
 	).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon raw total: %w", err)
@@ -630,8 +708,8 @@ func (s *Store) BeaconRaw(ctx context.Context, siteID string, p beaconParams) ([
 		-- visitor_id breaks ties within one flush of simultaneous events,
 		-- so paging through an export can't show a row twice.
 		ORDER BY time DESC, visitor_id
-		LIMIT $5 OFFSET $6`,
-		siteID, p.from, p.to, string(p.bots), p.limit, p.offset,
+		LIMIT $8 OFFSET $9`,
+		beaconArgs(siteID, p, p.limit, p.offset)...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("api: beacon raw: %w", err)

@@ -386,10 +386,18 @@ one. For the dishonest ones, see `/crossover/js-bots`.
 | `/api/v1/sites/{site}/beacon/summary` | Pageviews, custom events, visitors, sessions, bounce rate, pages per session, average session duration. |
 | `/api/v1/sites/{site}/beacon/timeseries` | Pageviews, visitors and sessions bucketed over time. A session is counted in the bucket it *started* in, so the column never sums to more than the range's own total. |
 | `/api/v1/sites/{site}/beacon/pages` | Pageviews and visitors per path. |
+| `/api/v1/sites/{site}/beacon/titles` | Pageviews and visitors per page *title*. Its own dimension rather than a nicety: a shop owner recognizes "Kadın Spor Ayakkabı" and does not recognize `/c/1042?v=3`, and one page can carry several paths that all mean the same thing to them. |
 | `/api/v1/sites/{site}/beacon/entry-pages` | Which pages sessions began on - the landing pages acquisition actually reaches, usually a more actionable list than the most-viewed pages. |
 | `/api/v1/sites/{site}/beacon/exit-pages` | Which pages sessions ended on. "Ended" means "last page with a recorded event", so a session still in progress at `to` lands here too. |
 | `/api/v1/sites/{site}/beacon/referrers` | Traffic per referring host. Same-origin referrers are dropped in the browser and never stored, so the empty group is genuinely "direct or unknown", not internal navigation. |
-| `/api/v1/sites/{site}/beacon/campaigns` | Traffic per campaign, with the stored query string decoded into its individual `utm_*`/`gclid`/`fbclid` parameters. Only visits that carried at least one is counted. |
+| `/api/v1/sites/{site}/beacon/campaigns` | Traffic per *exact* campaign combination, with the stored query string decoded into its individual parameters. Answers "which precise campaign link performed best"; for "how much did this source bring in total", use the per-dimension routes below. Only visits that carried at least one parameter are counted. |
+| `/api/v1/sites/{site}/beacon/utm-sources` | Traffic per `utm_source` **alone**, so one source spread across five campaigns is one row rather than five. The empty group is traffic that carried no campaign at all, which is most of it. |
+| `/api/v1/sites/{site}/beacon/utm-mediums` | Traffic per `utm_medium` alone (`social`, `email`, `cpc`). |
+| `/api/v1/sites/{site}/beacon/utm-campaigns` | Traffic per `utm_campaign` alone. |
+| `/api/v1/sites/{site}/beacon/utm-terms` | Traffic per `utm_term` alone. Empty for every deployment that sets `campaign.drop_params = ["utm_term"]`. |
+| `/api/v1/sites/{site}/beacon/utm-contents` | Traffic per `utm_content` alone - the A/B variant dimension. |
+| `/api/v1/sites/{site}/beacon/refs` | Traffic per `ref`, the informal equivalent of `utm_source` used by sites that never adopted UTM. |
+| `/api/v1/sites/{site}/beacon/click-sources` | Paid traffic per ad network (`google`/`facebook`/`microsoft`). The click identifier itself is never a grouping key: it is unique per click, so grouping by it would return one row per visit. |
 | `/api/v1/sites/{site}/beacon/browsers` | Traffic per browser. |
 | `/api/v1/sites/{site}/beacon/operating-systems` | Traffic per OS. |
 | `/api/v1/sites/{site}/beacon/devices` | Traffic per form factor (`desktop`/`mobile`/`tablet`). Bots have no form factor and fall into the empty group. |
@@ -533,7 +541,16 @@ country, ASN and visitor ID.
   strings routinely carry password-reset tokens, invite codes and email
   addresses, and an analytics table has a far wider audience than the
   application's own database. A referrer's query string is dropped
-  entirely.
+  entirely. The allowlist is adjustable per deployment - see `[campaign]`
+  in `beacon.example.toml`.
+- **Ad-network click identifiers are not stored by default.** A
+  `gclid`/`fbclid`/`msclkid` is unique per click and resolvable to a person
+  by the network that issued it (never by us), and its only legitimate use
+  - uploading offline conversions back to that network - is something this
+  project does not do. What is stored instead is `click_source`: that a
+  Google, Meta or Microsoft ad click happened. That is the part worth
+  analysing, and it identifies nobody. Set
+  `campaign.store_click_ids = true` to keep the raw value.
 - **Bot user agents are flagged, never dropped** (`is_bot_ua`). A client
   that runs JavaScript and admits to being a bot is the most interesting
   row in the table, not noise. Filter on the column when you want humans.
