@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 )
 
 // Mode selects which proxy implementation main.go wires up.
@@ -71,6 +73,7 @@ type Config struct {
 	Storage   StorageConfig   `toml:"storage"`
 	Limits    LimitsConfig    `toml:"limits"`
 	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
+	Logging   logging.Config  `toml:"logging"`
 }
 
 // siteIDPattern restricts SiteID to characters that are safe unescaped in

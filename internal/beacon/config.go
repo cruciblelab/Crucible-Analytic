@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 )
 
 // siteIDPattern must stay identical to config.siteIDPattern in the
@@ -51,6 +53,7 @@ type Config struct {
 	Limits         LimitsConfig    `toml:"limits"`
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
 	Campaign       CampaignConfig  `toml:"campaign"`
+	Logging        logging.Config  `toml:"logging"`
 }
 
 // CampaignConfig tunes which query parameters reach the database.
@@ -191,6 +194,9 @@ func (c Config) validate() error {
 		if !paramNamePattern.MatchString(strings.TrimSpace(name)) {
 			return fmt.Errorf("beacon: invalid campaign.extra_params entry %q (want 1-64 characters, letters/digits/underscore/dash)", name)
 		}
+	}
+	if _, err := logging.ParseLevel(c.Logging.Level); err != nil {
+		return fmt.Errorf("beacon: %w", err)
 	}
 	if c.ASNLookup.Enabled {
 		if c.ASNLookup.CacheMaxEntries <= 0 {

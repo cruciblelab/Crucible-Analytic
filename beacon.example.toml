@@ -134,3 +134,34 @@ enabled = false
 # do. With this off, `click_source` still records that a Google/Meta/
 # Microsoft ad click happened, which is the part worth analysing.
 # store_click_ids = false
+
+# Where logs go, and how much of them is kept.
+#
+# The shape on disk is one directory per service, one per day, one file
+# per category:
+#
+#   <dir>/beacon/2026-08-16/app.log
+#                          /security.log
+#                          /rejected.log
+#                          /error.log
+#
+# A single flat file answers "what happened" and answers "what happened
+# to authentication last Tuesday" only by grepping past everything else,
+# which is the moment somebody needs an answer quickly. Retention is then
+# deleting a directory rather than rewriting a file.
+#
+# Records are JSON lines: readable by a human, parseable by the panel.
+[logging]
+# Empty (or omitted) writes to stderr only, which is what running the
+# binary by hand wants. Set it to enable the tree.
+# dir = "/var/log/crucible"
+# level = "info"          # debug, info, warn, error
+# retention_days = 14     # day-directories kept; negative disables pruning
+# max_file_mb = 64        # rotates a category file once it exceeds this
+# also_stderr = false     # keep writing to stderr too, for journald
+#
+# level = "debug" is what makes the single most common misconfiguration
+# visible: with it on, security.log records every forwarding header the
+# server declined to believe, which is the answer to "why do all my
+# visitors have the same IP". It is verbose by design - in a correct
+# deployment it never fires, in a broken one it fires on every request.

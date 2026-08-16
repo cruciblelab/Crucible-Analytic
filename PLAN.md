@@ -884,9 +884,111 @@ de yoklanabilir; sayı artınca gerekli olur.
 
 ---
 
+## 2.5 Ara iş (bu fazda yapıldı): sunucu otoritesi ve log ağacı
+
+Plandaki A–E sırasına ait olmayan, ama ikisi de her maddeyi etkileyen iki
+iş. Ara iş olarak adlandırıldı çünkü faz değiştirmiyorlar; altlarına
+yazılacak her şeyin üzerinde durduğu zemini değiştiriyorlar.
+
+### AI-1 — İstemciye asla güvenme, yalnız sunucuya güven
+
+**Kural, tam hâliyle:**
+
+> İstemciye güvenilmez. Yalnız sunucunun kendi vardığı sonuç sayılır.
+> İstek "1+1=2" diyor olması bir şey ifade etmez — önemli olan sunucunun
+> ne hesapladığıdır. **Her istek ve arkasındaki her kullanıcı potansiyel
+> bir saldırgandır.**
+
+Kod bu şekilde zaten çalışıyor, ve bu denetlendi:
+
+| Yer | İstemci ne iddia ediyor | Sunucu ne yapıyor |
+|---|---|---|
+| `beacon/server.go` | `data-site` ile site kimliği | Yapılandırılmış beyaz listeye karşı kontrol eder |
+| `beacon/clientip.go` | `X-Forwarded-For` ile kendi IP'si | Yalnız **doğrudan eş** güvenilir vekil listesindeyse okur |
+| `api/auth.go` | `Authorization` ile token | SHA-256 ile karşılaştırır, düz metni hiç tutmaz |
+| `panel/session.go` | Çerez ile kimlik | Kullanıcı satırını **her istekte** yeniden okur |
+
+**Eksik olan doğrulama değil, kayıttı.** Bir karar yanlış gittiğinde —
+Cloudflare arkasındaki müşterinin tüm ziyaretçileri tek IP göründüğünde,
+kimsenin açıklayamadığı bir site kimliği geldiğinde, müşterinin itiraz
+ettiği bir giriş reddedildiğinde — soru hep aynı: **istemci ne iddia
+etti, sunucu ne sonuca vardı?** Yalnız sonucu taşıyan bir log satırı bunu
+cevaplayamaz; yalnız iddiayı taşıyan ise daha kötüdür, çünkü iddiaya
+inanılmış gibi okunur.
+
+O yüzden güven kararları **iki yarısıyla birlikte** ve kendi dosyasında
+kaydediliyor (`internal/logging/trust.go`): `claimed`, `verdict`,
+`reason`, `peer`. Verdict kapalı bir küme (`accepted` / `rejected` /
+`ignored` / `throttled`), böylece "dün kaç reddetme oldu" bir metin
+araması değil bir sayım.
+
+**Kimlik doğrulamada:** her deneme kaydedilir, başarılı olanlar dâhil.
+Yalnız başarısızlıkları kaydeden bir dosya, 03:00'teki başarılı girişin
+bir saat önce kırk kez başarısız olmuş bir adresten geldiğini
+gösteremez — ki gerçek bir ele geçirmenin şekli tam olarak budur.
+
+### AI-2 — Tek dizinde, modüler, ayrıntılı log ağacı
+
+**Şekil:**
+
+```
+<dir>/<servis>/<YYYY-AA-GG>/<kategori>.log
+```
+
+Üç eksen, üçü de **yazarken değil okurken** önemli olduğu için seçildi:
+
+- **Servis** — dört süreç bir makineyi paylaşıyor.
+- **Gün** — saklama süresi "dosya yeniden yaz" değil "dizin sil" olur, ve
+  "14'ünde ne oldu" bir dizin listesidir.
+- **Kategori** — giriş denemeleri, alım reddetmeleri ve sıradan işleyiş
+  farklı kişiler tarafından farklı zamanlarda okunur.
+
+**Dokuz kategori:** `app`, `error`, `security`, `auth`, `access`,
+`ingest`, `rejected`, `audit`, `query`. Kapalı bir sabit kümesi — değer
+bir dosya adına dönüşüyor, ve çağıranın verdiği bir dosya adı bir dizin
+geçişi (path traversal) ilkelidir.
+
+**Kararlar ve gerekçeleri:**
+
+- **WARN ve üstü `error.log`'a da yansıtılır.** "Bugün bir şey ters gitti
+  mi" dokuz dosyada arama değil, tek dosya olmalı.
+- **JSON satırları.** İnsan okuyabilir, panelin log görüntüleyicisi
+  (B1) ikinci bir format öğrenmeden ayrıştırabilir.
+- **Her değer temizlenir.** Log satırları kullanıcı kontrollü metin
+  içerir; içindeki bir satır sonu kaydı ikiye böler ve ikinci yarısı —
+  tamamen saldırganın seçtiği — kendi başına bir kayıt olarak
+  ayrıştırılır. Bu **log enjeksiyonudur**: saldırganın, operatörün ne
+  yaptığını öğrenmek için okuduğu dosyaya sahte kayıt yazması.
+- **Sır gibi görünen her anahtar maskelenir.** Mekanizma bu değil —
+  mekanizma sırrı loglamamak — ama bir log dosyasındaki şifre, çoğu
+  hatanın olmadığı biçimde kalıcıdır: yedeklerde, panelin bize
+  gönderdiğinde, operatörün terminal geçmişinde yaşar.
+- **İzinler `0700` / `0600`.** Log satırları IP ve user agent taşır,
+  yani analitik tablolarıyla aynı okumaya göre kişisel veridir.
+- **Yazma hatası servisi durdurmaz.** Bir log dosyası açılamadığı için
+  istek işleyemeyen servis, gözlemlenebilirliğini bir erişilebilirlik
+  riskine çevirmiştir — tam tersi olmalı. Hatalar stderr'e düşer, servis
+  devam eder.
+
+**En yüksek değerli tek satır:** `security.log`'daki "forwarding header
+ignored". Debug seviyesinde, çünkü doğru yapılandırılmış bir kurulumda
+hiç çıkmaz ve yanlış yapılandırılmışta **her istekte** çıkar — ki
+istenen teşhis sinyali tam olarak budur. "Neden tüm ziyaretçilerim aynı
+IP'de" sorusunun cevabı bu satırdır, ve bugün bu cevabı bulmak SSH'te
+log okumak demek.
+
+**B1 ile ilişkisi:** dosya ağacı ve `panel_logs` tablosu birbirinin
+alternatifi değil, aynı işin iki yarısı. Ağaç kaynaktır ve süreç
+veritabanına ulaşamadığında bile yazar; tablo panelin gösterdiğidir.
+B1 yazılırken ağaçtan beslenecek.
+
+---
+
 ## 3. Kalıcı güvenlik kuralları
 
-Bunlar madde değil, her maddeye uygulanan kısıtlar.
+Bunlar madde değil, her maddeye uygulanan kısıtlar. **AI-1'deki
+sunucu-otoritesi kuralı bunların birincisidir** ve aşağıdakilerin hepsi
+onun özel hâlleridir.
 
 ### 3.1 Enjeksiyon ve veritabanının patlama yarıçapı
 

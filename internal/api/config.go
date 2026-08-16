@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 )
 
 // Config is the analytics API's own TOML config, deliberately separate
@@ -23,6 +25,7 @@ type Config struct {
 		SHA256 string   `toml:"sha256"`
 		Sites  []string `toml:"sites"`
 	} `toml:"tokens"`
+	Logging logging.Config `toml:"logging"`
 }
 
 // LoadConfig reads and validates the API config at path.

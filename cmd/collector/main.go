@@ -18,6 +18,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/config"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
@@ -32,7 +33,9 @@ type proxyServer interface {
 }
 
 func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	// Until the config is read, there is nowhere to write but stderr -
+	// the file tree is configured by the very file being loaded.
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "config.toml", "path to the TOML config file")
@@ -43,6 +46,18 @@ func main() {
 		logger.Error("config error", "err", err)
 		os.Exit(1)
 	}
+
+	// Now that the config is known, swap the bootstrap logger for the
+	// structured tree. Everything after this point is filed by
+	// category and by day; anything before it went to stderr.
+	treeLogger, closeLogs, err := logging.Setup("collector", cfg.Logging)
+	if err != nil {
+		logger.Error("logging setup failed", "err", err)
+		os.Exit(1)
+	}
+	defer closeLogs()
+	logger = treeLogger
+	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -19,6 +19,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 )
 
 //go:embed beacon.js
@@ -226,6 +227,8 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.logForwardedClaim(r)
+
 	ip, ok := s.ClientIP.ClientIP(r)
 	if !ok {
 		// Without an address there is no visitor ID and no join key, so
@@ -257,7 +260,11 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.allowsSite(event.Site) {
-		s.reject(w, http.StatusForbidden, fmt.Sprintf("unknown site %q", sanitizeText(event.Site, 64)))
+		// The snippet is public and data-site is a claim anyone can copy,
+		// so this is the only thing stopping an arbitrary caller from
+		// writing rows under someone else's site name.
+		s.rejectClaim(w, r, http.StatusForbidden, event.Site,
+			fmt.Sprintf("unknown site %q", sanitizeText(event.Site, 64)))
 		return
 	}
 
@@ -333,9 +340,68 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
 	}
 }
 
+// reject refuses input and records why.
+//
+// The recording is the point of routing every refusal through one
+// helper. "The customer says data is missing" is answered from
+// rejected.log and nowhere else, and a refusal that returns a status
+// without leaving a trace makes that question unanswerable.
 func (s *Server) reject(w http.ResponseWriter, status int, message string) {
 	s.rejected.Add(1)
+	s.logger().Warn("beacon: input refused", logging.Rejected(message, http.StatusText(status))...)
 	writeError(w, status, message)
+}
+
+// rejectClaim refuses a request whose *identity* claim did not hold.
+//
+// Separate from reject because a malformed body and a request asserting
+// somebody else's site are different events: the first is a broken
+// client, the second is the case this server's allowlist exists for. It
+// belongs in security.log with both halves - what was claimed and what
+// the server concluded - so the question "who tried to write into my
+// site" has an answer.
+func (s *Server) rejectClaim(w http.ResponseWriter, r *http.Request, status int, claim, reason string) {
+	s.rejected.Add(1)
+	peer := r.RemoteAddr
+	s.logger().Warn("beacon: identity claim refused",
+		append(logging.Trust(logging.CategorySecurity, claim, logging.VerdictRejected, reason),
+			slog.String(logging.KeyPeer, peer))...)
+	writeError(w, status, reason)
+}
+
+// logForwardedClaim records a forwarding header that was not believed.
+//
+// At debug level deliberately: in a correctly configured deployment
+// this never fires, and in a misconfigured one it fires on every single
+// request - which is exactly the diagnostic signal wanted, and exactly
+// the volume that must not be on by default.
+//
+// It is the highest-value line in the whole security category. Sitting
+// behind Cloudflare with an empty trusted_proxies list makes every
+// visitor look like one address, which makes every other number in the
+// system wrong at once, and today finding that out means reading logs
+// over SSH.
+func (s *Server) logForwardedClaim(r *http.Request) {
+	if !s.logger().Enabled(r.Context(), slog.LevelDebug) {
+		return
+	}
+	claim := r.Header.Get("X-Forwarded-For")
+	source := "X-Forwarded-For"
+	if claim == "" {
+		claim, source = r.Header.Get("X-Real-IP"), "X-Real-IP"
+	}
+	if claim == "" {
+		return
+	}
+	peer, _ := peerIP(r.RemoteAddr)
+	if s.ClientIP.trusts(peer) {
+		return
+	}
+	s.logger().Debug("beacon: forwarding header ignored",
+		append(logging.Trust(logging.CategorySecurity, claim, logging.VerdictIgnored,
+			"the immediate peer is not a configured trusted proxy, so its forwarding header is not evidence"),
+			slog.String(logging.KeySource, source),
+			slog.String(logging.KeyPeer, peer.String()))...)
 }
 
 func (s *Server) allowsSite(site string) bool {
