@@ -1111,3 +1111,45 @@ discipline this whole project has followed for its other external data
 sources). `internal/scoring`'s `Score` signature would need `asn int,
 knownBotASNs map[int]struct{}` to become something like `knownBotASNWeights
 map[int]int` - a small, mechanical change, not an architectural one.
+
+## Where the work stands (2026-08-16)
+
+PLAN.md's §0.5 is now the at-a-glance status and is updated at the end of
+every phase; this note exists so a reader who opens NOTES.md first is
+sent there rather than reconstructing it from the history below.
+
+Since the panel arc began, seven things have landed:
+
+- **Campaign parameters became dimensions.** They were one flat string,
+  which could answer "which exact campaign link performed best" and could
+  not answer "how much did Instagram bring in total" - the second being
+  the question anyone actually asks. Typed columns, per-dimension
+  breakdowns, and a filter that reaches every other view. The filter cost
+  a seventeen-query parameter renumbering, which is guarded two ways
+  because a wrong position does not fail, it answers a different
+  question.
+- **A structured log tree**, one directory per service per day per
+  category, with the values sanitised against log injection and anything
+  credential-shaped redacted.
+- **Trust decisions recorded with both halves** - what the client
+  claimed and what the server concluded. The code already refused to
+  trust clients; what was missing was the record, and without it "why do
+  all my visitors share one IP" has no answer short of SSH.
+- **panel_settings**, with bounds checked when writing *and* when
+  reading, so a row from an older build cannot hand a running service a
+  value outside what it was written against.
+- **A three-stage log life** - plain, compressed, deleted - with the
+  categories somebody asks about a year later kept far longer than the
+  ones that fill the disk.
+- **Live settings**, so a change made in the panel reaches a running
+  process. This needed one more database grant, and the decision to take
+  the narrowest of the three available routes is written up in
+  internal/settings' package comment.
+- **A setup wizard that ends by checking itself**, listing what the panel
+  can never do and then verifying it rather than asking the installer to
+  remember.
+
+The largest remaining gap is stated plainly because it shapes what to do
+next: every one of those is a callable function and none of them is
+clickable. `cmd/panel` does not exist. Group C is what turns a tested
+data layer into a product, and everything under it is already tested.

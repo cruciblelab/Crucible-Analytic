@@ -24,6 +24,80 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ---
 
+## 0.5 DURUM — tek bakışta nerede olduğumuz
+
+*Son güncelleme: 2026-08-16. Bu bölüm her faz sonunda güncellenir ve
+belgenin geri kalanını okumadan "nerede kaldık" sorusunu cevaplar.*
+
+**Rakamlar:** 15 iç paket, ~28.800 satır Go, 51 test dosyası, 3 çalışan
+binary. Panel binary'si (`cmd/panel`) **henüz yok** — en büyük tek
+boşluk bu.
+
+### Gruplar
+
+| Grup | Durum | Kalan |
+|---|---|---|
+| **AI** ara işler | ✅ **bitti** | — |
+| **A** Ayarlar ve saklama | 🟡 **3/9** | A2, A3, A4, A5, A7, A8, A9 |
+| **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
+| **C** Panel HTTP yüzeyi | 🟡 **1/8** | C1, C2, C3, C4, C5, C6, C7 |
+| **D** Dashboard | ⬜ **0/8** | hepsi |
+| **E** Birleştirme | ⬜ **0/3** | hepsi |
+| **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
+
+### Bitmiş maddeler
+
+- **AI-1** Sunucu otoritesi — denetlendi, ihlal yok; güven kararları
+  iddia+karar birlikte kaydediliyor
+- **AI-2** Log ağacı — `<dir>/<servis>/<gün>/<kategori>.log`, 9 kategori,
+  JSON satırları, log enjeksiyonuna karşı temizleme, sır maskeleme
+- **A1** `panel_settings` — kapalı anahtar kaydı, yazarken **ve okurken**
+  sınır doğrulaması
+- **A1.5** Log yaşam döngüsü — düz metin → sıkıştırılmış → silinmiş,
+  kategori bazlı saklama (sıradan 14 gün, önemli 365 gün), ölçülen %6
+- **A6** *(mekanizma)* Canlı ayar okuma — son bilinen değeri koruyan
+  önbellek; beacon'da 5 ayar bağlı
+- **C2.5** Kurulum sihirbazının son adımı — 10 manuel adım, 13 otomatik
+  kontrol, ikisi negatif (rol yalıtımı)
+
+### Sıradaki üç iş, önem sırasıyla
+
+1. **C1–C7 — panelin HTTP yüzeyi.** Altındaki her katman yazılmış ve
+   test edilmiş; hiçbiri tıklanamıyor. `RunPreflight`, `panel_settings`,
+   `Controls`, oturum, CSRF, TOTP, geliştirici erişimi — hepsi
+   çağrılabilir fonksiyon. Eksik olan tek şey onları bir sayfaya
+   bağlamak.
+2. **A4 — analitik saklama politikaları.** Preflight'ın iki uyarısından
+   birini kapatır ve planın "gerçek kusur" diye işaretlediği tek şey bu.
+3. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
+   göç olmadan çoğu ayar hâlâ SSH ister.
+
+### Açık riskler ve sahipleri
+
+| Risk | Sahibi |
+|---|---|
+| Panelde "Kontrol et" düğmesi yok | C1–C7 |
+| Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
+| `logs.level` yalnız beacon'da bağlı | A6-devam |
+| Collector tarafı canlı ayarlar (limit, geo, skor, flush) | A6-devam |
+| Sıkıştırılmış log görüntüleyicide açılmalı | B1 |
+| Bakım yalnız açılışta çalışıyor | B3 |
+| Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
+| `GRANT SELECT` elle veriliyor | F2 |
+| Verbose penceresi kullanıcıya yerel saatte gösterilmeli | C4 |
+| `utm_term` varsayılanı | **hukukçudan cevap bekliyor** |
+| Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
+| Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
+
+### Beklenen kararlar (senden)
+
+1. **IP tam mı maskeli mi** — hukukçu girdisi, A7'ye girecek
+2. **Analitik saklama süresi** (öneri 90 gün) — A4'e girecek
+3. **"Site" tanımı** — alt alan adları tek site mi (öneri: evet, A5'e
+   girer, maliyeti ~sıfır)
+
+---
+
 ## 1. Şu an ne var (yazıldı, test edildi, gerçek veriyle doğrulandı)
 
 ~22.400 satır Go, 13 iç paket, 3 çalışan binary.
