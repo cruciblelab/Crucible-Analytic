@@ -694,6 +694,62 @@ veritabanı bağlantısı ve şema uygulaması, hangi sitelerin olduğu,
 collector modu ve backend, TLS, güvenilir vekiller, analitik profili,
 saklama süresi. Kurulumun devre hazır olduğunu onaylayarak biter.
 
+#### C2.5 — Sihirbazın son adımı: panelden yapılamayacaklar ✅ **yapıldı**
+
+**Ne:** Kurulum sihirbazının en sonunda, **panelin asla yapamayacağı**
+işlerin listesi ve onları **gerçekten kontrol eden** bir doğrulayıcı.
+
+**Neden liste değil de kontrol:** Kimsenin doğrulamadığı bir liste,
+herkesin işaretlediği bir listedir. Değerin tamamı, "Kontrol et"e
+basınca gerçek sorguların çalışması, gerçek dizinlerin okunması, gerçek
+istek atılmasında — böylece "kuruldu" bir iddia değil, bir gözlem olur.
+
+**On manuel adım**, her biri *panelin bunu neden yapamayacağını* söyler.
+Gerekçe olmadan liste keyfî bir angarya listesi gibi okunur:
+
+| Adım | Panel neden yapamaz | Kontrol eden |
+|---|---|---|
+| PostgreSQL + TimescaleDB kurulumu | Üzerinde çalıştığı veritabanını kuramaz | — |
+| Dört rol ve yetkileri | **Bir rol kendine yetki veremez** — verebilseydi ayrımın anlamı kalmazdı | 3 kontrol |
+| Şema dosyaları | Hiçbir servis DDL çalıştırmaz; bu bilinçli | 3 kontrol |
+| Sekiz bootstrap anahtarı | Veritabanına nasıl ulaşılacağını veritabanına soramazsınız | — |
+| Günlük dizini ve izinleri | Kendi yazacağı dizini oluşturamaz | ✔ |
+| systemd unit'leri | **Panelin süreç başlatma yetkisi yoktur ve olmamalıdır** | 3 kontrol |
+| TLS sertifikası | Dosya sisteminde, kök yetkisi ister | — |
+| `/_ca/` yönlendirmesi | Sitenin web sunucusunda, bizde değil | — |
+| Yedekleme | Bu sistem yedek almaz ve göremez | — |
+| Disk planlaması | — | ✔ |
+
+**On üç otomatik kontrol.** İkisi bilerek **negatif** ve bu ikisi
+listenin en önemli satırları:
+
+- `grants.panel_isolation` — panel rolü analitik tablolara **erişemiyor**
+  mu? Panel analitiği salt okunur HTTP API üzerinden okur; birinin fazla
+  yetki verdiği bir kurulum, o gün gelene kadar tamamen sağlıklı görünür.
+- `grants.api_read_only` — API rolü gerçekten **yazamıyor** mu? Destek
+  token'ının güvenliği tümüyle buna dayanıyor.
+
+`schema.columns` de projenin **zaten bir kez yaşadığı** hatayı yakalıyor:
+`CREATE TABLE IF NOT EXISTS` var olan tabloya hiçbir şey yapmaz, yani
+şema dosyasına eklenen bir sütun ancak dosya yeniden çalıştırılırsa
+mevcut kuruluma ulaşır.
+
+**Bilerek yazılan kurallar:**
+
+- **Yapılandırılmamış kontrol `skip` döner, `pass` değil.** "Baktık,
+  iyiydi" ile "bakmadık" farklı olgular — projenin her yerde koruduğu
+  ayrım.
+- **Yalnız `required` başarısızlıklar devri engeller.** Bitirilemeyen
+  sihirbaz, etrafından dolaşılan sihirbazdır.
+- **Yedekleme uyarı döner, asla `pass`.** Kontrol edilemeyen bir şeye
+  "geçti" demek yalan olurdu; "kaldı" demek ise kurulumcunun kendi
+  araçlarıyla halletmiş olabileceği bir şey yüzünden devri engellerdi.
+- **Log dizini okunmaz, gerçekten yazılır.** Mod doğru görünürken dosya
+  sistemi salt okunur bağlanmış olabilir.
+- **Kontrol edeni olmayan adımlar ayrı gösterilir.** Doğrulanmış ve
+  doğrulanmamış maddeyi aynı gösteren bir liste, okuyucuya ikisine de
+  güvenmemeyi öğretir.
+
 #### C3 — Sahip sihirbazı ve teknik kapı
 
 Müşterinin gördüğü ilk şey. Hesabını oluşturur, siteyi kendi diliyle
