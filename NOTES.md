@@ -1285,3 +1285,69 @@ panel and the gate both need PHC parsing with bounds checks on what a
 stored hash claims about its own cost, and two copies of those checks
 would be two places to forget them. The whole value of a bound like
 "refuse m=16777216 before argon2 sees it" is that it is never missing.
+
+## Seeing a setting and changing it are different questions
+
+The first version of the developer password got this wrong in a way
+worth recording, because the mistake is the natural one.
+
+Settings marked `Developer: true` were hidden from anyone not in
+developer mode, and guarded ones simply refused writes. Both halves
+follow from treating "may they change it" as the only question. It is
+not. The customer's own deployment behaves the way these settings say,
+and a setting they cannot see is a setting they cannot ask about - they
+would be left unable to account for their own system, and every question
+about it would become a support ticket.
+
+So the rule is now: **every setting is visible to anyone who reaches the
+settings page, and what is withheld is the control.** Four renderable
+states rather than a writable flag, because the panel has to say
+different things:
+
+- `writable` - an ordinary control.
+- `gated` - a control plus the password, asked every time. Operator only.
+- `locked` - value, reason, a lock, no control. This is what a customer
+  sees on the settings that carry legal weight.
+- `read_only` - value, explanation, no control. Operator-owned but not
+  legally loaded.
+
+The customer gets the value, where it came from (default, deployment-wide
+or per-site), and the setting's own reason - "this decides whether whole
+IP addresses are stored" rather than "you cannot change this". A missing
+control with no sentence attached is indistinguishable from a bug, which
+is why `SettingsView` refuses to produce one: there is a test asserting
+that every non-editable row carries a lock notice and every editable one
+does not.
+
+### The password field is not shown to somebody who cannot have it
+
+That sounds like a UI nicety and is not. The failure counter is shared
+across the process. Five wrong guesses close the gate for fifteen
+minutes - which is correct against an attacker and catastrophic if the
+guesses come from the customer, because the party locked out is the
+operator, in a deployment the operator is responsible for. A security
+control that a customer can trip on their own behalf is a denial of
+service wearing the right clothes.
+
+So a customer's attempt is refused on **who they are**, before any argon2
+work and without touching the counter: `GateRequest` produces no actions
+for a principal who may not attempt, and `ApplySetting` checks
+entitlement before it looks at the authorization at all. A customer
+holding a genuinely valid authorization still cannot write - the refusal
+does not depend on what they supplied. There is an integration test that
+fires twenty guesses from a customer and then checks the operator can
+still get in.
+
+### One route to operator status, not two
+
+Writing this, the first version of `operator()` accepted either
+`Superadmin` or a developer-kind principal. A test built a developer
+principal without superadmin and produced an incoherent result: classed
+as the operator by one check and refused by the next.
+
+The real `developerPrincipal()` is always superadmin, so the second
+clause never mattered in production - it was a weaker path to privilege
+that nothing used. Those are worth deleting on sight. Something
+eventually constructs the object the weaker path accepts, and it is
+granted authority by accident. One condition is checkable; two are a
+question nobody re-asks.

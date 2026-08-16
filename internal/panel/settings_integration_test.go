@@ -7,6 +7,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -474,8 +477,10 @@ func TestApplySetting_RecordsTheOldValueAndTheNew(t *testing.T) {
 	ctx := context.Background()
 	gate := testGate(t, store)
 
-	principal := Principal{Kind: PrincipalUser, Label: "degistiren@example.com"}
-	if err := store.ApplySetting(ctx, principal, KeyPrivacyIPStorage, "", "full",
+	operator := Access{Principal: Principal{
+		Kind: PrincipalUser, Label: "degistiren@example.com", Superadmin: true,
+	}}
+	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", "full",
 		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
 		t.Fatalf("ApplySetting: %v", err)
 	}
@@ -548,14 +553,15 @@ func TestGuardedSettings_EachOneExplainsItself(t *testing.T) {
 		t.Fatal("nothing is guarded; the gate protects nothing")
 	}
 
-	prompt := PromptFor(true, GuardedKeys()...)
+	operator := Access{Principal: Principal{Kind: PrincipalUser, Superadmin: true}}
+	prompt := PromptFor(operator, true, GuardedKeys()...)
 	if len(prompt.Reasons) != len(GuardedKeys()) {
 		t.Errorf("the prompt covers %d of %d guarded settings", len(prompt.Reasons), len(GuardedKeys()))
 	}
 	if !strings.Contains(prompt.String(), "geliştirici") {
 		t.Errorf("the prompt does not say whose rule this is:\n%s", prompt.String())
 	}
-	unavailable := PromptFor(false, GuardedKeys()...)
+	unavailable := PromptFor(operator, false, GuardedKeys()...)
 	if !strings.Contains(unavailable.String(), "password_hash") {
 		t.Errorf("with no password configured the prompt does not say how to configure one:\n%s", unavailable.String())
 	}
@@ -580,4 +586,163 @@ func defaultValueFor(t *testing.T, def Definition) any {
 	}
 	t.Fatalf("no test value for kind %q", def.Kind)
 	return nil
+}
+
+// --- who may change what (A7.6) ---
+
+func customerAccess() Access {
+	// The most authority the panel can give a customer: owner of their
+	// own site, with a real membership row. The servers are still not
+	// theirs.
+	return Access{
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com", UserID: 7},
+		Role:      RoleOwner,
+		Member:    true,
+	}
+}
+
+func operatorAccess() Access {
+	return Access{Principal: Principal{Kind: PrincipalUser, Label: "operator@crucible", Superadmin: true}}
+}
+
+// The customer sees every setting, including the ones they cannot touch,
+// with the value that is actually in force. Hiding them would leave them
+// unable to account for their own deployment.
+func TestSettingsView_ShowsTheCustomerEverything(t *testing.T) {
+	store := settingsStore(t)
+	ctx := context.Background()
+
+	if err := setGuarded(t, store, KeyPrivacyIPStorage, "", IPStorageFull); err != nil {
+		t.Fatalf("setGuarded: %v", err)
+	}
+
+	view, err := store.SettingsView(ctx, customerAccess(), "site-a")
+	if err != nil {
+		t.Fatalf("SettingsView: %v", err)
+	}
+	if len(view) != len(AllDefinitions()) {
+		t.Fatalf("the customer sees %d of %d settings", len(view), len(AllDefinitions()))
+	}
+
+	var seen bool
+	for _, row := range view {
+		if row.Definition.Key != KeyPrivacyIPStorage {
+			continue
+		}
+		seen = true
+		if row.Value != IPStorageFull {
+			t.Errorf("the customer sees %v, want the value in force (%q)", row.Value, IPStorageFull)
+		}
+		if row.Source != "global" {
+			t.Errorf("Source = %q, want global - the customer cannot tell a default from a choice", row.Source)
+		}
+		if row.Access != SettingLocked {
+			t.Errorf("Access = %q, want %q", row.Access, SettingLocked)
+		}
+		if row.Lock == "" {
+			t.Error("a locked row carries no explanation, which is what makes a panel feel broken")
+		}
+		if row.Reason == "" {
+			t.Error("a locked row does not say what the setting decides")
+		}
+	}
+	if !seen {
+		t.Error("privacy.ip_storage did not appear in the customer's view at all")
+	}
+
+	// And every locked or read-only row explains itself. A control that
+	// is simply absent, with no sentence, is indistinguishable from a bug.
+	for _, row := range view {
+		if !row.Access.Editable() && row.Lock == "" {
+			t.Errorf("%s is not editable and gives no reason", row.Definition.Key)
+		}
+		if row.Access.Editable() && row.Lock != "" {
+			t.Errorf("%s is editable but carries a lock notice", row.Definition.Key)
+		}
+	}
+}
+
+func TestSettingsView_GivesTheOperatorControls(t *testing.T) {
+	store := settingsStore(t)
+
+	view, err := store.SettingsView(context.Background(), operatorAccess(), "site-a")
+	if err != nil {
+		t.Fatalf("SettingsView: %v", err)
+	}
+	for _, row := range view {
+		want := SettingWritable
+		if row.Definition.RequiresDeveloperPassword {
+			want = SettingGated
+		}
+		if row.Access != want {
+			t.Errorf("%s: operator access = %q, want %q", row.Definition.Key, row.Access, want)
+		}
+	}
+}
+
+// The refusal is on identity, before the password is considered at all -
+// so no password the customer could supply changes the answer.
+func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
+	store := settingsStore(t)
+	ctx := context.Background()
+	gate := testGate(t, store)
+	customer := customerAccess()
+
+	// Even handed a genuinely valid authorization, minted elsewhere.
+	auth := authorize(t, gate, KeyPrivacyIPStorage)
+	err := store.ApplySetting(ctx, customer, KeyPrivacyIPStorage, "", IPStorageFull, auth)
+	if !errors.Is(err, ErrSettingNotWritable) {
+		t.Fatalf("the customer changed a guarded setting (err = %v)", err)
+	}
+	if got, _ := store.GetStringSetting(ctx, KeyPrivacyIPStorage, ""); got != IPStorageMasked {
+		t.Errorf("the value became %q despite the refusal", got)
+	}
+
+	// The same for an operator-owned setting that carries no password at
+	// all: no gate involved, still not theirs to change.
+	err = store.ApplySetting(ctx, customer, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{})
+	if !errors.Is(err, ErrSettingNotWritable) {
+		t.Errorf("the customer changed an operator-owned setting (err = %v)", err)
+	}
+
+	// And clearing is a change like any other.
+	if err := store.ClearSetting(ctx, customer, KeyPrivacyIPStorage, "", auth); !errors.Is(err, ErrSettingNotWritable) {
+		t.Errorf("the customer reset a guarded setting (err = %v)", err)
+	}
+}
+
+// A customer's attempt must not spend the operator's failure budget.
+// Five guesses from a customer locking the operator out of a deployment
+// they are responsible for would be a denial of service wearing the
+// clothes of a security control.
+func TestGateRequest_ACustomersGuessCostsNothing(t *testing.T) {
+	store := settingsStore(t)
+	ctx := context.Background()
+	gate := testGate(t, store)
+
+	form := url.Values{devgate.FormField: {"yanlis-sifre-1234"}}
+	post := func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/settings", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.RemoteAddr = "203.0.113.9:5555"
+		return r
+	}
+
+	// Far more than the lockout threshold.
+	for i := 0; i < 20; i++ {
+		result := gate.Verify(ctx, store.GateRequest(customerAccess(), post(), KeyPrivacyIPStorage))
+		if result.OK() {
+			t.Fatal("a customer's guess was granted")
+		}
+		if result.Decision == devgate.DecisionWrongPassword {
+			t.Fatalf("attempt %d reached argon2; the customer's guess was hashed", i+1)
+		}
+	}
+
+	// The operator is still able to work.
+	if result := gate.Verify(ctx, devgate.Request{
+		Actions: []string{GateAction(KeyPrivacyIPStorage)}, Password: testDevPassword,
+	}); !result.OK() {
+		t.Errorf("the customer's guesses locked the operator out: %s", result.Decision)
+	}
 }

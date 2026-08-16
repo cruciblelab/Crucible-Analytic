@@ -847,7 +847,17 @@ rather than ignored, and a mistyped hash is refused too - otherwise it
 would behave exactly like a permanently wrong password, with nothing
 anywhere to say why.
 
-Four properties are worth knowing before relying on it:
+The customer still sees these settings. All of them, with their current
+values and the reason each one is guarded - what is withheld is the
+control, not the information. A setting nobody can see is a setting
+nobody can ask about, and it would leave a customer unable to account for
+their own deployment. What they get is the value, an explanation, and a
+lock. What they do not get is a password field: putting one in front of
+somebody who cannot have the password invites them to go looking for it,
+and every attempt would spend part of a failure budget that belongs to
+the operator.
+
+Five properties are worth knowing before relying on it:
 
 - **It is asked every single time.** Verifying produces an
   authorization that names one setting and expires in seconds, so
@@ -861,6 +871,10 @@ Four properties are worth knowing before relying on it:
 - **Every attempt is recorded**, granted or refused, in the append-only
   audit log - which the panel's database role may INSERT into but not
   UPDATE or DELETE.
+- **Only the operator may attempt it.** A customer is refused on who
+  they are, before any argon2 work and without touching the shared
+  failure counter - otherwise five guesses from a customer would lock
+  the operator out of a deployment they are responsible for.
 - **Repeated failures stop being answered.** One verification is
   deliberately ~19 MiB of argon2 work, so verifications are serialised
   behind a bounded queue and a run of wrong answers closes the gate for

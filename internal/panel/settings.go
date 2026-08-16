@@ -170,7 +170,19 @@ type Definition struct {
 	// Label and Help are Turkish, because they are read in the panel.
 	Label string
 	Help  string
-	// Developer marks a setting that only appears in developer mode.
+	// Developer marks a setting the operator owns rather than the
+	// customer.
+	//
+	// It controls who may *change* it, not who may see it. A customer
+	// with full rights on their own panel sees every one of these, with
+	// its value and its explanation, and cannot edit it - the servers
+	// belong to the operator, so these are the operator's to answer for.
+	//
+	// Hiding them would be the worse design. A setting nobody can see is
+	// a setting nobody can ask about, and the customer's own deployment
+	// would have behaviour they cannot account for. Showing the value
+	// and withholding the control says the true thing: this is decided,
+	// it is decided by us, and here is what it is.
 	Developer bool
 	// Live marks a setting a running service applies without a restart.
 	//

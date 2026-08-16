@@ -57,7 +57,25 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 		t.Fatalf("devgate.New: %v", err)
 	}
 
-	server := httptest.NewServer(settingsFormHandler(t, store, gate))
+	// Two mount points, one per principal. A stand-in for the
+	// authentication middleware C1 will write - and the only way to see
+	// what each party actually gets, which is the point of driving this
+	// with a browser rather than asserting on a struct.
+	operator := Access{Principal: Principal{
+		Kind: PrincipalUser, Label: "operator@crucible", Superadmin: true,
+	}}
+	// A customer who owns their own site outright: every right the panel
+	// grants, and still not the party that answers for these settings.
+	customer := Access{
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com", UserID: 42},
+		Role:      RoleOwner,
+		Member:    true,
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/operator", settingsFormHandler(t, store, gate, operator))
+	mux.Handle("/customer", settingsFormHandler(t, store, gate, customer))
+	server := httptest.NewServer(mux)
 	defer server.Close()
 
 	script := writeBrowserScript(t)
@@ -78,6 +96,15 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 		ValueAfterWrong   string `json:"value_after_wrong"`
 		ValueAfterRight   string `json:"value_after_right"`
 		ValueAfterSecond  string `json:"value_after_second"`
+
+		CustomerSeesValue        string `json:"customer_sees_value"`
+		CustomerHasControl       bool   `json:"customer_has_control"`
+		CustomerHasPasswordField bool   `json:"customer_has_password_field"`
+		CustomerHasSave          bool   `json:"customer_has_save"`
+		CustomerSeesLock         bool   `json:"customer_sees_lock"`
+		CustomerLockText         string `json:"customer_lock_text"`
+		CustomerSeesReason       string `json:"customer_sees_reason"`
+		ValueAfterForcedPost     string `json:"value_after_forced_post"`
 	}
 	last := strings.TrimSpace(string(out))
 	if i := strings.LastIndex(last, "\n"); i >= 0 {
@@ -117,6 +144,44 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 		t.Errorf("the second save changed the value to %q without a password", report.ValueAfterSecond)
 	}
 
+	// The customer's half. What they must see, and what they must not be
+	// able to do. "Görünsün ama dokunulamasın" is the whole requirement,
+	// and each half of it fails differently: hiding the setting leaves
+	// them unable to account for their own deployment, and showing a
+	// control they cannot use leaves them filing tickets about a broken
+	// panel.
+	if report.CustomerSeesValue != IPStorageFull {
+		t.Errorf("the customer sees %q, want the value actually in force (%q) - the setting is hidden or stale",
+			report.CustomerSeesValue, IPStorageFull)
+	}
+	if report.CustomerHasControl {
+		t.Error("the customer was given a control for a setting they may not change")
+	}
+	if report.CustomerHasSave {
+		t.Error("the customer was given a save button for a setting they may not change")
+	}
+	if report.CustomerHasPasswordField {
+		// A password box in front of somebody who cannot have the
+		// password invites them to go looking for it, and every attempt
+		// they make spends part of the operator's shared failure budget.
+		t.Error("the customer was shown a developer password field")
+	}
+	if !report.CustomerSeesLock {
+		t.Error("the customer got no explanation for the missing control")
+	}
+	if !strings.Contains(report.CustomerLockText, "hukuki") {
+		t.Errorf("the lock text does not say why this setting is different: %q", report.CustomerLockText)
+	}
+	if !strings.Contains(report.CustomerSeesReason, "KVKK") {
+		t.Errorf("the customer cannot read the setting's own reason: %q", report.CustomerSeesReason)
+	}
+
+	// Posting the form by hand, with the correct password, still changes
+	// nothing: the refusal is on who they are, not on what they typed.
+	if report.ValueAfterForcedPost != IPStorageFull {
+		t.Errorf("a hand-built POST from the customer changed the value to %q", report.ValueAfterForcedPost)
+	}
+
 	// And every one of those attempts is in the append-only log.
 	entries, _, err := store.Audit(ctx, AuditFilter{Limit: 100})
 	if err != nil {
@@ -141,7 +206,7 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 // GateRequest, and writes with ApplySetting. Every one of those is the
 // function the real page will call, which is what makes driving this
 // with a browser worth anything.
-func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate) http.Handler {
+func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate, access Access) http.Handler {
 	t.Helper()
 
 	page := template.Must(template.New("settings").Parse(`<!doctype html>
@@ -149,7 +214,8 @@ func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate) http.Ha
 <h1>Gizlilik ayarları</h1>
 <p id="current">Şu anki değer: <b id="value">{{.Value}}</b></p>
 {{if .Message}}<p id="message">{{.Message}}</p>{{end}}
-<form method="post" action="/">
+{{if .Prompt.Entitled}}
+<form method="post" action="">
   <label>IP saklama biçimi
     <select name="value" id="mode">
       <option value="masked">masked</option>
@@ -164,9 +230,13 @@ func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate) http.Ha
   </fieldset>
   <button type="submit" id="save">Kaydet</button>
 </form>
+{{else}}
+<section id="locked">
+  <p id="lock">🔒 {{.Prompt.Locked}}</p>
+  <ul id="reasons">{{range .Prompt.Reasons}}<li>{{.Label}}: {{.Reason}}</li>{{end}}</ul>
+</section>
+{{end}}
 </body></html>`))
-
-	principal := Principal{Kind: PrincipalUser, Label: "tarayici@example.com", Superadmin: true}
 
 	render := func(w http.ResponseWriter, r *http.Request, message string) {
 		value, err := store.GetStringSetting(r.Context(), KeyPrivacyIPStorage, "")
@@ -178,7 +248,7 @@ func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate) http.Ha
 		_ = page.Execute(w, map[string]any{
 			"Value":   value,
 			"Message": message,
-			"Prompt":  PromptFor(gate.Configured(), KeyPrivacyIPStorage),
+			"Prompt":  PromptFor(access, gate.Configured(), KeyPrivacyIPStorage),
 		})
 	}
 
@@ -195,13 +265,13 @@ func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate) http.Ha
 
 		// The action list is the server's own conclusion about what it is
 		// about to change, never anything the form sent.
-		result := gate.Verify(r.Context(), store.GateRequest(principal, r, KeyPrivacyIPStorage))
+		result := gate.Verify(r.Context(), store.GateRequest(access, r, KeyPrivacyIPStorage))
 		if !result.OK() {
 			render(w, r, devgate.Explain(result))
 			return
 		}
 
-		if err := store.ApplySetting(r.Context(), principal, KeyPrivacyIPStorage, "", value,
+		if err := store.ApplySetting(r.Context(), access, KeyPrivacyIPStorage, "", value,
 			result.For(GateAction(KeyPrivacyIPStorage))); err != nil {
 			render(w, r, fmt.Sprintf("Kaydedilemedi: %v", err))
 			return
@@ -226,13 +296,14 @@ const message = () => page.locator('#message').count().then(async (n) =>
   n ? (await page.locator('#message').innerText()).trim() : '');
 const value = () => page.locator('#value').innerText();
 
-await page.goto(base, { waitUntil: 'load' });
+// ---- the operator: the party that answers for these settings ----
+await page.goto(base + '/operator', { waitUntil: 'load' });
 
 report.prompt_shown = (await page.locator('#gate').count()) > 0;
 const notice = await page.locator('#notice').innerText();
 const reasons = await page.locator('#reasons').innerText();
 report.prompt_mentions_why = notice.includes('geliştirici') && reasons.includes('KVKK');
-console.log('prompt:', notice.slice(0, 80) + '...');
+console.log('operator sees the prompt:', notice.slice(0, 70) + '...');
 
 // 1. The wrong password.
 await page.selectOption('#mode', 'full');
@@ -260,6 +331,35 @@ await page.waitForLoadState('load');
 report.second_save_no_field = await message();
 report.value_after_second = await value();
 console.log('second save, empty field ->', report.second_save_no_field, '| value now', report.value_after_second);
+
+// ---- the customer: full rights on their own panel, not this ----
+await page.goto(base + '/customer', { waitUntil: 'load' });
+
+report.customer_sees_value = await value();
+report.customer_has_control = (await page.locator('#mode').count()) > 0;
+report.customer_has_password_field = (await page.locator('#devpass').count()) > 0;
+report.customer_has_save = (await page.locator('#save').count()) > 0;
+report.customer_sees_lock = (await page.locator('#lock').count()) > 0;
+report.customer_lock_text = report.customer_sees_lock
+  ? (await page.locator('#lock').innerText()).trim() : '';
+report.customer_sees_reason = (await page.locator('#reasons').count()) > 0
+  ? (await page.locator('#reasons').innerText()).trim() : '';
+console.log('customer sees value', report.customer_sees_value,
+  '| control?', report.customer_has_control,
+  '| password field?', report.customer_has_password_field,
+  '| lock?', report.customer_sees_lock);
+
+// 4. And a customer who posts the form anyway - the real password, even -
+//    changes nothing. There is no form on their page, so this is a
+//    hand-built request, which is exactly what an attacker would send.
+const forced = await page.request.post(base + '/customer', {
+  form: { value: 'full', developer_password: 'test-gelistirici-sifresi' },
+});
+report.customer_forced_status = forced.status();
+await page.goto(base + '/customer', { waitUntil: 'load' });
+report.value_after_forced_post = await value();
+console.log('customer forced POST ->', report.customer_forced_status,
+  '| value now', report.value_after_forced_post);
 
 await browser.close();
 console.log(JSON.stringify(report));

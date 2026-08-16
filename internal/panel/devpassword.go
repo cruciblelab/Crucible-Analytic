@@ -30,19 +30,29 @@ import (
 // change - worked out from the form it just validated, never read from
 // the request. A request that could name the settings it wanted
 // authorized would be a request that authorizes itself.
-func (s *Store) GateRequest(p Principal, r *http.Request, keys ...Key) devgate.Request {
+//
+// A principal who may not attempt the password at all produces a request
+// with no actions, which the gate refuses without hashing anything. That
+// matters more than it looks: the failure counter is shared, so a
+// customer typing guesses into a form they should never have seen would
+// otherwise lock the operator out of their own deployment. Refusing on
+// identity, before the work, is what stops a security control from
+// becoming a denial of service.
+func (s *Store) GateRequest(a Access, r *http.Request, keys ...Key) devgate.Request {
 	actions := make([]string, 0, len(keys))
-	for _, key := range keys {
-		if def, ok := registry[key]; ok && def.RequiresDeveloperPassword {
-			actions = append(actions, GateAction(key))
+	if a.MayAttemptDeveloperPassword() {
+		for _, key := range keys {
+			if def, ok := registry[key]; ok && def.RequiresDeveloperPassword {
+				actions = append(actions, GateAction(key))
+			}
 		}
 	}
 	return devgate.Request{
 		Actions:   actions,
 		Password:  devgate.FromRequest(r),
-		Actor:     p.Label,
-		ActorKind: string(p.Kind),
-		ActorID:   p.UserID,
+		Actor:     a.Principal.Label,
+		ActorKind: string(a.Principal.Kind),
+		ActorID:   a.Principal.UserID,
 		Peer:      devgate.PeerOf(r),
 	}
 }
@@ -114,13 +124,25 @@ func (s *Store) GateAudit() func(context.Context, devgate.Attempt) error {
 // saves a mixed set of settings needs one loop rather than two - and
 // therefore cannot send the guarded ones down the unguarded path by
 // mistake.
-func (s *Store) ApplySetting(ctx context.Context, p Principal, key Key, site string, value any, auth devgate.Authorization) error {
+func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string, value any, auth devgate.Authorization) error {
+	def, ok := registry[key]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	// Entitlement before authorization, and before anything that costs
+	// work. A customer is refused here on who they are, whatever they
+	// typed - so no password they could supply changes the answer, and
+	// no attempt of theirs consumes the operator's failure budget.
+	if !a.AccessTo(def).Editable() {
+		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
+	}
+
 	before, err := s.GetSetting(ctx, key, site)
 	if err != nil {
 		return err
 	}
 
-	if err := s.SetGuardedSetting(ctx, key, site, value, actorIDOf(p), auth); err != nil {
+	if err := s.SetGuardedSetting(ctx, key, site, value, actorIDOf(a.Principal), auth); err != nil {
 		return err
 	}
 
@@ -128,14 +150,14 @@ func (s *Store) ApplySetting(ctx context.Context, p Principal, key Key, site str
 	// change that did not happen. The reverse ordering - record, then
 	// write - would produce an audit trail that is wrong in the
 	// direction nobody checks.
-	return s.RecordFor(ctx, p, AuditEntry{
+	return s.RecordFor(ctx, a.Principal, AuditEntry{
 		Action: ActionSettingChanged,
 		SiteID: site,
 		Target: string(key),
 		Detail: map[string]any{
 			"from":    before,
 			"to":      value,
-			"guarded": registry[key].RequiresDeveloperPassword,
+			"guarded": def.RequiresDeveloperPassword,
 		},
 	})
 }
@@ -146,7 +168,15 @@ func (s *Store) ApplySetting(ctx context.Context, p Principal, key Key, site str
 // Guarded exactly like a write, because it is one: for
 // campaign.drop_params the default is the empty list, so clearing it
 // means starting to store utm_term again.
-func (s *Store) ClearSetting(ctx context.Context, p Principal, key Key, site string, auth devgate.Authorization) error {
+func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string, auth devgate.Authorization) error {
+	def, ok := registry[key]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	if !a.AccessTo(def).Editable() {
+		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
+	}
+
 	before, err := s.GetSetting(ctx, key, site)
 	if err != nil {
 		return err
@@ -156,18 +186,14 @@ func (s *Store) ClearSetting(ctx context.Context, p Principal, key Key, site str
 		return err
 	}
 
-	after := any(nil)
-	if def, ok := registry[key]; ok {
-		after = def.Default
-	}
-	return s.RecordFor(ctx, p, AuditEntry{
+	return s.RecordFor(ctx, a.Principal, AuditEntry{
 		Action: ActionSettingReset,
 		SiteID: site,
 		Target: string(key),
 		Detail: map[string]any{
 			"from":    before,
-			"to":      after,
-			"guarded": registry[key].RequiresDeveloperPassword,
+			"to":      def.Default,
+			"guarded": def.RequiresDeveloperPassword,
 		},
 	})
 }
@@ -198,15 +224,28 @@ type DeveloperPasswordPrompt struct {
 	Configured bool
 	// Unavailable is the sentence to show when Configured is false.
 	Unavailable string
+	// Entitled reports whether this principal may attempt the password.
+	//
+	// False for a customer, however complete their rights on their own
+	// panel. When it is false the panel must render Locked and no field:
+	// a password box in front of somebody who cannot have the password
+	// is an invitation to go looking for it, and every attempt they make
+	// costs the operator part of a shared failure budget.
+	Entitled bool
+	// Locked is what to show instead of the field.
+	Locked string
 }
 
-// PromptFor builds the prompt for a set of settings about to be changed.
-func PromptFor(configured bool, keys ...Key) DeveloperPasswordPrompt {
+// PromptFor builds the prompt for a set of settings about to be changed,
+// as this principal should see it.
+func PromptFor(a Access, configured bool, keys ...Key) DeveloperPasswordPrompt {
 	prompt := DeveloperPasswordPrompt{
 		Notice:      devgate.Notice,
 		FormField:   devgate.FormField,
 		Configured:  configured,
 		Unavailable: devgate.NoticeNotConfigured,
+		Entitled:    a.MayAttemptDeveloperPassword(),
+		Locked:      LockNoticeLegal,
 	}
 	for _, key := range keys {
 		def, ok := registry[key]
@@ -232,11 +271,18 @@ type DeveloperPasswordReason struct {
 
 // String renders the prompt as plain text, for a CLI or a log line.
 func (p DeveloperPasswordPrompt) String() string {
-	if !p.Configured {
-		return p.Unavailable
-	}
 	var b strings.Builder
-	b.WriteString(p.Notice)
+	switch {
+	case !p.Entitled:
+		// Checked before Configured, because whether this deployment has
+		// a developer password is not the customer's problem and telling
+		// them it is missing would read as an invitation to fix it.
+		b.WriteString(p.Locked)
+	case !p.Configured:
+		return p.Unavailable
+	default:
+		b.WriteString(p.Notice)
+	}
 	for _, reason := range p.Reasons {
 		fmt.Fprintf(&b, "\n\n- %s: %s", reason.Label, reason.Reason)
 	}

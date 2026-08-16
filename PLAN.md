@@ -39,7 +39,7 @@ sorusunu cevaplar.*
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **bitti** | — |
-| **A** Ayarlar ve saklama | 🟡 **5/10** | A2, A3, A4, A5, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **6/11** | A2, A3, A4, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **1/8** | C1, C2, C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
@@ -65,6 +65,9 @@ sorusunu cevaplar.*
   adresten türetiliyor
 - **A7.5** Geliştirici şifresi kapısı — 7 hukuki ağırlıklı ayar, her
   seferinde soruluyor, hash'li, yapılandırma dosyasından
+- **A7.6** Görünürlük ≠ yazılabilirlik — müşteri **her ayarı görür**
+  (değeri, kaynağı, gerekçesi), geliştirici ayarlarında kontrol yok,
+  hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir
 
 ### Sıradaki üç iş, önem sırasıyla
 
@@ -95,6 +98,7 @@ sorusunu cevaplar.*
 | `GRANT SELECT` elle veriliyor | F2 |
 | Verbose penceresi kullanıcıya yerel saatte gösterilmeli | C4 |
 | **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C1–C7** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
+| **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C1–C7** |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
@@ -571,6 +575,45 @@ mümkün değil — unutmakla değil, derlememekle sonuçlanır.
 reddediliyor, testle kanıtlı); ✅ yanlış şifre yazamıyor; ✅ şifre yoksa
 korumalı ayar yazılamıyor; ✅ gerçek tarayıcıdan gerçek form gönderimiyle
 doğrulandı.
+
+---
+
+#### A7.6 — Görünürlük ile yazılabilirliği ayırmak ✅ **yapıldı**
+
+**Ne:** Bir ayarı *görmek* ile *değiştirmek* aynı soru değil. A7.5'te
+kapıyı kurarken bu ikisi karışmıştı: `Developer: true` olan ayarlar
+müşteriye hiç görünmüyordu ve korumalı olanlar "hata" veriyordu. Doğrusu
+şu: **hepsi görünür, bir kısmı tıklanamaz.**
+
+**Neden gizlemiyoruz:** göremediği bir ayarı müşteri soramaz. Kendi
+kurulumunun neden öyle davrandığını açıklayamaz duruma düşer ve her
+seferinde bize sormak zorunda kalır. Değeri göstermek, kontrolü
+göstermemek doğru olanı söylüyor: *bu karar verilmiş, bizim tarafımızdan
+verilmiş, ve değeri şu.*
+
+| Durum | Kim görür | Ne görür |
+|---|---|---|
+| `writable` | herkes (yetkisi varsa) | normal kontrol |
+| `gated` | **yalnız işletmeci** | kontrol + her seferinde şifre |
+| `locked` | müşteri | değer + 🔒 + hukuki gerekçe, kontrol yok |
+| `read_only` | müşteri | değer + açıklama, kontrol yok |
+
+**Şifre alanı müşteriye hiç gösterilmez** ve bu estetik bir tercih
+değil: sahip olamayacağı bir şifrenin kutusunu görmek onu şifreyi
+aramaya davet eder, ve her denemesi **işletmecinin** hata bütçesinden
+harcar. Beş yanlış deneme, sorumluluğu bize ait bir kurulumda bizi
+dışarıda bırakırdı — güvenlik kontrolü kılığında bir hizmet reddi.
+Bu yüzden müşterinin denemesi **kimliğe bakılarak**, argon2'ye hiç
+gitmeden reddediliyor.
+
+**Zorlama noktası:** `ApplySetting` ve `ClearSetting` yetkiyi
+*yetkilendirmeden önce* kontrol ediyor. Müşteri geçerli bir yetki
+nesnesi ele geçirse bile yazamaz — reddin gerekçesi ne yazdığı değil,
+kim olduğu.
+
+**Bitti ölçütü:** ✅ müşteri hepsini görüyor; ✅ kontrol yok; ✅ şifre
+alanı yok; ✅ kilit ve gerekçe yazılı; ✅ elle kurulmuş POST doğru
+şifreyle bile yazamıyor; ✅ gerçek tarayıcıda iki taraf da sürüldü.
 
 ---
 

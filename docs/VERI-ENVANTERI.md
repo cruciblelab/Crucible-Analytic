@@ -445,6 +445,16 @@ Bunun için sunucuya erişimi olan tarafın (Crucible) katılımı gerekir —
 ki bu da yukarıdaki işleyen/sorumlu tartışmasının kayda geçen bir
 parçasıdır.
 
+**Ama gizlenmiyor.** Bu, hukuki değerlendirme açısından önemli olabilir:
+müşteri bu yedi ayarın **hepsini, güncel değerleriyle ve gerekçeleriyle
+birlikte** kendi panelinde görür. Göremediği tek şey değiştirme
+kontrolüdür — kilit işareti ve nedeni yazılıdır. Yani müşteri, kendi
+sisteminde hangi kişisel verinin ne kadar süre saklandığını her an
+doğrulayabilir; yalnızca tek başına değiştiremez. Ayarı gizlemek,
+müşteriyi kendi kurulumunun davranışını açıklayamaz duruma
+düşürürdü — aydınlatma yükümlülüğü açısından da istemediğimiz bir
+sonuç.
+
 ---
 
 ## 9. Güvenlik önlemleri — teknik ve idari tedbirler başlığı için
