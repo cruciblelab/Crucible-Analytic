@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 )
 
 func TestWizardStepsAreDistinctAndOrdered(t *testing.T) {
@@ -74,7 +75,7 @@ func TestParseSiteListDoesNotValidate(t *testing.T) {
 }
 
 func TestDatabaseChecksNarrowToTheDatabase(t *testing.T) {
-	all := []panel.CheckResult{
+	all := []preflight.CheckResult{
 		{ID: "schema.panel"},
 		{ID: "grants.panel_isolation"},
 		{ID: "roles.exist"},

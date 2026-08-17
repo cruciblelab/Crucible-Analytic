@@ -1,6 +1,6 @@
 //go:build integration
 
-package panel
+package preflight
 
 import (
 	"context"
@@ -16,13 +16,13 @@ import (
 // output can be read rather than inferred from assertions.
 //
 //	CRUCIBLE_PREFLIGHT_DEMO=/var/log/crucible go test -tags integration \
-//	    ./internal/panel/ -run TestPreflightDemo -v
+//	    ./internal/panel/preflight/ -run TestPreflightDemo -v
 func TestPreflightDemo(t *testing.T) {
 	logDir := os.Getenv("CRUCIBLE_PREFLIGHT_DEMO")
 	if logDir == "" {
 		t.Skip("set CRUCIBLE_PREFLIGHT_DEMO to the log directory to run this")
 	}
-	store := newTestStore(t, "demo")
+	c := newTestChecker(t)
 
 	// Built from whatever hash the deployment actually has, so the run
 	// shows the real state rather than skipping the check. An empty
@@ -36,14 +36,14 @@ func TestPreflightDemo(t *testing.T) {
 		t.Fatalf("devgate.New: %v", err)
 	}
 
-	results := store.RunPreflight(context.Background(), PreflightConfig{
+	results := c.Run(context.Background(), Config{
 		LogDir:  logDir,
 		DataDir: "/",
 		ServiceURLs: map[string]string{
 			"beacon": "http://127.0.0.1:8081/healthz",
 			"api":    "http://127.0.0.1:8080/healthz",
 		},
-		Roles:         PreflightRoles{Beacon: "beacon_writer", API: "analytics_reader", Panel: "panel_user"},
+		Roles:         Roles{Beacon: "beacon_writer", API: "analytics_reader", Panel: "panel_user"},
 		DeveloperGate: gate,
 	})
 
@@ -54,7 +54,7 @@ func TestPreflightDemo(t *testing.T) {
 			t.Logf("          → %s", r.Fix)
 		}
 	}
-	ok, blocking := PreflightComplete(results)
+	ok, blocking := Complete(results)
 	if ok {
 		t.Log("KURULUM TAMAMLANABİLİR — zorunlu kontrollerin hepsi geçti")
 	} else {

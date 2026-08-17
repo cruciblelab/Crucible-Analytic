@@ -1,4 +1,4 @@
-package panel
+package preflight
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
@@ -80,12 +82,38 @@ type CheckResult struct {
 	Fix string `json:"fix,omitempty"`
 }
 
-// PreflightConfig tells the checks where to look.
+// Checker runs the checks. It holds the two things they need and
+// nothing else: a database pool, and whether the collector was given an
+// IP token key.
+//
+// It takes a pool rather than the panel's Store deliberately. Preflight
+// asks questions no other part of the panel asks - what a *different*
+// role may do, which tables exist in a schema the panel cannot read -
+// and expressing those as Store methods would have grown the panel's
+// data API by a dozen functions that only ever serve one page. A narrow
+// type with its own pool keeps them where they belong, and keeps this
+// package from importing the panel at all.
+type Checker struct {
+	pool                 *pgxpool.Pool
+	ipTokenKeyConfigured bool
+}
+
+// New returns a Checker.
+//
+// ipTokenKeyConfigured is passed in rather than read here because the
+// key lives in the collector's configuration, not the panel's: the panel
+// can be told whether one exists, but it must never be in a position to
+// read it.
+func New(pool *pgxpool.Pool, ipTokenKeyConfigured bool) *Checker {
+	return &Checker{pool: pool, ipTokenKeyConfigured: ipTokenKeyConfigured}
+}
+
+// Config tells the checks where to look.
 //
 // Everything is optional: an unset field turns its checks into CheckSkip
 // rather than CheckFail, because "the installer did not tell us where
 // the logs are" is not the same as "the logs are broken".
-type PreflightConfig struct {
+type Config struct {
 	// LogDir is the root of the log tree.
 	LogDir string
 	// DataDir is any path on the volume the database writes to, for the
@@ -98,7 +126,7 @@ type PreflightConfig struct {
 	// ServiceURLs maps a service name to its /healthz.
 	ServiceURLs map[string]string
 	// Roles names the database roles to check grants for.
-	Roles PreflightRoles
+	Roles Roles
 	// MinFreeBytes is the free space below which the disk check fails.
 	// Zero takes DefaultMinFreeBytes.
 	MinFreeBytes uint64
@@ -111,12 +139,22 @@ type PreflightConfig struct {
 	// was not told" and "there is no developer password" are different
 	// facts and must not print the same line.
 	DeveloperGate *devgate.Gate
+	// GuardedKeys names the settings the developer password protects, so
+	// the check can say which ones are frozen when there is no password.
+	//
+	// Passed in rather than read from the settings package on purpose.
+	// This package's whole job is inspecting a deployment, and a
+	// deployment check that imports the panel drags the panel's store,
+	// sessions and auth into every binary that wants to run one. The
+	// list is three lines to supply at the call site and keeps this
+	// package a leaf.
+	GuardedKeys []string
 	// Now supplies the clock, for tests.
 	Now func() time.Time
 }
 
-// PreflightRoles are the database roles a full deployment has.
-type PreflightRoles struct {
+// Roles are the database roles a full deployment has.
+type Roles struct {
 	Collector string
 	Beacon    string
 	API       string
@@ -129,9 +167,9 @@ type PreflightRoles struct {
 // feature taking down the traffic path.
 const DefaultMinFreeBytes = 2 << 30
 
-// RunPreflight runs every check and returns the results, worst first so
+// Run runs every check and returns the results, worst first so
 // the thing needing attention is at the top of the list.
-func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckResult {
+func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 	}
@@ -139,17 +177,24 @@ func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckRe
 		cfg.MinFreeBytes = DefaultMinFreeBytes
 	}
 
+	// A nil Checker is treated as one that was told nothing, so a caller
+	// that forgot to build one gets a page full of honest skips instead
+	// of a panic on the last step of the setup wizard.
+	if c == nil {
+		c = &Checker{}
+	}
+
 	results := []CheckResult{
-		s.checkPanelSchema(ctx),
-		s.checkAnalyticsSchema(ctx),
-		s.checkSelfMigratingColumns(ctx),
-		s.checkSettingsGrant(ctx, cfg.Roles),
-		s.checkPanelIsolation(ctx, cfg.Roles),
-		s.checkAPIIsReadOnly(ctx, cfg.Roles),
-		s.checkRetentionPolicies(ctx),
-		s.checkConfiguredRolesExist(ctx, cfg.Roles),
-		checkDeveloperPassword(cfg.DeveloperGate),
-		s.checkIPTokenKey(),
+		c.checkPanelSchema(ctx),
+		c.checkAnalyticsSchema(ctx),
+		c.checkSelfMigratingColumns(ctx),
+		c.checkSettingsGrant(ctx, cfg.Roles),
+		c.checkPanelIsolation(ctx, cfg.Roles),
+		c.checkAPIIsReadOnly(ctx, cfg.Roles),
+		c.checkRetentionPolicies(ctx),
+		c.checkConfiguredRolesExist(ctx, cfg.Roles),
+		checkDeveloperPassword(cfg.DeveloperGate, cfg.GuardedKeys),
+		c.checkIPTokenKey(),
 		checkBotData(cfg.BotDataPath, cfg.Now),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
@@ -175,13 +220,13 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// PreflightComplete reports whether handover may proceed: every required
+// Complete reports whether handover may proceed: every required
 // check passed.
 //
 // A recommended check that failed does not block. Somebody may have a
 // reason, and a wizard that cannot be finished is a wizard people work
 // around.
-func PreflightComplete(results []CheckResult) (bool, []CheckResult) {
+func Complete(results []CheckResult) (bool, []CheckResult) {
 	blocking := []CheckResult{}
 	for _, r := range results {
 		if r.Severity == SeverityRequired && r.Status != CheckPass {
@@ -191,19 +236,41 @@ func PreflightComplete(results []CheckResult) (bool, []CheckResult) {
 	return len(blocking) == 0, blocking
 }
 
+// noDatabase is what a database check returns when the Checker was built
+// without a pool.
+//
+// Skip and not fail: no connection means nothing was examined, and the
+// deployment may be perfectly correct. Handover is still blocked,
+// because these are required checks and Complete blocks on a required
+// check that did not pass - which is exactly right for a wizard that
+// could not look.
+//
+// It takes the half-built result rather than returning a fresh one so
+// each check's ID, label and severity stay written down in exactly one
+// place. A second list of database check IDs would be a mirror, and
+// mirrors here drift.
+func noDatabase(result CheckResult) CheckResult {
+	result.Status = CheckSkip
+	result.Detail = "Veritabanı bağlantısı olmadan çalıştırıldı; hiçbir şey incelenmedi."
+	return result
+}
+
 // --- database checks ---
 
-func (s *Store) checkPanelSchema(ctx context.Context) CheckResult {
+func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.panel", Severity: SeverityRequired,
 		Label: "Panel tabloları uygulandı mı",
 		Fix:   `psql "$DSN" -f internal/panel/schema.sql`,
 	}
+	if c.pool == nil {
+		return noDatabase(result)
+	}
 	want := []string{
 		"panel_users", "panel_sessions", "panel_site_members", "panel_audit_log",
 		"panel_api_tokens", "panel_dev_access", "panel_login_attempts", "panel_settings",
 	}
-	missing, err := s.missingTables(ctx, want)
+	missing, err := c.missingTables(ctx, want)
 	if err != nil {
 		result.Status, result.Detail = CheckFail, "Tablolar sorgulanamadı: "+err.Error()
 		return result
@@ -217,13 +284,16 @@ func (s *Store) checkPanelSchema(ctx context.Context) CheckResult {
 	return result
 }
 
-func (s *Store) checkAnalyticsSchema(ctx context.Context) CheckResult {
+func (c *Checker) checkAnalyticsSchema(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.analytics", Severity: SeverityRequired,
 		Label: "Analitik tabloları ve hypertable'lar",
 		Fix:   `psql "$DSN" -f internal/storage/schema.sql && psql "$DSN" -f internal/beacon/schema.sql`,
 	}
-	missing, err := s.missingTables(ctx, []string{"traffic_snapshots", "beacon_events"})
+	if c.pool == nil {
+		return noDatabase(result)
+	}
+	missing, err := c.missingTables(ctx, []string{"traffic_snapshots", "beacon_events"})
 	if err != nil {
 		result.Status, result.Detail = CheckFail, "Tablolar sorgulanamadı: "+err.Error()
 		return result
@@ -237,7 +307,7 @@ func (s *Store) checkAnalyticsSchema(ctx context.Context) CheckResult {
 	// and silently loses every reason TimescaleDB is here: chunk-level
 	// retention, compression, and time-ordered scans.
 	var hypertables int
-	err = s.pool.QueryRow(ctx, `
+	err = c.pool.QueryRow(ctx, `
 		SELECT count(*) FROM timescaledb_information.hypertables
 		WHERE hypertable_name IN ('traffic_snapshots', 'beacon_events')`).Scan(&hypertables)
 	if err != nil {
@@ -257,11 +327,14 @@ func (s *Store) checkAnalyticsSchema(ctx context.Context) CheckResult {
 // had once: CREATE TABLE IF NOT EXISTS does nothing to a table that
 // already exists, so a column added to a schema file reaches an existing
 // deployment only if somebody re-ran the file.
-func (s *Store) checkSelfMigratingColumns(ctx context.Context) CheckResult {
+func (c *Checker) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.columns", Severity: SeverityRequired,
 		Label: "Şema dosyaları yeniden uygulandı mı (yeni sütunlar)",
 		Fix:   `psql "$DSN" -f internal/beacon/schema.sql && psql "$DSN" -f internal/panel/schema.sql`,
+	}
+	if c.pool == nil {
+		return noDatabase(result)
 	}
 	expected := map[string][]string{
 		"beacon_events": {"utm_source", "utm_medium", "utm_campaign", "click_source", "click_id"},
@@ -271,7 +344,7 @@ func (s *Store) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	for table, columns := range expected {
 		for _, column := range columns {
 			var exists bool
-			err := s.pool.QueryRow(ctx, `
+			err := c.pool.QueryRow(ctx, `
 				SELECT EXISTS (
 					SELECT 1 FROM information_schema.columns
 					WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`,
@@ -296,10 +369,13 @@ func (s *Store) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	return result
 }
 
-func (s *Store) checkSettingsGrant(ctx context.Context, roles PreflightRoles) CheckResult {
+func (c *Checker) checkSettingsGrant(ctx context.Context, roles Roles) CheckResult {
 	result := CheckResult{
 		ID: "grants.live_settings", Severity: SeverityRecommended,
 		Label: "Servisler ayarları okuyabiliyor mu",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
 	}
 	targets := map[string]string{"collector": roles.Collector, "beacon": roles.Beacon}
 
@@ -315,7 +391,7 @@ func (s *Store) checkSettingsGrant(ctx context.Context, roles PreflightRoles) Ch
 		// its roles - the check does not apply rather than failing. Saying
 		// "beacon_writer cannot read settings" about a role nobody created
 		// would send an installer looking for a grant on nothing.
-		exists, err := s.roleExists(ctx, role)
+		exists, err := c.roleExists(ctx, role)
 		if err != nil {
 			result.Status, result.Detail = CheckSkip, "Roller sorgulanamadı: "+err.Error()
 			return result
@@ -324,7 +400,7 @@ func (s *Store) checkSettingsGrant(ctx context.Context, roles PreflightRoles) Ch
 			continue
 		}
 		checked++
-		ok, err := s.roleHasPrivilege(ctx, role, "panel_settings", "SELECT")
+		ok, err := c.roleHasPrivilege(ctx, role, "panel_settings", "SELECT")
 		if err != nil {
 			result.Status, result.Detail = CheckSkip, "Yetkiler sorgulanamadı: "+err.Error()
 			return result
@@ -357,10 +433,13 @@ func (s *Store) checkSettingsGrant(ctx context.Context, roles PreflightRoles) Ch
 // that the component a customer logs into has no direct route to the
 // traffic data. A deployment where somebody granted a little too much
 // looks completely healthy until the day it matters.
-func (s *Store) checkPanelIsolation(ctx context.Context, roles PreflightRoles) CheckResult {
+func (c *Checker) checkPanelIsolation(ctx context.Context, roles Roles) CheckResult {
 	result := CheckResult{
 		ID: "grants.panel_isolation", Severity: SeverityRequired,
 		Label: "Panel rolü analitik tablolara erişemiyor",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
 	}
 	if roles.Panel == "" {
 		result.Status, result.Detail = CheckSkip, "Panel rol adı verilmedi."
@@ -370,7 +449,7 @@ func (s *Store) checkPanelIsolation(ctx context.Context, roles PreflightRoles) C
 	var leaked []string
 	for _, table := range []string{"traffic_snapshots", "beacon_events"} {
 		for _, privilege := range []string{"SELECT", "INSERT", "UPDATE", "DELETE"} {
-			ok, err := s.roleHasPrivilege(ctx, roles.Panel, table, privilege)
+			ok, err := c.roleHasPrivilege(ctx, roles.Panel, table, privilege)
 			if err != nil {
 				result.Status, result.Detail = CheckSkip, "Yetkiler sorgulanamadı: "+err.Error()
 				return result
@@ -394,10 +473,13 @@ func (s *Store) checkPanelIsolation(ctx context.Context, roles PreflightRoles) C
 // checkAPIIsReadOnly is the other negative check. The read API's
 // read-only guarantee is a property of its database role, not of its
 // code - and it is what makes a support token safe to hand out.
-func (s *Store) checkAPIIsReadOnly(ctx context.Context, roles PreflightRoles) CheckResult {
+func (c *Checker) checkAPIIsReadOnly(ctx context.Context, roles Roles) CheckResult {
 	result := CheckResult{
 		ID: "grants.api_read_only", Severity: SeverityRequired,
 		Label: "Okuma API'si gerçekten yazamıyor",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
 	}
 	if roles.API == "" {
 		result.Status, result.Detail = CheckSkip, "API rol adı verilmedi."
@@ -407,7 +489,7 @@ func (s *Store) checkAPIIsReadOnly(ctx context.Context, roles PreflightRoles) Ch
 	var writable []string
 	for _, table := range []string{"traffic_snapshots", "beacon_events", "panel_users", "panel_settings"} {
 		for _, privilege := range []string{"INSERT", "UPDATE", "DELETE", "TRUNCATE"} {
-			ok, err := s.roleHasPrivilege(ctx, roles.API, table, privilege)
+			ok, err := c.roleHasPrivilege(ctx, roles.API, table, privilege)
 			if err != nil {
 				result.Status, result.Detail = CheckSkip, "Yetkiler sorgulanamadı: "+err.Error()
 				return result
@@ -428,14 +510,17 @@ func (s *Store) checkAPIIsReadOnly(ctx context.Context, roles PreflightRoles) Ch
 	return result
 }
 
-func (s *Store) checkRetentionPolicies(ctx context.Context) CheckResult {
+func (c *Checker) checkRetentionPolicies(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "retention.configured", Severity: SeverityRecommended,
 		Label: "Saklama süresi politikaları kurulu mu",
 		Fix:   "Panelden: Ayarlar → Analitik verisi saklama süresi",
 	}
+	if c.pool == nil {
+		return noDatabase(result)
+	}
 	var jobs int
-	err := s.pool.QueryRow(ctx, `
+	err := c.pool.QueryRow(ctx, `
 		SELECT count(*) FROM timescaledb_information.jobs
 		WHERE proc_name = 'policy_retention'
 		  AND hypertable_name IN ('traffic_snapshots', 'beacon_events')`).Scan(&jobs)
@@ -454,8 +539,8 @@ func (s *Store) checkRetentionPolicies(ctx context.Context) CheckResult {
 }
 
 // missingTables returns which of want do not exist.
-func (s *Store) missingTables(ctx context.Context, want []string) ([]string, error) {
-	rows, err := s.pool.Query(ctx, `
+func (c *Checker) missingTables(ctx context.Context, want []string) ([]string, error) {
+	rows, err := c.pool.Query(ctx, `
 		SELECT table_name FROM information_schema.tables
 		WHERE table_schema = 'public' AND table_name = ANY($1)`, want)
 	if err != nil {
@@ -493,8 +578,8 @@ func (s *Store) missingTables(ctx context.Context, want []string) ([]string, err
 // exist is reported as "no privilege" rather than as an error: a
 // deployment that never created a separate collector role is a
 // deployment where the check simply does not apply.
-func (s *Store) roleHasPrivilege(ctx context.Context, role, table, privilege string) (bool, error) {
-	exists, err := s.roleExists(ctx, role)
+func (c *Checker) roleHasPrivilege(ctx context.Context, role, table, privilege string) (bool, error) {
+	exists, err := c.roleExists(ctx, role)
 	if err != nil {
 		return false, err
 	}
@@ -505,7 +590,7 @@ func (s *Store) roleHasPrivilege(ctx context.Context, role, table, privilege str
 	// Both arguments are bound parameters, not interpolated: the role
 	// name reaches this from configuration, and configuration is input
 	// like any other.
-	if err := s.pool.QueryRow(ctx,
+	if err := c.pool.QueryRow(ctx,
 		`SELECT has_table_privilege($1, $2, $3)`, role, table, privilege).Scan(&has); err != nil {
 		return false, err
 	}
@@ -523,7 +608,7 @@ func (s *Store) roleHasPrivilege(ctx context.Context, role, table, privilege str
 // to finish would be pushing the installer to weaken it. What the check
 // must not do is stay quiet: somebody will eventually try to change one
 // of these and needs to know why they cannot.
-func checkDeveloperPassword(gate *devgate.Gate) CheckResult {
+func checkDeveloperPassword(gate *devgate.Gate, guarded []string) CheckResult {
 	result := CheckResult{
 		ID: "config.developer_password", Label: "Geliştirici şifresi (hukuki ağırlıklı ayarlar)",
 		Severity: SeverityRecommended,
@@ -532,10 +617,14 @@ func checkDeveloperPassword(gate *devgate.Gate) CheckResult {
 		result.Status, result.Detail = CheckSkip, "Geliştirici kapısı bu kontrole verilmedi."
 		return result
 	}
-
-	guarded := make([]string, 0, len(GuardedKeys()))
-	for _, key := range GuardedKeys() {
-		guarded = append(guarded, string(key))
+	// An empty list is a skip, not a pass. It means the caller did not
+	// tell us which settings the gate covers, and a line reading "0 ayar
+	// şifre soruyor" would be a confident answer to a question nobody
+	// asked.
+	if len(guarded) == 0 {
+		result.Status, result.Detail = CheckSkip,
+			"Kapının koruduğu ayarların listesi bu kontrole verilmedi."
+		return result
 	}
 
 	if !gate.Configured() {
@@ -617,12 +706,12 @@ func checkBotData(path string, now func() time.Time) CheckResult {
 	return result
 }
 
-func (s *Store) checkIPTokenKey() CheckResult {
+func (c *Checker) checkIPTokenKey() CheckResult {
 	result := CheckResult{
 		ID: "config.ip_token_key", Label: "IP jeton anahtarı (yalnız full mod için)",
 		Severity: SeverityRecommended,
 	}
-	if s.IPTokenKeyConfigured() {
+	if c.ipTokenKeyConfigured {
 		result.Status = CheckPass
 		result.Detail = "Tanımlı. IP saklama biçimi full'e alınabilir; ham adres yine saklanmaz."
 		return result
@@ -642,10 +731,13 @@ func (s *Store) checkIPTokenKey() CheckResult {
 // nobody created, so "cannot read analytics" passes for a role that does
 // not exist. The isolation would look verified when nothing was
 // verified, which is the one outcome worse than an unverified check.
-func (s *Store) checkConfiguredRolesExist(ctx context.Context, roles PreflightRoles) CheckResult {
+func (c *Checker) checkConfiguredRolesExist(ctx context.Context, roles Roles) CheckResult {
 	result := CheckResult{
 		ID: "grants.roles_exist", Severity: SeverityRecommended,
 		Label: "Yapılandırılan roller veritabanında var mı",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
 	}
 	configured := map[string]string{
 		"collector": roles.Collector, "beacon": roles.Beacon,
@@ -660,7 +752,7 @@ func (s *Store) checkConfiguredRolesExist(ctx context.Context, roles PreflightRo
 			continue
 		}
 		named++
-		exists, err := s.roleExists(ctx, role)
+		exists, err := c.roleExists(ctx, role)
 		if err != nil {
 			result.Status, result.Detail = CheckSkip, "Roller sorgulanamadı: "+err.Error()
 			return result
@@ -685,9 +777,9 @@ func (s *Store) checkConfiguredRolesExist(ctx context.Context, roles PreflightRo
 }
 
 // roleExists reports whether a database role is defined.
-func (s *Store) roleExists(ctx context.Context, role string) (bool, error) {
+func (c *Checker) roleExists(ctx context.Context, role string) (bool, error) {
 	var exists bool
-	err := s.pool.QueryRow(ctx,
+	err := c.pool.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, role).Scan(&exists)
 	return exists, err
 }

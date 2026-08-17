@@ -10,6 +10,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -107,14 +108,14 @@ type setupPage struct {
 	ConfigSettings []panel.ConfigFileSetting
 
 	// Checks are preflight results, on the database and final steps.
-	Checks   []panel.CheckResult
-	Blocking []panel.CheckResult
+	Checks   []preflight.CheckResult
+	Blocking []preflight.CheckResult
 	Complete bool
 	Ran      bool
 
 	// Manual and Unchecked are the steps the panel can never do.
-	Manual    []panel.ManualStep
-	Unchecked []panel.ManualStep
+	Manual    []preflight.ManualStep
+	Unchecked []preflight.ManualStep
 
 	// Retention is one row per editable retention value.
 	Retention []retentionRow
@@ -283,9 +284,9 @@ func (s *Server) setupNotices(lang *ui.Language, data setupPage) []ui.Notice {
 func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.Access, id string, data *setupPage) error {
 	switch id {
 	case "veritabani":
-		results := s.Store.RunPreflight(ctx, s.preflightConfig())
+		results := s.Preflight.Run(ctx, s.preflightConfig())
 		data.Checks = databaseChecks(results)
-		data.Complete, data.Blocking = panel.PreflightComplete(data.Checks)
+		data.Complete, data.Blocking = preflight.Complete(data.Checks)
 		data.Ran = true
 
 	case "siteler":
@@ -315,10 +316,10 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		}
 
 	case "kontrol":
-		data.Manual = panel.ManualSteps()
-		data.Unchecked = panel.UncheckedSteps()
+		data.Manual = preflight.ManualSteps()
+		data.Unchecked = preflight.UncheckedSteps()
 		if data.Ran {
-			data.Complete, data.Blocking = panel.PreflightComplete(data.Checks)
+			data.Complete, data.Blocking = preflight.Complete(data.Checks)
 		}
 	}
 	return nil
@@ -416,8 +417,8 @@ func (s *Server) retentionRows(ctx context.Context, access panel.Access) ([]rete
 // The full list belongs at the end, where it is the handover. Showing
 // all of it here as well would train the installer to scroll past it
 // the second time.
-func databaseChecks(all []panel.CheckResult) []panel.CheckResult {
-	out := make([]panel.CheckResult, 0, len(all))
+func databaseChecks(all []preflight.CheckResult) []preflight.CheckResult {
+	out := make([]preflight.CheckResult, 0, len(all))
 	for _, check := range all {
 		if strings.HasPrefix(check.ID, "schema.") ||
 			strings.HasPrefix(check.ID, "grants.") ||
@@ -444,7 +445,7 @@ func (s *Server) saveStep(w http.ResponseWriter, r *http.Request, lang *ui.Langu
 	case "saklama":
 		s.saveRetention(r, lang, access, &data)
 	case "kontrol":
-		results := s.Store.RunPreflight(r.Context(), s.preflightConfig())
+		results := s.Preflight.Run(r.Context(), s.preflightConfig())
 		data.Checks = results
 		data.Ran = true
 	default:
@@ -652,8 +653,8 @@ func peerAddr(r *http.Request) netip.Addr {
 	return addr
 }
 
-func (s *Server) preflightConfig() panel.PreflightConfig {
-	cfg := s.Preflight
+func (s *Server) preflightConfig() preflight.Config {
+	cfg := s.PreflightConfig
 	if cfg.DeveloperGate == nil {
 		cfg.DeveloperGate = s.Gate
 	}

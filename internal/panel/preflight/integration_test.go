@@ -1,6 +1,16 @@
 //go:build integration
 
-package panel
+// Real coverage of the preflight checks against a live PostgreSQL. Half
+// of what this package does is assert what a *different* database role
+// may and may not do, and none of that can be faked - a mock that
+// answers has_table_privilege is a mock of the thing under test. Run
+// with:
+//
+//	docker compose up -d
+//	psql "$DSN" -f internal/panel/schema.sql
+//	go test -tags integration ./internal/panel/preflight/ -v
+
+package preflight
 
 import (
 	"context"
@@ -9,7 +19,30 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+
+// newTestChecker connects a Checker to the test database.
+//
+// It takes a pool and nothing else, which is the point of the split: the
+// old version of these tests built a whole panel Store - users,
+// sessions, audit cleanup - to ask whether a role can read a table.
+func newTestChecker(t *testing.T) *Checker {
+	t.Helper()
+	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+	}
+	if err := pool.Ping(context.Background()); err != nil {
+		pool.Close()
+		t.Fatalf("ping: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+	}
+	t.Cleanup(pool.Close)
+	return New(pool, false)
+}
 
 func find(t *testing.T, results []CheckResult, id string) CheckResult {
 	t.Helper()
@@ -25,8 +58,8 @@ func find(t *testing.T, results []CheckResult, id string) CheckResult {
 // The schema checks run against the database this suite is already
 // using, which has every schema file applied - so they must pass.
 func TestPreflight_PassesAgainstAProperlySetUpDatabase(t *testing.T) {
-	store := newTestStore(t, "preflight")
-	results := store.RunPreflight(context.Background(), PreflightConfig{})
+	c := newTestChecker(t)
+	results := c.Run(context.Background(), Config{})
 
 	for _, id := range []string{"schema.panel", "schema.analytics", "schema.columns"} {
 		if got := find(t, results, id); got.Status != CheckPass {
@@ -38,25 +71,23 @@ func TestPreflight_PassesAgainstAProperlySetUpDatabase(t *testing.T) {
 // The check that exists because CREATE TABLE IF NOT EXISTS does nothing
 // to an existing table - the failure this project has already had once.
 func TestPreflight_DetectsASchemaFileThatWasNeverReapplied(t *testing.T) {
-	store := newTestStore(t, "preflight-columns")
+	c := newTestChecker(t)
 	ctx := context.Background()
 
 	// Drop a self-migrating column, as a deployment that never re-ran the
 	// schema file would look.
-	if _, err := store.Pool().Exec(ctx, `ALTER TABLE beacon_events DROP COLUMN IF EXISTS click_source`); err != nil {
+	if _, err := c.pool.Exec(ctx, `ALTER TABLE beacon_events DROP COLUMN IF EXISTS click_source`); err != nil {
 		t.Fatalf("dropping column: %v", err)
 	}
+	// Registered after the pool's own cleanup, so it runs before it:
+	// t.Cleanup is last-in-first-out, and the column has to go back
+	// while there is still a connection to put it back with.
 	t.Cleanup(func() {
-		fresh, err := NewStore(context.Background(), testDatabaseURL)
-		if err != nil {
-			return
-		}
-		defer fresh.Close()
-		_, _ = fresh.Pool().Exec(context.Background(),
+		_, _ = c.pool.Exec(context.Background(),
 			`ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS click_source TEXT NOT NULL DEFAULT ''`)
 	})
 
-	got := find(t, store.RunPreflight(ctx, PreflightConfig{}), "schema.columns")
+	got := find(t, c.Run(ctx, Config{}), "schema.columns")
 	if got.Status != CheckFail {
 		t.Fatalf("status = %s, want fail; the missing column went unnoticed", got.Status)
 	}
@@ -68,14 +99,14 @@ func TestPreflight_DetectsASchemaFileThatWasNeverReapplied(t *testing.T) {
 // The isolation the whole design rests on. A deployment where somebody
 // granted a little too much looks healthy until it matters.
 func TestPreflight_CatchesAPanelRoleThatCanReadAnalytics(t *testing.T) {
-	store := newTestStore(t, "preflight-isolation")
+	c := newTestChecker(t)
 	ctx := context.Background()
 
 	// The suite's own role is the superuser-ish `collector`, which by
 	// construction can read everything - so pointing the check at it must
 	// fail. That is the check working, not the deployment being wrong.
-	got := find(t, store.RunPreflight(ctx, PreflightConfig{
-		Roles: PreflightRoles{Panel: "collector"},
+	got := find(t, c.Run(ctx, Config{
+		Roles: Roles{Panel: "collector"},
 	}), "grants.panel_isolation")
 
 	if got.Status != CheckFail {
@@ -89,9 +120,9 @@ func TestPreflight_CatchesAPanelRoleThatCanReadAnalytics(t *testing.T) {
 // A role that does not exist is "not applicable", not an error: plenty
 // of deployments will not have separated every role yet.
 func TestPreflight_TreatsAMissingRoleAsNoPrivilege(t *testing.T) {
-	store := newTestStore(t, "preflight-missing-role")
-	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
-		Roles: PreflightRoles{Panel: "no_such_role_anywhere"},
+	c := newTestChecker(t)
+	got := find(t, c.Run(context.Background(), Config{
+		Roles: Roles{Panel: "no_such_role_anywhere"},
 	}), "grants.panel_isolation")
 
 	if got.Status != CheckPass {
@@ -100,8 +131,8 @@ func TestPreflight_TreatsAMissingRoleAsNoPrivilege(t *testing.T) {
 }
 
 func TestPreflight_UnconfiguredChecksSkipRatherThanFail(t *testing.T) {
-	store := newTestStore(t, "preflight-skip")
-	results := store.RunPreflight(context.Background(), PreflightConfig{})
+	c := newTestChecker(t)
+	results := c.Run(context.Background(), Config{})
 
 	// "We did not look" and "we looked and it was fine" are different
 	// facts, and this project keeps them apart everywhere else too.
@@ -113,7 +144,7 @@ func TestPreflight_UnconfiguredChecksSkipRatherThanFail(t *testing.T) {
 }
 
 func TestPreflight_ChecksServicesThatWereGiven(t *testing.T) {
-	store := newTestStore(t, "preflight-services")
+	c := newTestChecker(t)
 
 	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -124,7 +155,7 @@ func TestPreflight_ChecksServicesThatWereGiven(t *testing.T) {
 	}))
 	defer broken.Close()
 
-	results := store.RunPreflight(context.Background(), PreflightConfig{
+	results := c.Run(context.Background(), Config{
 		ServiceURLs: map[string]string{
 			"beacon":    healthy.URL,
 			"collector": broken.URL,
@@ -144,7 +175,7 @@ func TestPreflight_ChecksServicesThatWereGiven(t *testing.T) {
 }
 
 func TestPreflight_LogDirectoryIsProbedRatherThanInspected(t *testing.T) {
-	store := newTestStore(t, "preflight-logs")
+	c := newTestChecker(t)
 	ctx := context.Background()
 
 	dir := t.TempDir()
@@ -153,7 +184,7 @@ func TestPreflight_LogDirectoryIsProbedRatherThanInspected(t *testing.T) {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	got := find(t, store.RunPreflight(ctx, PreflightConfig{LogDir: dir}), "logs.writable")
+	got := find(t, c.Run(ctx, Config{LogDir: dir}), "logs.writable")
 	if got.Status != CheckWarn {
 		t.Errorf("status = %s, want warn for a world-readable log directory: %s", got.Status, got.Detail)
 	}
@@ -161,7 +192,7 @@ func TestPreflight_LogDirectoryIsProbedRatherThanInspected(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	got = find(t, store.RunPreflight(ctx, PreflightConfig{LogDir: dir}), "logs.writable")
+	got = find(t, c.Run(ctx, Config{LogDir: dir}), "logs.writable")
 	if got.Status != CheckPass {
 		t.Errorf("status = %s, want pass for a 0700 writable directory: %s", got.Status, got.Detail)
 	}
@@ -174,12 +205,12 @@ func TestPreflightComplete_BlocksOnRequiredFailuresOnly(t *testing.T) {
 		{ID: "b", Severity: SeverityRecommended, Status: CheckWarn},
 		{ID: "c", Severity: SeverityRecommended, Status: CheckFail},
 	}
-	if ok, blocking := PreflightComplete(results); !ok {
+	if ok, blocking := Complete(results); !ok {
 		t.Errorf("blocked by %+v; only required failures should block", blocking)
 	}
 
 	results = append(results, CheckResult{ID: "d", Severity: SeverityRequired, Status: CheckFail})
-	ok, blocking := PreflightComplete(results)
+	ok, blocking := Complete(results)
 	if ok {
 		t.Error("completed despite a required check failing")
 	}
@@ -190,8 +221,8 @@ func TestPreflightComplete_BlocksOnRequiredFailuresOnly(t *testing.T) {
 
 // Backups cannot be checked, and saying so is the only honest option.
 func TestPreflight_BackupCheckIsHonestAboutNotBeingAbleToCheck(t *testing.T) {
-	store := newTestStore(t, "preflight-backup")
-	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{}), "backup.configured")
+	c := newTestChecker(t)
+	got := find(t, c.Run(context.Background(), Config{}), "backup.configured")
 	if got.Status != CheckWarn {
 		t.Errorf("status = %s, want warn - reporting a pass would be a lie and a fail would "+
 			"block handover on something the installer may have handled themselves", got.Status)
@@ -204,8 +235,8 @@ func TestPreflight_BackupCheckIsHonestAboutNotBeingAbleToCheck(t *testing.T) {
 // The installer reads top-down and should meet the problem before the
 // reassurance.
 func TestPreflight_WorstResultsComeFirst(t *testing.T) {
-	store := newTestStore(t, "preflight-order")
-	results := store.RunPreflight(context.Background(), PreflightConfig{
+	c := newTestChecker(t)
+	results := c.Run(context.Background(), Config{
 		ServiceURLs: map[string]string{"api": "http://127.0.0.1:1/healthz"},
 	})
 	if len(results) == 0 {
@@ -220,10 +251,10 @@ func TestPreflight_WorstResultsComeFirst(t *testing.T) {
 // exist, or the wizard tells the installer something is checked when
 // nothing checks it.
 func TestManualSteps_ReferenceRealChecks(t *testing.T) {
-	store := newTestStore(t, "manual-steps")
-	results := store.RunPreflight(context.Background(), PreflightConfig{
+	c := newTestChecker(t)
+	results := c.Run(context.Background(), Config{
 		ServiceURLs: map[string]string{"collector": "http://127.0.0.1:1", "beacon": "http://127.0.0.1:1", "api": "http://127.0.0.1:1"},
-		Roles:       PreflightRoles{Panel: "nobody", API: "nobody"},
+		Roles:       Roles{Panel: "nobody", API: "nobody"},
 		LogDir:      t.TempDir(),
 		DataDir:     t.TempDir(),
 	})
@@ -284,9 +315,9 @@ func TestUncheckedSteps_AreTheOnesWithoutACheck(t *testing.T) {
 // settings" about a role that does not exist would send an installer
 // looking for a grant on nothing.
 func TestPreflight_SettingsGrantSkipsWhenRolesWereNeverSeparated(t *testing.T) {
-	store := newTestStore(t, "preflight-noroles")
-	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
-		Roles: PreflightRoles{Beacon: "no_such_beacon_role", Collector: "no_such_collector_role"},
+	c := newTestChecker(t)
+	got := find(t, c.Run(context.Background(), Config{
+		Roles: Roles{Beacon: "no_such_beacon_role", Collector: "no_such_collector_role"},
 	}), "grants.live_settings")
 
 	if got.Status != CheckSkip {
@@ -299,9 +330,9 @@ func TestPreflight_SettingsGrantSkipsWhenRolesWereNeverSeparated(t *testing.T) {
 // so "cannot read analytics" passes for a role that does not exist. The
 // isolation would look verified when nothing was verified.
 func TestPreflight_WarnsAboutARoleNameThatDoesNotExist(t *testing.T) {
-	store := newTestStore(t, "preflight-typo")
-	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
-		Roles: PreflightRoles{Panel: "panl_usr_typo", API: "collector"},
+	c := newTestChecker(t)
+	got := find(t, c.Run(context.Background(), Config{
+		Roles: Roles{Panel: "panl_usr_typo", API: "collector"},
 	}), "grants.roles_exist")
 
 	if got.Status != CheckWarn {
@@ -315,8 +346,8 @@ func TestPreflight_WarnsAboutARoleNameThatDoesNotExist(t *testing.T) {
 // Logs and the database routinely live on different volumes, and the log
 // volume is the one that fills first.
 func TestPreflight_MeasuresBothVolumes(t *testing.T) {
-	store := newTestStore(t, "preflight-disk")
-	got := find(t, store.RunPreflight(context.Background(), PreflightConfig{
+	c := newTestChecker(t)
+	got := find(t, c.Run(context.Background(), Config{
 		DataDir: "/", LogDir: t.TempDir(),
 	}), "disk.free")
 

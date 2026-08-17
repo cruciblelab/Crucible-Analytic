@@ -18,6 +18,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -52,6 +53,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		t.Fatalf("NewStore: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
 	}
 	t.Cleanup(store.Close)
+	lockPanelDatabase(t, store.Pool())
 
 	hash, err := argon2id.Hash(testDevPassword)
 	if err != nil {
@@ -98,7 +100,8 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		ConfigFileValues: map[string]string{
 			"panel.listen_addr": "127.0.0.1:8090",
 		},
-		Preflight: panel.PreflightConfig{LogDir: t.TempDir()},
+		Preflight:       preflight.New(store.Pool(), false),
+		PreflightConfig: preflight.Config{LogDir: t.TempDir()},
 	}, store
 }
 
@@ -157,10 +160,16 @@ func TestSetupFlow(t *testing.T) {
 
 	// ---- the front page, when nobody owns the deployment ----
 	//
-	// Conditional because this database is shared with the panel
-	// package's suite, which creates accounts. Asserting unconditionally
-	// would make this test pass or fail on which package ran first,
-	// which is not a property of the code.
+	// The account count holds still for the length of this test because
+	// setupTestServer took the suite lock - see dblock_test.go. Without
+	// it, reading the count and then asserting on the page it produces
+	// leaves a gap the panel package's suite can write an account into,
+	// and this failed exactly that way roughly one run in three.
+	//
+	// Still conditional, for the case the lock cannot help with: a
+	// previous run that died before its cleanup, leaving real accounts
+	// behind. That is a dirty database rather than a race, and skipping
+	// is the honest response.
 	if n, err := store.CountUsers(ctx); err == nil && n == 0 {
 		status, body := get(t, client, server.URL+"/")
 		if status != http.StatusOK {

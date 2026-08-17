@@ -29,6 +29,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
 )
@@ -150,10 +151,12 @@ func main() {
 		Gate:             gate,
 		ConfigPath:       *configPath,
 		ConfigFileValues: configFileValues(cfg),
-		Preflight: panel.PreflightConfig{
+		Preflight:        preflight.New(store.Pool(), store.IPTokenKeyConfigured()),
+		PreflightConfig: preflight.Config{
 			LogDir:      cfg.Logging.Dir,
 			DataDir:     cfg.Logging.Dir,
 			BotDataPath: cfg.BotDataPath,
+			GuardedKeys: guardedKeyNames(),
 		},
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {
@@ -256,4 +259,22 @@ func configFileValues(cfg web.Config) map[string]string {
 		}
 	}
 	return values
+}
+
+// guardedKeyNames is the list of settings the developer password
+// protects, handed to the preflight checks so they can name them.
+//
+// It is assembled here rather than read inside the check because
+// internal/panel/preflight deliberately does not import the panel: the
+// checks inspect a deployment, and a deployment check that drags in the
+// panel's store, sessions and auth is a check no other binary can run.
+// Three lines at the wiring point is the price of that, and this is the
+// wiring point.
+func guardedKeyNames() []string {
+	keys := panel.GuardedKeys()
+	names := make([]string, 0, len(keys))
+	for _, key := range keys {
+		names = append(names, string(key))
+	}
+	return names
 }

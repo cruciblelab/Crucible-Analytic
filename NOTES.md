@@ -1112,7 +1112,24 @@ sources). `internal/scoring`'s `Score` signature would need `asn int,
 knownBotASNs map[int]struct{}` to become something like `knownBotASNWeights
 map[int]int` - a small, mechanical change, not an architectural one.
 
-## Where the work stands (2026-08-17)
+## Where the work stands (2026-08-17, later)
+
+Since the entry below, four more things landed: the panel's rendering
+layer and binary (C1), language packs (C1.5), first-run detection and
+the developer wizard (C2), and the decision to fetch the known-bot
+dataset rather than redistribute it (A10). PLAN.md §0.5 carries the
+current counts; the rationale for each is at the end of this file.
+
+A modularity measurement was taken at that point and is worth recording
+as a number rather than an impression: **13 of 21 packages are leaves**,
+with no internal dependencies at all. The graph is shallow, one
+directional and acyclic, and the widest fan-out is six. Between
+packages the boundaries hold. *Inside* two of them they have not:
+`internal/panel` is 4,424 lines across 16 files carrying at least four
+separate responsibilities, and `internal/api` is 3,315. AI.2 takes the
+first cut, before C4 adds to the same place.
+
+## Where the work stands (2026-08-16, earlier)
 
 PLAN.md's §0.5 is now the at-a-glance status and is updated at the end of
 every phase; this note exists so a reader who opens NOTES.md first is
@@ -2124,3 +2141,181 @@ It found the first useful thing immediately: the live source now has 52
 usable entries against the committed snapshot's 51, with 59 more
 filtered out as browsers. The data had already moved on from the copy we
 were shipping.
+
+## Splitting a package before the phase that would have grown it
+
+`internal/panel` had reached 4,424 lines across 16 files with at least
+four separate jobs inside it — authentication, authorisation and
+settings, the audit log, and the setup checks. C4 adds login, two-factor
+and member management, all of which land in the same package. Splitting
+afterwards costs more than splitting first: every phase adds to that
+package, and every addition enlarges the surface that would have to
+move.
+
+So this went in between phases, deliberately small: two cuts, chosen for
+being the highest-value and the least tangled.
+
+### Why preflight, and why it takes a pool
+
+`preflight.go` was the largest file in the repository at 985 lines, and
+it was never really domain logic. It is a *diagnostic*: it runs real
+queries, stats real directories, makes real requests and reports what it
+found. Two of its checks are deliberately negative — the panel's role
+must **not** be able to read the analytics tables, the API's role must
+**not** be able to write — and those questions are about a deployment,
+not about the panel's data model.
+
+The new `Checker` holds two things: a `*pgxpool.Pool` and a boolean
+saying whether an IP token key exists. It does not take the panel's
+`Store`, and that is the decision that makes the cut worth making rather
+than merely tidy. These checks ask what a *different* role may do, and
+which tables exist in a schema the panel cannot read. Expressing that as
+`Store` methods had grown the panel's data API by a dozen functions that
+only ever serve one page — and it meant every test for these checks had
+to build a whole panel: users, sessions, audit cleanup, all to ask
+whether the beacon's role can write to a table.
+
+One thing the checks genuinely needed from the panel was `GuardedKeys()`,
+the list of settings the developer password protects. It now arrives
+through `Config` as a `[]string`, supplied by `cmd/panel`. The
+alternative was importing `internal/panel`, which would drag the panel's
+store, sessions and auth into every binary that wants to run a check.
+The rule that came out of it: **if a check needs something from the
+panel, it comes through Config.**
+
+### The rule is a test, because comments do not fail
+
+A package sitting in its own directory while importing everything it
+used to be part of has been *moved*, not separated — and nothing in the
+compiler notices the difference. That is the failure mode of most
+splits, and it is invisible until somebody measures again a year later.
+
+So `TestPreflightDoesNotImportThePanel` reads this package's imports out
+of `go/build` and fails on any path under `internal/panel`. Test
+dependencies are excluded on purpose: the hand-run demo may reasonably
+reach for the panel's real key list to show real output, and a test
+dependency does not travel into anybody's binary.
+
+This is the same instinct as the CSP tests that scan the source for
+`unsafe-inline`. A rule written in a package comment is a rule the next
+change contradicts silently.
+
+### The new failure the split created
+
+Worth writing down, because it is the honest cost of the cut and it was
+not obvious in advance.
+
+While the checks were `Store` methods, there was no way to hold one
+without a database — a `Store` always has a pool. A standalone `Checker`
+can be built with nothing. The place that would discover it is the last
+step of the setup wizard, one button from handover, where a panic is the
+worst outcome available: a blank page at the exact moment somebody is
+deciding whether the installation worked.
+
+So a `Checker` without a pool now reports every database check as a skip
+that says nothing was examined, and a `nil` `*Checker` takes the same
+path. Handover stays blocked, because a skipped required check blocks
+`Complete` — which is right. Nothing was verified.
+
+The skip text is attached by a helper that takes the half-built result
+rather than returning a fresh one, so each check's ID, label and
+severity stay written down in exactly one place. The version I wrote
+first had a second list of database check IDs to fill in. That is a
+mirror, and this project has already been bitten by mirrored lists
+twice.
+
+### The second cut, which was only a rename
+
+`internal/config` → `internal/collector`. The name claimed a scope it
+never had: there are five binaries here and every one of them has
+configuration, with the beacon's, the API's and the panel's each living
+next to the code that reads them. A package called `config`, read from a
+call site, says nothing about whose settings it is holding. Only
+`cmd/collector` imported it, so the change was one `git mv` and a
+package clause.
+
+### Something unrelated that fell out
+
+`internal/api`'s integration test still used `scoring.KnownBotJA4`, the
+global deleted in A10. It had gone unnoticed because that file only
+compiles under `-tags integration`, and the tag was not part of the
+routine check.
+
+The fix is better than the original: the test now supplies its own
+`KnownBots` set instead of picking an entry out of whatever happened to
+be embedded. The old version would have *skipped itself* once the
+embedded list went away — a test that quietly stops testing is worse
+than one that fails.
+
+`go vet` now gets run under `integration` and `loadtest` as well as
+untagged, which is where this should have been caught.
+
+### What this did not do
+
+The settings family (1,531 lines) and the auth family stay where they
+are. They share `Access`, `Principal`, `Role` and `Store`, and splitting
+them means either moving those types somewhere common or giving each
+sub-package its own store — both of which touch every call site and
+every integration test. That is not a between-phases job, and done
+halfway it is worse than the current state. It comes after C4, when the
+auth family has settled with the surface C4 adds.
+
+`internal/panel` is 3,397 lines now, down from 4,424. Twelve of
+twenty-two packages are leaves, there are no cycles, and the only
+importers of `internal/panel` are `cmd/panel` and `internal/panel/web`.
+
+### Two races the split shook loose
+
+Neither was caused by the split. Both were latent, and moving 1,000
+lines out of `internal/panel` changed how long that package takes, which
+changed how the parallel packages interleave, which made both start
+failing. That is worth writing down on its own: **a timing change is a
+way to discover a race, and the race is the bug, not the timing.**
+
+Every integration suite runs against one database, and `go test ./...`
+runs packages in parallel. Two things were global in a way the tests
+were not.
+
+**Both suites wrote the same setting rows and both wiped the table.**
+`internal/settings`' live test and `internal/panel`'s settings test each
+wrote real keys like `logs.retention_days` into `panel_settings`, and
+each ended with a bare `DELETE FROM panel_settings`. When they
+overlapped, one suite's hand-written row collided with the other's
+primary key, or vanished mid-read.
+
+The fix names an owner for every row. `internal/settings`' live suite
+now uses a `test.settings.` prefix and deletes only what matches;
+`internal/panel` deletes everything *except* `test.`. Nothing was lost:
+`Source` takes keys as plain strings with caller-supplied bounds, so a
+namespaced key exercises the identical code — and the test now says out
+loud that it is not testing the panel's key list, which was always true.
+
+**"This deployment has no accounts" cannot be checked and then relied
+on.** `TestSetupFlow` walks the first-run flow, which only exists while
+nobody owns the deployment. It already guarded with `if CountUsers() ==
+0`, and that guard is unfixable as written: between the count and the
+page it renders, the panel suite can create a user. It failed about one
+run in three, always with a confusing diff — the page was correct, for a
+database that had changed underneath it.
+
+A condition that must hold *for the length of a test* needs a lock, not
+a check. Both suites now take a Postgres advisory lock and take turns.
+Two details that matter more than they look:
+
+- The connection is pinned with `Acquire`. Advisory locks belong to a
+  session; locking on a pooled connection and unlocking on whichever one
+  came back next leaks the lock and deadlocks the following run.
+- Unlock happens *before* release, on the same connection — otherwise a
+  still-locked connection goes back into the pool.
+
+The helper is duplicated in both packages, because they share no
+test-only package and inventing one to hold a test helper would be worse
+than sixty duplicated lines. Only the constant has to agree, so a test
+on each side asserts it against the literal. Two copies that silently
+disagree would leave both suites green with the race restored, which is
+the failure worth spending a test on.
+
+The remaining conditional in `TestSetupFlow` is deliberate: a previous
+run that died before its cleanup leaves real accounts behind, and no
+lock helps with that. A dirty database is not a race, and skipping is
+the honest answer.

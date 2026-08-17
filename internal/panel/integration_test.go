@@ -39,6 +39,7 @@ func newTestStore(t *testing.T, ns string) *Store {
 		t.Fatalf("NewStore: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
 	}
 	t.Cleanup(store.Close)
+	lockPanelDatabase(t, store.Pool())
 
 	cleanup := func() {
 		pool, err := pgxpool.New(context.Background(), testDatabaseURL)

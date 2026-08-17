@@ -1,5 +1,5 @@
 // Command collector runs the bot-aware analytics collector. It supports
-// two operating modes (see internal/config): "passthrough" (default), a
+// two operating modes (see internal/collector): "passthrough" (default), a
 // content-blind TCP/TLS proxy that never terminates TLS, and "full", a
 // TLS-terminating HTTP reverse proxy with real per-request visibility.
 // Both fingerprint connections via JA4, track per-IP request rate in
@@ -18,7 +18,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
-	"github.com/cruciblelab/crucible-analytic/internal/config"
+	"github.com/cruciblelab/crucible-analytic/internal/collector"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -42,12 +42,12 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
-	configPath := flag.String("config", "config.toml", "path to the TOML config file")
+	configPath := flag.String("config", "collector.toml", "path to the TOML config file")
 	updateBotData := flag.Bool("update-bot-data", false,
 		"fetch the known-bot fingerprint set into bot_data.path and exit (put this in cron)")
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := collector.Load(*configPath)
 	if err != nil {
 		logger.Error("config error", "err", err)
 		os.Exit(1)
@@ -228,7 +228,7 @@ func main() {
 
 	var server proxyServer
 	switch cfg.Mode {
-	case config.ModeFull:
+	case collector.ModeFull:
 		srv := &fullproxy.Server{
 			ListenAddr:  cfg.Network.ListenAddr,
 			BackendAddr: cfg.Network.BackendAddr,
@@ -247,7 +247,7 @@ func main() {
 			srv.Resolver = lookup
 		}
 		server = srv
-	default: // config.ModePassthrough, and validated by config.Load otherwise
+	default: // collector.ModePassthrough, and validated by collector.Load otherwise
 		srv := &proxy.Server{
 			ListenAddr:       cfg.Network.ListenAddr,
 			BackendAddr:      cfg.Network.BackendAddr,
@@ -294,7 +294,7 @@ func main() {
 // under unstated terms hands that uncertainty to everyone who clones it.
 // The deployment retrieves it here, onto its own machine, under the
 // source's own terms.
-func runBotDataUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+func runBotDataUpdate(ctx context.Context, cfg *collector.Config, logger *slog.Logger) error {
 	if cfg.BotData.Path == "" {
 		return fmt.Errorf("bot_data.path is not set; there is nowhere to write the file")
 	}
@@ -321,7 +321,7 @@ func runBotDataUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logg
 // the update yet, which is an ordinary state. What would be a failure is
 // letting that pass unremarked, so the absence is logged as plainly as
 // the presence.
-func loadBotData(cfg *config.Config, logger *slog.Logger) (scoring.KnownBots, botdata.Set) {
+func loadBotData(cfg *collector.Config, logger *slog.Logger) (scoring.KnownBots, botdata.Set) {
 	set, err := botdata.Load(cfg.BotData.Path)
 	if err != nil {
 		// A file that exists and cannot be read is different from no

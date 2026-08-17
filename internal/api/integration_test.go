@@ -331,23 +331,21 @@ func TestStore_RealTimescaleDB_JA4sLabelsKnownBots(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
 	marker := "t13d_api_ja4"
 
-	// Pick a fingerprint that's genuinely in the embedded known-bot list,
-	// so the label lookup is exercised against real data rather than one
-	// invented for the test.
-	var knownJA4 string
-	for ja4 := range scoring.KnownBotJA4 {
-		knownJA4 = ja4
-		break
-	}
-	if knownJA4 == "" {
-		t.Skip("no known-bot JA4 fingerprints embedded")
-	}
+	// The fingerprint set is supplied here rather than read from a
+	// package global. This project ships no copy of that dataset - a
+	// deployment fetches its own - so a test that reached for an
+	// embedded list would be testing something that no longer exists,
+	// and would have skipped itself rather than failing when it went
+	// away.
+	const knownJA4 = "t13d1516h2_8daaf6152771_b186095e22b6"
+	const knownLabel = "curl"
 
 	store := newTestStoreWithJA4(t, marker, []seedRow{
 		{site: "site-ja4", ip: "203.0.113.1", at: base, score: 90, botJA4: true, ja4: knownJA4},
 		{site: "site-ja4", ip: "203.0.113.2", at: base, score: 10, ja4: "t13d1516h2_notabot_xxxx"},
 		{site: "site-ja4", ip: "203.0.113.3", at: base, score: 0, ja4: ""}, // plaintext, no fingerprint
 	})
+	store.SetKnownBots(scoring.KnownBots{knownJA4: knownLabel})
 
 	stats, total, err := store.JA4s(context.Background(), "site-ja4", base.Add(-time.Minute), base.Add(time.Minute), 10, 0, DefaultBotScoreMin)
 	if err != nil {
@@ -360,8 +358,8 @@ func TestStore_RealTimescaleDB_JA4sLabelsKnownBots(t *testing.T) {
 	var sawLabel, sawEmpty bool
 	for _, s := range stats {
 		if s.JA4 == knownJA4 {
-			if s.Label != scoring.KnownBotJA4[knownJA4] {
-				t.Errorf("known JA4 %q label = %q, want %q", s.JA4, s.Label, scoring.KnownBotJA4[knownJA4])
+			if s.Label != knownLabel {
+				t.Errorf("known JA4 %q label = %q, want %q", s.JA4, s.Label, knownLabel)
 			}
 			if !s.IsKnownBotJA4 {
 				t.Errorf("known JA4 %q has IsKnownBotJA4 = false", s.JA4)

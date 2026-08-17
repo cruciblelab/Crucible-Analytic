@@ -12,6 +12,22 @@ import (
 
 const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
 
+// testKeyPrefix namespaces every row this suite writes.
+//
+// panel_settings is one table shared by every integration suite, and
+// `go test ./...` runs packages in parallel - so this one and
+// internal/panel's were writing the same real keys into the same rows at
+// the same time, and each wiping the whole table on the way out. It
+// failed intermittently, which is the worst way for it to fail: a suite
+// that is red once a morning is a suite people stop reading.
+//
+// Nothing here depends on the real key names. Source takes keys as
+// plain strings with caller-supplied bounds and defaults, so a
+// namespaced key exercises exactly the same code - and now says out loud
+// that this suite is not testing the panel's key list. The panel owns
+// every unprefixed key; this suite owns "test.".
+const testKeyPrefix = "test.settings."
+
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
@@ -25,7 +41,10 @@ func testPool(t *testing.T) *pgxpool.Pool {
 			return
 		}
 		defer fresh.Close()
-		_, _ = fresh.Exec(context.Background(), `DELETE FROM panel_settings`)
+		// Scoped to this suite's own rows. A bare DELETE here would take
+		// internal/panel's rows out from under it mid-run.
+		_, _ = fresh.Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE key LIKE $1`, testKeyPrefix+"%")
 	})
 	return pool
 }
@@ -48,10 +67,10 @@ func write(t *testing.T, pool *pgxpool.Pool, key, site, jsonValue string) {
 
 func TestSource_ReadsWhatThePanelWrote(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.retention_days", "", "30")
+	write(t, pool, "test.settings.logs.retention_days", "", "30")
 
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 30 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 30 {
 		t.Errorf("got %d, want the stored 30", got)
 	}
 	if !src.Loaded() {
@@ -62,7 +81,7 @@ func TestSource_ReadsWhatThePanelWrote(t *testing.T) {
 func TestSource_FallsBackWhenNothingIsStored(t *testing.T) {
 	pool := testPool(t)
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 14 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 14 {
 		t.Errorf("got %d, want the caller's fallback 14", got)
 	}
 }
@@ -71,14 +90,14 @@ func TestSource_FallsBackWhenNothingIsStored(t *testing.T) {
 // value and the service would use another.
 func TestSource_SiteValueOverridesTheGlobalOne(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "analytics.retention_days", "", "90")
-	write(t, pool, "analytics.retention_days", "site-a", "30")
+	write(t, pool, "test.settings.analytics.retention_days", "", "90")
+	write(t, pool, "test.settings.analytics.retention_days", "site-a", "30")
 
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("analytics.retention_days", "site-a", 90, 1, 3650); got != 30 {
+	if got := src.Int("test.settings.analytics.retention_days", "site-a", 90, 1, 3650); got != 30 {
 		t.Errorf("site-a got %d, want its own 30", got)
 	}
-	if got := src.Int("analytics.retention_days", "site-b", 90, 1, 3650); got != 90 {
+	if got := src.Int("test.settings.analytics.retention_days", "site-b", 90, 1, 3650); got != 90 {
 		t.Errorf("site-b got %d, want the global 90", got)
 	}
 }
@@ -87,20 +106,20 @@ func TestSource_SiteValueOverridesTheGlobalOne(t *testing.T) {
 // running service a value outside what it was written against.
 func TestSource_RefusesAnOutOfBoundsStoredValue(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.retention_days", "", "99999")
+	write(t, pool, "test.settings.logs.retention_days", "", "99999")
 
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 14 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 14 {
 		t.Errorf("got %d, want the fallback 14 for an out-of-bounds row", got)
 	}
 }
 
 func TestSource_RefusesAnEnumValueOutsideItsSet(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.level", "", `"verbose"`)
+	write(t, pool, "test.settings.logs.level", "", `"verbose"`)
 
 	src := New(context.Background(), pool, Config{})
-	got := src.String("logs.level", "", "info", []string{"debug", "info", "warn", "error"})
+	got := src.String("test.settings.logs.level", "", "info", []string{"debug", "info", "warn", "error"})
 	if got != "info" {
 		t.Errorf("got %q, want the fallback for a value outside the enum", got)
 	}
@@ -112,10 +131,10 @@ func TestSource_RefusesAnEnumValueOutsideItsSet(t *testing.T) {
 // to notice.
 func TestSource_KeepsLastKnownValuesWhenTheDatabaseGoesAway(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.retention_days", "", "45")
+	write(t, pool, "test.settings.logs.retention_days", "", "45")
 
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 45 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 45 {
 		t.Fatalf("got %d before the outage, want 45", got)
 	}
 
@@ -125,7 +144,7 @@ func TestSource_KeepsLastKnownValuesWhenTheDatabaseGoesAway(t *testing.T) {
 		t.Fatal("Refresh succeeded against a closed pool")
 	}
 
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 45 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 45 {
 		t.Errorf("got %d after the outage; the last known value must survive, "+
 			"not be reset to the default", got)
 	}
@@ -138,17 +157,17 @@ func TestSource_KeepsLastKnownValuesWhenTheDatabaseGoesAway(t *testing.T) {
 // some stale, because the combination is a state nobody designed.
 func TestSource_AFailedRefreshLeavesTheCacheWhole(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.retention_days", "", "20")
-	write(t, pool, "logs.archive_after_days", "", "3")
+	write(t, pool, "test.settings.logs.retention_days", "", "20")
+	write(t, pool, "test.settings.logs.archive_after_days", "", "3")
 
 	src := New(context.Background(), pool, Config{})
 	pool.Close()
 	_ = src.Refresh(context.Background())
 
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 20 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 20 {
 		t.Errorf("retention = %d, want 20", got)
 	}
-	if got := src.Int("logs.archive_after_days", "", 7, 1, 3650); got != 3 {
+	if got := src.Int("test.settings.logs.archive_after_days", "", 7, 1, 3650); got != 3 {
 		t.Errorf("archive = %d, want 3", got)
 	}
 }
@@ -157,10 +176,10 @@ func TestSource_AFailedRefreshLeavesTheCacheWhole(t *testing.T) {
 // running service without a restart.
 func TestSource_PicksUpAChangeWithoutRestarting(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.retention_days", "", "10")
+	write(t, pool, "test.settings.logs.retention_days", "", "10")
 
 	src := New(context.Background(), pool, Config{Interval: 50 * time.Millisecond})
-	if got := src.Int("logs.retention_days", "", 14, 1, 3650); got != 10 {
+	if got := src.Int("test.settings.logs.retention_days", "", 14, 1, 3650); got != 10 {
 		t.Fatalf("got %d, want 10", got)
 	}
 
@@ -169,31 +188,31 @@ func TestSource_PicksUpAChangeWithoutRestarting(t *testing.T) {
 	go src.Run(ctx)
 
 	// The panel writes a new value.
-	write(t, pool, "logs.retention_days", "", "60")
+	write(t, pool, "test.settings.logs.retention_days", "", "60")
 
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if src.Int("logs.retention_days", "", 14, 1, 3650) == 60 {
+		if src.Int("test.settings.logs.retention_days", "", 14, 1, 3650) == 60 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Errorf("the change never reached the running service; still %d",
-		src.Int("logs.retention_days", "", 14, 1, 3650))
+		src.Int("test.settings.logs.retention_days", "", 14, 1, 3650))
 }
 
 func TestSource_StringsReturnsACopy(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "logs.level", "", `["a","b"]`)
+	write(t, pool, "test.settings.logs.level", "", `["a","b"]`)
 
 	src := New(context.Background(), pool, Config{})
-	first := src.Strings("logs.level", "", nil)
+	first := src.Strings("test.settings.logs.level", "", nil)
 	if len(first) != 2 {
 		t.Fatalf("got %v, want two entries", first)
 	}
 	first[0] = "mutated"
 
-	second := src.Strings("logs.level", "", nil)
+	second := src.Strings("test.settings.logs.level", "", nil)
 	if second[0] != "a" {
 		t.Errorf("mutating a returned slice changed the cache: %v", second)
 	}

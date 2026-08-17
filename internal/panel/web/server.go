@@ -10,6 +10,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -26,8 +27,13 @@ type Server struct {
 	// developer password is configured, which freezes those settings at
 	// their defaults - the safe direction, and the wizard says so.
 	Gate *devgate.Gate
-	// Preflight tells the setup checks where to look.
-	Preflight panel.PreflightConfig
+	// Preflight runs the setup checks. Nil is survivable rather than
+	// fatal - preflight.Run reports every database check as a skip and
+	// handover stays blocked - because a panic on the last step of the
+	// wizard, one button from handover, is the worst outcome available.
+	Preflight *preflight.Checker
+	// PreflightConfig tells those checks where to look.
+	PreflightConfig preflight.Config
 	// ConfigPath is the panel's own config file, quoted back in the
 	// command the first-run page tells the installer to run.
 	ConfigPath string

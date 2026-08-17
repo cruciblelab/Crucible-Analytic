@@ -1,8 +1,15 @@
-// Package config loads collector configuration from a TOML file, with
-// sane defaults for everything except the handful of values that have no
-// safe default (where to send traffic, where to persist it, and - in full
-// mode - the TLS certificate/key to terminate with).
-package config
+// Package collector loads the collector's configuration from a TOML
+// file, with sane defaults for everything except the handful of values
+// that have no safe default (where to send traffic, where to persist it,
+// and - in full mode - the TLS certificate/key to terminate with).
+//
+// It is named for the service rather than for what it does. There are
+// five binaries here and every one of them has configuration; a package
+// called "config" claims a name that describes none of them and, read
+// from a call site, says nothing about whose settings it is holding.
+// The beacon, the API and the panel each keep their own, next to the
+// code that reads them.
+package collector
 
 import (
 	"fmt"

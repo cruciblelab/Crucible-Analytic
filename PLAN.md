@@ -26,7 +26,7 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-17 (C1 + C1.5 + C2 sonrası). Bu bölüm her faz sonunda
+*Son güncelleme: 2026-08-17 (C1, C1.5, C2, A10 sonrası). Bu bölüm her faz sonunda
 güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
 cevaplar.*
 
@@ -36,11 +36,25 @@ Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
 çalıştırma tespiti ve geliştirici sihirbazı çalışıyor. Müşterinin kapısı
 (giriş) C4'te.
 
+**Modülerlik ölçümü (2026-08-17, AI.2 sonrası).** 22 paketin **12'si
+yaprak** — hiçbir iç bağımlılığı yok. Bağımlılık grafiği sığ ve tek
+yönlü, **döngü yok**; en yüksek fan-out `cmd/collector` (11), ki bir
+binary'nin her şeyi bağlaması beklenen şey. `internal/panel`'i yalnız
+iki yer import ediyor: `cmd/panel` ve `internal/panel/web`.
+
+AI.2 öncesi `internal/panel` 4.424 satırdı; `preflight` çıkınca **3.397**
+oldu ve deponun en büyük dosyası (`preflight.go`, 985 satır) kendi
+paketine geçti. **Hâlâ gevşek olan iki yer:** `internal/panel` (3.397
+satır — ayarlar ve kimlik aileleri, C4'ten sonra) ve `internal/api`
+(3.315 satır). Sınır artık yorumda değil testte: `preflight`'ın
+`internal/panel`'i import etmediğini `TestPreflightDoesNotImportThePanel`
+tutuyor.
+
 ### Gruplar
 
 | Grup | Durum | Kalan |
 |---|---|---|
-| **AI** ara işler | ✅ **bitti** | — |
+| **AI** ara işler | ✅ **2/2** | — |
 | **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **4/9** | C3, C4, C5, C6, C7 |
@@ -189,7 +203,7 @@ Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
 | `internal/limiter` | Eşzamanlılık/RPS sınırları, 3 aşırı yük politikası, geo blok | Gerçek eşzamanlı yük testi yapıldı |
 | `internal/asnlookup` | IP → ülke/ASN, IPv4+IPv6, LRU önbellek | Tam CSV ile ölçüldü: ~135 MB, ölçekli test |
 | `internal/storage` | TimescaleDB toplu yazıcı (`traffic_snapshots`) | Gerçek TimescaleDB ile e2e |
-| `internal/config` | TOML yapılandırma, çift mod | Birim testli |
+| `internal/collector` | TOML yapılandırma, çift mod | Birim testli |
 
 ### 1.2 Beacon katmanı (commit `e801830`)
 
@@ -542,7 +556,7 @@ listeleri, bot skor eşiği, flush aralığı.
 **Ne:** collector ve beacon, ayar satırını kısa aralıkla (bir dakika
 uygun) yeniden okur ve canlı değerleri atomik olarak değiştirir.
 
-**Dosyalar:** `internal/config/live.go` (yeni), `cmd/*/main.go`
+**Dosyalar:** `internal/collector/live.go` (yeni), `cmd/*/main.go`
 
 **Hata modu — bilerek yazılıyor:** **Okuma başarısız olursa son bilinen
 değerler korunur.** Naif hâli ("hata olursa varsayılana dön") bir
@@ -845,6 +859,120 @@ silindi.
 kaynakta artık **52** kullanılabilir kayıt var, depodaki anlık
 görüntüde 51 vardı; 59 kayıt da tarayıcı olduğu için eleniyor. Yani
 dağıttığımız kopya zaten geride kalmıştı.
+
+---
+
+### AI.2 — Paket bölme (C4 öncesi ara iş) ✅ **bitti**
+
+**Neden C4'ten önce:** ölçüm `internal/panel`'i 4.424 satır / 16 dosya
+gösterdi ve içinde en az dört ayrı sorumluluk var — kimlik doğrulama,
+yetki ve ayarlar, denetim, kurulum kontrolleri. Sonra bölmek, önce
+bölmekten pahalı: her faz o pakete bir şey daha ekliyor ve her ekleme
+taşınacak yüzeyi büyütüyor.
+
+**Bu fazda iki kesim** — en yüksek değerli ve en az dolaşık olanlar:
+
+1. **`preflight` kendi paketine.** 985 satırla deponun en büyük dosyası,
+   ve aslında bir *tanı aracı*, alan kuralı değil: veritabanına gerçek
+   sorgular atıp ne bulduğunu söylüyor. `Store`'a değil doğrudan
+   havuza bağlanması yeterli, ki bu da kesimi temiz yapan şey.
+   `internal/panel` 4.424 → ~3.400 satıra iner.
+2. **`internal/config` → `internal/collector`.** İsim yanıltıcı: global
+   duruyor, aslında yalnız collector'ın. Beacon, API ve panelin her
+   birinin config'i kendi paketinde. Yeni gelen yanlış tahmin eder.
+   Ucuz: yalnız `cmd/collector` import ediyor.
+
+**Bu fazda yapılmayan, ve neden:** ayarlar ailesi (1.531 satır) ve kimlik
+ailesi `Access`, `Principal`, `Role` ve `Store` tiplerini paylaşıyor.
+Onları bölmek ya bu tipleri ortak bir yere taşımayı ya da her alt paketin
+kendi store'unu tutmasını gerektiriyor — ikisi de her çağrı yerini ve
+tüm entegrasyon testlerini değiştiriyor. Tek seferde yapılacak iş değil,
+ve yarım yapılırsa şu ankinden kötü. **Sırası:** C4'ten sonra, kimlik
+ailesi C4'ün eklediği yüzeyle birlikte yerine oturduğunda.
+
+**Ayrıca ölçülüp yapılmayan bir şey:** `internal/panel`'in `net/http`
+import etmemesi gerektiği `panel/web`'in paket yorumunda yazıyor ama
+**doğru değil** — `session.go` CSRF için, `devpassword.go` form alanı
+için istek alıyor. `preflight` çıkınca üçten ikiye iner. Tamamen
+kaldırmak CSRF'in şeklini değiştirmek demek; yazılı kuralı gerçeğe
+uydurmak için o yorum düzeltildi, kural yapısal teste bağlanmadı.
+
+**Bitti ölçütü:** `go test -race ./...` temiz, entegrasyon paketi gerçek
+veritabanına karşı temiz, dört binary derleniyor, ve `internal/panel`
+ile `internal/preflight` arasındaki sınır paket yorumlarında yazılı.
+
+#### Ne oldu
+
+`internal/panel` **4.424 → 3.397 satır**. `internal/panel/preflight`
+1.119 satır, ve `internal/panel`'i **import etmiyor** — bu ölçütün son
+maddesi yorumda kalmadı, `TestPreflightDoesNotImportThePanel` ile
+`go/build`'den okunuyor. Yorum yazılır ve yanlışlanır; test yanlışlanmaz.
+
+Kesimi temiz yapan iki karar:
+
+- **`Checker` havuz alıyor, `Store` değil.** İki alanı var: `*pgxpool.Pool`
+  ve `ipTokenKeyConfigured`. Kontroller panelin sormadığı şeyleri
+  soruyor — *başka* bir rolün ne yapabildiğini, panelin okuyamadığı bir
+  şemada hangi tabloların olduğunu — ve bunları `Store` metodu yapmak
+  panelin veri API'sini yalnız tek bir sayfaya hizmet eden bir düzine
+  fonksiyonla büyütürdü.
+- **`GuardedKeys` çağrı yerinden geliyor.** Kontrolün ihtiyacı olan tek
+  panel bilgisi buydu; `Config`'e bir `[]string` alanı olarak taşındı.
+  Alternatifi `preflight`'ın `internal/panel`'i import etmesiydi, ki o da
+  kontrol çalıştıran her binary'ye panelin store'unu, oturumlarını ve
+  kimlik doğrulamasını sürüklerdi. Kural şu: bir kontrolün panelden bir
+  şeye ihtiyacı varsa `Config`'ten geçer.
+
+**Bölmenin açtığı yeni hata yolu, ve kapatılması:** kontroller `Store`
+metoduyken havuzsuz bir `Store` yoktu. Bağımsız bir `Checker` boş
+kurulabiliyor, ve bunu keşfedecek yer sihirbazın son adımı — teslimden
+bir düğme öte panik. Şimdi havuzsuz bir `Checker` her veritabanı
+kontrolünü "bakılmadı" diye bildiriyor ve teslim yine kapalı kalıyor
+(atlanan zorunlu kontrol `Complete`'i bloke ediyor). `nil` bir `*Checker`
+de aynı yoldan geçiyor. `TestRunSurvivesWithoutADatabase` ikisini de
+tutuyor.
+
+**Yol üstünde bulunan, ilgisiz bir kırık:** `internal/api`'nin entegrasyon
+testi A10'da silinen `scoring.KnownBotJA4` globalini kullanmaya devam
+ediyordu — `-tags integration` olmadan derlenmediği için fark
+edilmemişti. Test artık kendi `KnownBots` kümesini veriyor, ki zaten
+doğrusu oydu: getirilmiş bir dosyanın içeriğine bağlı bir test, dosya
+boşsa kendini atlar.
+
+**Bölmenin sarsıp ortaya çıkardığı iki yarış:** ikisi de bölmenin
+sebep olduğu şey değil, ikisi de gizliydi. `internal/panel`'den 1.000
+satır çıkınca paketin süresi değişti, paralel paketlerin sırası değişti,
+ve ikisi de patlamaya başladı. Tek veritabanı, `go test ./...`'in
+paketleri paralel çalıştırması, ve testlerin küresel olmayan varsaydığı
+iki küresel şey:
+
+1. **İki takım da aynı ayar satırlarını yazıp tabloyu tümden
+   siliyordu.** `internal/settings` canlı testi ile `internal/panel`
+   ayar testi aynı gerçek anahtarları (`logs.retention_days`) yazıyor,
+   ikisi de `DELETE FROM panel_settings` ile bitiyordu. Artık her
+   satırın sahibi var: canlı takım `test.settings.` önekini kullanıyor
+   ve yalnız onu siliyor, panel `test.` dışındaki her şeyi siliyor.
+2. **"Bu kurulumda hiç hesap yok" kontrol edilip güvenilebilecek bir şey
+   değil.** `TestSetupFlow` ilk çalıştırma akışını yürüyor; `if
+   CountUsers() == 0` koruması yazıldığı haliyle onarılamaz, çünkü
+   sayımla sayfanın üretilmesi arasındaki boşluğa panel takımı bir hesap
+   yazabiliyor. Üç koşudan birinde patlıyordu. Bir testin *süresi
+   boyunca* geçerli kalması gereken koşula kontrol değil kilit gerekir:
+   iki takım artık bir Postgres advisory lock alıp sırayla giriyor.
+   Bağlantı `Acquire` ile sabitleniyor (advisory lock oturuma ait; havuz
+   başka bağlantı verirse kilit sızar), ve kilit bağlantı havuza
+   dönmeden bırakılıyor.
+
+Yardımcı iki pakette de kopya duruyor — aralarında test-only bir paket
+yok ve yalnız bir test yardımcısı için paket açmak altmış satır
+kopyadan kötü. Anlaşması gereken tek şey sabit, ve iki tarafta da bir
+test onu literal'e karşı doğruluyor: sessizce ayrışan iki kopya, iki
+takımı da yeşil bırakıp yarışı geri getirirdi.
+
+**Ölçüm, sonra:** 22 iç paket, 12'si yaprak, **döngü yok**, en yüksek
+fan-out `cmd/collector` (11) — bir binary'nin her şeyi bağlaması
+beklenen şey. `internal/panel`'i yalnız iki yer import ediyor:
+`cmd/panel` ve `internal/panel/web`.
 
 ---
 

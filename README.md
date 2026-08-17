@@ -667,7 +667,7 @@ with `localStorage.setItem('crucible.disabled', '1')`.
 - **Locking: one `sync.RWMutex` over a plain map**, not sharded. Both are
   reasonable at small/medium scale per the project brief; a sharded map is
   the known follow-up if lock contention shows up under real load.
-- **Config: a TOML file, not environment variables.** `internal/config`
+- **Config: a TOML file, not environment variables.** `internal/collector`
   parses it via [`BurntSushi/toml`](https://github.com/BurntSushi/toml) -
   chosen over `pelletier/go-toml/v2` mainly for its long track record as
   the de facto standard Go TOML library and its lower minimum Go version
@@ -910,7 +910,10 @@ The rules that shape it:
   Required failures block handover; recommended ones do not. Beside it
   is the list of things the panel can never do, each row saying *why*,
   with the steps that have no verifier kept visibly separate from the
-  ones that do.
+  ones that do. These live in `internal/panel/preflight`, which takes a
+  database pool and does not import the panel at all — a test asserts
+  that, because the checks inspect a *deployment*, and anything that
+  wants to run one should not have to build a panel first.
 - **Before anybody owns the deployment the link is approved on the
   spot** - there is nobody to ask, and installing the system is the job.
   The moment an account exists that stops, and the owner has to approve.
@@ -1038,6 +1041,13 @@ Five properties are worth knowing before relying on it:
 
 ```bash
 go test -race ./...
+
+# Vet under every tag, not just the default one. Test files behind a
+# build tag do not compile in the untagged build, so a suite can rot
+# against an API that changed months ago and nothing says a word. That
+# is not hypothetical - it happened here, to internal/api's integration
+# test, and this line is what would have caught it.
+go vet ./... && go vet -tags "integration loadtest" ./...
 ```
 
 This needs no external dependencies - no Docker, no network access,

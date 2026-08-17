@@ -1,4 +1,4 @@
-package config
+package collector
 
 import (
 	"os"
@@ -11,7 +11,7 @@ import (
 
 func writeTOML(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "config.toml")
+	path := filepath.Join(t.TempDir(), "collector.toml")
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("writing test config: %v", err)
 	}

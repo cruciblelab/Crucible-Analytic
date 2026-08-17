@@ -35,7 +35,12 @@ func settingsStore(t *testing.T) *Store {
 			return
 		}
 		defer fresh.Close()
-		if _, err := fresh.Pool().Exec(context.Background(), `DELETE FROM panel_settings`); err != nil {
+		// Everything except the "test." namespace, which internal/settings'
+		// live suite owns. Both suites share this table and `go test ./...`
+		// runs them in parallel, so a bare DELETE here would clear rows
+		// that suite is in the middle of reading.
+		if _, err := fresh.Pool().Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE key NOT LIKE 'test.%'`); err != nil {
 			t.Logf("cleanup: clearing panel_settings: %v", err)
 		}
 	})
