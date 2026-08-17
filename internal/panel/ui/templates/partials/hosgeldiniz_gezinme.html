@@ -1,0 +1,9 @@
+{{define "hosgeldiniz_gezinme"}}
+{{- with .Data}}
+<p class="kurulum-gezinme">
+{{- with .BackURL}}<a href="{{.}}">{{t "kurulum.geri"}}</a>{{end}}
+{{- if and .BackURL .NextURL}} · {{end}}
+{{- with .NextURL}}<a class="dugme" href="{{.}}">{{t "kurulum.ileri"}}</a>{{end}}
+</p>
+{{- end}}
+{{end}}

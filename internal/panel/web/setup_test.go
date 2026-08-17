@@ -26,11 +26,17 @@ func TestWizardStepsAreDistinctAndOrdered(t *testing.T) {
 	if stepIndex("boyle-bir-adim-yok") != -1 {
 		t.Error("an unknown step resolved to a real index")
 	}
-	// The last step is the check. Anything after it would be a page the
-	// installer reaches *after* being told the deployment is ready,
-	// which is the one place nothing should be.
-	if wizardSteps[len(wizardSteps)-1].ID != "kontrol" {
-		t.Errorf("the wizard does not end on the check: %q", wizardSteps[len(wizardSteps)-1].ID)
+	// The order of the last two is the product. The check must come
+	// before handover, because handover is the step that decides the
+	// deployment is fit to give somebody - and handover must be last,
+	// because it is the only step that ends the installer's involvement:
+	// everything before it can be revisited, and this one produces a
+	// link that somebody else uses.
+	if got := wizardSteps[len(wizardSteps)-1].ID; got != "devir" {
+		t.Errorf("the wizard does not end on handover: %q", got)
+	}
+	if stepIndex("kontrol") >= stepIndex("devir") {
+		t.Error("handover comes before the check that decides whether it may happen")
 	}
 }
 

@@ -220,16 +220,31 @@ func sortedKeys(m map[string]string) []string {
 	return out
 }
 
-// Complete reports whether handover may proceed: every required
-// check passed.
+// Complete reports whether handover may proceed.
 //
-// A recommended check that failed does not block. Somebody may have a
-// reason, and a wizard that cannot be finished is a wizard people work
-// around.
+// Two rules, and the second was written down long before anything acted
+// on it:
+//
+//   - **A recommended check never blocks**, whatever it found. Somebody
+//     may have a reason, and a wizard that cannot be finished is a
+//     wizard people work around.
+//   - **A required check blocks when it failed or could not run.** A
+//     warning does not. CheckWarn's own definition is "worth knowing
+//     and does not block handover", and for a while this function said
+//     otherwise - which nobody noticed until handover became the first
+//     thing to consult it, and a log directory at 0755 made an
+//     installation unhandoverable over a permission bit.
+//
+// Skip still blocks, and that is the distinction the whole package is
+// built on: "we looked and it is imperfect" and "we could not look" are
+// different facts, and only the second is a reason to stop.
 func Complete(results []CheckResult) (bool, []CheckResult) {
 	blocking := []CheckResult{}
 	for _, r := range results {
-		if r.Severity == SeverityRequired && r.Status != CheckPass {
+		if r.Severity != SeverityRequired {
+			continue
+		}
+		if r.Status == CheckFail || r.Status == CheckSkip {
 			blocking = append(blocking, r)
 		}
 	}

@@ -39,6 +39,13 @@ const (
 	ActionDeveloperModeOn  = "account.developer_mode_on"
 	ActionDeveloperModeOff = "account.developer_mode_off"
 
+	// ActionTechnicalDoorOpened records an owner confirming the warning
+	// in front of the technical wizard. Its own action rather than a
+	// detail on something else, because the question it answers -
+	// "who went in there, and when" - is the first one asked when a
+	// working installation stops working.
+	ActionTechnicalDoorOpened = "setup.technical_door_opened"
+
 	ActionUserCreated  = "user.created"
 	ActionUserDisabled = "user.disabled"
 	ActionUserEnabled  = "user.enabled"

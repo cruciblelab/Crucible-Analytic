@@ -101,8 +101,25 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		ConfigFileValues: map[string]string{
 			"panel.listen_addr": "127.0.0.1:8090",
 		},
-		Preflight:       preflight.New(store.Pool(), false),
-		PreflightConfig: preflight.Config{LogDir: t.TempDir()},
+		Preflight: preflight.New(store.Pool(), false),
+		// The role names the isolation checks need. Without them those
+		// checks skip, a skipped required check blocks handover, and
+		// every test that reaches the last step fails for a reason that
+		// has nothing to do with what it is testing.
+		//
+		// "collector" is the suite's own superuser-ish role, so naming
+		// it as the panel's would make the isolation check fail - which
+		// is the check working. The two that must be *unable* to do
+		// something are given roles that genuinely cannot.
+		PreflightConfig: preflight.Config{
+			LogDir: t.TempDir(),
+			Roles: preflight.Roles{
+				Collector: "collector",
+				Beacon:    "beacon_writer",
+				API:       "analytics_reader",
+				Panel:     "panel_user",
+			},
+		},
 	}, store
 }
 

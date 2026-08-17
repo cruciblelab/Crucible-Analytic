@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -130,7 +131,7 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 		// attacker whether the address is registered.
 		s.renderLogin(w, r, lang, http.StatusTooManyRequests, loginPage{
 			Email: email, Next: next,
-			Error: s.throttleMessage(lang, throttle),
+			Error: s.throttleMessage(ctx, lang, throttle),
 		})
 		return
 	}
@@ -298,7 +299,7 @@ func (s *Server) submitSecondFactor(w http.ResponseWriter, r *http.Request, lang
 		})
 		s.renderSecondFactor(w, r, lang, http.StatusTooManyRequests, loginPage{
 			Next: next, RememberedName: user.Name(),
-			Error: s.throttleMessage(lang, throttle),
+			Error: s.throttleMessage(ctx, lang, throttle),
 		})
 		return
 	}
@@ -433,9 +434,9 @@ func withNext(path, next string) string {
 // nowhere the person at the form can - "this address is blocked" versus
 // "this account is blocked" confirms whether the account exists, which
 // is the one thing the rest of this file works to keep quiet.
-func (s *Server) throttleMessage(lang *ui.Language, t panel.Throttle) string {
+func (s *Server) throttleMessage(ctx context.Context, lang *ui.Language, t panel.Throttle) string {
 	minutes := retryMinutes(t.RetryAfter)
-	f := ui.NewFormatter(lang, s.Zone)
+	f := ui.NewFormatter(lang, s.zone(ctx))
 	return lang.Tn("giris.hata.kisitlandi", minutes, f.Number(int64(minutes)))
 }
 

@@ -133,6 +133,34 @@ const (
 	KeyAnalyticsCompressAfterDays Key = "analytics.compress_after_days"
 )
 
+// The panel's own presentation settings.
+//
+// These carry no legal weight and no service reads them, so they are the
+// one family the customer changes freely: what their site is called, and
+// which clock the numbers are read against. Both exist because the
+// person who installed the deployment is not the person who lives in it.
+const (
+	// KeySiteName is what a site is called in the panel.
+	//
+	// Site-scoped, and deliberately separate from the site *id*, which
+	// is the beacon's allowlist entry and appears in a public snippet.
+	// Renaming a site must never mean re-editing a snippet on somebody
+	// else's website.
+	KeySiteName Key = "panel.site_name"
+
+	// KeyPanelTimezone is the zone every date and time renders in.
+	//
+	// A setting rather than only a config-file value because the
+	// customer knows their own timezone better than whoever installed
+	// the deployment does, and getting it wrong is not cosmetic: a panel
+	// showing the evening traffic peak in UTC tells a shop in Istanbul
+	// that it happened in the afternoon.
+	//
+	// Empty means "use what the config file says", which is the state
+	// every deployment starts in.
+	KeyPanelTimezone Key = "panel.timezone"
+)
+
 // The privacy settings.
 const (
 	// KeyPrivacyIPStorage is whether stored addresses are whole or
@@ -169,6 +197,18 @@ type Definition struct {
 	Min, Max int
 	// Enum lists the admissible values of a KindEnum setting.
 	Enum []string
+	// Check is an extra validator for values the Kind cannot describe.
+	//
+	// KindString means "some text", which is right for a site's name and
+	// useless for a timezone: "Europe/Istanbul" and "Avrupa/İstanbul"
+	// are both text and only one of them is a zone. Rather than adding a
+	// Kind per such value - each with a parser the settings package
+	// would then own - the definition carries the one function that
+	// knows. It runs after the Kind's own checks, on the canonical form,
+	// and returns a sentence the panel can show.
+	//
+	// Nil means the Kind's checks are the whole rule.
+	Check func(any) error
 	// Label and Help are Turkish, because they are read in the panel.
 	Label string
 	Help  string
@@ -222,6 +262,19 @@ type Definition struct {
 // operations follow and for the same reason: a running system should not
 // be talkable into a setting nobody designed.
 var registry = map[Key]Definition{
+	KeySiteName: {
+		Key: KeySiteName, Scope: ScopeSite, Kind: KindString,
+		Default: "",
+		Label:   "Sitenin adı",
+		Help:    "Panelde görünen ad. Site kimliğini değiştirmez — snippet olduğu gibi kalır.",
+	},
+	KeyPanelTimezone: {
+		Key: KeyPanelTimezone, Scope: ScopeGlobal, Kind: KindString,
+		Default: "",
+		Label:   "Saat dilimi",
+		Help:    "Paneldeki her tarih ve saat bu dilimde gösterilir. Boş bırakılırsa yapılandırma dosyasındaki değer geçerli olur.",
+		Check:   checkTimezone,
+	},
 	KeyBeaconSites: {
 		Key: KeyBeaconSites, Scope: ScopeGlobal, Kind: KindStringList,
 		Default:   []string{},
@@ -418,6 +471,11 @@ func Validate(key Key, value any) (any, error) {
 		}
 		if len(s) > 1024 {
 			return nil, fmt.Errorf("panel: %s is too long (max 1024 characters)", key)
+		}
+		if def.Check != nil {
+			if err := def.Check(s); err != nil {
+				return nil, fmt.Errorf("panel: %s: %w", key, err)
+			}
 		}
 		return s, nil
 
@@ -762,4 +820,26 @@ func (s *Store) LogLifecycle(ctx context.Context) (archiveAfter, retention, impo
 		archiveAfter = retention
 	}
 	return archiveAfter, retention, importantRetention, nil
+}
+
+// checkTimezone refuses a zone name this machine cannot load.
+//
+// The same rule the config file already applies, for the same reason: a
+// panel that accepts "Avrupa/İstanbul" and then quietly renders in UTC
+// tells a shop in Istanbul that its evening peak happened in the
+// afternoon, and nothing anywhere says why. Refusing at the point of
+// writing is the only place the person typing it is still around to
+// hear about it.
+//
+// Empty is allowed and means "use the config file's value", which is the
+// state every deployment starts in.
+func checkTimezone(value any) error {
+	name, _ := value.(string)
+	if name == "" {
+		return nil
+	}
+	if _, err := time.LoadLocation(name); err != nil {
+		return fmt.Errorf("%q is not a timezone this machine knows (try Europe/Istanbul)", name)
+	}
+	return nil
 }

@@ -51,6 +51,8 @@ func main() {
 	configPath := flag.String("config", "panel.toml", "path to the TOML config file")
 	devLink := flag.Bool("dev-link", false,
 		"mint a one-time developer access link, print it, and exit")
+	ownerLink := flag.String("owner-link", "",
+		"mint a one-time invitation for this email address, print it, and exit")
 	devReason := flag.String("dev-reason", "kurulum",
 		"why this developer link is being requested; recorded in the audit log")
 	baseURL := flag.String("base-url", "",
@@ -128,6 +130,12 @@ func main() {
 		}
 		return
 	}
+	if *ownerLink != "" {
+		if err := printOwnerLink(ctx, store, cfg, *baseURL, *ownerLink); err != nil {
+			fatal(logger, "owner link", err)
+		}
+		return
+	}
 
 	gate, err := devgate.New(cfg.DeveloperGate, devgate.Options{
 		Logger: logger,
@@ -157,6 +165,12 @@ func main() {
 			DataDir:     cfg.Logging.Dir,
 			BotDataPath: cfg.BotDataPath,
 			GuardedKeys: guardedKeyNames(),
+			Roles: preflight.Roles{
+				Collector: cfg.Roles.Collector,
+				Beacon:    cfg.Roles.Beacon,
+				API:       cfg.Roles.API,
+				Panel:     cfg.Roles.Panel,
+			},
 		},
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {
@@ -277,4 +291,35 @@ func guardedKeyNames() []string {
 		names = append(names, string(key))
 	}
 	return names
+}
+
+// printOwnerLink mints an invitation and writes it to stdout.
+//
+// The shell counterpart of the wizard's handover step, and the only way
+// back in when a customer loses the link they were sent. There is no
+// email in this system yet, so a link that cannot be reissued from a
+// terminal would be a link whose loss means editing the database by
+// hand.
+//
+// Stdout, once, like the developer link: only the hash is stored, so
+// this is printed here or it is gone.
+func printOwnerLink(ctx context.Context, store *panel.Store, cfg web.Config, baseURL, email string) error {
+	token, claim, err := store.CreateOwnerClaim(ctx, email, "", panel.Principal{
+		Kind: panel.PrincipalUser, Label: "kabuk",
+	}, 0)
+	if err != nil {
+		return err
+	}
+	if baseURL == "" {
+		baseURL = "http://" + cfg.ListenAddr
+	}
+
+	fmt.Println()
+	fmt.Printf("%s için tek kullanımlık davet bağlantısı:\n\n", claim.Email)
+	fmt.Printf("    %s%s\n\n", strings.TrimRight(baseURL, "/"), web.ClaimPathPrefix+token)
+	fmt.Println("Bu bağlantı bir kez çalışır ve yalnız hash'i saklandı — bir daha")
+	fmt.Println("gösterilemez. Kullanan kişi parolasını belirler, hesabı oluşur ve")
+	fmt.Println("yapılandırılmış her sitenin sahibi olur.")
+	fmt.Printf("Geçerlilik süresi: %s\n", claim.ExpiresAt.Format("2006-01-02 15:04 MST"))
+	return nil
 }

@@ -1,0 +1,25 @@
+{{define "icerik"}}
+{{template "hosgeldiniz_ilerleme" .}}
+<p>{{t "hosgeldiniz.adim.saat.govde"}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<div class="alan">
+<label for="saat_dilimi">{{t "hosgeldiniz.adim.saat.etiket"}}</label>
+{{- /* A text field with a datalist rather than a select. There are six
+hundred zone names and the right one is nearly always typed faster than
+found; the list beside it is examples, not the menu. */}}
+<input id="saat_dilimi" name="saat_dilimi" type="text" list="saatler"
+       spellcheck="false" value="{{.Data.Timezone}}">
+<datalist id="saatler">
+{{- range .Data.Zones}}
+<option value="{{.}}"></option>
+{{- end}}
+</datalist>
+{{- with .Data.ConfiguredTimezone}}
+<p class="ipucu">{{tf "hosgeldiniz.adim.saat.yapilandirilan" .}}</p>
+{{- end}}
+</div>
+<button type="submit">{{t "kaydet"}}</button>
+</form>
+{{template "hosgeldiniz_gezinme" .}}
+{{end}}

@@ -46,6 +46,26 @@ session_lifetime_hours = 12
 # hata verir, sessizce UTC'ye düşmez.
 timezone = "Europe/Istanbul"
 
+# Beacon'ın genel adresi. Yalnız bir iş için: sahip sihirbazının
+# gösterdiği ölçüm kodunu üretmek. Panel bunu kendi keşfedemez —
+# beacon ayrı bir süreç ve önünde ne varsa o. Boş bırakılırsa o adım
+# kodu uydurmak yerine nereden alınacağını söyler.
+# beacon_url = "https://example.com"
+
+# Servislerin bağlandığı veritabanı rolleri. Panel bunlarla bağlanmaz;
+# kendi DSN'i var. Kurulum kontrollerinin **başka** bir rolün ne
+# yapabildiğini sorabilmesi için buradalar — panelin analitik tablolarını
+# okuyamaması, API'nin yazamaması. Tanımlanmazsa o kontroller "bakılmadı"
+# der, ve bakılamayan zorunlu bir kontrol devir teslimi engeller. Bu
+# bilinçli: izolasyonu hiç doğrulanmamış bir kurulumu devretmek, kimsenin
+# fark etmediği durumdur.
+
+[roles]
+collector = "collector"
+beacon = "beacon_writer"
+api = "analytics_reader"
+panel = "panel_user"
+
 # Kurulumun tercih ettiği dil. Kısıt değil tercih: tarayıcısı bu
 # derlemede bulunan başka bir dili isteyen bir okuyucu onu görür — aynı
 # ekipte herkes aynı dili okumuyorsa istenen budur. Burası, tarayıcı

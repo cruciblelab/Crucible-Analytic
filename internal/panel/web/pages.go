@@ -95,7 +95,7 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 		L:       lang,
 		Title:   lang.T("giris.baslik"),
 		Heading: lang.T("giris.baslik"),
-		F:       ui.NewFormatter(lang, s.Zone),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		CSRF:    s.Sessions.CSRFToken(r.Context()),
 		Data:    data,
 		// No navigation and no user block: there is nobody signed in to
@@ -111,7 +111,7 @@ func (s *Server) renderSecondFactor(w http.ResponseWriter, r *http.Request, lang
 		L:       lang,
 		Title:   lang.T("giris.dogrulama.baslik"),
 		Heading: lang.T("giris.dogrulama.baslik"),
-		F:       ui.NewFormatter(lang, s.Zone),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		CSRF:    s.Sessions.CSRFToken(r.Context()),
 		Data:    data,
 	})

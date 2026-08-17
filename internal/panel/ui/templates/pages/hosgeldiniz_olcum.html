@@ -1,0 +1,19 @@
+{{define "icerik"}}
+{{template "hosgeldiniz_ilerleme" .}}
+{{- if .Data.BeaconURL}}
+<p>{{t "hosgeldiniz.adim.olcum.govde"}}</p>
+{{- range .Data.Snippets}}
+<section class="bolum">
+<h2>{{with .Name}}{{.}}{{else}}{{.SiteID}}{{end}}</h2>
+<pre><code>{{.Snippet}}</code></pre>
+</section>
+{{- end}}
+<p class="ipucu">{{t "hosgeldiniz.adim.olcum.ipucu"}}</p>
+{{- else}}
+{{- /* The panel reads only its own config file, so it may genuinely not
+know where the beacon is. Saying that beats printing a snippet built
+from a guessed address, which would look right and measure nothing. */}}
+<p>{{t "hosgeldiniz.adim.olcum.adres_yok"}}</p>
+{{- end}}
+{{template "hosgeldiniz_gezinme" .}}
+{{end}}

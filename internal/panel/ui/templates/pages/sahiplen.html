@@ -1,0 +1,38 @@
+{{define "icerik"}}
+{{- if .Data.Invalid}}
+{{- /* One page for unknown, expired and already-used. Which of the
+three it was is not said: distinguishing them confirms to anybody
+guessing that a guess had once been real, and a person holding a genuine
+expired link does the same thing in every case - ask for another. */}}
+<p>{{t "sahiplen.gecersiz.govde"}}</p>
+<p class="ipucu">{{t "sahiplen.gecersiz.ipucu"}}</p>
+{{- else}}
+{{- with .Data.Error}}
+<p class="uyari hata" role="alert">{{.}}</p>
+{{- end}}
+<p>{{tf "sahiplen.govde" .Data.Claim.Email}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+{{- /* The address is not a field. It was decided by whoever handed the
+deployment over, and letting the person claiming change it would mean
+the invitation names one account and creates another. */}}
+<div class="alan">
+<label for="ad">{{t "hesap.ad"}}</label>
+<input id="ad" name="ad" type="text" maxlength="80" value="{{.Data.Claim.DisplayName}}">
+<p class="ipucu">{{t "hesap.ad_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="parola">{{t "sahiplen.parola"}}</label>
+<input id="parola" name="parola" type="password" autocomplete="new-password"
+       minlength="12" required>
+<p class="ipucu">{{t "sahiplen.parola_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="parola_tekrar">{{t "hesap.parola.tekrar"}}</label>
+<input id="parola_tekrar" name="parola_tekrar" type="password"
+       autocomplete="new-password" minlength="12" required>
+</div>
+<button type="submit">{{t "sahiplen.gonder"}}</button>
+</form>
+{{- end}}
+{{end}}

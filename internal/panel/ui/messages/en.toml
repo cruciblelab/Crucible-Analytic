@@ -360,3 +360,93 @@ son_sahip = "A site must keep at least one owner. Make somebody else an owner fi
 [metin]
 kaydet = "Save"
 vazgec = "Cancel"
+
+# --- Handover, the owner's wizard, the technical door (C3) ---
+
+[metin.kurulum.adim.devir]
+baslik = "Handover"
+govde = "The installation is finished. The last step is handing the panel to its owner: enter their email address, let the panel mint a one-time invitation link, and pass that link to them."
+
+[metin.kurulum.devir]
+eposta = "The owner's email address"
+eposta_ipucu = "The account will be created with this address. Whoever uses the link sets their own password — you never see it."
+ad = "Display name (optional)"
+olustur = "Mint an invitation link"
+olusturuldu = "The invitation link has been minted. Pass the address below to the owner."
+baglanti_baslik = "Invitation link"
+baglanti_govde = "For %s:"
+bir_kez = "This link is shown here and nowhere else. The panel stored only its hash; leave this page and it cannot be shown again. If it is lost, `panel -owner-link <email>` on the server mints another."
+eposta_bos = "The email address is empty."
+eposta_kayitli = "An account already exists for that address. Use the members page to add an existing account to a site."
+engelli_detay = "Handover is closed because required checks are failing: %s. Go back a step and run the checks."
+acik_davetler = "Unused invitations"
+acik_ipucu = "Each invitation creates one owner account. If you minted more than you meant to, the unused ones expire on their own."
+gecerlilik = "Valid until"
+
+[metin.kurulum.devir.hesap_var]
+one = "This deployment already has %s account; handover appears to have happened."
+other = "This deployment already has %s accounts; handover appears to have happened."
+
+[metin.sahiplen]
+baslik = "Create your account"
+govde = "An account is being created for %s. Set your password — nobody else sees it, including whoever installed this."
+parola = "Your password"
+parola_ipucu = "At least 12 characters. Length helps more than complexity: a memorable sentence of three or four words makes a good password."
+gonder = "Create the account and sign in"
+
+[metin.sahiplen.gecersiz]
+baslik = "This link cannot be used"
+govde = "It may have been used already, expired, or never existed."
+ipucu = "Ask whoever installed the system for a new invitation link. Anybody with access to the server can mint one with `panel -owner-link <email>`."
+
+[metin.sahiplen.hata]
+artik_gecersiz = "This link can no longer be used. It may have been used in another tab, or it expired."
+
+[metin.hosgeldiniz]
+ilerleme = "Setup steps"
+bitir = "Go to the panel →"
+
+[metin.hosgeldiniz.site]
+yok = "This deployment has no sites configured. The site list is set by the technical wizard."
+
+[metin.hosgeldiniz.adim.site]
+baslik = "What your site is called"
+govde = "How would you like to see your site in the panel? This is the display name only."
+kimlik_ipucu = "The identifiers on the left are the values in the snippet on your website, and they do not change — renaming does not mean touching your site."
+
+[metin.hosgeldiniz.adim.saat]
+baslik = "Time zone"
+govde = "Every date and time in the panel is shown in this zone. It matters for seeing the evening traffic peak at the right hour."
+etiket = "Time zone"
+yapilandirilan = "The config file says: %s. Left empty, that is what applies."
+
+[metin.hosgeldiniz.adim.olcum]
+baslik = "Measurement code"
+govde = "Add the line below to every page of your site, just before the </body> tag."
+ipucu = "The code reports page views only; it sets no cookies and does not track visitors across sites."
+adres_yok = "The beacon's public address was not reported to the panel, so we cannot show the code here. On the server, `beacon -snippet <address> <site>` prints the correct one."
+
+[metin.hosgeldiniz.adim.ekip]
+baslik = "Your team"
+govde = "You can add colleagues to the panel. There are three roles:"
+rol_owner = "Owner — can do everything, and adds or removes members."
+rol_admin = "Administrator — manages settings and members, but cannot grant ownership."
+rol_viewer = "Viewer — sees the numbers only; the technical views are never shown."
+git = "Go to the members page"
+davet_yok = "For now you can only add somebody who already has an account. Invitation email is not built yet."
+
+[metin.hosgeldiniz.hata]
+gelistirici_parolasi = "That setting requires the developer password."
+yetki = "You are not allowed to change that setting."
+
+[metin.hosgeldiniz.saat]
+yetki = "Only a site's owner can change the time zone."
+
+[metin.teknik]
+baslik = "Technical setup"
+uyari = "This section was completed by your developer. If you want to go through it again anyway, confirm below."
+govde = "The technical wizard shows the database, retention periods and collection settings. A change here can break a working installation."
+onayla = "I understand — open the technical setup"
+ipucu = "This server is yours. The warning is not us asking for permission; it is here so nobody walks in by accident. The settings with legal weight ask for the developer password separately."
+acik = "You have already entered the technical setup in this session."
+git = "Go to the technical setup"

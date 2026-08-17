@@ -1,0 +1,18 @@
+{{define "icerik"}}
+{{- if .Data.AlreadyOpen}}
+<p>{{t "teknik.acik"}}</p>
+<p><a class="dugme" href="{{.Data.SetupURL}}">{{t "teknik.git"}}</a></p>
+{{- else}}
+{{- /* Neither hidden nor plainly linked. The server is theirs and a
+technical owner should not have to ask us; the common case is somebody
+curious clicking through a menu, and reconfiguring a working
+installation is a support call at best. */}}
+<p class="uyari kilit" role="note">{{t "teknik.uyari"}}</p>
+<p>{{t "teknik.govde"}}</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<button type="submit">{{t "teknik.onayla"}}</button>
+</form>
+<p class="ipucu">{{t "teknik.ipucu"}}</p>
+{{- end}}
+{{end}}

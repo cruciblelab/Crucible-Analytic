@@ -389,3 +389,93 @@ son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yap
 [metin]
 kaydet = "Kaydet"
 vazgec = "Vazgeç"
+
+# --- Devir teslim, sahip sihirbazı, teknik kapı (C3) ---
+
+[metin.kurulum.adim.devir]
+baslik = "Devir teslim"
+govde = "Kurulum tamamlandı. Son adım, paneli sahibine devretmek: e-posta adresini yazın, panel tek kullanımlık bir davet bağlantısı üretsin, ve o bağlantıyı sahibine iletin."
+
+[metin.kurulum.devir]
+eposta = "Sahibin e-posta adresi"
+eposta_ipucu = "Hesap bu adresle açılacak. Bağlantıyı kullanan kişi parolasını kendisi belirler — siz görmezsiniz."
+ad = "Görünen adı (isteğe bağlı)"
+olustur = "Davet bağlantısı üret"
+olusturuldu = "Davet bağlantısı üretildi. Aşağıdaki adresi sahibine iletin."
+baglanti_baslik = "Davet bağlantısı"
+baglanti_govde = "%s için:"
+bir_kez = "Bu bağlantı yalnız burada gösterilir. Panel yalnız hash'ini sakladı; sayfadan çıkarsanız bir daha gösterilemez. Kaybolursa sunucuda `panel -owner-link <eposta>` komutuyla yenisi üretilir."
+eposta_bos = "E-posta adresi boş."
+eposta_kayitli = "Bu adrese ait bir hesap zaten var. Var olan bir hesabı siteye eklemek için üye sayfasını kullanın."
+engelli_detay = "Zorunlu kontroller geçmediği için devir teslim kapalı: %s. Önceki adıma dönüp kontrolleri çalıştırın."
+acik_davetler = "Kullanılmamış davetler"
+acik_ipucu = "Her davet bir sahip hesabı oluşturur. Yanlışlıkla birden fazla ürettiyseniz, kullanılmayanların süresi kendiliğinden dolar."
+gecerlilik = "Geçerlilik"
+
+[metin.kurulum.devir.hesap_var]
+one = "Bu kurulumda zaten %s hesap var; devir teslim yapılmış görünüyor."
+other = "Bu kurulumda zaten %s hesap var; devir teslim yapılmış görünüyor."
+
+[metin.sahiplen]
+baslik = "Hesabınızı oluşturun"
+govde = "%s adresi için bir hesap açılıyor. Parolanızı belirleyin — bu parolayı sizden başka kimse görmez, kurulumu yapan kişi de dahil."
+parola = "Parolanız"
+parola_ipucu = "En az 12 karakter. Uzunluk, karmaşıklıktan daha çok işe yarar: aklınızda kalan üç dört kelimelik bir cümle iyi bir paroladır."
+gonder = "Hesabı oluştur ve giriş yap"
+
+[metin.sahiplen.gecersiz]
+baslik = "Bu bağlantı kullanılamıyor"
+govde = "Bağlantı kullanılmış, süresi dolmuş veya hiç var olmamış olabilir."
+ipucu = "Sistemi kuran kişiden yeni bir davet bağlantısı isteyin. Sunucuya erişimi olan biri `panel -owner-link <eposta>` komutuyla üretebilir."
+
+[metin.sahiplen.hata]
+artik_gecersiz = "Bu bağlantı artık kullanılamıyor. Başka bir sekmede kullanılmış veya süresi dolmuş olabilir."
+
+[metin.hosgeldiniz]
+ilerleme = "Kurulum adımları"
+bitir = "Panele geç →"
+
+[metin.hosgeldiniz.site]
+yok = "Bu kurulumda tanımlı site yok. Site listesini teknik sihirbaz belirler."
+
+[metin.hosgeldiniz.adim.site]
+baslik = "Sitenizin adı"
+govde = "Panelde sitenizi nasıl görmek istersiniz? Bu yalnız görünen addır."
+kimlik_ipucu = "Soldaki kimlikler sitenizdeki snippet'te yazan değerlerdir ve değişmez — adı değiştirmek sitenize dokunmayı gerektirmez."
+
+[metin.hosgeldiniz.adim.saat]
+baslik = "Saat dilimi"
+govde = "Paneldeki her tarih ve saat bu dilimde gösterilir. Akşamki trafik zirvesini doğru saatte görmek için önemli."
+etiket = "Saat dilimi"
+yapilandirilan = "Yapılandırma dosyasındaki değer: %s. Boş bırakırsanız o geçerli olur."
+
+[metin.hosgeldiniz.adim.olcum]
+baslik = "Ölçüm kodu"
+govde = "Aşağıdaki satırı sitenizin her sayfasına, </body> etiketinden hemen önce ekleyin."
+ipucu = "Kod yalnızca sayfa görüntülemelerini bildirir; çerez kullanmaz ve ziyaretçileri siteler arası izlemez."
+adres_yok = "Beacon'ın genel adresi panele bildirilmemiş, bu yüzden kodu buradan gösteremiyoruz. Sunucudaki `beacon -snippet <adres> <site>` komutu doğrusunu yazdırır."
+
+[metin.hosgeldiniz.adim.ekip]
+baslik = "Ekibiniz"
+govde = "Panele meslektaşlarınızı ekleyebilirsiniz. Üç rol var:"
+rol_owner = "Sahip — her şeyi yapabilir, üye ekler ve çıkarır."
+rol_admin = "Yönetici — ayarları ve üyeleri yönetir, ama sahiplik veremez."
+rol_viewer = "İzleyici — yalnız sayıları görür; teknik görünümler gösterilmez."
+git = "Üye sayfasına git"
+davet_yok = "Şimdilik yalnız hesabı olan birini ekleyebilirsiniz. Davet e-postası henüz eklenmedi."
+
+[metin.hosgeldiniz.hata]
+gelistirici_parolasi = "Bu ayar geliştirici şifresi gerektiriyor."
+yetki = "Bu ayarı değiştirme yetkiniz yok."
+
+[metin.hosgeldiniz.saat]
+yetki = "Saat dilimini yalnız site sahibi değiştirebilir."
+
+[metin.teknik]
+baslik = "Teknik kurulum"
+uyari = "Bu bölüm geliştiriciniz tarafından tamamlandı. Yine de baştan yapmak isterseniz onaylayın."
+govde = "Teknik sihirbaz veritabanı, saklama süreleri ve toplama ayarlarını gösterir. Buradaki bir değişiklik çalışan kurulumu bozabilir."
+onayla = "Anladım, teknik kuruluma gir"
+ipucu = "Bu sunucu sizin. Bu uyarı izin istemek için değil, yanlışlıkla girilmesini önlemek için var. Hukuki ağırlıklı ayarlar ayrıca geliştirici şifresi ister."
+acik = "Bu oturumda teknik kuruluma zaten girdiniz."
+git = "Teknik kuruluma git"

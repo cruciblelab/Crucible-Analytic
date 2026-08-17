@@ -20,6 +20,17 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 )
 
+// RolesConfig names the database role each service connects as.
+//
+// The panel never connects with any of them - it has its own DSN. They
+// are here so the setup checks can ask what a *different* role may do.
+type RolesConfig struct {
+	Collector string `toml:"collector"`
+	Beacon    string `toml:"beacon"`
+	API       string `toml:"api"`
+	Panel     string `toml:"panel"`
+}
+
 // Config is the panel's own TOML file.
 //
 // Separate from the collector's, the beacon's and the API's for the
@@ -60,6 +71,29 @@ type Config struct {
 	// traffic peak in UTC tells a customer in Istanbul it happened in
 	// the afternoon.
 	Timezone string `toml:"timezone"`
+
+	// BeaconURL is the public address the beacon is reached at.
+	//
+	// Used for one thing: printing the snippet the customer embeds in
+	// their website. The panel cannot discover it - the beacon is a
+	// separate process behind whatever proxy the deployment put there -
+	// so an unset value produces a step that says where to get the
+	// snippet instead of one printing a tag that points nowhere.
+	BeaconURL string `toml:"beacon_url"`
+
+	// Roles names the database roles each service connects as.
+	//
+	// The panel never uses them to connect - it has its own DSN. They
+	// exist so the setup checks can ask what a *different* role may do,
+	// which is the deployment's whole security foundation: the panel
+	// must not be able to read the analytics tables, and the API must
+	// not be able to write.
+	//
+	// Unset means those checks cannot run, and a check that cannot run
+	// blocks handover. That is deliberate and it is loud: a deployment
+	// handed over without its isolation ever having been verified is
+	// exactly the one where nobody finds out until it matters.
+	Roles RolesConfig `toml:"roles"`
 	// Language is the deployment's preferred language, by code ("tr",
 	// "en"). It is a preference rather than a restriction: a reader
 	// whose browser asks for another language this build carries gets

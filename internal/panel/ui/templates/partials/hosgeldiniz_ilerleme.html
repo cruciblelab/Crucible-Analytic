@@ -1,0 +1,19 @@
+{{define "hosgeldiniz_ilerleme"}}
+{{- /* The same shape as the technical wizard's progress list, and a
+separate partial rather than a shared one: the two wizards have
+different step counts, different labels and different audiences, and a
+single partial parameterised over both would be a place for one to
+quietly change the other. */}}
+{{- with .Data}}
+<nav class="ilerleme" aria-label="{{t "hosgeldiniz.ilerleme"}}">
+<ol>
+{{- range .Steps}}
+<li{{if .Current}} aria-current="step"{{end}} class="{{if .Done}}bitti{{else if .Current}}suanki{{else}}sonraki{{end}}">
+{{- if .Done}}<a href="{{.URL}}">{{.Number}}. {{.Title}}</a>
+{{- else}}<span>{{.Number}}. {{.Title}}</span>{{end}}
+</li>
+{{- end}}
+</ol>
+</nav>
+{{- end}}
+{{end}}

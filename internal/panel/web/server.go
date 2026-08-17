@@ -44,8 +44,24 @@ type Server struct {
 	ConfigFileValues map[string]string
 	// HSTS is passed to the header middleware; see Config.HSTS.
 	HSTS bool
-	// Zone is the time zone every page renders in.
+	// Zone is the fallback time zone, from the config file.
+	//
+	// A fallback rather than the answer: the panel.timezone setting wins
+	// when it is set, because the customer knows their own timezone
+	// better than whoever installed the deployment. See Server.zone.
 	Zone *time.Location
+	// ConfiguredTimezone is that config-file value as written, shown to
+	// the customer so they can see what they are overriding rather than
+	// replacing a value they never knew existed.
+	ConfiguredTimezone string
+	// BeaconURL is the public address the beacon is reached at, used to
+	// build the snippet the customer embeds.
+	//
+	// Empty is a supported state: the panel reads only its own config
+	// file, so a deployment that did not tell it produces a step saying
+	// where to find the snippet instead of one printing a tag that
+	// points nowhere.
+	BeaconURL string
 	// Language is the deployment's preferred language code. A reader
 	// whose browser asks for another language the panel carries gets
 	// that one instead; this is the answer when the browser expresses no
@@ -90,6 +106,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(AccountPath, s.accountHandler)
 	mux.HandleFunc(TOTPQRPath, s.totpQRHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
+	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
+	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)
+	mux.HandleFunc(TechnicalDoorPath, s.technicalDoorHandler)
 
 	// "/" in a ServeMux matches everything nothing else claims, so this
 	// is both the home route and the catch-all. It has to tell the two

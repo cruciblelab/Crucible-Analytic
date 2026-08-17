@@ -213,6 +213,50 @@ CREATE INDEX IF NOT EXISTS idx_panel_dev_access_pending
     ON panel_dev_access (requested_at DESC)
     WHERE used_at IS NULL AND denied_at IS NULL;
 
+-- Owner claims: the one-time link that turns a finished technical
+-- installation into an account somebody owns.
+--
+-- A separate table rather than a disabled row in panel_users, because a
+-- user with no usable password and a flag saying so is two states that
+-- have to be kept in agreement, and the failure when they disagree is an
+-- account nobody can sign in to or an account anybody can. An invitation
+-- that has not been accepted is not a user; it is an invitation.
+--
+-- The token is stored as its SHA-256 for the same reason the developer
+-- links are: whoever reads this table must not thereby be able to use
+-- what is in it.
+CREATE TABLE IF NOT EXISTS panel_owner_claims (
+    id     BIGSERIAL PRIMARY KEY,
+    sha256 TEXT      NOT NULL UNIQUE,
+    -- The address the account will be created with. Held here rather
+    -- than typed again on claiming, so the person handing over decides
+    -- who this is for and the person claiming cannot change it.
+    email        TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Who minted it. NULL for one minted at a shell, which is the
+    -- ordinary case: at handover nobody owns the deployment yet.
+    created_by    BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+    created_label TEXT NOT NULL DEFAULT '',
+
+    expires_at TIMESTAMPTZ NOT NULL,
+
+    -- Set atomically on claiming, in the same transaction that creates
+    -- the account. A second attempt finds it non-NULL and is refused,
+    -- so two tabs opened at once produce one owner rather than two.
+    used_at   TIMESTAMPTZ,
+    used_from INET,
+    -- The account that was created, kept so the audit trail can answer
+    -- "which invitation produced this owner" years later.
+    used_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL
+);
+
+-- Unclaimed invitations, newest first: what the handover page lists.
+CREATE INDEX IF NOT EXISTS idx_panel_owner_claims_open
+    ON panel_owner_claims (created_at DESC)
+    WHERE used_at IS NULL;
+
 -- Login attempts, for throttling and for seeing an attack in progress.
 --
 -- A table rather than an in-memory counter, for two reasons: an

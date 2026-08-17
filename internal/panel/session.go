@@ -60,6 +60,16 @@ const (
 	// nobody confirmed is worth nothing, and one that outlived the tab
 	// it was created in would be a credential lying about.
 	keyPendingTOTP = "pending_totp"
+	// keyTechnicalDoor records that an owner confirmed the warning on the
+	// technical wizard and may walk in.
+	//
+	// In the session rather than on the user row on purpose: the warning
+	// is about *this visit*, not about this person forever. Somebody who
+	// looked at the retention policy last March should meet the sentence
+	// again next time, because the thing it warns about - reconfiguring
+	// a working installation by accident - does not get less true with
+	// familiarity.
+	keyTechnicalDoor = "technical_door"
 )
 
 // Sessions manages signed-in state.
@@ -312,4 +322,24 @@ func (s *Sessions) PendingTOTP(ctx context.Context) string {
 // worthless.
 func (s *Sessions) ClearPendingTOTP(ctx context.Context) {
 	s.mgr.Remove(ctx, keyPendingTOTP)
+}
+
+// OpenTechnicalDoor records that an owner accepted the warning.
+func (s *Sessions) OpenTechnicalDoor(ctx context.Context) {
+	if s == nil || s.mgr == nil {
+		return
+	}
+	s.mgr.Put(ctx, keyTechnicalDoor, true)
+}
+
+// TechnicalDoorOpen reports whether this session accepted it.
+//
+// Never the whole authorisation. The handler still asks whether this
+// principal owns anything, every request - this flag only answers "have
+// they been warned", and a flag in a session is not a role.
+func (s *Sessions) TechnicalDoorOpen(ctx context.Context) bool {
+	if s == nil || s.mgr == nil {
+		return false
+	}
+	return s.mgr.GetBool(ctx, keyTechnicalDoor)
 }

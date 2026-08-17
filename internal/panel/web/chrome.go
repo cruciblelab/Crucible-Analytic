@@ -91,7 +91,7 @@ func (s *Server) page(r *http.Request, lang *ui.Language, access panel.Access, c
 		L:       lang,
 		Title:   title,
 		Heading: title,
-		F:       ui.NewFormatter(lang, s.Zone),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		CSRF:    s.Sessions.CSRFToken(r.Context()),
 		User: ui.UserView{
 			Label:    access.Principal.Label,

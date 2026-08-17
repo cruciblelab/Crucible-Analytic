@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -66,6 +67,10 @@ var wizardSteps = []wizardStep{
 	{ID: "toplama"},
 	{ID: "saklama", Writes: true},
 	{ID: "kontrol"},
+	// Handover is last because it is the only step that ends the
+	// installer's involvement: everything before it can be revisited,
+	// and this one produces a link somebody else uses.
+	{ID: "devir", Writes: true},
 }
 
 func stepIndex(id string) int {
@@ -116,6 +121,20 @@ type setupPage struct {
 	// Manual and Unchecked are the steps the panel can never do.
 	Manual    []preflight.ManualStep
 	Unchecked []preflight.ManualStep
+
+	// Handover is the last step: the invitation that turns a finished
+	// installation into an account somebody owns.
+	Claims []panel.OwnerClaim
+	// ClaimURL is a freshly minted link. Shown once and never again -
+	// only its hash is stored - so the page has to make that plain.
+	ClaimURL   string
+	ClaimEmail string
+	// CanHandOver is false while a required check is failing. Handing
+	// over a broken deployment makes the customer's first experience an
+	// error page, which is the one first impression worth blocking on.
+	CanHandOver bool
+	// HandoverBlockedBy names why, when it is false.
+	HandoverBlockedBy string
 
 	// Retention is one row per editable retention value.
 	Retention []retentionRow
@@ -177,12 +196,33 @@ const statusCSRFExpired = 419
 // there may be no accounts at all: sending somebody to sign in to a
 // deployment with no users is a loop.
 func (s *Server) developerAccess(w http.ResponseWriter, r *http.Request, lang *ui.Language) (panel.Access, bool) {
-	principal, err := s.Sessions.Principal(r.Context())
-	if err != nil || !principal.Superadmin {
+	ctx := r.Context()
+	principal, err := s.Sessions.Principal(ctx)
+	if err != nil {
 		s.renderSetupNeeded(w, r, lang, http.StatusForbidden)
 		return panel.Access{}, false
 	}
-	return panel.Access{Principal: principal}, true
+	// The developer's own session, and the operator's, open this
+	// directly. Both are here because they run the machine.
+	if principal.Superadmin {
+		return panel.Access{Principal: principal}, true
+	}
+	// An owner may too, once - see internal/panel/web/technicaldoor.go
+	// for why this is a confirmation rather than a hidden page or an
+	// open link. The confirmation is only "have they been warned"; the
+	// authority is still the ownership check, asked here every request.
+	if s.Sessions.TechnicalDoorOpen(ctx) && s.ownsAnySite(ctx, principal) {
+		return panel.Access{Principal: principal}, true
+	}
+	// An owner who has not confirmed is sent to the door rather than
+	// refused, because they may go through it. Anybody else gets the
+	// page that says what this deployment is waiting for.
+	if s.ownsAnySite(ctx, principal) {
+		http.Redirect(w, r, TechnicalDoorPath, http.StatusSeeOther)
+		return panel.Access{}, false
+	}
+	s.renderSetupNeeded(w, r, lang, http.StatusForbidden)
+	return panel.Access{}, false
 }
 
 // renderSetupNeeded is the page somebody lands on with no developer
@@ -204,7 +244,7 @@ func (s *Server) renderSetupNeeded(w http.ResponseWriter, r *http.Request, lang 
 		L:       lang,
 		Title:   lang.T("kurulum.gerekli.baslik"),
 		Heading: lang.T("kurulum.gerekli.baslik"),
-		F:       ui.NewFormatter(lang, s.Zone),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		Data: struct {
 			FirstRun bool
 			Command  string
@@ -247,11 +287,22 @@ func (s *Server) renderStep(w http.ResponseWriter, r *http.Request, lang *ui.Lan
 		return
 	}
 
-	s.Renderer.Render(w, r, http.StatusOK, "kurulum_"+step.ID, &ui.Page{
+	// A refused submission is a client error, and says so. The wizard
+	// used to answer 200 for these, which reads fine in a browser and
+	// lies to everything else - a test, a script, an access log
+	// somebody is scanning for the moment an installation went wrong.
+	// The rest of the panel already answers 400 here; this is the same
+	// rule rather than a second one.
+	status := http.StatusOK
+	if data.Failed {
+		status = http.StatusBadRequest
+	}
+
+	s.Renderer.Render(w, r, status, "kurulum_"+step.ID, &ui.Page{
 		L:       lang,
 		Title:   lang.T("kurulum.adim." + step.ID + ".baslik"),
 		Heading: lang.T("kurulum.adim." + step.ID + ".baslik"),
-		F:       ui.NewFormatter(lang, s.Zone),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		CSRF:    s.Sessions.CSRFToken(r.Context()),
 		User: ui.UserView{
 			Label:         access.Principal.Label,
@@ -321,6 +372,48 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		if data.Ran {
 			data.Complete, data.Blocking = preflight.Complete(data.Checks)
 		}
+
+	case "devir":
+		if err := s.loadHandover(ctx, lang, data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadHandover fills in the last step: whether the deployment may be
+// handed over, and the invitations already open.
+//
+// The checks are run here rather than trusted from the previous step.
+// An installer can reach this page directly, and "the checks passed
+// when you looked at them" is not the same claim as "the checks pass".
+func (s *Server) loadHandover(ctx context.Context, lang *ui.Language, data *setupPage) error {
+	results := s.Preflight.Run(ctx, s.preflightConfig())
+	ok, blocking := preflight.Complete(results)
+	data.CanHandOver = ok
+	if !ok {
+		names := make([]string, 0, len(blocking))
+		for _, check := range blocking {
+			names = append(names, check.Label)
+		}
+		data.HandoverBlockedBy = strings.Join(names, ", ")
+	}
+
+	claims, err := s.Store.OpenOwnerClaims(ctx)
+	if err != nil {
+		return err
+	}
+	data.Claims = claims
+
+	// An account already exists, so handover has happened. Said plainly
+	// rather than by hiding the form: a developer coming back to add a
+	// second owner should find out here, not by being refused.
+	users, err := s.Store.CountUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if users > 0 && data.Message == "" {
+		data.Message = lang.Tn("kurulum.devir.hesap_var", users, strconv.Itoa(users))
 	}
 	return nil
 }
@@ -448,6 +541,8 @@ func (s *Server) saveStep(w http.ResponseWriter, r *http.Request, lang *ui.Langu
 		results := s.Preflight.Run(r.Context(), s.preflightConfig())
 		data.Checks = results
 		data.Ran = true
+	case "devir":
+		s.handOver(r, lang, access, &data)
 	default:
 		// Nothing to save; move on rather than redisplaying.
 		http.Redirect(w, r, SetupPathPrefix+wizardSteps[min(index+1, len(wizardSteps)-1)].ID, http.StatusSeeOther)
@@ -666,4 +761,84 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// handOver mints the invitation that turns this installation into
+// somebody's panel.
+//
+// The two conditions it enforces are the reason the step exists rather
+// than a link in the documentation:
+//
+//   - **Required checks must pass.** Handing over a deployment whose
+//     schema is unapplied or whose roles are wrong makes the customer's
+//     first experience an error page, and the person who could have
+//     fixed it has just walked away.
+//   - **The address must not already have an account.** Otherwise the
+//     link is minted, handed over, and refused at the far end - by which
+//     time the developer is gone.
+func (s *Server) handOver(r *http.Request, lang *ui.Language, access panel.Access, data *setupPage) {
+	ctx := r.Context()
+
+	// Re-run rather than trust a hidden field. The form the installer is
+	// submitting was drawn from a check that may be minutes old, and
+	// nothing stops it being replayed.
+	results := s.Preflight.Run(ctx, s.preflightConfig())
+	if ok, blocking := preflight.Complete(results); !ok {
+		// Names them, exactly as the page does when it draws the form
+		// disabled. A refusal that only says "a check is failing" sends
+		// the installer back to a list of fourteen to find out which.
+		names := make([]string, 0, len(blocking))
+		for _, check := range blocking {
+			names = append(names, check.Label)
+		}
+		data.Message = lang.Tf("kurulum.devir.engelli_detay", strings.Join(names, ", "))
+		data.Failed = true
+		return
+	}
+
+	email := strings.TrimSpace(r.PostFormValue("eposta"))
+	name := strings.TrimSpace(r.PostFormValue("ad"))
+	if email == "" {
+		data.Message, data.Failed = lang.T("kurulum.devir.eposta_bos"), true
+		return
+	}
+
+	token, claim, err := s.Store.CreateOwnerClaim(ctx, email, name, access.Principal, 0)
+	if err != nil {
+		if errors.Is(err, panel.ErrEmailTaken) {
+			data.Message, data.Failed = lang.T("kurulum.devir.eposta_kayitli"), true
+			return
+		}
+		s.logger().Error("panel: creating owner invitation", "err", err)
+		data.Message, data.Failed = lang.T("hesap.hata.kaydedilemedi"), true
+		return
+	}
+
+	_ = s.Store.RecordFor(ctx, access.Principal, panel.AuditEntry{
+		Action: panel.ActionSetupCompleted,
+		Detail: map[string]any{"invited": claim.Email, "claim_id": claim.ID},
+	})
+
+	data.ClaimURL = s.absoluteURL(r, ClaimPathPrefix+token)
+	data.ClaimEmail = claim.Email
+	data.Message = lang.T("kurulum.devir.olusturuldu")
+}
+
+// absoluteURL builds a link the installer can copy into a message.
+//
+// Assembled from the request rather than from configuration, because the
+// panel does not know its own public address - it is behind whatever
+// proxy the deployment put there. The Host header is the browser's own
+// idea of where it is, which is exactly right for a link that same
+// browser's owner is about to send somebody.
+//
+// It is never used for a redirect or a security decision, only printed:
+// a forged Host here produces a link that does not work, not a link that
+// goes somewhere else.
+func (s *Server) absoluteURL(r *http.Request, path string) string {
+	scheme := "http"
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + path
 }

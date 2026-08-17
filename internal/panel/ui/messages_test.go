@@ -304,8 +304,13 @@ func TestNoDeadCatalogEntries(t *testing.T) {
 // an entry in one place and not the other surfaces, from one side as a
 // missing translation and from the other as a key nothing uses.
 var (
-	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "toplama", "saklama", "kontrol"}
-	checkStatuses = []string{"pass", "fail", "warn", "skip"}
+	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "toplama", "saklama", "kontrol", "devir"}
+	// welcomeStepIDs mirrors welcomeSteps in internal/panel/web. Same
+	// deal as the list above: the titles are assembled at runtime from
+	// the step id, so neither the template walk nor the source scan sees
+	// the family.
+	welcomeStepIDs = []string{"site", "saat", "olcum", "ekip"}
+	checkStatuses  = []string{"pass", "fail", "warn", "skip"}
 	// memberRoles mirrors panel.ValidRoles. The role labels are looked
 	// up as "rol." + the stored role, from both a handler and a
 	// template, so neither the source scan nor the template walk sees
@@ -325,6 +330,9 @@ func computedKeys() []string {
 	}
 	for _, role := range memberRoles {
 		keys = append(keys, "rol."+role)
+	}
+	for _, id := range welcomeStepIDs {
+		keys = append(keys, "hosgeldiniz.adim."+id+".baslik")
 	}
 	return keys
 }

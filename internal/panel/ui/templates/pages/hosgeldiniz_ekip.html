@@ -1,0 +1,18 @@
+{{define "icerik"}}
+{{template "hosgeldiniz_ilerleme" .}}
+<p>{{t "hosgeldiniz.adim.ekip.govde"}}</p>
+<ul>
+<li>{{t "hosgeldiniz.adim.ekip.rol_owner"}}</li>
+<li>{{t "hosgeldiniz.adim.ekip.rol_admin"}}</li>
+<li>{{t "hosgeldiniz.adim.ekip.rol_viewer"}}</li>
+</ul>
+{{- with .Data.MembersURL}}
+<p><a class="dugme" href="{{.}}">{{t "hosgeldiniz.adim.ekip.git"}}</a></p>
+{{- end}}
+{{- /* Said now rather than discovered on the members page: adding
+somebody who has no account needs an invitation email, and that is not
+built. */}}
+<p class="ipucu">{{t "hosgeldiniz.adim.ekip.davet_yok"}}</p>
+<p><a href="/">{{t "hosgeldiniz.bitir"}}</a></p>
+{{template "hosgeldiniz_gezinme" .}}
+{{end}}

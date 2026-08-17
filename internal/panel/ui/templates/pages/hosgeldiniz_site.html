@@ -1,0 +1,23 @@
+{{define "icerik"}}
+{{template "hosgeldiniz_ilerleme" .}}
+<p>{{t "hosgeldiniz.adim.site.govde"}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+{{- range .Data.Sites}}
+<div class="alan">
+<label for="ad-{{.SiteID}}">{{.SiteID}}</label>
+<input id="ad-{{.SiteID}}" name="ad:{{.SiteID}}" type="text" maxlength="200" value="{{.Name}}">
+</div>
+{{- else}}
+<p class="ipucu">{{t "hosgeldiniz.site.yok"}}</p>
+{{- end}}
+{{- if .Data.Sites}}
+{{- /* The id is shown beside the name and never edited here. It is what
+the snippet on the customer's own website says, so renaming a site must
+never mean re-editing a page somewhere else. */}}
+<p class="ipucu">{{t "hosgeldiniz.adim.site.kimlik_ipucu"}}</p>
+<button type="submit">{{t "kaydet"}}</button>
+{{- end}}
+</form>
+{{template "hosgeldiniz_gezinme" .}}
+{{end}}

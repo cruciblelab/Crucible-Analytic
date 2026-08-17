@@ -1,0 +1,63 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+
+{{- if .Data.ClaimURL}}
+{{- /* Shown once. Only the hash is stored, so this page is the single
+opportunity to copy it - and the sentence below has to say so, or
+somebody will close the tab expecting to find it again. */}}
+<section class="bolum">
+<h2>{{t "kurulum.devir.baglanti_baslik"}}</h2>
+<p>{{tf "kurulum.devir.baglanti_govde" .Data.ClaimEmail}}</p>
+<p><code class="secret">{{.Data.ClaimURL}}</code></p>
+<p class="uyari" role="note">{{t "kurulum.devir.bir_kez"}}</p>
+</section>
+{{- end}}
+
+<p>{{t "kurulum.adim.devir.govde"}}</p>
+
+{{- if .Data.CanHandOver}}
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<div class="alan">
+<label for="eposta">{{t "kurulum.devir.eposta"}}</label>
+<input id="eposta" name="eposta" type="email" required spellcheck="false">
+<p class="ipucu">{{t "kurulum.devir.eposta_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="ad">{{t "kurulum.devir.ad"}}</label>
+<input id="ad" name="ad" type="text" maxlength="80">
+</div>
+<button type="submit">{{t "kurulum.devir.olustur"}}</button>
+</form>
+{{- else}}
+{{- /* Blocked rather than hidden. Handing over a deployment whose schema
+is unapplied makes the customer's first experience an error page, and
+the person who could have fixed it has just walked away. */}}
+<p class="uyari hata" role="note">{{tf "kurulum.devir.engelli_detay" .Data.HandoverBlockedBy}}</p>
+{{- end}}
+
+{{- if .Data.Claims}}
+<section class="bolum">
+<h2>{{t "kurulum.devir.acik_davetler"}}</h2>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "kurulum.devir.eposta"}}</th>
+<th scope="col">{{t "kurulum.devir.gecerlilik"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Claims}}
+<tr>
+<th scope="row">{{.Email}}</th>
+<td>{{$.F.DateTime .ExpiresAt}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+<p class="ipucu">{{t "kurulum.devir.acik_ipucu"}}</p>
+</section>
+{{- end}}
+
+{{template "kurulum_gezinme" .}}
+{{end}}

@@ -57,7 +57,7 @@ tutuyor.
 | **AI** ara işler | ✅ **2/2** | — |
 | **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **5/9** | C3, C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **6/9** | C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -1398,16 +1398,54 @@ mevcut kuruluma ulaşır.
   doğrulanmamış maddeyi aynı gösteren bir liste, okuyucuya ikisine de
   güvenmemeyi öğretir.
 
-#### C3 — Sahip sihirbazı ve teknik kapı
+#### C3 — Sahip sihirbazı ve teknik kapı ✅ **yapıldı**
 
-Müşterinin gördüğü ilk şey. Hesabını oluşturur, siteyi kendi diliyle
-adlandırır, saat dilimini ayarlar, gömülecek snippet'i gösterir,
-meslektaş davetini önerir. **Asla teknik bir adım zorunlu kılmaz** —
-çünkü onlar zaten yapıldı; teknik bir değere ihtiyaç duyduğunda boş alan
-değil, geliştiricinin yapılandırdığını gösterir.
+**Bu fazın kapattığı boşluk:** bugün ilk sahip hesabını oluşturmanın
+**hiçbir yolu yok.** Teknik sihirbaz hesap açmıyor, `-dev-link` hesap
+açmıyor, ve C4'ün giriş formu var olmayan bir hesaba giriş yaptıramıyor.
+Zincirin eksik halkası devir teslim.
 
-Sahip sihirbazı, teknik sihirbaza gösterişsiz bir bağlantı taşır. İlk
-tıklama onu açmaz; uyarır:
+**C3.1 — Devir teslim ve sahiplenme bağlantısı.**
+
+Teknik sihirbazın son adımı (`kontrol`) bir eylem kazanıyor: zorunlu
+kontrollerin hepsi geçtiyse geliştirici sahibin e-postasını yazar ve
+panel **tek kullanımlık bir sahiplenme bağlantısı** üretir. Bağlantı bir
+kez ekranda gösterilir; saklanan yalnız SHA-256'sı.
+
+- **Hesap bağlantı kullanılana kadar açılmıyor.** Devir teslim bir davet
+  kaydı yazıyor, kullanıcı satırı değil. Parolasız veya "pasif" bir
+  kullanıcı satırı, iki durumu senkron tutmak demek; davet kaydı tek
+  durum.
+- Sahiplenme tek işlemde: kullanıcıyı oluşturur, **yapılandırılmış her
+  siteye sahip üyeliği** verir, daveti tüketir. Yarısı olan bir devir
+  teslim, kimsenin sahibi olmadığı bir site bırakır.
+- `panel -owner-link <eposta>` aynı şeyi kabuktan yapar — `-dev-link`'in
+  eşi. Müşteri bağlantıyı kaybettiğinde tek çıkış yolu bu; e-posta yok
+  (C7) ve olmadan da kurtarılabilir olmalı.
+- Devir teslim `setup.completed` yazıyor. Bu eylem sabiti A grubunda
+  tanımlanmıştı ve **hiç yazılmıyordu**; A10'daki `dev_access.*` ile
+  aynı hata.
+
+**C3.2 — Sahip sihirbazı.** `/hosgeldiniz/`, beş adım:
+
+1. `hesap` — parolasını belirler. Sahiplenme burada gerçekleşir.
+2. `site` — sitesini kendi diliyle adlandırır. Yeni ayar
+   `panel.site_name`, **site kapsamlı**.
+3. `saat` — saat dilimi. Yeni ayar `panel.timezone`, **global**, ve
+   config dosyasındaki değer artık varsayılan. Müşteri kendi saat
+   dilimini kurulumu yapandan iyi bilir.
+4. `olcum` — gömülecek snippet. Panel beacon'ın genel adresini bilmiyor;
+   `panel.toml`'a `beacon_url` ekleniyor. Boşsa adım snippet'i uydurmak
+   yerine nereden alınacağını söyler.
+5. `ekip` — meslektaş daveti. Üye sayfasına yönlendirir; hesabı olmayan
+   birini davet etmek e-posta demek ve o C7.
+
+**Kural: asla teknik bir adım zorunlu kılmaz.** Teknik bir değere
+ihtiyaç duyduğunda boş alan değil, geliştiricinin yapılandırdığını
+gösterir.
+
+**C3.3 — Teknik kapı.** Sahip panelinde gösterişsiz bir bağlantı. İlk
+tıklama teknik sihirbazı açmaz; onay ister:
 
 > Bu bölüm geliştiriciniz tarafından tamamlandı. Yine de baştan yapmak
 > isterseniz onaylayın.
@@ -1417,6 +1455,83 @@ merak edip gezinmesi ve çalışan bir kurulumu kazara yeniden
 yapılandırmak en iyi ihtimalle bir destek çağrısı. Gizli sayfa değil de
 onay olması bilinçli: **sunucu onların**, ve teknik bir sahip kendi
 ayarlarına ulaşmak için bizden izin istemek zorunda kalmamalı.
+
+**Bu, teknik sihirbazın erişimini genişletiyor** ve dikkat ister:
+bugün yalnız geliştirici oturumu açıyor. Sonrasında **owner rolü veya
+superadmin** de açabilecek — admin ve viewer **asla**. Hukuki ağırlıklı
+ayarları koruyan geliştirici parolası bundan bağımsız ve yerinde kalır:
+sihirbaza girmek o ayarları değiştirebilmek demek değil. Her onay
+denetim kaydına yazılır.
+
+**Tuzaklar:**
+
+- **Sahiplenme bağlantısı tek kullanımlık olmalı ve yarış
+  kaybetmemeli.** İki sekmede aynı anda açılırsa iki sahip değil bir
+  sahip oluşmalı. Tüketme ve oluşturma tek işlemde, `used_at IS NULL`
+  koşuluyla.
+- **Süresi dolmuş veya kullanılmış bağlantı, var olmayan bağlantıdan
+  ayırt edilmemeli.** Aksi halde bağlantı tahmini için bir oracle olur.
+- **Devir teslim, zorunlu kontroller geçmeden yapılamamalı.** Bozuk bir
+  kurulumu devretmek, müşterinin ilk deneyiminin bir hata sayfası olması
+  demek.
+- **Saat dilimi ayarı tanınmayan bir değeri kabul etmemeli** ve sessizce
+  UTC'ye düşmemeli — panel config dosyasında zaten bu kuralı uyguluyor.
+
+**Bitti ölçütü:** `go test -race ./...` temiz; entegrasyon paketi gerçek
+veritabanına karşı temiz; **gerçek tarayıcıda** devir teslim → sahiplenme
+→ sahip sihirbazının beş adımı → teknik kapının onayı baştan sona
+yürütülüyor; tek kullanımlık bağlantı için **eşzamanlı** bir yarış testi
+var; ve her metin katalogda (tr + en).
+
+#### Ne oldu
+
+Zincir tamamlandı. Yeni: `internal/panel/ownerclaim.go`,
+`internal/panel/web/welcome.go`, `internal/panel/web/technicaldoor.go`,
+`panel_owner_claims` tablosu, `panel.site_name` ve `panel.timezone`
+ayarları, `panel -owner-link`, ve `[roles]` config bölümü.
+
+**Yarış testi 8 eşzamanlı sahiplenme ile geçiyor: tam bir hesap, yedi
+red.** Kazananın siteye sahip olduğu ve superadmin *olmadığı* ayrıca
+doğrulanıyor — işlemin kaybedilmesi kolay yarısı o.
+
+**Zamanlayıcı olmayan üç bulgu:**
+
+1. **`cmd/panel` rol adlarını preflight'a hiç geçirmiyordu.** İzolasyon
+   kontrolleri "bakılmadı" diyordu, ve zorunlu+atlanmış handover'ı
+   bloke ediyor — yani **üretimde devir teslim hep kapalı olacaktı.**
+   `[roles]` bölümü eklendi; ayarlanmamış olması artık yüksek sesle
+   bloke ediyor, ki doğrusu bu: izolasyonu hiç doğrulanmamış bir
+   kurulumu devretmek tam olarak kimsenin fark etmediği durumdur.
+2. **`Complete()` kendi belgesiyle çelişiyordu.** `CheckWarn`'ın tanımı
+   "bilinmeye değer, **devir teslimi engellemez**" — ama `Complete()`
+   `!= CheckPass` diyordu, yani uyarı da engelliyordu. 0755 izinli bir
+   log dizini bir kurulumu devredilemez yapıyordu. Kural artık tanımla
+   aynı: **zorunlu + (fail veya skip)** engeller, uyarı engellemez.
+   Atlama hâlâ engelliyor — "baktık, kusurlu" ile "bakamadık" farkı
+   paketin tamamının üstüne kurulu olduğu ayrım.
+3. **Sihirbaz reddedilen gönderime 200 dönüyordu.** Tarayıcıda düzgün
+   görünür, başka her şeye yalan söyler. Artık panelin geri kalanıyla
+   aynı: 400.
+
+**Kararlar:**
+
+- **Davet bir satır, kullanıcı değil.** Parolasız + "henüz alınmadı"
+  bayraklı bir kullanıcı satırı, uyuşmadıklarında ya kimsenin giremediği
+  ya da herkesin girebildiği bir hesap demek.
+- **Sahiplenme superadmin üretmez.** Bir siteye sahip olmak ile kurulumu
+  işletmek farklı işler; superadmin kabuktan, bilerek açılır.
+- **Teknik kapının onayı oturumda, kullanıcı satırında değil.** Uyarı
+  *bu ziyaret* hakkında: geçen mart saklama ayarına bakan biri bir
+  dahakine cümleyi yeniden görmeli, çünkü uyardığı şey aşinalıkla
+  azalmıyor.
+- **Saat dilimi ayarı doğrulanıyor.** `Definition`'a `Check` alanı
+  eklendi: `KindString` "bir metin" demek, ki bir site adı için doğru ve
+  bir saat dilimi için işe yaramaz.
+
+**Açık iş olarak kayıtlı:** davet e-postası yok (bağlantı elden
+iletilir, `-owner-link` ile yenilenir); e-posta değiştirme C7.
+
+---
 
 #### C4 — Giriş, iki faktör, hesap ayarları, üye yönetimi ✅ **yapıldı**
 

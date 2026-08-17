@@ -923,6 +923,57 @@ The rules that shape it:
   own action so "granted because nobody owned this yet" is never
   flattened into "granted".
 
+The last step is **handover**. With every required check passing, the
+installer enters the owner's email address and the panel mints a
+one-time invitation link, shown once - only its SHA-256 is stored.
+Whoever opens it sets their own password, and the account is created and
+made owner of every configured site in one transaction. Losing the link
+means minting another:
+
+```bash
+panel -config panel.toml -owner-link musteri@example.com
+```
+
+Handover is refused while a required check is failing, and the refusal
+names them. Handing over a deployment whose schema is unapplied makes
+the customer's first experience an error page, and the person who could
+have fixed it has just walked away.
+
+### The owner's wizard
+
+The customer's first ten minutes, and the mirror image of the technical
+one: it configures and never verifies, because **it must never require a
+technical step**. Those were done before they arrived. Four steps - what
+the site is called, which time zone the numbers are read in, the snippet
+to embed, and how to add colleagues.
+
+Where it needs a technical value it shows what the developer configured
+rather than an empty field. If `beacon_url` is unset the snippet step
+says where to get the snippet instead of printing one built from a
+guessed address, which would look right and measure nothing.
+
+### The technical door
+
+The owner's panel carries an unassuming link to the technical wizard.
+The first click does not open it; it warns:
+
+> This section was completed by your developer. If you want to go
+> through it again anyway, confirm below.
+
+Neither hidden nor plainly linked, and both alternatives are wrong.
+Hiding it is wrong because **the server is theirs** — a capable owner
+should not have to ask us to see their own retention policy. Leaving it
+open is wrong because the common case is somebody curious clicking
+through a menu, and reconfiguring a working installation is a support
+call at best.
+
+The confirmation lives in the session, not on the account: the warning
+is about this visit, and what it warns about does not get less true with
+familiarity. It is also not the authorisation — every request still
+checks that the principal owns something (owners and the operator, never
+an admin or a viewer), and the settings with legal weight still ask for
+the developer password separately.
+
 The wizard's own text is translated. The check results and the
 manual-step list are still Turkish only: they live beside the rule that
 produces them rather than in the language packs, and moving them is

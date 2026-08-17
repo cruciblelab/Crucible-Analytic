@@ -119,3 +119,42 @@ func TestRunSurvivesWithoutADatabase(t *testing.T) {
 		})
 	}
 }
+
+// TestCompleteAgreesWithWhatTheStatusesMean.
+//
+// CheckWarn is defined as "something worth knowing that does not block
+// handover", and for a while Complete blocked on it anyway. Nothing
+// caught that, because nothing acted on Complete until the wizard grew
+// a handover step - at which point a log directory at 0755 made an
+// installation impossible to hand over, over a permission bit that the
+// check itself calls a warning.
+//
+// The distinction that does survive is skip: "we looked and it is
+// imperfect" and "we could not look" are different facts, and only the
+// second is a reason to stop.
+func TestCompleteAgreesWithWhatTheStatusesMean(t *testing.T) {
+	cases := []struct {
+		name     string
+		result   CheckResult
+		blocking bool
+	}{
+		{"required and passed", CheckResult{Severity: SeverityRequired, Status: CheckPass}, false},
+		{"required and failed", CheckResult{Severity: SeverityRequired, Status: CheckFail}, true},
+		{"required but could not run", CheckResult{Severity: SeverityRequired, Status: CheckSkip}, true},
+		{"required with a warning", CheckResult{Severity: SeverityRequired, Status: CheckWarn}, false},
+		{"recommended and failed", CheckResult{Severity: SeverityRecommended, Status: CheckFail}, false},
+		{"recommended and skipped", CheckResult{Severity: SeverityRecommended, Status: CheckSkip}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.result.ID = "x"
+			ok, blocking := Complete([]CheckResult{tc.result})
+			if tc.blocking && ok {
+				t.Errorf("%s did not block handover", tc.name)
+			}
+			if !tc.blocking && !ok {
+				t.Errorf("%s blocked handover: %+v", tc.name, blocking)
+			}
+		})
+	}
+}

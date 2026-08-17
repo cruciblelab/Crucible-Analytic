@@ -2512,3 +2512,145 @@ suite, where there is a real database to build a session manager over.
 The coverage got better rather than worse: what it proves now is that a
 fully wired panel binds, serves a real document with its headers, and
 stops when its context is cancelled.
+
+## The link that was missing from the chain
+
+Before this phase there was no way to create the first account. The
+technical wizard did not make one, `-dev-link` did not make one, and the
+sign-in form cannot sign anybody into an account that was never created.
+A finished installation had nobody to hand it to.
+
+That is the shape of gap that survives a long time in a project like
+this: every individual piece worked and had tests, and the missing edge
+between two of them belonged to neither.
+
+### The invitation is a row, not a user
+
+The obvious implementation is a user with an unusable password and a
+flag saying "not claimed yet". It is two pieces of state that have to
+agree, and the failure when they disagree is either an account nobody
+can sign in to or an account anybody can.
+
+An invitation that has not been accepted is not a user. It is an
+invitation, in its own table, holding the address the account will have
+and a SHA-256 of the token. Claiming creates the account, grants
+ownership of every configured site, and consumes the invitation - **in
+one transaction**, because each half is useless without the other:
+
+- a consumed invitation with no account is a customer locked out with no
+  second chance,
+- an account with no ownership is a customer signed in to a panel that
+  shows them nothing,
+- and an account created twice is two owners where one was promised.
+
+The consuming `UPDATE` carries `used_at IS NULL` and runs first, so the
+race is settled by the database rather than by which request arrived
+first. The test fires eight simultaneous redemptions of one token and
+requires exactly one account and seven refusals — and then checks that
+the winner really does own the site, because that is the half of the
+transaction it would be easy to lose without noticing.
+
+Accepting an invitation never produces a superadmin. Owning a site and
+running the deployment are different jobs; the second is created
+deliberately, from a shell.
+
+### Three things that were already broken
+
+None of these were introduced here. All three surfaced because handover
+is the first thing in the system that *acts* on the setup checks rather
+than displaying them.
+
+**`cmd/panel` never passed the role names to preflight.** The two
+isolation checks - the panel's role must not read analytics, the API's
+must not write - reported "we were not told", which is a skip, and a
+skipped required check blocks handover. So handover would have been
+permanently impossible in production, and only in production: every test
+that constructed a Server passed its own config.
+
+The fix is a `[roles]` section rather than making the check lenient. An
+unset one still blocks, loudly, because a deployment handed over without
+its isolation ever having been verified is exactly the one where nobody
+finds out until it matters.
+
+**`Complete()` contradicted its own documentation.** `CheckWarn` is
+defined, in the same file, as "something worth knowing that does not
+block handover" - and `Complete()` blocked on anything that was not a
+pass. Nothing noticed for two phases because nothing consulted it. Then
+a log directory at 0755 made an installation unhandoverable over a
+permission bit that the check itself calls a warning.
+
+The rule now matches the definitions: a required check blocks when it
+**failed or could not run**. Skip still blocks, and that is the
+distinction the whole package rests on - "we looked and it is imperfect"
+and "we could not look" are different facts, and only the second is a
+reason to stop.
+
+**The wizard answered 200 to refused submissions.** Fine in a browser,
+a lie to everything else: a test, a script, an access log somebody is
+scanning for the moment an installation went wrong. It now answers 400,
+which is what the rest of the panel already did.
+
+### A setting whose Kind cannot describe it
+
+`panel.timezone` is `KindString`, and `KindString` means "some text" -
+right for a site's name, useless for a zone. "Europe/Istanbul" and
+"Avrupa/İstanbul" are both text and only one of them is a timezone, and
+a panel that accepts the second and then renders in UTC tells a shop in
+Istanbul that its evening peak happened in the afternoon.
+
+Rather than adding a Kind per such value - each bringing a parser the
+settings package would then own - `Definition` grew a `Check` function.
+It runs after the Kind's own rules, on the canonical form, and returns a
+sentence the panel shows. The point of putting it at the *write* is that
+the person who typed the value is still there to hear about it.
+
+### The technical door
+
+Both obvious designs are wrong, which is why this needed a decision
+rather than an implementation.
+
+Hiding the technical wizard from the customer is wrong because **the
+server is theirs**. A technically capable owner who wants to look at
+their own retention policy should not have to ask us, and a product that
+makes them is one they are right to distrust.
+
+Leaving it plainly linked is also wrong, because the common case is not
+a capable owner: it is somebody curious clicking through a menu, and
+reconfiguring a working installation is a support call at best.
+
+So it is neither. It is a door with a sentence on it saying the work
+behind it is already done, and one confirmation. That costs a technical
+owner four seconds and stops the accidental visit entirely.
+
+Two details that are the actual design:
+
+- **The confirmation lives in the session, not on the user row.** The
+  warning is about *this visit*. Somebody who looked at the retention
+  policy last March should meet the sentence again, because what it
+  warns about does not get less true with familiarity.
+- **The confirmation is not the authorisation.** It only answers "have
+  they been warned". Every request still asks whether this principal
+  owns anything - owners and the operator, never an admin, never a
+  viewer. A flag in a session is not a role.
+- **The developer password is untouched.** Getting into the wizard is
+  not the same as being able to change what is in it; the settings with
+  legal weight still ask, every time.
+
+An owner who walks straight at the wizard is redirected to the door
+rather than refused, because they may go through it. They just have not
+been warned yet.
+
+### What the owner's wizard is not allowed to do
+
+The technical wizard verifies more than it configures, because most of
+what a deployment needs cannot be set from a browser. The owner's wizard
+is the mirror image: it configures and never verifies, because **it must
+never require a technical step**. Those were done before the customer
+arrived.
+
+Where it needs a technical value it shows what the developer configured
+rather than an empty field. The clearest case is the snippet step: the
+panel reads only its own config file, so it may genuinely not know where
+the beacon is. An unset `beacon_url` produces a step saying where to get
+the snippet — not a snippet built from a guessed address, which would
+look right and measure nothing.
