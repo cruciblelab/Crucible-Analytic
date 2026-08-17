@@ -44,7 +44,10 @@ var ErrEmailTaken = errors.New("panel: that email address is already registered"
 
 // Store is the panel's database access. Safe for concurrent use.
 type Store struct {
-	pool *pgxpool.Pool
+	// ipTokenKeyConfigured is whether the deployment has an IP token key
+	// on disk. Set once at wiring time - see SetIPTokenKeyConfigured.
+	ipTokenKeyConfigured bool
+	pool                 *pgxpool.Pool
 }
 
 // NewStore opens a pool to databaseURL and verifies it is reachable -

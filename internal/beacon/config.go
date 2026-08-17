@@ -94,7 +94,7 @@ func (p PrivacyConfig) Live(source *settings.Source) privacy.IPMode {
 	}
 	return privacy.ParseIPMode(source.String(
 		settings.KeyPrivacyIPStorage, "", string(p.IPMode()),
-		[]string{string(privacy.IPFull), string(privacy.IPMasked), string(privacy.IPHashed)}))
+		[]string{string(privacy.IPFull), string(privacy.IPMasked)}))
 }
 
 // CampaignConfig tunes which query parameters reach the database.

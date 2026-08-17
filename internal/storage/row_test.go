@@ -48,13 +48,18 @@ func TestBuildRows(t *testing.T) {
 		},
 	}
 
-	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", KnownBots: knownBots, IPMode: privacy.IPFull})
+	// Full mode with a key: the stored address is masked either way, and
+	// what full mode adds is the token beside it.
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", KnownBots: knownBots,
+		IPMode: privacy.IPFull, IPHashKey: testHashKey,
+	})
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
 
 	r0 := rows[0]
-	if r0.IP != snaps[0].IP || r0.JA4 != "bad-ja4" || r0.PrevWindowCount != 5 || r0.CurrWindowCount != 3 || r0.RequestRate != 8 {
+	if r0.IP != netip.MustParseAddr("203.0.113.0") || r0.JA4 != "bad-ja4" || r0.PrevWindowCount != 5 || r0.CurrWindowCount != 3 || r0.RequestRate != 8 {
 		t.Errorf("row 0 = %+v, mismatched fields copied from snapshot", r0)
 	}
 	if !r0.IsKnownBotJA4 {
@@ -110,7 +115,9 @@ func TestBuildRows_EnrichesWithResolver(t *testing.T) {
 		IP: netip.MustParseAddr("8.8.8.8"), Country: "US", ASN: 15169, ASNName: "GOOGLE", Found: true,
 	}}
 
-	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull, IPHashKey: testHashKey,
+	})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -130,7 +137,9 @@ func TestBuildRows_ResolverNotFoundLeavesZeroValue(t *testing.T) {
 	// value, but this exercises the actual Resolve call path.
 	resolver := fakeResolver{result: asnlookup.Result{IP: netip.MustParseAddr("203.0.113.1"), Found: false}}
 
-	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull, IPHashKey: testHashKey,
+	})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -149,7 +158,8 @@ func TestBuildRows_KnownBotASNAddsScoreBonusAndFlag(t *testing.T) {
 	knownBotASNs := map[int]struct{}{64512: {}}
 
 	rows := BuildRows(snaps, flushTime, RowOptions{
-		SiteID: "test-site", Resolver: resolver, KnownBotASNs: knownBotASNs, IPMode: privacy.IPFull,
+		SiteID: "test-site", Resolver: resolver, KnownBotASNs: knownBotASNs,
+		IPMode: privacy.IPFull, IPHashKey: testHashKey,
 	})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
@@ -173,7 +183,9 @@ func TestBuildRows_NilKnownBotASNsNoASNBonusEvenWithResolver(t *testing.T) {
 	}
 	resolver := fakeResolver{result: asnlookup.Result{ASN: 64512, Found: true}}
 
-	rows := BuildRows(snaps, flushTime, RowOptions{SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull})
+	rows := BuildRows(snaps, flushTime, RowOptions{
+		SiteID: "test-site", Resolver: resolver, IPMode: privacy.IPFull, IPHashKey: testHashKey,
+	})
 	if len(rows) != 1 {
 		t.Fatalf("len(rows) = %d, want 1", len(rows))
 	}
@@ -184,6 +196,9 @@ func TestBuildRows_NilKnownBotASNsNoASNBonusEvenWithResolver(t *testing.T) {
 }
 
 // --- IP storage mode (A7) ---
+
+// testHashKey keys the token in the full-mode cases below.
+var testHashKey = []byte("otuz-iki-baytlik-test-anahtari!!")
 
 // The zero value masks. A caller that adds a field to RowOptions and
 // forgets to set the mode gets coarser data, never personal data on
@@ -248,4 +263,38 @@ type recordingResolver struct {
 func (r recordingResolver) Resolve(ip netip.Addr) asnlookup.Result {
 	*r.seen = append(*r.seen, ip)
 	return r.result
+}
+
+// No mode writes a raw address. Full mode differs from masked by the
+// token beside the address, never by the address itself - which is the
+// rule the whole design turns on and the one somebody would break by
+// "restoring" full mode to what its name suggests.
+func TestBuildRows_NoModeStoresARawAddress(t *testing.T) {
+	flushTime := time.Now()
+	whole := netip.MustParseAddr("185.23.45.178")
+	snaps := []ratestore.Snapshot{{IP: whole, LastSeen: flushTime}}
+
+	for _, tc := range []struct {
+		mode      privacy.IPMode
+		key       []byte
+		wantToken bool
+	}{
+		{privacy.IPMasked, nil, false},
+		{privacy.IPFull, testHashKey, true},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			rows := BuildRows(snaps, flushTime, RowOptions{
+				SiteID: "test-site", IPMode: tc.mode, IPHashKey: tc.key,
+			})
+			if rows[0].IP == whole {
+				t.Errorf("%s stored the raw address", tc.mode)
+			}
+			if rows[0].IP != netip.MustParseAddr("185.23.45.0") {
+				t.Errorf("%s stored %v, want the masked network", tc.mode, rows[0].IP)
+			}
+			if got := len(rows[0].IPHash) > 0; got != tc.wantToken {
+				t.Errorf("%s wrote a token: %v, want %v", tc.mode, got, tc.wantToken)
+			}
+		})
+	}
 }

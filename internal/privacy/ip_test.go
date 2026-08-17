@@ -15,9 +15,11 @@ func TestMaskIP(t *testing.T) {
 	}{
 		{"ipv4 masked keeps the network", "185.23.45.178", IPMasked, "185.23.45.0"},
 		{"ipv4 masked is idempotent", "185.23.45.0", IPMasked, "185.23.45.0"},
-		{"ipv4 full is untouched", "185.23.45.178", IPFull, "185.23.45.178"},
+		// Full mode masks the stored address too - what it adds is the
+		// keyed token beside it, not a raw address.
+		{"ipv4 full still masks the stored address", "185.23.45.178", IPFull, "185.23.45.0"},
 		{"ipv6 masked keeps /64", "2a02:ff0:1234:5678:9abc:def0:1234:5678", IPMasked, "2a02:ff0:1234:5678::"},
-		{"ipv6 full is untouched", "2a02:ff0:1234:5678:9abc:def0:1234:5678", IPFull, "2a02:ff0:1234:5678:9abc:def0:1234:5678"},
+		{"ipv6 full still masks the stored address", "2a02:ff0:1234:5678:9abc:def0:1234:5678", IPFull, "2a02:ff0:1234:5678::"},
 		{"loopback masks like anything else", "127.0.0.1", IPMasked, "127.0.0.0"},
 
 		// A 4-in-6 address taking the IPv6 path would be "masked" to a
@@ -88,7 +90,7 @@ func TestParseIPMode_FallsBackToMasked(t *testing.T) {
 	}
 }
 
-// --- hashed mode ---
+// --- full mode's keyed token ---
 
 var testKey = []byte("otuz-iki-baytlik-test-anahtari!!")
 
@@ -96,8 +98,8 @@ var testKey = []byte("otuz-iki-baytlik-test-anahtari!!")
 // pseudonyms - including across the two spellings of an IPv4 address,
 // which the two writers see differently depending on the socket.
 func TestHashIP_PreservesEqualityAcrossWriters(t *testing.T) {
-	fromCollector := HashIP(netip.MustParseAddr("::ffff:185.23.45.178"), testKey)
-	fromBeacon := HashIP(netip.MustParseAddr("185.23.45.178"), testKey)
+	fromCollector := TokenIP(netip.MustParseAddr("::ffff:185.23.45.178"), testKey)
+	fromBeacon := TokenIP(netip.MustParseAddr("185.23.45.178"), testKey)
 
 	if len(fromBeacon) != HashLen {
 		t.Fatalf("hash is %d bytes, want %d", len(fromBeacon), HashLen)
@@ -107,30 +109,50 @@ func TestHashIP_PreservesEqualityAcrossWriters(t *testing.T) {
 			fromCollector, fromBeacon)
 	}
 
-	// And the same /24 collapses, exactly as masked mode does - hashing
-	// adds pseudonymity, not resolution.
-	if !bytes.Equal(HashIP(netip.MustParseAddr("185.23.45.9"), testKey), fromBeacon) {
-		t.Error("two addresses in one /24 hashed differently")
+	// And unlike the masked address beside it, the token separates two
+	// visitors inside one /24. That precision is the whole reason full
+	// mode exists - without it the mode would only be masked mode with
+	// an extra column.
+	if bytes.Equal(TokenIP(netip.MustParseAddr("185.23.45.9"), testKey), fromBeacon) {
+		t.Error("two different addresses in one /24 produced the same token; " +
+			"full mode has lost the precision it exists for")
 	}
-	if bytes.Equal(HashIP(netip.MustParseAddr("185.23.46.9"), testKey), fromBeacon) {
-		t.Error("a different /24 hashed the same")
+	if bytes.Equal(TokenIP(netip.MustParseAddr("185.23.46.178"), testKey), fromBeacon) {
+		t.Error("a different network produced the same token")
 	}
 }
 
-// A different deployment must not produce the same pseudonyms, or two
+// No mode writes a raw address. Masked mode writes the network; full
+// mode writes the same network plus the token. Stated here because it is
+// the rule the whole design is built on, and it is the one somebody
+// would break by "simplifying" full mode back to storing the address.
+func TestModes_NeverStoreARawAddress(t *testing.T) {
+	whole := netip.MustParseAddr("185.23.45.178")
+	for _, mode := range []IPMode{IPMasked, IPFull} {
+		stored := MaskIP(whole, mode)
+		if stored == whole {
+			t.Errorf("%s stored the raw address %v", mode, stored)
+		}
+		if stored != netip.MustParseAddr("185.23.45.0") {
+			t.Errorf("%s stored %v, want the masked network", mode, stored)
+		}
+	}
+}
+
+// A different deployment must not produce the same tokens, or two
 // customers' databases would be joinable to each other.
 func TestHashIP_IsKeyed(t *testing.T) {
 	other := []byte("bambaska-otuz-iki-baytlik-anaht!")
-	if bytes.Equal(HashIP(netip.MustParseAddr("185.23.45.178"), testKey),
-		HashIP(netip.MustParseAddr("185.23.45.178"), other)) {
-		t.Error("two different keys produced the same pseudonym")
+	if bytes.Equal(TokenIP(netip.MustParseAddr("185.23.45.178"), testKey),
+		TokenIP(netip.MustParseAddr("185.23.45.178"), other)) {
+		t.Error("two different keys produced the same token")
 	}
 }
 
-// A missing or short key returns nothing rather than hashing anyway.
-// Hashing with a weak key would produce a value that looks like a
-// pseudonym and reverses in microseconds, which is worse than storing
-// nothing - it would be believed.
+// A missing or short key returns nothing rather than tokenising anyway.
+// A weakly keyed value would look like a token and reverse in
+// microseconds, which is worse than storing nothing - it would be
+// believed.
 func TestHashIP_RefusesAWeakKey(t *testing.T) {
 	for name, key := range map[string][]byte{
 		"nil":     nil,
@@ -139,24 +161,32 @@ func TestHashIP_RefusesAWeakKey(t *testing.T) {
 		"one off": make([]byte, MinHashKeyLen-1),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := HashIP(netip.MustParseAddr("185.23.45.178"), key); got != nil {
+			if got := TokenIP(netip.MustParseAddr("185.23.45.178"), key); got != nil {
 				t.Errorf("a %s key produced %x", name, got)
 			}
 		})
 	}
-	if HashIP(netip.Addr{}, testKey) != nil {
-		t.Error("an invalid address produced a pseudonym")
+	if TokenIP(netip.Addr{}, testKey) != nil {
+		t.Error("an invalid address produced a token")
 	}
 }
 
-func TestIPMode_HashedIsRecognisedAndDescribesItself(t *testing.T) {
-	if got := ParseIPMode("hashed"); got != IPHashed {
-		t.Errorf("ParseIPMode(\"hashed\") = %s", got)
+// Only full mode needs a key. Masked mode has to work on a deployment
+// with nothing configured, because that is what makes the safe option
+// the effortless one.
+func TestIPMode_OnlyFullNeedsAKey(t *testing.T) {
+	if !IPFull.Tokenises() {
+		t.Error("full mode does not tokenise, so its key would never be used")
 	}
-	if !IPHashed.Hashes() || !IPHashed.Masks() {
-		t.Error("hashed mode must report both that it masks and that it hashes")
+	if IPMasked.Tokenises() {
+		t.Error("masked mode tokenises, so it would need a key it should not need")
 	}
-	if IPMasked.Hashes() || IPFull.Hashes() {
-		t.Error("only hashed mode hashes")
+	if !IPMasked.Masks() || !IPFull.Masks() {
+		t.Error("a mode reported that it does not mask; no mode may store a raw address")
+	}
+	// A retired mode name falls back to the default rather than being
+	// honoured as something the code no longer implements.
+	if got := ParseIPMode("hashed"); got != IPMasked {
+		t.Errorf("ParseIPMode(\"hashed\") = %s, want the default %s", got, IPMasked)
 	}
 }

@@ -144,6 +144,7 @@ func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckRe
 		s.checkRetentionPolicies(ctx),
 		s.checkConfiguredRolesExist(ctx, cfg.Roles),
 		checkDeveloperPassword(cfg.DeveloperGate),
+		s.checkIPTokenKey(),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		checkBackups(),
@@ -544,6 +545,32 @@ func checkDeveloperPassword(gate *devgate.Gate) CheckResult {
 	return result
 }
 
+// checkIPTokenKey reports whether full IP mode could be switched on at
+// all.
+//
+// Recommended rather than required, and skipped rather than failed when
+// absent - a deployment that never leaves masked mode needs no key and
+// is not misconfigured for lacking one. What the check exists for is the
+// other direction: somebody about to ask why the panel refuses to switch
+// modes should find the answer here rather than in a support call.
+func (s *Store) checkIPTokenKey() CheckResult {
+	result := CheckResult{
+		ID: "config.ip_token_key", Label: "IP jeton anahtarı (yalnız full mod için)",
+		Severity: SeverityRecommended,
+	}
+	if s.IPTokenKeyConfigured() {
+		result.Status = CheckPass
+		result.Detail = "Tanımlı. IP saklama biçimi full'e alınabilir; ham adres yine saklanmaz."
+		return result
+	}
+	result.Status = CheckSkip
+	result.Detail = "Tanımlı değil. Kurulum maskeli modda çalışır ve bu sorun değildir — " +
+		"anahtar yalnızca full moda geçilmek istenirse gerekir."
+	result.Fix = "go run ./cmd/devpass -ipkey  →  aynı değeri hem collector hem beacon " +
+		"yapılandırmasındaki [privacy] ip_hash_key alanına yazın"
+	return result
+}
+
 // checkConfiguredRolesExist catches a typo in a role name.
 //
 // Without it, a misspelled role makes the two isolation checks silently
@@ -812,6 +839,17 @@ func ManualSteps() []ManualStep {
 				"değil, hash yazılır.",
 			Command:   "go run ./cmd/devpass  →  [developer] password_hash = \"$argon2id$...\"",
 			CheckedBy: "config.developer_password",
+		},
+		{
+			ID: "config.ip_token_key", Label: "IP jeton anahtarı",
+			Why: "Hiçbir modda ham IP adresi saklanmaz. Maskeli modda yalnız ağ " +
+				"(IPv4 /24) yazılır ve anahtar gerekmez. full modda aynı maskeli ağın " +
+				"yanına tam adresten türetilmiş anahtarlı bir jeton yazılır — aynı /24 " +
+				"içindeki iki ziyaretçi ayrılabilir, adres yine diske inmez. Bu anahtar " +
+				"iki serviste de birebir aynı olmalıdır; farklı olursa kesişim birleşimi " +
+				"hatasız biçimde boş döner.",
+			Command:   "go run ./cmd/devpass -ipkey  →  [privacy] ip_hash_key (collector + beacon)",
+			CheckedBy: "config.ip_token_key",
 		},
 		{
 			ID: "logs.dir", Label: "Günlük dizini ve izinleri",

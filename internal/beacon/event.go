@@ -110,9 +110,10 @@ type Row struct {
 	ReferrerPath string
 
 	IP netip.Addr
-	// IPHash is the keyed pseudonym written in hashed mode, nil
-	// otherwise. Exactly one of IP and IPHash ever carries a value: a
-	// row with both would be storing the address it set out not to.
+	// IPHash is the keyed token written in full mode, nil in masked
+	// mode. It sits alongside IP rather than instead of it: a coarse
+	// network anyone may read, and a precise token nobody may reverse
+	// without the key.
 	IPHash []byte
 
 	Browser string
@@ -157,8 +158,7 @@ func (e Event) Validate() error {
 type Enrichment struct {
 	Time time.Time
 	IP   netip.Addr
-	// IPHash is the keyed pseudonym written in hashed mode, nil
-	// otherwise. Exactly one of IP and IPHash ever carries a value.
+	// IPHash is the keyed token written in full mode, nil in masked mode.
 	IPHash    []byte
 	VisitorID string
 	UserAgent UserAgent

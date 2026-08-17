@@ -107,10 +107,10 @@ type Server struct {
 	// see ipMode, and privacy.DefaultIPMode for why the fallback goes
 	// that way.
 	IPMode privacy.IPMode
-	// IPHashKey keys the pseudonym in hashed mode. Without one, hashed
-	// mode stores neither an address nor a pseudonym - see
-	// privacy.HashIP for why hashing with a weak key is worse than not
-	// hashing at all.
+	// IPHashKey keys the token in full mode, and is ignored in masked
+	// mode. Without a usable key, full mode degrades to masked rather
+	// than tokenising weakly - see privacy.TokenIP for why a weak key
+	// is worse than none.
 	IPHashKey []byte
 	// AllowedOrigins narrows CORS. Empty means every origin is allowed,
 	// which is safe here and not the usual laxness it looks like: the
@@ -309,9 +309,9 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	mode := s.ipMode()
 	row := BuildRow(event, Enrichment{
 		Time: s.now(),
-		// Exactly one of these carries a value. In hashed mode the
-		// address column is left empty entirely and the pseudonym takes
-		// its place; in every other mode the reverse.
+		// The masked network always, and in full mode a keyed token of
+		// the whole address alongside it. The raw address reaches
+		// neither column, in either mode.
 		IP:        storedAddress(ip, mode),
 		IPHash:    storedPseudonym(ip, mode, s.IPHashKey),
 		VisitorID: visitorID,
@@ -486,18 +486,17 @@ func (s *Server) ipMode() privacy.IPMode {
 
 // storedAddress and storedPseudonym split one decision in two, so the
 // call site reads as the invariant it is enforcing.
+// The address column always carries the masked network; the token
+// column carries whole-address precision, and only in full mode.
 func storedAddress(ip netip.Addr, mode privacy.IPMode) netip.Addr {
-	if mode.Hashes() {
-		return netip.Addr{}
-	}
 	return privacy.MaskIP(ip, mode)
 }
 
 func storedPseudonym(ip netip.Addr, mode privacy.IPMode, key []byte) []byte {
-	if !mode.Hashes() {
+	if !mode.Tokenises() {
 		return nil
 	}
-	return privacy.HashIP(ip, key)
+	return privacy.TokenIP(ip, key)
 }
 
 // sites is the allowlist in force right now.

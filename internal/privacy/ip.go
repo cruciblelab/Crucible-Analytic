@@ -22,10 +22,24 @@ import (
 type IPMode string
 
 const (
-	// IPFull stores the whole address.
-	IPFull IPMode = "full"
-	// IPMasked stores IPv4 to /24 and IPv6 to /64.
+	// IPMasked is the default: the address is reduced to its network -
+	// IPv4 /24, IPv6 /64 - and that is all that is stored. No key is
+	// involved and none is needed; a /24 identifies a network, not a
+	// subscriber.
 	IPMasked IPMode = "masked"
+	// IPFull keeps full precision without keeping the address.
+	//
+	// The stored row carries the *masked* address, exactly as in masked
+	// mode, plus a keyed token derived from the whole one. So the raw
+	// address still never reaches the disk - what full mode adds is the
+	// ability to tell two visitors inside one /24 apart, which is what
+	// the crossover join and the per-address views actually need.
+	//
+	// This is the mode that requires a key, and the only one. Switching
+	// into it is a deliberate act: it needs the developer password like
+	// any legally weighted setting, and it needs the key to have been
+	// put in the config file beforehand, by somebody with a shell.
+	IPFull IPMode = "full"
 )
 
 // DefaultIPMode is masked, on legal advice.
@@ -67,8 +81,6 @@ func ParseIPMode(value string) IPMode {
 		return IPFull
 	case IPMasked:
 		return IPMasked
-	case IPHashed:
-		return IPHashed
 	default:
 		return DefaultIPMode
 	}
@@ -77,12 +89,21 @@ func ParseIPMode(value string) IPMode {
 // String makes IPMode printable for logs and config dumps.
 func (m IPMode) String() string { return string(m) }
 
-// Masks reports whether this mode reduces the stored address.
-func (m IPMode) Masks() bool { return m != IPFull }
+// Masks reports whether the stored address is reduced to its network.
+//
+// Always, in both modes. It stayed a method rather than becoming a
+// constant because MaskIP's callers read better for it, and because a
+// future mode that stores something else will have to answer this
+// question again rather than inheriting an assumption.
+func (m IPMode) Masks() bool { return true }
 
-// Hashes reports whether this mode stores a pseudonym instead of an
-// address. In hashed mode the address column is left empty entirely.
-func (m IPMode) Hashes() bool { return m == IPHashed }
+// Tokenises reports whether this mode stores a keyed token alongside the
+// masked address, and therefore whether it needs a key at all.
+//
+// Only full mode does. Masked mode is the default and works on any
+// deployment with nothing configured, which is what lets the safe option
+// be the effortless one.
+func (m IPMode) Tokenises() bool { return m == IPFull }
 
 // MaskIP applies the mode to an address.
 //
@@ -132,42 +153,39 @@ func MaskIP(ip netip.Addr, mode IPMode) netip.Addr {
 	return prefix.Addr()
 }
 
-// --- Hashed mode ---
+// --- The keyed token, and what it is honestly worth ---
 //
-// A third mode, added on legal advice: mask the address, then replace it
-// with a keyed hash, so what reaches the disk is a pseudonym rather than
-// an address at all.
+// # No mode stores a raw address
 //
-// # What this actually protects against, stated exactly
+// That is the rule the two modes are built around. Masked mode stores
+// the network and nothing else. Full mode stores the same network plus a
+// keyed token of the whole address - so it recovers the precision the
+// crossover join wants without the address itself ever reaching disk.
+//
+// # What the token protects against, stated exactly
 //
 // It protects the database. A stolen backup, an imaged disk, a SQL
 // injection, a compromised read-only API - none of them yield an
 // address, because none of them include the key.
 //
-// It does *not* make the addresses unknowable to whoever holds the key.
-// This is worth stating plainly rather than letting it be assumed: an
-// IPv4 /24 network has about 16.7 million possible values, and trying
-// every one of them against a known key takes a fraction of a second on
-// an ordinary laptop. The hash is not a one-way door for anybody who has
-// both halves.
+// It does *not* put the addresses beyond the reach of whoever holds the
+// key. Worth stating plainly rather than letting it be assumed: the row
+// already carries the /24, so anyone with the key has 256 candidates to
+// try, not four billion. The token is a lock on the data, not a one-way
+// door for the party holding both halves.
 //
-// So the honest claim is: "an address cannot be recovered from the data
-// alone", not "nobody can ever recover it". Anyone relying on the
-// stronger claim - in a privacy notice, or in advice from counsel -
-// should be told which of the two they actually have. The key lives in
-// the same config file as the database password, so the party who can
-// reverse it is exactly the party who could already read everything.
+// So the honest claim is "an address cannot be recovered from the data
+// alone", never "nobody can ever recover it". Anybody relying on the
+// stronger sentence - in a privacy notice, or in advice from counsel -
+// has to be told which of the two they actually have.
 //
-// # Why the join still works
+// # Why the join still works, and gets sharper
 //
-// Hashing preserves equality, which is all the crossover join needs.
-// Two processes hashing the same masked address with the same key
-// produce the same pseudonym, so beacon_events and traffic_snapshots
-// still line up - at the same /24 resolution masked mode gives, and with
-// no address on either side.
-
-// IPHashed masks the address and then replaces it with a keyed hash.
-const IPHashed IPMode = "hashed"
+// Tokenising preserves equality, which is all the crossover join needs.
+// Two processes tokenising the same address with the same key produce
+// the same value, so beacon_events and traffic_snapshots line up - and
+// in full mode they line up at whole-address precision rather than /24,
+// which is exactly what that mode is for.
 
 // HashLen is the stored pseudonym's length in bytes.
 //
@@ -185,29 +203,33 @@ const HashLen = 16
 // can visit the site can produce for themselves.
 const MinHashKeyLen = 32
 
-// HashIP turns an address into the pseudonym stored in hashed mode.
+// TokenIP turns a whole address into the keyed token stored in full
+// mode, and returns nil in every other mode's circumstances.
 //
-// The address is masked first, so two visitors on one /24 hash alike -
-// the resolution is exactly what masked mode gives, and the mode adds
-// only the property that the value is no longer an address.
+// The *whole* address goes in, not the masked one. That is the point of
+// full mode: the token distinguishes two visitors inside one /24, which
+// the masked address in the same row cannot. The row therefore carries
+// a coarse address anyone may read and a precise token nobody may
+// reverse without the key - and no raw address at all.
 //
-// An empty key returns nil rather than hashing with nothing. A caller
-// that stored the result would be storing a value derived from a
-// publicly known function of the address, which is worse than useless:
-// it would look like a pseudonym and reverse in microseconds.
-func HashIP(ip netip.Addr, key []byte) []byte {
+// An absent or short key returns nil rather than tokenising anyway. A
+// caller that stored a weakly keyed value would be storing something
+// that looks like a token and reverses in microseconds, which is worse
+// than storing nothing, because it would be believed.
+func TokenIP(ip netip.Addr, key []byte) []byte {
 	if len(key) < MinHashKeyLen || !ip.IsValid() {
 		return nil
 	}
-	masked := MaskIP(ip, IPMasked)
-	if !masked.IsValid() {
-		return nil
+	whole := ip
+	if whole.Is4In6() {
+		whole = whole.Unmap()
 	}
 
 	// The 16-byte form for both families, so an IPv4 address and its
-	// IPv4-in-IPv6 spelling cannot hash differently - the two writers
-	// would otherwise fail to join, for a reason nothing would report.
-	full := masked.As16()
+	// IPv4-in-IPv6 spelling cannot tokenise differently - the two
+	// writers would otherwise fail to join, for a reason nothing would
+	// report.
+	full := whole.As16()
 
 	mac := hmac.New(sha256.New, key)
 	mac.Write(full[:])

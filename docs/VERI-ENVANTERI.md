@@ -68,51 +68,44 @@ Hukukçu görüşü doğrultusunda **varsayılan maskelidir** ve bu, yazılımı
 kendiliğinden yaptığı şeydir; bir kurulum hiçbir ayar yapmazsa maskeli
 saklar.
 
-| Mod | Ne saklanır | Örnek |
-|---|---|---|
-| `masked` **(varsayılan)** | IPv4 son okteti sıfırlanır (/24), IPv6 /64'e kırpılır | `185.23.45.178` → `185.23.45.0` |
-| `hashed` | Önce maskelenir, sonra **anahtarlı takma değere** çevrilir. Adres sütunu **boş kalır** | `185.23.45.178` → `bb7a3f6ce83a066c…` (adres yok) |
-| `full` | Adres olduğu gibi | `185.23.45.178` |
+| Mod | `ip` sütunu | `ip_hash` sütunu | Anahtar gerekir mi |
+|---|---|---|---|
+| `masked` **(varsayılan)** | `185.23.45.0` (yalnız ağ) | boş | hayır |
+| `full` | `185.23.45.0` (yalnız ağ) | tam adresten türetilmiş anahtarlı jeton | **evet** |
 
-### 1.6 `hashed` modu — ne sağlar, ne sağlamaz
+### 1.6 Ham IP adresi hiçbir modda saklanmaz
 
-Hukukçu görüşü "maskeleyip hashlersek, biz bile bilemezsek, ASN adı ve
-ülke sorun olmaz" yönündeydi. Mod yazıldı; **ama iddianın tam olarak
-neyi karşıladığını yazmak zorundayız**, çünkü aradaki fark hukuki
-değerlendirmeyi doğrudan etkiler.
+Bu, tasarımın etrafında kurulduğu kural. İki mod var ve **ikisi de**
+adresi ağına indirger:
 
-**Sağladığı:** veritabanının tek başına adres vermemesi. Çalınan bir
-yedek, kopyalanan bir disk, bir SQL enjeksiyonu, ele geçirilmiş salt
-okunur API — hiçbiri adres vermez, çünkü hiçbirinde **anahtar** yoktur.
-Bu gerçek ve önemli bir korumadır.
+- **`masked`** — yalnız ağ (IPv4 /24, IPv6 /64) yazılır. Anahtar
+  gerekmez, yapılandırma gerekmez; hiçbir şey ayarlanmamış bir kurulum
+  bu moddadır.
+- **`full`** — aynı maskeli ağ yazılır, **yanına** tam adresten
+  türetilmiş anahtarlı bir jeton eklenir. Bu jeton aynı /24 içindeki iki
+  ziyaretçiyi ayırmaya yarar; adresin kendisi yine hiçbir sütuna
+  yazılmaz.
 
-**Sağlamadığı — açıkça:** anahtarı elinde tutan taraf için adresler
-geri döndürülebilir. Bir IPv4 /24 bloğunun yalnızca ~16,7 milyon
-olasılığı vardır; bilinen bir anahtarla hepsini denemek sıradan bir
-dizüstünde **saniyenin altında** sürer. Anahtar, veritabanı parolasıyla
-aynı yapılandırma dosyasında durur.
+**`full` moda geçmek ciddi bir iştir ve iki koşulu birden ister:**
+1. Geliştirici şifresi (Bölüm 8.5) — her değişiklikte sorulur.
+2. Jeton anahtarının **önceden** yapılandırma dosyasında bulunması.
+   Anahtar yoksa panel bu değeri **reddeder**; kabul edip sessizce
+   maskeli modda çalışmaz. (Anahtarsız kabul edilseydi kurulum, ayarı
+   "full" diyerek maskeli davranırdı — bir modun sessizce başka bir mod
+   olması, bu ayarın yanlış olabileceği en kötü biçim.)
 
-Yani doğru cümle şudur: **"adres, verinin kendisinden geri
-türetilemez"** — *"hiç kimse hiçbir zaman geri türetemez"* değil.
-Anahtarı tutan taraf (sunucuyu işleten Crucible), zaten veritabanının
-tamamını okuyabilen taraftır; hash bu tarafa karşı yeni bir engel
-koymaz.
+Maskeli moddayken anahtar **hiç kullanılmaz** ve gerekmez.
 
-> **Hukukçuya sorulacak (yeni):** "veri sorumlusunun kendisi bile geri
-> döndüremez" varsayımı bu kurulumda **karşılanmıyor**. Karşılanan
-> daha dar bir ifade: "veri tek başına ele geçse kimlik açığa çıkmaz".
-> ASN adı ve ülke bilgisinin saklanması bu **daha dar** ifade altında
-> da sorunsuz mudur? Cevap hayırsa, anahtarın kurulumdan sonra imha
-> edilmesi gerekir — bu da yeni satır yazmayı ve kesişim birleşimini
-> imkânsız kılar, yani ürünün ayırt edici özelliğini kapatır.
+**Jetonun koruduğu ve korumadığı:** koruduğu, veritabanının tek başına
+adres vermemesi — çalınan yedek, kopyalanan disk, SQL enjeksiyonu, ele
+geçirilmiş salt okunur API. Korumadığı, anahtarı elinde tutan taraf:
+satır zaten /24'ü taşıdığı için elinde anahtar olan biri 256 adayı
+dener. Yani doğru cümle **"adres verinin kendisinden geri
+türetilemez"** — *"hiç kimse hiçbir zaman"* değil.
 
-**Kesişim birleşimi hash modunda da çalışır**, çünkü hashleme eşitliği
-korur: aynı ağ, iki serviste aynı takma değeri üretir. Çözünürlük
-maskeli moddakiyle aynıdır (/24).
-
-**Mod değişimi geçmişe dönük değildir ve karışmaz:** adres saklayan
-dönemde yazılmış satırlarla takma değerli satırlar birbirine
-eşleşmez — kodlamaları farklıdır. Bu doğrudur: ikisinin aynı ziyaretçi
+**Kesişim birleşimi:** maskeli modda /24 çözünürlüğünde, full modda tam
+adres çözünürlüğünde çalışır. Mod değişiminden önce ve sonra yazılmış
+satırlar birbirine eşleşmez; bu doğrudur, çünkü ikisinin aynı ziyaretçi
 olup olmadığını hiçbir şey bilemez.
 
 **Maskeleme yazma anında olur, sonradan değil.** Maskelenmemiş adres

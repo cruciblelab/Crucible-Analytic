@@ -57,10 +57,11 @@ func TestFlusher_Run_FlushesOnTickerAndOnShutdown(t *testing.T) {
 		Store:    store,
 		Writer:   writer,
 		Interval: 30 * time.Millisecond,
-		// Full, so this test asserts which address the flusher picked up
-		// rather than also asserting how it was masked - that has its
-		// own tests in row_test.go.
-		IPMode: privacy.IPFull,
+		// Full mode, which masks the stored address like every mode and
+		// adds a token beside it. This test is about which address the
+		// flusher picked up, so it compares the masked form.
+		IPMode:    privacy.IPFull,
+		IPHashKey: testHashKey,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -77,7 +78,7 @@ func TestFlusher_Run_FlushesOnTickerAndOnShutdown(t *testing.T) {
 	if writer.callCount() == 0 {
 		t.Fatal("expected at least one WriteRows call from the ticker before cancellation")
 	}
-	if got := writer.lastCall(); len(got) != 1 || got[0].IP != netip.MustParseAddr("203.0.113.9") {
+	if got := writer.lastCall(); len(got) != 1 || got[0].IP != netip.MustParseAddr("203.0.113.0") {
 		t.Errorf("last flush rows = %+v, want the one active IP", got)
 	}
 

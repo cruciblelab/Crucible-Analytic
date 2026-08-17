@@ -116,11 +116,11 @@ func BuildRows(snapshots []ratestore.Snapshot, flushTime time.Time, opts RowOpti
 		rows = append(rows, Row{
 			Time:   flushTime,
 			SiteID: opts.SiteID,
-			// Last use of the whole address. What goes into the row -
-			// and therefore onto the disk - is already masked; there is
-			// no window in which an unmasked row exists.
-			IP:              storedIP(snap.IP, opts),
-			IPHash:          storedIPHash(snap.IP, opts),
+			// Last use of the whole address. What reaches the row - and
+			// therefore the disk - is the masked network, plus a keyed
+			// token in full mode. The raw address goes nowhere.
+			IP:              maskedFor(snap.IP, opts),
+			IPHash:          tokenFor(snap.IP, opts),
 			JA4:             snap.JA4,
 			PrevWindowCount: snap.PrevWindowCount,
 			CurrWindowCount: snap.CurrWindowCount,
@@ -136,29 +136,25 @@ func BuildRows(snapshots []ratestore.Snapshot, flushTime time.Time, opts RowOpti
 	return rows
 }
 
-// storedIP and storedIPHash decide, together, what the row carries.
+// maskedFor and tokenFor decide what the row carries.
 //
-// Split into two named functions rather than written inline because the
-// invariant is easy to state and easy to break: in hashed mode the
-// address column is empty and the pseudonym carries the value, in every
-// other mode the reverse. Two functions that each answer one half make
-// that readable at the call site.
-func storedIP(ip netip.Addr, opts RowOptions) netip.Addr {
-	if opts.IPMode.Hashes() {
-		return netip.Addr{}
-	}
+// The address column always holds the masked network, in both modes,
+// because no mode stores a raw address. The token column holds
+// whole-address precision, and only in full mode - it is what lets that
+// mode tell two visitors inside one /24 apart without the address being
+// on disk to tell them apart with.
+func maskedFor(ip netip.Addr, opts RowOptions) netip.Addr {
 	return privacy.MaskIP(ip, opts.IPMode)
 }
 
-func storedIPHash(ip netip.Addr, opts RowOptions) []byte {
-	if !opts.IPMode.Hashes() {
+func tokenFor(ip netip.Addr, opts RowOptions) []byte {
+	if !opts.IPMode.Tokenises() {
 		return nil
 	}
-	return privacy.HashIP(ip, opts.IPHashKey)
+	return privacy.TokenIP(ip, opts.IPHashKey)
 }
 
-// storedIP and storedIPHash render the row's two mutually exclusive
-// address columns for the COPY.
+// storedIP and storedIPHash render the row's two columns for the COPY.
 //
 // Methods rather than raw fields at the call site because both have to
 // become a real SQL NULL when unset, and an invalid netip.Addr is not

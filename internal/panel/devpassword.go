@@ -136,6 +136,12 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 	if !a.AccessTo(def).Editable() {
 		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
 	}
+	// Checked before the write and before the audit entry, so a value
+	// the deployment cannot honour never gets recorded as if it had
+	// been applied.
+	if err := s.checkPrecondition(key, value); err != nil {
+		return err
+	}
 
 	before, err := s.GetSetting(ctx, key, site)
 	if err != nil {
@@ -176,6 +182,10 @@ func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string
 	if !a.AccessTo(def).Editable() {
 		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
 	}
+	// No precondition check here, and that is not an omission: clearing
+	// restores the default, and every default is a value the deployment
+	// can always honour. privacy.ip_storage falls back to masked, which
+	// needs no key.
 
 	before, err := s.GetSetting(ctx, key, site)
 	if err != nil {

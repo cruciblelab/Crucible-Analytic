@@ -1587,3 +1587,52 @@ deciding on their behalf what they are allowed to understand about their
 own system. The wording says plainly that looking carries no risk, and
 that the thing to be careful about is changing something whose effect
 they cannot predict.
+
+## No mode stores a raw address
+
+The design settled here after two passes, and the final shape is simpler
+than either of them.
+
+Two modes, and both mask. `masked` writes the network and nothing else -
+no key, no configuration, which is what lets the safe option be the
+effortless one. `full` writes the same network *plus* a keyed token
+derived from the whole address. So the raw address never reaches disk in
+either mode; what full mode buys is the ability to tell two visitors
+inside one /24 apart, which is what the crossover join and the
+per-address views actually wanted from "full" in the first place.
+
+That reframing is the whole trick. "Full" had meant "store the address",
+and the thing anybody actually needed from it was precision, not the
+address. Once those are separated, precision can be had without the
+address - and the mode nobody would have chosen for privacy reasons
+becomes acceptable on its own terms.
+
+### Two conditions to leave masked mode
+
+Switching to full is a serious act and now needs both:
+
+1. The developer password, like every legally weighted setting.
+2. The token key already present in the config file, put there by
+   somebody with a shell.
+
+The second is a precondition rather than a permission, and it earns its
+own error type. Without the key, full mode does not fail - it *degrades*.
+The writers would store the masked address and no token, so the
+deployment would sit in masked mode while its setting said "full". A
+mode that quietly becomes a different mode is the worst way for this
+particular setting to be wrong, because everything downstream keeps
+working and reports the wrong thing.
+
+Clearing the setting needs no precondition check, and that is not an
+omission: clearing restores the default, and every default is a value the
+deployment can always honour. Masked needs nothing on disk.
+
+### The key is generated, not typed
+
+`devpass -ipkey` draws it from the system's randomness. It is not a
+password, nobody types it, and the one property that matters is that
+*both* writers carry the same value - they write the two halves of the
+crossover join, and different keys make that join find nothing with no
+error to say why. One value, one place it came from, copied into two
+files. The preflight check reports its presence, and the wizard lists it
+as a manual step, because it is one.

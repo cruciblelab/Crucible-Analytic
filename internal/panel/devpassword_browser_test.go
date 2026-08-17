@@ -44,6 +44,7 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 
 	store := settingsStore(t)
 	ctx := context.Background()
+	store.SetIPTokenKeyConfigured(true)
 
 	hash, err := argon2id.Hash(testDevPassword)
 	if err != nil {

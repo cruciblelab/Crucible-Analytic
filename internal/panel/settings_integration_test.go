@@ -24,6 +24,10 @@ import (
 func settingsStore(t *testing.T) *Store {
 	t.Helper()
 	store := newTestStore(t, "settings")
+	// A deployment that has an IP token key on disk, which is what
+	// switching to full mode requires. The tests that care about the
+	// refusal turn it off explicitly.
+	store.SetIPTokenKeyConfigured(true)
 	t.Cleanup(func() {
 		fresh, err := NewStore(context.Background(), testDatabaseURL)
 		if err != nil {
@@ -762,5 +766,45 @@ func TestGateRequest_ACustomersGuessCostsNothing(t *testing.T) {
 		Actions: []string{GateAction(KeyPrivacyIPStorage)}, Password: testDevPassword,
 	}); !result.OK() {
 		t.Errorf("the customer's guesses locked the operator out: %s", result.Decision)
+	}
+}
+
+// Full mode without a key does not fail, it *degrades*: the writers
+// would store the masked address and no token, so the deployment would
+// silently be in masked mode while its setting said otherwise. A mode
+// that quietly becomes a different mode is the worst way for this
+// particular setting to be wrong, so the panel refuses the value.
+func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
+	store := settingsStore(t)
+	store.SetIPTokenKeyConfigured(false)
+	ctx := context.Background()
+	gate := testGate(t, store)
+	operator := operatorAccess()
+
+	err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageFull,
+		authorize(t, gate, KeyPrivacyIPStorage))
+	if !errors.Is(err, ErrPreconditionUnmet) {
+		t.Fatalf("full mode was accepted with no key configured (err = %v)", err)
+	}
+	if !strings.Contains(err.Error(), "devpass -ipkey") {
+		t.Errorf("the error does not say how to fix it: %v", err)
+	}
+	if got, _ := store.GetStringSetting(ctx, KeyPrivacyIPStorage, ""); got != IPStorageMasked {
+		t.Errorf("the refused write still changed the value to %q", got)
+	}
+
+	// The refusal is about the deployment, not the value: masked is
+	// always available, because its default needs nothing on disk.
+	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageMasked,
+		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
+		t.Errorf("masked mode was refused: %v", err)
+	}
+
+	// And once the key is there, the same write goes through - so this
+	// is a precondition, not a prohibition.
+	store.SetIPTokenKeyConfigured(true)
+	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageFull,
+		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
+		t.Errorf("full mode was refused with the key configured: %v", err)
 	}
 }

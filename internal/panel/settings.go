@@ -148,19 +148,12 @@ const (
 
 // The IP storage modes.
 const (
-	// IPStorageFull keeps the whole address.
+	// IPStorageFull keeps full precision without keeping the address:
+	// the masked network plus a keyed token of the whole one. Needs the
+	// key to be in the config file already.
 	IPStorageFull = "full"
 	// IPStorageMasked keeps IPv4 to /24 and IPv6 to /64.
 	IPStorageMasked = "masked"
-	// IPStorageHashed masks and then replaces the address with a keyed
-	// pseudonym, so no address is stored at all.
-	//
-	// What it buys, precisely: an address cannot be recovered from the
-	// database alone. It does not put the addresses beyond the reach of
-	// whoever also holds the key - a /24 has about 16.7 million possible
-	// values and trying them all against a known key takes under a
-	// second. The panel must not claim more than that.
-	IPStorageHashed = "hashed"
 )
 
 // Definition describes one setting: what it is, what values it admits,
@@ -339,14 +332,14 @@ var registry = map[Key]Definition{
 	},
 	KeyPrivacyIPStorage: {
 		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,
-		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked, IPStorageHashed},
+		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked},
 		Label: "IP adresi saklama biçimi",
-		Help: "masked: IPv4 son oktet sıfırlanır, IPv6 /64'e kırpılır. Varsayılan budur. " +
-			"full: adres olduğu gibi saklanır; kesişim görünümleri keskinleşir, " +
-			"saklanan kişisel veri artar. hashed: adres maskelenir ve yerine anahtarlı " +
-			"bir takma değer yazılır — veritabanında adres hiç bulunmaz. " +
-			"Değişiklik geçmişe dönük değildir; mod değişince eski satırlarla yeniler " +
-			"kesişim birleşiminde eşleşmez.",
+		Help: "Ham IP adresi hiçbir modda saklanmaz. masked (varsayılan): yalnız ağ " +
+			"saklanır (IPv4 /24, IPv6 /64), anahtar gerekmez. full: aynı maskeli ağ " +
+			"artı tam adresten türetilen anahtarlı bir jeton saklanır — aynı /24 " +
+			"içindeki iki ziyaretçi ayrılabilir, ama adresin kendisi yine diske " +
+			"yazılmaz. full'e geçmek için anahtarın önceden yapılandırma dosyasında " +
+			"bulunması şarttır. Değişiklik geçmişe dönük değildir.",
 		Developer: true,
 		Live:      true,
 

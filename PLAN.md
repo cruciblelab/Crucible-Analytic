@@ -74,12 +74,16 @@ sorusunu cevaplar.*
   hukuki olanlarda kilit; şifre alanı yalnız işletmeciye gösterilir.
   Kilit metni üç şeyi söylüyor: ne olduğu, **ne bozulacağı**, ve ne
   yapılacağı ("bize iletin, sunucuya bağlanıp biz yaparız")
-- **A7.8** `hashed` IP modu — adres hiç saklanmıyor, yerine anahtarlı
-  takma değer; kesişim birleşimi tek paylaşılan ifadeye taşındı
-  (`COALESCE(ip_hash, inet_send(ip))`), yapısal test çıplak `ip`
-  birleşimini yasaklıyor. **Hukukçunun "biz bile bilemeyiz" varsayımı
-  tam karşılanmıyor** — anahtarı tutan taraf /24'ü saniyede kırar;
-  envanterde açık soru olarak yazıldı
+- **A7.8** **Ham IP hiçbir modda saklanmıyor.** İki mod: `masked`
+  (yalnız ağ, anahtar gerekmez, varsayılan) ve `full` (aynı maskeli ağ
+  **artı** tam adresten türetilmiş anahtarlı jeton). `full`'e geçmek iki
+  koşul ister: geliştirici şifresi **ve** anahtarın önceden config'de
+  olması — yoksa panel değeri reddeder, sessizce maskeli çalışmaz.
+  Kesişim birleşimi tek paylaşılan ifadeye taşındı
+  (`COALESCE(ip_hash, inet_send(ip))`) ve full modda /24 yerine tam
+  adres çözünürlüğünde çalışıyor; yapısal test çıplak `ip` birleşimini
+  yasaklıyor. `cmd/devpass -ipkey` anahtarı üretiyor, sihirbaza adım ve
+  preflight kontrolü eklendi
 - **A7.9** Geliştirici modu uyarısı — kapıda uyarı, kilit değil:
   "teknik bilginiz yoksa değiştirmeyin, görüntülemenin riski yok"
 - **A7.7** *(düzeltme)* **Geliştirici modu bir sayfadır, yetki değil.**

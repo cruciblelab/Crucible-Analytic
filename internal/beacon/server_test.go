@@ -61,11 +61,11 @@ func newTestServer(t *testing.T, sink Sink) *Server {
 		Sink:     sink,
 		Visitors: newTestVisitorIDs(t),
 		Now:      func() time.Time { return time.Date(2026, 5, 6, 7, 8, 9, 0, time.UTC) },
-		// Full, so the tests about *which* address the server resolved
-		// can assert that address exactly. Masking is a separate
-		// question with its own tests below, and mixing the two would
-		// leave every address assertion here quietly testing both.
-		IPMode: privacy.IPFull,
+		// Full mode, which now means "masked address plus a keyed
+		// token". The tests below that care which address was resolved
+		// compare its masked form, because no mode stores a raw one.
+		IPMode:    privacy.IPFull,
+		IPHashKey: []byte("otuz-iki-baytlik-test-anahtari!!"),
 	}
 }
 
@@ -112,8 +112,11 @@ func TestServer_AcceptsAPageviewAndBuildsTheRow(t *testing.T) {
 	if row.Browser != "Chrome" || row.OS != "Windows" || row.Device != DeviceDesktop {
 		t.Errorf("user agent classification = %q/%q/%q", row.Browser, row.OS, row.Device)
 	}
-	if row.IP != netip.MustParseAddr("203.0.113.9") {
-		t.Errorf("IP = %v", row.IP)
+	if row.IP != netip.MustParseAddr("203.0.113.0") {
+		t.Errorf("IP = %v, want the masked network - no mode stores a raw address", row.IP)
+	}
+	if len(row.IPHash) == 0 {
+		t.Error("full mode wrote no token, so two visitors in one /24 are indistinguishable")
 	}
 	if row.VisitorID == "" {
 		t.Error("VisitorID is empty")
@@ -229,14 +232,14 @@ func TestServer_UsesTheForwardedAddressOnlyFromATrustedProxy(t *testing.T) {
 	trusting.ClientIP = ClientIPResolver{TrustedProxies: mustPrefixes(t, "127.0.0.1/32")}
 	trusting.Sink = &fakeSink{}
 	post(t, trusting, `{"site":"acme","type":"pageview","url":"/"}`, behindProxy)
-	if got := trusting.Sink.(*fakeSink).only(t).IP; got != netip.MustParseAddr("198.51.100.23") {
-		t.Errorf("with a trusted proxy: IP = %v, want 198.51.100.23", got)
+	if got := trusting.Sink.(*fakeSink).only(t).IP; got != netip.MustParseAddr("198.51.100.0") {
+		t.Errorf("with a trusted proxy: IP = %v, want the masked 198.51.100.0", got)
 	}
 
 	suspicious := newTestServer(t, &fakeSink{})
 	post(t, suspicious, `{"site":"acme","type":"pageview","url":"/"}`, behindProxy)
-	if got := suspicious.Sink.(*fakeSink).only(t).IP; got != netip.MustParseAddr("127.0.0.1") {
-		t.Errorf("with no trusted proxies: IP = %v, want the peer 127.0.0.1", got)
+	if got := suspicious.Sink.(*fakeSink).only(t).IP; got != netip.MustParseAddr("127.0.0.0") {
+		t.Errorf("with no trusted proxies: IP = %v, want the masked peer 127.0.0.0", got)
 	}
 }
 
@@ -493,6 +496,7 @@ func TestServer_MasksAfterDerivingTheVisitorIDAndResolvingGeography(t *testing.T
 	full := &fakeSink{}
 	fullServer := newTestServer(t, full)
 	fullServer.Resolver = fakeResolver{result: asnlookup.Result{Country: "TR", ASN: 9121, ASNName: "TURKTELEKOM", Found: true}}
+	_ = full
 
 	post(t, maskedServer, `{"site":"acme","type":"pageview","url":"/"}`)
 	post(t, fullServer, `{"site":"acme","type":"pageview","url":"/"}`)
@@ -502,8 +506,15 @@ func TestServer_MasksAfterDerivingTheVisitorIDAndResolvingGeography(t *testing.T
 	if maskedRow.IP != netip.MustParseAddr("203.0.113.0") {
 		t.Errorf("masked IP = %v, want 203.0.113.0", maskedRow.IP)
 	}
-	if fullRow.IP != netip.MustParseAddr("203.0.113.9") {
-		t.Errorf("full IP = %v, want 203.0.113.9", fullRow.IP)
+	if fullRow.IP != netip.MustParseAddr("203.0.113.0") {
+		t.Errorf("full IP = %v, want the masked 203.0.113.0", fullRow.IP)
+	}
+	// What separates the two modes is the token, not the address.
+	if len(maskedRow.IPHash) != 0 {
+		t.Error("masked mode wrote a token, which would need a key it should not need")
+	}
+	if len(fullRow.IPHash) == 0 {
+		t.Error("full mode wrote no token")
 	}
 
 	// The two servers share a visitor-id salt only if they were built
@@ -560,10 +571,17 @@ func TestServer_SetIPModeTakesEffectOnTheNextEvent(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("got %d rows, want 2", len(rows))
 	}
-	if rows[0].IP != netip.MustParseAddr("203.0.113.9") {
-		t.Errorf("the event before the switch = %v, want the full address", rows[0].IP)
+	// The address is masked either side of the switch. What changes is
+	// the token, which is the only thing the mode decides.
+	for i, row := range rows {
+		if row.IP != netip.MustParseAddr("203.0.113.0") {
+			t.Errorf("row %d IP = %v, want the masked address in both modes", i, row.IP)
+		}
 	}
-	if rows[1].IP != netip.MustParseAddr("203.0.113.0") {
-		t.Errorf("the event after the switch = %v, want the masked address", rows[1].IP)
+	if len(rows[0].IPHash) == 0 {
+		t.Error("the event before the switch carried no token, but full mode was in force")
+	}
+	if len(rows[1].IPHash) != 0 {
+		t.Error("the event after the switch still carried a token, so the change did not take effect")
 	}
 }

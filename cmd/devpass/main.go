@@ -22,6 +22,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -33,11 +35,21 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
 func main() {
 	fromStdin := flag.Bool("stdin", false, "read the password from standard input instead of prompting")
+	ipKey := flag.Bool("ipkey", false, "generate a random privacy.ip_hash_key instead of hashing a password")
 	flag.Parse()
+
+	if *ipKey {
+		if err := printIPKey(); err != nil {
+			fmt.Fprintf(os.Stderr, "devpass: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	password, err := readPassword(*fromStdin)
 	if err != nil {
@@ -119,4 +131,39 @@ func readPassword(fromStdin bool) (string, error) {
 		return "", fmt.Errorf("the two entries did not match")
 	}
 	return string(first), nil
+}
+
+// printIPKey emits a random key for privacy.ip_hash_key.
+//
+// Generated rather than typed, and generated here rather than by each
+// service at startup, because both writers must carry the *same* key:
+// they write the two halves of the crossover join, and different keys
+// make that join find nothing with no error to say why. One value, one
+// place it came from, copied into both files.
+//
+// It is not a password and is never typed by a person, so it is drawn
+// from the system's randomness at full length rather than being
+// something memorable.
+func printIPKey() error {
+	key := make([]byte, privacy.MinHashKeyLen)
+	if _, err := rand.Read(key); err != nil {
+		return fmt.Errorf("draw key: %w", err)
+	}
+	encoded := base64.RawStdEncoding.EncodeToString(key)
+
+	fmt.Println(encoded)
+
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Bu anahtarı HEM collector HEM beacon yapılandırmasına, aynen ekleyin:")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "  [privacy]")
+	fmt.Fprintln(os.Stderr, `  ip_storage   = "full"`)
+	fmt.Fprintf(os.Stderr, "  ip_hash_key  = %q\n", encoded)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "İki dosyada farklı olursa kesişim birleşimi sessizce boş döner — hata")
+	fmt.Fprintln(os.Stderr, "vermez, yalnızca sayılar sıfırlanır. Aynı olduğundan emin olun.")
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(os.Stderr, "Anahtar yalnızca full modda kullanılır. Maskeli modda hiçbir işlevi")
+	fmt.Fprintln(os.Stderr, "yoktur ve gerekmez.")
+	return nil
 }
