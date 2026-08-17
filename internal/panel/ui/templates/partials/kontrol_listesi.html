@@ -1,0 +1,18 @@
+{{define "kontrol_listesi"}}
+{{- if .}}
+<table>
+<thead><tr>
+<th>{{t "kontrol.sutun_durum"}}</th><th>{{t "kontrol.sutun_ne"}}</th><th>{{t "kontrol.sutun_bulunan"}}</th>
+</tr></thead>
+<tbody>
+{{- range .}}
+<tr>
+<td><span class="durum durum-{{.Status}}">{{t (printf "kontrol.durum.%s" .Status)}}</span></td>
+<td>{{.Label}}{{if eq .Severity "recommended"}} <span class="soluk">({{t "kontrol.onerilen"}})</span>{{end}}</td>
+<td>{{.Detail}}{{with .Fix}}<br><code>{{.}}</code>{{end}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- end}}
+{{end}}

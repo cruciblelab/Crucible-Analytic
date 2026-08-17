@@ -1,0 +1,28 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.toplama.govde"}}</p>
+{{- with .Data}}
+<p class="kilit" role="note">{{.ConfigNotice}}</p>
+<table>
+<thead><tr>
+<th>{{t "kurulum.adim.toplama.servis"}}</th>
+<th>{{t "kurulum.adim.toplama.anahtar"}}</th>
+<th>{{t "kurulum.adim.toplama.deger"}}</th>
+</tr></thead>
+<tbody>
+{{- range .ConfigSettings}}
+<tr>
+<td>{{.Service}}</td>
+<td><code>{{.Key}}</code><br><span class="soluk">{{.Label}}</span></td>
+<td>
+{{- if .Secret}}<span class="soluk">{{t "kurulum.adim.toplama.gizli"}}</span>
+{{- else if .Known}}<code>{{.Value}}</code>
+{{- else}}<span class="soluk">{{t "kurulum.adim.toplama.bilinmiyor"}}</span>{{end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- end}}
+{{template "kurulum_gezinme" .}}
+{{end}}

@@ -1,0 +1,38 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.saklama.govde"}}</p>
+{{- with .Data}}
+{{- if .Prompt.Locked}}
+<p class="kilit" role="note">{{.Prompt.Notice}}</p>
+{{- end}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+{{- range .Retention}}
+<div class="alan">
+<label for="{{.Field}}">
+{{- .View.Definition.Label}}
+{{- if .SiteScoped}} <span class="soluk">— {{.Site}}</span>{{end}}
+</label>
+{{- if .View.Access.Editable}}
+<input type="number" id="{{.Field}}" name="{{.Field}}"
+       value="{{.View.Value}}" min="{{.View.Definition.Min}}" max="{{.View.Definition.Max}}">
+{{- else}}
+<p><strong class="sayi">{{.View.Value}}</strong></p>
+{{- end}}
+<p class="ipucu">{{.View.Definition.Help}}</p>
+{{- with .View.Reason}}<p class="ipucu">{{.}}</p>{{end}}
+{{- with .View.Lock}}<p class="kilit">{{.}}</p>{{end}}
+</div>
+{{- end}}
+{{- if .Prompt.Entitled}}
+<div class="alan">
+<label for="developer_password">{{t "kurulum.adim.saklama.sifre"}}</label>
+<input type="password" id="developer_password" name="developer_password" autocomplete="off">
+<p class="ipucu">{{.Prompt.Notice}}</p>
+</div>
+<button type="submit">{{t "kurulum.kaydet"}}</button>
+{{- end}}
+</form>
+{{- end}}
+{{template "kurulum_gezinme" .}}
+{{end}}

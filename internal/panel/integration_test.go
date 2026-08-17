@@ -624,8 +624,17 @@ func TestStore_RealDB_DevAccessNeedsApprovalAfterSetup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PendingDevAccess: %v", err)
 	}
-	if len(pending) != 1 || pending[0].ID != req.ID || pending[0].Reason != "bakim-"+ns {
-		t.Fatalf("pending list = %+v, want the one request with its reason", pending)
+	// Scoped to this test's own request rather than asserting the list
+	// has exactly one entry. A database that has been used by anything
+	// else - another suite, an earlier run, a developer poking at the
+	// wizard - would fail the stricter form for a reason that has
+	// nothing to do with what is being tested here.
+	mine := findPending(pending, req.ID)
+	if mine == nil {
+		t.Fatalf("this request is not listed as pending: %+v", pending)
+	}
+	if mine.Reason != "bakim-"+ns {
+		t.Fatalf("pending entry = %+v, want reason %q", mine, "bakim-"+ns)
 	}
 
 	if err := s.ApproveDevAccess(ctx, req.ID, owner); err != nil {
@@ -802,8 +811,12 @@ func TestStore_RealDB_DevAccessExpires(t *testing.T) {
 	if _, err := s.RedeemDevAccess(ctx, token, netip.Addr{}); !errors.Is(err, ErrDevAccessInvalid) {
 		t.Errorf("an expired link redeemed: %v", err)
 	}
-	if pending, err := s.PendingDevAccess(ctx); err != nil || len(pending) != 0 {
-		t.Errorf("an expired request is still listed as pending: %+v (%v)", pending, err)
+	pending, err := s.PendingDevAccess(ctx)
+	if err != nil {
+		t.Fatalf("PendingDevAccess: %v", err)
+	}
+	if findPending(pending, req.ID) != nil {
+		t.Errorf("an expired request is still listed as pending: %+v", pending)
 	}
 }
 
@@ -1001,4 +1014,20 @@ func TestStore_RealDB_UserMutations(t *testing.T) {
 	if ok, _ := VerifyPassword(reloaded.PasswordHash, goodPassword); ok {
 		t.Error("the old password still verifies after a change")
 	}
+}
+
+// findPending returns this test's own request out of the list, or nil.
+//
+// Every assertion about the pending list goes through here rather than
+// checking its length. A test that only passes against a pristine
+// database stops testing the moment anybody uses the database for
+// anything else, and reports success or failure for reasons unrelated
+// to the code under test.
+func findPending(pending []DevAccessRequest, id int64) *DevAccessRequest {
+	for i := range pending {
+		if pending[i].ID == id {
+			return &pending[i]
+		}
+	}
+	return nil
 }

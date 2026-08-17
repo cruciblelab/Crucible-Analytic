@@ -1,0 +1,14 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.siteler.govde"}}</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<div class="alan">
+<label for="siteler">{{t "kurulum.adim.siteler.etiket"}}</label>
+<textarea id="siteler" name="siteler" rows="6" spellcheck="false">{{.Data.SitesRaw}}</textarea>
+<p class="ipucu">{{t "kurulum.adim.siteler.ipucu"}}</p>
+</div>
+<button type="submit">{{t "kurulum.kaydet"}}</button>
+</form>
+{{template "kurulum_gezinme" .}}
+{{end}}

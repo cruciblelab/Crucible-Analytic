@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"time"
 
@@ -247,7 +248,53 @@ func (s *Store) RedeemDevAccess(ctx context.Context, token string, from netip.Ad
 	if err != nil {
 		return DevAccessGrant{}, fmt.Errorf("panel: redeem developer access: %w", err)
 	}
+
+	// Recorded here rather than in the handler, beside the rule that
+	// decided it. The row in panel_dev_access already carries used_at
+	// and used_from, but that table is a work list - it is purged after
+	// a month, and it answers "which links exist" rather than "what
+	// happened on this deployment". Somebody reading the audit log a
+	// year later, asking who was in here and when, should not have to
+	// know a second table existed.
+	//
+	// A bootstrap redemption gets its own action, because "granted
+	// because nobody owned this yet" and "granted because the owner said
+	// yes" are very different things to have been looking at somebody's
+	// data under, and a single line saying "redeemed" would flatten them.
+	action := ActionDevAccessRedeemed
+	if grant.Bootstrap {
+		action = ActionDevAccessBootstrap
+	}
+	entry := AuditEntry{
+		ActorKind:  PrincipalDeveloper,
+		ActorLabel: DeveloperLabel,
+		Action:     action,
+		Target:     fmt.Sprintf("dev_access:%d", grant.ID),
+		Detail: map[string]any{
+			"reason":     grant.Reason,
+			"expires_at": grant.ExpiresAt,
+		},
+	}
+	if from.IsValid() {
+		entry.IP = &from
+	}
+	if err := s.Record(ctx, entry); err != nil {
+		// The session is already minted and the row already marked used;
+		// failing the redemption now would leave a link that is spent
+		// and a developer who cannot get in. Report it and continue -
+		// the row in panel_dev_access is still there to be read.
+		s.logAuditFailure("dev access redemption", err)
+	}
 	return grant, nil
+}
+
+// logAuditFailure reports an audit write that failed without taking the
+// operation down with it.
+//
+// Deliberately not silent: an append-only log that quietly stops
+// appending is worse than no log, because everyone goes on trusting it.
+func (s *Store) logAuditFailure(what string, err error) {
+	slog.Default().Error("panel: audit write failed", "what", what, "err", err)
 }
 
 // PurgeOldDevAccess deletes decided or expired requests older than a

@@ -3,6 +3,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -309,6 +310,250 @@ await browser.close();
 console.log(JSON.stringify(report));
 `
 	path := filepath.Join(t.TempDir(), "panel-browser.mjs")
+	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A real browser walking the setup wizard, from the first-run page to
+// the final check.
+//
+// The Go tests prove the flow answers correctly. What only a browser
+// proves is that the pages are *operable*: that the forms submit, that
+// the progress list is navigable, that the password field is a password
+// field, and that nothing the wizard renders trips the panel's
+// Content-Security-Policy - which it silently would, since the wizard
+// is the first part of the panel with real forms in it.
+//
+//	CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/web/ \
+//	    -run TestSetupWizardInABrowser -v
+func TestSetupWizardInABrowser(t *testing.T) {
+	if os.Getenv("CA_BROWSER_TEST") == "" {
+		t.Skip("set CA_BROWSER_TEST=1 to run this; it needs node, playwright and a chromium build")
+	}
+
+	srv, store := setupTestServer(t)
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+
+	token, req, err := store.RequestDevAccess(context.Background(), testReasonPrefix+"tarayici", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !req.AutoApproved {
+		t.Skip("this database already has accounts, so the link needs an owner's approval")
+	}
+
+	script := writeWizardScript(t)
+	cmd := exec.Command("node", script, server.URL, token)
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("browser run failed: %v", err)
+	}
+	t.Logf("browser transcript:\n%s", out)
+
+	var report struct {
+		CSPViolations []string `json:"csp_violations"`
+		ConsoleErrors []string `json:"console_errors"`
+
+		FirstRunHeading string `json:"first_run_heading"`
+		FirstRunCommand string `json:"first_run_command"`
+		BlockedHeading  string `json:"blocked_heading"`
+
+		AfterRedeem  string   `json:"after_redeem"`
+		WarningShown bool     `json:"warning_shown"`
+		StepTitles   []string `json:"step_titles"`
+		StepsVisited []string `json:"steps_visited"`
+
+		SavedMessage string `json:"saved_message"`
+		SitesAfter   string `json:"sites_after"`
+
+		PasswordFieldType string `json:"password_field_type"`
+		ChecksBefore      int    `json:"checks_before"`
+		ChecksAfter       int    `json:"checks_after"`
+		ManualRows        int    `json:"manual_rows"`
+	}
+	last := strings.TrimSpace(string(out))
+	if i := strings.LastIndex(last, "\n"); i >= 0 {
+		last = last[i+1:]
+	}
+	if err := json.Unmarshal([]byte(last), &report); err != nil {
+		t.Fatalf("could not read the browser's report %q: %v", last, err)
+	}
+
+	if len(report.CSPViolations) > 0 {
+		t.Errorf("the wizard trips the CSP: %v", report.CSPViolations)
+	}
+	if len(report.ConsoleErrors) > 0 {
+		t.Errorf("the console is not clean: %v", report.ConsoleErrors)
+	}
+
+	// The door, before the link is used.
+	if !strings.Contains(report.BlockedHeading, "Kurulum bekleniyor") {
+		t.Errorf("the wizard was not refused without a session: %q", report.BlockedHeading)
+	}
+	if !strings.Contains(report.FirstRunCommand, "-dev-link") {
+		t.Errorf("the refusal page does not print the command: %q", report.FirstRunCommand)
+	}
+	if report.FirstRunHeading == "" {
+		t.Error("the front page rendered no heading")
+	}
+
+	// The link opens the wizard at its first step.
+	if !strings.HasSuffix(report.AfterRedeem, SetupPathPrefix+"baslangic") {
+		t.Errorf("redeeming landed on %q", report.AfterRedeem)
+	}
+	if !report.WarningShown {
+		t.Error("the technical-wizard warning is not on the page")
+	}
+	if len(report.StepTitles) != len(wizardSteps) {
+		t.Errorf("the progress list shows %d steps, want %d: %v",
+			len(report.StepTitles), len(wizardSteps), report.StepTitles)
+	}
+	for i, visited := range report.StepsVisited {
+		if i < len(wizardSteps) && !strings.HasSuffix(visited, wizardSteps[i].ID) {
+			t.Errorf("step %d was %q, want %s", i, visited, wizardSteps[i].ID)
+		}
+	}
+
+	// A real form submission writes a real setting.
+	if !strings.Contains(report.SavedMessage, "Kaydedildi") {
+		t.Errorf("saving the sites reported %q", report.SavedMessage)
+	}
+	// The value coming back on a freshly loaded page *is* the proof it
+	// reached the database: the field is filled from GetSetting, on the
+	// server, after the redirect.
+	//
+	// Deliberately not re-read here with a second query. This database is
+	// shared with the panel package's suite, which runs in parallel and
+	// writes the same global settings table, so a read from this side
+	// after the browser subprocess exits would be asserting on a value
+	// another package is entitled to change. TestSetupFlow makes the
+	// direct database assertion, in the same goroutine as the write.
+	if !strings.Contains(report.SitesAfter, "tarayici-sitesi") {
+		t.Errorf("the saved sites did not come back from the store: %q", report.SitesAfter)
+	}
+
+	// The password field must be a password field: this page is filled
+	// in over somebody's shoulder at a rack more often than anywhere
+	// else in the panel.
+	if report.PasswordFieldType != "password" {
+		t.Errorf("the developer password field is type %q", report.PasswordFieldType)
+	}
+
+	// The final check runs on the button, not on page load.
+	if report.ChecksBefore != 0 {
+		t.Errorf("%d check rows appeared before anybody pressed the button", report.ChecksBefore)
+	}
+	if report.ChecksAfter == 0 {
+		t.Error("pressing the button produced no check rows")
+	}
+	if report.ManualRows == 0 {
+		t.Error("the manual-step list is empty")
+	}
+}
+
+func writeWizardScript(t *testing.T) string {
+	t.Helper()
+
+	const script = `
+import playwright from '/opt/node22/lib/node_modules/playwright/index.js';
+const { chromium } = playwright;
+
+const base = process.argv[2];
+const token = process.argv[3];
+
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const report = { csp_violations: [], console_errors: [], step_titles: [], steps_visited: [] };
+
+const page = await browser.newPage();
+// Console output is collected only while on pages that are supposed to
+// succeed. Two navigations below are deliberate refusals, and Chromium
+// logs a failed load for each; asserting on those would mean asserting
+// that the refusal does not work.
+let collecting = true;
+page.on('console', (m) => { if (collecting && m.type() === 'error') report.console_errors.push(m.text()); });
+page.on('pageerror', (e) => { if (collecting) report.console_errors.push(String(e)); });
+await page.addInitScript(() => {
+  window.__csp = [];
+  document.addEventListener('securitypolicyviolation', (e) => {
+    window.__csp.push(e.violatedDirective + ' ' + e.blockedURI);
+  });
+});
+const collectCSP = async () => {
+  for (const v of await page.evaluate(() => window.__csp ?? [])) report.csp_violations.push(v);
+};
+
+// ---- the front page ----
+//
+// Which page this is depends on whether any account exists, and this
+// database is shared with another suite that creates them. So the front
+// page is only checked for rendering at all; the first-run wording is
+// asserted where it can be controlled, in the Go test.
+await page.goto(base + '/', { waitUntil: 'load' });
+report.first_run_heading = (await page.locator('h1').innerText()).trim();
+
+// ---- the wizard, before the link is used: a deliberate refusal ----
+//
+// This page does not depend on the account count: with no developer
+// session the wizard is shut either way, and it is where the command an
+// installer needs is printed.
+collecting = false;
+await page.goto(base + '/kurulum/baslangic', { waitUntil: 'load' });
+report.blocked_heading = (await page.locator('h1').innerText()).trim();
+report.first_run_command = (await page.locator('pre code').innerText()).trim();
+await collectCSP();
+collecting = true;
+
+// ---- redeem ----
+await page.goto(base + '/gelistirici/' + token, { waitUntil: 'load' });
+report.after_redeem = page.url();
+report.warning_shown = (await page.locator('.uyari').count()) > 0;
+report.step_titles = await page.locator('.ilerleme li').allInnerTexts();
+await collectCSP();
+
+// ---- walk every step by clicking "next" ----
+report.steps_visited.push(page.url());
+for (;;) {
+  const next = page.locator('.kurulum-gezinme a.dugme');
+  if (await next.count() === 0) break;
+  await next.click();
+  await page.waitForLoadState('load');
+  report.steps_visited.push(page.url());
+  await collectCSP();
+}
+
+// ---- fill in the sites form for real ----
+await page.goto(base + '/kurulum/siteler', { waitUntil: 'load' });
+await page.fill('#siteler', 'tarayici-sitesi');
+await page.click('button[type="submit"]');
+await page.waitForLoadState('load');
+report.saved_message = (await page.locator('.bilgi').allInnerTexts()).join(' ').trim();
+report.sites_after = await page.inputValue('#siteler');
+await collectCSP();
+
+// ---- the retention step's password field ----
+await page.goto(base + '/kurulum/saklama', { waitUntil: 'load' });
+report.password_field_type = await page.getAttribute('#developer_password', 'type');
+await collectCSP();
+
+// ---- the final check runs on the button, not on load ----
+await page.goto(base + '/kurulum/kontrol', { waitUntil: 'load' });
+report.checks_before = await page.locator('.durum').count();
+await page.click('button[type="submit"]');
+await page.waitForLoadState('load');
+report.checks_after = await page.locator('.durum').count();
+// The manual list is the last table on the page.
+const tables = page.locator('table');
+report.manual_rows = await tables.nth(await tables.count() - 1).locator('tbody tr').count();
+await collectCSP();
+
+await browser.close();
+console.log(JSON.stringify(report));
+`
+	path := filepath.Join(t.TempDir(), "wizard-browser.mjs")
 	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
 		t.Fatal(err)
 	}

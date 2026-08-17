@@ -348,6 +348,80 @@ th.sayi {
   text-align: end;
 }
 
+/* ---- setup wizard ---- */
+
+.ilerleme ol {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--olcu);
+  margin: 0 0 calc(var(--olcu) * 1.5);
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.ilerleme li {
+  padding: 4px 10px;
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  background: var(--kart);
+}
+
+.ilerleme li.suanki {
+  border-color: var(--vurgu);
+  color: var(--vurgu);
+  font-weight: 600;
+}
+
+.ilerleme li.sonraki {
+  color: var(--metin-soluk);
+}
+
+.kurulum-gezinme {
+  display: flex;
+  align-items: center;
+  gap: var(--olcu);
+  margin-top: calc(var(--olcu) * 2);
+  padding-top: var(--olcu);
+  border-top: 1px solid var(--kart-kenar);
+}
+
+/* A status is read down a column, so it gets a word and a weight rather
+ * than a colour alone - about one man in twelve cannot tell the red
+ * from the green, and a check list is the worst possible place to
+ * depend on that. */
+.durum {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.durum-pass { color: #1f6b3a; }
+.durum-fail { color: var(--hata); }
+.durum-warn { color: var(--uyari); }
+.durum-skip { color: var(--metin-soluk); }
+
+@media (prefers-color-scheme: dark) {
+  .durum-pass { color: #6fca90; }
+}
+
+pre {
+  background: var(--kart);
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  padding: var(--olcu);
+  overflow-x: auto;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+
 /* ---- htmx ---- */
 
 /* These four rules are htmx's own indicator styles, written here rather

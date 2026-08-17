@@ -1903,3 +1903,123 @@ worth saying plainly what it is not: no right-to-left pack has been
 written or rendered, so nothing here is evidence the layout survives one.
 What the attribute buys is that adding one is a layout review rather
 than a retrofit of every template.
+
+## The first run, and the door into it
+
+C2 is the phase where the panel stops being a thing that renders and
+starts being a thing you set up. Two questions had to be answered before
+any of it worked: how does somebody get in when there are no accounts,
+and what is a setup wizard actually for when most of what a deployment
+needs cannot be set from a browser.
+
+### There is nowhere to sign in, so say that
+
+A fresh deployment has no users. Sending whoever opens it to a login
+form is a loop, so the front page becomes the first-run page and prints
+the exact command that produces a developer link. Naming the command is
+the whole point: "ask your administrator" is useless when the person
+reading it *is* the administrator, standing at a shell, which is the
+only situation in which that page is ever seen.
+
+The link is minted by the panel binary itself rather than a separate
+tool, because it needs that config's database and nothing else, and
+because running it requires a shell on the server - which is precisely
+the authority the link stands for. It prints to stdout, not to the log
+tree: this is the one output of the program a person copies with their
+mouse, and burying it in a JSON line beside the day's requests would be
+hostile.
+
+It also says out loud which of the two grants just happened. Before
+anybody owns the deployment the link is approved on the spot; afterwards
+it is inert until an owner says yes. That is the most important property
+of the whole mechanism and it stops being true silently, so the output
+states it every time.
+
+### A wizard that mostly refuses to configure
+
+The instinct with a setup wizard is a form per setting. Most of what
+this deployment needs cannot be set from a browser and should not be:
+the database roles (a role cannot grant itself privileges), the schema
+(no service runs DDL, deliberately), TLS, the collector's backend.
+
+So the steps that cover those *read the real state and report it*. A
+field that writes nothing is worse than a sentence saying where to go,
+because the installer fills it in, sees no error, and believes the job
+is done. Two of the six steps write; the other four verify, and say so.
+
+The other rule is that each step commits immediately. No draft
+accumulating in the session, no "finish" that applies everything at
+once. Somebody who gets halfway and closes the tab has left a
+half-configured deployment - which is true, and visible on the next
+visit - rather than a deployment that looks untouched while a session
+somewhere holds their answers.
+
+### The defect the live run found: scope is not decoration
+
+The retention step was written to save both its keys globally. Log
+retention is global; **analytics retention is per site**, and the store
+refused the write with a message no unit test was watching for.
+
+The fix was not to pass a site through - it was to make the page tell
+the truth. It now shows one field per configured site, named after the
+site, and says plainly when there are no sites yet that this cannot be
+set until the sites step is filled in. A per-site setting rendered as
+one global field is not a simplification, it is a different setting.
+
+That is the second time in this project a defect survived every
+synthetic test and died on the first real run, which is why the rule
+about live dependencies is not negotiable.
+
+### One password, several sites
+
+The gate mints an authorization per *action*, and an action is a key -
+so one password covers one key across every site the form named. That is
+right rather than lax: the person filled in one form and pressed save
+once. Each write is still audited separately, and the next change asks
+again, which the integration test checks at the HTTP layer rather than
+only in the gate's own tests.
+
+A field returned unchanged is not a change. Without that check, walking
+through the wizard with "next" would spend a developer password and
+write an audit entry for every value on the page.
+
+### The audit gap
+
+The dev-access actions had been defined for phases and nothing wrote
+them. `panel_dev_access` records `used_at` and `used_from` itself, which
+is why nobody noticed: the information existed. But that table is a work
+list - purged after a month, answering "which links exist" - and the
+audit log answers "what happened on this deployment". Somebody asking a
+year later who was in here should not have to know a second table
+existed.
+
+Redemption is now recorded, in the store beside the rule that decided
+it, with a bootstrap grant given its own action. A failed audit write is
+logged and does not fail the redemption: the session is already minted
+and the row already marked used, so failing then would leave a spent
+link and a developer who cannot get in. An append-only log that quietly
+stops appending is worse than no log, so it is never silent.
+
+### Two tests that only passed on a pristine database
+
+Adding this phase's integration tests broke two older ones, and the
+older ones were right to break. They asserted that the pending
+dev-access list had exactly one entry, which is true only in a database
+nothing else has touched - and this suite shares one database across
+packages that `go test ./...` runs in parallel.
+
+Both were changed to find their own request rather than count the list,
+and this phase's tests now clean up the rows they create. The same
+lesson as the audit-page test two phases ago: a test that stops testing
+once the system has been used is worse than no test, because it keeps
+reporting success.
+
+One assertion was dropped rather than fixed, and that is worth being
+explicit about. The browser test used to re-read `beacon.sites` from the
+database after the browser exited, to prove the save landed. It shares
+that global key with another package's suite running in parallel, so the
+read was asserting on a value another package is entitled to change. The
+proof kept instead is the value coming back on a freshly loaded page -
+which the server reads from the database anyway - and the direct
+database assertion lives in the test that makes it in the same goroutine
+as the write.

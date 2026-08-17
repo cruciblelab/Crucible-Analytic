@@ -261,6 +261,9 @@ func TestNoDeadCatalogEntries(t *testing.T) {
 		titleKey, bodyKey := errorKeys(status)
 		used[titleKey], used[bodyKey] = true, true
 	}
+	for _, key := range computedKeys() {
+		used[key] = true
+	}
 
 	sources, err := goSources()
 	if err != nil {
@@ -288,6 +291,48 @@ func TestNoDeadCatalogEntries(t *testing.T) {
 	if len(dead) > 0 {
 		t.Fatalf("catalog keys nothing uses:\n  %s\n\nDelete them, or finish the page that was going to show them.",
 			strings.Join(dead, "\n  "))
+	}
+}
+
+// wizardStepIDs and checkStatuses mirror lists that live in other
+// packages: the wizard's step order (internal/panel/web) and the
+// preflight check statuses (internal/panel). They are duplicated here
+// rather than imported because this package deliberately knows nothing
+// about the domain - it renders, it does not decide.
+//
+// The duplication is the same deal as mappedErrorStatuses above: adding
+// an entry in one place and not the other surfaces, from one side as a
+// missing translation and from the other as a key nothing uses.
+var (
+	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "toplama", "saklama", "kontrol"}
+	checkStatuses = []string{"pass", "fail", "warn", "skip"}
+)
+
+// computedKeys lists the keys assembled at runtime, which the template
+// walk cannot see.
+func computedKeys() []string {
+	keys := []string{}
+	for _, id := range wizardStepIDs {
+		keys = append(keys, "kurulum.adim."+id+".baslik")
+	}
+	for _, status := range checkStatuses {
+		keys = append(keys, "kontrol.durum."+status)
+	}
+	return keys
+}
+
+// TestEveryComputedKeyExists covers the families the template walk
+// cannot check, in every language. A wizard step whose title is missing
+// renders the marker as its <h1>, which is the most visible possible
+// place to discover it.
+func TestEveryComputedKeyExists(t *testing.T) {
+	cats := testCatalogs(t)
+	for _, lang := range cats.Languages() {
+		for _, key := range computedKeys() {
+			if !lang.Has(key) {
+				t.Errorf("%s does not define %q", lang.Code, key)
+			}
+		}
 	}
 }
 

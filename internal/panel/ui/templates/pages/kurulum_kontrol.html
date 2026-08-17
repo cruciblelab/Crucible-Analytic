@@ -1,0 +1,49 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.kontrol.govde"}}</p>
+{{- with .Data}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<button type="submit">{{t "kurulum.adim.kontrol.calistir"}}</button>
+</form>
+{{- if .Ran}}
+<h2>{{t "kurulum.adim.kontrol.otomatik"}}</h2>
+{{template "kontrol_listesi" .Checks}}
+{{- if .Complete}}
+<p class="bilgi" role="note">{{t "kurulum.adim.kontrol.hazir"}}</p>
+{{- else}}
+<p class="hata" role="alert">{{t "kurulum.adim.kontrol.engelli"}}</p>
+{{- end}}
+{{- end}}
+
+<h2>{{t "kurulum.adim.kontrol.elle"}}</h2>
+<p>{{t "kurulum.adim.kontrol.elle_govde"}}</p>
+<table>
+<thead><tr>
+<th>{{t "kurulum.adim.kontrol.adim"}}</th>
+<th>{{t "kurulum.adim.kontrol.neden"}}</th>
+<th>{{t "kurulum.adim.kontrol.dogrulayan"}}</th>
+</tr></thead>
+<tbody>
+{{- range .Manual}}
+<tr>
+<td>{{.Label}}{{with .Command}}<br><code>{{.}}</code>{{end}}</td>
+<td>{{.Why}}</td>
+<td>{{if .CheckedBy}}<code>{{.CheckedBy}}</code>{{else}}<span class="soluk">{{t "kurulum.adim.kontrol.dogrulanmiyor"}}</span>{{end}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+
+{{- if .Unchecked}}
+<h2>{{t "kurulum.adim.kontrol.dogrulanamayan"}}</h2>
+<p>{{t "kurulum.adim.kontrol.dogrulanamayan_govde"}}</p>
+<ul>
+{{- range .Unchecked}}
+<li>{{.Label}}</li>
+{{- end}}
+</ul>
+{{- end}}
+{{- end}}
+{{template "kurulum_gezinme" .}}
+{{end}}

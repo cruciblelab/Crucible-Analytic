@@ -1,0 +1,13 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.veritabani.govde"}}</p>
+{{- with .Data}}
+{{template "kontrol_listesi" .Checks}}
+{{- if .Complete}}
+<p class="bilgi" role="note">{{t "kurulum.adim.veritabani.tamam"}}</p>
+{{- else}}
+<p class="hata" role="alert">{{t "kurulum.adim.veritabani.eksik"}}</p>
+{{- end}}
+{{- end}}
+{{template "kurulum_gezinme" .}}
+{{end}}

@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -16,6 +18,24 @@ type Server struct {
 	ListenAddr string
 	Renderer   *ui.Renderer
 	Logger     *slog.Logger
+	// Store is the panel's own database.
+	Store *panel.Store
+	// Sessions carries logins and CSRF tokens.
+	Sessions *panel.Sessions
+	// Gate guards the settings with legal weight. Nil means no
+	// developer password is configured, which freezes those settings at
+	// their defaults - the safe direction, and the wizard says so.
+	Gate *devgate.Gate
+	// Preflight tells the setup checks where to look.
+	Preflight panel.PreflightConfig
+	// ConfigPath is the panel's own config file, quoted back in the
+	// command the first-run page tells the installer to run.
+	ConfigPath string
+	// ConfigFileValues are the config-file settings the panel may
+	// display, keyed "service.toml.path". Secrets are never included -
+	// see panel.ConfigFileSettings, which drops them on the entry
+	// itself so a call site cannot pass one by accident.
+	ConfigFileValues map[string]string
 	// HSTS is passed to the header middleware; see Config.HSTS.
 	HSTS bool
 	// Zone is the time zone every page renders in.
@@ -52,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET "+ui.AssetPrefix+"{path...}", assets.Handler())
 	mux.Handle("HEAD "+ui.AssetPrefix+"{path...}", assets.Handler())
 
+	mux.HandleFunc(DevAccessPathPrefix+"{token...}", s.devAccessHandler)
+	mux.HandleFunc(SetupPathPrefix+"{step...}", s.setupHandler)
+
 	// "/" in a ServeMux matches everything nothing else claims, so this
 	// is both the home route and the catch-all. It has to tell the two
 	// apart itself.
@@ -59,9 +82,15 @@ func (s *Server) Handler() http.Handler {
 
 	// Language is resolved once, outermost but inside the logging and
 	// header middleware, so every handler and every error page below can
-	// read it off the request rather than negotiating again.
+	// read it off the request rather than negotiating again. The session
+	// middleware is innermost so that only handlers touch the cookie -
+	// the asset routes above never load or save a session.
+	var handler http.Handler = mux
+	if s.Sessions != nil {
+		handler = s.Sessions.Middleware(handler)
+	}
 	return SecurityHeaders(s.HSTS, s.requestLog(
-		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, mux)))
+		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, handler)))
 }
 
 // SecurityHeaders is re-exported so the binary and the tests apply the
@@ -82,10 +111,26 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		s.Renderer.Error(w, r, http.StatusMethodNotAllowed)
 		return
 	}
-	// Everything behind the login form arrives with C2 onwards. Until
-	// then this is the honest page: the panel is running and is asking
-	// who you are.
 	lang := s.language(r)
+
+	// A deployment nobody owns yet has nowhere to log in to. Sending
+	// somebody to a sign-in form when no account exists is a loop, so
+	// the front page becomes the first-run page instead and names the
+	// command that produces a developer link.
+	if s.Store != nil {
+		users, err := s.Store.CountUsers(r.Context())
+		if err != nil {
+			s.logger().Error("panel: count users", "err", err)
+			s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
+			return
+		}
+		if users == 0 {
+			s.renderSetupNeeded(w, r, lang, http.StatusOK)
+			return
+		}
+	}
+
+	// The login form itself arrives with C4.
 	s.Renderer.Render(w, r, http.StatusOK, "giris", &ui.Page{
 		L:       lang,
 		Title:   lang.T("giris.baslik"),

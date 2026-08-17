@@ -1,0 +1,14 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.baslangic.govde"}}</p>
+<h2>{{t "kurulum.adim.baslangic.kapsam"}}</h2>
+<ul>
+{{- range .Data.Steps}}
+{{- if ne .ID "baslangic"}}
+<li>{{.Title}}</li>
+{{- end}}
+{{- end}}
+</ul>
+<p>{{t "kurulum.adim.baslangic.yazma"}}</p>
+{{template "kurulum_gezinme" .}}
+{{end}}

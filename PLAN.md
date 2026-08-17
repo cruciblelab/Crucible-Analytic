@@ -26,14 +26,15 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-17 (C1 + C1.5 sonrası). Bu bölüm her faz sonunda
+*Son güncelleme: 2026-08-17 (C1 + C1.5 + C2 sonrası). Bu bölüm her faz sonunda
 güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
 cevaplar.*
 
 **Rakamlar:** 21 iç paket, **5 binary** (`collector`, `beacon`,
-`analytics-api`, `devpass`, **`panel`**), 65 test dosyası, ~38 bin satır
-Go. Panel artık açılıyor, dinliyor ve sayfa çiziyor; içindeki sayfalar
-C2–C7 ile geliyor.
+`analytics-api`, `devpass`, **`panel`**), 68 test dosyası, ~41 bin satır
+Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
+çalıştırma tespiti ve geliştirici sihirbazı çalışıyor. Müşterinin kapısı
+(giriş) C4'te.
 
 ### Gruplar
 
@@ -42,7 +43,7 @@ C2–C7 ile geliyor.
 | **AI** ara işler | ✅ **bitti** | — |
 | **A** Ayarlar ve saklama | 🟡 **7/11** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **3/9** | C2, C3, C4, C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **4/9** | C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -97,6 +98,13 @@ C2–C7 ile geliyor.
   sayfalar hiç önbelleklenmiyor. Gerçek tarayıcı, hiçbir Go testinin
   bulamayacağı iki şeyi buldu (htmx'in satır içi `<style>`'ı ve favicon
   404'ü) — ikisi de düzeltildi
+- **C2** İlk çalıştırma tespiti ve geliştirici sihirbazı — hesabı olmayan
+  kurulumun ön sayfası durumu söyleyip komutu yazıyor; `panel -dev-link`
+  tek kullanımlık bağlantı üretiyor; altı adımlı sihirbaz, ikisi yazan
+  dördü doğrulayan; saklama adımı geliştirici şifresini her seferinde
+  soruyor ve analitik saklamayı **site başına** yazıyor; son adım gerçek
+  sorguları düğmeye basınca çalıştırıyor. Geliştirici bağlantısının
+  kullanımı artık denetim kaydında
 - **C1.5** Çok dillilik *(kullanıcı isteği)* — dil paketleri dizinden
   **bulunuyor**, listelenmiyor: yeni dil = bir dosya + yeniden derleme.
   `tr` temel, `en` eklendi. Temel paket anahtar kümesinin sahibi (eksik
@@ -117,12 +125,12 @@ C2–C7 ile geliyor.
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **C2/C4 — ilk çalıştırma tespiti ve giriş.** Zemin (C1) hazır:
-   katalog, şablonlar, varlıklar, hata sayfaları, güvenlik başlıkları ve
-   `cmd/panel` çalışıyor. Sırada panelin ilk gerçek sayfaları var —
-   hesap yokken geliştirici sihirbazı (C2), sonra giriş/iki faktör (C4).
-   `RunPreflight`, `panel_settings`, oturum, CSRF, TOTP hepsi
-   çağrılabilir; eksik olan tek şey onları bir sayfaya bağlamak.
+1. **C4 — giriş, iki faktör, hesap ve üye yönetimi.** C2 ile geliştirici
+   kapısı açıldı; müşterinin kapısı hâlâ yok. `panel_users`, oturum,
+   CSRF, TOTP, roller — hepsi yazılmış ve test edilmiş, hiçbiri
+   tıklanamıyor. Sonra **C3** (sahip sihirbazı, C4'ün hesabına
+   dayanıyor) ve **C5** (geliştirici erişimi onay ekranı — C2'nin
+   "hesap varsa onay gerekir" kuralının müşteri tarafındaki yüzü).
 2. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
    göç olmadan çoğu ayar hâlâ SSH ister.
 3. **A2/A3 — kalan operasyonel ayarlar.**
@@ -131,7 +139,7 @@ C2–C7 ile geliyor.
 
 | Risk | Sahibi |
 |---|---|
-| Panelde "Kontrol et" düğmesi yok | C2 |
+| **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe** | açık (`CheckResult.ID` anahtara çevrilebilir; `Detail` dinamik) |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
 | **Collector'da mod ve saklama süresi yalnız dosyadan okunuyor** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok — iki tablo şu an iki ayrı yerden yapılandırılıyor) |
@@ -149,7 +157,8 @@ C2–C7 ile geliyor.
 | **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C4** (kabuk ve `kilit` duyuru düzeyi C1'de yazıldı) |
 | **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
 | **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
-| **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **C4** (çözümleme parametresi zaten variadic) |
+| **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **C4** (kullanıcı: "ayarlara da ekleyelim"; çözümleme parametresi zaten variadic) |
+| **Kurulum dili config dosyasında, panelde değil** | **A5** (kullanıcı: "ilerleyen zamanlarda"; kayıttaki ilk **dinamik** enum olacak — diller derlemeye bağlı) |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
@@ -1060,12 +1069,86 @@ taşıyor ve stil dosyası mantıksal özellikler kullanıyor, ama **hiçbir
 sağdan-sola paket yazılmadı ve denenmedi.** Bu bir zemin, destek iddiası
 değil.
 
-#### C2 — İlk çalıştırma tespiti ve geliştirici sihirbazı
+**Kullanıcı kararı — ertelenen iki iş:**
 
-Hiç hesap yokken geliştirici erişimiyle ulaşılır. Teknik zemini kapsar:
-veritabanı bağlantısı ve şema uygulaması, hangi sitelerin olduğu,
-collector modu ve backend, TLS, güvenilir vekiller, analitik profili,
-saklama süresi. Kurulumun devre hazır olduğunu onaylayarak biter.
+1. **Arapça/İbranice (RTL):** *"ona çözüm daha sonra buluruz."* Bir RTL
+   paket yazıldığında düzenin o paket önümüzdeyken gözden geçirilmesi
+   gerekiyor; yapılacak iş şablonların retrofit'i değil, bir düzen
+   incelemesi.
+2. **Dil ayarının panele taşınması:** *"ilerleyen zamanlarda ayarlarada
+   ekleyelim dil ayarlama."* Bugün dil yalnız config dosyasında
+   (`language`) ve tarayıcıda. İki ayrı yere gidiyor:
+   - **Kurulum varsayılanı → `panel_settings`** (A5 göçüyle birlikte).
+     Burada çözülmesi gereken gerçek bir tasarım noktası var: ayar
+     kaydı **kapalı küme** kullanıyor, ama mevcut diller **derlemeye**
+     bağlı (gömülü paketler). Yani bu ayarın izin verilen değerleri
+     çalışma zamanında belirleniyor — kayıttaki ilk dinamik enum bu
+     olacak ve `Definition` bunu ifade edebilmeli.
+   - **Hesap bazlı tercih → `panel_users`** (C4). Çözümlemenin en önüne
+     giriyor; `Catalogs.Match` parametresi zaten bunun için variadic,
+     başka hiçbir şey değişmiyor.
+
+#### C2 — İlk çalıştırma tespiti ve geliştirici sihirbazı ✅ **yapıldı**
+
+Hiç hesap yokken geliştirici erişimiyle ulaşılır. Teknik zemini kapsar
+ve kurulumun devre hazır olduğunu onaylayarak biter.
+
+**Kapı.** Hesabı olmayan bir kurulumda giriş formuna yönlendirmek bir
+döngüdür; ön sayfa bunun yerine durumu söyler ve **girilecek komutu
+yazar**:
+
+```
+panel -config panel.toml -dev-link
+```
+
+Bağlantıyı panel binary'sinin kendisi üretir (ayrı bir araç değil:
+yalnız o config'in veritabanına ihtiyacı var, ve komutu çalıştırmak
+sunucuda kabuk gerektirir — bağlantının temsil ettiği yetki tam olarak
+budur). Çıktı **stdout**'a gider, günlük ağacına değil: bu, programın
+insanın fareyle kopyaladığı tek çıktısı. Çıktı ayrıca **hangi onayın
+verildiğini** her seferinde söyler — sahibi olmayan kurulumda anında
+onay, sahibi olan kurulumda onay bekler. Mekanizmanın en önemli
+özelliği bu ve sessizce değişebilecek bir şey.
+
+**Altı adım:** başlangıç, veritabanı ve şema, siteler, yapılandırma
+dosyaları, saklama süreleri, kontrol.
+
+**İki kural sihirbazın şeklini belirliyor:**
+
+1. **Yapılandırmaktan çok doğruluyor.** Veritabanı rolleri, şema, TLS,
+   collector backend'i — panel bunları yapamaz ve yapabilmemeli. O
+   adımlar gerçek durumu okuyup bildiriyor. Hiçbir şey yazmayan bir
+   alan, "ne yapacağını söyleyen bir cümle"den **daha kötüdür**: kurucu
+   doldurur, hata görmez, işin bittiğini sanır. Altı adımın ikisi
+   yazıyor, dördü doğruluyor ve bunu söylüyor.
+2. **Her adım değiştirdiğini anında kaydediyor.** Oturumda taslak yok,
+   hepsini birden uygulayan bir "bitir" yok. Yarıda bırakan biri yarım
+   kalmış bir kurulum bırakır — bu doğru ve görünür.
+
+**Gerçek çalıştırmanın bulduğu defekt:** saklama adımı iki anahtarı da
+global yazıyordu. Günlük saklama global, ama **analitik saklama siteye
+bağlı** ve store yazıyı reddetti — hiçbir birim testinin beklemediği bir
+mesajla. Düzeltme "siteyi parametre olarak geçirmek" değil, **sayfanın
+doğruyu söylemesi** oldu: her yapılandırılmış site için ayrı alan, site
+adıyla etiketli, ve hiç site yoksa bunun neden ayarlanamayacağını
+söyleyen bir satır. Siteye bağlı bir ayarı tek global alan olarak
+çizmek sadeleştirme değil, **başka bir ayar** çizmektir.
+
+**Kapatılan denetim boşluğu:** `dev_access.*` eylemleri fazlardır
+tanımlıydı ve hiçbir yer yazmıyordu. `panel_dev_access` zaten `used_at`
+ve `used_from` tutuyor — kimsenin fark etmemesinin sebebi bu — ama o
+tablo bir iş listesi (bir ay sonra temizleniyor, "hangi bağlantılar var"
+sorusunu cevaplıyor). Denetim kaydı "bu kurulumda ne oldu" sorusunu
+cevaplar. Artık her kullanım kayda geçiyor, ayrı bir geliştirici kimliği
+altında, ve **bootstrap onayının kendi eylemi var**: "henüz sahibi yoktu
+diye verildi" ile "sahibi evet dedi diye verildi" tek satıra
+düzleştirilmiyor.
+
+**Bilinen eksik:** sihirbazın **kabuğu** iki dilde, ama **kontrol
+sonuçları ve elle yapılacaklar listesi yalnız Türkçe** — onlar kuralı
+yazan dosyanın yanında duruyor (`internal/panel/preflight.go`), dil
+paketlerinde değil. Taşımak `CheckResult.ID` üzerinden anahtara çevirmek
+demek; `Detail` alanı dinamik olduğu için tamamı değil.
 
 #### C2.5 — Sihirbazın son adımı: panelden yapılamayacaklar ✅ **yapıldı**
 

@@ -1,0 +1,14 @@
+{{define "kurulum_ilerleme"}}
+{{- with .Data}}
+<nav class="ilerleme" aria-label="{{t "kurulum.ilerleme"}}">
+<ol>
+{{- range .Steps}}
+<li{{if .Current}} aria-current="step"{{end}} class="{{if .Done}}bitti{{else if .Current}}suanki{{else}}sonraki{{end}}">
+{{- if .Done}}<a href="{{.URL}}">{{.Number}}. {{.Title}}</a>
+{{- else}}<span>{{.Number}}. {{.Title}}</span>{{end}}
+</li>
+{{- end}}
+</ol>
+</nav>
+{{- end}}
+{{end}}

@@ -22,9 +22,11 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -46,6 +48,12 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "panel.toml", "path to the TOML config file")
+	devLink := flag.Bool("dev-link", false,
+		"mint a one-time developer access link, print it, and exit")
+	devReason := flag.String("dev-reason", "kurulum",
+		"why this developer link is being requested; recorded in the audit log")
+	baseURL := flag.String("base-url", "",
+		"the address the panel is reached at, for the printed link (default http://<listen_addr>)")
 	flag.Parse()
 
 	cfg, err := web.LoadConfig(*configPath)
@@ -108,13 +116,44 @@ func main() {
 	}
 	defer store.Close()
 
+	// Minting a link is a one-shot command rather than a running
+	// service, and it happens here rather than in a separate binary
+	// because it needs this config's database and nothing else. The
+	// person running it is at a shell on the server, which is precisely
+	// the authority the link stands for.
+	if *devLink {
+		if err := printDevLink(ctx, store, cfg, *baseURL, *devReason); err != nil {
+			fatal(logger, "developer link", err)
+		}
+		return
+	}
+
+	gate, err := devgate.New(cfg.DeveloperGate, devgate.Options{
+		Logger: logger,
+		Audit:  store.GateAudit(),
+	})
+	if err != nil {
+		fatal(logger, "developer password", err)
+	}
+
+	sessions := panel.NewSessions(store, cfg.SessionLifetime(), cfg.CookiesAreSecure())
+
 	srv := &web.Server{
-		ListenAddr: cfg.ListenAddr,
-		Renderer:   renderer,
-		Logger:     logger,
-		HSTS:       cfg.HSTS,
-		Zone:       zone,
-		Language:   cfg.Language,
+		ListenAddr:       cfg.ListenAddr,
+		Renderer:         renderer,
+		Logger:           logger,
+		HSTS:             cfg.HSTS,
+		Zone:             zone,
+		Language:         cfg.Language,
+		Store:            store,
+		Sessions:         sessions,
+		Gate:             gate,
+		ConfigPath:       *configPath,
+		ConfigFileValues: configFileValues(cfg),
+		Preflight: panel.PreflightConfig{
+			LogDir:  cfg.Logging.Dir,
+			DataDir: cfg.Logging.Dir,
+		},
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		fatal(logger, "panel server error", err)
@@ -153,4 +192,67 @@ func languageCodes(cats *ui.Catalogs) []string {
 		codes = append(codes, lang.Code)
 	}
 	return codes
+}
+
+// printDevLink mints a one-time developer access link and writes it to
+// stdout.
+//
+// Stdout and not the log tree: this is the one output of this program a
+// person copies with their mouse, and burying it in a JSON line beside
+// the day's requests would be hostile. The token is not recoverable
+// afterwards - only its hash is stored - so it is printed once and
+// never again.
+func printDevLink(ctx context.Context, store *panel.Store, cfg web.Config, baseURL, reason string) error {
+	token, req, err := store.RequestDevAccess(ctx, reason, 0, 0)
+	if err != nil {
+		return err
+	}
+	if baseURL == "" {
+		baseURL = "http://" + cfg.ListenAddr
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	fmt.Println(baseURL + web.DevAccessPathPrefix + token)
+	fmt.Println()
+	fmt.Printf("Tek kullanımlık. %s tarihine kadar geçerli.\n", req.RequestExpiresAt.Format("2006-01-02 15:04:05 MST"))
+	if req.AutoApproved {
+		// Said out loud because it is the security property that
+		// matters most here, and because it stops being true silently.
+		fmt.Println("Bu kurulumda henüz hesap yok, bu yüzden bağlantı kendiliğinden onaylandı.")
+		fmt.Println("İlk hesap oluşturulduğu anda bu otomatik onay biter; sonrasında sahibin onayı gerekir.")
+	} else {
+		fmt.Println("Bu kurulumun bir sahibi var, bu yüzden bağlantı onaylanana kadar çalışmaz.")
+	}
+	return nil
+}
+
+// configFileValues is what the wizard may display from the config
+// files.
+//
+// Only the panel's own values, because the panel reads only its own
+// file. The collector's and the beacon's entries in the registry stay
+// unknown, and the page says "not reported to the panel" rather than
+// leaving a blank - which is the same distinction between "we looked"
+// and "we did not look" that the preflight checks keep.
+//
+// Nothing secret is listed. panel.ConfigFileSettings drops secrets on
+// the entry itself, so this cannot leak one by passing the wrong key,
+// but the DSN is left out here too rather than relying on that.
+func configFileValues(cfg web.Config) map[string]string {
+	values := map[string]string{
+		"panel.listen_addr":            cfg.ListenAddr,
+		"panel.timezone":               cfg.Timezone,
+		"panel.language":               cfg.Language,
+		"panel.analytics_api_url":      cfg.AnalyticsAPIURL,
+		"panel.logging.dir":            cfg.Logging.Dir,
+		"panel.session_lifetime_hours": strconv.Itoa(cfg.SessionLifetimeHours),
+		"panel.hsts":                   strconv.FormatBool(cfg.HSTS),
+		"panel.secure_cookies":         strconv.FormatBool(cfg.CookiesAreSecure()),
+	}
+	for key, value := range values {
+		if value == "" {
+			delete(values, key)
+		}
+	}
+	return values
 }

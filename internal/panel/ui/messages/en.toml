@@ -111,3 +111,96 @@ govde = "The service is starting up or under maintenance. Try again in a few sec
 [metin.giris]
 baslik = "Sign in"
 govde = "Sign in to continue."
+
+# --- Setup wizard (C2) ---
+#
+# This section is the wizard's *chrome*: headings, buttons, explanations.
+# The check results and the manual-step list are not here - they live
+# beside the rule that produces them (internal/panel/preflight.go) and
+# are Turkish only for now. A known gap, recorded in PLAN.md.
+
+[metin.kurulum]
+ilerleme = "Setup steps"
+geri = "← Previous step"
+ileri = "Next step →"
+kaydet = "Save"
+kaydedildi = "Saved."
+degismedi = "Nothing changed."
+
+[metin.kurulum.uyari]
+baslik = "This is the technical setup wizard"
+govde = "These steps are for whoever installs the server. Most of them change nothing - they read what is there and verify it - because the panel cannot set up database roles, schemas or TLS certificates, and should not be able to."
+
+[metin.kurulum.gerekli]
+baslik = "Waiting for setup"
+ilk = "This deployment has no accounts yet. There is nowhere to sign in, so the technical setup has to be completed first."
+baglanti = "This section is reachable only through a one-time developer link."
+komut = "Run this on the server; it prints a link:"
+tek_kullanim = "The link works once, expires, and the address it was used from is recorded. The moment an account exists these links stop being approved automatically - after that the owner has to approve them."
+
+[metin.kurulum.siteler]
+bos = "At least one site id is required."
+
+[metin.kurulum.saklama]
+sayi_degil = "%s is not a number."
+site_yok = "Analytics retention belongs to a site, and this deployment has none configured yet. Fill in the Sites step first."
+
+[metin.kurulum.adim.baslangic]
+baslik = "Start"
+govde = "This wizard walks the technical ground of an installation and ends by checking whether it actually works."
+kapsam = "Steps covered"
+yazma = "Each step commits what it changes, immediately. Stopping halfway leaves a half-configured deployment - not a hidden draft."
+
+[metin.kurulum.adim.veritabani]
+baslik = "Database and schema"
+govde = "This step changes nothing. It runs real queries against the database and reports what it found; the schema and the roles are applied by hand, because a role cannot grant itself privileges."
+tamam = "The database side is ready."
+eksik = "The failing rows above block the installation. The command beside each row is the command to run."
+
+[metin.kurulum.adim.siteler]
+baslik = "Sites"
+govde = "The site ids the beacon will accept events for. The snippet is public, which is what makes this list mandatory: without it anyone could write rows under any site name they liked."
+etiket = "Site ids"
+ipucu = "One per line, or comma-separated. Letters, digits, underscore and dash; 64 characters at most."
+
+[metin.kurulum.adim.toplama]
+baslik = "Config files"
+govde = "The collector mode, the backend address, TLS and the trusted proxies live in config files. This step shows them; it cannot change them."
+servis = "Service"
+anahtar = "Key"
+deger = "Value"
+gizli = "holds a secret — only its presence is recorded"
+bilinmiyor = "not reported to the panel"
+
+[metin.kurulum.adim.saklama]
+baslik = "Retention"
+govde = "How long data is kept. These settings carry legal weight, so changing them asks for the developer password — every time."
+sifre = "Developer password"
+
+[metin.kurulum.adim.kontrol]
+baslik = "Check"
+govde = "A list nobody verifies is a list everybody ticks. So the button below runs real queries, reads real directories and makes real requests."
+calistir = "Run the checks"
+otomatik = "Automatic checks"
+hazir = "The deployment is ready to hand over. Every required check passed."
+engelli = "Some required checks did not pass. A wizard that cannot be finished is a wizard people work around — so these block handover."
+elle = "What the panel can never do"
+elle_govde = "Each row says why the panel cannot do it. Without the reason the list reads as an arbitrary set of chores."
+adim = "Step"
+neden = "Why the panel cannot"
+dogrulayan = "Verified by"
+dogrulanmiyor = "none — confirmed by hand"
+dogrulanamayan = "Steps with no verifier"
+dogrulanamayan_govde = "A list that shows verified and unverified items the same way teaches the reader to trust neither. These are kept separate."
+
+[metin.kontrol]
+sutun_durum = "Status"
+sutun_ne = "What was checked"
+sutun_bulunan = "Found"
+onerilen = "recommended"
+
+[metin.kontrol.durum]
+pass = "passed"
+fail = "failed"
+warn = "warning"
+skip = "not checked"

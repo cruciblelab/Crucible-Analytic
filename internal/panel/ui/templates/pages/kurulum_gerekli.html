@@ -1,0 +1,12 @@
+{{define "icerik"}}
+{{- with .Data}}
+{{- if .FirstRun}}
+<p>{{t "kurulum.gerekli.ilk"}}</p>
+{{- else}}
+<p>{{t "kurulum.gerekli.baglanti"}}</p>
+{{- end}}
+<p>{{t "kurulum.gerekli.komut"}}</p>
+<pre><code>{{.Command}}</code></pre>
+<p class="ipucu">{{t "kurulum.gerekli.tek_kullanim"}}</p>
+{{- end}}
+{{end}}

@@ -864,8 +864,53 @@ A few properties that are deliberate rather than incidental:
   spare machine first and puts a certificate on afterwards, and a wrong
   HSTS locks them out of a panel with no HTTPS to fall back to.
 
-Today the panel serves its chrome, its error pages and its assets; the
-pages themselves arrive with the rest of group C in `PLAN.md`.
+### First run, and the developer wizard
+
+A freshly installed deployment has no accounts, so there is nowhere to
+sign in. Its front page says exactly that and prints the command that
+gets you in:
+
+```bash
+panel -config panel.toml -dev-link
+```
+
+That mints a **one-time** link, prints it to stdout, and stores only its
+hash. Opening it starts a developer session and lands on the setup
+wizard. Six steps: what this is, the database and schema, the sites, what
+the config files say, retention, and the final check.
+
+The rules that shape it:
+
+- **It verifies more than it configures.** Database roles, the schema,
+  TLS, the collector's backend - the panel cannot set any of those and
+  should not be able to. Those steps read the real state and report it
+  rather than showing a field that writes nothing.
+- **Each step commits what it changes, immediately.** No draft in the
+  session, no "finish" that applies everything at once. Stopping halfway
+  leaves a half-configured deployment, which is true and visible.
+- **Retention asks for the developer password**, every time, because
+  those settings carry legal weight - and analytics retention is asked
+  per site, because that is the scope it actually has.
+- **The final check runs real queries**, on a button, not on page load.
+  Required failures block handover; recommended ones do not. Beside it
+  is the list of things the panel can never do, each row saying *why*,
+  with the steps that have no verifier kept visibly separate from the
+  ones that do.
+- **Before anybody owns the deployment the link is approved on the
+  spot** - there is nobody to ask, and installing the system is the job.
+  The moment an account exists that stops, and the owner has to approve.
+  The printed output says which of the two just happened.
+- **Every redemption is in the append-only audit log**, filed under a
+  visibly separate developer identity, with a bootstrap grant given its
+  own action so "granted because nobody owned this yet" is never
+  flattened into "granted".
+
+The wizard's own text is translated. The check results and the
+manual-step list are still Turkish only: they live beside the rule that
+produces them rather than in the language packs, and moving them is
+recorded as open work in `PLAN.md`.
+
+The pages behind the login form arrive with the rest of group C.
 
 ### Languages
 

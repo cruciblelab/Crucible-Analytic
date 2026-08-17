@@ -137,3 +137,97 @@ govde = "Servis açılıyor ya da bakımda. Birkaç saniye sonra tekrar deneyin.
 [metin.giris]
 baslik = "Giriş"
 govde = "Devam etmek için giriş yapın."
+
+# --- Kurulum sihirbazı (C2) ---
+#
+# Bu bölümdeki metinler sihirbazın **kabuğu**: başlıklar, düğmeler,
+# açıklamalar. Kontrol sonuçlarının ve elle yapılacaklar listesinin
+# metni burada değil — onlar kuralı yazan dosyanın yanında duruyor
+# (internal/panel/preflight.go) ve şu an yalnız Türkçe. Bilinen
+# eksiklik; PLAN'da kayıtlı.
+
+[metin.kurulum]
+ilerleme = "Kurulum adımları"
+geri = "← Önceki adım"
+ileri = "Sonraki adım →"
+kaydet = "Kaydet"
+kaydedildi = "Kaydedildi."
+degismedi = "Değişen bir şey yok."
+
+[metin.kurulum.uyari]
+baslik = "Bu teknik kurulum sihirbazı"
+govde = "Buradaki adımlar sunucuyu kuran kişi içindir. Çoğu adım bir şeyi değiştirmez, olanı okur ve doğrular — çünkü veritabanı rolleri, şema ve TLS sertifikası gibi işleri panel yapamaz ve yapabilmemeli."
+
+[metin.kurulum.gerekli]
+baslik = "Kurulum bekleniyor"
+ilk = "Bu kurulumda henüz hiç hesap yok. Giriş yapılacak bir yer olmadığı için önce teknik kurulumun tamamlanması gerekiyor."
+baglanti = "Bu bölüme yalnızca tek kullanımlık bir geliştirici bağlantısıyla girilebilir."
+komut = "Sunucuda şu komutu çalıştırın; ekrana bir bağlantı yazacak:"
+tek_kullanim = "Bağlantı tek kullanımlıktır, süre sınırlıdır, ve kullanıldığı adres kayda geçer. Hesap oluşturulduğu anda bu bağlantıların otomatik onayı sona erer — sonrasında sahibin onayı gerekir."
+
+[metin.kurulum.siteler]
+bos = "En az bir site kimliği gerekiyor."
+
+[metin.kurulum.saklama]
+sayi_degil = "%s bir sayı değil."
+site_yok = "Analitik saklama süresi siteye bağlıdır ve bu kurulumda henüz site tanımlı değil. Önce Siteler adımını doldurun."
+
+[metin.kurulum.adim.baslangic]
+baslik = "Başlangıç"
+govde = "Bu sihirbaz kurulumun teknik zeminini geçer ve sonunda gerçekten çalışıp çalışmadığını kontrol eder."
+kapsam = "Kapsanan adımlar"
+yazma = "Her adım değiştirdiği şeyi anında kaydeder. Yarıda bırakırsanız yarım kalmış bir kurulum kalır — gizli bir taslak değil."
+
+[metin.kurulum.adim.veritabani]
+baslik = "Veritabanı ve şema"
+govde = "Bu adım hiçbir şey değiştirmez. Veritabanına gerçek sorgular atar ve ne bulduğunu söyler; şema ve roller elle uygulanır, çünkü bir rol kendine yetki veremez."
+tamam = "Veritabanı tarafı hazır."
+eksik = "Yukarıda başarısız olan satırlar kurulumu engelliyor. Her satırın yanındaki komut çalıştırılacak komuttur."
+
+[metin.kurulum.adim.siteler]
+baslik = "Siteler"
+govde = "Beacon'ın olay kabul edeceği site kimlikleri. Snippet herkese açık olduğu için bu liste zorunlu: olmadan herkes istediği site adıyla satır yazabilirdi."
+etiket = "Site kimlikleri"
+ipucu = "Her satıra bir tane, ya da virgülle ayırın. Harf, rakam, alt çizgi ve tire; en fazla 64 karakter."
+
+[metin.kurulum.adim.toplama]
+baslik = "Yapılandırma dosyaları"
+govde = "Toplayıcı modu, backend adresi, TLS ve güvenilir vekiller yapılandırma dosyalarında durur. Bu adım onları gösterir; değiştiremez."
+servis = "Servis"
+anahtar = "Anahtar"
+deger = "Değer"
+gizli = "parola taşıyor — yalnızca varlığı yazılıdır"
+bilinmiyor = "panele bildirilmemiş"
+
+[metin.kurulum.adim.saklama]
+baslik = "Saklama süreleri"
+govde = "Verinin ne kadar tutulacağı. Bu ayarların hukuki ağırlığı var, o yüzden değiştirmek geliştirici şifresini ister — her seferinde."
+sifre = "Geliştirici şifresi"
+
+[metin.kurulum.adim.kontrol]
+baslik = "Kontrol"
+govde = "Kimsenin doğrulamadığı bir liste, herkesin işaretlediği bir listedir. Bu yüzden aşağıdaki düğme gerçek sorgular çalıştırır, gerçek dizinleri okur ve gerçek istekler atar."
+calistir = "Kontrol et"
+otomatik = "Otomatik kontroller"
+hazir = "Kurulum devre hazır. Zorunlu kontrollerin hepsi geçti."
+engelli = "Zorunlu kontrollerden bazıları geçmedi. Bitirilemeyen bir sihirbaz, etrafından dolaşılan bir sihirbazdır — o yüzden bunlar devri engelliyor."
+elle = "Panelin asla yapamayacakları"
+elle_govde = "Her satır, panelin bunu neden yapamayacağını söylüyor. Gerekçe olmadan liste keyfî bir angarya listesi gibi okunur."
+adim = "Adım"
+neden = "Panel neden yapamaz"
+dogrulayan = "Doğrulayan kontrol"
+dogrulanmiyor = "yok — elle onaylanır"
+dogrulanamayan = "Doğrulayıcısı olmayan adımlar"
+dogrulanamayan_govde = "Doğrulanmış ve doğrulanmamış maddeyi aynı gösteren bir liste, okuyucuya ikisine de güvenmemeyi öğretir. Bunlar ayrı duruyor."
+
+[metin.kontrol]
+sutun_durum = "Durum"
+sutun_ne = "Ne kontrol edildi"
+sutun_bulunan = "Bulunan"
+onerilen = "önerilen"
+
+[metin.kontrol.durum]
+pass = "geçti"
+fail = "başarısız"
+warn = "uyarı"
+skip = "bakılmadı"
