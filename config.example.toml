@@ -147,3 +147,28 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # password, so the party who could reverse it is the party who could
 # already read everything.
 # ip_hash_key = ""
+
+# --- Bilinen bot parmak izleri -------------------------------------------
+#
+# Bu proje bu veri kümesini **dağıtmaz.** Veri başkasına ait; MIT lisanslı
+# bir deponun içinde şartları yazılmamış üçüncü taraf verisi taşımak, o
+# belirsizliği depoyu klonlayan herkese devretmek olurdu. Onun yerine
+# kurulum veriyi kendi makinesine, kaynağın kendi şartlarıyla indirir:
+#
+#     collector -config config.toml -update-bot-data
+#
+# Ne zaman çalıştıracağınız size kalmış — cron, elle, ya da başka bir
+# yerden. Bu yazılımın işi değil.
+#
+# Hiç çalıştırmamak **desteklenen bir durum**: bilinen-bot sinyali olmaz,
+# diğer bütün sinyaller çalışmaya devam eder, ve collector açılışta bunu
+# söyler. Sessizce eksilen bir şey yok.
+#
+# Örnek cron satırı (haftada bir, pazartesi 04:00):
+#     0 4 * * 1 /usr/local/bin/collector -config /etc/crucible/config.toml -update-bot-data
+[bot_data]
+path = "/var/lib/crucible/known_bots.json"
+# Kaynak adresi. Boş bırakılırsa varsayılan kullanılır. Yapılandırılabilir
+# olmasının sebebi: üçüncü tarafın adresini binary'ye çakmak, o adres
+# değiştiği gün kurulumun kendini güncelleyememesi demektir.
+# source_url = "https://thebotaquarium.com/api/fingerprint/archive"

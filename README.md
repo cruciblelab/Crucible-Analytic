@@ -687,23 +687,38 @@ with `localStorage.setItem('crucible.disabled', '1')`.
   the latest release bumps the required Go version to 1.25; v5.7.6 only
   needs 1.23, which keeps the toolchain requirement lower for whatever the
   target VPS already has installed.
-- **The known-bot JA4 list (`scoring.KnownBotJA4`) is real data, not a
-  placeholder** — 51 unique JA4 fingerprints loaded at build time (via
-  `go:embed`) from `internal/scoring/known_bots.json`, sourced from [The
-  Bot Aquarium](https://thebotaquarium.com/fingerprint/archive)'s public
-  fingerprint archive (community-submitted, classification-tagged; entries
-  classified `browser` are excluded since they're legitimate reference
-  data, not a bot signal). `ja4db.foxio.io` — the JA4 spec authors' own
-  database, and the intended primary source — turned out to require an
-  account for any bulk/API access (every endpoint returned HTTP 403
-  "Authentication credentials were not provided" without one), so it isn't
-  included here. **This is a one-time snapshot (retrieved 2026-07-21), not
-  a live feed** — there's no automatic update mechanism in this MVP, and
-  both sources' data ages; periodic manual refresh (and adding ja4db once
-  access is available) is expected follow-up work, not something to build
-  into this phase. See `internal/scoring/known_bots.json`'s own `note`
-  field for the exact sourcing/exclusion details baked into the data
-  itself.
+- **The known-bot JA4 list is fetched, never shipped.** This repository
+  contains no copy of it, deliberately: the project is MIT and anyone may
+  take it, but that dataset belongs to somebody else, and a permissively
+  licensed repository carrying third-party data under unstated terms
+  hands that uncertainty to everyone who clones it. See `THIRD-PARTY.md`.
+
+  The deployment fetches it instead, onto its own machine, under the
+  source's own terms:
+
+  ```bash
+  collector -config collector.toml -update-bot-data
+  ```
+
+  Put that in cron, run it by hand, or drive it from somewhere else —
+  the schedule is not this software's business. It writes a
+  self-describing file to `bot_data.path` (source, timestamp, how many
+  entries were filtered out), which the collector reads at startup for
+  scoring and the read API reads to label fingerprints in its responses.
+  Entries classified `browser` are dropped: they are legitimate
+  reference data, and keeping them would make the panel call every
+  ordinary visitor a known bot.
+
+  **Never running it is a supported state**, and the honest cost of not
+  redistributing: the known-bot signal is simply absent, every other
+  signal still works, both services say so at startup, and the setup
+  wizard reports it. Nothing goes quietly missing.
+
+  The source is [The Bot Aquarium](https://thebotaquarium.com/fingerprint/archive)'s
+  public archive (community-submitted, classification-tagged).
+  `ja4db.foxio.io` — the JA4 spec authors' own database, and the
+  intended primary source — requires an account for bulk access (every
+  endpoint returns HTTP 403 without one), so it is not wired up.
 
 ## Running locally
 

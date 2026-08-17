@@ -2,64 +2,47 @@ package scoring
 
 import "testing"
 
-func TestKnownBotJA4_LoadsRealSnapshotData(t *testing.T) {
-	// Pins the current known_bots.json snapshot (The Bot Aquarium archive,
-	// browser-classified entries excluded, retrieved 2026-07-21). Update
-	// this count deliberately if the snapshot is refreshed.
-	const wantCount = 51
-	if len(KnownBotJA4) != wantCount {
-		t.Errorf("len(KnownBotJA4) = %d, want %d", len(KnownBotJA4), wantCount)
+// TestNilSetIsUsable is the property the whole licence decision rests
+// on: a deployment that has never fetched the dataset has no set, and
+// nothing anywhere may need to check for that.
+func TestNilSetIsUsable(t *testing.T) {
+	var none KnownBots
+	if none.Known("t13d1516h2_8daaf6152771_b186095e22b6") {
+		t.Error("the nil set claimed to know a fingerprint")
 	}
-
-	// Spot-check one real, known entry rather than only asserting a count.
-	const curlJA4 = "t13d4907h2_0d8feac7bc37_7395dae3b2f3"
-	label, ok := KnownBotJA4[curlJA4]
-	if !ok {
-		t.Fatalf("KnownBotJA4 missing expected entry %s", curlJA4)
+	if label, ok := none.Label("anything"); ok || label != "" {
+		t.Errorf("the nil set returned %q, %v", label, ok)
 	}
-	if label != "curl" {
-		t.Errorf("KnownBotJA4[%s] = %q, want %q", curlJA4, label, "curl")
+	if none.Len() != 0 {
+		t.Error("the nil set has a length")
 	}
 }
 
-func TestKnownBotJA4_ExcludesBrowserEntries(t *testing.T) {
-	// The source archive has ~46 entries classified "browser" (legitimate
-	// reference fingerprints, not bot signal); none of their labels should
-	// have made it into the loaded map.
-	for ja4, label := range KnownBotJA4 {
-		if label == "browser" {
-			t.Errorf("KnownBotJA4[%s] = %q: browser-classified entries must be excluded", ja4, label)
-		}
+// TestEmptyFingerprintIsNeverKnown. "" is the sentinel every caller in
+// this project uses for "no JA4 was available" - non-TLS traffic, an
+// unparseable ClientHello. Treating it as a lookup key would label all
+// of that as a known bot, so it is refused before the map is consulted
+// and even when the map contains it.
+func TestEmptyFingerprintIsNeverKnown(t *testing.T) {
+	poisoned := KnownBots{"": "would flag everything"}
+	if poisoned.Known("") {
+		t.Fatal("an empty fingerprint matched; all non-TLS traffic would be called a bot")
+	}
+	if label, ok := poisoned.Label(""); ok || label != "" {
+		t.Fatalf("Label(\"\") = %q, %v", label, ok)
 	}
 }
 
-func TestMustLoadKnownBots_DropsEmptyJA4Key(t *testing.T) {
-	orig := knownBotsJSON
-	defer func() { knownBotsJSON = orig }()
-
-	knownBotsJSON = []byte(`{"entries":[
-		{"ja4":"", "label":"should-be-dropped"},
-		{"ja4":"real-ja4", "label":"kept"}
-	]}`)
-
-	got := mustLoadKnownBots()
-	if _, ok := got[""]; ok {
-		t.Error("mustLoadKnownBots() kept an empty-string JA4 key, want it dropped")
+func TestLookup(t *testing.T) {
+	set := KnownBots{"t13d1516h2_8daaf6152771_b186095e22b6": "curl"}
+	label, ok := set.Label("t13d1516h2_8daaf6152771_b186095e22b6")
+	if !ok || label != "curl" {
+		t.Errorf("Label = %q, %v", label, ok)
 	}
-	if got["real-ja4"] != "kept" {
-		t.Errorf("mustLoadKnownBots() = %v, want real-ja4 entry preserved", got)
+	if set.Known("t13d1516h2_0000000000_000000000000") {
+		t.Error("an unknown fingerprint matched")
 	}
-}
-
-func TestMustLoadKnownBots_PanicsOnMalformedJSON(t *testing.T) {
-	orig := knownBotsJSON
-	defer func() { knownBotsJSON = orig }()
-	knownBotsJSON = []byte(`{not valid json`)
-
-	defer func() {
-		if recover() == nil {
-			t.Error("mustLoadKnownBots() did not panic on malformed JSON")
-		}
-	}()
-	mustLoadKnownBots()
+	if set.Len() != 1 {
+		t.Errorf("Len = %d", set.Len())
+	}
 }

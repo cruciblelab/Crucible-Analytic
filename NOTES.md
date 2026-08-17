@@ -2023,3 +2023,104 @@ proof kept instead is the value coming back on a freshly loaded page -
 which the server reads from the database anyway - and the direct
 database assertion lives in the test that makes it in the same goroutine
 as the write.
+
+## Ship the mechanism, not the data
+
+The repository is public and MIT. Inside it was a snapshot of somebody
+else's dataset: 51 JA4 fingerprints from The Bot Aquarium's community
+archive, retrieved once and committed. The README named the source and
+did not name the terms.
+
+That is a specific kind of wrong, and it is worth being precise about
+why. Our licence covers our code. It says nothing about data we did not
+create, so a repository that says "MIT, help yourself" while carrying
+third-party data under unstated conditions is not being generous - it is
+passing an unresolved question to everybody who clones it, and they
+inherit it silently.
+
+The fix chosen was not to research the terms and write them down. It was
+to stop redistributing. The data now arrives by being fetched, onto the
+deployment's own machine, under the source's own terms:
+
+    collector -config collector.toml -update-bot-data
+
+Cron, by hand, from somewhere else - the schedule is deliberately not
+this software's business, which is why the mechanism is a plain function
+behind a flag rather than a scheduler nobody asked for.
+
+### The cost, said out loud
+
+A deployment that never runs it has **no known-bot signal at all**. That
+is strictly less than before, and pretending otherwise would be the
+worst outcome of the whole change: a deployment quietly missing a signal
+it thinks it has.
+
+So absence is loud. The collector says at startup whether it loaded a
+set, or has never fetched one, or was never told where to look. The read
+API says whether fingerprints will be labelled. The setup wizard carries
+a check that separates *never fetched* from *fetched and stale* from
+*never told where to look* - three different facts with three different
+next actions, and the last of them is a `skip` rather than a `pass`,
+because "we did not look" is not a clean bill of health.
+
+That check is **recommended, never required**. Blocking somebody's
+installation over a third party's dataset would be the wrong trade.
+
+### Unpicking a package-level global
+
+`scoring.KnownBotJA4` was a `var` initialised from an embedded file, and
+`internal/api` read it in five places. That shape is what made the data
+feel unavoidable: a global loaded at init has nowhere to be absent.
+
+It is now `scoring.KnownBots`, a value the caller supplies, and the nil
+set is meaningful - `Known` and `Label` handle it, so no caller checks.
+Both readers changed the same way: the collector passes what it loaded,
+the API store carries it as a field. The empty-fingerprint guard moved
+onto the type itself rather than being a filter applied at load time,
+because `""` is the sentinel for "no JA4 available" and a set that
+contained it would label all non-TLS traffic as a bot. Now it is refused
+at lookup, even if a set somehow contains it.
+
+### What the fetcher does that a `curl | jq` would not
+
+Three things, each because of a specific failure:
+
+- **Browser-classified entries are dropped.** The archive is
+  community-submitted and includes reference fingerprints for real
+  browsers. Keeping them would make the panel call every ordinary
+  visitor a known bot - the single most damaging thing this parser could
+  get wrong, and the reason it has its own test.
+- **The write is atomic.** Temp file, sync, rename, same directory. A
+  crash mid-write would otherwise leave a half-written file that the
+  collector refuses to parse at its next restart, and the failure would
+  arrive hours later wearing a different face.
+- **A failed fetch changes nothing on disk.** Yesterday's fingerprints
+  are worth far more than none, so `Update` writes only after a fetch
+  has fully succeeded.
+
+The response is also read through a byte cap. Not a guess at the file's
+size - a bound on somebody else's server, because without it a redirect
+to something enormous turns a cron entry into an out-of-memory kill on
+the machine that also runs the collector.
+
+### A message that sent me the wrong way
+
+The first version reported "every entry was filtered out; the source's
+shape may have changed" for an empty response. It is the wrong sentence:
+nothing was filtered, there was nothing. One is somebody else's outage,
+the other is our parser meeting a shape it did not expect, and only the
+second is worth reading this code over. Two failures, two sentences.
+
+### One live test, and what it is for
+
+The unit tests run against a fixture this repository controls. That
+fixture can go on passing forever while the real source changes shape -
+and since no copy ships any more, that would mean every deployment
+quietly losing the signal with no error anywhere. So one integration
+test fetches the real archive and checks that what comes back still
+parses into something that looks like JA4 fingerprints.
+
+It found the first useful thing immediately: the live source now has 52
+usable entries against the committed snapshot's 51, with 59 more
+filtered out as browsers. The data had already moved on from the copy we
+were shipping.

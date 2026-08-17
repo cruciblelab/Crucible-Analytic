@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/config"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
@@ -41,6 +43,8 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "config.toml", "path to the TOML config file")
+	updateBotData := flag.Bool("update-bot-data", false,
+		"fetch the known-bot fingerprint set into bot_data.path and exit (put this in cron)")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -64,6 +68,27 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Updating the fingerprint set is a one-shot command, not part of
+	// starting the collector. It is here rather than in a separate
+	// binary because it needs this config's paths and nothing else, and
+	// because the deployment schedules it however it likes - cron, by
+	// hand, or from somewhere else entirely.
+	if *updateBotData {
+		if err := runBotDataUpdate(ctx, cfg, logger); err != nil {
+			logger.Error("bot data update failed", "err", err)
+			fmt.Fprintf(os.Stderr, "collector: bot data update failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Loaded before anything starts listening. A deployment that has
+	// never fetched gets the empty set and a line saying so: the
+	// known-bot signal is absent, every other signal still works, and
+	// nobody has to discover that from a dashboard six weeks later.
+	knownBots, botMeta := loadBotData(cfg, logger)
+	_ = botMeta
 
 	store := ratestore.NewMemoryRateStore(cfg.Cache.WindowSize(), cfg.Cache.TTL(), cfg.Cache.CleanupInterval())
 
@@ -124,7 +149,7 @@ func main() {
 		Store:     store,
 		SiteID:    cfg.SiteID,
 		Writer:    writer,
-		KnownBots: scoring.KnownBotJA4,
+		KnownBots: knownBots,
 		Interval:  cfg.Storage.FlushInterval(),
 		Logger:    logger,
 		IPMode:    cfg.Privacy.IPMode(),
@@ -259,4 +284,64 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("shutdown complete")
+}
+
+// runBotDataUpdate fetches the known-bot fingerprint set and writes it
+// to the configured path.
+//
+// This project ships no copy of that dataset: it belongs to somebody
+// else, and a permissively licensed repository carrying third-party data
+// under unstated terms hands that uncertainty to everyone who clones it.
+// The deployment retrieves it here, onto its own machine, under the
+// source's own terms.
+func runBotDataUpdate(ctx context.Context, cfg *config.Config, logger *slog.Logger) error {
+	if cfg.BotData.Path == "" {
+		return fmt.Errorf("bot_data.path is not set; there is nowhere to write the file")
+	}
+	fetchCtx, cancel := context.WithTimeout(ctx, botdata.FetchTimeout)
+	defer cancel()
+
+	set, err := botdata.Update(fetchCtx, nil, cfg.BotData.SourceURL, cfg.BotData.Path)
+	if err != nil {
+		return err
+	}
+	logger.Info("bot data updated",
+		"path", cfg.BotData.Path, "source", set.Source,
+		"fingerprints", set.Len(), "dropped", set.Dropped)
+	// Also to stdout: whoever ran this is at a shell or reading cron
+	// mail, and a line in the log tree is not where they are looking.
+	fmt.Printf("%d fingerprints written to %s (source: %s, %d entries filtered out)\n",
+		set.Len(), cfg.BotData.Path, set.Source, set.Dropped)
+	return nil
+}
+
+// loadBotData reads the fingerprint set at startup.
+//
+// A missing file is not a failure - it is a deployment that has not run
+// the update yet, which is an ordinary state. What would be a failure is
+// letting that pass unremarked, so the absence is logged as plainly as
+// the presence.
+func loadBotData(cfg *config.Config, logger *slog.Logger) (scoring.KnownBots, botdata.Set) {
+	set, err := botdata.Load(cfg.BotData.Path)
+	if err != nil {
+		// A file that exists and cannot be read is different from no
+		// file, and is worth a warning rather than a silent empty set.
+		logger.Warn("bot data could not be read; continuing without the known-bot signal",
+			"path", cfg.BotData.Path, "err", err)
+		return nil, botdata.Empty()
+	}
+	switch {
+	case cfg.BotData.Path == "":
+		logger.Info("bot data not configured; the known-bot signal is off",
+			"how", "set bot_data.path and run: collector -update-bot-data")
+	case !set.Fetched():
+		logger.Info("bot data has never been fetched; the known-bot signal is off",
+			"path", cfg.BotData.Path,
+			"how", "run: collector -config <file> -update-bot-data")
+	default:
+		logger.Info("bot data loaded",
+			"path", cfg.BotData.Path, "fingerprints", set.Len(),
+			"fetched_at", set.FetchedAt.Format(time.RFC3339), "source", set.Source)
+	}
+	return scoring.KnownBots(set.Labels), set
 }

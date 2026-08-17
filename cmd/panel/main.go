@@ -151,8 +151,9 @@ func main() {
 		ConfigPath:       *configPath,
 		ConfigFileValues: configFileValues(cfg),
 		Preflight: panel.PreflightConfig{
-			LogDir:  cfg.Logging.Dir,
-			DataDir: cfg.Logging.Dir,
+			LogDir:      cfg.Logging.Dir,
+			DataDir:     cfg.Logging.Dir,
+			BotDataPath: cfg.BotDataPath,
 		},
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {

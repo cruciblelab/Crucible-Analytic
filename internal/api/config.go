@@ -25,6 +25,14 @@ type Config struct {
 		SHA256 string   `toml:"sha256"`
 		Sites  []string `toml:"sites"`
 	} `toml:"tokens"`
+	// BotDataPath points at the known-bot fingerprint file, so the API
+	// can label a JA4 in its responses. Optional: without it the
+	// fingerprints are still reported, just unlabelled.
+	//
+	// The same file the collector reads. This project redistributes no
+	// copy of that dataset - see internal/botdata.
+	BotDataPath string `toml:"bot_data_path"`
+
 	Logging logging.Config `toml:"logging"`
 }
 

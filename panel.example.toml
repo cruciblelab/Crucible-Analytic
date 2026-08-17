@@ -66,8 +66,15 @@ language = "tr"
 #
 # Bölüm hiç yoksa o ayarlar panelden kimse tarafından değiştirilemez —
 # güvenli yön budur. Düz metin parola kabul edilmez; panel açılmaz.
+
 [developer_gate]
 password_hash = ""
+
+# Collector'ın bilinen-bot dosyası. Panel bunu **yazmaz**; kurulum
+# sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
+# burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —
+# "baktık ve yoktu" ile aynı şey değil.
+# bot_data_path = "/var/lib/crucible/known_bots.json"
 
 [logging]
 dir = "/var/log/crucible"

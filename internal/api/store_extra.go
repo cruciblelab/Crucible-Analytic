@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/netip"
 	"time"
-
-	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
 // SiteOverview is one site's headline numbers within a multi-site
@@ -135,7 +133,7 @@ func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, lim
 			return nil, 0, fmt.Errorf("api: scan ja4 stat: %w", err)
 		}
 		stat.Empty = stat.JA4 == ""
-		stat.Label = scoring.KnownBotJA4[stat.JA4]
+		stat.Label, _ = s.knownBots.Label(stat.JA4)
 		stats = append(stats, stat)
 	}
 	return stats, total, rows.Err()
@@ -265,7 +263,7 @@ func (s *Store) IPDetail(ctx context.Context, siteID string, ip netip.Addr, from
 		return out, nil // Found stays false; the zeroed struct is the answer
 	}
 	out.Found = true
-	out.JA4Label = scoring.KnownBotJA4[out.JA4]
+	out.JA4Label, _ = s.knownBots.Label(out.JA4)
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT time, request_rate, bot_score, prev_window_count + curr_window_count

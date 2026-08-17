@@ -31,7 +31,7 @@ güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
 cevaplar.*
 
 **Rakamlar:** 21 iç paket, **5 binary** (`collector`, `beacon`,
-`analytics-api`, `devpass`, **`panel`**), 68 test dosyası, ~41 bin satır
+`analytics-api`, `devpass`, **`panel`**), 71 test dosyası, ~42 bin satır
 Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
 çalıştırma tespiti ve geliştirici sihirbazı çalışıyor. Müşterinin kapısı
 (giriş) C4'te.
@@ -41,7 +41,7 @@ Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **bitti** | — |
-| **A** Ayarlar ve saklama | 🟡 **7/11** | A2, A3, A5, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **4/9** | C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
@@ -781,6 +781,70 @@ tabloya erişimi yok.
 dokunamadığını gösteren test; beacon rolünün hâlâ `DELETE`
 yapamadığını doğrulayan rol testi; token olmadan silme talebinin
 reddedildiğini gösteren test.
+
+#### A10 — Veriyi dağıtmak yerine getirmek ✅ **yapıldı** *(lisans)*
+
+**Karar (kullanıcı):** *"Biz dağıtmayacağız, veri toplama sistemlerini
+de vereceğiz. Kendileri crona mı bağlar, panelden manuel mi yapar, bizi
+ilgilendirmez."*
+
+**Sorun.** Depo public ve MIT. İçinde başkasının verisinin bir anlık
+görüntüsü duruyor: `internal/scoring/known_bots.json` — The Bot
+Aquarium'un topluluk arşivinden 2026-07-21'de alınmış 51 kayıt.
+README kaynağı söylüyor ama **hangi şartlarla yeniden dağıtabildiğimizi
+söylemiyor.** Kendi lisansımız kendi kodumuzu kapsar; başkasının
+verisini kapsamaz. Bir depo hem "MIT, herkes kullanabilir" deyip hem
+içinde şartları yazılmamış üçüncü taraf verisi taşıyamaz — bunu
+klonlayan herkes aynı belirsizliği devralır.
+
+**Çözüm dağıtmamak, ama yeteneği de kaybetmemek.** Anlık görüntü
+depodan çıkıyor; yerine **getirme sistemi** giriyor. Veri, kurulumun
+kendi makinesinde, kurulumun kendi kararıyla, kaynağın kendi şartları
+altında iniyor. Biz hiçbir veri kümesini yeniden dağıtmıyoruz.
+
+**Nasıl çalıştırılacağı bizi ilgilendirmiyor** ve bu bir tasarım
+kısıtı: mekanizma komut satırından çalışacak (cron'a bağlanabilsin),
+ve sonradan panelden tetiklenebilecek biçimde bir pakette duracak.
+
+**Yapılacaklar:**
+
+1. **`internal/botdata`** — indir, ayrıştır, `browser` sınıflı kayıtları
+   ele (onları katmak gerçek tarayıcıları bot işaretlemek olurdu),
+   **kendini anlatan** bir dosyaya atomik yaz (kaynak, alınma zamanı,
+   sayı), geri oku. **Dosyanın olmaması hata değil, boş küme.**
+2. **`scoring.KnownBotJA4` global'ini sökmek.** Bugün paket düzeyinde
+   bir `var` ve onu `internal/api` üç yerde okuyor. Enjekte edilir hâle
+   gelmesi lazım — çünkü artık "hiç alınmamış" geçerli bir durum ve o
+   durumda küme boş olmalı, gömülü bir dosyadan gelmemeli.
+3. **`collector -update-bot-data`** — cron'a bağlanacak komut. Ne
+   yaptığını yazar.
+4. **`[bot_data]` yapılandırması** collector ve okuma API'sinde.
+5. **Görünürlük:** preflight kontrolü ve sihirbaz satırı, **"hiç
+   alınmadı" ile "alındı ve boş"u ayırarak** — bu projenin her yerde
+   koruduğu "baktık/bakmadık" ayrımı.
+6. **`THIRD-PARTY.md`** — her bağımlılığın lisansı, ve açık kural:
+   *bu depo hiçbir üçüncü taraf veri kümesini yeniden dağıtmaz.*
+
+**Kabul edilen kayıp, açıkça:** hiçbir şey yapmayan bir kurulumda
+bilinen-bot listesi **boş** olur. Skorlama diğer sinyallerle çalışmaya
+devam eder ama bu sinyal gelmez. Bu, dağıtmamanın dürüst bedeli ve
+kurulumun bunu görmesi gerekiyor — 5. madde bunun için var.
+
+**Panelden tetikleme bu fazda yok, ve sebebi teknik:** veriyi yazan
+collector'ın rolü, panelin rolü değil. Panelin collector'a iş
+söyleyebilmesi B3'ün operasyon kanalını gerektiriyor. Bugün cron ve
+komut satırı var; kullanıcı zaten bunu yeterli buldu.
+
+**Yapıldı.** `internal/botdata` (getir/yaz/oku), `scoring.KnownBots`
+(global söküldü, nil küme anlamlı), `collector -update-bot-data`,
+`[bot_data]` yapılandırması, `data.bot_fingerprints` preflight kontrolü
+ve elle-yapılacaklar satırı, `THIRD-PARTY.md`. Anlık görüntü depodan
+silindi.
+
+**Canlı kaynağa karşı doğrulandı** ve ilk faydalı şeyi hemen buldu:
+kaynakta artık **52** kullanılabilir kayıt var, depodaki anlık
+görüntüde 51 vardı; 59 kayıt da tarayıcı olduğu için eleniyor. Yani
+dağıttığımız kopya zaten geride kalmıştı.
 
 ---
 

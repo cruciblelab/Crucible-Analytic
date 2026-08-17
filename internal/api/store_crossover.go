@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/netip"
 	"time"
-
-	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
 // The crossover queries are the ones no single-source analytics tool can
@@ -234,7 +232,7 @@ func (s *Store) SilentIPs(ctx context.Context, siteID string, from, to time.Time
 			return nil, 0, fmt.Errorf("api: scan silent ip: %w", err)
 		}
 		stat.IP = ip.String()
-		stat.JA4Label = scoring.KnownBotJA4[stat.JA4]
+		stat.JA4Label, _ = s.knownBots.Label(stat.JA4)
 		stats = append(stats, stat)
 	}
 	return stats, total, rows.Err()
@@ -355,7 +353,7 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 			return nil, 0, fmt.Errorf("api: scan js bot: %w", err)
 		}
 		bot.IP = ip.String()
-		bot.JA4Label = scoring.KnownBotJA4[bot.JA4]
+		bot.JA4Label, _ = s.knownBots.Label(bot.JA4)
 		bots = append(bots, bot)
 	}
 	return bots, total, rows.Err()

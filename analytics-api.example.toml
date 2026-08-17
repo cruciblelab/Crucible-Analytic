@@ -48,3 +48,11 @@ sites = ["*"]
 # name = "ahmet-teknoloji-readonly"
 # sha256 = "..."
 # sites = ["ahmetteknoloji"]
+
+# Collector'ın getirdiği bilinen-bot dosyası. API bunu yalnız **okur**:
+# cevaplarındaki JA4 parmak izlerine isim koymak için. Boş bırakılırsa
+# parmak izleri yine raporlanır, sadece isimsiz olur.
+#
+# Dosyayı getiren komut collector'da: collector -update-bot-data
+# Bu proje bu veri kümesini dağıtmaz; bkz. internal/botdata.
+# bot_data_path = "/var/lib/crucible/known_bots.json"

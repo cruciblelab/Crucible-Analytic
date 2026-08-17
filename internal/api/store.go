@@ -43,7 +43,21 @@ const maxRows = 1000
 // Store answers read-only questions about traffic_snapshots.
 type Store struct {
 	pool *pgxpool.Pool
+	// knownBots labels JA4 fingerprints on the way out.
+	//
+	// Carried on the Store rather than read from a package global,
+	// because "this deployment never fetched the dataset" is a real and
+	// supported state - see internal/botdata. A nil set labels nothing
+	// and breaks nothing.
+	knownBots scoring.KnownBots
 }
+
+// SetKnownBots gives the store the fingerprint labels to use. Safe to
+// call once at startup, before serving.
+func (s *Store) SetKnownBots(k scoring.KnownBots) { s.knownBots = k }
+
+// KnownBots reports the set in use.
+func (s *Store) KnownBots() scoring.KnownBots { return s.knownBots }
 
 // NewStore opens a connection pool to databaseURL and verifies it's
 // reachable, the same startup contract as storage.NewWriter. It never
@@ -320,7 +334,7 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 			return nil, 0, fmt.Errorf("api: scan ip stat: %w", err)
 		}
 		stat.IP = ip.String()
-		stat.JA4Label = scoring.KnownBotJA4[stat.JA4]
+		stat.JA4Label, _ = s.knownBots.Label(stat.JA4)
 		stats = append(stats, stat)
 	}
 	return stats, total, rows.Err()

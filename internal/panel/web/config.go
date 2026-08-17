@@ -72,6 +72,14 @@ type Config struct {
 	// the base language while its config file named another.
 	Language string `toml:"language"`
 
+	// BotDataPath is the known-bot fingerprint file the collector reads
+	// and writes. Declared here only so the setup wizard can report
+	// whether it has ever been fetched; the panel never writes it.
+	//
+	// Empty makes that check a skip rather than a failure - "we did not
+	// look" and "we looked and it was missing" are different facts.
+	BotDataPath string `toml:"bot_data_path"`
+
 	// DeveloperGate carries the hashed password guarding the settings
 	// with legal weight. Absent means those settings cannot be changed
 	// from the panel by anyone, which is the safe direction.

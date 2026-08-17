@@ -31,7 +31,9 @@ import (
 	"syscall"
 
 	"github.com/cruciblelab/crucible-analytic/internal/api"
+	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
 func main() {
@@ -86,6 +88,24 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+
+	// The API labels JA4 fingerprints in its responses from the same
+	// file the collector reads. Optional: without it the fingerprints
+	// are still reported, just unlabelled - which is honest, and far
+	// better than shipping somebody else's dataset inside a repository
+	// that says MIT. See internal/botdata.
+	botSet, err := botdata.Load(cfg.BotDataPath)
+	if err != nil {
+		logger.Warn("bot data could not be read; fingerprints will be unlabelled",
+			"path", cfg.BotDataPath, "err", err)
+	}
+	store.SetKnownBots(scoring.KnownBots(botSet.Labels))
+	if botSet.Fetched() {
+		logger.Info("bot data loaded", "fingerprints", botSet.Len(), "source", botSet.Source)
+	} else {
+		logger.Info("bot data not present; JA4 fingerprints will be reported without labels",
+			"how", "run: collector -config <file> -update-bot-data")
+	}
 
 	srv := &api.Server{
 		ListenAddr: cfg.ListenAddr,

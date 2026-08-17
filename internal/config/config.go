@@ -75,9 +75,38 @@ type Config struct {
 	Storage   StorageConfig   `toml:"storage"`
 	Limits    LimitsConfig    `toml:"limits"`
 	ASNLookup ASNLookupConfig `toml:"asn_lookup"`
+	BotData   BotDataConfig   `toml:"bot_data"`
 	Privacy   PrivacyConfig   `toml:"privacy"`
 	Retention RetentionConfig `toml:"retention"`
 	Logging   logging.Config  `toml:"logging"`
+}
+
+// BotDataConfig points at the known-bot fingerprint file.
+//
+// This project ships no copy of that dataset. It belongs to somebody
+// else, this repository is MIT, and carrying third-party data under
+// unstated terms inside a permissively licensed repository hands that
+// uncertainty to everyone who clones it. The deployment fetches it
+// instead, onto its own machine, under the source's own terms:
+//
+//	collector -config collector.toml -update-bot-data
+//
+// Run that from cron, by hand, or from wherever you like - the schedule
+// is not this software's business.
+//
+// An empty path, or a path with no file at it yet, is a supported
+// state: the known-bot signal is simply absent and every other signal
+// still works. The collector says so at startup rather than leaving it
+// to be discovered.
+type BotDataConfig struct {
+	// Path is where the fetched file lives, read at startup and written
+	// by -update-bot-data.
+	Path string `toml:"path"`
+	// SourceURL overrides where it is fetched from. Empty takes
+	// botdata.DefaultSourceURL - configurable because pinning a third
+	// party's URL into a binary is how a deployment becomes unable to
+	// update itself the day that host moves.
+	SourceURL string `toml:"source_url"`
 }
 
 // PrivacyConfig decides what personal data reaches the disk.

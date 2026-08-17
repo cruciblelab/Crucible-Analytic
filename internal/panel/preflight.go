@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
@@ -90,6 +91,10 @@ type PreflightConfig struct {
 	// DataDir is any path on the volume the database writes to, for the
 	// free-space check.
 	DataDir string
+	// BotDataPath is the known-bot fingerprint file the collector reads.
+	// Empty turns its check into a skip rather than a failure - see the
+	// rule at the top of this struct.
+	BotDataPath string
 	// ServiceURLs maps a service name to its /healthz.
 	ServiceURLs map[string]string
 	// Roles names the database roles to check grants for.
@@ -145,6 +150,7 @@ func (s *Store) RunPreflight(ctx context.Context, cfg PreflightConfig) []CheckRe
 		s.checkConfiguredRolesExist(ctx, cfg.Roles),
 		checkDeveloperPassword(cfg.DeveloperGate),
 		s.checkIPTokenKey(),
+		checkBotData(cfg.BotDataPath, cfg.Now),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		checkBackups(),
@@ -553,6 +559,64 @@ func checkDeveloperPassword(gate *devgate.Gate) CheckResult {
 // is not misconfigured for lacking one. What the check exists for is the
 // other direction: somebody about to ask why the panel refuses to switch
 // modes should find the answer here rather than in a support call.
+// botDataStaleAfter is when a fetched fingerprint set starts being worth
+// mentioning. Not an expiry: last month's fingerprints are far better
+// than none, so this warns and never fails.
+const botDataStaleAfter = 30 * 24 * time.Hour
+
+// checkBotData reports the known-bot fingerprint set.
+//
+// This project ships no copy of that dataset - see internal/botdata for
+// why - which makes "never fetched" an ordinary state and makes saying
+// so the whole job of this check. A deployment that quietly has no
+// known-bot signal is the failure mode; a deployment that knows it does
+// not is fine.
+//
+// Recommended rather than required: the collector works without it, and
+// blocking an installation over a third party's data would be the wrong
+// trade.
+func checkBotData(path string, now func() time.Time) CheckResult {
+	result := CheckResult{
+		ID: "data.bot_fingerprints", Severity: SeverityRecommended,
+		Label: "Bilinen bot parmak izleri getirildi mi",
+		Fix:   "collector -config <dosya> -update-bot-data   (cron'a bağlayın)",
+	}
+	if path == "" {
+		result.Status = CheckSkip
+		result.Detail = "Panele bildirilmemiş. Collector yapılandırmasındaki bot_data.path " +
+			"burada da tanımlanmadan bu kontrol bakamaz."
+		return result
+	}
+	set, err := botdata.Load(path)
+	if err != nil {
+		result.Status = CheckFail
+		result.Detail = "Dosya var ama okunamıyor: " + err.Error()
+		return result
+	}
+	if !set.Fetched() {
+		result.Status = CheckWarn
+		result.Detail = "Hiç getirilmedi. Bu proje bu veri kümesini dağıtmıyor — kurulum " +
+			"kendi makinesine, kaynağın kendi şartlarıyla indirir. Getirilene kadar " +
+			"bilinen-bot sinyali yok; diğer sinyaller çalışmaya devam eder."
+		return result
+	}
+	if now == nil {
+		now = time.Now
+	}
+	age := now().Sub(set.FetchedAt)
+	if age > botDataStaleAfter {
+		result.Status = CheckWarn
+		result.Detail = fmt.Sprintf("%d parmak izi var ama %d gün önce getirilmiş. "+
+			"Eski liste yoktan iyidir; yine de tazelenmesi gerekir.",
+			set.Len(), int(age.Hours()/24))
+		return result
+	}
+	result.Status = CheckPass
+	result.Detail = fmt.Sprintf("%d parmak izi, %d gün önce getirildi (kaynak: %s).",
+		set.Len(), int(age.Hours()/24), set.Source)
+	return result
+}
+
 func (s *Store) checkIPTokenKey() CheckResult {
 	result := CheckResult{
 		ID: "config.ip_token_key", Label: "IP jeton anahtarı (yalnız full mod için)",
@@ -823,6 +887,15 @@ func ManualSteps() []ManualStep {
 				"çalışan bir sürecin kendi kendine yapabileceği bir şey olmamalı.",
 			Command:   `for f in internal/*/schema.sql; do psql "$DSN" -f "$f"; done`,
 			CheckedBy: "schema.panel, schema.analytics, schema.columns",
+		},
+		{
+			ID: "data.bot_fingerprints", Label: "Bilinen bot parmak izlerinin getirilmesi",
+			Why: "Bu veri kümesi bize ait değil ve bu proje onu dağıtmıyor - kurulum kendi " +
+				"makinesine, kaynağın kendi şartlarıyla indirir. Ne zaman ve nasıl " +
+				"tazeleneceği de kurulumun kararı; panel bir başkasının sunucusuna sizin " +
+				"adınıza istek atmaz.",
+			Command:   "collector -config <dosya> -update-bot-data   (cron'a bağlayın)",
+			CheckedBy: "data.bot_fingerprints",
 		},
 		{
 			ID: "config.bootstrap", Label: "Yapılandırma dosyasındaki sekiz anahtar",

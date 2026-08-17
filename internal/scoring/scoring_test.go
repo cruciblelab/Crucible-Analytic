@@ -3,7 +3,7 @@ package scoring
 import "testing"
 
 func TestScore_ZeroActivity(t *testing.T) {
-	r := Score(0, "unknown-ja4", KnownBotJA4, 0, nil)
+	r := Score(0, "unknown-ja4", testKnownBots, 0, nil)
 	if r.Score != 0 || r.RateScore != 0 || r.JA4Score != 0 || r.IsKnownBotJA4 || r.ASNScore != 0 || r.IsKnownBotASN {
 		t.Errorf("Score(0, unknown) = %+v, want all zero", r)
 	}
@@ -137,8 +137,10 @@ func TestScore_NegativeRateDoesNotGoNegative(t *testing.T) {
 	}
 }
 
-func TestKnownBotJA4_NoEmptyKey(t *testing.T) {
-	if _, ok := KnownBotJA4[""]; ok {
-		t.Error("KnownBotJA4 must not contain an empty-string key (would match all non-TLS/unparsed traffic)")
-	}
+// testKnownBots stands in for a fetched set. The real one is not
+// compiled into this repository - see internal/botdata for why - so the
+// tests supply their own rather than depending on data that may not be
+// on the machine running them.
+var testKnownBots = KnownBots{
+	"t13d1516h2_8daaf6152771_b186095e22b6": "curl",
 }
