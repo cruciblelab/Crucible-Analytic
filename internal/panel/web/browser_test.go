@@ -34,7 +34,7 @@ func TestPanelInABrowser(t *testing.T) {
 		t.Skip("set CA_BROWSER_TEST=1 to run this; it needs node, playwright and a chromium build")
 	}
 
-	cat, err := ui.LoadCatalog()
+	cats, err := ui.LoadCatalogs()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func TestPanelInABrowser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renderer, err := ui.New(cat, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	renderer, err := ui.New(cats, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,12 +52,27 @@ func TestPanelInABrowser(t *testing.T) {
 		Renderer: renderer,
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Zone:     time.UTC,
+		Language: "tr",
 	}
 	server := httptest.NewServer(srv.Handler())
 	defer server.Close()
 
+	// A second mount with no configured language, so the browser's own
+	// preference decides. Two servers rather than one because the first
+	// set must stay Turkish regardless of what locale this container's
+	// Chromium happens to default to - a test whose language depends on
+	// the machine it runs on is a test that will one day be wrong for a
+	// reason nobody can reproduce.
+	browserChooses := &Server{
+		Renderer: renderer,
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Zone:     time.UTC,
+	}
+	openServer := httptest.NewServer(browserChooses.Handler())
+	defer openServer.Close()
+
 	script := writeBrowserScript(t)
-	cmd := exec.Command("node", script, server.URL, assets.URL("panel.css"))
+	cmd := exec.Command("node", script, server.URL, assets.URL("panel.css"), openServer.URL)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -86,6 +101,11 @@ func TestPanelInABrowser(t *testing.T) {
 		AssetStatusCond  int      `json:"asset_status_conditional"`
 		AssetEncoding    string   `json:"asset_encoding"`
 		DarkBackground   string   `json:"dark_background"`
+
+		EnglishLang    string `json:"english_lang"`
+		EnglishDir     string `json:"english_dir"`
+		EnglishBody    string `json:"english_body"`
+		EnglishHeading string `json:"english_heading"`
 	}
 	last := strings.TrimSpace(string(out))
 	if i := strings.LastIndex(last, "\n"); i >= 0 {
@@ -169,6 +189,24 @@ func TestPanelInABrowser(t *testing.T) {
 	if report.AssetEncoding != "gzip" {
 		t.Errorf("the browser received the stylesheet as %q, want gzip", report.AssetEncoding)
 	}
+
+	// A second browser, with a second language, against the same server.
+	// The Go tests prove the strings are picked; only a real browser
+	// proves the document a reader receives actually declares the
+	// language it is written in - which is what a screen reader and an
+	// automatic translator both act on.
+	if report.EnglishLang != "en" {
+		t.Errorf("an English browser received a document declaring lang=%q", report.EnglishLang)
+	}
+	if report.EnglishDir != "ltr" {
+		t.Errorf("dir = %q", report.EnglishDir)
+	}
+	if !strings.Contains(report.EnglishHeading, "Sign in") {
+		t.Errorf("the English heading reads %q", report.EnglishHeading)
+	}
+	if !strings.Contains(report.EnglishBody, "Sign in to continue") {
+		t.Errorf("the English page reads %q", report.EnglishBody)
+	}
 }
 
 func writeBrowserScript(t *testing.T) string {
@@ -180,6 +218,7 @@ const { chromium } = playwright;
 
 const base = process.argv[2];
 const cssPath = process.argv[3];
+const openBase = process.argv[4];
 const origin = new URL(base).host;
 
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
@@ -251,6 +290,15 @@ report.asset_encoding = (await page.evaluate(async (u) => {
 const etag = first.headers()['etag'];
 const second = await page.request.get(base + cssPath, { headers: { 'If-None-Match': etag } });
 report.asset_status_conditional = second.status();
+
+// ---- a second language, negotiated by a second browser ----
+const english = await browser.newContext({ locale: 'en-GB' });
+const enPage = await english.newPage();
+await enPage.goto(openBase + '/', { waitUntil: 'load' });
+report.english_lang = await enPage.locator('html').getAttribute('lang');
+report.english_dir = await enPage.locator('html').getAttribute('dir');
+report.english_heading = (await enPage.locator('h1').innerText()).trim();
+report.english_body = (await enPage.locator('main').innerText()).trim();
 
 // ---- the dark scheme is a real second palette, not the same colours ----
 const dark = await browser.newPage({ colorScheme: 'dark' });

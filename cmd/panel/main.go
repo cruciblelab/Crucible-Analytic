@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -65,15 +66,15 @@ func main() {
 	// stylesheet that did not get embedded all stop the process here,
 	// with a message naming the file - rather than at the first request
 	// for a page nobody opens for a week.
-	catalog, err := ui.LoadCatalog()
+	catalogs, err := ui.LoadCatalogs()
 	if err != nil {
-		fatal(logger, "message catalog", err)
+		fatal(logger, "language packs", err)
 	}
 	assets, err := ui.LoadAssets()
 	if err != nil {
 		fatal(logger, "static assets", err)
 	}
-	renderer, err := ui.New(catalog, assets, logger)
+	renderer, err := ui.New(catalogs, assets, logger)
 	if err != nil {
 		fatal(logger, "templates", err)
 	}
@@ -84,6 +85,13 @@ func main() {
 		fatal(logger, "timezone", err)
 	}
 	renderer.SetZone(zone)
+
+	// The configured language must actually exist, or the deployment
+	// would silently run in Turkish while the config file named another.
+	if cfg.Language != "" && catalogs.ByCode(cfg.Language) == nil {
+		fatal(logger, "language", fmt.Errorf("panel: language = %q is not one of the packs in this build (%s)",
+			cfg.Language, strings.Join(languageCodes(catalogs), ", ")))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -106,6 +114,7 @@ func main() {
 		Logger:     logger,
 		HSTS:       cfg.HSTS,
 		Zone:       zone,
+		Language:   cfg.Language,
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		fatal(logger, "panel server error", err)
@@ -134,4 +143,14 @@ func fatal(logger *slog.Logger, what string, err error) {
 	}
 	fmt.Fprintf(os.Stderr, "panel: %s: %v\n", what, err)
 	os.Exit(1)
+}
+
+// languageCodes lists what this build carries, for the error message
+// that says a configured language is not one of them.
+func languageCodes(cats *ui.Catalogs) []string {
+	var codes []string
+	for _, lang := range cats.Languages() {
+		codes = append(codes, lang.Code)
+	}
+	return codes
 }

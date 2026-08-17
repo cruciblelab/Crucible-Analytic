@@ -46,6 +46,19 @@ session_lifetime_hours = 12
 # hata verir, sessizce UTC'ye düşmez.
 timezone = "Europe/Istanbul"
 
+# Kurulumun tercih ettiği dil. Kısıt değil tercih: tarayıcısı bu
+# derlemede bulunan başka bir dili isteyen bir okuyucu onu görür — aynı
+# ekipte herkes aynı dili okumuyorsa istenen budur. Burası, tarayıcı
+# sunabildiğimiz bir tercih belirtmediğinde verilecek cevaptır. Boş
+# bırakırsanız kararı tamamen tarayıcı verir.
+#
+# Bu derlemedeki diller: tr, en. Yeni dil eklemek,
+# internal/panel/ui/messages/ dizinine bir .toml dosyası koyup yeniden
+# derlemektir — Go tarafında güncellenecek bir liste yok. Var olmayan
+# bir kod yazarsanız panel açılmaz ve elindeki dilleri söyler; yoksa
+# kurulum, config dosyası başka bir şey derken temel dilde çalışırdı.
+language = "tr"
+
 # Hukuki ağırlığı olan ayarların önündeki geliştirici şifresi.
 # Hash'i şu komut üretir:
 #

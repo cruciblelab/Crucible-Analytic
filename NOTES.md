@@ -1782,3 +1782,124 @@ printed *nothing* to the terminal the operator is standing in front of,
 because by then the logger writes to a file. Startup failures now go to
 both: the tree for whoever looks afterwards, stderr for whoever just
 typed the command.
+
+## A second language, before there were pages to translate
+
+The request was to make the panel language-extensible "so we do not have
+trouble later, when building a site for somebody working
+internationally". The right time to do it was immediately: the next
+phase adds dozens of strings, and every one of them would have to be
+revisited.
+
+The retrofit reopened a decision from the phase before it. C1's note
+argued that month names belong in the formatter rather than the
+catalogue, because they are an ordered list indexed by `time.Month`
+rather than twelve independent messages. That reasoning was correct for
+one language and wrong for two: the list has to vary per language, so it
+is now data, one list per pack, with its length checked at load. The
+protection the original argument wanted - that one name edited out of
+order produces a wrong date rather than an untranslated one - is now a
+real check instead of a placement.
+
+Date *ordering* had to become data for the same reason and it is the
+better example: Turkish writes "17 Ağustos 2026" and English writes
+"August 17, 2026". A formatter that hard-codes either cannot be
+translated at all, only re-written.
+
+### Two rules, deliberately asymmetric
+
+The base pack owns the key set. A template naming a key it does not
+define stops the binary from starting, exactly as before.
+
+A translation may be incomplete. Missing keys fall back to the base
+language, are reported once at startup with the exact list, and fail a
+test.
+
+The asymmetry is the whole design. Refusing to boot on an incomplete
+translation sounds stricter and is worse: adding one Turkish string
+would break every deployment running English, including the ones whose
+readers do not speak English and would never have seen the sentence. CI
+is where an untranslated string should hurt. A customer's server at
+three in the morning is not.
+
+### Plural rules are a library, not a guess
+
+English inflects after a numeral and Turkish does not - "1 gün", "3
+gün", but "1 day", "3 days". That is the point at which an English-first
+design reaches for a `one`/`other` pair and declares the problem solved.
+It is not solved: Russian needs a different word for 1, for 2, and for
+5, and 21 goes back to the form 1 uses. Nobody derives that by hand
+correctly.
+
+So the forms come from `golang.org/x/text/feature/plural`, which carries
+the real CLDR rules, and a pack supplies only the categories its
+language has. Anything it does not supply falls back to `other`. That
+fallback is what keeps the mechanism invisible where it is not needed:
+the Turkish pack writes `other = "%s gün"` and never learns that plural
+categories exist, while a Russian pack can write four and get them.
+
+The test suite carries a Russian pack for this. Turkish and English
+between them cannot exercise the mechanism - one never inflects and the
+other has two forms - so a design tested only against the two shipped
+languages would look finished while being wrong for most of Europe.
+
+### Adding a language is demonstrated, not asserted
+
+The loader takes an `fs.FS` rather than reading the embedded directory
+directly, and the test hands it a synthetic file system holding the real
+base pack plus a language this repository does not ship. That test
+loads it, negotiates to it, renders its dates with its own month names
+and its own ordering, picks its plural forms, and checks that its
+untranslated keys fall back.
+
+Which is the difference between a claim and a check. "You can add a
+language without touching Go" is exactly the kind of statement that is
+true when written and false a year later, and the only way to keep it
+true is to have something fail when it stops being.
+
+The loader also refuses a pack whose file name and declared code
+disagree. They are two independent statements of the same fact, and
+somebody asking "why is my pack not loading" would otherwise have
+nothing to look at.
+
+### What the validator refuses, and why each one exists
+
+Every check on a language pack stands for a specific way a translation
+goes wrong without anybody noticing: eleven months, a date pattern
+missing the year, a relative phrase with nowhere to put the number, a
+counted unit with nowhere to put the count.
+
+The subtlest is the time layout. Go's layouts are written with a
+reference time, so `"gg.aa.yyyy"` - which looks exactly like a date
+pattern to anybody who has not met Go before - is printed back
+verbatim. Every timestamp in the panel would read `gg.aa.yyyy`, nothing
+would error, and the pack would look correct in review. The check
+formats two genuinely different instants and requires different output.
+
+### Where the language is decided
+
+Deployment setting first, then the browser's `Accept-Language`, then the
+base language. The deployment setting is a choice somebody made and a
+browser's default list is not, so it wins; leaving it empty hands the
+decision to the reader entirely, which is what serves a team that does
+not all read the same language.
+
+There is deliberately no `?lang=` switch. A page that renders
+differently for the same address makes every screenshot in a support
+ticket ambiguous, and the browser already carries this preference. When
+accounts gain a language field it goes in front of the deployment
+setting, and nothing else in the resolution changes - the parameter is
+already variadic for exactly that.
+
+`Vary: Accept-Language` goes on every rendered response. Pages are
+`no-store` anyway; it is there so the two rules cannot drift apart the
+day something downstream decides to cache after all.
+
+### `dir` now, right-to-left later, honestly
+
+`<html>` carries `lang` and `dir` from the pack, and the stylesheet was
+already written with logical properties. That is groundwork, and it is
+worth saying plainly what it is not: no right-to-left pack has been
+written or rendered, so nothing here is evidence the layout survives one.
+What the attribute buys is that adding one is a layout review rather
+than a retrofit of every template.

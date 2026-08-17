@@ -29,14 +29,14 @@ var catalogFuncs = map[string]bool{
 // "hata." plus a status code, say - is invisible to this walk, which is
 // why Catalog.T still has a visible fallback and why the tests below
 // check the computed families explicitly.
-func checkTemplateKeys(trees map[string]*parse.Tree, cat *Catalog) error {
+func checkTemplateKeys(trees map[string]*parse.Tree, base *Language) error {
 	missing := map[string][]string{}
 	for name, tree := range trees {
 		if tree == nil || tree.Root == nil {
 			continue
 		}
 		walkNode(tree.Root, func(key string) {
-			if !cat.Has(key) {
+			if !base.Has(key) {
 				missing[key] = append(missing[key], name)
 			}
 		})
@@ -50,7 +50,7 @@ func checkTemplateKeys(trees map[string]*parse.Tree, cat *Catalog) error {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	b.WriteString("ui: templates use catalog keys that do not exist in messages.tr.toml:")
+	b.WriteString("ui: templates use message keys the base language pack (messages/" + BaseLanguageCode + ".toml) does not define:")
 	for _, key := range keys {
 		where := missing[key]
 		sort.Strings(where)

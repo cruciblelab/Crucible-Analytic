@@ -2,6 +2,7 @@ package ui
 
 import (
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,24 +10,69 @@ import (
 	"testing"
 )
 
-func TestLoadCatalog(t *testing.T) {
-	cat, err := LoadCatalog()
+func testCatalogs(t *testing.T) *Catalogs {
+	t.Helper()
+	cats, err := LoadCatalogs()
 	if err != nil {
-		t.Fatalf("LoadCatalog: %v", err)
+		t.Fatalf("LoadCatalogs: %v", err)
 	}
-	if cat.Len() == 0 {
-		t.Fatal("catalog is empty")
+	return cats
+}
+
+func TestLoadCatalogs(t *testing.T) {
+	cats := testCatalogs(t)
+	if len(cats.Languages()) < 2 {
+		t.Fatalf("only %d language pack(s) loaded; the machinery is untested with one", len(cats.Languages()))
 	}
-	if got := cat.T("uygulama.ad"); got != "Crucible Analytic" {
-		t.Errorf("uygulama.ad = %q", got)
+	if cats.Base().Code != BaseLanguageCode {
+		t.Errorf("base language is %q", cats.Base().Code)
+	}
+	// The base must come first, because language.Matcher treats the
+	// first tag as the default for anything it cannot serve.
+	if cats.Languages()[0] != cats.Base() {
+		t.Error("the base language is not first; an unservable Accept-Language would land somewhere else")
+	}
+	for _, lang := range cats.Languages() {
+		if lang.Len() == 0 {
+			t.Errorf("%s defines no messages", lang.Code)
+		}
+		if lang.Name == "" {
+			t.Errorf("%s has no endonym", lang.Code)
+		}
+		if got := lang.T("uygulama.ad"); got != "Crucible Analytic" {
+			t.Errorf("%s: uygulama.ad = %q", lang.Code, got)
+		}
+	}
+}
+
+// TestEveryPackIsComplete is where an untranslated string is supposed
+// to hurt: in a build, not on a customer's server. The renderer only
+// warns, so this is the check that actually stops it shipping.
+func TestEveryPackIsComplete(t *testing.T) {
+	cats := testCatalogs(t)
+	for code, missing := range cats.Gaps() {
+		if len(missing) > 0 {
+			t.Errorf("messages/%s.toml is missing %d key(s):\n  %s",
+				code, len(missing), strings.Join(missing, "\n  "))
+		}
+	}
+	// And the reverse: a key only a translation defines is either a typo
+	// or something that should have gone into the base pack first.
+	base := cats.Base()
+	for _, lang := range cats.Languages() {
+		if lang == base {
+			continue
+		}
+		for _, key := range lang.Keys() {
+			if !base.Has(key) {
+				t.Errorf("messages/%s.toml defines %q, which the base pack does not", lang.Code, key)
+			}
+		}
 	}
 }
 
 func TestMissingKeyIsVisibleRatherThanBlank(t *testing.T) {
-	cat, err := LoadCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cat := testCatalogs(t).Base()
 	got := cat.T("bir.yok.anahtar")
 	if got == "" {
 		t.Fatal("a missing key rendered as empty; that is invisible on the page")
@@ -53,13 +99,23 @@ func TestFlattenRefusesWhatWouldRenderAsNothing(t *testing.T) {
 		{
 			name: "not text",
 			tree: map[string]any{"a": map[string]any{"b": int64(3)}},
-			want: "only text is allowed",
+			want: "text or a table of plural forms",
+		},
+		{
+			name: "plural forms with no other",
+			tree: map[string]any{"a": map[string]any{"one": "bir"}},
+			want: `no "other"`,
+		},
+		{
+			name: "plural forms mixed with a namespace",
+			tree: map[string]any{"a": map[string]any{"one": "bir", "baslik": "x"}},
+			want: "either plural forms or a namespace",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out := map[string]string{}
-			err := flatten("", tc.tree, out)
+			out := map[string]entry{}
+			err := flatten("test.toml", "", tc.tree, out)
 			if err == nil {
 				t.Fatalf("flatten accepted %v", tc.tree)
 			}
@@ -71,7 +127,7 @@ func TestFlattenRefusesWhatWouldRenderAsNothing(t *testing.T) {
 }
 
 func TestTfFillsVerbs(t *testing.T) {
-	cat := &Catalog{entries: map[string]string{"x": "%d dakika önce"}}
+	cat := &Language{entries: map[string]entry{"x": {text: "%d dakika önce"}}}
 	if got := cat.Tf("x", 5); got != "5 dakika önce" {
 		t.Errorf("Tf = %q", got)
 	}
@@ -84,15 +140,12 @@ func TestTfFillsVerbs(t *testing.T) {
 // asserted here so a broken template fails in CI rather than at boot on
 // a customer's machine.
 func TestTemplatesNameNoUnknownKey(t *testing.T) {
-	cat, err := LoadCatalog()
+	base := testCatalogs(t).Base()
+	_, trees, err := parsePages(fixtureFuncs(base))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, trees, err := parsePages(fixtureFuncs(cat))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := checkTemplateKeys(trees, cat); err != nil {
+	if err := checkTemplateKeys(trees, base); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -100,34 +153,66 @@ func TestTemplatesNameNoUnknownKey(t *testing.T) {
 // TestNewRefusesATemplateKeyThatDoesNotExist proves the startup check
 // actually stops the binary, rather than being a function nobody calls.
 func TestNewRefusesATemplateKeyThatDoesNotExist(t *testing.T) {
-	cat, err := LoadCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A catalog missing one key the layout names.
-	delete(cat.entries, "gezinme.atla")
+	cats := testCatalogs(t)
+	// The base pack missing one key the layout names.
+	delete(cats.Base().entries, "gezinme.atla")
 	assets, err := LoadAssets()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(cat, assets, nil); err == nil {
-		t.Fatal("New accepted a catalog missing a key the templates use")
+	if _, err := New(cats, assets, nil); err == nil {
+		t.Fatal("New accepted a base pack missing a key the templates use")
 	} else if !strings.Contains(err.Error(), "gezinme.atla") {
 		t.Fatalf("error %q does not name the missing key", err)
+	}
+}
+
+// TestNewStartsWithAnIncompleteTranslation is the other half of that
+// rule, and the deliberate asymmetry. One missing key in a translation
+// must not take down a deployment whose readers do not speak that
+// language; the page falls back and the gap is reported.
+func TestNewStartsWithAnIncompleteTranslation(t *testing.T) {
+	cats := testCatalogs(t)
+	var secondary *Language
+	for _, lang := range cats.Languages() {
+		if lang != cats.Base() {
+			secondary = lang
+			break
+		}
+	}
+	if secondary == nil {
+		t.Skip("only the base language is present")
+	}
+	delete(secondary.entries, "gezinme.atla")
+	cats.gaps[secondary.Code] = missingKeys(cats.Base(), secondary)
+
+	assets, err := LoadAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logged strings.Builder
+	if _, err := New(cats, assets, slog.New(slog.NewTextHandler(&logged, nil))); err != nil {
+		t.Fatalf("New refused to start over one untranslated key: %v", err)
+	}
+	if !strings.Contains(logged.String(), "gezinme.atla") {
+		t.Errorf("the missing key was not reported at startup: %s", logged.String())
+	}
+	// And the page still reads, in the base language.
+	if got := secondary.T("gezinme.atla"); got != cats.Base().T("gezinme.atla") {
+		t.Errorf("the fallback returned %q", got)
 	}
 }
 
 // TestEveryErrorStatusHasItsOwnWording covers the keys that are built
 // at runtime and are therefore invisible to the template walk.
 func TestEveryErrorStatusHasItsOwnWording(t *testing.T) {
-	cat, err := LoadCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, status := range mappedErrorStatuses {
-		titleKey, bodyKey := errorKeys(status)
-		if !cat.Has(titleKey) || !cat.Has(bodyKey) {
-			t.Errorf("status %d maps to %s/%s which the catalog does not have", status, titleKey, bodyKey)
+	cats := testCatalogs(t)
+	for _, lang := range cats.Languages() {
+		for _, status := range mappedErrorStatuses {
+			titleKey, bodyKey := errorKeys(status)
+			if !lang.Has(titleKey) || !lang.Has(bodyKey) {
+				t.Errorf("%s: status %d maps to %s/%s which the pack does not define", lang.Code, status, titleKey, bodyKey)
+			}
 		}
 	}
 	// An unmapped status must fall back rather than produce a marker in
@@ -162,10 +247,7 @@ var mappedErrorStatuses = []int{
 // Go source names is an error, and the fix is to delete it - or to
 // finish the page that was supposed to use it.
 func TestNoDeadCatalogEntries(t *testing.T) {
-	cat, err := LoadCatalog()
-	if err != nil {
-		t.Fatal(err)
-	}
+	cat := testCatalogs(t).Base()
 	_, trees, err := parsePages(fixtureFuncs(cat))
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +341,7 @@ func moduleRoot() (string, error) {
 
 // fixtureFuncs is the same func map the renderer builds, for tests that
 // need to parse without constructing one.
-func fixtureFuncs(cat *Catalog) map[string]any {
+func fixtureFuncs(cat *Language) map[string]any {
 	assets, err := LoadAssets()
 	if err != nil {
 		panic(err)

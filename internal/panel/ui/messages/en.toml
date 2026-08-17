@@ -1,0 +1,113 @@
+# Crucible Analytic — English language pack.
+#
+# Turkish (tr.toml) is the base language and owns the key set. Anything
+# missing here falls back to Turkish at runtime, is reported once at
+# startup, and fails a test - so an incomplete translation costs a build,
+# not a customer's evening.
+#
+# Read tr.toml first: it carries the full explanation of the three
+# sections and of how plural forms are chosen.
+
+[dil]
+kod = "en"
+ad = "English"
+yon = "ltr"
+
+[bicim]
+aylar = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+]
+gunler = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+# English puts the month first and separates the year with a comma,
+# which is exactly why the pattern is data rather than code.
+tarih = "{ay} {gun}, {yil}"
+tarih_saat = "{tarih} at {saat}"
+kisa_tarih = "2006-01-02"
+saat = "15:04"
+
+az_once = "just now"
+dakika_once = "%d minutes ago"
+saat_once = "%d hours ago"
+dun = "yesterday at {saat}"
+saniyeden_az = "less than a second"
+yok = "—"
+
+bayt = ["B", "KB", "MB", "GB", "TB", "PB"]
+
+# English inflects after a numeral, so these carry both forms. Turkish
+# needs only `other` and never learns that plurals exist.
+[bicim.birim.gun]
+one = "%s day"
+other = "%s days"
+
+[bicim.birim.saat]
+one = "%s hour"
+other = "%s hours"
+
+[bicim.birim.dakika]
+one = "%s minute"
+other = "%s minutes"
+
+[bicim.birim.saniye]
+one = "%s second"
+other = "%s seconds"
+
+[metin.uygulama]
+ad = "Crucible Analytic"
+
+[metin.gezinme]
+atla = "Skip to content"
+panel = "Panel"
+
+[metin.kabuk]
+isletmeci_rozeti = "You are viewing this as the operator"
+isletmeci_aciklama = "You have no membership on this site; you reach it because you run the deployment."
+izleyici_uyarisi = "This account can view only. It cannot change any setting."
+
+[metin.alt]
+surum = "Version"
+kendi_sunucunuz = "This panel runs on your own server. Your data does not leave it."
+
+[metin.bicim]
+saat_dilimi = "Time zone"
+
+[metin.hata]
+panele_don = "Back to the panel"
+
+[metin.hata.400]
+baslik = "That request could not be understood"
+govde = "The browser sent something that was not in the expected shape. Reload the page and try again."
+
+[metin.hata.403]
+baslik = "You do not have access to this page"
+govde = "Your account is not allowed to see this section. If that looks wrong, tell the site's owner; they are the one who can grant it."
+
+[metin.hata.404]
+baslik = "Page not found"
+govde = "There is no such page. The address may be mistyped, or the page may have been removed."
+
+[metin.hata.405]
+baslik = "This address cannot be called that way"
+govde = "The page exists, but the request was not of the expected kind. Go back to the panel and try again."
+
+[metin.hata.419]
+baslik = "The form timed out"
+govde = "The security check is no longer valid. This usually happens when a page has been left open for a long time. Reload the page and submit the form again."
+
+[metin.hata.500]
+baslik = "The panel could not complete this request"
+govde = "The failure was recorded on the server. If it keeps happening, search the logs for this timestamp."
+
+[metin.hata.502]
+baslik = "The data source cannot be reached right now"
+govde = "The panel is running, but it cannot reach the service it reads analytics from. The numbers are not missing, they have not arrived."
+
+[metin.hata.503]
+baslik = "The panel is not ready yet"
+govde = "The service is starting up or under maintenance. Try again in a few seconds."
+
+[metin.giris]
+baslik = "Sign in"
+govde = "Sign in to continue."

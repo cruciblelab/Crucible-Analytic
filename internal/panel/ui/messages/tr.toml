@@ -1,0 +1,139 @@
+# Crucible Analytic — Türkçe dil paketi (temel dil).
+#
+# Bu dizindeki her `.toml` dosyası bir dildir ve **bulunarak** yüklenir:
+# yeni bir dil eklemek, buraya bir dosya koyup yeniden derlemektir. Go
+# tarafında değiştirilecek hiçbir liste yok.
+#
+# Türkçe **temel dil**: anahtar kümesinin kaynağı odur. Bir şablonun
+# andığı ama burada olmayan anahtar, panelin **açılmasını** engeller.
+# Diğer dillerde eksik olan bir anahtar ise açılışta rapor edilir ve o
+# satır Türkçe gösterilir — çünkü eksik bir çeviri yüzünden müşterinin
+# paneli açılmamalı, ama kimsenin de haberi olmadan yarı Türkçe bir
+# sayfa çıkmamalı. Testler eksik anahtarı hata sayar; yani asıl bedeli
+# geliştirme sırasında ödüyoruz, müşterinin sunucusunda değil.
+#
+# Üç bölüm var:
+#
+#   [dil]   — dilin kendisi hakkında: kodu, kendi dilindeki adı, yönü
+#   [bicim] — yerelin sayı/tarih algoritması: ay adları, kalıplar,
+#             sayılan birimlerin çoğul biçimleri
+#   [metin] — sayfalardaki cümleler; iç içe tablolar noktalı anahtara
+#             çevrilir ([metin.hata.404] altındaki `baslik` anahtarı
+#             "hata.404.baslik" olur)
+#
+# [metin] altında bir değer ya düz metindir ya da çoğul tablosudur:
+#
+#   ziyaretci = { one = "%s ziyaretçi", other = "%s ziyaretçi" }
+#
+# Hangi biçimin seçileceğini CLDR kuralları söyler (x/text). Türkçede
+# sayıdan sonra isim çekimlenmediği için `other` yeter; İngilizce `one`
+# ekler, Rusça `one/few/many` ekler. Eksik biçim `other`'a düşer, yani
+# çoğulu olmayan bir dil çoğulun varlığından hiç haberdar olmaz.
+#
+# Buraya ait olmayan tek metin türü: bir kuralın kendi gerekçesi. Bir
+# ayarın neden kilitli olduğunu anlatan cümle, kuralı yazan dosyanın
+# yanında durur (internal/panel/settings*.go) — gerekçeyi kuraldan
+# ayırmak, ikisinin birbirinden habersiz değişmesinin en kısa yoludur.
+
+[dil]
+kod = "tr"
+ad = "Türkçe"
+yon = "ltr"
+
+[bicim]
+aylar = [
+  "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık",
+]
+# Pazartesiden başlar.
+gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+
+# Tarih sıralaması dile göre değişir; kalıp burada durur.
+tarih = "{gun} {ay} {yil}"
+tarih_saat = "{tarih}, {saat}"
+# Go zaman kalıbı. Bir sonraki gün ve bir sonraki ay ile ayrı sonuç
+# vermesi test ediliyor — yoksa kalıbın kendisi metin olarak basılır ve
+# her tarih aynı görünür.
+kisa_tarih = "02.01.2006"
+saat = "15:04"
+
+az_once = "az önce"
+dakika_once = "%d dakika önce"
+saat_once = "%d saat önce"
+dun = "dün {saat}"
+saniyeden_az = "1 saniyeden az"
+# Var olmayan değerin yerine geçen işaret. "0" değil: sıfır bir ölçüm,
+# boş bir render hatası, tire ise ikisi de değil.
+yok = "—"
+
+bayt = ["B", "KB", "MB", "GB", "TB", "PB"]
+
+[bicim.birim.gun]
+other = "%s gün"
+
+[bicim.birim.saat]
+other = "%s saat"
+
+[bicim.birim.dakika]
+other = "%s dakika"
+
+[bicim.birim.saniye]
+other = "%s saniye"
+
+[metin.uygulama]
+ad = "Crucible Analytic"
+
+[metin.gezinme]
+atla = "İçeriğe atla"
+panel = "Panel"
+
+[metin.kabuk]
+isletmeci_rozeti = "İşletmeci olarak görüyorsunuz"
+isletmeci_aciklama = "Bu sitede üyeliğiniz yok; sistemi işlettiğiniz için erişiyorsunuz."
+izleyici_uyarisi = "Bu hesap yalnızca görüntüleme yetkisine sahip. Hiçbir ayarı değiştiremez."
+
+[metin.alt]
+surum = "Sürüm"
+kendi_sunucunuz = "Bu panel sizin sunucunuzda çalışıyor. Verileriniz burayı terk etmiyor."
+
+[metin.bicim]
+saat_dilimi = "Saat dilimi"
+
+[metin.hata]
+panele_don = "Panele dön"
+
+[metin.hata.400]
+baslik = "İstek anlaşılamadı"
+govde = "Tarayıcının gönderdiği istek beklenen biçimde değildi. Sayfayı yenileyip tekrar deneyin."
+
+[metin.hata.403]
+baslik = "Bu sayfaya erişiminiz yok"
+govde = "Hesabınızın bu bölümü görme yetkisi yok. Yanlış olduğunu düşünüyorsanız sitenin sahibine söyleyin; yetkiyi o verebilir."
+
+[metin.hata.404]
+baslik = "Sayfa bulunamadı"
+govde = "Aradığınız sayfa yok. Adres yanlış yazılmış olabilir ya da sayfa kaldırılmış olabilir."
+
+[metin.hata.405]
+baslik = "Bu adres bu şekilde çağrılamaz"
+govde = "Sayfa var, ama isteğiniz beklenen türde değildi. Panele dönüp tekrar deneyin."
+
+[metin.hata.419]
+baslik = "Form zaman aşımına uğradı"
+govde = "Güvenlik doğrulaması geçersiz. Bu genellikle sayfa uzun süre açık kaldığında olur. Sayfayı yenileyin ve formu tekrar gönderin."
+
+[metin.hata.500]
+baslik = "Panel bu isteği tamamlayamadı"
+govde = "Hata sunucu tarafında kaydedildi. Sorun sürerse günlüklerde bu zaman damgasını arayın."
+
+[metin.hata.502]
+baslik = "Veri kaynağına şu an ulaşılamıyor"
+govde = "Panel çalışıyor, ancak analitik verisini okuduğu servise erişemiyor. Sayılar eksik değil, henüz gelmedi."
+
+[metin.hata.503]
+baslik = "Panel şu an hazır değil"
+govde = "Servis açılıyor ya da bakımda. Birkaç saniye sonra tekrar deneyin."
+
+[metin.giris]
+baslik = "Giriş"
+govde = "Devam etmek için giriş yapın."

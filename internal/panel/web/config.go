@@ -60,6 +60,17 @@ type Config struct {
 	// traffic peak in UTC tells a customer in Istanbul it happened in
 	// the afternoon.
 	Timezone string `toml:"timezone"`
+	// Language is the deployment's preferred language, by code ("tr",
+	// "en"). It is a preference rather than a restriction: a reader
+	// whose browser asks for another language this build carries gets
+	// that one, which is what serves a colleague on a team that does not
+	// all read the same language. This is the answer when the browser
+	// expresses no preference the panel can serve.
+	//
+	// A code no pack declares is a startup error, checked in cmd/panel
+	// where the packs are loaded - otherwise the deployment would run in
+	// the base language while its config file named another.
+	Language string `toml:"language"`
 
 	// DeveloperGate carries the hashed password guarding the settings
 	// with legal weight. Absent means those settings cannot be changed
@@ -82,6 +93,7 @@ func LoadConfig(path string) (Config, error) {
 		ListenAddr:           "127.0.0.1:8090",
 		SessionLifetimeHours: 12,
 		Timezone:             "Europe/Istanbul",
+		Language:             "tr",
 	}
 	if _, err := os.Stat(path); err != nil {
 		return Config{}, fmt.Errorf("panel: config file %s: %w", path, err)

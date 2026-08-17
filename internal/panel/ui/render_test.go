@@ -14,7 +14,7 @@ import (
 
 func newTestRenderer(t *testing.T) *Renderer {
 	t.Helper()
-	cat, err := LoadCatalog()
+	cats, err := LoadCatalogs()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func newTestRenderer(t *testing.T) *Renderer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := New(cat, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r, err := New(cats, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestRenderProducesAWholeDocument(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"<!doctype html>",
-		`<html lang="tr">`,
+		`<html lang="tr" dir="ltr">`,
 		"<title>Giriş · Crucible Analytic</title>",
 		`name="robots"`,
 		"</html>",
@@ -351,7 +351,7 @@ func TestNotFoundHandler(t *testing.T) {
 
 func TestNewRefusesToStartWithoutItsParts(t *testing.T) {
 	if _, err := New(nil, nil, nil); err == nil {
-		t.Fatal("New accepted a nil catalog and nil assets")
+		t.Fatal("New accepted nil language packs and nil assets")
 	}
 }
 

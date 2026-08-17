@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+func testLang(t *testing.T, code string) *Language {
+	t.Helper()
+	cats, err := LoadCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lang := cats.ByCode(code)
+	if lang == nil {
+		t.Fatalf("no language pack %q", code)
+	}
+	return lang
+}
+
 func istanbul(t *testing.T) *time.Location {
 	t.Helper()
 	// A fixed zone rather than LoadLocation: the container this runs in
@@ -16,7 +29,7 @@ func istanbul(t *testing.T) *time.Location {
 }
 
 func TestNumbersReadAsTurkish(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	cases := []struct {
 		got, want string
 	}{
@@ -37,6 +50,9 @@ func TestNumbersReadAsTurkish(t *testing.T) {
 		{f.Bytes(5 * 1024 * 1024 * 1024), "5,0 GB"},
 		{f.Days(90), "90 gün"},
 		{f.Days(1500), "1.500 gün"},
+		// Turkish does not inflect after a numeral, so one and many are
+		// the same word - and the pack never has to say so.
+		{f.Days(1), "1 gün"},
 	}
 	for _, tc := range cases {
 		if tc.got != tc.want {
@@ -48,7 +64,7 @@ func TestNumbersReadAsTurkish(t *testing.T) {
 // TestPercentSignLeads is separate because it is the detail an
 // English-speaking reviewer will "fix": Turkish writes %45, not 45%.
 func TestPercentSignLeads(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	got := f.Percent(0.5, 0)
 	if !strings.HasPrefix(got, "%") {
 		t.Fatalf("Percent = %q; Turkish puts the sign first", got)
@@ -56,7 +72,7 @@ func TestPercentSignLeads(t *testing.T) {
 }
 
 func TestNonFiniteNumbersDoNotReachThePage(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	zero := 0.0
 	if got := f.Decimal(1/zero, 2); got != "—" {
 		t.Errorf("Decimal(+Inf) = %q", got)
@@ -71,7 +87,7 @@ func TestNonFiniteNumbersDoNotReachThePage(t *testing.T) {
 
 func TestDatesRenderInTheSitesZone(t *testing.T) {
 	loc := istanbul(t)
-	f := NewFormatter(loc)
+	f := NewFormatter(testLang(t, "tr"), loc)
 	// 22:30 UTC is half past one the next morning in Istanbul. A panel
 	// that got this wrong would report the busiest hour on the wrong
 	// day.
@@ -97,7 +113,7 @@ func TestDatesRenderInTheSitesZone(t *testing.T) {
 }
 
 func TestEveryMonthHasAName(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	for m := time.January; m <= time.December; m++ {
 		when := time.Date(2026, m, 1, 12, 0, 0, 0, time.UTC)
 		got := f.Date(when)
@@ -111,7 +127,7 @@ func TestEveryMonthHasAName(t *testing.T) {
 }
 
 func TestZeroTimeIsADashRatherThanTheYearOne(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	var zero time.Time
 	for name, got := range map[string]string{
 		"Date":      f.Date(zero),
@@ -129,7 +145,7 @@ func TestZeroTimeIsADashRatherThanTheYearOne(t *testing.T) {
 
 func TestSinceUsesTheWordsAPersonWouldUse(t *testing.T) {
 	loc := istanbul(t)
-	f := NewFormatter(loc)
+	f := NewFormatter(testLang(t, "tr"), loc)
 	now := time.Date(2026, time.August, 17, 9, 0, 0, 0, loc)
 	cases := []struct {
 		when time.Time
@@ -162,7 +178,7 @@ func TestSinceUsesTheWordsAPersonWouldUse(t *testing.T) {
 // would otherwise have to work out which day that lands on.
 func TestSinceCrossingMidnight(t *testing.T) {
 	loc := istanbul(t)
-	f := NewFormatter(loc)
+	f := NewFormatter(testLang(t, "tr"), loc)
 	when := time.Date(2026, time.August, 16, 23, 50, 0, 0, loc)
 	cases := []struct {
 		now  time.Time
@@ -180,7 +196,7 @@ func TestSinceCrossingMidnight(t *testing.T) {
 }
 
 func TestFutureTimestampShowsTheClockRatherThanAPolitePhrase(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	now := time.Date(2026, time.August, 17, 9, 0, 0, 0, time.UTC)
 	got := f.sinceAt(now.Add(time.Hour), now)
 	if !strings.Contains(got, "2026") {
@@ -189,7 +205,7 @@ func TestFutureTimestampShowsTheClockRatherThanAPolitePhrase(t *testing.T) {
 }
 
 func TestDurationStopsAtTwoUnits(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	cases := []struct {
 		in   time.Duration
 		want string
@@ -212,7 +228,7 @@ func TestDurationStopsAtTwoUnits(t *testing.T) {
 // capital of "i" is "İ" and the small letter of "I" is "ı". An email
 // upper-cased the wrong way stops matching the address it came from.
 func TestTurkishCasing(t *testing.T) {
-	f := NewFormatter(time.UTC)
+	f := NewFormatter(testLang(t, "tr"), time.UTC)
 	if got := f.Upper("iyi ışık"); got != "İYİ IŞIK" {
 		t.Errorf("Upper = %q", got)
 	}
@@ -225,7 +241,7 @@ func TestTurkishCasing(t *testing.T) {
 }
 
 func TestNilZoneIsUTCRatherThanTheServersZone(t *testing.T) {
-	f := NewFormatter(nil)
+	f := NewFormatter(testLang(t, "tr"), nil)
 	if f.Location() != time.UTC {
 		t.Fatalf("nil zone became %v", f.Location())
 	}

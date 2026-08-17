@@ -119,9 +119,13 @@ type Page struct {
 	// Data is whatever this page needs.
 	Data any
 
-	// F formats numbers and times in the site's zone. Set by the
-	// renderer when a handler leaves it nil, so a template can always
-	// call it.
+	// L is the language this page renders in. Set by the renderer from
+	// the request when a handler leaves it nil, so a template can always
+	// reach .L.Dir and .L.Code.
+	L *Language
+	// F formats numbers and times in the page's language and the site's
+	// zone. Set by the renderer when a handler leaves it nil, so a
+	// template can always call it.
 	F *Formatter
 }
 

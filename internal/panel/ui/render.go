@@ -11,6 +11,7 @@ import (
 	"path"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"text/template/parse"
 	"time"
@@ -34,11 +35,18 @@ const (
 // other - and the survivor would be whichever file the walker happened
 // to read last.
 type Renderer struct {
-	pages   map[string]*template.Template
-	cat     *Catalog
+	// pages is indexed by language code and then by page name.
+	//
+	// One template set per language, because the func map binds t and
+	// tf to a specific pack. Go's template namespace is also flat, so a
+	// single tree per language would let two pages defining "icerik"
+	// silently overwrite each other - and the survivor would be
+	// whichever file the walker happened to read last.
+	pages   map[string]map[string]*template.Template
+	cats    *Catalogs
 	assets  *Assets
 	log     *slog.Logger
-	fallbck []byte
+	fallbck map[string][]byte
 	// Version is stamped into the footer of every page.
 	Version string
 	// defaultZone formats for a page whose handler did not set one.
@@ -53,32 +61,53 @@ type Renderer struct {
 // Everything that can fail, fails here - at startup, before a request
 // exists. A template that does not parse, or names a key nobody wrote,
 // stops the binary rather than producing a broken page under load.
-func New(cat *Catalog, assets *Assets, log *slog.Logger) (*Renderer, error) {
-	if cat == nil || assets == nil {
-		return nil, fmt.Errorf("ui: renderer needs a catalog and assets")
+func New(cats *Catalogs, assets *Assets, log *slog.Logger) (*Renderer, error) {
+	if cats == nil || assets == nil {
+		return nil, fmt.Errorf("ui: renderer needs language packs and assets")
 	}
 	if log == nil {
 		log = slog.Default()
 	}
 	r := &Renderer{
-		pages:       make(map[string]*template.Template),
-		cat:         cat,
+		pages:       make(map[string]map[string]*template.Template),
+		cats:        cats,
 		assets:      assets,
 		log:         log,
+		fallbck:     make(map[string][]byte),
 		defaultZone: time.UTC,
 	}
 	r.bufs.New = func() any { return new(bytes.Buffer) }
 
-	pages, trees, err := parsePages(r.funcMap())
-	if err != nil {
-		return nil, err
+	for _, lang := range cats.Languages() {
+		pages, trees, err := parsePages(r.funcMap(lang))
+		if err != nil {
+			return nil, err
+		}
+		r.pages[lang.Code] = pages
+		// Only the base language is checked. A translation resolves
+		// every key through the fallback, so checking it would only
+		// ever repeat this answer.
+		if lang == cats.Base() {
+			if err := checkTemplateKeys(trees, lang); err != nil {
+				return nil, err
+			}
+		}
+		if err := r.buildFallback(lang); err != nil {
+			return nil, err
+		}
 	}
-	r.pages = pages
-	if err := checkTemplateKeys(trees, cat); err != nil {
-		return nil, err
-	}
-	if err := r.buildFallback(); err != nil {
-		return nil, err
+
+	// An incomplete translation is reported, not fatal. Refusing to boot
+	// would mean one untranslated sentence taking down deployments whose
+	// readers do not speak that language at all; the tests are where an
+	// incomplete pack is supposed to hurt.
+	for code, missing := range cats.Gaps() {
+		if len(missing) == 0 {
+			continue
+		}
+		log.Warn("ui: language pack is incomplete, those lines fall back to the base language",
+			"language", code, "base", BaseLanguageCode,
+			"missing", len(missing), "keys", strings.Join(missing, ", "))
 	}
 	return r, nil
 }
@@ -91,17 +120,17 @@ func (r *Renderer) SetZone(loc *time.Location) {
 	}
 }
 
-// Catalog exposes the message catalog to handlers, which need it for
-// titles and button labels.
-func (r *Renderer) Catalog() *Catalog { return r.cat }
+// Catalogs exposes the loaded language packs to handlers, which need
+// them for titles, button labels and language negotiation.
+func (r *Renderer) Catalogs() *Catalogs { return r.cats }
 
 // Assets exposes the asset set, for the handler that serves them.
 func (r *Renderer) Assets() *Assets { return r.assets }
 
 // Pages lists the page names this renderer knows.
 func (r *Renderer) Pages() []string {
-	names := make([]string, 0, len(r.pages))
-	for name := range r.pages {
+	names := make([]string, 0)
+	for name := range r.pages[BaseLanguageCode] {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -158,12 +187,23 @@ func pageNames() ([]string, error) {
 	return names, nil
 }
 
-func (r *Renderer) funcMap() template.FuncMap {
+func (r *Renderer) funcMap(lang *Language) template.FuncMap {
 	return template.FuncMap{
-		"t":     r.cat.T,
-		"tf":    r.cat.Tf,
+		"t":     lang.T,
+		"tf":    lang.Tf,
 		"asset": r.assets.URL,
 	}
+}
+
+// langOf resolves the language a page should render in, falling back to
+// the base rather than to nothing.
+func (r *Renderer) langOf(page *Page) *Language {
+	if page != nil && page.L != nil {
+		if _, known := r.pages[page.L.Code]; known {
+			return page.L
+		}
+	}
+	return r.cats.Base()
 }
 
 // Render writes a page.
@@ -174,20 +214,22 @@ func (r *Renderer) funcMap() template.FuncMap {
 // a nil field on line forty - the reader gets a page that stops
 // mid-sentence, and the status code says it worked.
 func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, status int, name string, page *Page) {
-	tmpl, ok := r.pages[name]
+	lang := r.langOf(page)
+	tmpl, ok := r.pages[lang.Code][name]
 	if !ok {
 		// A page name is a constant in this codebase, so this is a
 		// programming error rather than bad input; it still must not
 		// take the process down under load.
-		r.log.Error("ui: unknown page template", "page", name)
-		r.writeFallback(w, http.StatusInternalServerError)
+		r.log.Error("ui: unknown page template", "page", name, "language", lang.Code)
+		r.writeFallback(w, lang, http.StatusInternalServerError)
 		return
 	}
 	if page == nil {
 		page = &Page{}
 	}
+	page.L = lang
 	if page.F == nil {
-		page.F = NewFormatter(r.defaultZone)
+		page.F = NewFormatter(lang, r.defaultZone)
 	}
 	if page.Version == "" {
 		page.Version = r.Version
@@ -204,14 +246,20 @@ func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, status int, 
 	}()
 
 	if err := tmpl.Execute(buf, page); err != nil {
-		r.log.Error("ui: render failed", "page", name, "error", err)
-		r.writeFallback(w, http.StatusInternalServerError)
+		r.log.Error("ui: render failed", "page", name, "language", lang.Code, "error", err)
+		r.writeFallback(w, lang, http.StatusInternalServerError)
 		return
 	}
 
 	noStore(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Language", lang.Code)
+	// The body depends on the header, so a cache that ignored this would
+	// hand a Turkish page to an English reader. Pages are no-store
+	// anyway; this is here so the two rules cannot drift apart when
+	// something downstream decides to cache after all.
+	h.Add("Vary", "Accept-Language")
 	h.Set("Content-Length", strconv.Itoa(buf.Len()))
 	w.WriteHeader(status)
 	if req != nil && req.Method == http.MethodHead {
@@ -231,38 +279,48 @@ func (r *Renderer) Render(w http.ResponseWriter, req *http.Request, status int, 
 // that sentence is written for the person reading it rather than
 // derived from the code.
 func (r *Renderer) Error(w http.ResponseWriter, req *http.Request, status int) {
-	r.errorWith(w, req, status, "")
+	r.errorWith(w, req, status, "", nil)
+}
+
+// ErrorIn is Error in a specific language, for handlers that have
+// already resolved one.
+func (r *Renderer) ErrorIn(w http.ResponseWriter, req *http.Request, status int, lang *Language) {
+	r.errorWith(w, req, status, "", lang)
 }
 
 // ErrorRef is Error with a reference the reader can quote and the
 // operator can grep for.
 func (r *Renderer) ErrorRef(w http.ResponseWriter, req *http.Request, status int, reference string) {
-	r.errorWith(w, req, status, reference)
+	r.errorWith(w, req, status, reference, nil)
 }
 
-func (r *Renderer) errorWith(w http.ResponseWriter, req *http.Request, status int, reference string) {
+func (r *Renderer) errorWith(w http.ResponseWriter, req *http.Request, status int, reference string, lang *Language) {
 	if status < 400 || status > 599 {
 		status = http.StatusInternalServerError
+	}
+	if lang == nil {
+		lang = r.langOf(&Page{L: LanguageFrom(req)})
 	}
 	titleKey, bodyKey := errorKeys(status)
 
 	if wantsFragment(req) {
 		// An htmx swap wants a piece, not a document. Sending the whole
 		// layout would drop <html> and <head> into whatever div asked.
-		r.writeFragmentError(w, status, r.cat.T(titleKey), r.cat.T(bodyKey))
+		r.writeFragmentError(w, status, lang, lang.T(titleKey), lang.T(bodyKey))
 		return
 	}
 
 	page := &Page{
-		Title:   r.cat.T(titleKey),
-		Heading: r.cat.T(titleKey),
+		L:       lang,
+		Title:   lang.T(titleKey),
+		Heading: lang.T(titleKey),
 		Data: errorPage{
 			Status:    status,
-			Body:      r.cat.T(bodyKey),
+			Body:      lang.T(bodyKey),
 			At:        time.Now(),
 			Reference: reference,
 			BackURL:   "/",
-			BackLabel: r.cat.T("hata.panele_don"),
+			BackLabel: lang.T("hata.panele_don"),
 		},
 	}
 	r.Render(w, req, status, "hata", page)
@@ -302,7 +360,7 @@ const statusCSRFExpired = 419
 // writeFragmentError renders the same two sentences the full page
 // shows. The title goes in too: an htmx swap replaces one region, and
 // the reader has no <h1> to fall back on for what went wrong.
-func (r *Renderer) writeFragmentError(w http.ResponseWriter, status int, title, body string) {
+func (r *Renderer) writeFragmentError(w http.ResponseWriter, status int, lang *Language, title, body string) {
 	var buf bytes.Buffer
 	buf.WriteString(`<div class="hata" role="alert"><strong class="uyari-baslik">`)
 	template.HTMLEscape(&buf, []byte(title))
@@ -312,6 +370,8 @@ func (r *Renderer) writeFragmentError(w http.ResponseWriter, status int, title, 
 	noStore(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Language", lang.Code)
+	h.Add("Vary", "Accept-Language")
 	h.Set("Content-Length", strconv.Itoa(buf.Len()))
 	w.WriteHeader(status)
 	_, _ = buf.WriteTo(w)
@@ -324,37 +384,43 @@ func (r *Renderer) writeFragmentError(w http.ResponseWriter, status int, title, 
 // so can fail the same way, and the loop that follows is worse than the
 // original bug. This copy is produced before any request exists and
 // served verbatim afterwards.
-func (r *Renderer) buildFallback() error {
-	tmpl, ok := r.pages["hata"]
+func (r *Renderer) buildFallback(lang *Language) error {
+	tmpl, ok := r.pages[lang.Code]["hata"]
 	if !ok {
 		return fmt.Errorf("ui: the error page template is missing")
 	}
 	page := &Page{
-		Title:   r.cat.T("hata.500.baslik"),
-		Heading: r.cat.T("hata.500.baslik"),
-		F:       NewFormatter(time.UTC),
+		L:       lang,
+		Title:   lang.T("hata.500.baslik"),
+		Heading: lang.T("hata.500.baslik"),
+		F:       NewFormatter(lang, time.UTC),
 		Data: errorPage{
 			Status:    http.StatusInternalServerError,
-			Body:      r.cat.T("hata.500.govde"),
+			Body:      lang.T("hata.500.govde"),
 			BackURL:   "/",
-			BackLabel: r.cat.T("hata.panele_don"),
+			BackLabel: lang.T("hata.panele_don"),
 		},
 	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, page); err != nil {
-		return fmt.Errorf("ui: pre-render the error page: %w", err)
+		return fmt.Errorf("ui: pre-render the error page in %s: %w", lang.Code, err)
 	}
-	r.fallbck = buf.Bytes()
+	r.fallbck[lang.Code] = buf.Bytes()
 	return nil
 }
 
-func (r *Renderer) writeFallback(w http.ResponseWriter, status int) {
+func (r *Renderer) writeFallback(w http.ResponseWriter, lang *Language, status int) {
+	body, ok := r.fallbck[lang.Code]
+	if !ok {
+		body = r.fallbck[BaseLanguageCode]
+	}
 	noStore(w)
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Length", strconv.Itoa(len(r.fallbck)))
+	h.Set("Content-Language", lang.Code)
+	h.Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(status)
-	_, _ = w.Write(r.fallbck)
+	_, _ = w.Write(body)
 }
 
 // NotFound is an http.Handler for routes nothing claims.

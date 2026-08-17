@@ -1,8 +1,12 @@
 {{- /* The one page skeleton. Every response the panel renders goes
 through here, which is what makes "no inline script, no inline style"
 a property of the panel rather than of one handler. */ -}}
+{{- /* Both attributes come from the language pack. dir matters even
+though every pack shipped today is left-to-right: it is nearly free now
+and expensive to retrofit once pages exist, and without it a
+right-to-left pack would render its own text backwards. */ -}}
 <!doctype html>
-<html lang="tr">
+<html lang="{{.L.Code}}" dir="{{.L.Dir}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

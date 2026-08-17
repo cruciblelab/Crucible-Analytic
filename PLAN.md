@@ -26,7 +26,7 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-17 (C1 sonrası). Bu bölüm her faz sonunda
+*Son güncelleme: 2026-08-17 (C1 + C1.5 sonrası). Bu bölüm her faz sonunda
 güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
 cevaplar.*
 
@@ -42,7 +42,7 @@ C2–C7 ile geliyor.
 | **AI** ara işler | ✅ **bitti** | — |
 | **A** Ayarlar ve saklama | 🟡 **7/11** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **2/8** | C2, C3, C4, C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **3/9** | C2, C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -97,6 +97,14 @@ C2–C7 ile geliyor.
   sayfalar hiç önbelleklenmiyor. Gerçek tarayıcı, hiçbir Go testinin
   bulamayacağı iki şeyi buldu (htmx'in satır içi `<style>`'ı ve favicon
   404'ü) — ikisi de düzeltildi
+- **C1.5** Çok dillilik *(kullanıcı isteği)* — dil paketleri dizinden
+  **bulunuyor**, listelenmiyor: yeni dil = bir dosya + yeniden derleme.
+  `tr` temel, `en` eklendi. Temel paket anahtar kümesinin sahibi (eksik
+  anahtar açılışı engelliyor); çeviri eksik olabilir (temel dile düşer,
+  raporlanır, testte hata verir). Sayı/tarih/çoğul biçimleri dile bağlı,
+  çoğullar gerçek CLDR kurallarından. Testler **repoda olmayan bir
+  Rusça paket** yüklüyor — "yeni dil kod değişikliği istemiyor" iddiası
+  gösteriliyor, öne sürülmüyor
 - **A7.7** *(düzeltme)* **Geliştirici modu bir sayfadır, yetki değil.**
   Erişimi üç soru belirliyor ve yalnız ikisi kontrolü kapatabiliyor:
   (1) config dosyasında mı — öyleyse panelden **kimse** değiştiremez,
@@ -140,6 +148,8 @@ C2–C7 ile geliyor.
 | **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C4** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
 | **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C4** (kabuk ve `kilit` duyuru düzeyi C1'de yazıldı) |
 | **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
+| **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
+| **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **C4** (çözümleme parametresi zaten variadic) |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
@@ -1006,6 +1016,49 @@ logger dosyaya yazıyor. Açılış hataları artık ikisine birden gidiyor.
 **Bugün ne servis ediliyor:** kabuk (başlık, işletmeci rozeti, izleyici
 uyarısı, altbilgi), yazılmış 400/403/404/405/419/500/502/503 sayfaları,
 varlıklar, ve giriş yer tutucusu. Sayfaların kendisi C2–C7 ile geliyor.
+
+#### C1.5 — Çok dillilik ✅ **yapıldı** *(kullanıcı isteği)*
+
+**Neden hemen:** "sonradan yeni dil eklenebilecek şekilde yap." Doğru an
+buydu; sıradaki faz onlarca metin ekliyor ve her biri sonradan yeniden
+elden geçirilecekti.
+
+**Yeni dil eklemek = `internal/panel/ui/messages/` dizinine bir `.toml`
+koyup yeniden derlemek.** Go tarafında güncellenecek liste yok; yükleyici
+dizini geziyor. Şu an `tr` (temel) ve `en` var.
+
+Her paketin üç bölümü var: `[dil]` (kod, dilin kendi adı, yazım yönü),
+`[bicim]` (yerelin tarih ve birim verisi), `[metin]` (cümleler).
+
+**İki kural bilerek asimetrik:**
+
+- **Temel paket anahtar kümesinin sahibi.** Şablonun andığı ama onda
+  olmayan anahtar, panelin açılmasını engelliyor.
+- **Çeviri eksik olabilir.** Eksik anahtar temel dile düşüyor, açılışta
+  tam listesiyle raporlanıyor, ve **testte hata veriyor.** Çünkü tersi
+  daha kötü olurdu: bir Türkçe metin eklemek, o cümleyi hiç görmeyecek
+  İngilizce kurulumları da düşürürdü. Çevirinin bedeli CI'da ödenir.
+
+**Biçimlendirme de dile bağlı**, yalnız kelimeler değil: `1.234.567` /
+`1,234,567`, `%45,7` / `45.7%`, `17 Ağustos 2026` / `August 17, 2026`.
+Çoğul biçimleri gerçek CLDR kurallarından geliyor
+(`golang.org/x/text/feature/plural`): paket yalnız dilinin sahip olduğu
+biçimleri veriyor — Türkçe bir, İngilizce iki, Rusça dört — ve sayıdan
+sonra çekimlenmeyen bir dil mekanizmanın varlığından hiç haberdar
+olmuyor. **Test paketi bu repoda bulunmayan bir Rusça paket taşıyor**,
+çünkü tr+en ikilisi mekanizmayı hiç sınamıyor: biri hiç çekimlemiyor,
+diğerinin iki biçimi var.
+
+**Dil seçimi sırası:** kurulumun `language` ayarı → tarayıcının
+`Accept-Language` başlığı → temel dil. `?lang=` anahtarı **bilerek yok**:
+aynı adresin farklı görünmesi, destek talebindeki her ekran görüntüsünü
+belirsiz yapar. Hesap bazlı tercih (C4) en öne eklenecek; çözümleme
+parametresi zaten bunun için variadic.
+
+**Dürüstçe söylenmesi gereken:** `<html>` artık `lang` ve `dir`
+taşıyor ve stil dosyası mantıksal özellikler kullanıyor, ama **hiçbir
+sağdan-sola paket yazılmadı ve denenmedi.** Bu bir zemin, destek iddiası
+değil.
 
 #### C2 — İlk çalıştırma tespiti ve geliştirici sihirbazı
 

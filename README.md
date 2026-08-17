@@ -867,6 +867,49 @@ A few properties that are deliberate rather than incidental:
 Today the panel serves its chrome, its error pages and its assets; the
 pages themselves arrive with the rest of group C in `PLAN.md`.
 
+### Languages
+
+The panel ships Turkish and English. **Adding a language is one file and
+a rebuild** - drop a `.toml` in `internal/panel/ui/messages/` and the
+loader finds it. There is no list in Go to update, and the test suite
+carries a language this repository does not ship precisely to prove
+that.
+
+Read `messages/tr.toml` first: it is the base pack and carries the full
+explanation. Briefly, each file has three sections - `[dil]` (code,
+endonym, text direction), `[bicim]` (the locale's date and unit data)
+and `[metin]` (the sentences).
+
+Two rules are asymmetric on purpose:
+
+- **The base pack owns the key set.** A template naming a key it does
+  not define stops the binary from starting.
+- **A translation may be incomplete.** Missing keys fall back to the
+  base language, are reported once at startup with the exact list, and
+  fail a test. That way an untranslated sentence costs a build rather
+  than taking down a deployment whose readers do not speak that language
+  at all.
+
+Formatting follows the language, not just the words: `1.234.567` and
+`%45,7` in Turkish, `1,234,567` and `45.7%` in English; `17 Ağustos
+2026` against `August 17, 2026`. Plural forms come from real CLDR rules
+(`golang.org/x/text/feature/plural`), so a pack supplies only the forms
+its language has - Turkish supplies one, English two, Russian four - and
+a language that does not inflect after a numeral never has to know the
+mechanism exists.
+
+Which language a reader gets, in order: the deployment's `language`
+setting, then the browser's `Accept-Language`, then the base language.
+The panel deliberately has no `?lang=` switch - a page that renders
+differently for the same address makes every screenshot in a support
+ticket ambiguous.
+
+`<html>` carries `lang` and `dir` from the pack, and the stylesheet uses
+logical properties (`margin-inline-start`, `text-align: start`)
+throughout. That is groundwork for a right-to-left language, not a
+claim of support: no RTL pack has been written or tested, and doing one
+properly means reviewing the layout with it in front of you.
+
 ## The developer password
 
 A short list of settings changes what personal data this deployment

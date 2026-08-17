@@ -16,7 +16,7 @@ import (
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	cat, err := ui.LoadCatalog()
+	cats, err := ui.LoadCatalogs()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := ui.New(cat, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r, err := ui.New(cats, assets, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,6 +32,7 @@ func newTestServer(t *testing.T) *Server {
 		Renderer: r,
 		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Zone:     time.UTC,
+		Language: "tr",
 	}
 }
 
@@ -223,5 +224,64 @@ func TestPortAlreadyInUseIsReported(t *testing.T) {
 	defer cancel()
 	if err := s.ListenAndServe(ctx); err == nil {
 		t.Fatal("binding an occupied port did not report an error")
+	}
+}
+
+// TestTheBrowsersLanguageIsServedWhenTheDeploymentHasNoPreference is the
+// case a Turkish-first product forgets: a colleague on the same
+// deployment who does not read Turkish.
+func TestTheBrowsersLanguageIsServedWhenTheDeploymentHasNoPreference(t *testing.T) {
+	s := newTestServer(t)
+	s.Language = "" // no configured default, so the browser decides
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `<html lang="en" dir="ltr">`) {
+		t.Error("the page did not declare English")
+	}
+	if !strings.Contains(body, "Sign in to continue.") {
+		t.Errorf("the page is not in English:\n%s", body)
+	}
+	if got := rec.Header().Get("Content-Language"); got != "en" {
+		t.Errorf("Content-Language = %q", got)
+	}
+	// The body depends on the header, so a cache must be told.
+	if got := rec.Header().Get("Vary"); !strings.Contains(got, "Accept-Language") {
+		t.Errorf("Vary = %q", got)
+	}
+}
+
+// TestTheConfiguredLanguageBeatsTheBrowser: the deployment's setting is
+// a choice somebody made, and a browser's default list is not.
+func TestTheConfiguredLanguageBeatsTheBrowser(t *testing.T) {
+	s := newTestServer(t) // Language: "tr"
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "Devam etmek için giriş yapın") {
+		t.Error("the configured language was overridden by the browser")
+	}
+}
+
+// TestErrorPagesFollowTheNegotiatedLanguage. An error page is exactly
+// where somebody needs to understand the words, so it is exactly where
+// falling back to the wrong language is worst.
+func TestErrorPagesFollowTheNegotiatedLanguage(t *testing.T) {
+	s := newTestServer(t)
+	s.Language = ""
+	req := httptest.NewRequest(http.MethodGet, "/boyle-bir-sayfa-yok", nil)
+	req.Header.Set("Accept-Language", "en")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "Page not found") {
+		t.Errorf("the 404 page is not in English:\n%s", rec.Body.String())
 	}
 }

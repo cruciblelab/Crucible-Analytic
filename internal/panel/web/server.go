@@ -20,6 +20,11 @@ type Server struct {
 	HSTS bool
 	// Zone is the time zone every page renders in.
 	Zone *time.Location
+	// Language is the deployment's preferred language code. A reader
+	// whose browser asks for another language the panel carries gets
+	// that one instead; this is the answer when the browser expresses no
+	// preference the panel can serve.
+	Language string
 }
 
 // Timeouts. A panel is not a streaming service: every response it
@@ -52,7 +57,11 @@ func (s *Server) Handler() http.Handler {
 	// apart itself.
 	mux.HandleFunc("/", s.home)
 
-	return SecurityHeaders(s.HSTS, s.requestLog(mux))
+	// Language is resolved once, outermost but inside the logging and
+	// header middleware, so every handler and every error page below can
+	// read it off the request rather than negotiating again.
+	return SecurityHeaders(s.HSTS, s.requestLog(
+		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, mux)))
 }
 
 // SecurityHeaders is re-exported so the binary and the tests apply the
@@ -76,11 +85,12 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	// Everything behind the login form arrives with C2 onwards. Until
 	// then this is the honest page: the panel is running and is asking
 	// who you are.
-	cat := s.Renderer.Catalog()
+	lang := s.language(r)
 	s.Renderer.Render(w, r, http.StatusOK, "giris", &ui.Page{
-		Title:   cat.T("giris.baslik"),
-		Heading: cat.T("giris.baslik"),
-		F:       ui.NewFormatter(s.Zone),
+		L:       lang,
+		Title:   lang.T("giris.baslik"),
+		Heading: lang.T("giris.baslik"),
+		F:       ui.NewFormatter(lang, s.Zone),
 	})
 }
 
@@ -102,6 +112,16 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 			"ms", time.Since(started).Milliseconds(),
 		)
 	})
+}
+
+// language is the resolved language for a request, falling back to
+// negotiating one for handlers reached without the middleware (tests,
+// and any future mount that bypasses Handler).
+func (s *Server) language(r *http.Request) *ui.Language {
+	if lang := ui.LanguageFrom(r); lang != nil {
+		return lang
+	}
+	return s.Renderer.Catalogs().Negotiate(r, s.Language)
 }
 
 func (s *Server) logger() *slog.Logger {
