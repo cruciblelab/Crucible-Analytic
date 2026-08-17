@@ -1,0 +1,129 @@
+{{define "icerik"}}
+{{- /* Four independent forms rather than one. Each posts its own islem
+value and each is validated on its own, so a mistyped password does not
+discard a display-name change made in the same visit - and, more
+importantly, so that the current-password field guarding one of them
+cannot be satisfied by a submission aimed at another. */}}
+
+<section class="bolum">
+<h2>{{t "hesap.kimlik.baslik"}}</h2>
+<dl class="ozet">
+<dt>{{t "hesap.eposta"}}</dt>
+<dd>{{.Data.Email}}
+{{- /* Read-only until there is a way to prove the new address belongs
+to the person typing it. An email field that changes the login address
+without verification is an account-takeover button. */}}
+<span class="ipucu">{{t "hesap.eposta_degistirilemez"}}</span></dd>
+{{- if .Data.Superadmin}}
+<dt>{{t "hesap.rol"}}</dt>
+<dd>{{t "hesap.operator"}}</dd>
+{{- end}}
+</dl>
+
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="ad">
+<div class="alan">
+<label for="ad">{{t "hesap.ad"}}</label>
+<input id="ad" name="ad" type="text" maxlength="80" value="{{.Data.DisplayName}}">
+<p class="ipucu">{{t "hesap.ad_ipucu"}}</p>
+</div>
+<button type="submit">{{t "kaydet"}}</button>
+</form>
+</section>
+
+<section class="bolum">
+<h2>{{t "hesap.parola.baslik"}}</h2>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="parola">
+<div class="alan">
+<label for="mevcut_parola">{{t "hesap.parola.mevcut"}}</label>
+<input id="mevcut_parola" name="mevcut_parola" type="password"
+       autocomplete="current-password" required>
+{{- /* The field that separates a stolen session from a stolen account.
+See internal/panel/web/account.go. */}}
+<p class="ipucu">{{t "hesap.parola.mevcut_neden"}}</p>
+</div>
+<div class="alan">
+<label for="yeni_parola">{{t "hesap.parola.yeni"}}</label>
+<input id="yeni_parola" name="yeni_parola" type="password"
+       autocomplete="new-password" minlength="12" required>
+</div>
+<div class="alan">
+<label for="yeni_parola_tekrar">{{t "hesap.parola.tekrar"}}</label>
+<input id="yeni_parola_tekrar" name="yeni_parola_tekrar" type="password"
+       autocomplete="new-password" minlength="12" required>
+</div>
+<button type="submit">{{t "hesap.parola.degistir"}}</button>
+</form>
+<p class="ipucu">{{t "hesap.parola.diger_oturumlar"}}</p>
+</section>
+
+<section class="bolum">
+<h2>{{t "hesap.2fa.baslik"}}</h2>
+{{- if .Data.Enrolling}}
+<p>{{t "hesap.2fa.tara"}}</p>
+{{- /* Served from its own endpoint, not embedded as a data: URI: the
+secret would otherwise be in view-source, in the browser cache, and in
+every copy of this page. */}}
+<img src="{{.Data.QRURL}}" width="256" height="256" alt="{{t "hesap.2fa.qr_alt"}}" class="qr">
+<p class="ipucu">{{t "hesap.2fa.elle"}} <code class="secret">{{.Data.ManualKey}}</code></p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="2fa-onayla">
+<div class="alan">
+<label for="kod">{{t "hesap.2fa.kod"}}</label>
+<input id="kod" name="kod" type="text" inputmode="numeric" pattern="[0-9]*"
+       autocomplete="one-time-code" maxlength="6" required spellcheck="false" class="kod">
+<p class="ipucu">{{t "hesap.2fa.kod_neden"}}</p>
+</div>
+<button type="submit">{{t "hesap.2fa.dogrula"}}</button>
+</form>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="2fa-iptal">
+<button type="submit" class="ikincil">{{t "vazgec"}}</button>
+</form>
+{{- else if .Data.TOTPEnabled}}
+<p>{{t "hesap.2fa.acik"}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="2fa-kapat">
+<div class="alan">
+<label for="kapat_parola">{{t "hesap.parola.mevcut"}}</label>
+<input id="kapat_parola" name="mevcut_parola" type="password"
+       autocomplete="current-password" required>
+<p class="ipucu">{{t "hesap.2fa.kapat_neden"}}</p>
+</div>
+<button type="submit" class="tehlikeli">{{t "hesap.2fa.kapat"}}</button>
+</form>
+{{- else}}
+<p>{{t "hesap.2fa.kapali"}}</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="2fa-basla">
+<button type="submit">{{t "hesap.2fa.ac"}}</button>
+</form>
+<p class="ipucu">{{t "hesap.2fa.kurtarma_yok"}}</p>
+{{- end}}
+</section>
+
+{{- if .Data.CanUseDeveloperMode}}
+<section class="bolum">
+<h2>{{t "hesap.gelistirici.baslik"}}</h2>
+<p>{{t "hesap.gelistirici.govde"}}</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="gelistirici">
+{{- if .Data.DeveloperMode}}
+<input type="hidden" name="acik" value="0">
+<button type="submit">{{t "hesap.gelistirici.kapat"}}</button>
+{{- else}}
+<input type="hidden" name="acik" value="1">
+<button type="submit">{{t "hesap.gelistirici.ac"}}</button>
+{{- end}}
+</form>
+</section>
+{{- end}}
+{{end}}

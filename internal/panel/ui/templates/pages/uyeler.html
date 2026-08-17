@@ -1,0 +1,83 @@
+{{define "icerik"}}
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "uyeler.sutun.kisi"}}</th>
+<th scope="col">{{t "uyeler.sutun.rol"}}</th>
+<th scope="col"><span class="gizli">{{t "uyeler.sutun.islem"}}</span></th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Members}}
+<tr>
+<th scope="row">
+{{.Email}}
+{{- if .Self}} <span class="rozet">{{t "uyeler.siz"}}</span>{{end}}
+{{- if .Disabled}} <span class="rozet pasif">{{t "uyeler.pasif"}}</span>{{end}}
+</th>
+<td>
+{{- /* The role list is per row, because who may be moved to what
+depends on the row: an owner may be re-roled by another owner and not by
+an admin. Access.CanAssign decides, and the POST handler asks it again -
+this select is a convenience, not the check. */}}
+{{- if .AssignableRoles}}
+<form method="post" action="" class="satir">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="rol">
+<input type="hidden" name="kullanici" value="{{.UserID}}">
+<label class="gizli" for="rol-{{.UserID}}">{{t "uyeler.sutun.rol"}}</label>
+<select id="rol-{{.UserID}}" name="rol">
+{{- range .AssignableRoles}}
+<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+{{- end}}
+</select>
+<button type="submit" class="ikincil">{{t "uyeler.rol_kaydet"}}</button>
+</form>
+{{- else}}
+{{t (printf "rol.%s" .Role)}}
+{{- end}}
+</td>
+<td>
+{{- if .Removable}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="cikar">
+<input type="hidden" name="kullanici" value="{{.UserID}}">
+<button type="submit" class="tehlikeli">{{t "uyeler.cikar"}}</button>
+</form>
+{{- else if .Self}}
+<span class="ipucu">{{t "uyeler.kendini_cikaramaz"}}</span>
+{{- end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+
+{{- if .Data.CanManage}}
+<section class="bolum">
+<h2>{{t "uyeler.ekle.baslik"}}</h2>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="ekle">
+<div class="alan">
+<label for="eposta">{{t "uyeler.ekle.eposta"}}</label>
+<input id="eposta" name="eposta" type="email" required spellcheck="false">
+{{- /* This adds somebody who already has an account. Creating one means
+sending an invitation, which means email - and that is a later phase.
+Said here so the failure is understood before it happens. */}}
+<p class="ipucu">{{t "uyeler.ekle.ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="ekle-rol">{{t "uyeler.sutun.rol"}}</label>
+<select id="ekle-rol" name="rol">
+{{- range .Data.AddRoles}}
+<option value="{{.Value}}">{{.Label}}</option>
+{{- end}}
+</select>
+</div>
+<button type="submit">{{t "uyeler.ekle.gonder"}}</button>
+</form>
+</section>
+{{- end}}
+{{end}}

@@ -48,6 +48,18 @@ const (
 	// them in one field would make that one forgotten branch away.
 	keyPendingUserID = "pending_user_id"
 	keyCSRF          = "csrf"
+	// keyPendingTOTP holds a second-factor secret that has been shown to
+	// the user but not yet proved. It is in the session and not on the
+	// user row deliberately: enrolment that is abandoned halfway must
+	// leave the account exactly as it was, because the alternative -
+	// writing the secret first - creates the one state this panel
+	// cannot repair on its own, an account demanding codes from an
+	// authenticator that never finished scanning.
+	//
+	// It dies with the session, which is the right lifetime: a secret
+	// nobody confirmed is worth nothing, and one that outlived the tab
+	// it was created in would be a credential lying about.
+	keyPendingTOTP = "pending_totp"
 )
 
 // Sessions manages signed-in state.
@@ -141,6 +153,9 @@ func (s *Sessions) AwaitSecondFactor(ctx context.Context, user User) error {
 
 // PendingUserID returns the account awaiting a second factor, or 0.
 func (s *Sessions) PendingUserID(ctx context.Context) int64 {
+	if s == nil || s.mgr == nil {
+		return 0
+	}
 	return s.mgr.GetInt64(ctx, keyPendingUserID)
 }
 
@@ -160,6 +175,17 @@ var ErrNoSession = errors.New("panel: no session")
 // account, revoking developer mode or changing a role takes hold on the
 // next click rather than whenever the session happens to expire.
 func (s *Sessions) Principal(ctx context.Context) (Principal, error) {
+	// A nil manager is "nobody is signed in", not a crash.
+	//
+	// Server.Handler already treats a nil Sessions as a server with no
+	// session middleware, so it is a state this package has to answer
+	// for rather than assume away - and the answer that keeps a panel
+	// safe is the one where nobody is authenticated. A deployment that
+	// reaches this is refused at startup instead; see
+	// web.Server.ListenAndServe.
+	if s == nil || s.mgr == nil {
+		return Principal{}, ErrNoSession
+	}
 	if grantID := s.mgr.GetInt64(ctx, keyDevGrantID); grantID != 0 {
 		expiresUnix := s.mgr.GetInt64(ctx, keyDevExpires)
 		if expiresUnix == 0 || time.Now().After(time.Unix(expiresUnix, 0)) {
@@ -212,6 +238,11 @@ func (s *Sessions) Principal(ctx context.Context) (Principal, error) {
 // should not be the only thing between a customer and an attacker's
 // form.
 func (s *Sessions) CSRFToken(ctx context.Context) string {
+	// No manager, no token - and CheckCSRF below then refuses every
+	// write, which is the direction a missing defence must fail in.
+	if s == nil || s.mgr == nil {
+		return ""
+	}
 	if token := s.mgr.GetString(ctx, keyCSRF); token != "" {
 		return token
 	}
@@ -232,6 +263,9 @@ const CSRFFieldName = "csrf_token"
 
 // CheckCSRF verifies the token on an unsafe request.
 func (s *Sessions) CheckCSRF(r *http.Request) bool {
+	if s == nil || s.mgr == nil {
+		return false
+	}
 	want := s.mgr.GetString(r.Context(), keyCSRF)
 	if want == "" {
 		// No token was ever issued for this session, so nothing can
@@ -255,4 +289,27 @@ func safeMethod(method string) bool {
 		return true
 	}
 	return false
+}
+
+// PutPendingTOTP stores an unconfirmed second-factor secret.
+func (s *Sessions) PutPendingTOTP(ctx context.Context, secret string) {
+	s.mgr.Put(ctx, keyPendingTOTP, secret)
+}
+
+// PendingTOTP returns the unconfirmed secret, or "".
+func (s *Sessions) PendingTOTP(ctx context.Context) string {
+	if s == nil || s.mgr == nil {
+		return ""
+	}
+	return s.mgr.GetString(ctx, keyPendingTOTP)
+}
+
+// ClearPendingTOTP forgets an unconfirmed secret.
+//
+// Called both when enrolment succeeds and when it is abandoned. After
+// success the secret is on the user row and a second copy in the session
+// is one more place it can leak from; after abandonment it is simply
+// worthless.
+func (s *Sessions) ClearPendingTOTP(ctx context.Context) {
+	s.mgr.Remove(ctx, keyPendingTOTP)
 }

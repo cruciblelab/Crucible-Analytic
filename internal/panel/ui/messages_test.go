@@ -306,6 +306,11 @@ func TestNoDeadCatalogEntries(t *testing.T) {
 var (
 	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "toplama", "saklama", "kontrol"}
 	checkStatuses = []string{"pass", "fail", "warn", "skip"}
+	// memberRoles mirrors panel.ValidRoles. The role labels are looked
+	// up as "rol." + the stored role, from both a handler and a
+	// template, so neither the source scan nor the template walk sees
+	// the whole family.
+	memberRoles = []string{"owner", "admin", "viewer"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -317,6 +322,9 @@ func computedKeys() []string {
 	}
 	for _, status := range checkStatuses {
 		keys = append(keys, "kontrol.durum."+status)
+	}
+	for _, role := range memberRoles {
+		keys = append(keys, "rol."+role)
 	}
 	return keys
 }

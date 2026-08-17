@@ -928,7 +928,61 @@ manual-step list are still Turkish only: they live beside the rule that
 produces them rather than in the language packs, and moving them is
 recorded as open work in `PLAN.md`.
 
-The pages behind the login form arrive with the rest of group C.
+### Signing in
+
+The customer's door: email and password, an optional second factor, and
+the account page behind it.
+
+- **Every failure says the same thing.** One sentence, one status, and
+  the password is verified even for an address with no account — because
+  skipping that answers "does this address have an account here" in
+  about eighty milliseconds, from anywhere.
+- **The throttle runs before the password, not after.** Two independent
+  counters: per account, and per address. Checking after a failure would
+  still pay the argon2id cost per guess, which is the cost the attacker
+  had budgeted for anyway.
+- **A password alone is not a session** when a second factor is set.
+  The half-finished state opens the code form and nothing else.
+- **`?next=` is validated, not sanitised.** A sign-in form that will
+  redirect anywhere is a phishing springboard on the customer's own
+  domain. Anything that is not plainly a path inside this panel becomes
+  the site list.
+- **Changing a password or removing the second factor costs the current
+  password**, so a stolen session does not become a stolen account.
+- **Two-factor enrolment writes nothing until a code proves it.** The
+  secret lives in the session and the QR is served from its own
+  same-origin, `no-store` endpoint — never embedded in the page, where
+  it would land in view-source, the cache, and every screenshot.
+
+There are no recovery codes yet. Somebody who loses their phone is
+recovered by an owner or the operator resetting their second factor;
+a sole owner who loses theirs still needs a shell. Changing a password
+also does not end sessions on other devices. Both gaps are stated on
+the pages themselves and tracked in `PLAN.md`.
+
+### Roles
+
+`owner`, `admin`, `viewer`, with a capability table in
+`internal/panel/roles.go` that is the whole authorisation model in one
+place. A viewer sees the numbers and no controls, and the chrome says
+why — a page full of missing buttons with no explanation is a support
+call about a feature working as designed.
+
+**Hiding a link is not authorisation.** The navigation is filtered so
+nobody is shown a door that will not open; every handler then asks for
+its own capability again. Each permission test has a pair: the allowed
+request, and the same one forged by somebody who may not make it.
+
+Two refusals that are deliberately different codes: a site you have no
+access to is **404** (a 403 would confirm it exists, and turn the URL
+into a customer list), while a page your role does not open on a site
+you *can* see is **403**.
+
+Adding a member adds somebody who already has an account. Creating one
+means sending an invitation, which means email — see the scope note
+below.
+
+The dashboards behind all this arrive with group D.
 
 ### Languages
 

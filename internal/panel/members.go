@@ -101,7 +101,7 @@ func (s *Store) allSites(ctx context.Context, known []string) ([]SiteAccess, err
 // see Server.siteHandler - so no handler can reach a site's data without
 // an authorization decision having been made about it.
 func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Access, error) {
-	access := Access{Principal: p}
+	access := Access{Principal: p, SiteID: siteID}
 
 	var role Role
 	err := s.pool.QueryRow(ctx,

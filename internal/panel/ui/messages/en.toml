@@ -58,6 +58,10 @@ other = "%s seconds"
 ad = "Crucible Analytic"
 
 [metin.gezinme]
+cikis = "Sign out"
+siteler = "Sites"
+uyeler = "Members"
+hesap = "My account"
 atla = "Skip to content"
 panel = "Panel"
 
@@ -109,6 +113,9 @@ baslik = "The panel is not ready yet"
 govde = "The service is starting up or under maintenance. Try again in a few seconds."
 
 [metin.giris]
+eposta = "Email"
+parola = "Password"
+gonder = "Sign in"
 baslik = "Sign in"
 govde = "Sign in to continue."
 
@@ -204,3 +211,152 @@ pass = "passed"
 fail = "failed"
 warn = "warning"
 skip = "not checked"
+
+# --- Sign-in, account, members (C4) ---
+#
+# One sentence for every sign-in failure, on purpose: saying which field
+# was wrong is the easiest way to enumerate registered addresses. The
+# throttle message is separate because it is actionable - waiting fixes
+# it - and it names neither the account nor the address.
+
+[metin.giris.hata]
+gecersiz = "Incorrect email address or password."
+kod_gecersiz = "That code could not be verified. Enter the current code from your app."
+kod_kullanildi = "That code has already been used. Wait for your app's next code."
+
+[metin.giris.hata.kisitlandi]
+one = "Too many attempts. Try again in %s minute."
+other = "Too many attempts. Try again in %s minutes."
+
+[metin.giris.dogrulama]
+baslik = "Verification code"
+govde = "Enter the six-digit code from your app for %s."
+kod = "Verification code"
+gonder = "Verify"
+ipucu = "The code changes every thirty seconds in your authenticator app. If you cannot reach your phone, ask the site's owner to reset your second factor."
+
+[metin.siteler]
+baslik = "Sites"
+operator_olarak = "Operator"
+kartlar_yakinda = "The analytics cards are not built yet; for now this page lists the sites you can reach."
+
+[metin.siteler.bos]
+operator = "No memberships exist on this deployment yet. The site list is edited from the setup wizard."
+uye = "You do not have access to any site yet. Access is granted by the site's owner."
+
+[metin.siteler.sutun]
+site = "Site"
+rol = "Your role"
+islem = "Actions"
+
+[metin.rol]
+owner = "Owner"
+admin = "Administrator"
+viewer = "Viewer"
+
+[metin.viewer]
+baslik = "View only"
+govde = "You are a viewer on this site: you see the numbers, and you cannot change settings or members. The technical views - fingerprints, network details, per-address detail - are never shown in this role."
+
+[metin.hesap]
+baslik = "My account"
+eposta = "Email"
+rol = "Authority"
+operator = "Operator (superadmin)"
+ad = "Display name"
+# Flat keys, because TOML cannot have the same name as both a value and
+# a table: with eposta and ad in [metin.hesap], opening
+# [metin.hesap.eposta] is an "already defined" error.
+eposta_degistirilemez = "Ask your system administrator to change it."
+ad_ipucu = "This name appears in the audit log and in the page header. Left empty, your email address is used."
+ad_kaydedildi = "Display name updated."
+
+[metin.hesap.kimlik]
+baslik = "Identity"
+
+[metin.hesap.parola]
+baslik = "Password"
+mevcut = "Your current password"
+mevcut_neden = "Changing a password requires the current one, so that a stolen session does not become a stolen account."
+yeni = "New password"
+tekrar = "New password (again)"
+degistir = "Change password"
+kaydedildi = "Your password has been changed."
+diger_oturumlar = "Note: changing your password does not end sessions open on other devices. This is a known gap, recorded in PLAN.md."
+
+[metin.hesap.2fa]
+baslik = "Two-factor authentication"
+kapali = "Off. Turning it on asks for a code from your app in addition to your password."
+acik = "On. Every sign-in asks for a code from your app."
+ac = "Turn on two-factor authentication"
+kapat = "Turn off two-factor authentication"
+kapat_neden = "Your password is asked for because this removes a defence."
+dogrula = "Verify the code and turn it on"
+tara = "Scan this code with your authenticator app:"
+qr_alt = "Two-factor authentication QR code"
+elle = "If you cannot scan it, enter this key by hand:"
+kod = "The code from your app"
+kod_neden = "Nothing is written to your account until the code is verified. Stopping halfway leaves your account exactly as it was."
+baslatildi = "Scan the code, then enter the code your app shows."
+vazgecildi = "Two-factor setup was cancelled. Nothing about your account changed."
+acildi = "Two-factor authentication is on."
+kapandi = "Two-factor authentication is off."
+kurtarma_yok = "There are no recovery codes yet: if you lose your phone, the site's owner or the operator can reset your second factor."
+
+[metin.hesap.gelistirici]
+baslik = "Developer mode"
+govde = "While on, the technical layers are visible: TLS fingerprints, network details, bot scores and per-address detail. This is a preference, not a permission - you already have the permission."
+ac = "Turn on developer mode"
+kapat = "Turn off developer mode"
+acildi = "Developer mode is on."
+kapandi = "Developer mode is off."
+
+[metin.hesap.hata]
+bilinmeyen = "That request was not understood. Reload the page and try again."
+kaydedilemedi = "Could not be saved. If this keeps happening, check the logs."
+mevcut_parola = "Your current password could not be verified."
+parolalar_farkli = "The new password does not match in both fields."
+parola_kisa = "A password must be at least 12 characters."
+parola_uzun = "A password may be at most 128 characters."
+parola_gecersiz = "That password was not accepted."
+ad_uzun = "A display name may be at most 80 characters."
+gelistirici_yetki = "This account is not allowed to use developer mode."
+2fa_zaten = "Two-factor authentication is already on."
+2fa_yok = "Two-factor authentication is already off."
+2fa_baslatilmadi = "Setup has not been started. Reload the page and begin again."
+
+[metin.uyeler]
+baslik = "Members"
+siz = "you"
+pasif = "disabled"
+cikar = "Remove"
+rol_kaydet = "Save role"
+eklendi = "%s was added to the site."
+cikarildi = "The member was removed from the site."
+rol_degisti = "Role updated."
+kendini_cikaramaz = "You cannot remove yourself from this page."
+
+[metin.uyeler.sutun]
+kisi = "Person"
+rol = "Role"
+islem = "Actions"
+
+[metin.uyeler.ekle]
+baslik = "Add a member"
+eposta = "Email address"
+ipucu = "Adds somebody who already has an account. It does not create one - invitation email is not built yet."
+gonder = "Add"
+
+[metin.uyeler.hata]
+bilinmeyen = "That request was not understood. Reload the page and try again."
+kaydedilemedi = "Could not be saved. If this keeps happening, check the logs."
+rol_yetki = "You cannot grant a role above your own."
+eposta_bos = "The email address is empty."
+hesap_yok = "No account exists for that address. The person needs an account first; invitation email is not built yet."
+kullanici_gecersiz = "Invalid user."
+uye_yok = "That person is not a member of this site."
+son_sahip = "A site must keep at least one owner. Make somebody else an owner first."
+
+[metin]
+kaydet = "Save"
+vazgec = "Cancel"

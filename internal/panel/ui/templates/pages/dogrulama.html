@@ -1,0 +1,21 @@
+{{define "icerik"}}
+{{- with .Data.Error}}
+<p class="uyari hata" role="alert">{{.}}</p>
+{{- end}}
+<p>{{tf "giris.dogrulama.govde" .Data.RememberedName}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="next" value="{{.Data.Next}}">
+<div class="alan">
+<label for="kod">{{t "giris.dogrulama.kod"}}</label>
+{{- /* inputmode and autocomplete let a phone offer the code it just
+received and a password manager fill it. autocomplete="one-time-code" is
+what makes iOS suggest it from the notification. */}}
+<input id="kod" name="kod" type="text" inputmode="numeric" pattern="[0-9]*"
+       autocomplete="one-time-code" maxlength="6" required
+       spellcheck="false" class="kod">
+</div>
+<button type="submit">{{t "giris.dogrulama.gonder"}}</button>
+</form>
+<p class="ipucu">{{t "giris.dogrulama.ipucu"}}</p>
+{{end}}

@@ -2,9 +2,9 @@ package web
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,12 +36,37 @@ func newTestServer(t *testing.T) *Server {
 	}
 }
 
-func TestHomeServesTheLoginPage(t *testing.T) {
+// The front page is a router now, not a page: it sends an
+// unauthenticated visitor to the sign-in form, carrying where they were
+// going. Both halves are asserted, because a redirect that forgets the
+// destination and a redirect that carries an attacker's are the two ways
+// this goes wrong.
+func TestHomeSendsAnUnauthenticatedVisitorToSignIn(t *testing.T) {
 	s := newTestServer(t)
 	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, AccountPath, nil))
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("GET %s = %d, want 303", AccountPath, rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/giris?next=%2Fhesap" {
+		t.Errorf("Location = %q; the destination was lost", got)
+	}
+
+	// The front page carries no destination, because "/" is where
+	// signing in leads anyway.
+	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if got := rec.Header().Get("Location"); got != LoginPath {
+		t.Errorf("Location = %q, want a bare %q", got, LoginPath)
+	}
+}
+
+func TestSignInPageRenders(t *testing.T) {
+	s := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, LoginPath, nil))
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET / = %d", rec.Code)
+		t.Fatalf("GET %s = %d", LoginPath, rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), "Devam etmek için giriş yapın") {
 		t.Error("the login page did not render")
@@ -123,7 +148,7 @@ func TestPagesAreNotCachedButAssetsAre(t *testing.T) {
 	h := s.Handler()
 
 	page := httptest.NewRecorder()
-	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	h.ServeHTTP(page, httptest.NewRequest(http.MethodGet, LoginPath, nil))
 	if !strings.Contains(page.Header().Get("Cache-Control"), "no-store") {
 		t.Errorf("page Cache-Control = %q", page.Header().Get("Cache-Control"))
 	}
@@ -152,78 +177,22 @@ func TestAccessLogRecordsWhatWasSentAndNotTheQueryString(t *testing.T) {
 	}
 }
 
-// TestListenAndServeDrainsOnCancel checks the binary can be stopped by
-// a signal without dropping an in-flight response, which is what
-// separates a deploy from an outage.
-func TestListenAndServeDrainsOnCancel(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
-
+// ListenAndServe refuses a server that cannot sign anybody in.
+//
+// Every method on panel.Sessions answers safely for a nil receiver -
+// deliberately, so a missing one fails closed rather than panicking
+// mid-request. The consequence is that a panel in that state runs
+// perfectly and refuses every login forever while reporting itself
+// healthy, which is the exact shape of failure this project spends its
+// startup checks on. So it is refused at the door.
+//
+// Draining on cancel is covered in the integration suite, where there
+// is a real database to build a session manager over.
+func TestListenAndServeRefusesWithoutASessionManager(t *testing.T) {
 	s := newTestServer(t)
-	s.ListenAddr = addr
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() { done <- s.ListenAndServe(ctx) }()
-
-	// Wait for the listener to come up rather than sleeping a fixed
-	// time, which is flaky on a loaded machine.
-	var resp *http.Response
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		resp, err = http.Get("http://" + addr + "/")
-		if err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if err != nil {
-		cancel()
-		t.Fatalf("the server never accepted a connection: %v", err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status %d", resp.StatusCode)
-	}
-	if !strings.Contains(string(body), "<!doctype html>") {
-		t.Error("the served page is not a document")
-	}
-	if resp.Header.Get("Content-Security-Policy") == "" {
-		t.Error("a real response carried no CSP")
-	}
-
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("shutdown returned %v", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("the server did not shut down")
-	}
-}
-
-func TestPortAlreadyInUseIsReported(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-
-	s := newTestServer(t)
-	s.ListenAddr = ln.Addr().String()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.ListenAndServe(ctx); err == nil {
-		t.Fatal("binding an occupied port did not report an error")
+	s.ListenAddr = "127.0.0.1:0"
+	if err := s.ListenAndServe(context.Background()); !errors.Is(err, ErrNoSessions) {
+		t.Fatalf("err = %v, want ErrNoSessions", err)
 	}
 }
 
@@ -234,7 +203,7 @@ func TestTheBrowsersLanguageIsServedWhenTheDeploymentHasNoPreference(t *testing.
 	s := newTestServer(t)
 	s.Language = "" // no configured default, so the browser decides
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, LoginPath, nil)
 	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -259,7 +228,7 @@ func TestTheBrowsersLanguageIsServedWhenTheDeploymentHasNoPreference(t *testing.
 // a choice somebody made, and a browser's default list is not.
 func TestTheConfiguredLanguageBeatsTheBrowser(t *testing.T) {
 	s := newTestServer(t) // Language: "tr"
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, LoginPath, nil)
 	req.Header.Set("Accept-Language", "en-GB,en;q=0.9")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)

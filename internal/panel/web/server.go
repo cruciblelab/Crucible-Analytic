@@ -81,6 +81,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(DevAccessPathPrefix+"{token...}", s.devAccessHandler)
 	mux.HandleFunc(SetupPathPrefix+"{step...}", s.setupHandler)
 
+	// The customer's side. Registered with method-and-wildcard patterns
+	// so that a wrong method is a 405 rather than falling through to the
+	// catch-all and being reported as a page that does not exist.
+	mux.HandleFunc(LoginPath, s.loginHandler)
+	mux.HandleFunc(SecondFactorPath, s.secondFactorHandler)
+	mux.HandleFunc(LogoutPath, s.logoutHandler)
+	mux.HandleFunc(AccountPath, s.accountHandler)
+	mux.HandleFunc(TOTPQRPath, s.totpQRHandler)
+	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
+
 	// "/" in a ServeMux matches everything nothing else claims, so this
 	// is both the home route and the catch-all. It has to tell the two
 	// apart itself.
@@ -123,6 +133,11 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	// somebody to a sign-in form when no account exists is a loop, so
 	// the front page becomes the first-run page instead and names the
 	// command that produces a developer link.
+	//
+	// Checked before the session, not after: a developer who is signed
+	// in through a one-time link is precisely the person who needs this
+	// page, and resolving their principal first would send them to a
+	// site list that is empty for a reason they cannot see.
 	if s.Store != nil {
 		users, err := s.Store.CountUsers(r.Context())
 		if err != nil {
@@ -136,13 +151,11 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// The login form itself arrives with C4.
-	s.Renderer.Render(w, r, http.StatusOK, "giris", &ui.Page{
-		L:       lang,
-		Title:   lang.T("giris.baslik"),
-		Heading: lang.T("giris.baslik"),
-		F:       ui.NewFormatter(lang, s.Zone),
-	})
+	p, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	s.sitesHandler(w, r, p)
 }
 
 // requestLog records one line per request, in the access category.
@@ -203,8 +216,21 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
+// ErrNoSessions means the server was built without a session manager.
+//
+// Refused at startup rather than tolerated. Every method on
+// panel.Sessions answers safely for a nil receiver, so a panel in this
+// state would run - and would refuse every login, forever, while
+// reporting itself healthy. That is precisely the shape of failure this
+// project spends its startup checks on: a service that looks fine and
+// is not.
+var ErrNoSessions = errors.New("panel: no session manager configured")
+
 // ListenAndServe runs until ctx is cancelled, then drains.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if s.Sessions == nil {
+		return ErrNoSessions
+	}
 	srv := &http.Server{
 		Addr:              s.ListenAddr,
 		Handler:           s.Handler(),

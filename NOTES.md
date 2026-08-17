@@ -2319,3 +2319,196 @@ The remaining conditional in `TestSetupFlow` is deliberate: a previous
 run that died before its cleanup leaves real accounts behind, and no
 lock helps with that. A dirty database is not a race, and skipping is
 the honest answer.
+
+## The customer's door
+
+Every security property behind the sign-in page was written and tested
+earlier: argon2id, two independent throttling counters, TOTP with replay
+refusal, session-token renewal, the audit log, roles and capabilities,
+last-owner protection. C4 wrote no new ones. What it wrote is the part
+that decides whether any of them is actually *reached* — which is where
+this historically goes wrong.
+
+So the file that matters (`internal/panel/web/auth.go`) is built around
+three rules, and each is there because omitting it is invisible.
+
+### The throttle is consulted before the password, not after
+
+A throttle checked only once a password has failed still runs one
+argon2id verification per guess. That is the cost the attacker was going
+to pay anyway, and it hands them the answer. It has to come first.
+
+### Every failure produces the same page, including the same timing
+
+One sentence, one status. And the password check runs even for an
+address with no account — `panel.VerifyDummy` exists for exactly this.
+Skipping it answers "does this address have an account here" in about
+eighty milliseconds, from anywhere on the internet, for the whole
+customer list.
+
+The disabled-account check is *after* the password for the same reason.
+Refusing earlier would make "suspended" distinguishable from "wrong
+password" without knowing the password.
+
+The throttle message is separate, because that one is actionable —
+waiting fixes it — but it names neither the account nor the address.
+Which of the two counters fired goes to the audit log, where the
+operator can see it; saying "this address is blocked" versus "this
+account is blocked" to the person at the form would confirm the account
+exists, undoing everything above.
+
+Two integration tests assert the sameness directly: the status codes
+must match, and the extracted sentences must be byte-identical.
+
+### The half-finished state is not a session
+
+`Principal` returns `ErrNoSession` for a pending second factor, so every
+authenticated page already refuses somebody who stopped after the
+password — without any handler remembering to check. The test asserts it
+from both sides: the code form opens, and everything else stays shut.
+
+### The destination parameter
+
+A sign-in form that will redirect anywhere is a phishing springboard
+wearing the customer's own domain: the address bar reads correctly right
+up until the credentials are typed somewhere else.
+
+The interesting cases are not `http://evil.test` — everybody catches
+that. They are the ones that look relative: `//evil.test` is
+scheme-relative, and `/\evil.test` is the form every hand-rolled check
+misses, because browsers normalise the backslash. Both are in the test.
+
+Bad values are **rejected, not repaired**. There is no sanitisation of
+`//evil.test` that produces what the sender intended, so it becomes the
+site list — which is where signing in leads anyway. `/` is dropped too,
+for being noise.
+
+## A session is weaker evidence than a password
+
+Two things on the account page cost the current password: changing the
+password, and turning the second factor off.
+
+A session cookie can be copied off a shared machine, lifted from a
+laptop left open, or inherited from a browser nobody signed out of. Any
+of those gets an attacker the customer's numbers, which is bad. Without
+these two fields it also gets them the account permanently, and gets
+them the account with the second factor removed — which is worse in a
+way that cannot be undone by noticing later.
+
+### The second factor's secret lives in the session until it is proved
+
+Writing it to the user row on the way out is the obvious implementation
+and it creates the one unrecoverable state this panel can produce by
+itself: an account demanding codes from an authenticator that never
+finished scanning. Nobody can sign in, including the person who would
+fix it.
+
+So the secret goes into the session, the QR is drawn from there, and it
+reaches `panel_users` only after a code proves an app actually has it.
+The test walks exactly the abandoned path — start enrolment, do not
+confirm, sign in again — because that is the failure, and it is the one
+a happy-path test never visits.
+
+### Why the QR has its own endpoint
+
+The obvious way to show it is a `data:` URI in the page. The policy even
+allows it (`img-src 'self' data:`). It is still wrong: an embedded
+secret is in view-source, in the browser's memory cache, in whatever a
+screenshot or "save page as" produces, and in every copy of that markup
+somebody pastes into a support conversation.
+
+`/hesap/iki-faktor/qr` renders the secret held by *this session*,
+same-origin, `no-store`, and 404 when nothing is being enrolled — a 404
+rather than a blank image, because an image that renders empty looks
+like a broken page.
+
+### No recovery codes, and that is a decision
+
+Somebody who loses their phone is recovered by an owner or the operator
+resetting their second factor. They could already remove that person
+entirely, so this grants no new authority. A recovery-code table brings
+its own storage, hashing and single-use problems, and it is not free.
+
+The gap it leaves is real and is written down in three places: the
+plan, the enrolment page, and the code form. **A sole owner who loses
+their phone still needs shell access.**
+
+## Hiding a link is not authorisation
+
+`internal/panel/web/chrome.go` decides what to *draw*. Nothing in it is
+allowed to be the reason a request succeeds. Every handler asks for its
+own capability again, against the same `Access`.
+
+That rule is only worth stating if it is tested from the wrong side, so
+every permission test here has a pair: the thing an authorised person
+can do, and the same request forged by somebody who may not. A viewer's
+POST to the member page is sent with a **valid CSRF token taken from
+their own account page** — a token belongs to the session, not the page,
+so somebody refused on one page still carries a good one. Taking the
+token from the page under attack would have made the test pass for the
+wrong reason: no token, rather than no authority.
+
+Two status codes that are deliberately different:
+
+- **404** for a site the principal has no access to. A 403 confirms the
+  site exists, which turns the URL into a way to enumerate a
+  deployment's customers from any account on it.
+- **403** for a page their role does not open on a site they *can* see.
+  They know it exists, they are looking at it, and "this needs a role
+  you do not have" beats a page pretending not to be there.
+
+`Access` grew a `SiteID` field during this. An access decision and a
+site id travelling as separate arguments can be separated, and a handler
+that authorises against one site and then reads another is the bug the
+field makes unwriteable.
+
+## What the browser found, again
+
+Third phase running, third defect that every HTTP test was blind to.
+
+**There was no way to sign out.** The route existed, the handler
+existed, it was wired into the tree, and an integration test posted to
+it and passed. No page had a button. A signed-in person had no exit at
+all — and nothing failed, because every test that could have noticed was
+calling the endpoint by URL rather than by clicking.
+
+The regression test for it is four lines and lives in `ui`: if the
+chrome names somebody, it offers them the door, as a POST form, carrying
+a token. It does not need Chromium to run.
+
+**And `autofocus` had quietly broken the skip link.** Putting focus in
+the email field on load moves it past the "skip to content" link at the
+top of the document, so a keyboard user tabbing from the start can no
+longer reach it. That link is an affordance this panel already committed
+to and already tested — the browser test caught the conflict on the next
+run. `autofocus` came off both sign-in pages.
+
+The other regression was self-inflicted and worth recording for shape:
+adding a sign-out form to the header made `button[type="submit"]` in the
+wizard's browser script select the *header's* button, so the script
+signed itself out instead of saving a form. Scoping the selector to
+`main` fixed it. A page's first submit button is not a stable thing to
+select on.
+
+## A nil session manager, failing in two directions at once
+
+`Server.Handler` already tolerated a nil `Sessions` — a leftover from
+before there was a login — and the new `requireUser` called it
+unconditionally. Nil pointer, on the front page.
+
+Both halves needed fixing, in opposite directions:
+
+- Every `Sessions` method reachable before authentication now answers
+  safely for a nil receiver, and answers **closed**: no session, no
+  token, and `CheckCSRF` returns false, so every write is refused.
+- `ListenAndServe` refuses to start at all. Because with those guards in
+  place a panel in that state runs perfectly, reports itself healthy,
+  and rejects every login forever — which is precisely the shape of
+  failure this project spends its startup checks on.
+
+The unit test that used to build a Server without sessions became the
+test for the refusal, and draining-on-cancel moved to the integration
+suite, where there is a real database to build a session manager over.
+The coverage got better rather than worse: what it proves now is that a
+fully wired panel binds, serves a real document with its headers, and
+stops when its context is cancelled.

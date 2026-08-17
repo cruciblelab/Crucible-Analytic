@@ -14,6 +14,17 @@
 {{- if .User.Label}}
 <span class="kimlik">{{.User.Label}}</span>
 {{- end}}
+{{- /* Sign-out is a form, not a link. A logout reachable by GET is a
+logout any page on the internet can trigger with an <img> tag - not the
+worst CSRF there is, and still a way to make somebody's panel useless.
+It is drawn only when there is a token to send, which is the same
+condition as there being a session to end. */}}
+{{- if and .User.Label .CSRF}}
+<form method="post" action="/cikis" class="cikis">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<button type="submit" class="baglanti">{{t "gezinme.cikis"}}</button>
+</form>
+{{- end}}
 </header>
 {{- if .User.Operator}}
 <p class="bilgi" role="note">

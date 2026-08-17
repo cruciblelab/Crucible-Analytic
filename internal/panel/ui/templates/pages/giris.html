@@ -1,3 +1,31 @@
 {{define "icerik"}}
+{{- /* One form, one sentence for every failure. Which of the two fields
+was wrong is not said here on purpose - see internal/panel/web/auth.go.
+The message arrives already chosen by the handler. */}}
+{{- with .Data.Error}}
+<p class="uyari hata" role="alert">{{.}}</p>
+{{- end}}
 <p>{{t "giris.govde"}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+{{- /* Carried through the form as well as the query string, so a failed
+attempt does not lose where the reader was going. Already validated by
+safeNext before it reached this page. */}}
+<input type="hidden" name="next" value="{{.Data.Next}}">
+{{- /* No autofocus, deliberately. Moving focus into a field on load
+puts it past the skip link at the top of the document, so a keyboard
+user can no longer reach it by tabbing - and that link is an
+accessibility affordance this panel already commits to and tests. A
+browser test caught exactly that. */}}
+<div class="alan">
+<label for="eposta">{{t "giris.eposta"}}</label>
+<input id="eposta" name="eposta" type="email" autocomplete="username"
+       required spellcheck="false" value="{{.Data.Email}}">
+</div>
+<div class="alan">
+<label for="parola">{{t "giris.parola"}}</label>
+<input id="parola" name="parola" type="password" autocomplete="current-password" required>
+</div>
+<button type="submit">{{t "giris.gonder"}}</button>
+</form>
 {{end}}

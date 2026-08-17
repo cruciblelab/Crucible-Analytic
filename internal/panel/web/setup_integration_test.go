@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -516,4 +517,70 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	t.Cleanup(func() {
 		_ = store.SetSetting(context.Background(), panel.KeyAnalyticsRetentionDays, testSite, nil, nil)
 	})
+}
+
+// TestListenAndServeDrainsOnCancel moved here from the unit suite when
+// ListenAndServe began refusing a server with no session manager.
+//
+// Building one needs a real database, which is what this file already
+// has - and the test is better for it: what it proves now is that a
+// fully wired panel binds, serves a real document with its security
+// headers, and stops when its context is cancelled.
+func TestListenAndServeDrainsOnCancel(t *testing.T) {
+	srv, _ := setupTestServer(t)
+
+	// Bind to get a free port, then release it. Racy in principle and
+	// the only portable way to ask the operating system for a port a
+	// moment before using it; the alternative is a hardcoded number,
+	// which is racy against every other test on the machine.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	srv.ListenAddr = addr
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- srv.ListenAndServe(ctx) }()
+
+	// Polled rather than slept: a fixed wait is flaky on a loaded
+	// machine and slow on an idle one.
+	var resp *http.Response
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err = http.Get("http://" + addr + LoginPath)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		cancel()
+		t.Fatalf("the server never accepted a connection: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status %d", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), "<!doctype html>") {
+		t.Error("the served page is not a document")
+	}
+	if resp.Header.Get("Content-Security-Policy") == "" {
+		t.Error("a real response carried no CSP")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("ListenAndServe returned %v", err)
+		}
+	case <-time.After(shutdownGrace + 5*time.Second):
+		t.Fatal("the server did not stop after its context was cancelled")
+	}
 }

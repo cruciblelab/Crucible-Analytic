@@ -84,6 +84,10 @@ other = "%s saniye"
 ad = "Crucible Analytic"
 
 [metin.gezinme]
+cikis = "Çıkış"
+siteler = "Siteler"
+uyeler = "Üyeler"
+hesap = "Hesabım"
 atla = "İçeriğe atla"
 panel = "Panel"
 
@@ -135,6 +139,9 @@ baslik = "Panel şu an hazır değil"
 govde = "Servis açılıyor ya da bakımda. Birkaç saniye sonra tekrar deneyin."
 
 [metin.giris]
+eposta = "E-posta"
+parola = "Parola"
+gonder = "Giriş yap"
 baslik = "Giriş"
 govde = "Devam etmek için giriş yapın."
 
@@ -231,3 +238,154 @@ pass = "geçti"
 fail = "başarısız"
 warn = "uyarı"
 skip = "bakılmadı"
+
+# --- Giriş, hesap, üyeler (C4) ---
+#
+# Giriş hatalarının tek cümle olması bilinçli: hangi alanın yanlış
+# olduğunu söylemek, kayıtlı e-posta listesi çıkarmanın en kolay yolu.
+# Kısıtlama mesajı ayrı, çünkü o eyleme dönüştürülebilir bir bilgi —
+# beklemek çözüyor — ve hangi sayacın dolduğunu söylemiyor.
+
+[metin.giris.hata]
+gecersiz = "E-posta veya parola hatalı."
+kod_gecersiz = "Kod doğrulanamadı. Uygulamanızdaki güncel kodu girin."
+kod_kullanildi = "Bu kod zaten kullanıldı. Uygulamanızın bir sonraki kodunu bekleyin."
+
+[metin.giris.hata.kisitlandi]
+one = "Çok fazla deneme yapıldı. %s dakika sonra tekrar deneyin."
+other = "Çok fazla deneme yapıldı. %s dakika sonra tekrar deneyin."
+
+[metin.giris.dogrulama]
+baslik = "Doğrulama kodu"
+govde = "%s hesabı için uygulamanızdaki altı haneli kodu girin."
+kod = "Doğrulama kodu"
+gonder = "Doğrula"
+ipucu = "Kod, kimlik doğrulama uygulamanızda otuz saniyede bir yenilenir. Telefonunuza erişemiyorsanız sitenin sahibinden iki faktörü sıfırlamasını isteyin."
+
+[metin.siteler]
+baslik = "Siteler"
+operator_olarak = "İşletmeci"
+kartlar_yakinda = "Analitik kartları henüz eklenmedi; bu ekran şimdilik erişebildiğiniz siteleri listeliyor."
+
+[metin.siteler.bos]
+operator = "Bu kurulumda henüz hiçbir siteye üyelik tanımlanmamış. Site listesini kurulum sihirbazından düzenleyebilirsiniz."
+uye = "Henüz hiçbir siteye erişiminiz yok. Erişim, sitenin sahibi tarafından verilir."
+
+[metin.siteler.sutun]
+site = "Site"
+rol = "Rolünüz"
+islem = "İşlemler"
+
+[metin.rol]
+owner = "Sahip"
+admin = "Yönetici"
+viewer = "İzleyici"
+
+[metin.viewer]
+baslik = "Yalnızca görüntüleme"
+govde = "Bu sitede izleyici rolündesiniz: sayıları görürsünüz, ayarları ve üyeleri değiştiremezsiniz. Teknik görünümler — parmak izleri, ağ bilgileri, adres ayrıntısı — bu rolde hiç gösterilmez."
+
+[metin.hesap]
+baslik = "Hesabım"
+eposta = "E-posta"
+rol = "Yetki"
+operator = "İşletmeci (superadmin)"
+ad = "Görünen ad"
+# Düz anahtar olarak duruyorlar çünkü TOML'de aynı isim hem değer hem
+# tablo olamaz: [metin.hesap] içinde eposta ve ad varken
+# [metin.hesap.eposta] açmak "zaten tanımlı" hatası verir.
+eposta_degistirilemez = "Değiştirmek için sistem yöneticinize başvurun."
+ad_ipucu = "Denetim kaydında ve sayfa başlığında bu ad görünür. Boş bırakırsanız e-postanız kullanılır."
+ad_kaydedildi = "Görünen ad güncellendi."
+
+[metin.hesap.kimlik]
+baslik = "Kimlik"
+
+[metin.hesap.parola]
+baslik = "Parola"
+mevcut = "Mevcut parolanız"
+mevcut_neden = "Çalınmış bir oturumun çalınmış bir hesaba dönüşmemesi için parola değiştirmek mevcut parolayı gerektirir."
+yeni = "Yeni parola"
+tekrar = "Yeni parola (tekrar)"
+degistir = "Parolayı değiştir"
+kaydedildi = "Parolanız değiştirildi."
+diger_oturumlar = "Not: parola değişikliği başka cihazlardaki açık oturumları sonlandırmaz. Bu bilinen bir eksik ve PLAN'da kayıtlı."
+
+[metin.hesap.2fa]
+baslik = "İki aşamalı doğrulama"
+kapali = "Kapalı. Açtığınızda girişte parolanıza ek olarak uygulamanızdan bir kod istenir."
+acik = "Açık. Her girişte uygulamanızdan bir kod isteniyor."
+ac = "İki aşamalı doğrulamayı aç"
+kapat = "İki aşamalı doğrulamayı kapat"
+kapat_neden = "Bir savunmayı kaldırdığınız için parolanız soruluyor."
+dogrula = "Kodu doğrula ve aç"
+tara = "Kimlik doğrulama uygulamanızla bu kodu tarayın:"
+qr_alt = "İki aşamalı doğrulama QR kodu"
+elle = "Tarayamıyorsanız bu anahtarı elle girin:"
+kod = "Uygulamadaki kod"
+kod_neden = "Kod doğrulanana kadar hesabınıza hiçbir şey yazılmaz. Yarıda bırakırsanız hesabınız olduğu gibi kalır."
+baslatildi = "Kodu tarayın, sonra uygulamanızdaki kodu girin."
+vazgecildi = "İki aşamalı doğrulama kurulumundan vazgeçildi. Hesabınızda bir değişiklik olmadı."
+acildi = "İki aşamalı doğrulama açıldı."
+kapandi = "İki aşamalı doğrulama kapatıldı."
+kurtarma_yok = "Kurtarma kodu henüz yok: telefonunuzu kaybederseniz sitenin sahibi veya işletmeci iki faktörünüzü sıfırlayabilir."
+
+[metin.hesap.gelistirici]
+baslik = "Geliştirici modu"
+govde = "Açıkken teknik katmanlar görünür: TLS parmak izleri, ağ bilgileri, bot skorları ve adres ayrıntısı. Bu bir yetki değil bir tercihtir — yetkiniz zaten var."
+ac = "Geliştirici modunu aç"
+kapat = "Geliştirici modunu kapat"
+acildi = "Geliştirici modu açıldı."
+kapandi = "Geliştirici modu kapatıldı."
+
+[metin.hesap.hata]
+bilinmeyen = "Anlaşılmayan bir istek geldi. Sayfayı yenileyip tekrar deneyin."
+kaydedilemedi = "Kaydedilemedi. Sorun sürerse günlük kayıtlarına bakın."
+mevcut_parola = "Mevcut parolanız doğrulanamadı."
+parolalar_farkli = "Yeni parola iki alanda aynı değil."
+parola_kisa = "Parola en az 12 karakter olmalı."
+parola_uzun = "Parola en fazla 128 karakter olabilir."
+parola_gecersiz = "Bu parola kabul edilmedi."
+ad_uzun = "Görünen ad en fazla 80 karakter olabilir."
+gelistirici_yetki = "Bu hesabın geliştirici modunu kullanma yetkisi yok."
+2fa_zaten = "İki aşamalı doğrulama zaten açık."
+2fa_yok = "İki aşamalı doğrulama zaten kapalı."
+2fa_baslatilmadi = "Kurulum başlatılmamış. Sayfayı yenileyip yeniden başlayın."
+
+[metin.uyeler]
+baslik = "Üyeler"
+siz = "siz"
+pasif = "pasif"
+cikar = "Çıkar"
+rol_kaydet = "Rolü kaydet"
+eklendi = "%s siteye eklendi."
+cikarildi = "Üye siteden çıkarıldı."
+rol_degisti = "Rol güncellendi."
+kendini_cikaramaz = "Kendinizi bu sayfadan çıkaramazsınız."
+
+[metin.uyeler.sutun]
+kisi = "Kişi"
+rol = "Rol"
+islem = "İşlemler"
+
+[metin.uyeler.ekle]
+baslik = "Üye ekle"
+eposta = "E-posta adresi"
+ipucu = "Hesabı zaten olan birini ekler. Yeni hesap açmaz — davet e-postası henüz yok."
+gonder = "Ekle"
+
+[metin.uyeler.hata]
+bilinmeyen = "Anlaşılmayan bir istek geldi. Sayfayı yenileyip tekrar deneyin."
+kaydedilemedi = "Kaydedilemedi. Sorun sürerse günlük kayıtlarına bakın."
+rol_yetki = "Kendi yetkinizin üstünde bir rol veremezsiniz."
+eposta_bos = "E-posta adresi boş."
+hesap_yok = "Bu adrese ait bir hesap yok. Kişinin önce hesabı oluşturulmalı; davet e-postası henüz eklenmedi."
+kullanici_gecersiz = "Geçersiz kullanıcı."
+uye_yok = "Bu kişi zaten bu sitenin üyesi değil."
+son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yapın."
+
+# Birden çok sayfanın paylaştığı düğme metinleri. Bölüm başlığı yok:
+# bunlar bir sayfaya değil arayüzün tamamına ait.
+[metin]
+kaydet = "Kaydet"
+vazgec = "Vazgeç"

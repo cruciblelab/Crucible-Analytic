@@ -57,7 +57,7 @@ tutuyor.
 | **AI** ara işler | ✅ **2/2** | — |
 | **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **4/9** | C3, C4, C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **5/9** | C3, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -1418,11 +1418,139 @@ yapılandırmak en iyi ihtimalle bir destek çağrısı. Gizli sayfa değil de
 onay olması bilinçli: **sunucu onların**, ve teknik bir sahip kendi
 ayarlarına ulaşmak için bizden izin istemek zorunda kalmamalı.
 
-#### C4 — Giriş, iki faktör, hesap ayarları, üye yönetimi
+#### C4 — Giriş, iki faktör, hesap ayarları, üye yönetimi ✅ **yapıldı**
 
-Çekirdek yazıldı (B grubu commitleri); kalan HTTP yüzeyi ve şablonlar.
-Roller: owner / admin / viewer. Viewer teknik görünümleri hiç görmez ve
-viewer bölümünde bir uyarı olur.
+Çekirdek yazıldı (B grubu commitleri): argon2id, scs oturumları, TOTP,
+CSRF, deneme kısıtlama, roller ve yetenekler, son-sahip koruması, denetim
+kaydı. **Bu fazda yazılan tek şey HTTP yüzeyi ve şablonlar.** Yeni bir
+güvenlik ilkesi icat edilmiyor; var olanların hepsinin gerçekten
+çağrıldığı doğrulanıyor.
+
+**C4.1 — Giriş.** `GET/POST /giris`. E-posta + parola.
+
+- Kısıtlama parola doğrulanmadan **önce** kontrol edilir, ve hesap
+  olmadığında da `VerifyDummy` çağrılır: cevap ile geçen süre, hesabın
+  var olup olmadığını ele vermemeli. Tek bir hata cümlesi — "e-posta
+  veya parola hatalı" — çünkü hangisinin yanlış olduğunu söylemek
+  kayıtlı e-posta listesi çıkarmanın en kolay yoludur.
+- TOTP tanımlıysa `AwaitSecondFactor`, değilse `LogIn`.
+- **Tuzak: açık yönlendirme.** Giriş sayfası nereden geldiğinizi
+  hatırlamalı, ve `?next=` parametresi doğrulanmazsa `//kotu.site`
+  panelin kendi giriş sayfasından yapılan bir kimlik avı sıçrama
+  tahtasıdır. Kural: yalnız tek `/` ile başlayan, `//` veya `\\` ile
+  başlamayan, ayrıştırılabilir ve şeması/host'u olmayan yollar.
+
+**C4.2 — İkinci faktör.** `GET/POST /giris/dogrulama`. Yalnız bekleyen
+bir kullanıcı varken açılır.
+
+- **Kısıtlama burada da geçerli.** Altı haneli bir kod, parolası zaten
+  bilinen bir hesap için bir milyonluk arama uzayıdır; ikinci faktörü
+  kısıtlamayan bir sayfa ikinci faktör değildir.
+- `ErrTOTPReplayed` ayrı bir cümle alır: aynı kodu iki kez girmek yanlış
+  kod girmekten farklı bir şeydir ve kullanıcı bunu bilmek ister.
+- **Kurtarma kodu bu fazda yok, ve bu bilinçli.** Telefonunu kaybeden
+  birini kurtaran yol: bir sahip veya superadmin o hesabın TOTP'sini
+  sıfırlar. Zaten o kişiyi tamamen silebilecek biri, ve ayrı bir
+  kurtarma-kodu tablosu kendi saklama, hash'leme ve tek-kullanımlık
+  sorunlarını getirir. Tek başına bir sahibin telefonunu kaybetmesi
+  hâlâ kabuk erişimi gerektirir — **açık iş olarak kayıtlı.**
+
+**C4.3 — Hesap ayarları.** `GET/POST /hesap`.
+
+- Görünen ad, parola değiştirme, geliştirici modu anahtarı, iki faktör.
+- **Parola değiştirmek mevcut parolayı sorar.** Çalınmış bir oturum
+  çalınmış bir hesaba dönüşmemeli; bu tek alan aradaki farkı korur.
+- E-posta bu fazda salt okunur: değiştirmek doğrulama e-postası
+  göndermek demek, ve e-posta yolu C7.
+- Geliştirici modu anahtarı yalnız `CapUseDeveloperMode` olana gösterilir
+  **ve** sunucu tarafında da o yetenek aranır.
+- **İki faktör kaydı ve QR kodu.** Sır önce oturumda tutulur, kullanıcı
+  bir kod doğrulayana kadar kullanıcı satırına **yazılmaz**: yarıda
+  bırakılan bir kayıt, kimsenin elinde olmayan bir uygulamaya bağlı
+  kilitli hesap üretmemeli. QR, sırrı HTML'e gömmek yerine kendi
+  ucundan (`/hesap/iki-faktor/qr`) sunulur — gömülü bir `data:` URI
+  sayfa kaynağına, tarayıcı önbelleğine ve sayfanın her kopyasına sırrı
+  yazar. Uç oturuma bağlı ve `no-store`.
+- İki faktörü kaldırmak parola ister.
+
+**C4.4 — Üyeler.** `GET/POST /site/{site}/uyeler`, `CapManageMembers`
+gerektirir.
+
+- Var olan bir kullanıcıyı e-postasıyla ekler. Yeni hesap **açmaz** —
+  o davet e-postası demek, ve C7. Kullanıcı yoksa sayfa bunu söyler.
+- **Tuzak: `CanAssign` sunucuda aranmalı.** `<select>`'e daha az seçenek
+  koymak yetki denetimi değildir; formu elle gönderen bir admin kendini
+  sahip yapabilir. Aynı kontrol POST işleyicisinde tekrar edilir.
+- **Son sahip koruması bir cümle olarak görünür.** `ensureNotLastOwner`
+  zaten reddediyor; sayfanın işi o reddi 500 yerine okunur bir uyarıya
+  çevirmek.
+- Viewer bu sayfayı hiç görmez — bağlantı gizlenmez, **işleyici
+  reddeder.**
+
+**C4.5 — Kabuk: gezinme, site listesi, viewer uyarısı, çıkış.**
+
+- Giriş sonrası `/` erişilebilen siteleri listeler. Analitik kartları D
+  grubuyla geliyor; bu sayfa şimdilik siteleri ve rolü gösterir, ve ne
+  olmadığını söyler.
+- Gezinme yalnız erişilebilecek yerleri gösterir, ama **gizlemek denetim
+  değildir**: her işleyici kendi yeteneğini ayrıca arar.
+- Viewer bölümünde neden teknik görünümlerin olmadığını söyleyen bir
+  uyarı.
+
+**Bu fazda yapılmayan, ve neden:**
+
+- **Parola değişince diğer oturumlar düşmüyor.** scs oturumları
+  veritabanında tutuyor ama kullanıcıya göre indekslemiyor, yani "bu
+  kullanıcının diğer oturumlarını sil" bugün tablo taraması. Doğrusu
+  oturum satırına bir `user_id` eklemek; ayrı ve küçük bir iş, **açık iş
+  olarak kayıtlı.**
+- **Sahip sihirbazı (C3) ve geliştirici onay ekranı (C5)** kendi
+  fazlarında. C4 giriş kapısını açar, arkasındaki odaları değil.
+
+**Bitti ölçütü:** `go test -race ./...` temiz; entegrasyon paketi gerçek
+veritabanına karşı temiz; **gerçek tarayıcıda** parola girişi, TOTP
+kaydı, TOTP ile giriş, rol değişikliği ve viewer reddi baştan sona
+yürütülüyor; her yeni yetki denetimi için hem "izin verilen" hem
+"reddedilen" testi var; ve her metin katalogda (tr + en).
+
+#### Ne oldu
+
+Hepsi yazıldı ve doğrulandı. Yeni dosyalar: `internal/panel/web/`
+altında `auth.go`, `account.go`, `members.go`, `chrome.go`, `pages.go`;
+`internal/panel/ui/templates/pages/` altında `giris`, `dogrulama`,
+`siteler`, `hesap`, `uyeler`.
+
+**Her yetki denetiminin iki testi var.** Viewer üye sayfasında 403
+alıyor (404 değil: siteyi zaten görüyor), üye olmayan 404 alıyor (403
+değil: 403 sitenin varlığını doğrular), admin kendini sahip yapamıyor —
+ve bu üçü hem GET hem **elle gönderilen POST** için sınanıyor. Formu
+gizlemek denetim değil; gizlenmiş formu elle göndermek testin kendisi.
+
+**Tarayıcının bulduğu şey:** çıkış ucu ve işleyicisi vardı, yönlendirme
+tablosuna bağlıydı, ve entegrasyon testi doğrudan POST ile geçiyordu —
+**ama hiçbir sayfada çıkış düğmesi yoktu.** Giriş yapan birinin çıkış
+yolu yoktu ve hiçbir test bunu göremiyordu, çünkü hepsi ucu URL ile
+çağırıyordu. Artık kabukta bir POST formu var ve `ui` paketinde ucuz bir
+yapısal test tutuyor: kabuk birini adlandırıyorsa kapıyı da gösterir.
+
+**Tarayıcının bulduğu ikinci şey:** giriş alanındaki `autofocus`,
+sayfanın en üstündeki "içeriğe atla" bağlantısını klavyeyle
+ulaşılamaz hale getiriyordu. Odak alana taşınınca Tab o bağlantıyı
+geçiyor. `autofocus` kaldırıldı — atlama bağlantısı bu panelin zaten
+söz verdiği ve test ettiği bir erişilebilirlik özelliği.
+
+**Bulunan bir hata:** `Server.Handler` nil bir `Sessions`'ı zaten
+tolere ediyordu, ama yeni `requireUser` onu koşulsuz çağırıyordu — nil
+pointer paniği. `Sessions`'ın kimlik doğrulamadan önce çağrılan her
+metodu artık nil alıcıya güvenli cevap veriyor (**kapalı yönde**:
+oturum yok, jeton yok, CSRF geçmez), ve `ListenAndServe` oturum
+yöneticisi olmayan bir sunucuyu **reddediyor** — yoksa panel çalışır,
+sağlıklı görünür ve sonsuza dek her girişi reddederdi.
+
+**Açık iş olarak kayıtlı:** kurtarma kodları yok (telefonunu kaybedeni
+sahip veya işletmeci kurtarır); parola değişimi diğer cihazlardaki
+oturumları düşürmüyor (scs oturum satırında `user_id` yok); e-posta
+değiştirme ve davet e-postası C7'de.
 
 #### C5 — Geliştirici erişimi onay ekranı
 

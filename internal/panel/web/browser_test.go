@@ -526,9 +526,13 @@ for (;;) {
 }
 
 // ---- fill in the sites form for real ----
+//
+// Scoped to main. The chrome carries a sign-out form now, and its
+// button comes first in the document - a bare button[type=submit]
+// selector clicks that one and ends the session instead of saving.
 await page.goto(base + '/kurulum/siteler', { waitUntil: 'load' });
 await page.fill('#siteler', 'tarayici-sitesi');
-await page.click('button[type="submit"]');
+await page.click('main button[type="submit"]');
 await page.waitForLoadState('load');
 report.saved_message = (await page.locator('.bilgi').allInnerTexts()).join(' ').trim();
 report.sites_after = await page.inputValue('#siteler');
@@ -542,7 +546,7 @@ await collectCSP();
 // ---- the final check runs on the button, not on load ----
 await page.goto(base + '/kurulum/kontrol', { waitUntil: 'load' });
 report.checks_before = await page.locator('.durum').count();
-await page.click('button[type="submit"]');
+await page.click('main button[type="submit"]');
 await page.waitForLoadState('load');
 report.checks_after = await page.locator('.durum').count();
 // The manual list is the last table on the page.

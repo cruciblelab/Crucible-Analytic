@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,4 +114,39 @@ func (s *Store) VerifyTOTP(ctx context.Context, userID int64, secret, code strin
 		return ErrTOTPReplayed
 	}
 	return nil
+}
+
+// TOTPKeyFor rebuilds the otpauth key for an existing secret.
+//
+// Enrolment generates a secret once and then has to draw a QR for it
+// again on a later request. Regenerating would produce a *different*
+// secret, silently invalidating whatever the user already scanned, so
+// the URL is reassembled from the secret rather than the key being
+// carried around or stored.
+//
+// The parameters must match NewTOTPSecret's exactly. They are read from
+// the same constants for that reason: two lists that have to agree are
+// two lists that eventually will not.
+func TOTPKeyFor(account, secret string) (*otp.Key, error) {
+	if secret == "" {
+		return nil, errors.New("panel: no totp secret")
+	}
+	v := url.Values{}
+	v.Set("secret", secret)
+	v.Set("issuer", totpIssuer)
+	v.Set("algorithm", totpAlgo.String())
+	v.Set("digits", totpDigits.String())
+	v.Set("period", strconv.Itoa(totpPeriod))
+
+	u := url.URL{
+		Scheme:   "otpauth",
+		Host:     "totp",
+		Path:     "/" + totpIssuer + ":" + account,
+		RawQuery: v.Encode(),
+	}
+	key, err := otp.NewKeyFromURL(u.String())
+	if err != nil {
+		return nil, fmt.Errorf("panel: rebuild totp key: %w", err)
+	}
+	return key, nil
 }

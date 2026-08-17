@@ -1,0 +1,35 @@
+{{define "icerik"}}
+{{- if .Data.Empty}}
+{{- /* Two different emptinesses. An operator seeing nothing means the
+deployment has no sites yet; anybody else seeing nothing means nobody
+has granted them one. The same blank page would send them to very
+different places. */}}
+<p>{{if .Data.Superadmin}}{{t "siteler.bos.operator"}}{{else}}{{t "siteler.bos.uye"}}{{end}}</p>
+{{- else}}
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "siteler.sutun.site"}}</th>
+<th scope="col">{{t "siteler.sutun.rol"}}</th>
+<th scope="col"><span class="gizli">{{t "siteler.sutun.islem"}}</span></th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Sites}}
+<tr>
+<th scope="row">{{.SiteID}}</th>
+<td>
+{{- if .ViaSuperadmin}}{{t "siteler.operator_olarak"}}{{else}}{{.RoleLabel}}{{end -}}
+</td>
+<td>{{with .MembersURL}}<a href="{{.}}">{{t "gezinme.uyeler"}}</a>{{end}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- end}}
+{{- /* Said out loud rather than shown as an empty dashboard frame. A
+panel that renders a card grid with nothing in it reads as broken; one
+that says the cards are not built yet reads as unfinished, which is the
+truth. */}}
+<p class="ipucu">{{t "siteler.kartlar_yakinda"}}</p>
+{{end}}

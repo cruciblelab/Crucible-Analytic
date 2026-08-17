@@ -29,6 +29,25 @@ func newTestRenderer(t *testing.T) *Renderer {
 	return r
 }
 
+// loginData is what the sign-in page's template reads.
+//
+// These tests are about the chrome - the layout, the header, escaping,
+// HEAD handling - and they render the sign-in page because it is the
+// smallest one. That made it a convenient stand-in while it was a stub;
+// now that it is a real page it needs real Data, and a template
+// dereferencing a nil one is a 500 rather than a blank spot. Supplied
+// explicitly here so the dependency is visible: when the sign-in page
+// grows a field, this is where the chrome tests learn about it.
+//
+// It is a struct rather than the web package's own type because ui
+// deliberately does not import the packages that render through it -
+// html/template matches on field names, which is all either side needs.
+func loginData() any {
+	return struct {
+		Email, Next, Error, RememberedName string
+	}{}
+}
+
 func TestRenderProducesAWholeDocument(t *testing.T) {
 	r := newTestRenderer(t)
 	r.Version = "test-1"
@@ -37,6 +56,7 @@ func TestRenderProducesAWholeDocument(t *testing.T) {
 	r.Render(rec, req, http.StatusOK, "giris", &Page{
 		Title:   "Giriş",
 		Heading: "Giriş",
+		Data:    loginData(),
 	})
 
 	if rec.Code != http.StatusOK {
@@ -70,7 +90,7 @@ func TestRenderProducesAWholeDocument(t *testing.T) {
 func TestRenderedPagesAreNeverCached(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{})
+	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{Data: loginData()})
 	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
 		t.Fatalf("Cache-Control = %q", got)
 	}
@@ -81,6 +101,7 @@ func TestRenderEscapesEverythingItIsGiven(t *testing.T) {
 	const attack = `<script>alert(1)</script>`
 	rec := httptest.NewRecorder()
 	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{
+		Data:    loginData(),
 		Title:   attack,
 		Heading: attack,
 		Site:    SiteView{Name: attack},
@@ -109,6 +130,7 @@ func TestChromeSaysWhoIsLooking(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
 	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{
+		Data: loginData(),
 		User: UserView{Label: "operator@example.com", Operator: true, ReadOnly: true},
 		Site: SiteView{ID: "ornek", Name: "Örnek Site"},
 		Nav: []NavItem{
@@ -133,7 +155,7 @@ func TestChromeSaysWhoIsLooking(t *testing.T) {
 func TestChromeStaysQuietWhenThereIsNothingToSay(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{})
+	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{Data: loginData()})
 	body := rec.Body.String()
 	for _, unwanted := range []string{
 		"İşletmeci olarak görüyorsunuz",
@@ -152,7 +174,7 @@ func TestRenderFillsInAFormatterWhenTheHandlerDidNot(t *testing.T) {
 	rec := httptest.NewRecorder()
 	// Page.F is nil: a template calling .F would panic without the
 	// default, and the whole page would become a 500.
-	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{})
+	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{Data: loginData()})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
 	}
@@ -302,7 +324,7 @@ func TestRenderFailureDoesNotSend200WithHalfAPage(t *testing.T) {
 func TestHeadRequestsGetHeadersWithoutABody(t *testing.T) {
 	r := newTestRenderer(t)
 	rec := httptest.NewRecorder()
-	r.Render(rec, httptest.NewRequest(http.MethodHead, "/", nil), http.StatusOK, "giris", &Page{})
+	r.Render(rec, httptest.NewRequest(http.MethodHead, "/", nil), http.StatusOK, "giris", &Page{Data: loginData()})
 	if rec.Body.Len() != 0 {
 		t.Error("HEAD returned a body")
 	}
@@ -365,7 +387,7 @@ func TestPagesAreParsedSeparately(t *testing.T) {
 	// last one parsed would win and every page would render the same
 	// body.
 	first := httptest.NewRecorder()
-	r.Render(first, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{})
+	r.Render(first, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{Data: loginData()})
 	second := httptest.NewRecorder()
 	r.Error(second, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusNotFound)
 	if strings.Contains(first.Body.String(), "Sayfa bulunamadı") {
@@ -373,5 +395,49 @@ func TestPagesAreParsedSeparately(t *testing.T) {
 	}
 	if strings.Contains(second.Body.String(), "Devam etmek için giriş yapın") {
 		t.Error("the error page rendered the login page's body")
+	}
+}
+
+// TestTheChromeAlwaysOffersAWayOut is the test for a gap a real browser
+// found and every HTTP test missed.
+//
+// The sign-out route and its handler existed, were wired, and were
+// covered by an integration test that posted to them directly. What did
+// not exist was any control on any page, so a signed-in person had no
+// way to sign out at all - and nothing failed, because every test that
+// could have noticed was reaching the endpoint by URL.
+//
+// The invariant is simple enough to assert cheaply: if the chrome names
+// somebody, it offers them the door.
+func TestTheChromeAlwaysOffersAWayOut(t *testing.T) {
+	r := newTestRenderer(t)
+	rec := httptest.NewRecorder()
+	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{
+		Data: loginData(),
+		User: UserView{Label: "biri@example.com"},
+		CSRF: "test-token",
+	})
+	body := rec.Body.String()
+	if !strings.Contains(body, `action="/cikis"`) {
+		t.Fatal("the chrome names a user and offers no way to sign out")
+	}
+	// POST, because a logout reachable by GET is one any page on the
+	// internet can trigger with an <img> tag.
+	if !strings.Contains(body, `method="post" action="/cikis"`) {
+		t.Error("the sign-out control is not a POST form")
+	}
+	if !strings.Contains(body, `name="csrf_token" value="test-token"`) {
+		t.Error("the sign-out form carries no CSRF token, so it would always be refused")
+	}
+
+	// Nobody named, nothing to end: the sign-in page must not show a
+	// sign-out button.
+	rec = httptest.NewRecorder()
+	r.Render(rec, httptest.NewRequest(http.MethodGet, "/", nil), http.StatusOK, "giris", &Page{
+		Data: loginData(),
+		CSRF: "test-token",
+	})
+	if strings.Contains(rec.Body.String(), `action="/cikis"`) {
+		t.Error("the sign-in page offers a sign-out button")
 	}
 }

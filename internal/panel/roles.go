@@ -184,6 +184,14 @@ type Access struct {
 	// distinct from access granted by being a superadmin. Used by the UI
 	// to say "you are seeing this as the operator".
 	Member bool
+	// SiteID is the site this decision was made about.
+	//
+	// Carried on the decision rather than passed alongside it, because
+	// an Access and a site id travelling as separate arguments can be
+	// separated - and a handler that authorises against one site and
+	// then reads another is the bug this field exists to make
+	// unwriteable.
+	SiteID string
 }
 
 // Can reports whether this principal may perform c on this site.
@@ -230,3 +238,17 @@ func (a Access) CanAssign(role Role) bool {
 	}
 	return true
 }
+
+// RoleCan reports whether a bare role carries a capability.
+//
+// Access.Can is the one to use in a handler: it knows about superadmins,
+// and it was resolved for a specific site. This exists for the few
+// questions that are about a role in the abstract - "does any site this
+// person is a member of let them use developer mode" - where there is no
+// single site to resolve against.
+//
+// Exported so that answering such a question does not require rebuilding
+// an Access with a fabricated principal, which is the shape mistakes
+// take: a fabricated principal is one field away from being a
+// fabricated superadmin.
+func RoleCan(r Role, c Capability) bool { return roleCapabilities[r][c] }

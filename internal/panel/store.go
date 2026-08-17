@@ -98,6 +98,15 @@ func (u User) Name() string {
 	return u.Email
 }
 
+// MaxDisplayNameLength bounds the name a person may give themselves.
+//
+// The column is unbounded TEXT, which is right for storage and wrong for
+// input: a display name is rendered in the header of every page and
+// beside every audit entry, so an unbounded one is a way to make those
+// unreadable for everybody else on the deployment. Counted in runes, so
+// a Turkish name is measured the way it is read.
+const MaxDisplayNameLength = 80
+
 // NormalizeEmail lowercases and trims an address.
 //
 // Normalizing on the way in rather than comparing case-insensitively on
