@@ -1,0 +1,61 @@
+# Crucible Analytic — panel yapılandırması
+#
+# Panel, sistemin müşterinin giriş yaptığı yüzüdür. Kendi süreci ve
+# kendi veritabanı rolüyle çalışır; o rolün analitik tablolarına
+# **hiç** erişimi yoktur. Panel trafik sayılarını, dışarıdan bir panel
+# nasıl okuyacaksa öyle, salt okunur HTTP API'sinden okur.
+#
+#     panel -config panel.toml
+#
+# Tarayıcının indirdiği her şey — stil dosyası, htmx, şablonlar, tüm
+# metinler — binary'nin içindedir. CDN yok, npm yok, derleme adımı yok.
+
+# Panel bir yönetim yüzeyi. Varsayılan olarak yalnız yerelden erişilir;
+# dışarı açmak, önüne TLS sonlandıran bir web sunucusu koyup burayı
+# bilerek değiştirmek demektir.
+listen_addr = "127.0.0.1:8090"
+
+# Panelin kendi veritabanı rolü. Yalnız panel_* tablolarına erişmeli.
+# Zorunlu: panel açılışta bağlanır ve bağlanamazsa başlamaz.
+panel_dsn = "postgres://panel:PAROLA@localhost:5432/crucible"
+
+# Analitik sayılarının okunacağı salt okunur API. (Henüz hiçbir sayfa
+# okumuyor — D grubuyla devreye giriyor; bugün kurulan bir sistemin
+# yarın dosyayı yeniden düzenlemesi gerekmesin diye şimdiden burada.)
+analytics_api_url = "http://127.0.0.1:8080"
+analytics_api_token = ""
+
+# Oturum çerezi Secure işaretlensin mi. Varsayılan: evet. Yalnız
+# geliştirme sırasında, düz HTTP üzerinden yerelden giriş yapabilmek
+# için kapatılır.
+# secure_cookies = true
+
+# Tarayıcıya "bu alan adına bir yıl boyunca düz HTTP ile bağlanma" der.
+# Varsayılan kapalı ve secure_cookies'e bilerek bağlanmadı: sertifika
+# sonradan takılan bir kurulumda yanlış açılmış bir HSTS, geri
+# dönülecek bir HTTPS olmadığı için sizi panelden kilitler.
+hsts = false
+
+# Bir girişin ne kadar süreceği. Bir iş günü kadar uzun, gece açık
+# unutulan bir dizüstünün sabaha oturum taşımayacağı kadar kısa.
+session_lifetime_hours = 12
+
+# Paneldeki her tarih ve saatin gösterileceği saat dilimi. Süs değil:
+# akşamki trafik zirvesini UTC ile gösteren bir panel, İstanbul'daki
+# müşteriye bunun öğleden sonra olduğunu söyler. Tanınmayan bir isim
+# hata verir, sessizce UTC'ye düşmez.
+timezone = "Europe/Istanbul"
+
+# Hukuki ağırlığı olan ayarların önündeki geliştirici şifresi.
+# Hash'i şu komut üretir:
+#
+#     go run ./cmd/devpass
+#
+# Bölüm hiç yoksa o ayarlar panelden kimse tarafından değiştirilemez —
+# güvenli yön budur. Düz metin parola kabul edilmez; panel açılmaz.
+[developer_gate]
+password_hash = ""
+
+[logging]
+dir = "/var/log/crucible"
+level = "info"

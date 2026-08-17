@@ -1,0 +1,42 @@
+{{- /* The one page skeleton. Every response the panel renders goes
+through here, which is what makes "no inline script, no inline style"
+a property of the panel rather than of one handler. */ -}}
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{- /* A panel is not a website. Nothing here should ever appear in a
+search result, and the customer's own domain is what search engines
+would associate it with. */}}
+<meta name="robots" content="noindex, nofollow">
+{{- /* The product name always ends the title, so a row of browser tabs
+is readable when each is cut to a few characters. */}}
+<title>{{with .Title}}{{.}} · {{end}}{{t "uygulama.ad"}}</title>
+{{- /* Declaring the icon stops the browser asking for /favicon.ico,
+which would otherwise hit the catch-all route and be answered with a
+whole HTML error page on every single page load. */}}
+<link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
+<link rel="stylesheet" href="{{asset "panel.css"}}">
+{{- /* htmx injects an inline <style> for .htmx-indicator at startup,
+which the Content-Security-Policy refuses - and it refuses it silently,
+so the only way to find out is to watch a real browser. Turning the
+injection off is better than allowing the hash: the rules live in
+panel.css where we can see them, and an htmx upgrade cannot quietly
+change what a hash in the policy was blessing. */}}
+<meta name="htmx-config" content='{"includeIndicatorStyles":false}'>
+<script src="{{asset "htmx.min.js"}}" defer></script>
+</head>
+<body>
+<a class="atla" href="#icerik">{{t "gezinme.atla"}}</a>
+{{template "ust" .}}
+<main id="icerik">
+{{- with .Heading}}
+<h1>{{.}}</h1>
+{{- end}}
+{{template "duyurular" .}}
+{{- block "icerik" .}}{{end}}
+</main>
+{{template "alt" .}}
+</body>
+</html>

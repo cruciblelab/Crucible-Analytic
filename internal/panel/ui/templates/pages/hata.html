@@ -1,0 +1,10 @@
+{{define "icerik"}}
+{{- $e := .Data}}
+<div class="hata" role="alert">
+<p>{{$e.Body}}</p>
+</div>
+{{- if $e.Reference}}
+<p class="ipucu">{{.F.DateTime $e.At}} · {{$e.Reference}}</p>
+{{- end}}
+<p><a class="dugme" href="{{$e.BackURL}}">{{$e.BackLabel}}</a></p>
+{{end}}

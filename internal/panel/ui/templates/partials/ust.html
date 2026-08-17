@@ -1,0 +1,27 @@
+{{define "ust"}}
+<header class="ust">
+<a class="marka" href="/">{{t "uygulama.ad"}}</a>
+{{- with .Site.Name}}
+<span class="kimlik">{{.}}</span>
+{{- end}}
+{{- if .Nav}}
+<nav aria-label="{{t "gezinme.panel"}}">
+{{- range .Nav}}
+<a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
+{{- end}}
+</nav>
+{{- end}}
+{{- if .User.Label}}
+<span class="kimlik">{{.User.Label}}</span>
+{{- end}}
+</header>
+{{- if .User.Operator}}
+<p class="bilgi" role="note">
+<strong class="uyari-baslik">{{t "kabuk.isletmeci_rozeti"}}</strong>
+{{t "kabuk.isletmeci_aciklama"}}
+</p>
+{{- end}}
+{{- if .User.ReadOnly}}
+<p class="bilgi" role="note">{{t "kabuk.izleyici_uyarisi"}}</p>
+{{- end}}
+{{end}}

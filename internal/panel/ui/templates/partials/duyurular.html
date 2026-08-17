@@ -1,0 +1,13 @@
+{{define "duyurular"}}
+{{- range .Notices}}
+<div class="{{.Level.Class}}" role="{{.Level.Role}}">
+{{- with .Title}}
+<strong class="uyari-baslik">{{.}}</strong>
+{{- end}}
+<p>{{.Body}}</p>
+{{- if and .ActionURL .ActionLabel}}
+<p><a href="{{.ActionURL}}">{{.ActionLabel}}</a></p>
+{{- end}}
+</div>
+{{- end}}
+{{end}}

@@ -1,0 +1,9 @@
+{{define "alt"}}
+<footer class="alt">
+<span>{{t "alt.kendi_sunucunuz"}}</span>
+{{- with .Version}}
+<span> · {{t "alt.surum"}} {{.}}</span>
+{{- end}}
+<span> · {{t "bicim.saat_dilimi"}}: {{.F.ZoneName}}</span>
+</footer>
+{{end}}

@@ -817,6 +817,56 @@ other field has a default. `config.toml` is gitignored since
 | `asn_lookup.known_bot_asns`         | `[]`                 | ASN numbers; only consulted when `apply_to_scoring = true`. A match adds a flat bonus to the bot-likelihood score instead of blocking - a separate list from `blocked_asns`, since a blocked ASN never reaches scoring. |
 | `privacy.ip_storage`                | `"masked"`           | `"masked"` (IPv4 /24, IPv6 /64) or `"full"`. Empty means masked. Applied when the row is built, after the visitor id and the geography are derived from the whole address - see "Privacy model" above. |
 
+## The management panel
+
+`cmd/panel` is the fourth binary and the one a customer logs into. It has
+its own config, its own Postgres role, and that role has **no access at
+all** to the analytics tables - the panel reads traffic numbers over HTTP
+from the read-only API, exactly as an external panel would. That is what
+keeps the component the whole internet can reach from also being the
+component with broad database rights.
+
+```bash
+cp panel.example.toml panel.toml
+$EDITOR panel.toml                                 # panel_dsn is required
+psql "$PANEL_DSN" -f internal/panel/schema.sql     # once, by hand
+go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/panel
+./panel -config panel.toml
+```
+
+Everything the browser loads is compiled into that binary: the
+stylesheet, htmx, every template and every Turkish string. **No CDN, no
+npm, no build step** - deploying the panel is copying one file and one
+config, which is also what lets it run somewhere with no outbound
+network at all.
+
+A few properties that are deliberate rather than incidental:
+
+- **It refuses to start rather than starting broken.** A template that
+  does not parse, a message key nothing defines, a stylesheet that did
+  not get embedded, an unreachable database, an unknown time zone: each
+  is reported by name at startup, on stderr *and* in the log tree,
+  because the person who just typed the command is watching the
+  terminal.
+- **Times are rendered in the site's zone**, set by `timezone` in the
+  config. An unknown name is an error, never a silent fall back to UTC -
+  that would put every timestamp hours from the customer's clock while
+  the config file said otherwise.
+- **Pages are never cached; assets are cached for a year.** Panel HTML
+  carries the customer's numbers and a session's CSRF token, so it goes
+  out `no-store`. Assets are served from URLs containing a hash of their
+  content, so a year is safe and a changed file is a changed URL.
+- **The Content-Security-Policy allows neither `unsafe-inline` nor
+  `unsafe-eval`.** There is not one inline `<script>`, `<style>` or
+  `on…` attribute anywhere, and tests fail on the source if one appears.
+- `hsts` is off by default and deliberately not tied to
+  `secure_cookies`: this is the kind of software somebody runs on a
+  spare machine first and puts a certificate on afterwards, and a wrong
+  HSTS locks them out of a panel with no HTTPS to fall back to.
+
+Today the panel serves its chrome, its error pages and its assets; the
+pages themselves arrive with the rest of group C in `PLAN.md`.
+
 ## The developer password
 
 A short list of settings changes what personal data this deployment
@@ -904,7 +954,22 @@ go test -tags integration ./internal/storage/... ./internal/asnlookup/... ./inte
 # connections at a real listening proxy.Server, or drives a realistic
 # 100k-request cache access pattern.
 go test -tags loadtest ./internal/loadtest/... ./internal/asnlookup/... -v
+
+# Needs node, playwright and a chromium build. Drives a real browser
+# against the real handler tree.
+CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
 ```
+
+The browser suite is not decoration. `httptest.ResponseRecorder` cannot
+tell you whether Chromium *refused* the stylesheet under the
+Content-Security-Policy, whether htmx actually started, whether the
+Turkish text decoded, or whether a second request for an asset came back
+`304`. Each of those fails silently, and from the server's side the
+response was `200` with correct bytes. The browser test found one such
+defect the moment it was written: htmx injects an inline `<style>` at
+startup, the policy refused it, and nothing anywhere said so - the panel
+now turns that injection off via `<meta name="htmx-config">` and carries
+the four rules in its own stylesheet.
 
 Coverage includes a hand-rolled ClientHello parser exercised against
 independently-built byte fixtures (including truncation and multi-record

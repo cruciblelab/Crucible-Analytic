@@ -1,0 +1,388 @@
+/* Crucible Analytic panel stylesheet.
+ *
+ * Hand-written, embedded in the binary, served from the same origin.
+ * There is no framework and no build step, which is a deployment
+ * decision before it is a taste one: the panel ships as a single file.
+ *
+ * "Görsel açıdan sade, derinlik açısından uçsuz bucaksız." The surface
+ * stays quiet so that the depth behind it is reachable by clicking
+ * rather than by reading. */
+
+:root {
+  color-scheme: light dark;
+
+  --zemin: #fbfbfa;
+  --kart: #ffffff;
+  --kart-kenar: #e4e2dd;
+  --metin: #1d1c1a;
+  --metin-soluk: #63605a;
+  --vurgu: #7a4a17;
+  --vurgu-zemin: #fdf5ec;
+  --uyari: #8a5a00;
+  --uyari-zemin: #fdf6e3;
+  --hata: #9a2b20;
+  --hata-zemin: #fdeeec;
+  --kilit: #4a4d7a;
+  --kilit-zemin: #f0f0f8;
+  --olcu: 0.75rem;
+  --yuvarlak: 6px;
+  --golge: 0 1px 2px rgba(20, 18, 14, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --zemin: #16161a;
+    --kart: #1e1e23;
+    --kart-kenar: #33333b;
+    --metin: #eceae6;
+    --metin-soluk: #a3a09a;
+    --vurgu: #e0a86a;
+    --vurgu-zemin: #2a2119;
+    --uyari: #e5bf6a;
+    --uyari-zemin: #2a2519;
+    --hata: #f0938a;
+    --hata-zemin: #2c1c1a;
+    --kilit: #a9abdb;
+    --kilit-zemin: #1e1e2b;
+    --golge: 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--zemin);
+  color: var(--metin);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+/* Numbers are read in columns and compared against each other, so they
+ * get tabular figures wherever they appear. */
+.sayi,
+td.sayi,
+.kart-deger {
+  font-variant-numeric: tabular-nums;
+}
+
+a {
+  color: var(--vurgu);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Keyboard focus has to be visible on every interactive element; the
+ * panel is operated by people who will not reach for a mouse. */
+:focus-visible {
+  outline: 2px solid var(--vurgu);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.atla {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--kart);
+  color: var(--metin);
+  padding: var(--olcu);
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  z-index: 10;
+}
+
+.atla:focus {
+  left: var(--olcu);
+  top: var(--olcu);
+}
+
+/* ---- chrome ---- */
+
+.ust {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--olcu);
+  padding: var(--olcu) calc(var(--olcu) * 1.5);
+  background: var(--kart);
+  border-bottom: 1px solid var(--kart-kenar);
+}
+
+.marka {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--metin);
+  text-decoration: none;
+}
+
+.marka:hover {
+  text-decoration: underline;
+}
+
+.ust nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--olcu);
+  margin-inline-start: auto;
+}
+
+.ust nav a {
+  color: var(--metin-soluk);
+  text-decoration: none;
+  padding: 2px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.ust nav a:hover {
+  color: var(--metin);
+}
+
+.ust nav a[aria-current="page"] {
+  color: var(--metin);
+  border-bottom-color: var(--vurgu);
+}
+
+.kimlik {
+  color: var(--metin-soluk);
+  font-size: 0.875rem;
+}
+
+main {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: calc(var(--olcu) * 2) calc(var(--olcu) * 1.5) calc(var(--olcu) * 4);
+}
+
+h1 {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--olcu);
+}
+
+h2 {
+  font-size: 1.125rem;
+  margin: calc(var(--olcu) * 2) 0 var(--olcu);
+}
+
+.alt {
+  max-width: 62rem;
+  margin: 0 auto;
+  padding: 0 calc(var(--olcu) * 1.5) calc(var(--olcu) * 2);
+  color: var(--metin-soluk);
+  font-size: 0.8125rem;
+}
+
+/* ---- cards and notices ---- */
+
+.kart {
+  background: var(--kart);
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  box-shadow: var(--golge);
+  padding: calc(var(--olcu) * 1.25);
+}
+
+.kart-deger {
+  font-size: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.kart-baslik {
+  color: var(--metin-soluk);
+  font-size: 0.875rem;
+}
+
+.uyari,
+.hata,
+.bilgi,
+.kilit {
+  border: 1px solid;
+  border-radius: var(--yuvarlak);
+  padding: var(--olcu) calc(var(--olcu) * 1.25);
+  margin: var(--olcu) 0;
+}
+
+.uyari {
+  border-color: var(--uyari);
+  background: var(--uyari-zemin);
+  color: var(--uyari);
+}
+
+.hata {
+  border-color: var(--hata);
+  background: var(--hata-zemin);
+  color: var(--hata);
+}
+
+.bilgi {
+  border-color: var(--kart-kenar);
+  background: var(--vurgu-zemin);
+  color: var(--metin);
+}
+
+.kilit {
+  border-color: var(--kilit);
+  background: var(--kilit-zemin);
+  color: var(--kilit);
+}
+
+.uyari-baslik {
+  font-weight: 600;
+  display: block;
+}
+
+.uyari p:last-child,
+.hata p:last-child,
+.bilgi p:last-child,
+.kilit p:last-child {
+  margin-bottom: 0;
+}
+
+.soluk {
+  color: var(--metin-soluk);
+}
+
+/* ---- forms ---- */
+
+label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+  width: 100%;
+  max-width: 26rem;
+  font: inherit;
+  color: var(--metin);
+  background: var(--kart);
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  padding: 8px 10px;
+}
+
+button,
+.dugme {
+  font: inherit;
+  font-weight: 500;
+  color: var(--kart);
+  background: var(--vurgu);
+  border: 1px solid var(--vurgu);
+  border-radius: var(--yuvarlak);
+  padding: 8px 14px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+button:hover,
+.dugme:hover {
+  filter: brightness(1.1);
+}
+
+button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.ikincil {
+  color: var(--metin);
+  background: transparent;
+  border-color: var(--kart-kenar);
+}
+
+.alan {
+  margin-bottom: calc(var(--olcu) * 1.25);
+}
+
+.ipucu {
+  color: var(--metin-soluk);
+  font-size: 0.875rem;
+  margin-top: 4px;
+}
+
+/* ---- tables ---- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: start;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--kart-kenar);
+  vertical-align: top;
+}
+
+th {
+  font-size: 0.8125rem;
+  color: var(--metin-soluk);
+  font-weight: 600;
+}
+
+td.sayi,
+th.sayi {
+  text-align: end;
+}
+
+/* ---- htmx ---- */
+
+/* These four rules are htmx's own indicator styles, written here rather
+ * than injected by htmx at startup.
+ *
+ * htmx normally adds them as an inline <style>, which the panel's
+ * Content-Security-Policy refuses - silently, so the symptom is a
+ * spinner that never hides. The layout turns the injection off with
+ * <meta name="htmx-config">, which makes this stylesheet the only place
+ * the rules exist. */
+.htmx-indicator {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms ease-in;
+}
+
+/* htmx sets aria-busy on the element it is loading into; using that as
+ * the hook means the visual state and the state announced to a screen
+ * reader can never disagree. */
+[aria-busy="true"] {
+  opacity: 0.6;
+  transition: opacity 120ms ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

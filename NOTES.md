@@ -1112,13 +1112,13 @@ sources). `internal/scoring`'s `Score` signature would need `asn int,
 knownBotASNs map[int]struct{}` to become something like `knownBotASNWeights
 map[int]int` - a small, mechanical change, not an architectural one.
 
-## Where the work stands (2026-08-16)
+## Where the work stands (2026-08-17)
 
 PLAN.md's §0.5 is now the at-a-glance status and is updated at the end of
 every phase; this note exists so a reader who opens NOTES.md first is
 sent there rather than reconstructing it from the history below.
 
-Since the panel arc began, seven things have landed:
+Since the panel arc began, eleven things have landed:
 
 - **Campaign parameters became dimensions.** They were one flat string,
   which could answer "which exact campaign link performed best" and could
@@ -1148,11 +1148,31 @@ Since the panel arc began, seven things have landed:
 - **A setup wizard that ends by checking itself**, listing what the panel
   can never do and then verifying it rather than asking the installer to
   remember.
+- **Retention that a chunk can actually express.** Real TimescaleDB
+  policies rather than a nightly DELETE, set at the *longest* retention
+  any site asks for so the policy can never drop a row somebody still
+  wants, with a targeted delete for the sites that asked for less.
+- **No mode stores a raw address.** Two modes, both masking; what "full"
+  buys is a keyed token, which is the precision anybody actually wanted
+  from it. Leaving masked mode needs the developer password *and* a key
+  already on disk, because without the key full mode does not fail, it
+  degrades into masked while the setting still says "full".
+- **A second password on the settings that carry legal weight**, asked
+  every time, hashed, read from the config file, and enforced on the
+  single write path so a call site added later cannot forget it.
+- **Seeing a setting and changing it became different questions.**
+  Developer mode is a *page*, not a permission: the customer opens it,
+  reads every value with its source and its reason, and finds no control
+  on the ones that would break the deployment or create a legal problem.
+  Config-file settings are listed read-only, secrets by presence only.
+  A warning at the door says plainly that looking carries no risk.
 
 The largest remaining gap is stated plainly because it shapes what to do
 next: every one of those is a callable function and none of them is
 clickable. `cmd/panel` does not exist. Group C is what turns a tested
 data layer into a product, and everything under it is already tested.
+That is the phase now in progress, starting with C1 - the catalog,
+templates and embedded assets everything else renders through.
 
 ## Masked addresses, and a second password on the settings that carry weight
 
@@ -1636,3 +1656,129 @@ crossover join, and different keys make that join find nothing with no
 error to say why. One value, one place it came from, copied into two
 files. The preflight check reports its presence, and the wizard lists it
 as a manual step, because it is one.
+
+## The panel becomes a thing you can open
+
+Every layer under the panel was written and tested before this and none
+of it was clickable. `cmd/panel` did not exist; `SettingsView`,
+`RunPreflight`, `PromptFor` and the rest were callable functions with no
+caller. This is the phase that gives them a surface: a message
+catalogue, a template set, a stylesheet, one JavaScript library, and a
+binary that serves them.
+
+### One file, on purpose
+
+The stack is `html/template` plus htmx, both compiled in. No CDN, no
+npm, no build step. That is a deployment decision before it is a taste
+one - the requirement all along was that installing this should not mean
+"edit nginx here, run this build there" - and it has a second effect
+that matters more: the panel works on a machine with no outbound network
+at all. A page that quietly fetches a font from a third party would
+break exactly the installations this software is meant for, and would
+tell that third party who is looking at which customer's panel.
+
+htmx is vendored rather than fetched, and its SHA-256 is asserted by a
+test. That file is the one thing in the repository nobody reads during
+review, so an accidental edit, a bad merge, or a "patched" build pasted
+in by somebody helpful would otherwise ship to every customer unnoticed.
+
+### The catalogue is checked in both directions
+
+A template naming a key that does not exist normally renders as nothing:
+a blank space in the middle of a sentence, on a page somebody may not
+open for weeks. So the renderer walks the parsed templates at startup,
+finds every constant key, and refuses to build if one is missing. The
+binary does not start. That moves the discovery from a customer to
+whoever changed the template, which is the only person who can fix it
+cheaply.
+
+The reverse direction is a test rather than a startup check: a key no
+template and no Go source names is an error too. A catalogue that only
+grows becomes a file nobody trusts, because the reader cannot tell which
+sentences are on a page and which were left behind by a rewrite two
+phases ago. The practical consequence is that this phase's catalogue is
+small - the navigation labels for pages that do not exist yet are not in
+it, and will arrive with the pages.
+
+Two kinds of Turkish text deliberately live outside it. A setting's lock
+reason stays beside the rule that locks it, because splitting an
+explanation from the thing it explains is the shortest path to the two
+disagreeing. And the month names live in the formatter, because they are
+not messages - they are an ordered list indexed by `time.Month`, useless
+to a translator as twelve separate keys and dangerous as twelve separate
+keys, since one edited out of order produces a date that is wrong rather
+than untranslated.
+
+### Turkish is not English with different words
+
+`golang.org/x/text` was already an indirect dependency, and it is now a
+direct one for two things Go's standard library gets wrong for this
+language. Numbers: `1.234.567` and `45,7`, with the percent sign
+*leading* - `%45,7`, not `45,7%`. And casing: the capital of "i" is "İ",
+the small letter of "I" is "ı", so `strings.ToUpper` on an email address
+produces something that no longer matches the address it came from.
+
+What Turkish does *not* need is the machinery an English-first design
+grows by reflex. A numeral does not inflect the noun after it - "1
+ziyaretçi", "3 ziyaretçi" - so there is no plural rule engine here, and
+writing one would have been cargo cult.
+
+### The zone is a correctness question
+
+Every date and time renders in the site's configured zone, and an
+unknown zone name is a startup error rather than a fall back to UTC.
+Falling back is the tempting choice and it is the wrong one: the panel
+would put every timestamp hours away from the customer's clock while the
+config file said otherwise. A panel that reports the evening traffic
+peak in UTC tells a customer in Istanbul it happened in the afternoon,
+and nothing on the page would say so.
+
+### Render into a buffer, then write
+
+`template.Execute` straight into an `http.ResponseWriter` sends `200`
+and half a document before discovering a nil field on line forty. The
+reader gets a page that stops mid-sentence, under a status code that
+says it worked. So pages are rendered into a buffer and copied only on
+success, and the failure path serves a 500 page that was rendered once
+at startup - because the error path must not depend on the thing that
+just failed.
+
+### The policy, and what a real browser found
+
+The Content-Security-Policy allows neither `unsafe-inline` nor
+`unsafe-eval`. There is not one inline `<script>`, `<style>`, `style=`
+or `on…=` attribute in the templates, and a structural test fails on the
+source if one appears - because the sequence otherwise is predictable:
+somebody adds one inline handler, the page silently does nothing, and
+the fix that looks obvious is to loosen the policy for the whole panel.
+Failing at the source makes the cheap fix the correct one. A second test
+guards the policy string itself, since a test that only checks templates
+would pass happily on the day somebody adds `unsafe-inline`.
+
+None of that caught the actual defect. htmx injects an inline `<style>`
+for `.htmx-indicator` when it starts; Chromium refused it under
+`style-src 'self'`; and the only symptom would have been a loading
+indicator that never hides, months later, on a page nobody had written
+yet. It took a real browser to see it, which is exactly the reason this
+project keeps insisting on one.
+
+The fix was not to allow the hash. Turning the injection off with
+`<meta name="htmx-config">` and carrying the four rules in `panel.css`
+is better in both directions: the rules are visible where we can edit
+them, and an htmx upgrade cannot quietly change what a hash in the
+policy was blessing.
+
+The same run found a second, smaller thing: every page load asked for
+`/favicon.ico`, hit the catch-all route, and was answered with a whole
+HTML error page. Declaring the icon in the layout stops the request
+being made at all.
+
+### Startup failures go to two places
+
+The panel files its logs in the structured tree like every other
+service, and that turned out to hide the most important messages it
+produces. A panel that cannot reach its database exits `1` having
+printed *nothing* to the terminal the operator is standing in front of,
+because by then the logger writes to a file. Startup failures now go to
+both: the tree for whoever looks afterwards, stderr for whoever just
+typed the command.

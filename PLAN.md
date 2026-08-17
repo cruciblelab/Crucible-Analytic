@@ -26,13 +26,14 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-16 (A7 + A7.5 sonrası). Bu bölüm her faz
-sonunda güncellenir ve belgenin geri kalanını okumadan "nerede kaldık"
-sorusunu cevaplar.*
+*Son güncelleme: 2026-08-17 (C1 sonrası). Bu bölüm her faz sonunda
+güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
+cevaplar.*
 
-**Rakamlar:** 18 iç paket, 4 binary (`collector`, `beacon`,
-`analytics-api`, `devpass`), 56 test dosyası. Panel binary'si
-(`cmd/panel`) **henüz yok** — en büyük tek boşluk bu.
+**Rakamlar:** 21 iç paket, **5 binary** (`collector`, `beacon`,
+`analytics-api`, `devpass`, **`panel`**), 65 test dosyası, ~38 bin satır
+Go. Panel artık açılıyor, dinliyor ve sayfa çiziyor; içindeki sayfalar
+C2–C7 ile geliyor.
 
 ### Gruplar
 
@@ -41,7 +42,7 @@ sorusunu cevaplar.*
 | **AI** ara işler | ✅ **bitti** | — |
 | **A** Ayarlar ve saklama | 🟡 **7/11** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **1/8** | C1, C2, C3, C4, C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **2/8** | C2, C3, C4, C5, C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -86,6 +87,16 @@ sorusunu cevaplar.*
   preflight kontrolü eklendi
 - **A7.9** Geliştirici modu uyarısı — kapıda uyarı, kilit değil:
   "teknik bilginiz yoksa değiştirmeyin, görüntülemenin riski yok"
+- **C1** Panelin render katmanı — `internal/panel/ui` (katalog,
+  biçimlendirme, gömülü varlıklar, şablonlar, güvenlik başlıkları),
+  `internal/panel/web` (yapılandırma, yönlendirme, erişim günlüğü) ve
+  **`cmd/panel`**. Katalog iki yönlü denetleniyor (eksik anahtar panelin
+  açılmasını engelliyor, kullanılmayan anahtar testte hata veriyor);
+  CSP'de `unsafe-inline`/`unsafe-eval` yok ve yapısal test kaynağı
+  koruyor; varlıklar içerik hash'li URL'den bir yıl önbellekleniyor,
+  sayfalar hiç önbelleklenmiyor. Gerçek tarayıcı, hiçbir Go testinin
+  bulamayacağı iki şeyi buldu (htmx'in satır içi `<style>`'ı ve favicon
+  404'ü) — ikisi de düzeltildi
 - **A7.7** *(düzeltme)* **Geliştirici modu bir sayfadır, yetki değil.**
   Erişimi üç soru belirliyor ve yalnız ikisi kontrolü kapatabiliyor:
   (1) config dosyasında mı — öyleyse panelden **kimse** değiştiremez,
@@ -98,11 +109,12 @@ sorusunu cevaplar.*
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **C1–C7 — panelin HTTP yüzeyi.** Altındaki her katman yazılmış ve
-   test edilmiş; hiçbiri tıklanamıyor. `RunPreflight`, `panel_settings`,
-   `Controls`, oturum, CSRF, TOTP, geliştirici erişimi — hepsi
-   çağrılabilir fonksiyon. Eksik olan tek şey onları bir sayfaya
-   bağlamak.
+1. **C2/C4 — ilk çalıştırma tespiti ve giriş.** Zemin (C1) hazır:
+   katalog, şablonlar, varlıklar, hata sayfaları, güvenlik başlıkları ve
+   `cmd/panel` çalışıyor. Sırada panelin ilk gerçek sayfaları var —
+   hesap yokken geliştirici sihirbazı (C2), sonra giriş/iki faktör (C4).
+   `RunPreflight`, `panel_settings`, oturum, CSRF, TOTP hepsi
+   çağrılabilir; eksik olan tek şey onları bir sayfaya bağlamak.
 2. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
    göç olmadan çoğu ayar hâlâ SSH ister.
 3. **A2/A3 — kalan operasyonel ayarlar.**
@@ -111,7 +123,7 @@ sorusunu cevaplar.*
 
 | Risk | Sahibi |
 |---|---|
-| Panelde "Kontrol et" düğmesi yok | C1–C7 |
+| Panelde "Kontrol et" düğmesi yok | C2 |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
 | **Collector'da mod ve saklama süresi yalnız dosyadan okunuyor** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok — iki tablo şu an iki ayrı yerden yapılandırılıyor) |
@@ -123,9 +135,11 @@ sorusunu cevaplar.*
 | Bakım yalnız açılışta çalışıyor | B3 |
 | Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
 | `GRANT SELECT` elle veriliyor | F2 |
+| **IP jeton anahtarı iki serviste aynı mı** — preflight varlığı görür, aynılığı göremez | **F2** (kullanıcı: "kontrolü ekleriz") |
 | Verbose penceresi kullanıcıya yerel saatte gösterilmeli | C4 |
-| **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C1–C7** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
-| **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C1–C7** |
+| **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C4** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
+| **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C4** (kabuk ve `kilit` duyuru düzeyi C1'de yazıldı) |
+| **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
@@ -935,15 +949,63 @@ sürüm; `panel_operations`'ta operasyonun hangi sürümde çalıştığı.
 
 ### C. Panelin HTTP yüzeyi
 
-#### C1 — Türkçe katalog, şablonlar, gömülü HTMX, CSS
+#### C1 — Türkçe katalog, şablonlar, gömülü HTMX, CSS ✅ **yapıldı**
 
-**Ne:** Tüm metinler tek katalogda (`internal/panel/messages.go` veya
-`messages.tr.toml`, `go:embed` ile). `html/template`. HTMX ve CSS
-binary'ye gömülü — CDN yok, npm yok, derleme adımı yok.
+**Ne:** Tüm metinler tek katalogda (`internal/panel/ui/messages.tr.toml`,
+`go:embed` ile). `html/template`. HTMX ve CSS binary'ye gömülü — CDN
+yok, npm yok, derleme adımı yok.
 
 **Neden bu yığın:** "Kurulum ve çalıştırma yükünü de azaltacak şekilde
 olmalı… 'şurada nginx'te bunu ayarla, burada şu var' istemiyorum."
-Gömülü statik varlıklar tek dosya dağıtımı demek.
+Gömülü statik varlıklar tek dosya dağıtımı demek — ve ikinci bir etkisi
+var: panel, dışarı hiç ağ erişimi olmayan bir makinede de çalışır.
+
+**Yapılan:** iki yeni paket (`internal/panel/ui` render eder,
+`internal/panel/web` yönlendirir) ve **beşinci binary `cmd/panel`**.
+
+- **Katalog iki yönlü denetleniyor.** Şablonun andığı ama katalogda
+  olmayan bir anahtar **panelin açılmasını engelliyor** (parse ağacı
+  açılışta yürünüyor) — sayfada boş bir alan olarak görünmüyor. Ters
+  yönde: hiçbir şablonun ve hiçbir Go dosyasının anmadığı anahtar testte
+  hata veriyor. Bu yüzden bu fazın katalogu **küçük**: henüz olmayan
+  sayfaların menü etiketleri içinde yok, sayfayla birlikte gelecekler.
+- **Türkçe biçimlendirme** (`golang.org/x/text` artık doğrudan
+  bağımlılık): `1.234.567`, `45,7`, yüzde işareti **önde** (`%45,7`),
+  ve doğru büyük/küçük harf (`i→İ`, `I→ı`). Çoğul makinesi **yok** —
+  Türkçede sayıdan sonra isim çekimlenmiyor.
+- **Saat dilimi bir doğruluk sorusu.** Tanınmayan isim açılışta hata;
+  sessizce UTC'ye düşmek, config dosyası başka şey derken her damgayı
+  müşterinin saatinden saatlerce uzağa koymak demekti.
+- **Önce tampona, sonra tele.** Doğrudan `ResponseWriter`'a yazmak,
+  kırktaki nil alanı bulmadan önce `200` ve yarım belge göndermek
+  olurdu. 500 sayfası açılışta bir kez üretilip saklanıyor — hata yolu,
+  az önce bozulan şeye bağlı olamaz.
+- **CSP'de ne `unsafe-inline` var ne `unsafe-eval`.** Şablonlarda tek
+  bir satır içi `<script>`, `<style>`, `style=` veya `on…=` yok ve
+  **yapısal test** kaynağa bakıp hata veriyor; ikinci bir test politika
+  metninin kendisini koruyor.
+- **Varlıklar içerik hash'li URL'den, bir yıl `immutable`; sayfalar
+  `no-store`.** İkisi ayrı kural: sayfa müşterinin sayılarını ve CSRF
+  jetonunu taşıyor, varlığın URL'i içeriğinin hash'ini taşıyor.
+
+**Gerçek tarayıcının bulduğu ve hiçbir Go testinin bulamayacağı defekt:**
+htmx açılışta `.htmx-indicator` için satır içi bir `<style>` enjekte
+ediyor, CSP bunu **sessizce** reddediyor. Tek belirti, aylar sonra,
+henüz yazılmamış bir sayfada hiç gizlenmeyen bir yükleniyor işareti
+olurdu. Çözüm hash'i politikaya eklemek değil: enjeksiyon
+`<meta name="htmx-config">` ile kapatıldı, dört kural `panel.css`'e
+yazıldı — böylece bir htmx güncellemesi, politikanın kutsadığı şeyi
+sessizce değiştiremiyor. Aynı koşu ikinci bir şey daha buldu: her sayfa
+açılışında istenen `/favicon.ico`, catch-all route'a düşüp koca bir HTML
+hata sayfasıyla cevaplanıyordu.
+
+**Bir de günlük ağacının sakladığı şey:** veritabanına ulaşamayan panel,
+terminalde **hiçbir şey yazmadan** `1` ile çıkıyordu — çünkü o noktada
+logger dosyaya yazıyor. Açılış hataları artık ikisine birden gidiyor.
+
+**Bugün ne servis ediliyor:** kabuk (başlık, işletmeci rozeti, izleyici
+uyarısı, altbilgi), yazılmış 400/403/404/405/419/500/502/503 sayfaları,
+varlıklar, ve giriş yer tutucusu. Sayfaların kendisi C2–C7 ile geliyor.
 
 #### C2 — İlk çalıştırma tespiti ve geliştirici sihirbazı
 
@@ -1276,6 +1338,18 @@ unit dosyaları, TLS. Tek betik. Rol ayrımı bu projenin güvenlik
 temelinin yarısı ve şu an elle kuruluyor — yani yanlış kurulabilir.
 Betik, 13. müşteriyi yarım günden on dakikaya indirir ve rol ayrımını
 kurulumun garantisi hâline getirir.
+
+**Ayrıca buraya ait: IP jeton anahtarının iki serviste aynı olduğunun
+kontrolü.** (Kullanıcı kararı: *"kontrolü ekleriz"*.) `devpass -ipkey`
+tek değer üretiyor ve o değer collector ile beacon'ın **iki ayrı**
+yapılandırma dosyasına elle kopyalanıyor. Preflight anahtarın
+*varlığını* doğrulayabiliyor, *aynılığını* doğrulayamıyor — iki servis
+birbirinin dosyasını okumaz, okumamalı da. Farklı anahtarlar hataya
+değil, **sessiz yanlışa** yol açar: kesişim birleşimi hiçbir satırı
+eşleştirmez ve sebebini söyleyen bir mesaj olmaz. Kurulum betiği bu iki
+dosyayı zaten birlikte yazan tek yer olduğu için doğru sahip odur:
+anahtarı bir kez üretir, ikisine de yazar, sonra ikisinin hash'ini
+karşılaştırıp bildirir.
 
 #### F3 — Filo izleme paneli
 
