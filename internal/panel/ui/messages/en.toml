@@ -96,6 +96,10 @@ govde = "There is no such page. The address may be mistyped, or the page may hav
 baslik = "This address cannot be called that way"
 govde = "The page exists, but the request was not of the expected kind. Go back to the panel and try again."
 
+[metin.hata.413]
+baslik = "That form was too large"
+govde = "The request was well-formed, but it carried more than the panel accepts in a single form. Shorten the fields and send it again; if it keeps happening, tell whoever set the server up."
+
 [metin.hata.419]
 baslik = "The form timed out"
 govde = "The security check is no longer valid. This usually happens when a page has been left open for a long time. Reload the page and submit the form again."

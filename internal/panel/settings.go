@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -423,6 +424,29 @@ func AllDefinitions() []Definition {
 // ErrUnknownSetting is returned for a key nobody defined.
 var ErrUnknownSetting = fmt.Errorf("panel: unknown setting")
 
+// ErrInvalidSetting marks an error whose text is written for the person
+// who typed the value, and is therefore safe to show them.
+//
+// The distinction exists because the panel used to render err.Error()
+// from a settings write straight into the page. Most of the time that is
+// exactly right - "analytics.retention_days must be between 1 and 3650"
+// is the whole point of validating - but the same call also returns
+// wrapped database errors, and a pgx error carries constraint names, SQL
+// state and sometimes the query text. That is CWE-209: the customer's
+// browser being shown the schema.
+//
+// So a validation failure says so, and everything else is logged and
+// summarised. A caller deciding what to print asks this rather than
+// guessing from the wording.
+var ErrInvalidSetting = errors.New("panel: invalid setting value")
+
+// invalidf builds an ErrInvalidSetting with a message meant for a
+// reader. The sentinel is wrapped rather than formatted in, so the text
+// stays the sentence somebody sees.
+func invalidf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrInvalidSetting, fmt.Sprintf(format, args...))
+}
+
 // Validate checks a value against its definition, returning the
 // canonical form to store.
 //
@@ -438,43 +462,43 @@ func Validate(key Key, value any) (any, error) {
 	case KindInt:
 		n, err := toInt(value)
 		if err != nil {
-			return nil, fmt.Errorf("panel: %s: %w", key, err)
+			return nil, invalidf("%s: %s", key, err)
 		}
 		if n < def.Min || n > def.Max {
-			return nil, fmt.Errorf("panel: %s must be between %d and %d, got %d", key, def.Min, def.Max, n)
+			return nil, invalidf("%s must be between %d and %d, got %d", key, def.Min, def.Max, n)
 		}
 		return n, nil
 
 	case KindBool:
 		b, ok := value.(bool)
 		if !ok {
-			return nil, fmt.Errorf("panel: %s must be true or false", key)
+			return nil, invalidf("%s must be true or false", key)
 		}
 		return b, nil
 
 	case KindEnum:
 		s, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("panel: %s must be a string", key)
+			return nil, invalidf("%s must be a string", key)
 		}
 		for _, admissible := range def.Enum {
 			if s == admissible {
 				return s, nil
 			}
 		}
-		return nil, fmt.Errorf("panel: %s must be one of %s, got %q", key, strings.Join(def.Enum, ", "), s)
+		return nil, invalidf("%s must be one of %s, got %q", key, strings.Join(def.Enum, ", "), s)
 
 	case KindString:
 		s, ok := value.(string)
 		if !ok {
-			return nil, fmt.Errorf("panel: %s must be a string", key)
+			return nil, invalidf("%s must be a string", key)
 		}
 		if len(s) > 1024 {
-			return nil, fmt.Errorf("panel: %s is too long (max 1024 characters)", key)
+			return nil, invalidf("%s is too long (max 1024 characters)", key)
 		}
 		if def.Check != nil {
 			if err := def.Check(s); err != nil {
-				return nil, fmt.Errorf("panel: %s: %w", key, err)
+				return nil, invalidf("%s: %s", key, err)
 			}
 		}
 		return s, nil
@@ -482,10 +506,10 @@ func Validate(key Key, value any) (any, error) {
 	case KindStringList:
 		list, err := toStringList(value)
 		if err != nil {
-			return nil, fmt.Errorf("panel: %s: %w", key, err)
+			return nil, invalidf("%s: %s", key, err)
 		}
 		if len(list) > 1000 {
-			return nil, fmt.Errorf("panel: %s has too many entries (max 1000)", key)
+			return nil, invalidf("%s has too many entries (max 1000)", key)
 		}
 		return list, nil
 	}
@@ -650,9 +674,19 @@ func (s *Store) setSetting(ctx context.Context, key Key, site string, value any,
 		              updated_by = EXCLUDED.updated_by`,
 		string(def.Scope), site, string(key), encoded, actorID)
 	if err != nil {
-		return fmt.Errorf("panel: store setting %s: %w", key, err)
+		return wrapStoreError(key, err)
 	}
 	return nil
+}
+
+// wrapStoreError wraps a database failure from a settings write.
+//
+// Deliberately not an ErrInvalidSetting: the text carries constraint
+// names, SQL state and sometimes the query, and the panel decides what
+// to print by asking that sentinel. Named rather than inlined so the
+// distinction has somewhere to be tested from.
+func wrapStoreError(key Key, err error) error {
+	return fmt.Errorf("panel: store setting %s: %w", key, err)
 }
 
 // GetSetting returns a stored value, or the definition's default when

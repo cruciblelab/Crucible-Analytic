@@ -124,8 +124,11 @@ func (s *Server) Handler() http.Handler {
 	if s.Sessions != nil {
 		handler = s.Sessions.Middleware(handler)
 	}
-	return SecurityHeaders(s.HSTS, s.requestLog(
-		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, handler)))
+	// LimitRequestBodies is outermost of the three so that nothing below
+	// it - not the session middleware, not a handler, not a future
+	// addition - can be handed a body with no ceiling.
+	return LimitRequestBodies(SecurityHeaders(s.HSTS, s.requestLog(
+		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, handler))))
 }
 
 // SecurityHeaders is re-exported so the binary and the tests apply the
@@ -245,10 +248,22 @@ func (w *statusRecorder) Write(p []byte) (int, error) {
 // is not.
 var ErrNoSessions = errors.New("panel: no session manager configured")
 
+// ErrNoStore means the server was built without a database.
+//
+// Refused for the same reason as ErrNoSessions: without one the panel
+// can neither authenticate anybody nor read a single setting, and every
+// page that tries either panics or renders an error - while the process
+// itself reports perfect health. A handler guarding every dereference
+// would be a lot of code protecting a state no deployment should reach.
+var ErrNoStore = errors.New("panel: no database configured")
+
 // ListenAndServe runs until ctx is cancelled, then drains.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	if s.Sessions == nil {
 		return ErrNoSessions
+	}
+	if s.Store == nil {
+		return ErrNoStore
 	}
 	srv := &http.Server{
 		Addr:              s.ListenAddr,

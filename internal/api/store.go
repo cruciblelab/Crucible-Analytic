@@ -288,7 +288,7 @@ type IPStat struct {
 // most suspicious first, alongside the total number of distinct IPs so a
 // caller can page through them.
 func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
-	total, err := s.countDistinct(ctx, `ip`, siteID, from, to)
+	total, err := s.countDistinct(ctx, countIP, siteID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -355,7 +355,7 @@ type GroupStat struct {
 // IPs whose country never resolved are grouped under an empty key rather
 // than dropped, so the numbers still add up to the site's total.
 func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
-	total, err := s.countDistinct(ctx, `country`, siteID, from, to)
+	total, err := s.countDistinct(ctx, countCountry, siteID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -385,7 +385,7 @@ func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time
 
 // ASNs breaks a site's distinct IPs down by ASN, busiest first.
 func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
-	total, err := s.countDistinct(ctx, `asn`, siteID, from, to)
+	total, err := s.countDistinct(ctx, countASN, siteID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}

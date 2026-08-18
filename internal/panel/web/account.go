@@ -88,8 +88,7 @@ func (s *Server) accountHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.renderAccount(w, r, lang, p, accountPage{})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.saveAccount(w, r, lang, p)
@@ -100,10 +99,6 @@ func (s *Server) accountHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveAccount(w http.ResponseWriter, r *http.Request, lang *ui.Language, p panel.Principal) {
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	ctx := r.Context()
 	user, err := s.Store.UserByID(ctx, p.UserID)
 	if err != nil {

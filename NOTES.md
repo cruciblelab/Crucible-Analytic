@@ -2654,3 +2654,198 @@ panel reads only its own config file, so it may genuinely not know where
 the beacon is. An unset `beacon_url` produces a step saying where to get
 the snippet — not a snippet built from a guessed address, which would
 look right and measure nothing.
+
+## Auditing this against the lists, and what the lists found
+
+The instruction was to stop adding features for a moment and go through
+the system against the most established checklists — OWASP Top 10
+(2021), the CWE Top 25, and the ASVS requirements that apply to a
+self-hosted admin panel — and fix whatever they turn up.
+
+The timing is not arbitrary even though the request was. C2, C3 and C4
+gave this panel its first surface that the internet can reach **without
+credentials**: a sign-in form, an invitation link, a developer link, a
+first-run page. Before those, everything behind the front door was
+behind a front door that did not exist yet. An audit run a phase earlier
+would have found a smaller system and a much smaller share of its risk.
+
+### Order of work: the machine first, then the reading
+
+`govulncheck` ran before anything was read, because it is the only part
+of this that a person cannot do better. It took under a minute and
+produced the two highest-severity findings in the whole audit:
+
+- **`pgx/v5` 5.7.6 — SQL injection through placeholder confusion**
+  ([GO-2026-5004](https://pkg.go.dev/vuln/GO-2026-5004)). A `$1` inside
+  a dollar-quoted string literal could be treated as a placeholder,
+  which turns a correctly parameterised query into an injectable one.
+  This is the project's single loudest rule — every query is
+  parameterised, and §3.1 of the plan says so — defeated one layer below
+  where the rule is enforced. `govulncheck` reported it as *reachable*,
+  through `api.Store.BeaconSites`.
+- **`golang.org/x/text` 0.24.0 — infinite loop on invalid input**
+  ([GO-2026-5970](https://pkg.go.dev/vuln/GO-2026-5970)), reachable from
+  `ui.Formatter.Title`, which the panel calls on names people type into
+  the account page. One request that never returns, in a process with no
+  concurrency limit.
+
+Neither would have been found by reading. Both were fixed by an upgrade
+that also moved the module to Go 1.25. That is worth stating plainly:
+**the two worst things in this audit were in dependencies, not in code
+anybody here wrote**, and the defence against them is not care — it is
+running the tool on a schedule.
+
+### The hole that reading found, and the measurement that proved it
+
+Go's `ParseForm` reads an entire urlencoded body into memory with no cap
+of its own. Only *multipart* bodies get one, through
+`ParseMultipartForm` and its explicit size argument. So every `POST` in
+this panel was an unbounded allocation, reachable by anybody, before
+authentication.
+
+That claim was measured rather than asserted: a 64 MiB body cost about
+128 MiB of heap — and was *then* refused for a missing CSRF token,
+having already been paid for in full. A handful of concurrent ones takes
+the process out.
+
+This is the shape of hole that survives review, because nothing in the
+handler looks wrong. The missing thing is a line nobody wrote.
+
+The cap is middleware (`LimitRequestBodies`), outermost of the three
+wrappers, deliberately not per-handler. "Every handler remembers" is
+precisely the property that fails here: the eight `ParseForm` calls in
+the package were written across three phases by somebody thinking about
+something else each time. `MaxBytesReader` also closes the connection
+once the limit is hit, so a client streaming an endless body is
+disconnected rather than politely read to the end.
+
+**The test measured itself first.** The first version built its body
+with `strings.Repeat` and reported 34 MB of "growth" — which was the
+test allocating the body, not the server accepting it. It now streams
+from an endless reader that allocates nothing, and the assertion changed
+shape too: not "stays under N bytes", which is a number that rots the
+first time a template grows, but **"the cost stops scaling with the size
+of the body"**. That is the actual property, and it is the one that
+still means something in two years.
+
+### An error message is an output, and outputs have audiences
+
+`Store.SetSetting` returns two entirely different kinds of error through
+one return value. "This must be between 1 and 3650" is written for the
+person who just typed a number, and rendering it into the page is the
+whole point of validating. A wrapped pgx failure is written for whoever
+reads the log, and it carries constraint names, SQL state and sometimes
+the query text.
+
+The panel rendered both, because the call site could not tell them
+apart. One bad write from showing a customer the schema — CWE-209.
+
+The fix is a sentinel (`ErrInvalidSetting`) rather than a convention,
+and that distinction is the whole decision. A convention means every
+future caller correctly guessing which errors were written for a person;
+a sentinel means the caller asks and the answer is a fact. `errors.Is`
+is now the difference between showing a message and summarising it away.
+The test asserts both directions: every validation refusal is marked
+safe, and a wrapped database error is not — the second half being the
+one that would silently regress.
+
+### A blanket middleware was the wrong shape, and the 503 page said so
+
+Four routes the internet reaches without credentials read a row before
+they know who is asking. Each was a nil-`Store` dereference away from a
+remote crash — CWE-476. `ListenAndServe` already refuses to start
+without a database, so this state should not exist; it is guarded anyway
+because "unreachable" and "takes the process down" are a bad pair of
+properties to hold simultaneously, and the thing making it unreachable
+is one line in another file.
+
+The first attempt was a `RequireStore` middleware wrapped around the
+whole tree. It broke eleven renderer tests, and the reason it broke them
+is the reason it was wrong: **a panel that cannot serve its own
+stylesheet renders its 503 page as unstyled text.** Static assets do not
+need a database, and answering 503 to them makes the page explaining the
+outage worse than the outage. The guard moved to `haveStore()`, called
+at the first place each handler actually needs a row.
+
+### Two tests that passed for the wrong reason
+
+Both were caught by asking what the assertion would say if the code were
+broken.
+
+**"413, not 419."** `CheckCSRF` reads a form field, so it was the thing
+that first touched the body — and an oversized body surfaced as "your
+CSRF token is stale", sending whoever hit it to reload a page that would
+fail again identically. Hence `acceptPost`: parse the form, *then* check
+the token. It is also the honest order on its own terms, since a token
+cannot be checked in a form that has not been parsed.
+
+**"303 means it happened."** The CSRF coverage test walks every
+state-changing route with no token and requires a refusal. It counted
+any 303 as success — but a redirect to the sign-in form *is* a refusal,
+and a redirect anywhere else is the success path. It now accepts 303
+only when `Location` starts with the sign-in path. It also moved to the
+integration suite: a storeless server answers 503 to everything, so the
+same test in the unit suite would have passed without a single handler
+being reached. A test that cannot fail is worse than no test, because it
+is also a claim.
+
+### The fix that half-landed, found by writing it down
+
+Documenting the audit is what caught the last one, and it is the most
+embarrassing item here because it is a defect *in the audit's own fix*.
+
+The whole point of reordering `acceptPost` was to report a size problem
+as a size problem instead of as a stale CSRF token. The status line duly
+became 413. The **page** did not: the renderer maps a status to a pair
+of catalog keys and falls back to the 500 wording for anything it does
+not know, and 413 was not in that switch. So the panel answered `413
+Request Entity Too Large` with a page reading "the panel could not
+complete this request — the failure was recorded on the server."
+
+Status honest, page lying, every test green. The fallback is right *as
+a fallback* — a status reaching a browser with no words at all is worse
+— but it is silent, and silence was the whole problem.
+
+Fixed with words for 413 in both catalogs, and with the test that would
+have caught it: the statuses are **read out of the handlers** rather
+than listed in the test, each one rendered, and each one required not to
+come back wearing the 500 page. A list would have been a mirror, and a
+mirror's failure mode is exactly this one — somebody adds a status and
+does not know there is a second place to add it. The test was then run
+against the un-fixed renderer to confirm it fails, and it names the file
+and both places to change.
+
+### The comment that was doing a compiler's job
+
+One SQL identifier in the read API is interpolated, because Postgres has
+no placeholder for a column name. The guard was a comment saying "only
+pass constants". That is not latent because the callers are wrong today
+— they are right — but because nothing stops the next one.
+
+It is now a closed type with unexported values and a `default:` that
+refuses anything else. A request-derived string cannot reach it, and a
+new column that skips the check does not compile. Same class as the
+closed-enum types elsewhere in this project, and the same reason: the
+rule belongs in the type, not in a sentence next to it.
+
+### Writing down what was checked and found correct
+
+`SECURITY.md` lists thirteen things that needed no change — SQL
+injection, XSS, access control, open redirect, SSRF, CSRF, session
+management, timing, log injection, path traversal, header injection,
+supply chain, resource limits.
+
+That list is more useful than the fixes. "We found nothing" and "we did
+not look" are different facts, and only one of them should reassure
+anybody — the same distinction the preflight checks are built on, applied
+to the audit itself. Next time, the question is what changed since, not
+where to start.
+
+Three things are open and stated in the file rather than smoothed over:
+changing a password does not end sessions on other devices (the session
+store has no user column, so finding them is a table scan today); there
+are no 2FA recovery codes; and there is no global concurrency limit, so
+each sign-in attempt costs one argon2id verification bounded by the
+throttle counters rather than by a queue. Each is also said on the page
+it affects, which is the part that matters — a limitation the software
+knows about and the customer does not is worse than the limitation.

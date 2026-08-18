@@ -111,8 +111,7 @@ func (s *Server) membersHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.renderMembers(w, r, lang, access, membersPage{})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.saveMembers(w, r, lang, access)
@@ -123,10 +122,6 @@ func (s *Server) membersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.Language, access panel.Access) {
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	ctx := r.Context()
 
 	var data membersPage

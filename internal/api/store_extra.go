@@ -102,7 +102,7 @@ type JA4Stat struct {
 // first - the view that's specific to what this collector does, as
 // opposed to country/ASN, which any IP-geolocation tool could produce.
 func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]JA4Stat, int, error) {
-	total, err := s.countDistinct(ctx, `ja4`, siteID, from, to)
+	total, err := s.countDistinct(ctx, countJA4, siteID, from, to)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -365,11 +365,36 @@ func (s *Store) Snapshots(ctx context.Context, siteID string, from, to time.Time
 	return out, total, rows.Err()
 }
 
+// countColumn is a column this package may count distinct values of.
+//
+// A named type with unexported values, not a string. The column name is
+// interpolated into SQL - Postgres has no placeholder for an identifier -
+// so the only thing standing between this query and CWE-89 is that no
+// request-derived string can ever arrive here. A comment saying so is a
+// comment; a type saying so is checked by the compiler, and a future
+// handler that tries to pass a query parameter through does not build.
+type countColumn string
+
+const (
+	countIP      countColumn = "ip"
+	countCountry countColumn = "country"
+	countASN     countColumn = "asn"
+	countJA4     countColumn = "ja4"
+)
+
 // countDistinct counts the distinct values of one column for a site in a
-// range, so paginated breakdowns can report a total. The column name is
-// interpolated, so it must only ever be a compile-time constant from this
-// package - never anything derived from a request.
-func (s *Store) countDistinct(ctx context.Context, column, siteID string, from, to time.Time) (int, error) {
+// range, so paginated breakdowns can report a total.
+func (s *Store) countDistinct(ctx context.Context, column countColumn, siteID string, from, to time.Time) (int, error) {
+	// Belt and braces on top of the type. If somebody adds a value to
+	// countColumn without adding it here, the query is refused rather
+	// than run - which is the failure direction that matters when the
+	// alternative is interpolating an unreviewed identifier.
+	switch column {
+	case countIP, countCountry, countASN, countJA4:
+	default:
+		return 0, fmt.Errorf("api: %q is not a countable column", column)
+	}
+
 	var total int
 	err := s.pool.QueryRow(ctx,
 		fmt.Sprintf(`SELECT count(DISTINCT %s) FROM traffic_snapshots WHERE site_id = $1 AND time >= $2 AND time < $3`, column),

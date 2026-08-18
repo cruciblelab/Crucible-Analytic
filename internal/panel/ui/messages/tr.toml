@@ -122,6 +122,10 @@ govde = "Aradığınız sayfa yok. Adres yanlış yazılmış olabilir ya da say
 baslik = "Bu adres bu şekilde çağrılamaz"
 govde = "Sayfa var, ama isteğiniz beklenen türde değildi. Panele dönüp tekrar deneyin."
 
+[metin.hata.413]
+baslik = "Gönderilen form fazla büyük"
+govde = "İstek doğruydu, ama panelin bir formda kabul ettiğinden fazlasını taşıyordu. Alanları kısaltıp tekrar gönderin; sorun sürerse sunucuyu kuran kişiye söyleyin."
+
 [metin.hata.419]
 baslik = "Form zaman aşımına uğradı"
 govde = "Güvenlik doğrulaması geçersiz. Bu genellikle sayfa uzun süre açık kaldığında olur. Sayfayı yenileyin ve formu tekrar gönderin."

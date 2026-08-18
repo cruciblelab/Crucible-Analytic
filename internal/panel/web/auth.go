@@ -82,8 +82,7 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 			Next: s.rawNext(r.URL.Query().Get("next")),
 		})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.submitLogin(w, r, lang)
@@ -94,8 +93,11 @@ func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.Language) {
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
+	// Here rather than on the handler: drawing the form needs no
+	// database, and refusing to draw it would mean a panel whose
+	// database is briefly unreachable cannot even show somebody the page
+	// that explains why.
+	if !s.haveStore(w, r, lang) {
 		return
 	}
 	ctx := r.Context()
@@ -244,6 +246,9 @@ func (s *Server) secondFactorHandler(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, LoginPath, http.StatusSeeOther)
 		return
 	}
+	if !s.haveStore(w, r, lang) {
+		return
+	}
 	user, err := s.Store.UserByID(ctx, pending)
 	if err != nil || user.Disabled || !user.HasTOTP() {
 		// The account was deleted, suspended or had its second factor
@@ -260,8 +265,7 @@ func (s *Server) secondFactorHandler(w http.ResponseWriter, r *http.Request) {
 			Next: next, RememberedName: user.Name(),
 		})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.submitSecondFactor(w, r, lang, user)
@@ -272,10 +276,6 @@ func (s *Server) secondFactorHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) submitSecondFactor(w http.ResponseWriter, r *http.Request, lang *ui.Language, user panel.User) {
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	ctx := r.Context()
 	next := s.rawNext(r.PostFormValue("next"))
 	addr := peerAddr(r)
@@ -353,8 +353,7 @@ func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 		s.Renderer.ErrorIn(w, r, http.StatusMethodNotAllowed, lang)
 		return
 	}
-	if !s.Sessions.CheckCSRF(r) {
-		s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+	if !s.acceptPost(w, r, lang) {
 		return
 	}
 	ctx := r.Context()

@@ -116,6 +116,11 @@ type snippetRow struct {
 // claimHandler opens an invitation and turns it into an account.
 func (s *Server) claimHandler(w http.ResponseWriter, r *http.Request) {
 	lang := s.language(r)
+	// Open to anybody holding a link, so it is reached before any of the
+	// checks the authenticated pages rely on. See haveStore.
+	if !s.haveStore(w, r, lang) {
+		return
+	}
 	token := strings.Trim(strings.TrimPrefix(r.URL.Path, ClaimPathPrefix), "/")
 
 	claim, err := s.Store.LookupOwnerClaim(r.Context(), token)
@@ -144,8 +149,7 @@ func (s *Server) claimHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.renderClaim(w, r, lang, http.StatusOK, claimPage{Claim: claim, Token: token})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.submitClaim(w, r, lang, claim, token)
@@ -168,10 +172,6 @@ type claimPage struct {
 func (s *Server) submitClaim(w http.ResponseWriter, r *http.Request, lang *ui.Language,
 	claim panel.OwnerClaim, token string) {
 
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	ctx := r.Context()
 	password := r.PostFormValue("parola")
 	repeat := r.PostFormValue("parola_tekrar")
@@ -289,8 +289,7 @@ func (s *Server) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.renderWelcome(w, r, lang, p, index, welcomePage{})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.saveWelcome(w, r, lang, p, index)
@@ -303,10 +302,6 @@ func (s *Server) welcomeHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) saveWelcome(w http.ResponseWriter, r *http.Request, lang *ui.Language,
 	p panel.Principal, index int) {
 
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	ctx := r.Context()
 	var data welcomePage
 
@@ -351,7 +346,7 @@ func (s *Server) saveSiteNames(ctx context.Context, lang *ui.Language, p panel.P
 		name := strings.TrimSpace(r.PostFormValue("ad:" + site))
 		if err := s.Store.SetSetting(ctx, panel.KeySiteName, site, name, actorOf(access)); err != nil {
 			s.logger().Error("panel: saving site name", "err", err, "site", site)
-			return welcomePage{Message: settingProblem(lang, err), Failed: true}
+			return welcomePage{Message: s.settingProblem(lang, err), Failed: true}
 		}
 		saved++
 	}
@@ -371,7 +366,7 @@ func (s *Server) saveTimezone(ctx context.Context, lang *ui.Language, p panel.Pr
 		return welcomePage{Message: lang.T("hosgeldiniz.saat.yetki"), Failed: true}
 	}
 	if err := s.Store.SetSetting(ctx, panel.KeyPanelTimezone, "", zone, actorOf(access)); err != nil {
-		return welcomePage{Message: settingProblem(lang, err), Failed: true}
+		return welcomePage{Message: s.settingProblem(lang, err), Failed: true}
 	}
 	return welcomePage{Message: lang.T("kaydedildi")}
 }
@@ -559,21 +554,32 @@ func (s *Server) storedTimezone(ctx context.Context) string {
 	return name
 }
 
-// settingProblem turns a settings error into a sentence.
+// settingProblem turns a settings error into a sentence for the reader.
 //
-// Validate's messages already name the setting and say what is wrong, in
-// Turkish, beside the rule that produced them - so they are shown rather
-// than mapped. The mapping exists only for the ones that are not about
-// the value at all.
-func settingProblem(lang *ui.Language, err error) string {
+// The default case is the security-relevant one. Showing err.Error()
+// unconditionally is the obvious thing to write and it is wrong: the
+// same call that returns "analytics.retention_days must be between 1 and
+// 3650" also returns wrapped database errors, and a pgx error carries
+// constraint names, SQL state and sometimes the query text. Rendering
+// that into the customer's browser is CWE-209.
+//
+// So only errors that say they were written for a person are shown.
+// Everything else is logged where an operator can see it and summarised
+// where the customer can.
+func (s *Server) settingProblem(lang *ui.Language, err error) string {
 	switch {
+	case err == nil:
+		return ""
 	case errors.Is(err, panel.ErrDeveloperPasswordRequired):
 		return lang.T("hosgeldiniz.hata.gelistirici_parolasi")
 	case errors.Is(err, panel.ErrSettingNotWritable):
 		return lang.T("hosgeldiniz.hata.yetki")
-	case err == nil:
-		return ""
+	case errors.Is(err, panel.ErrInvalidSetting):
+		// Written for whoever typed the value, and naming the value is
+		// the whole point of validating it.
+		return strings.TrimPrefix(err.Error(), panel.ErrInvalidSetting.Error()+": ")
 	default:
-		return err.Error()
+		s.logger().Error("panel: saving setting", "err", err)
+		return lang.T("hesap.hata.kaydedilemedi")
 	}
 }

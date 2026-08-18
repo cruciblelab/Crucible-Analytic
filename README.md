@@ -1142,6 +1142,29 @@ Five properties are worth knowing before relying on it:
   a while. Without that, the gate would be a denial-of-service amplifier
   aimed at the machine the collector runs on.
 
+## Security
+
+**[`SECURITY.md`](SECURITY.md)** is the security document: how to report
+a vulnerability, the design in one page, and the results of an audit
+against the OWASP Top 10 (2021), the CWE Top 25 and the ASVS
+requirements that apply to a self-hosted admin panel.
+
+It lists three things, and the second is the useful one:
+
+- **what was fixed** — eight findings, each with a test, two of them in
+  dependencies and reported by `govulncheck` as *reachable*;
+- **what was checked and found correct** — thirteen classes, written
+  down because "we found nothing" and "we did not look" are different
+  facts and only one of them should reassure anybody;
+- **what is open** — three limitations, each also stated on the page it
+  affects, because a limitation the software knows about and the
+  customer does not is worse than the limitation.
+
+It also records the deployment this software assumes: a database not
+reachable from the internet, TLS terminated in front of the panel,
+config files readable only by the service user, and a `0700` log
+directory.
+
 ## Testing
 
 ```bash
@@ -1153,6 +1176,13 @@ go test -race ./...
 # is not hypothetical - it happened here, to internal/api's integration
 # test, and this line is what would have caught it.
 go vet ./... && go vet -tags "integration loadtest" ./...
+
+# Dependencies, which reading cannot audit. This is not optional
+# housekeeping: the two highest-severity findings in the security audit
+# were both here, both reachable, and one of them defeated this
+# project's own "every query is parameterised" rule one layer below
+# where the rule is enforced.
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
 This needs no external dependencies - no Docker, no network access,

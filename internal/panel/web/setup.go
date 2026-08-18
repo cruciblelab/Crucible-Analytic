@@ -149,6 +149,9 @@ type setupPage struct {
 // setupHandler routes every /kurulum/ request.
 func (s *Server) setupHandler(w http.ResponseWriter, r *http.Request) {
 	lang := s.language(r)
+	if !s.haveStore(w, r, lang) {
+		return
+	}
 
 	access, ok := s.developerAccess(w, r, lang)
 	if !ok {
@@ -170,12 +173,7 @@ func (s *Server) setupHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.renderStep(w, r, lang, access, index, setupPage{})
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			// 419 rather than 403: the fix is "reload and try again",
-			// not "you may not". A wizard left open while somebody went
-			// to run a command on the server is the normal way to get
-			// here.
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		s.saveStep(w, r, lang, access, index)
@@ -526,10 +524,6 @@ func databaseChecks(all []preflight.CheckResult) []preflight.CheckResult {
 // saveStep handles a POST from one step.
 func (s *Server) saveStep(w http.ResponseWriter, r *http.Request, lang *ui.Language, access panel.Access, index int) {
 	step := wizardSteps[index]
-	if err := r.ParseForm(); err != nil {
-		s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
-		return
-	}
 	data := setupPage{}
 
 	switch step.ID {
@@ -559,10 +553,12 @@ func (s *Server) saveSites(r *http.Request, lang *ui.Language, access panel.Acce
 		return
 	}
 	if err := s.Store.SetSetting(r.Context(), panel.KeyBeaconSites, "", sites, actorOf(access)); err != nil {
-		// The bounds live in the settings registry, and its error says
-		// which value it refused. Passing it through beats a generic
-		// "invalid": the installer typed the value and can fix it.
-		data.Message, data.Failed = err.Error(), true
+		// settingProblem, not err.Error(). The registry's validation
+		// messages are written for the installer and naming the refused
+		// value is the point - but the same call also returns wrapped
+		// database errors, and those carry constraint names and query
+		// text into a browser. See settingProblem.
+		data.Message, data.Failed = s.settingProblem(lang, err), true
 		return
 	}
 	data.Message = lang.T("kurulum.kaydedildi")
@@ -576,7 +572,7 @@ func (s *Server) saveRetention(r *http.Request, lang *ui.Language, access panel.
 
 	rows, err := s.retentionRows(r.Context(), access)
 	if err != nil {
-		data.Message, data.Failed = err.Error(), true
+		data.Message, data.Failed = s.settingProblem(lang, err), true
 		return
 	}
 
@@ -629,7 +625,7 @@ func (s *Server) saveRetention(r *http.Request, lang *ui.Language, access panel.
 	for _, c := range changes {
 		auth := result.For(panel.GateAction(c.key))
 		if err := s.Store.ApplySetting(r.Context(), access, c.key, c.site, c.value, auth); err != nil {
-			data.Message, data.Failed = err.Error(), true
+			data.Message, data.Failed = s.settingProblem(lang, err), true
 			return
 		}
 	}
@@ -706,6 +702,9 @@ func toStringList(value any) []string {
 // devAccessHandler redeems a one-time developer link.
 func (s *Server) devAccessHandler(w http.ResponseWriter, r *http.Request) {
 	lang := s.language(r)
+	if !s.haveStore(w, r, lang) {
+		return
+	}
 	token := strings.Trim(strings.TrimPrefix(r.URL.Path, DevAccessPathPrefix), "/")
 	if token == "" {
 		s.renderSetupNeeded(w, r, lang, http.StatusNotFound)

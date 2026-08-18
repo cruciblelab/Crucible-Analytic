@@ -233,6 +233,7 @@ var mappedErrorStatuses = []int{
 	http.StatusForbidden,
 	http.StatusNotFound,
 	http.StatusMethodNotAllowed,
+	http.StatusRequestEntityTooLarge,
 	statusCSRFExpired,
 	http.StatusInternalServerError,
 	http.StatusBadGateway,

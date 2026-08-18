@@ -341,6 +341,7 @@ func errorKeys(status int) (titleKey, bodyKey string) {
 		http.StatusForbidden,
 		http.StatusNotFound,
 		http.StatusMethodNotAllowed,
+		http.StatusRequestEntityTooLarge,
 		statusCSRFExpired,
 		http.StatusInternalServerError,
 		http.StatusBadGateway,

@@ -26,15 +26,17 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-17 (C1, C1.5, C2, A10 sonrası). Bu bölüm her faz sonunda
-güncellenir ve belgenin geri kalanını okumadan "nerede kaldık" sorusunu
-cevaplar.*
+*Son güncelleme: 2026-08-18 (C4, C3, AI.3 güvenlik denetimi sonrası). Bu bölüm
+her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
+kaldık" sorusunu cevaplar.*
 
-**Rakamlar:** 21 iç paket, **5 binary** (`collector`, `beacon`,
-`analytics-api`, `devpass`, **`panel`**), 71 test dosyası, ~42 bin satır
-Go. Panel açılıyor, dinliyor, sayfa çiziyor ve **kurulabiliyor**: ilk
-çalıştırma tespiti ve geliştirici sihirbazı çalışıyor. Müşterinin kapısı
-(giriş) C4'te.
+**Rakamlar:** 23 iç paket, **5 binary** (`collector`, `beacon`,
+`analytics-api`, `devpass`, **`panel`**), 85 test dosyası, ~49 bin satır
+Go (~25 bin'i test dışı). Panel açılıyor, dinliyor, sayfa çiziyor,
+**kurulabiliyor ve girilebiliyor**: ilk çalıştırma tespiti, geliştirici
+sihirbazı, devir teslim, giriş, iki faktör, hesap ve üye yönetimi
+çalışıyor. Zincirin tamamı — boş veritabanından oturum açmış sahibe —
+uçtan uca yürüyor.
 
 **Modülerlik ölçümü (2026-08-17, AI.2 sonrası).** 22 paketin **12'si
 yaprak** — hiçbir iç bağımlılığı yok. Bağımlılık grafiği sığ ve tek
@@ -44,17 +46,23 @@ iki yer import ediyor: `cmd/panel` ve `internal/panel/web`.
 
 AI.2 öncesi `internal/panel` 4.424 satırdı; `preflight` çıkınca **3.397**
 oldu ve deponun en büyük dosyası (`preflight.go`, 985 satır) kendi
-paketine geçti. **Hâlâ gevşek olan iki yer:** `internal/panel` (3.397
-satır — ayarlar ve kimlik aileleri, C4'ten sonra) ve `internal/api`
-(3.315 satır). Sınır artık yorumda değil testte: `preflight`'ın
+paketine geçti. Sınır artık yorumda değil testte: `preflight`'ın
 `internal/panel`'i import etmediğini `TestPreflightDoesNotImportThePanel`
 tutuyor.
+
+**Bölmenin bir sonraki adımı hak edildi (2026-08-18).** C3 ve C4 sonrası
+`internal/panel` yeniden **3.955** test dışı satır (davet kayıtları ve
+üyelik yüzeyi eklendi) ve `internal/panel/web` **3.650**. AI.2'nin
+"kimlik ailesi C4'ten sonra bölünür" notu artık vadesi gelmiş bir borç:
+ayarlar ve kimlik aileleri `Access`, `Principal`, `Role` ve `Store`
+tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
+(3.340) ikinci sırada.
 
 ### Gruplar
 
 | Grup | Durum | Kalan |
 |---|---|---|
-| **AI** ara işler | ✅ **2/2** | — |
+| **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **6/9** | C5, C6, C7 |
@@ -64,10 +72,23 @@ tutuyor.
 
 ### Bitmiş maddeler
 
+*(İki numaralandırma ailesi var ve karışıyor: tireli **AI-1/AI-2** §2.5'in
+ara işleri, noktalı **AI.2/AI.3** ise faz araları. İsimler commit
+mesajlarında geçtiği için değiştirilmedi; ayrımı burada yazmak
+düzeltmekten ucuz.)*
+
 - **AI-1** Sunucu otoritesi — denetlendi, ihlal yok; güven kararları
   iddia+karar birlikte kaydediliyor
 - **AI-2** Log ağacı — `<dir>/<servis>/<gün>/<kategori>.log`, 9 kategori,
   JSON satırları, log enjeksiyonuna karşı temizleme, sır maskeleme
+- **AI.2** Paket bölme — `preflight` kendi paketine (deponun en büyük
+  dosyasıydı), `internal/config` → `internal/collector`. Sınır yorumda
+  değil testte: `TestPreflightDoesNotImportThePanel`
+- **AI.3** Güvenlik denetimi — OWASP Top 10 (2021), CWE Top 25, ASVS.
+  **Sekiz bulgu düzeltildi**, ikisi bağımlılıkta ve `govulncheck`
+  *erişilebilir* dedi (pgx'te yer tutucu karışması = enjeksiyon, x/text'te
+  sonsuz döngü); on üç başlık bakıldı ve doğru bulundu; üçü açık
+  bırakıldı ve **etkiledikleri sayfada yazıldı**. `SECURITY.md`
 - **A1** `panel_settings` — kapalı anahtar kaydı, yazarken **ve okurken**
   sınır doğrulaması
 - **A1.5** Log yaşam döngüsü — düz metin → sıkıştırılmış → silinmiş,
@@ -136,18 +157,36 @@ tutuyor.
   seviyesi, verbose penceresi, sıkıştırma, beacon site listesi). Ayrıca
   **config dosyası ayarları salt-okunur listeleniyor** — parola taşıyan
   alanların yalnız varlığı yazılı, değeri hiçbir yerde gösterilmiyor
+- **C4** Giriş, iki faktör, hesap ve üye yönetimi — bu fazın eklediği
+  güvenlik özelliği **yok**; hepsi daha önce yazılmıştı. Eklediği şey
+  onlara *ulaşılıp ulaşılmadığına* karar veren kısım. Throttle paroladan
+  önce sorulıyor; her başarısızlık aynı cümle, aynı statü, aynı süre
+  (hesabı olmayan adres için de argon2id çalıştırılıyor, yoksa yanıt
+  süresi üyelik oracle'ı olur); `?next=` onarılmıyor **reddediliyor**
+  (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
+  Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
+  handler yeteneği ayrıca soruyor
+- **C3** Devir teslim, sahip sihirbazı ve teknik kapı — zincirin eksik
+  halkası: ilk sahip hesabını açmanın hiçbir yolu yoktu. Tek kullanımlık
+  sahiplenme bağlantısı (saklanan yalnız SHA-256), **tek işlemde** hesap
+  + her siteye sahiplik + davetin tüketilmesi; yarışı veritabanı
+  çözüyor (sekiz eşzamanlı sahiplenme → bir hesap, yedi ret). Sahiplenme
+  asla superadmin üretmiyor. Teknik kapı: onay **oturumda**, yetki
+  değil — her istek yine "bu kişi bir şeye sahip mi" diye soruyor
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **C4 — giriş, iki faktör, hesap ve üye yönetimi.** C2 ile geliştirici
-   kapısı açıldı; müşterinin kapısı hâlâ yok. `panel_users`, oturum,
-   CSRF, TOTP, roller — hepsi yazılmış ve test edilmiş, hiçbiri
-   tıklanamıyor. Sonra **C3** (sahip sihirbazı, C4'ün hesabına
-   dayanıyor) ve **C5** (geliştirici erişimi onay ekranı — C2'nin
-   "hesap varsa onay gerekir" kuralının müşteri tarafındaki yüzü).
+1. **C5 — geliştirici erişimi onay ekranı.** C2'nin "hesap varsa onay
+   gerekir" kuralının müşteri tarafındaki yüzü. Çekirdek `devaccess.go`'da
+   yazılı; eksik olan sahibin gördüğü şey: bekleyen istek uyarısı, kim /
+   neden / ne kadar süreyle, onayla ve reddet. C3 ile devir teslim
+   çalıştığı için bu kural artık **gerçekten tetikleniyor**.
 2. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
-   göç olmadan çoğu ayar hâlâ SSH ister.
-3. **A2/A3 — kalan operasyonel ayarlar.**
+   göç olmadan çoğu ayar hâlâ SSH ister. Kayıttaki ilk *dinamik* enum
+   (panel dili) da burada.
+3. **AI.4 — kimlik ve ayar ailelerinin bölünmesi.** AI.2'nin C4'e
+   ertelediği kesim; C4 o tipleri son şekline soktuğu için borç vadesi
+   geldi. `internal/panel` 3.955 satır.
 
 ### Açık riskler ve sahipleri
 
@@ -166,12 +205,16 @@ tutuyor.
 | Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
 | `GRANT SELECT` elle veriliyor | F2 |
 | **IP jeton anahtarı iki serviste aynı mı** — preflight varlığı görür, aynılığı göremez | **F2** (kullanıcı: "kontrolü ekleriz") |
-| Verbose penceresi kullanıcıya yerel saatte gösterilmeli | C4 |
-| **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **C4** (tek panel süreci var; birden çok süreç olursa sayaç paylaşılmalı) |
-| **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **C4** (kabuk ve `kilit` duyuru düzeyi C1'de yazıldı) |
+| Verbose penceresi kullanıcıya yerel saatte gösterilmeli | **D4** (C4'e yazılmıştı; C4 giriş kapısıydı, **müşteriye dönük ayar sayfası hâlâ yok** — tek ayar yüzeyi kurulum sihirbazı) |
+| **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **E** (tek panel süreci varsayımı; birden çok süreç olursa sayaç paylaşılmalı) |
+| **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **D4** (aynı sebep: gösterecek sayfa henüz yok) |
 | **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
 | **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
-| **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **C4** (kullanıcı: "ayarlara da ekleyelim"; çözümleme parametresi zaten variadic) |
+| **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **açık** (`/hesap` sayfası C4'te açıldı; eksik olan `panel_users`'ta bir sütun ve çözümlemeye kullanıcı tercihinin eklenmesi — çözümleme parametresi zaten variadic) |
+| **Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor** — oturum tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması | **açık** (AI.3'te bulundu, hesap sayfasında yazılı; kapatmak `scs` şemasına sütun eklemek demek) |
+| **İki faktör kurtarma kodu yok** — kaybeden kişiyi sahip ya da işletmeci kurtarıyor; tek sahip kaybederse kabuk gerekiyor | **açık** (AI.3; kayıt ve kod formunda yazılı) |
+| **Panelde global eşzamanlılık sınırı yok** — her giriş denemesi bir argon2id doğrulaması, sınır kuyruk değil throttle sayaçları | **açık** (AI.3; panel varsayılan `127.0.0.1` dinliyor ve TLS'i sonlandıran bir proxy arkasında çalışması bekleniyor) |
+| **`govulncheck` düzenli çalıştırılmalı** — denetimin en kötü iki bulgusu bağımlılıktaydı ve okumayla bulunamazdı | **açık** (AI.3; bugün elle, sürüm kontrol listesinde yazılı — CI yok) |
 | **Kurulum dili config dosyasında, panelde değil** | **A5** (kullanıcı: "ilerleyen zamanlarda"; kayıttaki ilk **dinamik** enum olacak — diller derlemeye bağlı) |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
@@ -973,6 +1016,90 @@ takımı da yeşil bırakıp yarışı geri getirirdi.
 fan-out `cmd/collector` (11) — bir binary'nin her şeyi bağlaması
 beklenen şey. `internal/panel`'i yalnız iki yer import ediyor:
 `cmd/panel` ve `internal/panel/web`.
+
+---
+
+### AI.3 — Güvenlik denetimi (C3 sonrası ara iş) ✅ **bitti**
+
+**Neden burada:** *(kullanıcı isteği: "açık iç olmamalı ... en prestijli
+listelere göre bak hangi açıklar var bizde onları fixle")* — ama zamanı
+tesadüf değil. C2, C3 ve C4 bu panele **kimlik doğrulaması olmadan**
+internetten erişilebilen ilk yüzeyi verdi: giriş formu, davet bağlantısı,
+geliştirici bağlantısı, ilk çalıştırma sayfası. Bir faz önce yapılacak
+denetim daha küçük bir sistemi ve riskin çok daha küçük bir kısmını
+bulurdu.
+
+**Ölçüt:** OWASP Top 10 (2021), CWE Top 25, ve kendi barındırılan bir
+yönetim paneline uygulanan ASVS maddeleri. Sonuç `SECURITY.md`'de:
+düzeltilenler sınıflarıyla, **bakılıp doğru bulunanlar**, ve açık
+bırakılanlar.
+
+**Sıra:** önce `govulncheck`, sonra okuma. Aracın bir insandan daha iyi
+yaptığı tek kısım o ve denetimin en yüksek önemli iki bulgusunu bir
+dakikanın altında üretti.
+
+#### Düzeltilen sekiz bulgu
+
+| # | Bulgu | Sınıf |
+|---|---|---|
+| 1 | `pgx/v5` 5.7.6 — dolar-tırnaklı literal içinde `$1` yer tutucu sanılıyor; **parametreli sorguyu enjekte edilebilir hâle getiriyor**. `govulncheck` *erişilebilir* dedi: `api.Store.BeaconSites` | A06, CWE-89 |
+| 2 | `x/text` 0.24.0 — geçersiz girdide sonsuz döngü; `ui.Formatter.Title` üzerinden erişilebilir, ki panel bunu **kullanıcının yazdığı isme** uyguluyor | A06, CWE-835 |
+| 3 | Panel: her `POST` **kimlik doğrulamadan önce** sınırsız gövde okuyor. Ölçüldü: 64 MiB gövde ≈ 128 MiB heap — ve *sonra* CSRF jetonu yok diye reddediliyor | A05, CWE-770 |
+| 4 | Panel: ayar yazımı başarısız olunca pgx hata metni (kısıt adı, SQLSTATE, bazen sorgunun kendisi) müşterinin sayfasına basılıyor | A04, CWE-209 |
+| 5 | Panel: kimliksiz erişilen yollar `Store`'u kontrol etmeden kullanıyor — yanlış yapılandırılmış sunucu **uzaktan çöküyor** | CWE-476 |
+| 6 | API: tek bir SQL tanımlayıcısı interpolasyonla giriyor (Postgres'te sütun adı için yer tutucu yok) ve koruma "yalnız sabit geçirin" diyen bir **yorumdu** | CWE-89, gizil |
+| 7 | Panel: aşırı büyük gövde "CSRF jetonunuz eskimiş" diye görünüyor — hata mesajı yanlış yeri gösteriyor | A09 |
+| 8 | Panel: yukarıdaki 413 **500 sayfasını** çiziyordu ("hata sunucu tarafında kaydedildi") — çünkü render katmanı sözü olmayan statü için sessizce geri düşüyor. Bu denetimin *kendi düzeltmesindeki* kusur; belgelenirken bulundu | A09 |
+
+1 ve 2 yükseltmeyle kapandı (modül Go 1.25'e taşındı). Bunu açıkça
+yazmak gerek: **denetimin en kötü iki maddesi bağımlılıklardaydı, burada
+kimsenin yazdığı kodda değil** — ve buna karşı savunma dikkat değil,
+aracı düzenli çalıştırmak.
+
+#### Alınan kararlar
+
+- **Gövde sınırı middleware, handler başına değil.** "Her handler
+  hatırlar" tam da burada bozulan özellik: pakette sekiz `ParseForm`
+  çağrısı var ve üç ayrı fazda, her seferinde başka bir şey düşünen biri
+  tarafından yazıldılar.
+- **`acceptPost`: önce ayrıştır, sonra jetonu kontrol et.** `CheckCSRF`
+  bir form alanı okuyor, yani gövdeye ilk dokunan oydu. Sıra düzeltilince
+  boyut hatası boyut olarak bildiriliyor (413), CSRF olarak değil (419).
+- **Sentinel, konvansiyon değil.** `ErrInvalidSetting` ile `errors.Is`
+  soruyor; konvansiyon her gelecek çağrı yerinin "bu hata insan için mi
+  yazıldı" sorusunu doğru tahmin etmesi demekti.
+- **`RequireStore` blanket middleware'i yanlış şekildi.** On bir render
+  testini bozdu ve bozma nedeni tam da yanlışlığın nedeni: **kendi
+  stil dosyasını sunamayan panel 503 sayfasını biçimsiz metin olarak
+  çiziyor.** Koruma `haveStore()` olarak her handler'ın satıra gerçekten
+  ihtiyaç duyduğu yere taşındı.
+- **Yorum yerine kapalı tip.** İnterpolasyonla giren sütun adı artık
+  dışa kapalı değerleri olan bir tip; istekten türeyen bir dize oraya
+  ulaşamıyor ve kontrolü atlayan yeni bir sütun **derlenmiyor**.
+
+#### Yanlış nedenle geçen iki test
+
+- **DoS testi kendi `strings.Repeat`'ini ölçtü** — 34 MB "büyüme"
+  gövdeyi ayıran testti. Akış yapan bir okuyucuya çevrildi, ve iddia da
+  değişti: sabit bir tavan değil (ilk şablon büyümesinde çürür),
+  **"maliyet gövde boyutuyla ölçeklenmeyi bırakıyor"**.
+- **CSRF testi 303'ü "oldu" saydı** — oysa giriş formuna yönlendirme bir
+  *reddir*. Artık 303 yalnız `Location` giriş yoluyla başlıyorsa kabul
+  ediliyor, ve test entegrasyon paketine taşındı: store'suz sunucu her
+  şeye 503 döndüğü için aynı test birim paketinde **tek bir handler'a
+  ulaşmadan** geçerdi.
+
+#### Açık bırakılanlar (ve etkiledikleri sayfada yazılı)
+
+- Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor — oturum
+  tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması demek.
+- 2FA kurtarma kodu yok; kurtarma sahip ya da işletmeci eliyle.
+- Global eşzamanlılık sınırı yok — her giriş denemesi bir argon2id
+  doğrulaması, sınır kuyruk değil throttle sayaçları.
+
+**Bitti ölçütü:** `govulncheck` temiz, sekiz bulgunun her biri kendi
+testini taşıyor, `go test -race ./...` ve entegrasyon paketi temiz,
+`SECURITY.md` yazıldı.
 
 ---
 
@@ -2075,8 +2202,32 @@ onun özel hâlleridir.
 ### 3.3 Tek ifadelik atomik durum geçişleri
 
 Son sahip koruması (`FOR UPDATE`), geliştirici erişimi kullanımı, TOTP
-adımı — hepsi tek ifade, ve eşzamanlı testlerle tam olarak bir
-kazananın olduğu doğrulandı.
+adımı, sahiplenme bağlantısının tüketilmesi — hepsi tek ifade, ve
+eşzamanlı testlerle tam olarak bir kazananın olduğu doğrulandı.
+
+### 3.4 Denetim: listeye karşı bakılır, hafızaya karşı değil ⚠️ **AI.3**
+
+Denetimin tamamı `SECURITY.md`'de. Buraya yalnız **kalıcı kural**
+düşenler yazılıyor:
+
+- **Bağımlılıklar okumayla denetlenmez.** `govulncheck` her yayından
+  önce çalışır. AI.3'ün en yüksek önemli iki bulgusu bağımlılıktaydı ve
+  ikisi de *erişilebilirdi*; hiçbir kod incelemesi ikisini de bulamazdı.
+  Biri (`pgx`'te yer tutucu karışması) bu belgedeki §3.1 kuralını **bir
+  katman altından** deliyordu.
+- **Her istek gövdesinin bir tavanı vardır.** Go'nun `ParseForm`'u
+  urlencoded gövdeyi sınırsız okur; sınır middleware'de, handler'da
+  değil. "Her handler hatırlar" burada bozulan özelliktir.
+- **Hata mesajı bir çıktıdır ve çıktının bir muhatabı vardır.** İnsana
+  yazılmış doğrulama mesajı ile sarmalanmış sürücü hatası aynı dönüş
+  değerinden geliyorsa, ayrımı **sentinel** yapar — konvansiyon değil.
+  Konvansiyon, her gelecek çağrı yerinin doğru tahmin etmesi demektir.
+- **Yorum, derleyicinin işini yapmaz.** Interpolasyonla SQL'e giren tek
+  tanımlayıcı kapalı bir tiptir; kontrolü atlayan yeni bir değer
+  derlenmez.
+- **Bir test yanlış nedenle geçebilir.** AI.3'te ikisi geçti: biri kendi
+  ayırdığı belleği ölçtü, biri de bir *reddi* başarı saydı. Yazarken
+  sorulacak soru "kod bozuk olsa bu iddia ne derdi".
 
 ---
 

@@ -65,8 +65,7 @@ func (s *Server) technicalDoorHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet, http.MethodHead:
 		s.Renderer.Render(w, r, http.StatusOK, "teknik", s.doorPage(r, lang, p))
 	case http.MethodPost:
-		if !s.Sessions.CheckCSRF(r) {
-			s.Renderer.ErrorIn(w, r, statusCSRFExpired, lang)
+		if !s.acceptPost(w, r, lang) {
 			return
 		}
 		// Recorded before the door opens, not after. Somebody who
