@@ -53,6 +53,22 @@ sites = ["mysite"]
 #
 # Leave empty when the beacon is exposed directly: forwarded headers are
 # then ignored entirely, which is the correct behavior.
+# MOVED TO THE PANEL (A5.1). Still read as the fallback, and still what
+# this process runs on when the database is unreachable - but once the
+# panel has a value, editing this line does nothing.
+#
+# This is the setting the repair catalogue puts at the top of its list,
+# and the reason is worth reading before you set it: behind a proxy, an
+# empty or wrong list here does not merely lose the visitor's address, it
+# makes every number derived from that address wrong at the same time -
+# visitor counts, geography, and the join back to the collector's data.
+# It is the most common real misconfiguration there is, and it used to
+# cost an SSH session to fix.
+#
+# To copy what is here into the panel, once:
+#
+#     panel -config panel.toml -migrate-settings beacon \
+#           -migrate-from /etc/crucible/beacon.toml
 trusted_proxies = ["127.0.0.1/32"]
 
 # Narrows CORS. Empty (the default) allows every origin, which is safe
@@ -75,7 +91,13 @@ batch_size = 500
 flush_interval_seconds = 2
 
 # Bounds this process's own resource use, exactly as the collector's
-# [limits] does. Zero or absent means no limit for that dimension.
+# # Also moved to the panel in A5.1, on the same terms as trusted_proxies
+# above: the file is the fallback, the panel is where a change is made.
+# The beacon's limits are their own settings, separate from the
+# collector's - the collector sees every connection to the site and this
+# sees only the visitors whose browser ran the snippet, so one number
+# could not honestly mean both.
+[limits] does. Zero or absent means no limit for that dimension.
 [limits]
 # max_concurrent_requests = 0
 # max_requests_per_second = 0

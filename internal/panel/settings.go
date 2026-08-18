@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -121,6 +122,71 @@ const (
 	KeyCampaignExtraParams Key = "campaign.extra_params"
 	// KeyCampaignStoreClickID keeps raw ad click identifiers. Live.
 	KeyCampaignStoreClickID Key = "campaign.store_click_ids"
+)
+
+// The two most expensive misconfigurations in this system, moved out of
+// the config file in A5.1.
+//
+// Both were chosen from the repair catalogue's own evidence rather than
+// from a guess about what would be convenient.
+const (
+	// KeyTrustedProxies lists the networks whose forwarded headers the
+	// beacon believes. Live.
+	//
+	// Named for the beacon rather than left generic, matching
+	// beacon.sites above. The prefix is not decoration: it says which
+	// process reads the value, and a key that does not say cannot be
+	// answered honestly when a second service grows the same concept.
+	//
+	// The catalogue says this one deserves the top of the list, and it
+	// is right: an empty list behind Cloudflare makes every visitor look
+	// like the same address, and that does not merely lose the address -
+	// it makes **every other number in the system wrong at the same
+	// time**, because visitor counts, geography and the crossover join
+	// are all derived from it. It is the most common real
+	// misconfiguration there is, and until now it cost an SSH session.
+	//
+	// Stored as text because a database column is text; never *treated*
+	// as text. Check parses every entry as a netip.Prefix before the
+	// value is written, and the service parses again before it is used -
+	// so a row edited by hand into something that is not a network
+	// cannot widen who gets believed.
+	KeyTrustedProxies Key = "beacon.trusted_proxies"
+)
+
+// The admission limits, per service. Catalogue #8, #9 and #10.
+//
+// **Per service, and that is not verbosity.** The first draft of this
+// made them one family read by both, which would have been a setting
+// that cannot mean what it says: the collector sees every connection to
+// the site, the beacon sees only the requests from visitors whose
+// browser ran the snippet. A ceiling that is right for one is wrong for
+// the other by an order of magnitude, and one number covering both would
+// be a number that is wrong somewhere no matter what it is set to.
+//
+// The prefix convention is already the one beacon.sites uses: the name
+// says which process reads it.
+const (
+	KeyCollectorMaxConcurrent  Key = "collector.limits.max_concurrent"
+	KeyCollectorMaxPerSecond   Key = "collector.limits.max_requests_per_second"
+	KeyCollectorOverloadPolicy Key = "collector.limits.overload_policy"
+	KeyCollectorThrottleQueue  Key = "collector.limits.throttle_queue_size"
+
+	KeyBeaconMaxConcurrent  Key = "beacon.limits.max_concurrent"
+	KeyBeaconMaxPerSecond   Key = "beacon.limits.max_requests_per_second"
+	KeyBeaconOverloadPolicy Key = "beacon.limits.overload_policy"
+	KeyBeaconThrottleQueue  Key = "beacon.limits.throttle_queue_size"
+)
+
+// The overload policies, mirroring limiter.Policy.
+//
+// Named here rather than imported so the panel's registry does not drag
+// in a package that belongs to the traffic path. The two lists agreeing
+// is asserted by a test.
+const (
+	OverloadFailOpen   = "fail_open"
+	OverloadFailClosed = "fail_closed"
+	OverloadThrottle   = "throttle"
 )
 
 // The analytics lifecycle settings.
@@ -284,6 +350,19 @@ var registry = map[Key]Definition{
 		Developer: true,
 		Live:      true,
 	},
+	KeyTrustedProxies: {
+		Key: KeyTrustedProxies, Scope: ScopeGlobal, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Güvenilen vekil ağları",
+		Help: "Cloudflare gibi bir vekilin arkasındaysanız onun ağlarını buraya yazın; " +
+			"yalnız bu ağlardan gelen ilettiği adrese inanılır. Liste boşken vekil " +
+			"arkasındaki her ziyaretçi aynı adres görünür ve panelinizdeki neredeyse " +
+			"her sayı yanlış olur. CIDR biçiminde, satır başına bir tane " +
+			"(örnek: 173.245.48.0/20). Boş bırakılırsa yapılandırma dosyasındaki liste geçerli.",
+		Developer: true,
+		Live:      true,
+		Check:     checkPrefixes,
+	},
 	KeyCampaignDropParams: {
 		Key: KeyCampaignDropParams, Scope: ScopeGlobal, Kind: KindStringList,
 		Default:   []string{},
@@ -404,7 +483,79 @@ var registry = map[Key]Definition{
 	},
 }
 
-// Lookup returns a setting's definition.
+// limitDefinitions builds one service's admission-limit family.
+//
+// Generated rather than written out twice. Eight near-identical literals
+// is eight chances for the collector's ceiling and the beacon's to drift
+// apart in their bounds or their wording, and the difference between the
+// two families is meant to be *which process reads them*, nothing else.
+//
+// service is the Turkish label the panel puts in front of each row, so a
+// customer looking at eight limit settings can tell at a glance which
+// four are which.
+func limitDefinitions(service string, concurrent, perSecond, policy, queue Key) []Definition {
+	return []Definition{
+		{
+			Key: concurrent, Scope: ScopeGlobal, Kind: KindInt,
+			Default: 0, Min: 0, Max: 100000,
+			Label: service + " — eşzamanlı istek sınırı",
+			Help: "Aynı anda işlenen bağlantı/istek sayısının üst sınırı. 0 sınırsız " +
+				"demektir ve yapılandırma dosyasındaki değere düşer.",
+			Developer: true, Live: true,
+		},
+		{
+			Key: perSecond, Scope: ScopeGlobal, Kind: KindInt,
+			Default: 0, Min: 0, Max: 1000000,
+			Label: service + " — saniyedeki istek sınırı",
+			Help: "Saniyede işlenen istek sayısının üst sınırı. 0 sınırsız demektir ve " +
+				"yapılandırma dosyasındaki değere düşer.",
+			Developer: true, Live: true,
+		},
+		{
+			Key: policy, Scope: ScopeGlobal, Kind: KindEnum,
+			Default: "",
+			Enum:    []string{"", OverloadFailOpen, OverloadFailClosed, OverloadThrottle},
+			Label:   service + " — sınır aşıldığında",
+			Help: "fail_open: trafiği geçirmeye devam eder, yalnız kaydı atlar — " +
+				"sitenizi asla durdurmaz, varsayılan budur. fail_closed: fazlasını " +
+				"reddeder, yani ziyaretçi siteye ulaşamaz. throttle: kuyruğa alır. " +
+				"Boş bırakılırsa yapılandırma dosyasındaki değer geçerli olur.",
+			Developer: true, Live: true,
+		},
+		{
+			Key: queue, Scope: ScopeGlobal, Kind: KindInt,
+			Default: 0, Min: 0, Max: 10000,
+			Label: service + " — kuyruk boyutu",
+			Help: "Yalnız throttle politikasında kullanılır. Kuyruk dolduğunda fazlası " +
+				"beklemeden reddedilir.",
+			Developer: true, Live: true,
+		},
+	}
+}
+
+func init() {
+	families := [][]Definition{
+		limitDefinitions("Collector",
+			KeyCollectorMaxConcurrent, KeyCollectorMaxPerSecond,
+			KeyCollectorOverloadPolicy, KeyCollectorThrottleQueue),
+		limitDefinitions("Beacon",
+			KeyBeaconMaxConcurrent, KeyBeaconMaxPerSecond,
+			KeyBeaconOverloadPolicy, KeyBeaconThrottleQueue),
+	}
+	for _, family := range families {
+		for _, def := range family {
+			if _, clash := registry[def.Key]; clash {
+				// A generated family colliding with a hand-written entry
+				// would silently replace it, and the replacement would be
+				// the one with the generic wording. Panicking at init is
+				// the right severity: it happens on every run, including
+				// the test run, and never in front of a customer.
+				panic("panel: duplicate setting key " + string(def.Key))
+			}
+			registry[def.Key] = def
+		}
+	}
+}
 func Lookup(key Key) (Definition, bool) {
 	def, ok := registry[key]
 	return def, ok
@@ -458,6 +609,31 @@ func Validate(key Key, value any) (any, error) {
 		return nil, fmt.Errorf("%w %q", ErrUnknownSetting, key)
 	}
 
+	canonical, err := canonicalise(def, key, value)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check runs here, once, for every Kind - not inside one branch of
+	// the switch.
+	//
+	// It used to live in the KindString case alone, which made
+	// Definition.Check's own documentation false for four kinds out of
+	// five: a validator attached to a list or an int was simply never
+	// called, and nothing said so. That is the worst shape a bug can
+	// take in a validation path, because the symptom is a value being
+	// accepted rather than an error, and it was found by a test that
+	// expected a bad network to be refused and watched it be stored.
+	if def.Check != nil {
+		if err := def.Check(canonical); err != nil {
+			return nil, invalidf("%s: %s", key, err)
+		}
+	}
+	return canonical, nil
+}
+
+// canonicalise applies the Kind's own rules and returns the stored form.
+func canonicalise(def Definition, key Key, value any) (any, error) {
 	switch def.Kind {
 	case KindInt:
 		n, err := toInt(value)
@@ -495,11 +671,6 @@ func Validate(key Key, value any) (any, error) {
 		}
 		if len(s) > 1024 {
 			return nil, invalidf("%s is too long (max 1024 characters)", key)
-		}
-		if def.Check != nil {
-			if err := def.Check(s); err != nil {
-				return nil, invalidf("%s: %s", key, err)
-			}
 		}
 		return s, nil
 
@@ -867,6 +1038,46 @@ func (s *Store) LogLifecycle(ctx context.Context) (archiveAfter, retention, impo
 //
 // Empty is allowed and means "use the config file's value", which is the
 // state every deployment starts in.
+// checkPrefixes refuses a trusted-proxy list that is not a list of
+// networks.
+//
+// The repair catalogue says this value is "netip.Prefix, never as text",
+// and a JSON column makes that impossible to honour literally - what it
+// can mean is that no value reaches the column without having been a
+// netip.Prefix first. This is where that happens.
+//
+// It matters more here than for most settings. Everything downstream -
+// the visitor count, the country, the crossover join - is derived from
+// whichever address this decides to believe, so a typo does not produce
+// an error, it produces a panel full of confident wrong numbers.
+//
+// A bare address is accepted and read as a single host, because that is
+// what somebody with one proxy will type and refusing it would be
+// pedantry.
+func checkPrefixes(value any) error {
+	entries, ok := value.([]string)
+	if !ok {
+		return errors.New("expected a list of networks")
+	}
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			return errors.New("the list has an empty line in it")
+		}
+		if strings.Contains(entry, "/") {
+			if _, err := netip.ParsePrefix(entry); err != nil {
+				return fmt.Errorf("%q is not a network (try 173.245.48.0/20)", entry)
+			}
+			continue
+		}
+		if _, err := netip.ParseAddr(entry); err != nil {
+			return fmt.Errorf("%q is neither an address nor a network "+
+				"(try 173.245.48.0/20, or a single address)", entry)
+		}
+	}
+	return nil
+}
+
 func checkTimezone(value any) error {
 	name, _ := value.(string)
 	if name == "" {

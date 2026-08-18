@@ -2980,3 +2980,132 @@ so a single legal 500-character word must wrap rather than push the page
 sideways. That is not something the browser test can see — no policy
 violation, no console error, just a page that looks wrong — which is
 worth remembering about what browser tests do and do not cover.
+
+## Moving a setting out of a file without losing what the file said
+
+A5 is the plan's most critical item because thirty-nine repair
+operations assume "a setting you can change while running", and until
+now most of them could not be. This phase does the mechanism and the two
+families the repair catalogue's own evidence puts first — not a guess
+about what would be convenient, but the catalogue's words: *"an empty
+list behind Cloudflare shows every visitor as the same address and makes
+every other number in the system wrong at the same time."*
+
+### Reconciling two rules that looked contradictory
+
+A5 says a migrated value is "ignored from the file thereafter". A6 says
+a failed read must keep the last known values, never fall back to
+defaults, because silently resetting a customer's tuning is worse than a
+stale value and far harder to notice.
+
+Take both literally and they conflict: if the file is ignored, a process
+that starts while the database is unreachable has only the built-in
+defaults — exactly the silent reset A6 forbids.
+
+They reconcile once you see they describe different things. **In code
+the file is always the fallback**: stored row, else file, else built-in
+default, each layer narrower than the last. **The migration writes the
+row once**, and from then on the row wins — so editing the file changes
+nothing, which is what "ignored" means in practice. Nothing is deleted;
+a migration that edits somebody's config file is a migration that can
+corrupt it.
+
+The part that needs saying out loud, and that the command prints every
+time it runs, is the consequence: *the file is still the fallback, it
+has simply stopped being where the value is changed*. Without that
+sentence somebody edits the file, restarts, sees no change, and
+concludes the software is broken — the same lesson A7.6 taught from the
+other direction.
+
+### The migration is a shell command, and that is not laziness
+
+The collector's database role may only `SELECT` on `panel_settings`.
+Widening it so the service could migrate its own settings would hand a
+compromised collector the power to change the retention period and the
+IP storage mode — the two settings sitting behind the developer password
+precisely because they carry legal weight.
+
+So it runs as the panel, from a shell, once: the same shape as applying
+the schema, minting a developer link, minting an owner invitation. Work
+that needs authority the service does not have is work a person does at
+a prompt.
+
+It reads the TOML generically rather than through each service's config
+loader. That keeps the panel's binary from linking the beacon's HTTP
+server, and it keeps the command honest about its own scope: it reads
+the keys it knows how to move, it does not validate somebody's whole
+deployment. Validation is the registry's job and every value goes
+through it.
+
+Three rules, and the first is the one that matters: **an existing row is
+never overwritten**. Undoing a value somebody set in the panel, using a
+line in a file they had forgotten about, would be invisible — the panel
+would go on presenting the setting as theirs while showing a number
+nobody chose.
+
+### One setting cannot mean two things
+
+The first draft made `limits.*` a single family read by both services.
+That would have been a number that cannot mean what it says: the
+collector sees every connection to the site, the beacon sees only the
+visitors whose browser ran the snippet. A ceiling right for one is wrong
+for the other by an order of magnitude, and one number covering both is
+wrong somewhere no matter what it is set to.
+
+They are now `collector.limits.*` and `beacon.limits.*` — the prefix
+convention `beacon.sites` already established, where the name says which
+process reads it. Eight registry entries generated from one function
+rather than written twice, because the difference between the two
+families is meant to be *which process reads them* and nothing else.
+
+### Three things this phase found that were already broken
+
+**`Definition.Check` was dead for four Kinds out of five.** Its own
+documentation says it "runs after the Kind's own checks, on the
+canonical form". It was called inside the `KindString` branch of the
+switch and nowhere else, so a validator attached to a list, an int, a
+bool or an enum was never called at all.
+
+It surfaced the worst possible way — a test expecting a malformed
+network to be refused, watching it be stored — which is what a dead
+validator always looks like: not an error, an *acceptance*. `Check` now
+runs once after the switch for every Kind, and a test walks all five
+rather than the ones a setting happens to use today.
+
+**A test cleanup that silently did nothing.** The live-settings tests
+opened a pool with `defer pool.Close()` and registered row deletions
+with `t.Cleanup`. Deferred calls run when the function returns;
+`t.Cleanup` functions run *after* that. So the close happened first,
+every delete ran against a closed pool, and the error was discarded —
+four rows survived the suite, and the next test read one of them and
+failed claiming the two services shared a setting. A cleanup that
+quietly does nothing is worse than no cleanup, because the suite goes on
+looking tidy. The pool's close is a cleanup now too, so ordering is LIFO
+and the deletes run first.
+
+**A test that asserted something about the rest of the suite.** The
+migration's audit check walked every `setting.migrated` entry and
+required each to name *this* test's file. Leftovers from an interrupted
+run made it fail for a reason that had nothing to do with the code. It
+now looks only at entries from its own file — and `clearMigrated` clears
+before as well as after, because cleaning only on the way out makes a
+suite that passes or fails depending on how the previous one ended.
+
+### What the limiter needed, and what it deliberately did not get
+
+`limiter.Config` was a plain struct read field by field on every
+decision. It is now behind an atomic pointer, loaded **once per
+`Admit`** and passed down. Reading the pointer again further down would
+let a config change land between two checks and produce a decision made
+half under the old limits and half under the new — a state nobody
+configured and nobody could reproduce afterwards.
+
+A caller already queued under `throttle` keeps the config it started
+under. That is deliberate rather than an oversight: finishing under a
+different set of rules is how a queued request gets rejected by a limit
+that did not exist when it started waiting.
+
+The collector also gained a live settings reader here, which it had
+never had. That closes the standing risk in the plan — that the two
+tables this system writes were configured from two different places —
+and it means A5.2's remaining keys are wiring rather than architecture.

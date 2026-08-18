@@ -979,6 +979,72 @@ manual-step list are still Turkish only: they live beside the rule that
 produces them rather than in the language packs, and moving them is
 recorded as open work in `PLAN.md`.
 
+### Settings that used to need SSH
+
+Some of what a deployment needs to change while it is running started
+life in a config file, where changing it meant a shell, an editor and a
+restart. Those are moving into the panel's settings table, and the two
+that moved first were chosen from the repair catalogue's own evidence
+rather than from what would be convenient:
+
+- **`beacon.trusted_proxies`** — the networks whose forwarded headers
+  are believed. Behind a proxy, an empty or wrong list does not merely
+  lose the visitor's address: it makes every number derived from that
+  address wrong at the same time — visitor counts, geography, and the
+  join back to the collector's data. It is the most common real
+  misconfiguration there is.
+- **The admission limits**, per service, for both the collector and the
+  beacon: the ceiling, the rate, the overload policy and the throttle
+  queue. "The collector itself is the bottleneck" is a thing you fix
+  during an incident, and an incident is the worst possible moment to be
+  asked for a restart.
+
+The limits are **per service and not shared**, because one number could
+not honestly mean both: the collector sees every connection to the site,
+the beacon only the visitors whose browser ran the snippet.
+
+**A value resolves in three layers, each narrower than the last:** the
+stored row if there is one, else the config file, else the built-in
+default. The file never stops being the fallback — which is what makes
+an unreachable settings table a non-event rather than a silent reset of
+somebody's tuning.
+
+Reading them needs one grant, deliberately minimal, and a deployment may
+simply not give it:
+
+```sql
+GRANT SELECT ON panel_settings TO collector;   -- and to the beacon's role
+```
+
+Without it nothing breaks: each process runs on its config file exactly
+as before, and says so in its log. With it, a change takes effect within
+one polling interval and no restart.
+
+#### Moving what a file already says
+
+An existing deployment's tuning has to survive the move. One command
+copies it in:
+
+```bash
+panel -config panel.toml -migrate-settings collector \
+      -migrate-from /etc/crucible/config.toml
+```
+
+It **never overwrites a value somebody already set in the panel**, it
+reports what it skipped and why, and every value it moves is recorded in
+the audit log with the file and the line it came from — so a year later
+a migrated value is distinguishable from one somebody chose.
+
+It is a shell command rather than something a service does at startup,
+and that is not an accident: the collector's database role may only read
+that table. A service that could write it could change the retention
+period and the IP storage mode, which sit behind the developer password
+precisely because they carry legal weight.
+
+Do not delete the file afterwards. It is still the fallback; it has
+simply stopped being where the value is changed. Once the panel has a
+value, editing the file does nothing.
+
 ### Letting a developer back in
 
 Once a deployment has an owner, a developer link is inert until that

@@ -55,6 +55,12 @@ func main() {
 		"mint a one-time invitation for this email address, print it, and exit")
 	devReason := flag.String("dev-reason", "kurulum",
 		"why this developer link is being requested; recorded in the audit log")
+	migrate := flag.String("migrate-settings", "",
+		"copy the settings that have moved out of a service's config file into the "+
+			"database, then exit; give it a service name ("+strings.Join(panel.MigratableServices(), ", ")+
+			") and point -migrate-from at that service's file")
+	migrateFrom := flag.String("migrate-from", "",
+		"the config file -migrate-settings reads")
 	baseURL := flag.String("base-url", "",
 		"the address the panel is reached at, for the printed link (default http://<listen_addr>)")
 	flag.Parse()
@@ -133,6 +139,12 @@ func main() {
 	if *ownerLink != "" {
 		if err := printOwnerLink(ctx, store, cfg, *baseURL, *ownerLink); err != nil {
 			fatal(logger, "owner link", err)
+		}
+		return
+	}
+	if *migrate != "" {
+		if err := migrateSettings(ctx, store, *migrate, *migrateFrom); err != nil {
+			fatal(logger, "settings migration", err)
 		}
 		return
 	}
@@ -321,5 +333,50 @@ func printOwnerLink(ctx context.Context, store *panel.Store, cfg web.Config, bas
 	fmt.Println("gösterilemez. Kullanan kişi parolasını belirler, hesabı oluşur ve")
 	fmt.Println("yapılandırılmış her sitenin sahibi olur.")
 	fmt.Printf("Geçerlilik süresi: %s\n", claim.ExpiresAt.Format("2006-01-02 15:04 MST"))
+	return nil
+}
+
+// migrateSettings copies a service's config-file values into the
+// settings table and reports what it did.
+//
+// The report goes to stdout, line per key, because this is a command a
+// person runs once and reads. It says what it skipped as loudly as what
+// it wrote: "nothing happened" and "nothing needed to happen" look
+// identical from a silent command, and only one of them is fine.
+func migrateSettings(ctx context.Context, store *panel.Store, service, path string) error {
+	if path == "" {
+		return fmt.Errorf("-migrate-settings needs -migrate-from pointing at %s's config file", service)
+	}
+
+	outcomes, err := store.MigrateSettings(ctx, service, path)
+	if err != nil {
+		return err
+	}
+
+	written := 0
+	for _, o := range outcomes {
+		switch {
+		case o.Written:
+			written++
+			fmt.Printf("  taşındı  %-45s %v  (%s içindeki %s)\n", o.Key, o.Value, path, o.From)
+		default:
+			fmt.Printf("  atlandı  %-45s %s\n", o.Key, o.Skipped)
+		}
+	}
+
+	fmt.Println()
+	if written == 0 {
+		fmt.Println("Veritabanına yazılan yeni bir ayar yok.")
+	} else {
+		fmt.Printf("%d ayar veritabanına taşındı ve denetim kaydına yazıldı.\n", written)
+	}
+	// Said every time, including when nothing moved. The one thing an
+	// operator is likely to assume is that the file no longer matters,
+	// and the truth is the other way round: the file is still the
+	// fallback, it has simply stopped being where the value is changed.
+	fmt.Println()
+	fmt.Println("Dosya silinmedi ve silinmemeli: veritabanı okunamadığında hâlâ geri düşülen")
+	fmt.Println("değer odur. Değişiklikler artık panelden yapılır — dosyayı düzenlemek,")
+	fmt.Println("veritabanında bir satır varken hiçbir şeyi değiştirmez.")
 	return nil
 }

@@ -137,6 +137,7 @@ type Server struct {
 	liveCampaign atomic.Pointer[CampaignPolicy]
 	liveSites    atomic.Pointer[[]string]
 	liveIPMode   atomic.Pointer[privacy.IPMode]
+	liveClientIP atomic.Pointer[ClientIPResolver]
 
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
@@ -247,7 +248,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 
 	s.logForwardedClaim(r)
 
-	ip, ok := s.ClientIP.ClientIP(r)
+	ip, ok := s.clientIP().ClientIP(r)
 	if !ok {
 		// Without an address there is no visitor ID and no join key, so
 		// the row would be worth very little and would still cost a
@@ -422,7 +423,7 @@ func (s *Server) logForwardedClaim(r *http.Request) {
 		return
 	}
 	peer, _ := peerIP(r.RemoteAddr)
-	if s.ClientIP.trusts(peer) {
+	if s.clientIP().trusts(peer) {
 		return
 	}
 	s.logger().Debug("beacon: forwarding header ignored",
@@ -460,6 +461,35 @@ func (s *Server) campaignPolicy() CampaignPolicy {
 		return *live
 	}
 	return s.Campaign
+}
+
+// SetTrustedProxies swaps the networks whose forwarded headers are
+// believed.
+//
+// The repair catalogue puts this at the top of its list, and the reason
+// is worth restating where the code is: an empty list behind a proxy
+// does not merely lose the client address, it makes every number
+// derived from that address wrong at once - visitor counts, geography,
+// and the join back to traffic_snapshots. It is the most common real
+// misconfiguration there is, and the person who can see that the
+// numbers are wrong is rarely the person with a shell.
+//
+// The prefixes arrive parsed. A string that is not a network never
+// reaches here: the panel refuses it at the write, and the caller
+// parses again before calling this - so a row edited by hand cannot
+// quietly widen who gets believed.
+func (s *Server) SetTrustedProxies(prefixes []netip.Prefix) {
+	out := make([]netip.Prefix, len(prefixes))
+	copy(out, prefixes)
+	s.liveClientIP.Store(&ClientIPResolver{TrustedProxies: out})
+}
+
+// clientIP is the resolver in force right now.
+func (s *Server) clientIP() ClientIPResolver {
+	if live := s.liveClientIP.Load(); live != nil {
+		return *live
+	}
+	return s.ClientIP
 }
 
 // SetIPMode swaps how much of each address is stored.

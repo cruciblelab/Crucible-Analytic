@@ -72,7 +72,12 @@ type Config struct {
 
 // Limiter is safe for concurrent use.
 type Limiter struct {
-	cfg Config
+	// cfg is replaced wholesale by SetConfig rather than mutated field
+	// by field. A limiter reading a half-updated config could reject
+	// traffic under a maximum from one setting and a policy from
+	// another - a combination nobody configured and nobody could
+	// reproduce.
+	cfg atomic.Pointer[Config]
 
 	current atomic.Int64
 	waiting atomic.Int64
@@ -84,11 +89,33 @@ func New(cfg Config) *Limiter {
 	return newLimiter(cfg, time.Second)
 }
 
+// SetConfig replaces the limits a running Limiter enforces.
+//
+// This is what makes limits a panel setting rather than a file edit and
+// a restart. The catalogue's entries #8, #9 and #10 are all this call:
+// "the collector itself is the bottleneck" is a thing to fix during an
+// incident, and an incident is the worst possible time to be asked for
+// a restart.
+//
+// A decision already in flight keeps the config it started under - see
+// Admit. That is deliberate: a caller queued under PolicyThrottle
+// should finish being throttled, not discover halfway through that the
+// rules changed.
+func (l *Limiter) SetConfig(cfg Config) {
+	l.cfg.Store(&cfg)
+}
+
+// Config returns the limits currently in force, for a service that wants
+// to log what it is running on.
+func (l *Limiter) Config() Config { return *l.cfg.Load() }
+
 // newLimiter is New with an overridable rate window, so tests can use a
 // short window instead of waiting on real 1-second boundaries. The public
 // New always uses a real second, matching MaxRequestsPerSecond's name.
 func newLimiter(cfg Config, rateWindow time.Duration) *Limiter {
-	return &Limiter{cfg: cfg, rate: newGlobalRateCounter(rateWindow)}
+	l := &Limiter{rate: newGlobalRateCounter(rateWindow)}
+	l.cfg.Store(&cfg)
+	return l
 }
 
 // Admit should be called once per connection (passthrough mode) or once
@@ -120,15 +147,21 @@ func newLimiter(cfg Config, rateWindow time.Duration) *Limiter {
 // passes the request's own context, which is cancelled if the client
 // disconnects while queued.
 func (l *Limiter) Admit(ctx context.Context) (Decision, func()) {
-	if d, release := l.tryProceed(); d == DecisionProceed {
+	// One snapshot, taken once and used for the whole decision. Reading
+	// the pointer again further down would let a config change land
+	// between two checks and produce a decision made half under the old
+	// limits and half under the new.
+	cfg := l.cfg.Load()
+
+	if d, release := l.tryProceed(cfg); d == DecisionProceed {
 		return d, release
 	}
 
-	switch l.cfg.Policy {
+	switch cfg.Policy {
 	case PolicyFailClosed:
 		return DecisionReject, nil
 	case PolicyThrottle:
-		return l.throttleWait(ctx)
+		return l.throttleWait(ctx, cfg)
 	default: // PolicyFailOpen, and the zero value of Policy
 		l.current.Add(1) // still counted, for accurate load observability, just not gated on
 		return DecisionDegrade, l.release
@@ -138,33 +171,33 @@ func (l *Limiter) Admit(ctx context.Context) (Decision, func()) {
 // tryProceed makes one non-blocking attempt to acquire a concurrency slot
 // under both limits. It never blocks and never applies Policy - callers
 // interpret a non-Proceed result themselves.
-func (l *Limiter) tryProceed() (Decision, func()) {
-	if l.overRate() {
+func (l *Limiter) tryProceed(cfg *Config) (Decision, func()) {
+	if l.overRate(cfg) {
 		return DecisionReject, nil
 	}
-	if l.tryAcquire() {
+	if l.tryAcquire(cfg) {
 		return DecisionProceed, l.release
 	}
 	return DecisionReject, nil
 }
 
-func (l *Limiter) overRate() bool {
-	if l.cfg.MaxRequestsPerSecond <= 0 {
+func (l *Limiter) overRate(cfg *Config) bool {
+	if cfg.MaxRequestsPerSecond <= 0 {
 		return false
 	}
 	now := time.Now()
 	l.rate.record(now)
-	return l.rate.rate(now) > float64(l.cfg.MaxRequestsPerSecond)
+	return l.rate.rate(now) > float64(cfg.MaxRequestsPerSecond)
 }
 
-func (l *Limiter) tryAcquire() bool {
-	if l.cfg.MaxConcurrentConnections <= 0 {
+func (l *Limiter) tryAcquire(cfg *Config) bool {
+	if cfg.MaxConcurrentConnections <= 0 {
 		l.current.Add(1)
 		return true
 	}
 	for {
 		cur := l.current.Load()
-		if cur >= int64(l.cfg.MaxConcurrentConnections) {
+		if cur >= int64(cfg.MaxConcurrentConnections) {
 			return false
 		}
 		if l.current.CompareAndSwap(cur, cur+1) {
@@ -177,18 +210,18 @@ func (l *Limiter) release() {
 	l.current.Add(-1)
 }
 
-func (l *Limiter) throttleWait(ctx context.Context) (Decision, func()) {
-	if l.cfg.ThrottleQueueSize <= 0 {
+func (l *Limiter) throttleWait(ctx context.Context, cfg *Config) (Decision, func()) {
+	if cfg.ThrottleQueueSize <= 0 {
 		return DecisionReject, nil
 	}
 
 	waiting := l.waiting.Add(1)
 	defer l.waiting.Add(-1)
-	if waiting > int64(l.cfg.ThrottleQueueSize) {
+	if waiting > int64(cfg.ThrottleQueueSize) {
 		return DecisionReject, nil
 	}
 
-	if d, release := l.tryProceed(); d == DecisionProceed {
+	if d, release := l.tryProceed(cfg); d == DecisionProceed {
 		return d, release
 	}
 
@@ -199,7 +232,12 @@ func (l *Limiter) throttleWait(ctx context.Context) (Decision, func()) {
 		case <-ctx.Done():
 			return DecisionReject, nil
 		case <-ticker.C:
-			if d, release := l.tryProceed(); d == DecisionProceed {
+			// Still cfg, not a fresh load. A caller that joined this
+			// queue joined it under a particular set of limits, and
+			// finishing under a different set is how a queued request
+			// gets rejected by a rule that did not exist when it
+			// started waiting.
+			if d, release := l.tryProceed(cfg); d == DecisionProceed {
 				return d, release
 			}
 		}

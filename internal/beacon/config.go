@@ -2,6 +2,7 @@ package beacon
 
 import (
 	"fmt"
+	"net/netip"
 	"os"
 	"regexp"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
@@ -342,4 +344,71 @@ func (r RetentionConfig) Interval() time.Duration {
 		return time.Duration(r.IntervalHours) * time.Hour
 	}
 	return time.Hour
+}
+
+// LiveTrustedProxies resolves the trusted-proxy list, preferring the
+// panel's setting over the config file.
+//
+// The parse happens here, on the way out of the settings table, and a
+// list that does not parse is refused **whole** rather than filtered.
+// Half-applying it would be the worst available outcome: the panel
+// would show three networks, the beacon would trust two, and the
+// numbers would be wrong in a way nobody could explain from either
+// side. Refusing whole leaves the file's list in force, which is what
+// the deployment already had.
+//
+// The error is returned rather than logged here so the caller can say
+// it once, with the values, at the level it thinks right - see
+// cmd/beacon.
+func (c Config) LiveTrustedProxies(src *settings.Source) ([]netip.Prefix, error) {
+	entries := c.TrustedProxies
+	if src != nil {
+		entries = src.Strings(settings.KeyTrustedProxies, "", c.TrustedProxies)
+	}
+	return ParseTrustedProxies(entries)
+}
+
+// LiveLimits resolves the admission limits, preferring the panel's
+// settings over the config file, field by field.
+//
+// Field by field rather than all-or-nothing because these four are
+// independent: raising the concurrency ceiling during an incident should
+// not require also restating the policy, and a deployment that has only
+// ever set one of them in the panel should keep the file's values for
+// the other three.
+//
+// An unrecognised policy falls back to the file's, then to fail_open.
+// The default that cannot take a site down is the one an unreadable
+// value lands on.
+func (c LimitsConfig) LiveLimits(src *settings.Source) limiter.Config {
+	cfg := limiter.Config{
+		MaxConcurrentConnections: c.MaxConcurrentRequests,
+		MaxRequestsPerSecond:     c.MaxRequestsPerSecond,
+		Policy:                   limiter.Policy(c.OverloadPolicy),
+		ThrottleQueueSize:        c.ThrottleQueueSize,
+	}
+	if src == nil {
+		return cfg
+	}
+
+	cfg.MaxConcurrentConnections = src.Int(settings.KeyBeaconMaxConcurrent, "",
+		cfg.MaxConcurrentConnections, 0, 100000)
+	cfg.MaxRequestsPerSecond = src.Int(settings.KeyBeaconMaxPerSecond, "",
+		cfg.MaxRequestsPerSecond, 0, 1000000)
+	cfg.ThrottleQueueSize = src.Int(settings.KeyBeaconThrottleQueue, "",
+		cfg.ThrottleQueueSize, 0, 10000)
+
+	// "" is a real stored value here and means "the file decides", which
+	// is why it is in the admissible set rather than being treated as
+	// absent: a customer who set a policy and then cleared the field is
+	// asking to go back to what was configured, not to keep their last
+	// choice forever.
+	policy := src.String(settings.KeyBeaconOverloadPolicy, "", string(cfg.Policy),
+		[]string{"", string(limiter.PolicyFailOpen), string(limiter.PolicyFailClosed),
+			string(limiter.PolicyThrottle)})
+	if policy == "" {
+		policy = c.OverloadPolicy
+	}
+	cfg.Policy = limiter.Policy(policy)
+	return cfg
 }

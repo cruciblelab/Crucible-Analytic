@@ -26,7 +26,7 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-18 (C4, C3, AI.3 güvenlik denetimi, C5 sonrası). Bu
+*Son güncelleme: 2026-08-18 (C4, C3, AI.3, C5, A5.1 sonrası). Bu
 bölüm her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
 kaldık" sorusunu cevaplar.*
 
@@ -63,7 +63,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **9/13** | A2, A3, A5.2, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **7/9** | C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
@@ -166,6 +166,14 @@ düzeltmekten ucuz.)*
   (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
   Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
   handler yeteneği ayrıca soruyor
+- **A5.1** Ayar göçünün mekanizması ve en pahalı iki yanlış
+  yapılandırma — dosya **her zaman geri düşüş katmanı** kalıyor (satır →
+  dosya → gömülü varsayılan), göç satırı bir kez yazıyor ve o andan
+  sonra satır kazanıyor. Göç bir kabuk komutu, çünkü servisin rolü
+  `panel_settings`'e yazamaz ve **yazamamalı**. Var olan satırın üstüne
+  asla yazmıyor. `beacon.trusted_proxies` (kataloğun en üst maddesi) ve
+  limitler **servis başına** canlı; collector'ın canlı ayar okuyucusu
+  burada yazıldı
 - **C5** Geliştirici erişimi onay ekranı — C2 bir kural yazmış ve o
   kurala uymanın yolunu bırakmamıştı: istek, sayfası olmayan bir tabloda
   duruyordu. Kapı `ownsAnySite` **değil** — kullanılmış bir bağlantı
@@ -185,12 +193,14 @@ düzeltmekten ucuz.)*
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
-   göç olmadan çoğu ayar hâlâ SSH ister. Kayıttaki ilk *dinamik* enum
+1. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
+   de açtı, yani bunlar mimari değil kablolama: `[asn_lookup]`'ın
+   tamamı, `[cache]`, `storage.flush_interval_seconds`, beacon
+   tampon/parti boyutları, bot skor eşiği. Kayıttaki ilk *dinamik* enum
    (panel dili) da burada.
 2. **AI.4 — kimlik ve ayar ailelerinin bölünmesi.** AI.2'nin C4'e
    ertelediği kesim; C4 o tipleri son şekline soktuğu için borç vadesi
-   geldi. `internal/panel` ~4.100 satır.
+   geldi. `internal/panel` ~4.400 satır.
 3. **C6/C7 — görünür kart seti, boş durumlar ve e-posta yolu.** C6 D
    grubuna bağlı (gösterilecek kart henüz yok); C7'nin e-posta yolu
    davet akışının kalan yarısı.
@@ -202,11 +212,11 @@ düzeltmekten ucuz.)*
 | **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe** | açık (`CheckResult.ID` anahtara çevrilebilir; `Detail` dinamik) |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
-| **Collector'da mod ve saklama süresi yalnız dosyadan okunuyor** | **A6-devam** (beacon canlı; collector'ın canlı ayar okuması hiç yok — iki tablo şu an iki ayrı yerden yapılandırılıyor) |
+| **Collector'da saklama süresi yalnız dosyadan okunuyor** | **A5.2** (A5.1 collector'a canlı okuyucuyu ekledi; saklama henüz o yoldan geçmiyor, yani `beacon_events` paneli izliyor `traffic_snapshots` izlemiyor) |
 | **Saklama değişikliği en geç bir saat içinde etkili** | bilinçli — uygulamak idempotent ama kısa saklamalı site için her turda satır silme demek; dakikada bir çalıştırmak boşuna tarama olurdu |
 | **Mod değişiminin tarihi denetim kaydından okunmalı** | **D5** (mekanizma hazır: `ActionSettingChanged` eski değeri taşıyor) |
-| `logs.level` yalnız beacon'da bağlı | A6-devam |
-| Collector tarafı canlı ayarlar (limit, geo, skor, flush) | A6-devam |
+| `logs.level` yalnız beacon'da bağlı | **A5.2** (collector'un canlı okuyucusu artık var, log seviyesi henüz o yoldan geçmiyor) |
+| Collector tarafı canlı ayarlar (geo, skor, flush) — **limitler A5.1'de bağlandı** | A5.2 |
 | Sıkıştırılmış log görüntüleyicide açılmalı | B1 |
 | Bakım yalnız açılışta çalışıyor | B3 |
 | Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
@@ -553,6 +563,148 @@ taşınan ayar için "dosyada yoksa veritabanından okunur" testi; geriye
 dönük uyumluluk — eski dosyadaki değer varsa bir kez veritabanına
 göç ettirilip dosyadan yok sayılır ve bu bir denetim kaydı üretir.
 
+##### A5 ikiye bölünüyor, ve nedeni
+
+A5'in iki yarısı gerçekten farklı işler. **Mekanizma** (bir ayarın
+dosyadan veritabanına nasıl taşındığı, mevcut bir kurulumun ayarını
+sessizce kaybetmeden) bir *tasarım* işi ve 4 anahtar için de 40 anahtar
+için de aynı iş. **Anahtarların kendisi** ise sıralı kablolama: her biri
+kendi "canlı olabilir mi" kararını ve kendi testini istiyor, ama
+birbirlerinden bağımsızlar.
+
+Mekanizma yanlış yapılırsa anahtarların hiçbiri işe yaramaz. Anahtarların
+**bir kısmı** yapılırsa hiçbir şey bozulmaz. Bölme buradan geçiyor.
+
+**Hangi anahtarlar önce:** tahminle değil, §4'ün kendi kanıtıyla. Onarım
+kataloğu 7 numara için şunu yazıyor: *"Katalogda en üstte olmayı hak
+ediyor: Cloudflare arkasında boş liste, her ziyaretçiyi aynı IP gösterir
+ve sistemdeki diğer her sayıyı aynı anda yanlışlar."* Sonra 8/9/10
+(limitler). A5.1 bunları alıyor.
+
+---
+
+#### A5.1 — Mekanizma, ve en pahalı iki yanlış yapılandırma ✅ **yapıldı**
+
+**Kapsam:**
+
+1. **Göç komutu ve denetim izi.** A5'in kendi bitti-ölçütü #3.
+2. **`beacon.trusted_proxies`** — kataloğun kendi ifadesiyle en üstte
+   olmayı hak eden madde. Canlı; `Check` her girdiyi `netip.Prefix`
+   olarak ayrıştırıyor.
+3. **`limits.*`** (dört anahtar) — katalog 8, 9, 10. Beacon **ve**
+   collector'da canlı.
+4. **Collector'ın canlı ayar okuyucusu** — bugün *hiç yok*, ve
+   limitler onsuz canlı olamaz. Açık risk listesindeki "iki tablo iki
+   ayrı yerden yapılandırılıyor" maddesi burada kapanıyor.
+
+**Göç tasarımı: A6'nın kuralıyla A5'in ifadesini bağdaştırmak.**
+
+A5 "dosyadaki değer bir kez göç ettirilir ve **dosyadan yok sayılır**"
+diyor. A6 ise "okuma başarısız olursa **son bilinen değerler korunur**,
+varsayılana dönülmez — müşterinin ayarlarını sessizce sıfırlamak bayat
+bir ayardan kötüdür" diyor. İkisi ilk bakışta çelişiyor: dosya yok
+sayılırsa, açılışta veritabanı erişilemezse elde yalnız gömülü
+varsayılanlar kalır — tam da A6'nın yasakladığı sessiz sıfırlama.
+
+Çözüm, ikisinin farklı şeylerden bahsettiğini görmek:
+
+- **Kodda dosya her zaman geri düşüş katmanıdır.** Üç katman: satır
+  varsa veritabanı, yoksa dosya, o da yoksa gömülü varsayılan. Her
+  katman bir öncekinden dar. Bu zaten beacon'da çalışan desen
+  (`cfg.Campaign.Live(live)`).
+- **Göç, satırı bir kez yazar.** O andan sonra satır kazanır, yani
+  dosyayı düzenlemek hiçbir şey değiştirmez — A5'in "yok sayılır"ı
+  *etkide* doğru olur.
+- **Panel bunu söyler**, ve servis açılışta hangi değerin nereden
+  geldiğini loglar. Yoksa biri dosyayı düzenler, yeniden başlatır, ve
+  hiçbir şey olmaz — A7.6'nın "görünürlük ≠ yazılabilirlik" dersinin
+  aynısı, ters yönden.
+
+**Göçü kim çalıştırır.** Collector'ın rolü `panel_settings` üzerinde
+yalnız `SELECT` yapabiliyor (A6 kararı) — yani servis kendi ayarını göç
+ettiremez, ve **ettirememeli**: yazma yetkisi vermek, ele geçirilmiş bir
+collector'a saklama süresini ve IP saklama modunu değiştirme gücü
+verirdi. Bunlar geliştirici şifresinin arkasındaki ayarlar.
+
+O yüzden göç bir kabuk komutu: `panel -migrate-settings <servis>
+<dosya>`. Kurucu bir kez çalıştırır. Bu, projenin zaten kullandığı şekil
+— şemayı uygulamak, `-dev-link`, `-owner-link` da öyle: **servisin sahip
+olmadığı yetkiyi isteyen iş, kabuk komutudur.**
+
+Komut TOML'u **genel olarak** okur (`map[string]any`, bilinen yol → bilinen
+anahtar) — servisin config paketini import etmez. İki sebep: panelin
+binary'sine beacon sunucusunun tamamını bağlamamak, ve komutun ne
+yaptığını dürüst tutmak — *bildiği anahtarları* okur, dosyanın tamamını
+doğrulamaz. Doğrulamayı `panel.Validate` yapıyor zaten.
+
+**Üç kural, sırayla:**
+
+- **Var olan satırın üstüne asla yazmaz.** Panelden değiştirilmiş bir
+  değeri, unutulmuş bir dosya satırıyla geri almak, göçün yapabileceği
+  en kötü şey.
+- **Reddedilen değer atlanır ve söylenir**, yazılmaz.
+- **Her yazılan anahtar bir denetim kaydı üretir**, dosyanın yolu ve
+  değeriyle.
+
+**Bitti ölçütü:** taşınan her anahtar için "dosyada yoksa veritabanından
+okunur" testi; göçün var olan satırı ezmediği testi; canlı değişimin bir
+aralık içinde etki ettiği testi; veritabanı kesilirken son değerin
+korunduğu testi; `-race` temiz.
+
+##### Ne oldu
+
+**Bir ayar iki şey ifade edemez.** İlk taslak `limits.*`'ı iki servisin
+okuduğu tek aile yaptı. Bu, söylediğini ifade edemeyen bir sayı olurdu:
+collector siteye gelen her bağlantıyı görüyor, beacon yalnız tarayıcısı
+snippet'i çalıştıran ziyaretçileri. Biri için doğru olan tavan diğeri
+için bir büyüklük mertebesi yanlış, ve ikisini birden kapsayan tek sayı
+ne yapılırsa yapılsın bir yerde yanlış. Artık `collector.limits.*` ve
+`beacon.limits.*` — `beacon.sites`'ın zaten kurduğu, **adın hangi süreç
+okuyor onu söylediği** kural. Sekiz kayıt girdisi tek fonksiyondan
+üretiliyor; iki aile arasındaki fark yalnız "hangi süreç okuyor"
+olmalı, başka bir şey değil.
+
+**Zaten bozuk olan üç şey.** Hiçbiri bu fazda oluşmadı:
+
+1. **`Definition.Check` beş Kind'in dördünde ölüydü.** Kendi
+   dokümantasyonu "Kind'in kendi kurallarından sonra, kanonik biçim
+   üzerinde çalışır" diyor. Aslında `switch`'in yalnız `KindString`
+   dalında çağrılıyordu; listeye, tam sayıya, bool'a ya da enum'a
+   bağlanan bir doğrulayıcı **hiç çağrılmıyordu**. En kötü şekilde
+   ortaya çıktı: bozuk bir ağın reddedilmesini bekleyen bir test onun
+   saklandığını gördü — ölü bir doğrulayıcı her zaman böyle görünür,
+   hata olarak değil **kabul** olarak. Artık `switch`'ten sonra tek
+   yerde, her Kind için çalışıyor; test bugün kullanılanları değil beş
+   Kind'in hepsini dolaşıyor.
+2. **Sessizce hiçbir şey yapmayan bir test temizliği.** `defer
+   pool.Close()` fonksiyon dönerken, `t.Cleanup` ise ondan *sonra*
+   çalışır — yani havuz önce kapanıyor, satır silmeleri kapalı havuza
+   gidiyor ve hata `_` ile atılıyordu. Dört satır süiti aştı ve bir
+   sonraki test onlardan birini okuyup "iki servis aynı ayarı
+   paylaşıyor" diye patladı.
+3. **Süitin geri kalanı hakkında iddiada bulunan bir test.** Göçün
+   denetim kontrolü *bütün* `setting.migrated` kayıtlarını dolaşıp her
+   birinin bu testin dosyasını adlandırmasını istiyordu.
+
+**Limiter:** `Config` artık atomik işaretçinin arkasında ve **`Admit`
+başına bir kez** okunuyor. Aşağıda tekrar okumak, iki kontrol arasına
+düşen bir değişikliğin yarısı eski yarısı yeni sınırlarla verilmiş bir
+karar üretmesine izin verirdi — kimsenin yapılandırmadığı ve sonradan
+tekrar üretilemeyecek bir durum. Kuyruğa girmiş bir çağıran başladığı
+yapılandırmayla bitiriyor.
+
+**Collector'ın canlı ayar okuyucusu burada yazıldı** — daha önce hiç
+yoktu. Açık risk listesindeki "iki tablo iki ayrı yerden
+yapılandırılıyor" maddesi kapandı, ve A5.2'nin kalan anahtarları artık
+mimari değil kablolama.
+
+#### A5.2 — Kalan anahtarlar *(sonraki faz)*
+
+`[asn_lookup]`'ın tamamı, `[cache]`, `storage.flush_interval_seconds`,
+beacon tampon/parti boyutları, bot skor eşiği, analitik profili ve site
+başına derinlik. A5.1 canlı okuma yolunu açtığı için bunlar mimari değil
+kablolama — her biri bir kayıt girdisi, bir `Set*` ve bir test.
+
 ---
 
 #### A6 — Servislerin ayarı canlı okuması ✅ **mekanizma yapıldı, kablolama sürüyor**
@@ -596,8 +748,8 @@ başlayan süreç ayrıntılı olarak geri gelir; bozuk bir zaman damgası
 "açık değil" sayılır, çünkü hatalı bir değer bir kurulumu sonsuza kadar
 debug'da tutmamalı.
 
-**Kalan kablolama** (mekanik, A6-devam): collector limitleri, geo blok
-listeleri, bot skor eşiği, flush aralığı.
+**Kalan kablolama** (mekanik, A5.2): geo blok listeleri, bot skor eşiği,
+flush aralığı. Collector'ın canlı okuyucusu ve limitler A5.1'de yazıldı.
 
 ##### Eski not
 
@@ -2467,7 +2619,7 @@ olduğu** yazılıyor. Bir riski "kalan" diye bırakmak, onu unutmakla aynı
 | Doğrulanamayan 5 adım ayrı gösterilmeli | **C2.5** | `UncheckedSteps()` hazır; ayrı gösterme şablon işi |
 | Sıkıştırılmış log paneldeki görüntüleyicide açılmalı | **B1** | `.log.gz` okuma, log görüntüleyicinin parçası |
 | Bakım yalnız açılışta çalışıyor | **B3** | Uzun ömürlü süreç için onarım operasyonu; arka plan zamanlayıcısı bilerek reddedildi |
-| Collector tarafı canlı ayarlar (limitler, geo, skor eşiği, flush) | **A6-devam** | Mekanizma hazır, kablolama mekanik |
+| Collector tarafı canlı ayarlar (geo, skor eşiği, flush) — limitler A5.1'de bağlandı | **A5.2** | Okuyucu ve limitler yazıldı, kalanı mekanik |
 | `GRANT SELECT` elle veriliyor | **F2** | Kurulum betiği; preflight zaten uyarıyor |
 | Log hacmi ölçülmedi | **B4** | Sağlık sayfası zaten disk ve tablo boyutu gösterecek |
 | Anahtar listesi iki yerde | — | Bağımlılık tek yöne baksın diye bilinçli; test uyuşmayı yakalıyor |

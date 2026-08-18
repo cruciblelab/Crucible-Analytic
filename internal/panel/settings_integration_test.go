@@ -253,6 +253,17 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 		"campaign.store_click_ids",
 		"logs.level",
 		"privacy.ip_storage",
+
+		// A5.1.
+		"beacon.trusted_proxies",
+		"collector.limits.max_concurrent",
+		"collector.limits.max_requests_per_second",
+		"collector.limits.overload_policy",
+		"collector.limits.throttle_queue_size",
+		"beacon.limits.max_concurrent",
+		"beacon.limits.max_requests_per_second",
+		"beacon.limits.overload_policy",
+		"beacon.limits.throttle_queue_size",
 	}
 	for _, key := range readByServices {
 		def, ok := Lookup(key)

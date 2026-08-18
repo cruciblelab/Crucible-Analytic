@@ -39,6 +39,28 @@ cleanup_interval_seconds = 60
 timescale_dsn = "postgres://collector:collector@localhost:5432/analytics"
 flush_interval_seconds = 10
 
+# ---------------------------------------------------------------------
+# MOVED TO THE PANEL (A5.1).
+#
+# These four now live in the settings table and are changed from the
+# panel, while the collector is running - "the collector itself is the
+# bottleneck" is something you fix during an incident, and an incident is
+# the worst possible moment to be asked for a restart.
+#
+# The values below are still read, and still work: they are the fallback
+# for anything the panel has no row for, and they are what the process
+# runs on when the database is unreachable. What changed is where a
+# change is made. Once the panel has a value, editing this file does
+# nothing.
+#
+# To copy what is already here into the panel, once:
+#
+#     panel -config panel.toml -migrate-settings collector \
+#           -migrate-from /etc/crucible/config.toml
+#
+# It never overwrites a value somebody has already set in the panel, it
+# reports what it skipped, and every value it moves is recorded in the
+# audit log with the file and line it came from.
 [limits]
 # Bounds the collector's OWN total resource usage (concurrent
 # connections/requests and requests/second, summed across all IPs) so it
@@ -121,10 +143,10 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # ---------------------------------------------------------------------
 # How long traffic_snapshots is kept.
 #
-# Read from this file rather than from the panel, because the collector
-# has no live-settings reader yet. The beacon does, so beacon_events
-# already follows the panel - the two tables are configured in different
-# places for now, which is a gap rather than a design.
+# Still read from this file. The collector gained a live-settings reader
+# in A5.1, but retention is not wired through it yet (A5.2) - so
+# beacon_events already follows the panel and traffic_snapshots does not.
+# A remaining gap rather than a design, and named as one.
 [retention]
 # 90 days, matching the panel's default and the read API's maximum range.
 # Out of range is treated as unset, not clamped: a config saying 20000
@@ -166,6 +188,20 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 #
 # Örnek cron satırı (haftada bir, pazartesi 04:00):
 #     0 4 * * 1 /usr/local/bin/collector -config /etc/crucible/config.toml -update-bot-data
+# ---------------------------------------------------------------------
+# How often the settings the panel owns are re-read.
+#
+# New in A5.1. Reading them at all needs one grant, which is deliberately
+# minimal and which a deployment may simply not give:
+#
+#     GRANT SELECT ON panel_settings TO collector;
+#
+# Without it nothing breaks - the process runs on this file, exactly as
+# it did before, and says so in the log once. With it, the settings the
+# panel owns take effect within one interval and no restart.
+[settings]
+# interval_seconds = 60
+
 [bot_data]
 path = "/var/lib/crucible/known_bots.json"
 # Kaynak adresi. Boş bırakılırsa varsayılan kullanılır. Yapılandırılabilir

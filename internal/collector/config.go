@@ -19,9 +19,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
 // Mode selects which proxy implementation main.go wires up.
@@ -86,6 +88,67 @@ type Config struct {
 	Privacy   PrivacyConfig   `toml:"privacy"`
 	Retention RetentionConfig `toml:"retention"`
 	Logging   logging.Config  `toml:"logging"`
+	Settings  SettingsConfig  `toml:"settings"`
+}
+
+// SettingsConfig controls how often the collector re-reads the panel's
+// settings table.
+//
+// New in A5.1. Until then the collector read this file and nothing else,
+// which meant the two tables this system writes - traffic_snapshots and
+// beacon_events - were configured from two different places, and a
+// setting the panel offered was one the collector never saw.
+type SettingsConfig struct {
+	// IntervalSeconds between reads. Zero takes the package default.
+	IntervalSeconds int `toml:"interval_seconds"`
+}
+
+// Interval is the polling period.
+func (s SettingsConfig) Interval() time.Duration {
+	if s.IntervalSeconds <= 0 {
+		return time.Minute
+	}
+	return time.Duration(s.IntervalSeconds) * time.Second
+}
+
+// LiveLimits resolves the admission limits, preferring the panel's
+// settings over the config file, field by field.
+//
+// The collector's twin of beacon.LimitsConfig.LiveLimits, and separate
+// from it for the same reason the two config packages are separate: the
+// field names differ (this one counts connections, the beacon counts
+// requests) and merging them would mean one of the two services reading
+// a field named for the other's unit.
+//
+// An unrecognised policy falls back to the file's, then to fail_open -
+// the default that cannot take a site down is where an unreadable value
+// lands.
+func (c LimitsConfig) LiveLimits(src *settings.Source) limiter.Config {
+	cfg := limiter.Config{
+		MaxConcurrentConnections: c.MaxConcurrentConnections,
+		MaxRequestsPerSecond:     c.MaxRequestsPerSecond,
+		Policy:                   limiter.Policy(c.OverloadPolicy),
+		ThrottleQueueSize:        c.ThrottleQueueSize,
+	}
+	if src == nil {
+		return cfg
+	}
+
+	cfg.MaxConcurrentConnections = src.Int(settings.KeyCollectorMaxConcurrent, "",
+		cfg.MaxConcurrentConnections, 0, 100000)
+	cfg.MaxRequestsPerSecond = src.Int(settings.KeyCollectorMaxPerSecond, "",
+		cfg.MaxRequestsPerSecond, 0, 1000000)
+	cfg.ThrottleQueueSize = src.Int(settings.KeyCollectorThrottleQueue, "",
+		cfg.ThrottleQueueSize, 0, 10000)
+
+	policy := src.String(settings.KeyCollectorOverloadPolicy, "", string(cfg.Policy),
+		[]string{"", string(limiter.PolicyFailOpen), string(limiter.PolicyFailClosed),
+			string(limiter.PolicyThrottle)})
+	if policy == "" {
+		policy = string(c.OverloadPolicy)
+	}
+	cfg.Policy = limiter.Policy(policy)
+	return cfg
 }
 
 // BotDataConfig points at the known-bot fingerprint file.

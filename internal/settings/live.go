@@ -319,4 +319,24 @@ const (
 	KeyLogVerboseUntil      = "logs.verbose_until"
 	KeyPrivacyIPStorage     = "privacy.ip_storage"
 	KeyAnalyticsRetention   = "analytics.retention_days"
+
+	// A5.1 moved these out of the config files. The panel's registry
+	// explains why these first: they are the repair catalogue's own top
+	// entries.
+	//
+	// The limits are per service. One shared family would be a number
+	// that cannot mean what it says - the collector sees every
+	// connection to the site, the beacon only the visitors whose browser
+	// ran the snippet.
+	KeyTrustedProxies = "beacon.trusted_proxies"
+
+	KeyCollectorMaxConcurrent  = "collector.limits.max_concurrent"
+	KeyCollectorMaxPerSecond   = "collector.limits.max_requests_per_second"
+	KeyCollectorOverloadPolicy = "collector.limits.overload_policy"
+	KeyCollectorThrottleQueue  = "collector.limits.throttle_queue_size"
+
+	KeyBeaconMaxConcurrent  = "beacon.limits.max_concurrent"
+	KeyBeaconMaxPerSecond   = "beacon.limits.max_requests_per_second"
+	KeyBeaconOverloadPolicy = "beacon.limits.overload_policy"
+	KeyBeaconThrottleQueue  = "beacon.limits.throttle_queue_size"
 )

@@ -63,6 +63,15 @@ const (
 	// used to be different.
 	ActionSettingChanged = "setting.changed"
 	ActionSettingReset   = "setting.reset"
+	// ActionSettingMigrated marks a value copied out of a config file
+	// into the settings table by the migration command.
+	//
+	// Its own action rather than a "changed" entry with a note, because
+	// the question it answers is different. "Somebody decided this" and
+	// "this is what the file said when we moved it" are not the same
+	// fact, and a year later the difference is exactly what somebody
+	// wants to know about a value nobody remembers setting.
+	ActionSettingMigrated = "setting.migrated"
 
 	// Developer password attempts, on the settings that carry legal
 	// weight. Both outcomes, because a record of failures alone cannot

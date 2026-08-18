@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -180,14 +181,13 @@ func main() {
 		// flusher wiring.
 		srv.Resolver = lookup
 	}
-	if cfg.Limits.MaxConcurrentRequests > 0 || cfg.Limits.MaxRequestsPerSecond > 0 {
-		srv.Limiter = limiter.New(limiter.Config{
-			MaxConcurrentConnections: cfg.Limits.MaxConcurrentRequests,
-			MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
-			Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
-			ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
-		})
-	}
+	// Always constructed, where it used to be built only when the file
+	// asked for a limit. A limiter with no limits admits everything, so
+	// this costs an atomic load per request - and the alternative is
+	// that a deployment which never wrote [limits] into its file cannot
+	// be given a limit from the panel during the incident where it turns
+	// out to need one.
+	srv.Limiter = limiter.New(cfg.Limits.LiveLimits(nil))
 
 	// Seeded from the config so the first applySettings call reports the
 	// mode the process is actually starting on, rather than reporting a
@@ -198,9 +198,44 @@ func main() {
 	// Apply once before serving, then on the source's own interval. The
 	// static config is the fallback for every value, so a settings table
 	// that is empty or unreachable changes nothing.
+	// Seeded the same way, so the first apply reports what the process
+	// is starting on rather than a change from nothing.
+	lastProxies := trustedProxies
+	lastLimits := cfg.Limits.LiveLimits(nil)
+
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
 		srv.SetSites(live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+
+		// Trusted proxies. Logged on change, at Info, because getting
+		// this wrong is the single most consequential misconfiguration
+		// this service has - and somebody reading the log after the
+		// numbers went strange should find the moment it changed.
+		if prefixes, err := cfg.LiveTrustedProxies(live); err != nil {
+			// The stored list is unusable, so the one in force stays in
+			// force. Warned every interval rather than once: this is a
+			// state somebody has to fix, and a single line at startup is
+			// a line nobody reads.
+			logger.Warn("settings: trusted_proxies is not usable, keeping the current list",
+				"err", err, "in_force", len(lastProxies))
+		} else if !samePrefixes(prefixes, lastProxies) {
+			logger.Info("trusted proxies changed",
+				"from", len(lastProxies), "to", len(prefixes), "networks", prefixes)
+			lastProxies = prefixes
+			srv.SetTrustedProxies(prefixes)
+		}
+
+		// Admission limits. The policy is the one that can take a site
+		// down, so a change to it is logged with both values.
+		if limits := cfg.Limits.LiveLimits(live); limits != lastLimits {
+			logger.Info("limits changed",
+				"policy_from", string(lastLimits.Policy), "policy_to", string(limits.Policy),
+				"max_concurrent", limits.MaxConcurrentConnections,
+				"max_per_second", limits.MaxRequestsPerSecond,
+				"throttle_queue", limits.ThrottleQueueSize)
+			lastLimits = limits
+			srv.Limiter.SetConfig(limits)
+		}
 
 		// Logged on change rather than every minute: this decides what
 		// personal data the process writes, so a silent switch would be
@@ -347,4 +382,22 @@ func printSnippet(args []string) error {
 	fmt.Println("keeps it out of the URL patterns content blockers match on, and means")
 	fmt.Println("no CORS is involved at all.")
 	return nil
+}
+
+// samePrefixes compares two trusted-proxy lists.
+//
+// By value and in order, because the settings source hands back a fresh
+// slice every interval and comparing the slices themselves would report
+// a change every minute - which would fill the log with the one line
+// somebody needs to be able to find.
+func samePrefixes(a, b []netip.Prefix) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

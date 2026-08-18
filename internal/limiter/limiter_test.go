@@ -246,3 +246,104 @@ func TestLimiter_ConcurrentUse(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestLimitsChangeWhileServing is what makes limits a panel setting.
+//
+// Catalogue entries #8, #9 and #10 all say the same thing: "the
+// collector itself is the bottleneck" is something you fix during an
+// incident, and an incident is the worst possible moment to be told to
+// restart. So the limits have to change under a running limiter, with
+// traffic going through it.
+func TestLimitsChangeWhileServing(t *testing.T) {
+	l := New(Config{MaxConcurrentConnections: 1, Policy: PolicyFailClosed})
+
+	// One slot, taken.
+	first, release := l.Admit(context.Background())
+	if first != DecisionProceed {
+		t.Fatalf("the first request was not admitted: %v", first)
+	}
+	if d, _ := l.Admit(context.Background()); d != DecisionReject {
+		t.Fatalf("the second request was %v, want Reject at a limit of one", d)
+	}
+
+	// Raise the ceiling, with the first request still in flight.
+	l.SetConfig(Config{MaxConcurrentConnections: 3, Policy: PolicyFailClosed})
+
+	second, release2 := l.Admit(context.Background())
+	if second != DecisionProceed {
+		t.Fatalf("raising the limit did not admit anybody: %v", second)
+	}
+	release2()
+
+	// And the policy, which is the one that decides whether the site
+	// stays up.
+	l.SetConfig(Config{MaxConcurrentConnections: 1, Policy: PolicyFailOpen})
+	if d, r := l.Admit(context.Background()); d != DecisionDegrade {
+		t.Errorf("over the limit under fail_open the decision was %v, want Degrade", d)
+	} else if r != nil {
+		r()
+	}
+
+	release()
+
+	if got := l.Config(); got.MaxConcurrentConnections != 1 || got.Policy != PolicyFailOpen {
+		t.Errorf("Config() reports %+v, which is not what was last set", got)
+	}
+}
+
+// TestConfigChangesAreRaceFree runs the swap against real concurrent
+// traffic.
+//
+// The value being protected is not a number but a *combination*: a
+// limiter that read the maximum from one config and the policy from
+// another would make a decision nobody configured, under load, and it
+// would be unreproducible afterwards. Hence one snapshot per Admit
+// rather than a field read per check - and hence this test, which is
+// meaningless without -race.
+func TestConfigChangesAreRaceFree(t *testing.T) {
+	l := New(Config{MaxConcurrentConnections: 4, MaxRequestsPerSecond: 1000, Policy: PolicyFailOpen})
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_, release := l.Admit(context.Background())
+				if release != nil {
+					release()
+				}
+			}
+		}()
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		policies := []Policy{PolicyFailOpen, PolicyFailClosed, PolicyThrottle}
+		for i := range 200 {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			l.SetConfig(Config{
+				MaxConcurrentConnections: 1 + i%8,
+				MaxRequestsPerSecond:     100 + i,
+				Policy:                   policies[i%len(policies)],
+				ThrottleQueueSize:        1 + i%4,
+			})
+		}
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}

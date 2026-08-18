@@ -89,3 +89,80 @@ func TestDatabaseFailuresAreNotMarkedSafeToShow(t *testing.T) {
 			"cannot see what actually failed")
 	}
 }
+
+// TestCheckRunsForEveryKind.
+//
+// Definition.Check says it "runs after the Kind's own checks, on the
+// canonical form". That sentence was false for four kinds out of five:
+// Check was called inside the KindString branch of the switch and
+// nowhere else, so a validator attached to a list, an int, a bool or an
+// enum was never called at all.
+//
+// It was found the worst possible way - by a test that expected a
+// malformed network to be refused and watched it be stored - which is
+// what a dead validator always looks like: not an error, an acceptance.
+//
+// This walks every Kind rather than the ones a setting happens to use
+// today, because the next Check somebody attaches will be attached to
+// whichever kind their setting is.
+func TestCheckRunsForEveryKind(t *testing.T) {
+	samples := map[Kind]any{
+		KindInt:        5,
+		KindBool:       true,
+		KindString:     "bir",
+		KindEnum:       "bir",
+		KindStringList: []string{"bir"},
+	}
+	if len(samples) != 5 {
+		t.Fatalf("there are %d kinds with samples; add the new one", len(samples))
+	}
+
+	for kind, sample := range samples {
+		t.Run(string(kind), func(t *testing.T) {
+			called := false
+			def := Definition{
+				Key: Key("test.check." + string(kind)), Scope: ScopeGlobal, Kind: kind,
+				Min: 0, Max: 10, Enum: []string{"bir"},
+				Check: func(any) error {
+					called = true
+					return errors.New("refused by the check")
+				},
+			}
+			registry[def.Key] = def
+			t.Cleanup(func() { delete(registry, def.Key) })
+
+			_, err := Validate(def.Key, sample)
+			if !called {
+				t.Fatalf("a Check on a %s setting is never called, so it silently does nothing", kind)
+			}
+			if err == nil {
+				t.Fatal("the Check refused the value and Validate accepted it anyway")
+			}
+			if !errors.Is(err, ErrInvalidSetting) {
+				t.Errorf("a Check's refusal is not marked safe to show: %v", err)
+			}
+		})
+	}
+}
+
+// TestCheckSeesTheCanonicalForm. The other half of Check's contract: it
+// runs on the stored shape, not on whatever the caller passed. A
+// validator written against []string must not be handed a []any because
+// the value happened to arrive from JSON.
+func TestCheckSeesTheCanonicalForm(t *testing.T) {
+	var seen any
+	def := Definition{
+		Key: Key("test.check.canonical"), Scope: ScopeGlobal, Kind: KindStringList,
+		Check: func(v any) error { seen = v; return nil },
+	}
+	registry[def.Key] = def
+	t.Cleanup(func() { delete(registry, def.Key) })
+
+	// The shape a value read back out of JSONB arrives in.
+	if _, err := Validate(def.Key, []any{"bir", "iki"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := seen.([]string); !ok {
+		t.Fatalf("Check saw %T; a list validator has to be handed a []string", seen)
+	}
+}

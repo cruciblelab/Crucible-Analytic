@@ -26,6 +26,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
 )
 
@@ -219,12 +220,65 @@ func main() {
 		flusher.Run(ctx)
 	}()
 
-	lim := limiter.New(limiter.Config{
-		MaxConcurrentConnections: cfg.Limits.MaxConcurrentConnections,
-		MaxRequestsPerSecond:     cfg.Limits.MaxRequestsPerSecond,
-		Policy:                   limiter.Policy(cfg.Limits.OverloadPolicy),
-		ThrottleQueueSize:        cfg.Limits.ThrottleQueueSize,
+	// Live settings. New in A5.1: until then this process read its config
+	// file and nothing else, so the panel could offer a setting the
+	// collector would never see - and the two tables this system writes
+	// were configured from two different places.
+	//
+	// Optional, exactly as in the beacon: a deployment that never runs
+	// GRANT SELECT ON panel_settings keeps working from its file, which
+	// is why a failure here is logged rather than fatal.
+	settingsCtx, stopSettings := context.WithCancel(context.Background())
+	live := settings.New(settingsCtx, writer.Pool(), settings.Config{
+		Interval: cfg.Settings.Interval(),
+		Logger:   logger,
 	})
+
+	lim := limiter.New(cfg.Limits.LiveLimits(nil))
+
+	// Seeded from the file so the first apply reports what the process is
+	// starting on rather than a change from nothing.
+	lastLimits := cfg.Limits.LiveLimits(nil)
+	applySettings := func() {
+		if limits := cfg.Limits.LiveLimits(live); limits != lastLimits {
+			// Logged at Info with both policies. This is the one setting
+			// here that can stop traffic reaching the customer's site,
+			// and somebody reading the log afterwards should find the
+			// moment it changed without having to infer it.
+			logger.Info("limits changed",
+				"policy_from", string(lastLimits.Policy), "policy_to", string(limits.Policy),
+				"max_concurrent", limits.MaxConcurrentConnections,
+				"max_per_second", limits.MaxRequestsPerSecond,
+				"throttle_queue", limits.ThrottleQueueSize)
+			lastLimits = limits
+			lim.SetConfig(limits)
+		}
+	}
+	applySettings()
+
+	settingsDone := make(chan struct{})
+	go func() {
+		defer close(settingsDone)
+		ticker := time.NewTicker(cfg.Settings.Interval())
+		defer ticker.Stop()
+		for {
+			select {
+			case <-settingsCtx.Done():
+				return
+			case <-ticker.C:
+				if err := live.Refresh(settingsCtx); err != nil {
+					// The last known values stay in force. Resetting to
+					// defaults during a database blip would silently undo
+					// a customer's tuning, which is worse than running on
+					// a stale value and much harder to notice.
+					logger.Warn("settings: read failed, keeping the last known values",
+						"err", err, "consecutive_failures", live.Failures())
+					continue
+				}
+				applySettings()
+			}
+		}
+	}()
 
 	var server proxyServer
 	switch cfg.Mode {
@@ -270,6 +324,8 @@ func main() {
 	// Wait for the flusher's own ctx-triggered shutdown flush before
 	// closing the writer/store under it, so the last partial interval's
 	// activity isn't lost or written to an already-closed pool.
+	stopSettings()
+	<-settingsDone
 	<-flusherDone
 	<-retentionDone
 	<-lookupDone
