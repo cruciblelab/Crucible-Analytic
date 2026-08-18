@@ -1,0 +1,45 @@
+{{define "icerik"}}
+{{- /* The period, before the numbers. A figure with no period attached
+is not a figure, and somebody who reads the cards first and finds the
+range afterwards has already formed an impression from the wrong one. */}}
+<nav class="aralik" aria-label="{{t "pano.aralik.baslik"}}">
+<ul>
+{{- range .Data.Ranges}}
+<li>
+{{- if .Selected}}
+<span class="secili" aria-current="true">{{.Label}}</span>
+{{- else}}
+<a href="{{.URL}}">{{.Label}}</a>
+{{- end}}
+</li>
+{{- end}}
+</ul>
+<p class="ipucu">
+{{- /* Whole local days, and the page says which ones. The end is
+exclusive, so it is drawn as the last day included rather than as a
+boundary nobody thinks in. */}}
+{{$.F.Date .Data.From}} – {{$.F.Date (.Data.To.AddDate 0 0 -1)}}
+<span class="gizli">({{$.F.ZoneName}})</span>
+</p>
+</nav>
+
+<div class="kartlar">
+{{- range .Data.Cards}}
+<article class="kart" data-kart="{{.ID}}">
+<h2 class="kart-baslik">{{.Label}}</h2>
+{{- if .Empty}}
+{{- /* Three different facts, three different sentences. A source that
+was never installed is a setup step nobody did; an empty period is a
+measurement; an unreachable API is neither. Collapsing them would show a
+missing installation as a result. */}}
+<p class="kart-bos durum-{{.Empty}}">{{.EmptyText}}</p>
+{{- else}}
+<p class="kart-deger">{{.Value}}</p>
+{{- end}}
+<p class="ipucu">{{.Help}}</p>
+</article>
+{{- end}}
+</div>
+
+<p class="ipucu derinlik">{{t "pano.derinlik"}}</p>
+{{end}}

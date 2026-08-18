@@ -10,6 +10,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
@@ -23,6 +24,14 @@ type Server struct {
 	Store *panel.Store
 	// Sessions carries logins and CSRF tokens.
 	Sessions *panel.Sessions
+	// Analytics reads traffic numbers from the read-only API.
+	//
+	// Nil is a supported state and renders as "the numbers are not
+	// available", which is what a deployment configured before group D
+	// existed has - and what one mid-installation has too. A panel that
+	// refused to start over an unset API address would make an upgrade
+	// an outage.
+	Analytics *analytics.Client
 	// Gate guards the settings with legal weight. Nil means no
 	// developer password is configured, which freezes those settings at
 	// their defaults - the safe direction, and the wizard says so.
@@ -106,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(AccountPath, s.accountHandler)
 	mux.HandleFunc(TOTPQRPath, s.totpQRHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
+	mux.HandleFunc(MembersPathPrefix+"{site}"+dashboardPathSuffix, s.dashboardHandler)
 	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)

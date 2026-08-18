@@ -23,6 +23,10 @@ type siteRow struct {
 	ViaSuperadmin bool
 	// MembersURL is empty when this viewer may not manage members.
 	MembersURL string
+	// DashboardURL is where this site's numbers are. Never empty:
+	// anybody who can see the row can see the numbers, which is what
+	// having access to a site means.
+	DashboardURL string
 }
 
 // sitesPage is Data for the landing page.
@@ -80,6 +84,7 @@ func (s *Server) sitesHandler(w http.ResponseWriter, r *http.Request, p panel.Pr
 		if p.Superadmin || panel.RoleCan(site.Role, panel.CapManageMembers) {
 			row.MembersURL = memberPath(site.SiteID)
 		}
+		row.DashboardURL = sitePath(site.SiteID)
 		data.Sites = append(data.Sites, row)
 	}
 

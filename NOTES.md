@@ -3109,3 +3109,124 @@ The collector also gained a live settings reader here, which it had
 never had. That closes the standing risk in the plan — that the two
 tables this system writes were configured from two different places —
 and it means A5.2's remaining keys are wiring rather than architecture.
+
+## The page the product exists for
+
+A measurement changed the order of the plan. Before this phase: 26 000
+lines of non-test Go, 742 test functions, coverage between 67% and 100%
+— and the panel made **not one call** to the analytics API. A customer
+could install it, sign in, see a list of their sites, and stop. The next
+item in the plan was A5.2, which adds keys to a mechanism that already
+works; this is the page the whole thing is for. The order changed.
+
+### The panel reads its own numbers over HTTP
+
+The panel's database role has no access to the analytics tables, on
+purpose: it is the process the customer's browser talks to, and giving
+it read rights on every visitor record would make the widest-reachable
+component also the one with the broadest database access.
+
+So this phase is the first real test of that rule, and it holds — the
+dashboard calls the read-only API exactly as an external tool would.
+A structural test now refuses any mention of `traffic_snapshots`,
+`beacon_events` or `internal/api` in the panel's HTTP tree, because a
+handler that reached for a pool directly would compile, work in
+development against a superuser, and fail in production. That is the
+worst order to discover a thing in.
+
+**The token's blast radius is stated rather than assumed.** One token,
+granted every site, because the panel serves every site. What keeps one
+customer's numbers away from another is *entirely* the panel's own
+access check. So that check gets the paired test this project gives
+every permission: the owner's request, and the same one from an account
+with no membership — which gets 404 rather than 403, because a 403 would
+confirm the site exists and turn the URL into a way to enumerate a
+deployment's customers.
+
+### Three kinds of nothing
+
+Zero pageviews means three completely different things, and they look
+identical in a summary:
+
+- the snippet was never embedded — a setup step nobody performed,
+- it is embedded and nobody visited in this period — a measurement,
+- the API did not answer — neither.
+
+Collapsing them into "no data" would present an unfinished installation
+as a result. That is §D5's "we stopped collecting" versus "we never
+collected", one level down, and it is why the client has a
+`KnownSites` call at all: it asks whether a source has *ever* written
+for this site, and it asks **only when a summary comes back empty**. In
+the ordinary case the answer would change nothing on the page, and a
+dashboard should not pay for a distinction it is not drawing.
+
+The fourth state exists too — the API answered and refused the token —
+because "wait" and "somebody has to fix the configuration" send a reader
+to different places. And one rule sits above all of them: **a failure is
+never read as zero.** A card saying "0 visitors" because a call timed
+out is not a missing number, it is a wrong one, and the customer has no
+way to tell.
+
+### A range is whole days in the panel's timezone
+
+§6 recorded the reason long before there was a page to apply it to:
+sessions are counted inside the range, so one that began before it is
+truncated at the boundary. A range starting at 14:37 cuts every session
+running at 14:37 — in the period shown *and* in the one before it — so
+neighbouring periods cannot be added together and neither matches what
+a customer means by "last week".
+
+Local rather than UTC is the other half, and it is what makes the
+timezone setting more than cosmetic: computing "today" in UTC hands a
+shop in Istanbul three hours of yesterday and loses three hours of
+today, every day, invisibly.
+
+The test that pins this uses a mid-afternoon instant on purpose — the
+bug is invisible at midnight — and a second one walks a
+daylight-saving week, where the right answer is that the boundaries are
+still local midnights and the week is 167 hours rather than 168.
+
+### The card set is data, because C6 is coming
+
+C6 makes which cards appear a per-deployment setting. A page with six
+cards written into the template is a page C6 would have to take apart
+first, so the registry is written now, in the shape the settings
+registry already uses: a closed set, adding to which is a code change
+that goes through review. C6 becomes a selection rather than a rewrite.
+
+The default six are four a customer recognises from any analytics tool
+and two that are the reason this product exists — the collector counts
+the visitors no JavaScript-based tool can see, and separates the
+automated ones from the people. A test requires both sources to be
+represented, because a default view drawn only from the beacon would
+look like every other tool and hide the thing that is different.
+
+### Three tests that were wrong before they were right
+
+**A test that panicked on its own input.** The range parser is fed
+deliberately hostile values, one of which contained a space —
+`httptest.NewRequest` parses its argument as a request line, so the
+*test* died on a malformed HTTP version. It says nothing about the
+handler. The values are percent-encoded now, which is how a browser
+would send them anyway.
+
+**A race the concurrency test was asserting.** The client fetches both
+summaries at once; a second test captured request details into plain
+variables from the handler, which now runs twice concurrently. `-race`
+caught it — the property one test asserts arriving as a failure in
+another.
+
+**Comparing rendered HTML against raw catalog text.** The Turkish for
+"the snippet is missing" contains `snippet'in`, and `html/template`
+escapes the apostrophe. The assertion failed while the page was
+perfectly correct. Every catalog comparison in that suite now goes
+through the same escaping the template does.
+
+### What a browser added that nothing else could
+
+Six cards, four columns at desktop width, one at phone width, nothing
+overflowing, no horizontal scroll, no policy violations — and the range
+picker checked as a reader meets it: three links plus one marked
+current, and clicking one actually changes the dates underneath. None of
+that is visible from a response recorder, where the bytes are correct
+and the page could still be unusable.

@@ -17,7 +17,10 @@ different places. */}}
 <tbody>
 {{- range .Data.Sites}}
 <tr>
-<th scope="row">{{.SiteID}}</th>
+{{- /* The site id is the link to its numbers. Anybody who can see
+the row can see them - that is what having access to a site means -
+so this is never conditional, unlike the members link beside it. */}}
+<th scope="row"><a href="{{.DashboardURL}}">{{.SiteID}}</a></th>
 <td>
 {{- if .ViaSuperadmin}}{{t "siteler.operator_olarak"}}{{else}}{{.RoleLabel}}{{end -}}
 </td>

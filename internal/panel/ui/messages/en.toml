@@ -514,3 +514,67 @@ istek_gecersiz = "No such request."
 bilinmeyen = "That action is not recognised."
 karar_verilmis = "This request has already been decided, or it has expired. Reload the page."
 kaydedilemedi = "The decision could not be saved."
+
+# --- The site dashboard (D1) ---
+#
+# The page the product exists for: everything before it built the
+# machinery and none of it showed a customer a number.
+#
+# The empty texts are three different facts - the source was never
+# installed, it is installed and this period is empty, or the data source
+# cannot be reached. One "no data" sentence for all three would present a
+# setup step nobody performed as though it were a measurement.
+
+[metin.pano]
+derinlik = "A summary for now. Breakdowns by page, source and campaign come in a later release."
+
+[metin.pano.aralik]
+baslik = "Period"
+
+[metin.pano.aralik.gun]
+one = "Last %s day"
+other = "Last %s days"
+
+[metin.pano.hata]
+ulasilamiyor = "The numbers cannot be read right now: the panel cannot reach the analytics service. Nothing is missing — it has not arrived. The page will fill in by itself once the service is back."
+reddedildi = "The analytics service did not recognise this panel. That is a configuration problem rather than a data one: the panel's API token needs renewing. Tell whoever set the server up."
+
+[metin.pano.kart.ziyaretci]
+baslik = "Visitors"
+aciklama = "How many different people opened your site. No cookies: counted with a key that changes daily."
+
+[metin.pano.kart.goruntuleme]
+baslik = "Pageviews"
+aciklama = "Total pages opened. One person opening several pages counts each of them."
+
+[metin.pano.kart.oturum]
+baslik = "Sessions"
+aciklama = "One visit, start to finish. Sessions running across a period boundary are cut at it, so short periods show more of them."
+
+[metin.pano.kart.hemen_cikma]
+baslik = "Bounce rate"
+aciklama = "The share of sessions that saw one page and left."
+
+[metin.pano.kart.insan]
+baslik = "Human traffic"
+aciklama = "Distinct addresses that connected to your server and were not judged to be bots. This number needs no JavaScript — it is measured even where the snippet never runs."
+
+[metin.pano.kart.bot]
+baslik = "Bot traffic"
+aciklama = "Connections judged to be automated. Search engines are in here too; not all of them are unwelcome."
+
+[metin.pano.bos.kurulmamis]
+beacon = "No measurements have ever arrived for this site. Counting pageviews needs the snippet embedded in your pages."
+trafik = "No connection records exist for this site yet. The traffic collector may not be running in front of it."
+
+[metin.pano.bos.bos]
+beacon = "Nothing happened in this period."
+trafik = "No connections recorded in this period."
+
+[metin.pano.bos.ulasilamiyor]
+beacon = "Could not be read."
+trafik = "Could not be read."
+
+[metin.pano.bos.reddedildi]
+beacon = "Access refused."
+trafik = "Access refused."

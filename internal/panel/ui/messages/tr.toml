@@ -543,3 +543,67 @@ istek_gecersiz = "İstek bulunamadı."
 bilinmeyen = "Bu işlem tanınmıyor."
 karar_verilmis = "Bu isteğe zaten karar verilmiş ya da süresi dolmuş. Sayfayı yenileyin."
 kaydedilemedi = "Karar kaydedilemedi."
+
+# --- Site panosu (D1) ---
+#
+# Bu sayfa ürünün var olma sebebi: buraya kadar her şey makineyi kurdu,
+# hiçbiri müşteriye bir sayı göstermedi.
+#
+# Boşluk metinleri üç ayrı gerçek: kaynak hiç kurulmamış, kurulu ama bu
+# dönem boş, ya da veri kaynağına ulaşılamıyor. Üçünü tek "veri yok"
+# cümlesine indirmek, yapılmamış bir kurulum adımını ölçüm sonucu gibi
+# gösterirdi.
+
+[metin.pano]
+derinlik = "Şimdilik özet. Sayfa, kaynak ve kampanya kırılımları sonraki sürümde."
+
+[metin.pano.aralik]
+baslik = "Dönem"
+
+[metin.pano.aralik.gun]
+one = "Son %s gün"
+other = "Son %s gün"
+
+[metin.pano.hata]
+ulasilamiyor = "Sayılar şu an okunamıyor: panel, analitik servisine ulaşamıyor. Veriler eksik değil, henüz gelmedi — servis geri geldiğinde sayfa kendiliğinden dolacak."
+reddedildi = "Analitik servisi bu paneli tanımadı. Bu bir veri sorunu değil, yapılandırma sorunu: panelin API anahtarının yenilenmesi gerekiyor. Sunucuyu kuran kişiye iletin."
+
+[metin.pano.kart.ziyaretci]
+baslik = "Ziyaretçi"
+aciklama = "Sitenizi açan farklı kişi sayısı. Çerez kullanılmıyor; günlük değişen bir anahtarla sayılıyor."
+
+[metin.pano.kart.goruntuleme]
+baslik = "Sayfa görüntüleme"
+aciklama = "Açılan toplam sayfa sayısı. Aynı kişi birden çok sayfa açarsa hepsi sayılır."
+
+[metin.pano.kart.oturum]
+baslik = "Oturum"
+aciklama = "Bir ziyaretin başından sonuna. Dönem sınırında başlayan oturumlar kesilir, o yüzden kısa dönemlerde sayı yüksek görünür."
+
+[metin.pano.kart.hemen_cikma]
+baslik = "Hemen çıkma"
+aciklama = "Tek sayfa görüp ayrılan oturumların oranı."
+
+[metin.pano.kart.insan]
+baslik = "İnsan trafiği"
+aciklama = "Sunucunuza bağlanan ve bot olmadığı değerlendirilen farklı adres sayısı. Bu sayı JavaScript gerektirmez — snippet çalışmasa da ölçülür."
+
+[metin.pano.kart.bot]
+baslik = "Bot trafiği"
+aciklama = "Otomatik olduğu değerlendirilen bağlantılar. Arama motorları da buraya girer; hepsi kötü niyetli değildir."
+
+[metin.pano.bos.kurulmamis]
+beacon = "Bu site için henüz hiç ölçüm gelmedi. Sayfa görüntüleme sayabilmek için sitenize snippet'in eklenmiş olması gerekiyor."
+trafik = "Bu site için henüz hiç bağlantı kaydı yok. Trafik toplayıcı bu sitenin önünde çalışmıyor olabilir."
+
+[metin.pano.bos.bos]
+beacon = "Bu dönemde hareket yok."
+trafik = "Bu dönemde kayıtlı bağlantı yok."
+
+[metin.pano.bos.ulasilamiyor]
+beacon = "Okunamadı."
+trafik = "Okunamadı."
+
+[metin.pano.bos.reddedildi]
+beacon = "Erişim reddedildi."
+trafik = "Erişim reddedildi."

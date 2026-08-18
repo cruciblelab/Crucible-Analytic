@@ -26,7 +26,7 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-18 (C4, C3, AI.3, C5, A5.1 sonrası). Bu
+*Son güncelleme: 2026-08-18 (C4, C3, AI.3, C5, A5.1, D1 sonrası). Bu
 bölüm her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
 kaldık" sorusunu cevaplar.*
 
@@ -66,7 +66,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | **A** Ayarlar ve saklama | 🟡 **9/13** | A2, A3, A5.2, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **7/9** | C6, C7 |
-| **D** Dashboard | ⬜ **0/8** | hepsi |
+| **D** Dashboard | 🟡 **1/8** | D2–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
 
@@ -166,6 +166,14 @@ düzeltmekten ucuz.)*
   (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
   Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
   handler yeteneği ayrıca soruyor
+- **D1** Site panosu — **ürünün var olma sebebi olan sayfa.** Panel bu
+  faza kadar analitik API'sine tek bir çağrı yapmıyordu. Sayılar HTTP
+  üzerinden geliyor (panelin rolü analitik tablolarını okuyamaz ve
+  okumamalı; yapısal test bunu tutuyor). Kart kümesi **kapalı kayıt**,
+  C6 sayfayı sökmek yerine seçim bağlayacak. Üç ayrı boşluk üç ayrı
+  cümle: snippet hiç kurulmamış / bu dönem boş / API'ye ulaşılamıyor —
+  ve **başarısızlık asla sıfır olarak okunmuyor**. Aralık sınırları
+  panelin saat diliminde **tam gün**
 - **A5.1** Ayar göçünün mekanizması ve en pahalı iki yanlış
   yapılandırma — dosya **her zaman geri düşüş katmanı** kalıyor (satır →
   dosya → gömülü varsayılan), göç satırı bir kez yazıyor ve o andan
@@ -193,17 +201,27 @@ düzeltmekten ucuz.)*
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
+*(Sıra D1'de bir kez değişti ve gerekçesi ölçümdü: altyapı ürün
+seviyesindeydi, arayüz yarımdı. Aynı ölçüt geçerli — "müşteri bunu
+görüyor mu" sorusu "mekanizma tam mı" sorusunun önünde.)*
+
+1. **D2 — detaya inişler.** D1 altı sayı gösteriyor; bir sayının neden
+   o olduğunu gösteren hiçbir şey yok. Sayfalar, kaynaklar, kampanyalar,
+   ülkeler — API uçlarının hepsi zaten yazılı ve test edilmiş, panelde
+   karşılığı yok.
+2. **C6 — görünür kart seti ayarı.** Artık mümkün: D1 kart kaydını
+   kapalı küme olarak yazdı, yani bu faz bir *seçim* bağlamak, sayfayı
+   sökmek değil.
+3. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
    de açtı, yani bunlar mimari değil kablolama: `[asn_lookup]`'ın
    tamamı, `[cache]`, `storage.flush_interval_seconds`, beacon
-   tampon/parti boyutları, bot skor eşiği. Kayıttaki ilk *dinamik* enum
-   (panel dili) da burada.
-2. **AI.4 — kimlik ve ayar ailelerinin bölünmesi.** AI.2'nin C4'e
-   ertelediği kesim; C4 o tipleri son şekline soktuğu için borç vadesi
-   geldi. `internal/panel` ~4.400 satır.
-3. **C6/C7 — görünür kart seti, boş durumlar ve e-posta yolu.** C6 D
-   grubuna bağlı (gösterilecek kart henüz yok); C7'nin e-posta yolu
-   davet akışının kalan yarısı.
+   tampon/parti boyutları, bot skor eşiği.
+
+**Bunların dışında, ürün olmak için üç eksik** *(ölçüldü, 2026-08-18)*:
+CI yok (`govulncheck` elle çalışıyor — denetimin en kötü iki bulgusu
+bağımlılıktaydı, o aracı bir insanın hatırlamasına bağlamak denetimin
+kendi dersine aykırı); dağıtım aracı yok (systemd unit'i, kurulum
+betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
 
 ### Açık riskler ve sahipleri
 
@@ -2115,7 +2133,106 @@ yapılandırmak tam olarak o yük.
 
 ### D. Panelin kendisi
 
-#### D1 — Site seçici, sonra site başına altı kartlık varsayılan görünüm
+#### D1 — Site seçici, sonra site başına altı kartlık varsayılan görünüm ✅ **yapıldı**
+
+**Neden şimdi, plandaki sıradan önce.** *(kullanıcı kararı: "olması
+gereken sırayla gidelim")* Ölçüm şunu söyledi: altyapı ürün seviyesinde,
+arayüz yarım. Panel bugün analitik API'sine **tek bir çağrı bile
+yapmıyor** — 21 şablonun hiçbiri sayı göstermiyor. Müşteri kuruyor,
+giriş yapıyor, site listesini görüyor ve orada duruyor. A5.2 çalışan bir
+mekanizmaya anahtar ekliyor; D1 ise panelin **var olma sebebi**. Sıra
+buna göre değişti.
+
+**Mimari kural, hatırlatma değil kısıt:** panelin veritabanı rolünün
+analitik tablolarına **hiç** erişimi yok. Sayılar HTTP üzerinden okuma
+API'sinden geliyor — harici bir panelin alacağı yoldan. Bu faz o kuralın
+ilk gerçek sınavı, ve yapısal bir test onu koruyacak: `internal/panel`
+ağacı `internal/api`'nin store'unu import edemez.
+
+**D1'in kapsamı:**
+
+1. **`internal/panel/analytics`** — okuma API'si için tipli istemci.
+   Zaman aşımı çağrı başına, gösterge paneli iki özeti (collector +
+   beacon) **eşzamanlı** çekiyor tek bir son teslim süresiyle.
+2. **Kart kaydı, kapalı küme.** C6 "görünen kart seti kurulum başına
+   yapılandırılır" diyor. D1 altı kartı şablona gömerse C6 onu sökmek
+   zorunda kalır. Onun yerine kart kümesi ayar kaydının şeklinde bir
+   **kapalı küme** olarak yazılıyor ve D1 varsayılan seçimi çiziyor;
+   C6'nın işi seçimi ayara bağlamak olur.
+3. **Site panosu**: aralık seçici + kartlar.
+4. **Üç ayrı boşluk, üç ayrı cümle** (aşağıda).
+
+**Aralık sınırları panelin saat diliminde tam gündür.** §6 zaten
+söylüyor: oturumlar aralık sınırında kesiliyor, "panel tam günleri
+tercih etmeli". "Şu andan 7×24 saat geri" göndermek, müşterinin
+"geçen hafta" dediği şeyle uyuşmayan ve komşu aralıklarla toplanamayan
+sayılar üretir. Sınırlar `panel.timezone`'da hesaplanıyor — o ayarın
+neden var olduğunun ta kendisi.
+
+**Üç boşluk, ve neden üç ayrı cümle.** §D5'in "artık toplamıyoruz" ile
+"hiç toplamadık" ayrımı kart düzeyinde:
+
+| Durum | Ne demek | Ne yazılmalı |
+|---|---|---|
+| Kaynak hiç kurulmamış | Sitede snippet yok, beacon o site için hiç satır görmemiş | "Bu sayılar için snippet gerekiyor" — eksiklik değil, yapılmamış bir kurulum adımı |
+| Kurulu, bu aralıkta veri yok | Gerçek bir ölçüm: sıfır | "Bu dönemde hareket yok" |
+| API'ye ulaşılamıyor | Panel çalışıyor, veri kaynağı yok | 502 sayfası — metni **zaten yazılmış**: "Sayılar eksik değil, henüz gelmedi" |
+
+Üçünü tek "veri yok" cümlesine indirmek, kurulum hatasını ölçüm sonucu
+gibi gösterir — bu projenin her yerde reddettiği şey.
+
+**Jetonun patlama yarıçapı, açıkça.** Panelin API jetonu her siteyi
+okuyabiliyor; müşteriler arasındaki tek şey panelin **kendi** yetki
+katmanı (`siteAccess`). Bu kabul edilebilir ve veritabanı havuzuyla aynı
+şekil — geniş kimlik bilgisi, istek başına dar kontrol — ama sonucu
+yazılı olmalı: `siteAccess`'teki bir hata başka bir müşterinin
+sayılarını sızdırır. O yüzden bu fazın testi çiftli: erişimi olan
+kullanıcı **ve** olmayanın aynı isteği.
+
+**Bu fazda yapılmayanlar:** detaya inişler (D2), geliştirici modu
+sütunları (D3), kesişim görünümleri ve "maskeli" uyarısı (D5), kart
+setinin ayara bağlanması (C6). D1 bir sayfa açıyor ve altı sayı
+gösteriyor; derinlik sonraki fazların işi.
+
+**Bitti ölçütü:** panel gerçek bir API sunucusuna karşı gerçek sayı
+çiziyor; API kapalıyken sayfa 502 metnini gösteriyor ve panel ayakta
+kalıyor; üç boşluk üç ayrı cümle üretiyor; aralık sınırları panelin
+saat diliminde tam gün; yapısal test panelin analitiği veritabanından
+okumadığını tutuyor; erişimsiz kullanıcı çiftli testte reddediliyor.
+
+##### Ne oldu
+
+**Mimari kural ilk gerçek sınavını geçti.** Panel sayıları HTTP'den
+okuyor; yapısal test artık `internal/panel/web` içinde
+`traffic_snapshots`, `beacon_events` ya da `internal/api` geçmesini
+reddediyor. Doğrudan havuza uzanan bir handler derlenir, geliştirmede
+superuser'la çalışır ve **üretimde** patlardı — bir şeyi keşfetmenin en
+kötü sırası.
+
+**Jetonun patlama yarıçapı test edildi, varsayılmadı.** Panelin jetonu
+her siteyi okuyor; müşteriler arasındaki tek sınır panelin kendi
+kontrolü. O yüzden çiftli test: sahibin isteği, ve üyeliği olmayan bir
+hesabın aynı isteği — **404, 403 değil**, çünkü 403 sitenin var olduğunu
+doğrular ve URL'yi müşteri listesi çıkarma aracına çevirir.
+
+**Dördüncü boşluk durumu eklendi:** API cevap verdi ve jetonu
+reddetti. "Bekleyin" ile "birinin yapılandırmayı düzeltmesi gerekiyor"
+okuyucuyu farklı yerlere gönderiyor. Ve hepsinin üstünde tek kural:
+**başarısızlık asla sıfır olarak okunmaz.** Çağrı zaman aşımına
+uğradığı için "0 ziyaretçi" yazan bir kart eksik sayı değil, **yanlış**
+sayıdır ve müşterinin bunu anlamasının yolu yoktur.
+
+**Yanlış olan üç test.** Biri kendi girdisiyle panikledi
+(`httptest.NewRequest` hedefi istek satırı gibi ayrıştırıyor, kodlanmamış
+boşluk testi öldürüyor); biri eşzamanlılık testinin iddia ettiği yarışı
+üretti (`-race` yakaladı); biri **doğru sayfaya karşı** patladı —
+`snippet'in` içindeki kesme işaretini `html/template` kaçırıyor, test ham
+metinle karşılaştırıyordu.
+
+**Tarayıcının eklediği:** altı kart, masaüstünde dört sütun, telefonda
+bir sütun, taşma yok, yatay kaydırma yok, CSP ihlali yok; aralık seçici
+üç bağlantı + bir "şu an buradasınız", ve tıklamak alttaki tarihleri
+gerçekten değiştiriyor. Hiçbiri ResponseRecorder'dan görülemez.
 
 #### D2 — Detaya inişler: sayfalar, kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar
 

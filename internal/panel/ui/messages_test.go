@@ -326,6 +326,18 @@ var (
 	devAccessStates = []string{
 		"bekliyor", "onaylandi", "reddedildi", "kullanildi", "doldu", "kurulum",
 	}
+	// dashboardCards, dashboardEmptiness and dashboardSources mirror the
+	// card registry in internal/panel/web. Both a card's label and the
+	// sentence that replaces its number are assembled at runtime from an
+	// id, so neither the template walk nor the source scan sees the
+	// family - and the ones a reader is least likely to meet are exactly
+	// the ones nobody notices are missing. The web package has the other
+	// direction, against the real constants.
+	dashboardCards = []string{
+		"ziyaretci", "goruntuleme", "oturum", "hemen_cikma", "insan", "bot",
+	}
+	dashboardEmptiness = []string{"kurulmamis", "bos", "ulasilamiyor", "reddedildi"}
+	dashboardSources   = []string{"beacon", "trafik"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -346,6 +358,14 @@ func computedKeys() []string {
 	}
 	for _, state := range devAccessStates {
 		keys = append(keys, "erisim.durum."+state)
+	}
+	for _, id := range dashboardCards {
+		keys = append(keys, "pano.kart."+id+".baslik", "pano.kart."+id+".aciklama")
+	}
+	for _, why := range dashboardEmptiness {
+		for _, source := range dashboardSources {
+			keys = append(keys, "pano.bos."+why+"."+source)
+		}
 	}
 	return keys
 }

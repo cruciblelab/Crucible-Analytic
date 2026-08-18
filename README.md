@@ -979,6 +979,46 @@ manual-step list are still Turkish only: they live beside the rule that
 produces them rather than in the language packs, and moving them is
 recorded as open work in `PLAN.md`.
 
+### The site page
+
+Signing in lands on the list of sites this account can reach; a site's
+name is the link to its numbers.
+
+Six cards by default. Four a customer recognises from any analytics tool
+— visitors, pageviews, sessions, bounce rate — and two that are the
+reason for running two collectors at once: **human traffic** and **bot
+traffic**, counted from connections rather than from JavaScript, so they
+include every visitor whose browser never ran the snippet.
+
+A few things about that page are deliberate:
+
+- **The numbers arrive over HTTP.** The panel's database role cannot
+  read the analytics tables, so the page calls the read-only API exactly
+  as an external dashboard would. A structural test refuses any direct
+  reference to those tables from the panel's HTTP tree.
+- **The period is whole days in the panel's timezone.** Sessions are
+  counted inside the range, so one that began before it is truncated —
+  "the last seven days" measured from the current instant produces
+  numbers that cannot be added to the neighbouring period and do not
+  match what a customer means by last week. This is what makes the
+  timezone setting more than cosmetic.
+- **An empty card says which kind of empty.** The snippet was never
+  installed, or it is installed and nobody visited in this period, or
+  the API could not be reached. They are three different facts and one
+  "no data" sentence would present an unfinished setup step as though it
+  were a measurement.
+- **A failure is never drawn as zero.** A card reading "0 visitors"
+  because a call timed out is not a missing number, it is a wrong one,
+  and the reader has no way to tell.
+- **Numbers stop at the site boundary.** The panel's API token reads
+  every site — it serves all of them — so the only thing between one
+  customer and another is the panel's own access check. An account with
+  no membership gets a 404 rather than a 403, because a 403 would
+  confirm the site exists.
+
+Breakdowns by page, source and campaign are the next phase; the API
+already serves them.
+
 ### Settings that used to need SSH
 
 Some of what a deployment needs to change while it is running started

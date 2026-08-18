@@ -29,6 +29,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
@@ -149,6 +150,18 @@ func main() {
 		return
 	}
 
+	// The read-only API this panel draws its numbers from. An unset
+	// address yields a nil client, which every page renders as "the
+	// numbers are not available" - the state a deployment configured
+	// before group D existed is in, and one mid-installation too.
+	analyticsClient, err := analytics.New(cfg.AnalyticsAPIURL, cfg.AnalyticsAPIToken)
+	if err != nil {
+		fatal(logger, "analytics api", err)
+	}
+	if analyticsClient == nil {
+		logger.Warn("no analytics_api_url configured; the site pages will have no numbers to show")
+	}
+
 	gate, err := devgate.New(cfg.DeveloperGate, devgate.Options{
 		Logger: logger,
 		Audit:  store.GateAudit(),
@@ -168,6 +181,7 @@ func main() {
 		Language:         cfg.Language,
 		Store:            store,
 		Sessions:         sessions,
+		Analytics:        analyticsClient,
 		Gate:             gate,
 		ConfigPath:       *configPath,
 		ConfigFileValues: configFileValues(cfg),

@@ -665,3 +665,78 @@ code.secret {
   color: var(--metin-soluk);
   border-style: dashed;
 }
+
+/* ---- the site dashboard (D1) ---- */
+
+/* The period picker. A row of links rather than a select: it is four
+   choices, each one a real URL somebody can bookmark or send to a
+   colleague, which a form control would take away. */
+.aralik ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.aralik a,
+.aralik .secili {
+  display: inline-block;
+  padding: 4px 12px;
+  border: 1px solid var(--kart-kenar);
+  border-radius: 999px;
+  text-decoration: none;
+}
+
+.aralik .secili {
+  background: var(--vurgu-zemin);
+  border-color: var(--vurgu);
+  font-weight: 500;
+}
+
+.aralik .ipucu {
+  margin: 0 0 var(--olcu);
+}
+
+/* The cards. auto-fit rather than a fixed column count, so the six read
+   as one block on a laptop and as a single column on a phone without a
+   breakpoint deciding for them. */
+.kartlar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--olcu);
+  margin-bottom: var(--olcu);
+}
+
+.kartlar .kart-baslik {
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin: 0 0 4px;
+}
+
+.kartlar .kart-deger {
+  margin: 0 0 4px;
+}
+
+/* The sentence that replaces a number.
+   Deliberately not styled as an error: two of the three reasons a card
+   is empty are ordinary - a period with nothing in it, or a source this
+   deployment does not run - and colouring them red would tell a customer
+   something is broken when nothing is. */
+.kart-bos {
+  color: var(--metin-soluk);
+  font-size: 0.9375rem;
+  margin: 0 0 4px;
+}
+
+/* The one that is worth noticing: a source that was never installed is
+   an unfinished setup step, and it is fixable. */
+.kart-bos.durum-kurulmamis {
+  color: var(--uyari);
+}
+
+.derinlik {
+  border-top: 1px solid var(--kart-kenar);
+  padding-top: var(--olcu);
+}
