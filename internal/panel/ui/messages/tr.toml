@@ -554,8 +554,55 @@ kaydedilemedi = "Karar kaydedilemedi."
 # cümlesine indirmek, yapılmamış bir kurulum adımını ölçüm sonucu gibi
 # gösterirdi.
 
-[metin.pano]
-derinlik = "Şimdilik özet. Sayfa, kaynak ve kampanya kırılımları sonraki sürümde."
+[metin.pano.kirilim]
+tumu = "Tümü (%s)"
+sutun_ziyaretci = "Ziyaretçi"
+sutun_pay = "Pay"
+geri = "← Site özeti"
+sayfalama = "Sayfalar"
+onceki = "← Önceki"
+sonraki = "Sonraki →"
+
+[metin.pano.kirilim.sayfa]
+baslik = "Sayfalar"
+aciklama = "En çok açılan sayfalar. Aynı kişi bir sayfayı birkaç kez açarsa hepsi sayılır."
+sutun = "Sayfa"
+sayi = "Görüntüleme"
+bos_grup = "Adresi belirlenemeyen"
+
+[metin.pano.kirilim.kaynak]
+baslik = "Kaynaklar"
+aciklama = "Ziyaretçilerin sitenize nereden geldiği. Adres çubuğuna yazarak, yer iminden ya da kaynağı belli olmayan bir yerden gelenler 'Doğrudan' satırında toplanır — bu bir hata değil, en sık görülen giriş biçimi."
+sutun = "Kaynak"
+sayi = "Görüntüleme"
+bos_grup = "Doğrudan"
+
+[metin.pano.kirilim.kampanya]
+baslik = "Kampanyalar"
+aciklama = "Bağlantısında utm_ etiketleri taşıyan trafik: reklam, bülten, paylaşım bağlantıları. Diğer kırılımlardan farklı olarak burası sitenin tamamını göstermez — etiketsiz gelen ziyaretler hiç listelenmez, o yüzden bu tablodaki sayıların toplamı yukarıdaki görüntüleme sayısını tutmaz."
+sutun = "Kampanya"
+sayi = "Görüntüleme"
+
+[metin.pano.kirilim.cihaz]
+baslik = "Cihazlar"
+aciklama = "Ziyaretçilerin hangi tür cihazdan geldiği. Tarayıcının kendi bildirdiğine dayanır; bildirmeyen ya da tanınmayan tarayıcılar 'Bilinmiyor' satırında."
+sutun = "Cihaz"
+sayi = "Görüntüleme"
+bos_grup = "Bilinmiyor"
+
+[metin.pano.kirilim.ulke]
+baslik = "Ülkeler"
+aciklama = "Sayfa açan kişilerin ülkesi. Bu sayı ölçüm kodundan gelir — yani yalnız JavaScript çalıştıran ziyaretçileri kapsar. Karttaki bot ve insan trafiği başka bir kümeyi sayar; ikisi toplanmaz."
+sutun = "Ülke"
+sayi = "Görüntüleme"
+bos_grup = "Belirlenemedi"
+
+[metin.pano.kirilim.olay]
+baslik = "Olaylar"
+aciklama = "Sitenizin kendi tanımladığı özel olaylar: form gönderimi, tıklama, indirme. Siteye böyle bir olay eklenmemişse burası boş kalır — eksik bir şey değil."
+sutun = "Olay"
+sayi = "Kez"
+bos_grup = "Adsız"
 
 [metin.pano.aralik]
 baslik = "Dönem"

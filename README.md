@@ -1027,12 +1027,30 @@ A few things about that page are deliberate:
   read the analytics tables, so the page calls the read-only API exactly
   as an external dashboard would. A structural test refuses any direct
   reference to those tables from the panel's HTTP tree.
+- **Every number has a breakdown under it.** Six sections beneath the
+  cards answer the question a figure raises: which pages, from where,
+  which campaign, on what device, from which country, and which custom
+  events. Eight rows each, with the full paginated list one click away.
 - **The period is whole days in the panel's timezone.** Sessions are
   counted inside the range, so one that began before it is truncated —
   "the last seven days" measured from the current instant produces
   numbers that cannot be added to the neighbouring period and do not
   match what a customer means by last week. This is what makes the
   timezone setting more than cosmetic.
+- **The group with no value is a named row, never a gap.** A visit with
+  no referrer, a browser nothing recognised, an unresolved country: the
+  API flags those rather than dropping them, so the groups still add up
+  to the site's total. The panel gives each one a word of its own -
+  "Direct" is not the same fact as "Unknown" - and styles it as the
+  different kind of thing it is.
+- **A share is a share of the number above it.** Both the summary and
+  the breakdowns take the API's default bot filter, so a row's
+  percentage counts the same population as the card. A missing total
+  renders as a dash, never as 0%.
+- **Campaigns are the one breakdown that does not cover the whole
+  site.** Its endpoint excludes untagged traffic in SQL, so those rows
+  do not add up to the pageview count - which is correct and looks
+  broken, so the section says so.
 - **An empty card says which kind of empty.** The snippet was never
   installed, or it is installed and nobody visited in this period, or
   the API could not be reached. They are three different facts and one
@@ -1047,8 +1065,11 @@ A few things about that page are deliberate:
   no membership gets a 404 rather than a 403, because a 403 would
   confirm the site exists.
 
-Breakdowns by page, source and campaign are the next phase; the API
-already serves them.
+Six breakdowns is not all of them: the API serves close to thirty,
+including the fingerprint, ASN, score-distribution and cross-source
+views. Those are deliberately not on this page - they belong to the
+developer-facing layer, which adds columns to these same sections rather
+than pages beside them.
 
 ### Settings that used to need SSH
 
@@ -1213,10 +1234,10 @@ Adding a member adds somebody who already has an account. Creating one
 means sending an invitation, which means email — see the scope note
 below.
 
-The first dashboard behind all this has arrived — see "The site page"
-above. The drill-downs underneath it (the API's per-page, per-referrer
-and per-address breakdowns, which the panel does not surface yet) are
-the rest of group D.
+The dashboard behind all this has arrived, cards and breakdowns both —
+see "The site page" above. What is left in group D is the developer
+layer over the same pages (fingerprints, ASNs, scores, the cross-source
+views), the settings screens, and the owner-facing warning strip.
 
 ### Languages
 

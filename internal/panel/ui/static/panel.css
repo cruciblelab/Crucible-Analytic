@@ -736,7 +736,99 @@ code.secret {
   color: var(--uyari);
 }
 
-.derinlik {
+/* ---- the breakdowns ---- */
+
+/* Two columns where there is room, one on a phone. auto-fit again rather
+   than a breakpoint, for the same reason the cards use it: the six
+   sections should reflow to whatever width they are given instead of a
+   number in this file deciding what a "tablet" is.
+
+   min 320px because these are tables, not figures - narrower than that
+   and every path wraps onto three lines. */
+.kirilim {
   border-top: 1px solid var(--kart-kenar);
   padding-top: var(--olcu);
+  margin-top: var(--olcu);
+  min-width: 0;
+}
+
+.kirilimlar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0 calc(var(--olcu) * 1.5);
+}
+
+.kirilim-baslik {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--olcu);
+}
+
+.kirilim-baslik h2 {
+  font-size: 1rem;
+  margin: 0;
+}
+
+.kirilim-baslik .tumu {
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.kirilim-tablo {
+  margin-top: 8px;
+}
+
+/* A path or a referrer can be longer than any column. It wraps at any
+   character rather than overflowing, because a table that scrolls the
+   whole page sideways on a phone is a table nobody reads. */
+.kirilim-tablo th.ad {
+  font-weight: 400;
+  font-size: 0.9375rem;
+  color: var(--metin);
+  overflow-wrap: anywhere;
+}
+
+/* The group whose value was never determined. Dimmed and italic so it
+   reads as the different kind of thing it is - a name this panel gave
+   the row, not a value anything measured - while still being a row that
+   counts, because the numbers have to add up. */
+.kirilim-tablo th.ad.adsiz {
+  color: var(--metin-soluk);
+  font-style: italic;
+}
+
+/* Wide content scrolls inside its own box rather than pushing the page
+   sideways. */
+.tablo-kaydir {
+  overflow-x: auto;
+}
+
+/* Same reasoning as .kart-bos: a section with nothing in it is usually
+   an ordinary fact, so it is not coloured as a fault. */
+.kirilim-bos {
+  color: var(--metin-soluk);
+  font-size: 0.9375rem;
+  margin: 8px 0 0;
+}
+
+.kirilim-bos.durum-kurulmamis {
+  color: var(--uyari);
+}
+
+.sayfalama {
+  display: flex;
+  align-items: baseline;
+  gap: var(--olcu);
+  margin-top: var(--olcu);
+}
+
+.sayfalama .konum {
+  color: var(--metin-soluk);
+  font-size: 0.875rem;
+}
+
+.geri {
+  margin: 0 0 var(--olcu);
+  font-size: 0.875rem;
 }

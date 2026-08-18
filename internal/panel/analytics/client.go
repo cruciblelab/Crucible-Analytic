@@ -65,8 +65,9 @@ const (
 	//
 	// The API is not hostile, but it is a separate process that can be
 	// upgraded independently, misconfigured, or replaced by something
-	// else listening on that port. A summary is a few hundred bytes;
-	// anything approaching this is not a summary.
+	// else listening on that port. A summary is a few hundred bytes and
+	// the largest page of a breakdown this panel asks for is a few
+	// hundred rows; anything approaching this is neither.
 	maxResponseBytes = 4 << 20
 )
 
@@ -190,28 +191,12 @@ type Dashboard struct {
 // because the two are independent: neither answer changes what the other
 // asks for. One deadline covers the pair, so a page has a bound whatever
 // the API is doing.
+//
+// FetchSite with no breakdowns rather than its own implementation: two
+// copies of "fetch the summaries concurrently under one deadline" is two
+// places for a timeout or an error rule to drift.
 func (c *Client) FetchDashboard(ctx context.Context, site string, from, to time.Time) Dashboard {
-	var out Dashboard
-	if !c.Configured() {
-		out.TrafficErr, out.BeaconErr = ErrUnavailable, ErrUnavailable
-		return out
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, PageTimeout)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		out.Traffic, out.TrafficErr = c.summary(ctx, site, from, to)
-	}()
-	go func() {
-		defer wg.Done()
-		out.Beacon, out.BeaconErr = c.beaconSummary(ctx, site, from, to)
-	}()
-	wg.Wait()
-	return out
+	return c.FetchSite(ctx, site, from, to).Dashboard
 }
 
 // KnownSites lists the sites each source has ever written a row for.
@@ -267,7 +252,7 @@ func (c *Client) siteList(ctx context.Context, path string) ([]string, error) {
 	// The site lists take no range; from and to are ignored by those
 	// endpoints, and sending them keeps one code path rather than two.
 	now := time.Now()
-	if err := c.get(ctx, path, now.Add(-time.Hour), now, &body); err != nil {
+	if err := c.get(ctx, path, now.Add(-time.Hour), now, nil, &body); err != nil {
 		return nil, err
 	}
 	return body.Sites, nil
@@ -275,24 +260,39 @@ func (c *Client) siteList(ctx context.Context, path string) ([]string, error) {
 
 func (c *Client) summary(ctx context.Context, site string, from, to time.Time) (Summary, error) {
 	var out Summary
-	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/summary", from, to, &out)
+	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/summary", from, to, nil, &out)
 	return out, err
 }
 
 func (c *Client) beaconSummary(ctx context.Context, site string, from, to time.Time) (BeaconSummary, error) {
 	var out BeaconSummary
-	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/beacon/summary", from, to, &out)
+	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/beacon/summary", from, to, nil, &out)
 	return out, err
 }
 
 // get performs one call and decodes it.
-func (c *Client) get(ctx context.Context, path string, from, to time.Time, into any) error {
+//
+// extra carries the parameters only some endpoints take - limit and
+// offset. from and to are separate arguments because every endpoint here
+// takes them and a range that could be forgotten is a range that will
+// be: the API would then answer for its own default period, and the page
+// would draw a picker saying one thing over numbers meaning another.
+func (c *Client) get(ctx context.Context, path string, from, to time.Time,
+	extra url.Values, into any) error {
+
 	endpoint := *c.base
 	endpoint.Path = strings.TrimSuffix(endpoint.Path, "/") + path
-	endpoint.RawQuery = url.Values{
+	q := url.Values{
 		"from": {from.UTC().Format(time.RFC3339)},
 		"to":   {to.UTC().Format(time.RFC3339)},
-	}.Encode()
+	}
+	for key, values := range extra {
+		// Assigned rather than appended: from and to are this method's to
+		// set, and a caller that passed its own would otherwise send two
+		// of each and leave which one applies to the other service.
+		q[key] = values
+	}
+	endpoint.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {

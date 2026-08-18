@@ -182,6 +182,10 @@ type cardView struct {
 type dashboardPage struct {
 	SiteID string
 	Cards  []cardView
+	// Sections are the breakdowns beneath the cards: which pages, from
+	// where, which campaign. A card without one of these is a number a
+	// customer can read and not act on.
+	Sections []breakdownView
 	// From and To are the range these numbers cover, in the panel's
 	// zone, shown because a figure with no period attached is not a
 	// figure.
@@ -275,7 +279,17 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	}
 
 	f := ui.NewFormatter(lang, s.zone(ctx))
-	board := s.Analytics.FetchDashboard(ctx, siteID, from, to)
+
+	// One call for the whole page: two summaries and six breakdowns,
+	// concurrently, under one deadline. Fetching the cards and then the
+	// sections would bound the page at twice PageTimeout while reading,
+	// here, as though it were bounded by one.
+	want := make([]analytics.BreakdownRequest, 0, len(defaultBreakdowns))
+	for _, kind := range defaultBreakdowns {
+		want = append(want, analytics.BreakdownRequest{Kind: kind, Limit: sectionRows})
+	}
+	site := s.Analytics.FetchSite(ctx, siteID, from, to, want...)
+	board := site.Dashboard
 
 	// Both sources failing the same way is a page-wide problem rather
 	// than six identical card messages.
@@ -313,6 +327,7 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		}
 		data.Cards = append(data.Cards, view)
 	}
+	data.Sections = s.sections(lang, f, siteID, site, presence, days)
 	return data
 }
 

@@ -770,8 +770,10 @@ Dürüst olmak, sonradan sürpriz olmaktan iyidir.
 - **Parola değişikliği diğer cihazlardaki oturumları kapatmıyor.**
 - **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe.**
   Panelin geri kalanı Türkçe ve İngilizce.
-- **Panelde henüz yalnız özet var.** Sayfa/kaynak/kampanya kırılımları
-  bir sonraki fazda; API uçları hazır.
+- **Panelde kırılımların altısı var, otuzu değil.** Sayfa, kaynak,
+  kampanya, cihaz, ülke ve olay kırılımları site sayfasında; parmak izi,
+  ASN, skor dağılımı ve kesişim görünümlerinin panelde karşılığı yok.
+  API uçları hazır ve jetonla doğrudan çağrılabilir.
 - **Collector'da saklama süresi hâlâ dosyadan okunuyor.** Beacon paneli
   izliyor, collector henüz değil.
 

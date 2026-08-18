@@ -1,0 +1,45 @@
+{{define "icerik"}}
+{{- /* One breakdown, all of it, a page at a time. The way back is first
+because this page is reached from the site page and a reader who came
+here to check one thing wants the door in the same place every time. */}}
+<p class="geri"><a href="{{.Data.SitePath}}">{{t "pano.kirilim.geri"}}</a></p>
+
+<nav class="aralik" aria-label="{{t "pano.aralik.baslik"}}">
+<ul>
+{{- range .Data.Ranges}}
+<li>
+{{- if .Selected}}
+<span class="secili" aria-current="true">{{.Label}}</span>
+{{- else}}
+<a href="{{.URL}}">{{.Label}}</a>
+{{- end}}
+</li>
+{{- end}}
+</ul>
+<p class="ipucu">
+{{$.F.Date .Data.From}} – {{$.F.Date (.Data.To.AddDate 0 0 -1)}}
+<span class="gizli">({{$.F.ZoneName}})</span>
+</p>
+</nav>
+
+{{template "kirilim" .Data.Section}}
+
+{{- /* The pager exists only when there is more than one page, and each
+end drops its link rather than disabling it: a control that is present
+and does nothing is one a keyboard reader still has to walk past. */}}
+{{- if gt .Data.Pages 1}}
+<nav class="sayfalama" aria-label="{{t "pano.kirilim.sayfalama"}}">
+{{- if .Data.PrevURL}}
+<a rel="prev" href="{{.Data.PrevURL}}">{{t "pano.kirilim.onceki"}}</a>
+{{- else}}
+<span class="soluk">{{t "pano.kirilim.onceki"}}</span>
+{{- end}}
+<span class="konum">{{.Data.Page}} / {{.Data.Pages}}</span>
+{{- if .Data.NextURL}}
+<a rel="next" href="{{.Data.NextURL}}">{{t "pano.kirilim.sonraki"}}</a>
+{{- else}}
+<span class="soluk">{{t "pano.kirilim.sonraki"}}</span>
+{{- end}}
+</nav>
+{{- end}}
+{{end}}

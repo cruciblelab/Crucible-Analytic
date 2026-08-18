@@ -525,8 +525,55 @@ kaydedilemedi = "The decision could not be saved."
 # cannot be reached. One "no data" sentence for all three would present a
 # setup step nobody performed as though it were a measurement.
 
-[metin.pano]
-derinlik = "A summary for now. Breakdowns by page, source and campaign come in a later release."
+[metin.pano.kirilim]
+tumu = "All %s"
+sutun_ziyaretci = "Visitors"
+sutun_pay = "Share"
+geri = "← Site summary"
+sayfalama = "Pages"
+onceki = "← Previous"
+sonraki = "Next →"
+
+[metin.pano.kirilim.sayfa]
+baslik = "Pages"
+aciklama = "The most-opened pages. If one person opens a page several times, each one counts."
+sutun = "Page"
+sayi = "Pageviews"
+bos_grup = "Address not determined"
+
+[metin.pano.kirilim.kaynak]
+baslik = "Sources"
+aciklama = "Where visitors arrived from. Anyone who typed the address, used a bookmark, or came from somewhere that reported no source is counted under 'Direct' — that is the most common way in, not a fault."
+sutun = "Source"
+sayi = "Pageviews"
+bos_grup = "Direct"
+
+[metin.pano.kirilim.kampanya]
+baslik = "Campaigns"
+aciklama = "Traffic whose link carried utm_ tags: adverts, newsletters, shared links. Unlike the other breakdowns this one does not cover the whole site — untagged visits are not listed at all, so these rows do not add up to the pageview count above."
+sutun = "Campaign"
+sayi = "Pageviews"
+
+[metin.pano.kirilim.cihaz]
+baslik = "Devices"
+aciklama = "What kind of device visitors came on. Based on what the browser reports about itself; browsers that report nothing recognisable are under 'Unknown'."
+sutun = "Device"
+sayi = "Pageviews"
+bos_grup = "Unknown"
+
+[metin.pano.kirilim.ulke]
+baslik = "Countries"
+aciklama = "The country of the people who opened a page. This number comes from the measurement snippet, so it covers only visitors whose browser ran JavaScript. The bot and human traffic on the cards counts a different population; the two do not add up."
+sutun = "Country"
+sayi = "Pageviews"
+bos_grup = "Not determined"
+
+[metin.pano.kirilim.olay]
+baslik = "Events"
+aciklama = "Custom events your own site defines: a form submitted, a click, a download. If the site raises none, this stays empty — nothing is missing."
+sutun = "Event"
+sayi = "Times"
+bos_grup = "Unnamed"
 
 [metin.pano.aralik]
 baslik = "Period"

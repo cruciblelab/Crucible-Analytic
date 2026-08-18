@@ -41,5 +41,12 @@ missing installation as a result. */}}
 {{- end}}
 </div>
 
-<p class="ipucu derinlik">{{t "pano.derinlik"}}</p>
+{{- /* The breakdowns, beneath the numbers they explain. Each is the
+answer to the question the card above it raises: 1 240 pageviews of
+what, from where, brought by which campaign. */}}
+<div class="kirilimlar">
+{{- range .Data.Sections}}
+{{template "kirilim" .}}
+{{- end}}
+</div>
 {{end}}

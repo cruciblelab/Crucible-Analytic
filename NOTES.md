@@ -3331,3 +3331,160 @@ known is what `docker-compose.yml` pins and the integration suite runs
 against every time: 16.6 and 2.17.2. The table says that now, and says
 older is untested rather than unsupported — the distinction the whole
 preflight package is built on, applied to the document describing it.
+
+## Why a number is what it is
+
+D1 put six figures on a page and nothing behind them. A customer could
+read "1 240 pageviews" and had no way to ask which pages. This phase is
+that question, six times: pages, sources, campaigns, devices, countries,
+events - each a section under the cards, each with its full paginated
+list one click away.
+
+The API serves close to thirty breakdowns and six is a choice, not a
+limit. Fingerprints, ASNs, score distributions and the cross-source
+views are deliberately absent: they belong to the developer layer, which
+adds columns to these sections rather than pages beside them, and a
+default view that opened with a JA4 hash would be a different product.
+
+### One registry, split across two packages
+
+The kind is a closed set and it lives in the analytics package, not the
+web one, because what it encodes is a transport fact: which path to
+call, which key the rows arrive under, which of the API's row shapes
+they are. What a breakdown is *called* belongs to the panel.
+
+That split is not tidiness. A breakdown's identity becomes a path
+segment in a request to another service, so the registry lookup is what
+stops a URL somebody typed from reaching the API as an endpoint name -
+and it happens in the handler before the site is looked up, let alone
+fetched. A test walks the unknown segments, including a percent-encoded
+traversal, and requires each to be a 404 rather than an attempt.
+
+### Four row shapes, one table, and a column header that is not a lie
+
+Pages and referrers and devices and countries answer with one shape,
+campaigns with another, events with a third. Flattening them into one
+Row is a rendering decision, and the field is called Count rather than
+Pageviews for a reason: it is pageviews for pages and occurrences for
+events, and naming it for one of its meanings makes the other wrong at
+the point somebody reads the struct. Both column headings come from the
+breakdown's own catalog entry.
+
+The same distinction decides the denominator. A share is a row over the
+summary, and events divide by the event total while everything else
+divides by pageviews - dividing an event count by the pageview total
+produces a percentage that looks entirely plausible and means nothing.
+
+### The share and the filter that has to match
+
+The API's `bots` parameter defaults to exclude on the beacon summary and
+on every breakdown alike. The panel sends it on neither, so both take
+that default and a row's percentage counts the same people the card
+above it counts.
+
+Send it on one and not the other and the page still draws perfectly:
+every number formatted, every column aligned, and the percentages
+quietly failing to add to a hundred. Nothing on screen would say why.
+That is why it is a test rather than a comment, and why the integration
+test asserts the property - the shares present sum to about a hundred -
+rather than a hard-coded percentage that would pass for the wrong reason
+the day the fixture changed.
+
+A missing total renders as a dash. The formatter already had that rule
+for cards; the same rule applies here for the same reason a failure is
+never drawn as zero.
+
+### The group with no value
+
+The API flags the group where a value was never determined - a visit
+with no referrer, an unrecognised browser, an unresolved country -
+instead of dropping it, so the groups still add up to the site's total.
+Two ways to lose that on the last hop: draw it with a blank label, or
+leave it out. The first produces a row nobody can read and the second
+makes the column quietly short.
+
+So it gets a name, and its own name per breakdown, because "Direct" is
+not the same fact as "Unknown" and a shared word would be wrong for
+both. It is styled as the different kind of thing it is: a name this
+panel gave the row, not a value anything measured.
+
+The fixture is what proves it. Three of the nine seeded pageviews arrive
+with no referrer at all, on purpose - a fixture with every column filled
+in would never produce the row this phase is most likely to get wrong.
+
+### The breakdown that does not add up, and the row that cannot exist
+
+Writing that per-breakdown word found a real mistake in my own code.
+
+`BeaconCampaigns` groups by the stored campaign query and its SQL
+excludes the empty one, so untagged traffic is not a flagged group - it
+is not returned at all. The client was deriving an "empty" flag from an
+empty key, and both catalogs carried a word ("Kampanyasız" / "No
+campaign") for a row that can never render. The registry now records
+which breakdowns have such a group, the derivation is gone, and the
+catalog strings with it; a test asserts both directions, so a word for a
+row that cannot appear fails as loudly as a missing one.
+
+The consequence belongs on the page rather than in a comment: unlike
+every other breakdown, campaign rows do not sum to the site's total, so
+a campaigns table showing 2 of 11 pageviews is correct and looks broken.
+The section's help text says so.
+
+That whole thread started because the integration test failed on a
+fixture that set `utm_source` and not `query` - which would have seeded
+a campaigns table that was correctly empty and proved nothing.
+
+### Eight calls, measured rather than assumed
+
+D1's page made two calls; this one makes eight. One `FetchSite` rather
+than a summary round followed by a breakdown round, because two rounds
+would bound the page at twice `PageTimeout` while reading, in the code,
+as though it were bounded by one.
+
+Against a real API over a real TimescaleDB:
+
+	summaries alone (the D1 shape)    4.1 ms
+	+ pages                           7.3 ms
+	+ countries                       6.1 ms
+	+ referrers, campaigns,
+	  devices, events                 4.1 ms - free
+	all eight together               10.4 ms
+
+Four of the six cost nothing measurable because they finish inside the
+summary calls they run alongside. The page ends up costing its slowest
+query rather than the sum of eight. "It is concurrent, so it is fast" is
+a claim; this is the number, and it is in the test's doc comment so the
+next person does not have to take it on faith.
+
+### What the browser found, and what it did not find the first time
+
+Real Chromium: six sections all carrying rows, three named groups, no
+overflow and no sideways scroll at 1280px or at 390px, no CSP
+violations, the full-list link landing on the right page and the way
+back landing on the summary.
+
+Long paths are seeded deliberately. A fixture of "/" and "/fiyat" passes
+a layout that breaks on the first real site, so the browser test seeds
+paths of a hundred-odd characters and asserts the section does not grow
+wider than its box - the tables scroll inside their own container, the
+page does not.
+
+The first run reported `detail_has_pager: false`. Fourteen distinct
+paths against a page size of twenty-five: the pager was asserted about
+and never clicked, which is the same as not testing it. Seeding past
+`detailRows` rather than past `sectionRows` fixed it, and the second run
+followed a real next-page link to `?gun=7&sayfa=2` - which also proves
+the period survives the click, the thing a pager most often drops.
+
+### gofmt rewrites quotes in doc comments
+
+A stray `”` kept reappearing in a test file after every format. Not an
+encoding fault and not the editor: gofmt normalises a doubled apostrophe
+to a right quotation mark inside doc comments, so `WHERE query <> ''`
+became `WHERE query <> ”` every time. The comment is reworded to avoid
+the sequence rather than fought.
+
+Worth writing down because the first two explanations - mojibake, a
+broken heredoc - were both wrong and both plausible, and one identical
+character has been sitting in `internal/beacon/useragent.go` since that
+file was written for exactly the same reason.

@@ -66,7 +66,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | **A** Ayarlar ve saklama | 🟡 **9/13** | A2, A3, A5.2, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **7/9** | C6, C7 |
-| **D** Dashboard | 🟡 **1/8** | D2–D8 |
+| **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
 
@@ -179,6 +179,20 @@ düzeltmekten ucuz.)*
   D1'den bir commit sonra). §4'ün tamamı gerçek TimescaleDB'ye
   uygulanarak doğrulandı: dört rol × beş tablo yetki matrisi basıldı,
   roller düşürüldü
+- **D2** Detaya inişler — D1 altı sayı gösteriyordu, bu faz **neden** o
+  olduğunu gösteriyor: sayfa, kaynak, kampanya, cihaz, ülke, olay.
+  Kırılım kimliği başka bir servise giden **yol parçası** olduğu için
+  kayıt kapalı küme ve arama, site aranmadan önce yapılıyor. Dört satır
+  tipi tek tabloya iniyor ama sütun başlığı kırılımın kendisinden
+  geliyor — sayım pageview de olabilir olay adedi de, ve payda da öyle.
+  Boş grup adı olan bir satır: API onu düşürmüyor ki toplamlar tutsun,
+  panel de düşürmüyor. **Yazarken kendi kodumda gerçek bir hata buldu:**
+  kampanya ucu etiketsiz trafiği SQL'de dışlıyor, yani hem türetilen
+  "boş" bayrağı hem de iki kataloğa yazdığım "Kampanyasız" satırı asla
+  render edilemezdi; ikisi de silindi, ayrım kayda geçti, iki yönlü test
+  eklendi. **Ölçüldü:** 2 çağrı 4,1 ms, 8 çağrı 10,4 ms — altı
+  kırılımın dördü özet çağrılarının içinde bittiği için ölçülebilir bir
+  maliyet getirmiyor
 - **D1** Site panosu — **ürünün var olma sebebi olan sayfa.** Panel bu
   faza kadar analitik API'sine tek bir çağrı yapmıyordu. Sayılar HTTP
   üzerinden geliyor (panelin rolü analitik tablolarını okuyamaz ve
@@ -218,17 +232,17 @@ düzeltmekten ucuz.)*
 seviyesindeydi, arayüz yarımdı. Aynı ölçüt geçerli — "müşteri bunu
 görüyor mu" sorusu "mekanizma tam mı" sorusunun önünde.)*
 
-1. **D2 — detaya inişler.** D1 altı sayı gösteriyor; bir sayının neden
-   o olduğunu gösteren hiçbir şey yok. Sayfalar, kaynaklar, kampanyalar,
-   ülkeler — API uçlarının hepsi zaten yazılı ve test edilmiş, panelde
-   karşılığı yok.
-2. **C6 — görünür kart seti ayarı.** Artık mümkün: D1 kart kaydını
+1. **C6 — görünür kart seti ayarı.** Artık mümkün: D1 kart kaydını
    kapalı küme olarak yazdı, yani bu faz bir *seçim* bağlamak, sayfayı
-   sökmek değil.
-3. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
+   sökmek değil — ve D2 aynısını kırılım kaydı için yaptı, yani ayar iki
+   listeyi birden kapsayabilir.
+2. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
    de açtı, yani bunlar mimari değil kablolama: `[asn_lookup]`'ın
    tamamı, `[cache]`, `storage.flush_interval_seconds`, beacon
    tampon/parti boyutları, bot skor eşiği.
+3. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+   yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
+   izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok.
 
 **Bunların dışında, ürün olmak için üç eksik** *(ölçüldü, 2026-08-18)*:
 CI yok (`govulncheck` elle çalışıyor — denetimin en kötü iki bulgusu
@@ -2249,6 +2263,82 @@ bir sütun, taşma yok, yatay kaydırma yok, CSP ihlali yok; aralık seçici
 gerçekten değiştiriyor. Hiçbiri ResponseRecorder'dan görülemez.
 
 #### D2 — Detaya inişler: sayfalar, kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar
+
+D1 altı sayı gösteriyor. Bir sayının **neden** o olduğunu gösteren
+hiçbir şey yok: hangi sayfa, nereden gelindi, hangi kampanya. API'de
+otuza yakın kırılım ucu yazılı ve test edilmiş halde duruyor; panelde
+karşılığı sıfır.
+
+**Kapsam: altı kırılım.** Başlıktaki altısı, ve yalnız o altısı:
+
+| Kırılım | Uç | Satır tipi | Kaynak |
+|---|---|---|---|
+| Sayfalar | `/beacon/pages` | `BeaconGroupStat` | beacon |
+| Kaynaklar | `/beacon/referrers` | `BeaconGroupStat` | beacon |
+| Kampanyalar | `/beacon/campaigns` | `CampaignStat` | beacon |
+| Cihazlar | `/beacon/devices` | `BeaconGroupStat` | beacon |
+| Ülkeler | `/beacon/countries` | `BeaconGroupStat` | beacon |
+| Olaylar | `/beacon/events` | `EventStat` | beacon |
+
+**Kapsam dışı, bilerek:** parmak izi, ASN, skor dağılımı, kesişim, ham
+dışa aktarma. Hepsi D3 — ve D3'ün kendi kuralı "yeni sayfa değil, aynı
+sayfaya sütun". D2 o sayfaları yazan faz; D3 sütunu ekleyen faz. D6 de
+aynı yerden bakıyor: "varsayılan görünüm... parmak izi yok, ASN yok,
+skor yok".
+
+##### Altı karar
+
+**1. Kırılım kaydı kapalı küme.** D1 kart kaydının aynısı, aynı iki
+sebeple: C6 bunu ayara bağlayacak, ve daha önemlisi **kırılım adı bir
+URL yoluna giriyor.** İstekten gelen bir dize `/beacon/<x>` haline
+gelemez. Kayıtta olmayan bir ad 404, uç denemesi değil.
+
+**2. "Ülkeler" hangi ülkeler — ve bu soru tuzak.** API'de iki tane var:
+`/countries` collector'ın gördüğü **adresleri**, `/beacon/countries`
+sayfa açan **kişileri** sayıyor. `server_beacon.go` bunu route
+yorumunda açıkça uyarıyor: ikisini tek ad altında sunmak, paneli
+onları birbiriyle karşılaştırmaya davet eder. D2 beacon olanı alıyor
+(kart seti de öyle: ziyaretçi/görüntüleme/oturum beacon), ve bölüm
+başlığı hangi kaynaktan geldiğini **söylüyor**. Collector'ın ülke
+kırılımı D3'e ait — orada zaten ASN ve skorun yanında duracak.
+
+**3. Boş grup satır, boşluk değil.** `BeaconGroupStat.Empty`, değerin
+hiç belirlenemediği grubu işaretliyor: referrer'sız doğrudan giriş,
+tanınmayan tarayıcı, çözülemeyen ülke. API bunu **düşürmüyor, işaretli
+döndürüyor**, çünkü sayıların toplamı siteninkini tutsun diye. Panel de
+düşürmeyecek: adı olan bir satır olarak çizecek ("Doğrudan",
+"Bilinmiyor"). Boş etiketli bir satır çizmek ya da satırı atmak,
+"baktık ve bulamadık" ile "bakmadık" ayrımını — D5'in üzerine kurulduğu
+ayrımı — bir kırılım tablosunda yeniden kaybetmek olurdu.
+
+**4. Yüzde paydası aynı filtreden gelmeli.** Kırılım `total`'ı grup
+sayısı, toplam görüntüleme değil — yani pay/payda için özet çağrısı
+gerekiyor. Buradaki gerçek risk: beacon özeti de kırılımlar da `bots`
+filtresini uyguluyor ve ikisinin de varsayılanı `exclude`. Biri
+değişirse yüzdeler sessizce %100'ü tutmaz. Panel ikisine de aynı
+filtreyi gönderiyor **ve bunu bir test kilitliyor** — varsayım olarak
+bırakılırsa bir gün bir tarafta değişir, sayfa yine çizilir, ve yanlış
+olan tek şey okunan sayı olur. Payda sıfırsa yüzde **hiç** yazılmaz;
+"%0" da "%NaN" da uydurma olurdu.
+
+**5. İki yer, tek kayıt.** Site sayfasında her kırılım bir bölüm, ilk 8
+satır. Toplam gösterilenden fazlaysa kendi sayfasına bağlantı:
+`/site/{site}/detay/{kirilim}`, orada sayfalama var. İkisi de aynı
+kayıttan ve aynı tablo çizicisinden besleniyor; ikinci bir render yolu
+yok, yoksa biri düzeltilip diğeri unutulur.
+
+**6. Boşluk üç türlü, yine.** D1'in dört durumu (kurulmamış / bu dönem
+boş / ulaşılamıyor / reddedildi) kırılımlarda da aynen geçerli ve aynı
+sebeple ayrı: bir kırılımı "veri yok" diye çizmek, kurulmamış snippet'i
+ölçüm gibi gösterir.
+
+##### Ölçülecek
+
+- Sayfa başına çağrı sayısı ve süresi. D1 iki çağrı yapıyordu; bu faz
+  onu sekize çıkarıyor (2 özet + 6 kırılım). Eşzamanlı, tek `PageTimeout`
+  altında — ama **ölçülmeden "hızlı" denmeyecek.**
+- Gerçek bir tarayıcıda: telefon genişliğinde tablo taşmıyor mu,
+  sayfalama bağlantıları gerçekten dönemi koruyor mu.
 
 #### D3 — Aynı sayfalar üzerinde geliştirici modu katmanları
 

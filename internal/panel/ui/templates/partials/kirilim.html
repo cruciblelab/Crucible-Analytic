@@ -1,0 +1,50 @@
+{{define "kirilim"}}
+{{- /* One breakdown section, used by both the site page and a
+breakdown's own page. One renderer rather than two, because two would
+drift: the empty-group row and the missing-denominator dash are easy to
+get right once and easy to forget the second time. */}}
+<section class="kirilim" data-kirilim="{{.Kind}}" aria-labelledby="kirilim-{{.Kind}}">
+<header class="kirilim-baslik">
+<h2 id="kirilim-{{.Kind}}">{{.Title}}</h2>
+{{- if .MoreURL}}
+{{- /* The count is on the link because it is the reason to follow it.
+"All 143" answers "is there more" before the click rather than after.
+The text is built in Go rather than here so the number goes through the
+locale's digit grouping like every other number on the page. */}}
+<a class="tumu" href="{{.MoreURL}}">{{.MoreText}}</a>
+{{- end}}
+</header>
+
+{{- if .Empty}}
+<p class="kirilim-bos durum-{{.Empty}}">{{.EmptyText}}</p>
+{{- else}}
+<div class="tablo-kaydir">
+<table class="kirilim-tablo">
+<thead>
+<tr>
+<th scope="col">{{.ColumnLabel}}</th>
+<th scope="col" class="sayi">{{.CountLabel}}</th>
+<th scope="col" class="sayi">{{t "pano.kirilim.sutun_ziyaretci"}}</th>
+<th scope="col" class="sayi">{{t "pano.kirilim.sutun_pay"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Rows}}
+<tr>
+{{- /* The group whose value was never determined is a named row, not a
+blank one. The API flags it rather than dropping it so the groups still
+add up to the site's total; drawing it as an empty cell would lose that
+on the last hop, and dropping it would make the column quietly short. */}}
+<th scope="row" class="ad{{if .Named}} adsiz{{end}}">{{.Label}}</th>
+<td class="sayi">{{.Count}}</td>
+<td class="sayi">{{.Visitors}}</td>
+<td class="sayi soluk">{{.Share}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+{{- if .Help}}<p class="ipucu">{{.Help}}</p>{{end}}
+{{- end}}
+</section>
+{{end}}

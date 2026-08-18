@@ -338,6 +338,21 @@ var (
 	}
 	dashboardEmptiness = []string{"kurulmamis", "bos", "ulasilamiyor", "reddedildi"}
 	dashboardSources   = []string{"beacon", "trafik"}
+
+	// dashboardBreakdowns mirrors the breakdown registry, for the same
+	// reason as the cards: a section's title, its two column headings
+	// and the name given to its never-determined group are all assembled
+	// from the kind at runtime. A missing bos_grup is the one nobody
+	// would notice - it appears only on sites that have a row with no
+	// referrer, which is most of them, on a line nobody reads twice.
+	dashboardBreakdowns = []string{"sayfa", "kaynak", "kampanya", "cihaz", "ulke", "olay"}
+
+	// Campaigns is absent here and that is the API's shape, not an
+	// oversight: its endpoint excludes untagged traffic in SQL, so there
+	// is no never-determined group to name. A word for a row that can
+	// never render is how a catalog starts describing a page that does
+	// not exist.
+	dashboardNamedGroups = []string{"sayfa", "kaynak", "cihaz", "ulke", "olay"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -366,6 +381,17 @@ func computedKeys() []string {
 		for _, source := range dashboardSources {
 			keys = append(keys, "pano.bos."+why+"."+source)
 		}
+	}
+	for _, id := range dashboardBreakdowns {
+		keys = append(keys,
+			"pano.kirilim."+id+".baslik",
+			"pano.kirilim."+id+".aciklama",
+			"pano.kirilim."+id+".sutun",
+			"pano.kirilim."+id+".sayi",
+		)
+	}
+	for _, id := range dashboardNamedGroups {
+		keys = append(keys, "pano.kirilim."+id+".bos_grup")
 	}
 	return keys
 }
