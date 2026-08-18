@@ -4,9 +4,18 @@ A bot-aware web analytics collector: an open-source alternative to
 Google Analytics that separately detects and surfaces bot/DDoS traffic.
 
 The pipeline is `Collector → Cache/Score → TimescaleDB → read-only JSON
-API`. There is no dashboard UI and no path-scanning detection yet — those
-are later phases; the API is designed to be consumed by a panel you
-already have.
+API → panel`. The panel (`cmd/panel`) serves a site dashboard of its own
+now; path-scanning detection is still a later phase. The API stays a
+public contract either way — it is built to be consumed by a panel you
+already have, and the one in this repository consumes it exactly as an
+outside tool would.
+
+**Installing this on a server: [`KURULUM.md`](KURULUM.md).** A fixed,
+step-by-step guide, in Turkish, covering everything from building the
+binaries through the database roles, the secrets, the service files and
+the first sign-in — plus the recommendations and the mistakes that cost
+time. The "Running locally" section further down is for development on
+one machine; it is not an installation procedure.
 
 ## What this does — and doesn't do
 
@@ -37,8 +46,14 @@ already have.
   site's statistics over HTTP without touching the database - 28
   endpoints, including the cross-source ones that answer "which of the
   addresses that hit us actually rendered a page". See "Read-only
-  analytics API" below. The panel/dashboard UI itself is not part of this
-  project.
+  analytics API" below. That API is the contract, not an internal
+  detail: the panel in this repository is one of its callers and has no
+  privileged path around it, which is what keeps it usable by a panel
+  you wrote yourself.
+- Serve a **management panel** (`cmd/panel`) — sign-in, two-factor,
+  members, a setup wizard, and a per-site dashboard — as a separate
+  process with a database role that cannot read a single analytics row.
+  See "The management panel" below.
 
 **This project does not:**
 - **Stop network-level (volumetric) DDoS attacks.** Traffic in the
@@ -722,7 +737,13 @@ with `localStorage.setItem('crucible.disabled', '1')`.
 
 ## Running locally
 
-Requires Go 1.23+.
+Requires Go 1.25.0+ — the version in `go.mod`. An older toolchain does
+not fail at some later feature; it refuses the module outright.
+
+This section brings the pipeline up on one machine for development. For
+a server — roles, GRANTs, secrets, service files, TLS, first sign-in —
+follow [`KURULUM.md`](KURULUM.md) instead, which is written for that and
+does not assume the database is a throwaway container.
 
 ```bash
 # 1. Start a local TimescaleDB (applies internal/storage/schema.sql on
@@ -848,6 +869,16 @@ psql "$PANEL_DSN" -f internal/panel/schema.sql     # once, by hand
 go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/panel
 ./panel -config panel.toml
 ```
+
+`panel_dsn` names a **different role in the same database** as the
+analytics services — not a database of its own. What separates the panel
+from the visitor records is the GRANTs, and the setup wizard proves that
+separation by asking Postgres, over the panel's own connection, whether
+the other roles can reach the analytics tables. From a separate database
+those tables do not exist to ask about, the check reports "could not
+look" rather than "looked and it is fine", and a check that could not
+look blocks handover to the customer on purpose.
+`KURULUM.md` §4 has the full role and GRANT list.
 
 Everything the browser loads is compiled into that binary: the
 stylesheet, htmx, every template and every Turkish string. **No CDN, no
@@ -1182,7 +1213,10 @@ Adding a member adds somebody who already has an account. Creating one
 means sending an invitation, which means email — see the scope note
 below.
 
-The dashboards behind all this arrive with group D.
+The first dashboard behind all this has arrived — see "The site page"
+above. The drill-downs underneath it (the API's per-page, per-referrer
+and per-address breakdowns, which the panel does not surface yet) are
+the rest of group D.
 
 ### Languages
 
@@ -1556,10 +1590,14 @@ breakdown would fail nothing.
 
 ## Explicitly out of scope for this phase
 
-A dashboard UI (the read-only API exists to feed one you already have),
-user login/session management (the API authenticates *callers* with
-tokens; authenticating *humans* belongs in the panel in front of it),
-exact cumulative request totals (see "What the numbers
+Out of scope **for `cmd/analytics-api` specifically** — these exist in
+the project, in the panel, which is a separate process that talks to
+this API over HTTP like any other caller: a dashboard UI, and human
+login/session management (this API authenticates *callers* with tokens;
+authenticating *people* belongs in the panel in front of it).
+
+Out of scope for the project as it stands: exact cumulative request
+totals (see "What the numbers
 mean" above and `NOTES.md`), path-scanning detection by the collector
 itself (the beacon reports paths from the client, which is a different
 thing - it cannot see a scanner that never runs JavaScript),

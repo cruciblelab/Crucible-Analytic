@@ -3230,3 +3230,104 @@ picker checked as a reader meets it: three links plus one marked
 current, and clicking one actually changes the dates underneath. None of
 that is visible from a response recorder, where the bytes are correct
 and the page could still be unusable.
+
+## Writing the installation down, and what writing it found
+
+`KURULUM.md` is the fixed installation guide: build, database, secrets,
+config, services, TLS, first run, handover, verification, recommendations,
+common mistakes, known gaps. It is in Turkish because the person it is
+written for reads Turkish, and every command in it was run before it was
+written down.
+
+That last rule is the whole point of the exercise. A document assembled
+from memory is a set of plausible commands; a document assembled from a
+terminal is a set of commands. The difference showed up four times, and
+each time the document was wrong rather than the code.
+
+### The example config pointed at a database that would break handover
+
+`panel.example.toml` shipped `postgres://panel@localhost/crucible` —
+its own role, its own database. Reasonable, and wrong, and the reason is
+not obvious from either file.
+
+The setup wizard's isolation check asks Postgres, over the panel's own
+connection, whether the *other* roles can reach `traffic_snapshots` and
+`beacon_events`. From a different database those tables do not exist to
+ask about. The query does not return "no", it errors — and an error is
+`CheckSkip`, "we could not look", which is one of the two states that
+blocks handover on purpose. So a panel installed exactly as its own
+example file described could never be handed to a customer, and the
+check that stopped it would be reporting the truth.
+
+Measured rather than reasoned: the same `has_table_privilege` call
+returns `t` in `analytics` and `ERROR: relation "traffic_snapshots" does
+not exist` one database over. The example now says the database must be
+shared and the role must not, with the reason attached, because a
+constraint whose reason is missing gets optimised away by the next
+person.
+
+### A GRANT block that quietly widened the thing it was demonstrating
+
+The first draft ended with the line everyone writes:
+
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO collector, beacon_writer;
+
+There are six sequences in this database and all six belong to the
+panel. `traffic_snapshots` and `beacon_events` have no `BIGSERIAL` at
+all, so that line grants the two analytics roles rights over the panel's
+identity columns in exchange for nothing. In a document whose §4.5 is a
+set of queries proving the roles cannot reach each other, that is worse
+than a redundant line — it is the document contradicting itself four
+lines apart.
+
+Named sequences now, panel role only, for the same reason `ALL` was
+wrong in the first place: it is a grant to whatever exists later, not to
+what exists now.
+
+The fix was verified the way the rest of the project verifies things —
+the entire §4.2 and §4.4 block was run against the real TimescaleDB with
+prefixed role names, the resulting privilege matrix printed for all four
+roles across five tables, and the roles dropped. The matrix is the
+document's claims, one row each: the panel reads no analytics table, the
+API can read both and write neither, the beacon can insert into its own
+table and not read it back, the audit log takes `SELECT` and `INSERT`
+and refuses `UPDATE` and `DELETE`, and both collectors can read
+`panel_settings` and nothing else of the panel's.
+
+### A check that exists, is tested, and never runs
+
+Writing "the wizard runs 14 checks" meant counting them, and counting
+them found a fifteenth that cannot happen. `preflight.checkService` asks
+whether the collector, beacon and API are actually up. It is written, it
+has tests, and `cmd/panel` never passes it a single address — there is
+no field in `panel.toml` that would carry one. `ServiceURLs` appears in
+three test files and nowhere else.
+
+So the wizard's answer to "is the software running" is silence, and
+silence here reads as approval. The document says so in §9.3 and §16
+and sends the reader to the manual checks instead; `PLAN.md` carries it
+as open work. Wiring it up is small, but it widens the installer's
+check surface, and this was a documentation phase — the honest move was
+to write down that the gap exists rather than to quietly close it while
+nobody was looking at that file.
+
+### Two claims in the README that had stopped being true
+
+The intro still said there is no dashboard UI, one commit after the
+dashboard shipped, and "Requires Go 1.23+" against a `go.mod` that says
+`1.25.0` — where an old toolchain does not fail at some later feature,
+it refuses the module outright. The first is a stale sentence; the
+second is a developer's first command failing for a reason the document
+caused. Both fixed, along with the scope list that still filed a
+dashboard and human login under "not in this project" when both are now
+in it, in a process the API section correctly describes as a separate
+one.
+
+### Versions: tested, not claimed
+
+The prerequisites table originally said PostgreSQL 14+ and TimescaleDB
+2.x. Nobody has ever run this against PostgreSQL 14. What is actually
+known is what `docker-compose.yml` pins and the integration suite runs
+against every time: 16.6 and 2.17.2. The table says that now, and says
+older is untested rather than unsupported — the distinction the whole
+preflight package is built on, applied to the document describing it.

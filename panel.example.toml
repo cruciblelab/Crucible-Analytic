@@ -17,11 +17,26 @@ listen_addr = "127.0.0.1:8090"
 
 # Panelin kendi veritabanı rolü. Yalnız panel_* tablolarına erişmeli.
 # Zorunlu: panel açılışta bağlanır ve bağlanamazsa başlamaz.
-panel_dsn = "postgres://panel:PAROLA@localhost:5432/crucible"
+#
+# VERİTABANI ADI ANALİTİKLE AYNI OLMALI. Rol farklı, veritabanı aynı.
+# Sebebi kurulum sihirbazının rol yalıtımı kontrolü: panelin bağlantısı
+# üzerinden has_table_privilege(...) sorguluyor, yani traffic_snapshots
+# ve beacon_events'in o bağlantıdan görünüyor olması gerekiyor. Panel
+# ayrı bir veritabanındaysa o sorgu hata verir, kontrol "bakamadım" der,
+# ve "bakamadım" devir teslimi bloke eder — yani müşteriye devretme
+# adımı kalıcı olarak çalışmaz. Ayrımı sağlayan şey veritabanı değil,
+# GRANT'lar; KURULUM.md §4 tam listeyi veriyor.
+panel_dsn = "postgres://panel_user:PAROLA@localhost:5432/analytics"
 
-# Analitik sayılarının okunacağı salt okunur API. (Henüz hiçbir sayfa
-# okumuyor — D grubuyla devreye giriyor; bugün kurulan bir sistemin
-# yarın dosyayı yeniden düzenlemesi gerekmesin diye şimdiden burada.)
+# Analitik sayılarının okunacağı salt okunur API.
+#
+# Jetonun kendisi buraya, SHA-256'sı analytics-api.toml'a yazılır.
+# Panelin jetonu sites = ["*"] olmalı: panel bütün siteleri sunuyor.
+# Sonucu açıkça: bir müşterinin sayılarını diğerinden ayıran tek şey
+# panelin kendi yetki kontrolü.
+#
+# Boş bırakmak desteklenen bir durum — site sayfaları "sayılar şu an
+# okunamıyor" der ve panel ayakta kalır.
 analytics_api_url = "http://127.0.0.1:8080"
 analytics_api_token = ""
 

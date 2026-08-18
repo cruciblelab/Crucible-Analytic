@@ -166,6 +166,19 @@ düzeltmekten ucuz.)*
   (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
   Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
   handler yeteneği ayrıca soruyor
+- **KURULUM.md** Sabit kurulum kılavuzu (Türkçe) — indirmeden devir
+  teslime kadar, her komut yazılmadan önce çalıştırıldı. Yazma işi dört
+  gerçek hata buldu, dördü de belgede değil **koddaki/örnekteki**
+  karşılığındaydı: `panel.example.toml` ayrı bir veritabanı gösteriyordu
+  (yalıtım kontrolü hata verir → `CheckSkip` → devir teslim **kalıcı
+  olarak** bloke), ilk taslaktaki `ALL SEQUENCES` grant'ı analitik
+  rollerine panelin dizilerini açıyordu (bu veritabanındaki altı dizinin
+  altısı da panelin; analitik tablolarında `BIGSERIAL` yok),
+  `preflight.checkService` binary'de ölü (aşağıdaki risk tablosu),
+  README iki yerde eskimişti (Go 1.23+ → `go.mod` 1.25.0; "pano yok" →
+  D1'den bir commit sonra). §4'ün tamamı gerçek TimescaleDB'ye
+  uygulanarak doğrulandı: dört rol × beş tablo yetki matrisi basıldı,
+  roller düşürüldü
 - **D1** Site panosu — **ürünün var olma sebebi olan sayfa.** Panel bu
   faza kadar analitik API'sine tek bir çağrı yapmıyordu. Sayılar HTTP
   üzerinden geliyor (panelin rolü analitik tablolarını okuyamaz ve
@@ -228,6 +241,7 @@ betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
 | Risk | Sahibi |
 |---|---|
 | **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe** | açık (`CheckResult.ID` anahtara çevrilebilir; `Detail` dinamik) |
+| **`preflight.checkService` binary'de ölü** — yazılmış, testleri var, `cmd/panel` ona hiç adres vermiyor ve `panel.toml`'da o alan yok. Sihirbaz 14 kontrol gösteriyor ve hiçbiri "collector/beacon/API ayakta mı" sorusunu sormuyor | **açık** (KURULUM.md yazılırken bulundu, 2026-08-18; `panel.toml`'a `[service_urls]` eklemek + `PreflightConfig`'e geçirmek — küçük, ama kurulum kontrol yüzeyini genişlettiği için kendi fazını hak ediyor) |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
 | **Collector'da saklama süresi yalnız dosyadan okunuyor** | **A5.2** (A5.1 collector'a canlı okuyucuyu ekledi; saklama henüz o yoldan geçmiyor, yani `beacon_events` paneli izliyor `traffic_snapshots` izlemiyor) |
