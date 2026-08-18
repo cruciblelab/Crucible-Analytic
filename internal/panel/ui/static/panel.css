@@ -616,3 +616,52 @@ code.secret {
   white-space: nowrap;
   border: 0;
 }
+
+/* ---- developer access requests (C5) ---- */
+
+/* One pending request. A card rather than a table row: the decision is
+   the point, and a row with two buttons in a cell reads as a list of
+   things rather than as a question somebody is being asked. */
+.bekleyen {
+  margin-bottom: var(--olcu);
+}
+
+.bekleyen:last-of-type {
+  margin-bottom: 0;
+}
+
+/* The reason somebody typed at a shell.
+   overflow-wrap because this is the one string on the page that arrived
+   from outside: it is bounded in length (panel.MaxReasonRunes) and not
+   in shape, so a single 500-character word is legal input and must not
+   push the page sideways. */
+.gerekce {
+  font-size: 1.0625rem;
+  margin: 0 0 var(--olcu);
+  overflow-wrap: anywhere;
+}
+
+/* The two decisions sit side by side and must not look like one control
+   with a default. Deny carries .tehlikeli from the shared rules. */
+.bekleyen .satir {
+  margin-top: var(--olcu);
+}
+
+/* States in the history table. Only the two that carry weight are
+   coloured: an owner scanning this wants "was anybody let in" answered
+   before they read anything, and colouring all six would answer nothing.
+   The badge always carries its own words, so colour is never the only
+   thing saying what a row is. */
+.rozet.durum-kullanildi {
+  color: var(--uyari);
+  border-color: var(--uyari);
+}
+
+.rozet.durum-reddedildi {
+  color: var(--metin-soluk);
+}
+
+.rozet.durum-kurulum {
+  color: var(--metin-soluk);
+  border-style: dashed;
+}

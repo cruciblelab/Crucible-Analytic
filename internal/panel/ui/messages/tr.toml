@@ -87,6 +87,7 @@ ad = "Crucible Analytic"
 cikis = "Çıkış"
 siteler = "Siteler"
 uyeler = "Üyeler"
+erisim = "Erişim istekleri"
 hesap = "Hesabım"
 atla = "İçeriğe atla"
 panel = "Panel"
@@ -483,3 +484,62 @@ onayla = "Anladım, teknik kuruluma gir"
 ipucu = "Bu sunucu sizin. Bu uyarı izin istemek için değil, yanlışlıkla girilmesini önlemek için var. Hukuki ağırlıklı ayarlar ayrıca geliştirici şifresi ister."
 acik = "Bu oturumda teknik kuruluma zaten girdiniz."
 git = "Teknik kuruluma git"
+
+# --- Geliştirici erişim istekleri (C5) ---
+#
+# Bu sayfanın en önemli cümlesi "erisim.kim". Panel isteği kimin
+# yaptığını **bilmiyor**: istek sunucuda kabuk erişimi olan biri
+# tarafından üretildi ve gerekçe o kişinin yazdığı bir cümle. Bunu
+# yazmadan gerekçeyi göstermek, doğrulanmamış bir metni kimlik gibi
+# sunmak olurdu.
+
+[metin.erisim]
+baslik = "Geliştirici erişim istekleri"
+kim = "Panel bu isteği kimin yaptığını doğrulayamaz. İstek, sunucuya kabuk erişimi olan biri tarafından üretildi; aşağıdaki gerekçe o kişinin yazdığı cümledir. Kararınızı buna göre verin."
+bekleyen_yok = "Bekleyen istek yok."
+hic_yok = "Bu kurulumda henüz erişim isteği olmadı."
+onayla = "Onayla"
+reddet = "Reddet"
+karar_ipucu = "Onaylarsanız bağlantı tek kullanımlıktır ve yukarıdaki süre kadar açık kalır. Reddederseniz bir daha onaylanamaz; geliştiricinin yeniden istemesi gerekir."
+onaylandi = "İstek onaylandı. Bağlantı artık bir kez kullanılabilir."
+reddedildi = "İstek reddedildi. Bu bağlantı bir daha çalışmayacak."
+
+[metin.erisim.afis]
+baslik = "Bekleyen geliştirici erişim isteği"
+eylem = "İsteği incele"
+
+[metin.erisim.afis.govde]
+one = "Sunucunuza erişmek isteyen %s istek onayınızı bekliyor."
+other = "Sunucunuza erişmek isteyen %s istek onayınızı bekliyor."
+
+[metin.erisim.bekleyen]
+baslik = "Karar bekleyenler"
+
+[metin.erisim.gecmis]
+baslik = "Geçmiş"
+ipucu = "Son otuz gün. Daha eskisi denetim kaydında."
+
+[metin.erisim.alan]
+istendi = "İstendi"
+karar_suresi = "Karar süresi"
+oturum_suresi = "Onaylanırsa oturum süresi"
+
+[metin.erisim.sutun]
+gerekce = "Gerekçe"
+durum = "Durum"
+istendi = "İstendi"
+kullanildi = "Kullanıldı"
+
+[metin.erisim.durum]
+bekliyor = "Bekliyor"
+onaylandi = "Onaylandı"
+reddedildi = "Reddedildi"
+kullanildi = "Kullanıldı"
+doldu = "Süresi doldu"
+kurulum = "Kurulum onayı — artık geçersiz"
+
+[metin.erisim.hata]
+istek_gecersiz = "İstek bulunamadı."
+bilinmeyen = "Bu işlem tanınmıyor."
+karar_verilmis = "Bu isteğe zaten karar verilmiş ya da süresi dolmuş. Sayfayı yenileyin."
+kaydedilemedi = "Karar kaydedilemedi."

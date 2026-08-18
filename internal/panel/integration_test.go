@@ -19,9 +19,11 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -1031,4 +1033,44 @@ func findPending(pending []DevAccessRequest, id int64) *DevAccessRequest {
 		}
 	}
 	return nil
+}
+
+// TestStore_RealDB_AnOversizedReasonIsRefusedNotTrimmed.
+//
+// The reason is free text typed at a shell and, from C5 onwards,
+// rendered into the page an owner decides on. The column is TEXT, so
+// nothing bounded it until something read it out loud.
+//
+// Refused rather than truncated, and the difference is the whole test:
+// a sentence cut off mid-word is one an owner might decide differently
+// on, and silently shortening the text a decision is made from trades
+// their judgement for our convenience. The person who typed it is at a
+// shell and can retype it.
+func TestStore_RealDB_AnOversizedReasonIsRefusedNotTrimmed(t *testing.T) {
+	ns := "panel-devreason"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+
+	// Multi-byte on purpose. A byte-counted limit would cut this at
+	// roughly half the promised length, and would do it only for the
+	// languages this panel was written for.
+	long := strings.Repeat("ş", MaxReasonRunes+1)
+	if _, _, err := s.RequestDevAccess(ctx, long, time.Hour, time.Hour); !errors.Is(err, ErrReasonTooLong) {
+		t.Fatalf("err = %v, want ErrReasonTooLong", err)
+	}
+
+	// And exactly at the limit is accepted, so the boundary is where it
+	// says it is rather than one short of it.
+	atLimit := strings.Repeat("ş", MaxReasonRunes)
+	_, req, err := s.RequestDevAccess(ctx, atLimit, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("a reason of exactly %d runes was refused: %v", MaxReasonRunes, err)
+	}
+	if utf8.RuneCountInString(req.Reason) != MaxReasonRunes {
+		t.Errorf("the stored reason is %d runes, not the %d that were sent",
+			utf8.RuneCountInString(req.Reason), MaxReasonRunes)
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM panel_dev_access WHERE id = $1`, req.ID); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
 }

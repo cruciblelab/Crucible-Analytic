@@ -317,6 +317,15 @@ var (
 	// template, so neither the source scan nor the template walk sees
 	// the whole family.
 	memberRoles = []string{"owner", "admin", "viewer"}
+	// devAccessStates mirrors the devAccessState constants in
+	// internal/panel/web. The label is looked up as "erisim.durum." +
+	// the state, which no walk can see - and the state a row lands in is
+	// decided from database columns, so a missing one shows up on
+	// somebody's screen the first time a request is denied rather than
+	// at build time.
+	devAccessStates = []string{
+		"bekliyor", "onaylandi", "reddedildi", "kullanildi", "doldu", "kurulum",
+	}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -334,6 +343,9 @@ func computedKeys() []string {
 	}
 	for _, id := range welcomeStepIDs {
 		keys = append(keys, "hosgeldiniz.adim."+id+".baslik")
+	}
+	for _, state := range devAccessStates {
+		keys = append(keys, "erisim.durum."+state)
 	}
 	return keys
 }

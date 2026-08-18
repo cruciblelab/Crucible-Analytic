@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/netip"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -38,7 +39,21 @@ var (
 	// ErrDevAccessDecided is returned when approving or denying a
 	// request that somebody has already decided, or that has expired.
 	ErrDevAccessDecided = errors.New("panel: that request has already been decided or has expired")
+	// ErrReasonTooLong is returned rather than the reason being cut
+	// short. A sentence that stops mid-word is one the owner might
+	// decide differently on, and this is the text a decision is made
+	// from - truncating it silently is the one handling that trades
+	// somebody else's judgement for our convenience.
+	ErrReasonTooLong = errors.New("panel: the reason for developer access is too long")
 )
+
+// MaxReasonRunes bounds the free text attached to a request.
+//
+// It is typed at a shell and rendered into an owner's page, which until
+// C5 nothing ever did - so nothing had cause to bound it. Counted in
+// runes rather than bytes because the text is Turkish as often as not
+// and a byte limit would cut a shorter sentence than it promises.
+const MaxReasonRunes = 500
 
 // DevAccessRequest is one request for developer access, as the owner
 // sees it.
@@ -93,6 +108,9 @@ func (s *Store) RequestDevAccess(ctx context.Context, reason string, requestTTL,
 	if sessionTTL <= 0 {
 		sessionTTL = DefaultSessionTTL
 	}
+	if utf8.RuneCountInString(reason) > MaxReasonRunes {
+		return "", DevAccessRequest{}, ErrReasonTooLong
+	}
 
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -117,7 +135,56 @@ func (s *Store) RequestDevAccess(ctx context.Context, reason string, requestTTL,
 		return "", DevAccessRequest{}, fmt.Errorf("panel: store developer access request: %w", err)
 	}
 	req.SessionTTL *= time.Second
+
+	// The first of the three entries the audit comment promises: the
+	// developer asks from the server, the owner decides in the panel, the
+	// link is redeemed. Without this one the record starts at "somebody
+	// approved something", which reads as though the panel invented the
+	// request.
+	//
+	// The actor is the developer, because whoever ran this had a shell on
+	// the machine. That is the whole of what is known about them, and the
+	// entry says exactly that rather than implying a name.
+	entry := AuditEntry{
+		ActorKind:  PrincipalDeveloper,
+		ActorLabel: DeveloperLabel,
+		Action:     ActionDevAccessRequested,
+		Target:     fmt.Sprintf("dev_access:%d", req.ID),
+		Detail: map[string]any{
+			"reason":        req.Reason,
+			"expires_at":    req.RequestExpiresAt,
+			"auto_approved": req.AutoApproved,
+		},
+	}
+	if err := s.Record(ctx, entry); err != nil {
+		s.logAuditFailure("dev access request", err)
+	}
 	return token, req, nil
+}
+
+// CountPendingDevAccess counts requests still awaiting a decision.
+//
+// Separate from PendingDevAccess because the banner in the panel's
+// chrome asks this on every page an owner loads, and the answer is
+// almost always zero. Counting is one index scan; listing is rows,
+// scans and allocations for a table that is usually empty - and the
+// banner only ever needs the number, because the page that needs the
+// rows is one click away.
+//
+// Asked only of somebody already found entitled to decide. The chrome
+// resolves that once and shares it with the navigation, which needs the
+// same answer; asking it twice would be two identical membership
+// queries on every page in the panel.
+func (s *Store) CountPendingDevAccess(ctx context.Context) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM panel_dev_access
+		WHERE approved_at IS NULL AND denied_at IS NULL AND used_at IS NULL
+		  AND request_expires_at > now()`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("panel: count pending developer access: %w", err)
+	}
+	return n, nil
 }
 
 // PendingDevAccess lists requests still awaiting a decision, newest
@@ -176,7 +243,7 @@ func scanDevAccess(rows pgx.Rows) ([]DevAccessRequest, error) {
 // preceding SELECT, so two owners deciding simultaneously - one
 // approving, one denying - cannot both succeed.
 func (s *Store) ApproveDevAccess(ctx context.Context, id int64, by User) error {
-	return s.decideDevAccess(ctx, `
+	return s.decideDevAccess(ctx, ActionDevAccessApproved, id, by, `
 		UPDATE panel_dev_access
 		SET approved_at = now(), approved_by = $2, approved_label = $3
 		WHERE id = $1 AND approved_at IS NULL AND denied_at IS NULL AND used_at IS NULL
@@ -189,7 +256,7 @@ func (s *Store) ApproveDevAccess(ctx context.Context, id int64, by User) error {
 // owner sees a fresh request rather than a decision they already made
 // being quietly reversed.
 func (s *Store) DenyDevAccess(ctx context.Context, id int64, by User) error {
-	return s.decideDevAccess(ctx, `
+	return s.decideDevAccess(ctx, ActionDevAccessDenied, id, by, `
 		UPDATE panel_dev_access
 		SET denied_at = now(), denied_by = $2
 		WHERE id = $1 AND approved_at IS NULL AND denied_at IS NULL AND used_at IS NULL
@@ -197,13 +264,40 @@ func (s *Store) DenyDevAccess(ctx context.Context, id int64, by User) error {
 		id, by.ID)
 }
 
-func (s *Store) decideDevAccess(ctx context.Context, sql string, args ...any) error {
+// decideDevAccess runs one decision and files it.
+//
+// The audit entry is written here rather than by the handler, for the
+// same reason RedeemDevAccess writes its own: it belongs beside the rule
+// that decided it, and a second caller - a future command-line approve,
+// a support tool - would otherwise have to remember. It is written only
+// when the UPDATE actually changed a row, so a decision that lost the
+// race does not appear in the log as though it had happened.
+func (s *Store) decideDevAccess(ctx context.Context, action string, id int64, by User,
+	sql string, args ...any) error {
+
 	tag, err := s.pool.Exec(ctx, sql, args...)
 	if err != nil {
 		return fmt.Errorf("panel: decide developer access: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrDevAccessDecided
+	}
+
+	actorID := by.ID
+	entry := AuditEntry{
+		ActorKind:  PrincipalUser,
+		ActorLabel: by.Email,
+		Action:     action,
+		Target:     fmt.Sprintf("dev_access:%d", id),
+	}
+	if actorID != 0 {
+		entry.ActorID = &actorID
+	}
+	if err := s.Record(ctx, entry); err != nil {
+		// The decision is already made and the row already written.
+		// Failing now would tell the owner their click did not land when
+		// it did, which is the worse of the two wrong answers.
+		s.logAuditFailure("dev access decision", err)
 	}
 	return nil
 }
@@ -243,6 +337,7 @@ func (s *Store) RedeemDevAccess(ctx context.Context, token string, from netip.Ad
 		RETURNING id, reason, session_expires_at, auto_approved`,
 		hashToken(token), fromA).Scan(&grant.ID, &grant.Reason, &grant.ExpiresAt, &grant.Bootstrap)
 	if errors.Is(err, pgx.ErrNoRows) {
+		s.recordRefusedRedemption(ctx, token, from)
 		return DevAccessGrant{}, ErrDevAccessInvalid
 	}
 	if err != nil {
@@ -286,6 +381,55 @@ func (s *Store) RedeemDevAccess(ctx context.Context, token string, from netip.Ad
 		s.logAuditFailure("dev access redemption", err)
 	}
 	return grant, nil
+}
+
+// recordRefusedRedemption files a developer link that was presented and
+// would not open.
+//
+// This is the most interesting event in the whole flow - a real link
+// used late, used twice, used after being denied, or used after the
+// deployment acquired an owner - and until now it produced a log line
+// and nothing in the record an owner can read.
+//
+// **Only when the token matches a real row.** The redemption endpoint is
+// reachable by anybody with the address, so filing an entry for every
+// string presented would let a stranger write audit rows at the speed of
+// their connection - a table this panel is not allowed to DELETE from.
+// A token matching nothing is somebody guessing base64 of 32 random
+// bytes, which teaches nobody anything; a token matching a row is a
+// fact about a link this deployment actually issued.
+//
+// The token itself is never recorded, in any form. The row's id says
+// which link it was, and the id is not a credential.
+func (s *Store) recordRefusedRedemption(ctx context.Context, token string, from netip.Addr) {
+	var (
+		id     int64
+		reason string
+	)
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, reason FROM panel_dev_access WHERE sha256 = $1`,
+		hashToken(token)).Scan(&id, &reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return
+	}
+	if err != nil {
+		s.logAuditFailure("dev access refusal lookup", err)
+		return
+	}
+
+	entry := AuditEntry{
+		ActorKind:  PrincipalDeveloper,
+		ActorLabel: DeveloperLabel,
+		Action:     ActionDevAccessRejected,
+		Target:     fmt.Sprintf("dev_access:%d", id),
+		Detail:     map[string]any{"reason": reason},
+	}
+	if from.IsValid() {
+		entry.IP = &from
+	}
+	if err := s.Record(ctx, entry); err != nil {
+		s.logAuditFailure("dev access refusal", err)
+	}
 }
 
 // logAuditFailure reports an audit write that failed without taking the

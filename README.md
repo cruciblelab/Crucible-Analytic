@@ -979,6 +979,49 @@ manual-step list are still Turkish only: they live beside the rule that
 produces them rather than in the language packs, and moving them is
 recorded as open work in `PLAN.md`.
 
+### Letting a developer back in
+
+Once a deployment has an owner, a developer link is inert until that
+owner approves it. `/erisim` is where they do — reachable from the
+navigation, and announced by a banner that follows them onto every page
+while something is waiting, because the request will not arrive while
+they happen to be looking at the front page.
+
+Each waiting request shows the reason, when it was asked, how long the
+owner has to decide, and how long the session lasts if they say yes.
+Approving makes the link usable **once**. Denying is final: it can never
+be approved afterwards, so a decision somebody already made cannot be
+quietly reversed — the developer has to ask again, and the owner sees a
+fresh request.
+
+Three things about this page are deliberate and easy to get wrong:
+
+- **A developer cannot approve developer access.** A redeemed link
+  carries superadmin authority, because a developer has to reach every
+  site to do the work — so "does this principal own something" answers
+  *yes* for them. If that were the question this page asked, an approved
+  developer could approve the next request, and the next, and the owner
+  would be asked exactly once, ever. The page asks whether the reader is
+  a signed-in **person** first, and only then about ownership.
+- **The panel does not know who asked, and says so above the first
+  request.** A request is minted by somebody with a shell on the server;
+  the reason is a sentence that person typed and nothing verified. The
+  page states that before the reason rather than after, because somebody
+  deciding whether to let a stranger into their customers' data should
+  know how much was checked before they read the text.
+- **An install-time grant is shown as spent, not as approved.** Those
+  links carry an approval — during installation there was nobody to ask
+  — and they die the instant an account exists. Since this page cannot
+  be reached without an account existing, every one of them on it is
+  already dead, and drawing it as "approved" would say somebody can
+  still walk in.
+
+Asking, approving, denying and *failing to redeem* are all in the audit
+log. The last one is recorded only when the token matches a request this
+deployment actually issued: the redemption URL is public, and filing an
+entry for every string presented would let a stranger write rows into a
+table the panel is deliberately not allowed to delete from.
+
 ### Signing in
 
 The customer's door: email and password, an optional second factor, and

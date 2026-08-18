@@ -61,6 +61,7 @@ ad = "Crucible Analytic"
 cikis = "Sign out"
 siteler = "Sites"
 uyeler = "Members"
+erisim = "Access requests"
 hesap = "My account"
 atla = "Skip to content"
 panel = "Panel"
@@ -454,3 +455,62 @@ onayla = "I understand — open the technical setup"
 ipucu = "This server is yours. The warning is not us asking for permission; it is here so nobody walks in by accident. The settings with legal weight ask for the developer password separately."
 acik = "You have already entered the technical setup in this session."
 git = "Go to the technical setup"
+
+# --- Developer access requests (C5) ---
+#
+# The most important sentence on this page is "erisim.kim". The panel
+# does **not** know who made the request: it was minted by somebody with
+# shell access to the server, and the reason is a sentence that person
+# typed. Showing the reason without saying so would present an
+# unverified string as an identity.
+
+[metin.erisim]
+baslik = "Developer access requests"
+kim = "The panel cannot verify who made this request. It was created by somebody with shell access to this server, and the reason below is a sentence that person typed. Decide accordingly."
+bekleyen_yok = "Nothing is waiting for a decision."
+hic_yok = "Nobody has requested access on this installation yet."
+onayla = "Approve"
+reddet = "Deny"
+karar_ipucu = "Approving makes the link usable once, for the period above. Denying is final — it can never be approved afterwards, and the developer has to ask again."
+onaylandi = "Approved. The link can now be used once."
+reddedildi = "Denied. That link will never work."
+
+[metin.erisim.afis]
+baslik = "A developer is asking for access"
+eylem = "Review the request"
+
+[metin.erisim.afis.govde]
+one = "%s request to reach your server is waiting for your decision."
+other = "%s requests to reach your server are waiting for your decision."
+
+[metin.erisim.bekleyen]
+baslik = "Waiting for a decision"
+
+[metin.erisim.gecmis]
+baslik = "History"
+ipucu = "The last thirty days. Anything older is in the audit log."
+
+[metin.erisim.alan]
+istendi = "Requested"
+karar_suresi = "Decide by"
+oturum_suresi = "Session length if approved"
+
+[metin.erisim.sutun]
+gerekce = "Reason"
+durum = "State"
+istendi = "Requested"
+kullanildi = "Used"
+
+[metin.erisim.durum]
+bekliyor = "Waiting"
+onaylandi = "Approved"
+reddedildi = "Denied"
+kullanildi = "Used"
+doldu = "Expired"
+kurulum = "Install-time grant — no longer valid"
+
+[metin.erisim.hata]
+istek_gecersiz = "No such request."
+bilinmeyen = "That action is not recognised."
+karar_verilmis = "This request has already been decided, or it has expired. Reload the page."
+kaydedilemedi = "The decision could not be saved."

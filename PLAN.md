@@ -26,8 +26,8 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-18 (C4, C3, AI.3 güvenlik denetimi sonrası). Bu bölüm
-her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
+*Son güncelleme: 2026-08-18 (C4, C3, AI.3 güvenlik denetimi, C5 sonrası). Bu
+bölüm her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
 kaldık" sorusunu cevaplar.*
 
 **Rakamlar:** 23 iç paket, **5 binary** (`collector`, `beacon`,
@@ -65,7 +65,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **8/12** | A2, A3, A5, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **6/9** | C5, C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **7/9** | C6, C7 |
 | **D** Dashboard | ⬜ **0/8** | hepsi |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -166,6 +166,15 @@ düzeltmekten ucuz.)*
   (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
   Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
   handler yeteneği ayrıca soruyor
+- **C5** Geliştirici erişimi onay ekranı — C2 bir kural yazmış ve o
+  kurala uymanın yolunu bırakmamıştı: istek, sayfası olmayan bir tabloda
+  duruyordu. Kapı `ownsAnySite` **değil** — kullanılmış bir bağlantı
+  `Superadmin` taşıyor, yani onaylanmış bir geliştirici bir sonraki
+  isteği onaylayabilirdi; önce `Kind`, sonra sahiplik. Sayfa "kim"i
+  göstermiyor çünkü panel bilmiyor: gerekçenin, kabuk erişimi olan
+  birinin **iddiası** olduğu ilk isteğin üstünde yazılı. Tanımlanıp hiç
+  yazılmayan dört denetim eylemi artık yazılıyor; reddedilen kullanım
+  yalnız jeton gerçek bir satıra uyduğunda kaydediliyor
 - **C3** Devir teslim, sahip sihirbazı ve teknik kapı — zincirin eksik
   halkası: ilk sahip hesabını açmanın hiçbir yolu yoktu. Tek kullanımlık
   sahiplenme bağlantısı (saklanan yalnız SHA-256), **tek işlemde** hesap
@@ -176,17 +185,15 @@ düzeltmekten ucuz.)*
 
 ### Sıradaki üç iş, önem sırasıyla
 
-1. **C5 — geliştirici erişimi onay ekranı.** C2'nin "hesap varsa onay
-   gerekir" kuralının müşteri tarafındaki yüzü. Çekirdek `devaccess.go`'da
-   yazılı; eksik olan sahibin gördüğü şey: bekleyen istek uyarısı, kim /
-   neden / ne kadar süreyle, onayla ve reddet. C3 ile devir teslim
-   çalıştığı için bu kural artık **gerçekten tetikleniyor**.
-2. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
+1. **A5 — ayarların TOML'dan veritabanına göçü.** A6 mekanizması hazır;
    göç olmadan çoğu ayar hâlâ SSH ister. Kayıttaki ilk *dinamik* enum
    (panel dili) da burada.
-3. **AI.4 — kimlik ve ayar ailelerinin bölünmesi.** AI.2'nin C4'e
+2. **AI.4 — kimlik ve ayar ailelerinin bölünmesi.** AI.2'nin C4'e
    ertelediği kesim; C4 o tipleri son şekline soktuğu için borç vadesi
-   geldi. `internal/panel` 3.955 satır.
+   geldi. `internal/panel` ~4.100 satır.
+3. **C6/C7 — görünür kart seti, boş durumlar ve e-posta yolu.** C6 D
+   grubuna bağlı (gösterilecek kart henüz yok); C7'nin e-posta yolu
+   davet akışının kalan yarısı.
 
 ### Açık riskler ve sahipleri
 
@@ -1794,10 +1801,14 @@ sahip veya işletmeci kurtarır); parola değişimi diğer cihazlardaki
 oturumları düşürmüyor (scs oturum satırında `user_id` yok); e-posta
 değiştirme ve davet e-postası C7'de.
 
-#### C5 — Geliştirici erişimi onay ekranı
+#### C5 — Geliştirici erişimi onay ekranı ✅ **yapıldı**
 
-Bekleyen istek afişi, onayla ve reddet. Sahibin gördüğü şey: kim, neden
-(istekte yazılan gerekçe), ne kadar süre.
+**Bu fazın kapattığı boşluk:** C2 bir kural yazdı ve o kurala uymanın
+hiçbir yolunu bırakmadı. Bağlantı, kurulumun sahibi olduğu andan sonra
+**sahip onaylayana kadar** çalışmıyor — doğru, test edilmiş, ve
+ulaşılamaz: istek sayfası olmayan bir tabloda duruyordu ve tek yol bir
+SQL istemcisiydi. Rızanın verilemediği bir rıza mekanizması rıza
+mekanizması değil, üzerinde sessizce çalışılamayan bir kurulumdur.
 
 **Politikanın tamamı tek `WHERE` cümlesinde** (yazıldı, `devaccess.go`):
 
@@ -1812,6 +1823,73 @@ WHERE sha256 = $1
 
 Son satır kuralın kendisi: makineye kabuk erişimi, **kimsenin hesabı
 yokken** girmeye yeter; **sonrasında yetmez.**
+
+**C5.1 — Onay sayfası (`/erisim`) ve kapısı.** Bekleyenler kart olarak
+(gerekçe, ne zaman istendi, karar süresi, onaylanırsa oturum süresi),
+sonra son otuz günün geçmişi. Onayla ve reddet **ayrı iki form**: iki
+submit düğmeli tek form, "onayla"nın anlamını tarayıcının hangi düğmeyi
+gönderdiğine bağlar.
+
+**Kapı `ownsAnySite` değil.** Kullanılmış bir bağlantı `Superadmin`
+taşıyan bir principal üretiyor — geliştirici işini yapmak için her siteye
+ulaşmak zorunda — yani `ownsAnySite` onlar için **evet** diyor. Bu
+sayfada bu, mekanizmanın tamamının sığdığı bir delik olurdu: onaylanmış
+bir geliştirici bir sonraki isteği onaylar, sonra bir sonrakini, ve sahip
+hayatında **bir kez** sorulmuş olur. Bu yüzden önce `Kind`, sonra
+sahiplik; sahiplik sorusu `Kind` geçmeden hiç sorulmuyor.
+
+*Testin söylediği ve yorumu düzelttiren şey:* kontrol kaldırılıp
+koşulduğunda geliştirici **yine** reddediliyor — bir sonraki satır
+geliştiricide olmayan bir kullanıcı kimliğiyle `User` yüklüyor ve
+başarısız oluyor. Ama **500** ile, kimsenin tasarlamadığı bir kaza
+sonucu. `Kind` kontrolü reddi yaratmıyor; reddi **kasıtlı** ve doğru
+statülü yapıyor. Tek dayanağı alakasız bir sorgunun patlaması olan
+kural, o sorgu düzeldiği gün biter.
+
+**C5.2 — "Kim" diye bir şey yok, ve sayfa bunu söylüyor.** Planın bu
+maddesi "kim" diyordu; panel bunu **bilemez**. İstek sunucuda kabuk
+erişimi olan biri tarafından üretiliyor ve gerekçe o kişinin yazdığı bir
+cümle. `requested_by` sütunu eklemek, bilinen hiçbir şeyi değiştirmeden
+sayfayı soruyu cevaplıyormuş gibi gösterirdi. Bunun yerine ilk isteğin
+**üstünde**, panelin kimi doğrulamadığını ve gerekçenin bir iddia
+olduğunu söyleyen cümle var — gerekçeden önce, çünkü karar verecek kişi
+metni okuyup bir izlenim edinmeden önce ne kadarının kontrol edildiğini
+bilmeli.
+
+**C5.3 — Afiş, her sayfada.** Kabukta duruyor, açılış sayfasında değil:
+istek geldiğinde sahip büyük ihtimalle başka bir yerde çalışıyor. "Bu
+okuyucu karar veriyor mu" sorusu **bir kez** çözülüp hem gezinmeye hem
+afişe veriliyor; ilk hâli iki kez soruyordu (her sayfada iki aynı üyelik
+sorgusu) ve üstelik farklı sıralarla. Sayaç yalnız yetkili bulunan kişi
+için çalışıyor ve sayaç olarak kalıyor: afişin sayıya ihtiyacı var,
+satırlara ihtiyacı olan sayfa bir tık ötede.
+
+**C5.4 — Tanımlanıp hiç yazılmayan dört denetim eylemi.**
+`dev_access.requested`, `.approved`, `.denied`, `.rejected` sabitleri
+baştan beri vardı ve **hiçbiri yazılmıyordu**; kayıt "biri bir bağlantı
+kullandı"dan başlıyordu. Hepsi artık store'da, kararı veren kuralın
+yanında yazılıyor. Yarışı kaybeden karar hiçbir şey yazmıyor.
+
+`.rejected` diğerlerinde olmayan bir sınır istedi: kullanım adresi
+herkese açık, yani sunulan her dize için satır yazmak, panelin
+**silemediği** bir tabloya yabancı birinin bağlantı hızında satır
+yazması demekti. Entry yalnız jeton **gerçek bir satırla eşleşirse**
+yazılıyor.
+
+**C5.5 — Gerekçe uzunluğu.** Sütun `TEXT` ve hiçbir sınır yoktu, çünkü bu
+faza kadar onu müşteriye **okuyan** bir şey yoktu. Artık sınırlı ve
+**kırpılmıyor, reddediliyor**: kelimenin ortasında kesilen bir cümle
+sahibin kararını değiştirebilir, ve yazan kişi kabukta, tekrar yazabilir.
+Bayt değil **rune** sayılıyor. Stil tarafı diğer yarısı: dışarıdan gelen
+tek dize o sayfada, uzunluğu sınırlı biçimi değil — 500 karakterlik tek
+bir kelime sayfayı yana itmemeli. Tarayıcı testinin göremeyeceği bir
+şey; ihlal yok, konsol hatası yok, sadece bozuk görünen bir sayfa.
+
+**Doğrulama:** birim + entegrasyon (gerçek veritabanı) + gerçek
+Chromium. Yarış testi: sekiz eşzamanlı karar → tam bir kabul, yedi
+"zaten karar verilmiş", ve denetim kaydında **tek** karar. Sahte POST'lar
+geçerli CSRF jetonu taşıyor, yani jeton eksikliğinden değil yetkiden
+düşüyorlar.
 
 #### C6 — Görünür kart seti, kurulum başına yapılandırılır ⚠️ **yeni**
 

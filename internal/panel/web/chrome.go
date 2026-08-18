@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -103,8 +104,74 @@ func (s *Server) page(r *http.Request, lang *ui.Language, access panel.Access, c
 			DeveloperMode: access.ShowsTechnical(),
 		},
 	}
-	p.Nav = s.navFor(lang, access, current)
+	// Asked once and used twice: the navigation draws the approval page
+	// only for somebody who may open it, and the banner is only for the
+	// same person. Two calls would be two identical membership queries on
+	// every page in the panel.
+	decides := s.decidesDevAccess(r.Context(), access.Principal)
+	p.Nav = s.navFor(lang, access, current, decides)
+	if decides {
+		if n := s.pendingDevAccess(r); n > 0 {
+			p.Notices = append(p.Notices, devAccessNotice(lang, p.F, n))
+		}
+	}
 	return p
+}
+
+// decidesDevAccess reports whether this reader is one of the people who
+// decides developer access.
+//
+// Cosmetic, like everything else in this file: it decides what to draw.
+// The authority is requireDecider, which asks the same two questions
+// again on the page itself.
+//
+// Kind before ownership, here as there. A developer principal carries
+// Superadmin - so ownsAnySite says yes - and drawing them a link to a
+// page that will refuse them is the smaller of the two problems that
+// ordering causes. The larger one is in requireDecider.
+func (s *Server) decidesDevAccess(ctx context.Context, p panel.Principal) bool {
+	if s.Store == nil || p.Kind != panel.PrincipalUser {
+		return false
+	}
+	return s.ownsAnySite(ctx, p)
+}
+
+// pendingDevAccess counts requests awaiting a decision, for the banner.
+//
+// Called only for somebody who has already been found entitled to
+// decide, so this is the second query rather than the first. Counting
+// rather than listing: the banner needs a number, and the page that
+// needs the rows is one click away.
+//
+// A failure here is logged and drawn as nothing. A banner is the panel
+// volunteering information, and a deployment whose pages stop rendering
+// because a count failed has traded something that matters for something
+// that does not.
+func (s *Server) pendingDevAccess(r *http.Request) int {
+	n, err := s.Store.CountPendingDevAccess(r.Context())
+	if err != nil {
+		s.logger().Error("panel: counting pending developer access", "err", err)
+		return 0
+	}
+	return n
+}
+
+// devAccessNotice is the banner an owner meets on every page while
+// somebody is waiting.
+//
+// NoticeWarn rather than NoticeInfo: nothing has gone wrong, but
+// somebody is asking to be let into this customer's data and the answer
+// is theirs to give. It carries its own link, because a banner that
+// announces a decision without offering the page to make it on is a
+// notification, and this is a request.
+func devAccessNotice(lang *ui.Language, f *ui.Formatter, n int) ui.Notice {
+	return ui.Notice{
+		Level:       ui.NoticeWarn,
+		Title:       lang.T("erisim.afis.baslik"),
+		Body:        lang.Tn("erisim.afis.govde", n, f.Number(int64(n))),
+		ActionURL:   DevAccessRequestsPath,
+		ActionLabel: lang.T("erisim.afis.eylem"),
+	}
 }
 
 // navItem is one candidate link with the capability it needs.
@@ -117,14 +184,22 @@ type navItem struct {
 	need panel.Capability
 	// site reports whether the URL needs a site to be selected.
 	site bool
+	// decides limits the link to somebody entitled to decide developer
+	// access. Not a Capability, because a capability is held against a
+	// site and this is a decision about the machine underneath all of
+	// them: the people who make it are the ones who own something on it.
+	// The answer arrives already resolved - see page.
+	decides bool
 }
 
-func (s *Server) navFor(lang *ui.Language, access panel.Access, current string) []ui.NavItem {
+func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, decides bool) []ui.NavItem {
 	siteID := access.SiteID
 	candidates := []navItem{
 		{id: "siteler", url: "/", label: lang.T("gezinme.siteler")},
 		{id: "uyeler", url: memberPath(siteID), label: lang.T("gezinme.uyeler"),
 			need: panel.CapManageMembers, site: true},
+		{id: "erisim", url: DevAccessRequestsPath, label: lang.T("gezinme.erisim"),
+			decides: true},
 		{id: "hesap", url: AccountPath, label: lang.T("gezinme.hesap")},
 	}
 
@@ -134,6 +209,9 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string) 
 			continue
 		}
 		if c.site && siteID == "" {
+			continue
+		}
+		if c.decides && !decides {
 			continue
 		}
 		items = append(items, ui.NavItem{Label: c.label, URL: c.url, Current: c.id == current})

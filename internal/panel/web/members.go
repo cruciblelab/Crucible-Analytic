@@ -188,7 +188,7 @@ func (s *Server) changeRole(ctx context.Context, lang *ui.Language, access panel
 	if !access.CanAssign(role) {
 		return membersPage{Message: lang.T("uyeler.hata.rol_yetki"), Failed: true}
 	}
-	userID, ok := parseUserID(rawUserID)
+	userID, ok := parsePositiveID(rawUserID)
 	if !ok {
 		return membersPage{Message: lang.T("uyeler.hata.kullanici_gecersiz"), Failed: true}
 	}
@@ -208,7 +208,7 @@ func (s *Server) changeRole(ctx context.Context, lang *ui.Language, access panel
 func (s *Server) removeMember(ctx context.Context, lang *ui.Language, access panel.Access,
 	rawUserID string) membersPage {
 
-	userID, ok := parseUserID(rawUserID)
+	userID, ok := parsePositiveID(rawUserID)
 	if !ok {
 		return membersPage{Message: lang.T("uyeler.hata.kullanici_gecersiz"), Failed: true}
 	}
@@ -239,12 +239,17 @@ func (s *Server) memberWriteFailed(lang *ui.Language, err error, what string) me
 	return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 }
 
-// parseUserID reads a user id out of a form value.
+// parsePositiveID reads a database row id out of a form value.
 //
 // A closed conversion rather than passing the string on: this value goes
 // into a query, and the type system is a better guarantee than a
 // promise that the driver parameterises everything.
-func parseUserID(raw string) (int64, bool) {
+//
+// Shared by the member forms and the developer-access decisions rather
+// than copied, because the property being asserted - "a form field
+// becomes an integer here or it becomes nothing" - is the same one, and
+// two copies is two chances for one of them to grow a special case.
+func parsePositiveID(raw string) (int64, bool) {
 	id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
 	if err != nil || id <= 0 {
 		return 0, false

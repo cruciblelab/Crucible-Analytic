@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(AccountPath, s.accountHandler)
 	mux.HandleFunc(TOTPQRPath, s.totpQRHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
+	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)
 	mux.HandleFunc(TechnicalDoorPath, s.technicalDoorHandler)

@@ -2849,3 +2849,134 @@ each sign-in attempt costs one argon2id verification bounded by the
 throttle counters rather than by a queue. Each is also said on the page
 it affects, which is the part that matters — a limitation the software
 knows about and the customer does not is worse than the limitation.
+
+## The person who was supposed to be asked
+
+C2 built a rule and no way to obey it. A developer link is inert once a
+deployment has an owner, and stays inert until that owner approves it —
+which was true, tested, and unreachable. The request sat in a table with
+no page, and the only way through it was a SQL client. A consent
+mechanism nobody can give consent through is not a consent mechanism; it
+is a deployment that quietly cannot be worked on.
+
+So this phase is mostly a page. The three things worth writing down are
+what that page had to decide.
+
+### A developer must not approve developer access
+
+A redeemed link produces a principal with `Superadmin` set, because a
+developer has to reach every site to do the work. `ownsAnySite`
+therefore answers **yes** for them — correctly, for the technical
+wizard, which is their own tool. On this page it would be a hole the
+whole mechanism fits through: an approved developer approves the next
+request, and the next, and the owner is asked exactly once, ever.
+
+So the guard is not `ownsAnySite`. It is "a signed-in **person** who
+owns something", with the kind checked first and no ownership question
+asked at all until it has passed.
+
+**The test was run against the guard with that check removed**, which is
+the only way to find out what it proves, and the answer needed the
+comment rewritten. The developer is still refused without it — the next
+line loads a `User` by an id a developer does not have, and the load
+fails. But they are refused with a **500**, by an accident nobody
+designed. The Kind check does not create the refusal; it makes the
+refusal deliberate and gives it the right status. A rule whose only
+enforcement is an unrelated lookup failing is a rule that ends the day
+somebody fixes that lookup.
+
+### There is no "who", and the page says so
+
+The plan said this screen shows the owner *who* asked. It cannot. A
+request is minted by somebody with a shell on the server, and the reason
+attached to it is a sentence that person typed. The panel verified
+nothing.
+
+Adding a `requested_by` column would have made the page look like it
+answered the question while changing nothing about what is known — a
+self-asserted string from the same shell, presented as an identity. So
+the first thing on the page, above the first request, is the sentence
+saying the panel cannot verify who asked and that the reason is a claim.
+Before the reason, not after: somebody deciding whether to let a
+stranger into their customers' data should learn how much was checked
+*before* they form an impression of the text.
+
+That sentence is asserted by the integration test and by the browser
+test, because it is the part of this page most likely to be dropped by
+somebody tidying up.
+
+### An install-time grant is dead here, whatever the row says
+
+A bootstrap grant carries `approved_at`, because during installation
+there was nobody to ask. Redemption refuses it the instant an account
+exists. This page cannot be reached without somebody being signed in —
+so an account always exists — which means **every** `auto_approved` row
+on it is already spent, and drawing one as "approved" would tell the
+owner somebody can still walk in.
+
+It gets its own state and its own words: *install-time grant, no longer
+valid*. It is also credited to nobody, explicitly, even though nothing
+writes an approver on those rows today: the column exists, and a page
+saying "approved by X" about a grant nobody consented to is a lie with a
+name attached.
+
+The unit test walks all nine ways a row can arrive and requires every
+state to be produced by some case, so a state nobody exercised cannot
+sit there being drawn wrongly.
+
+### Asking the same question twice
+
+The banner and the navigation both need "does this reader decide
+developer access", and the first version asked twice — once in the nav,
+once in the banner — which is two identical membership queries on every
+page in the panel.
+
+Worse, the first version had them in *different orders*, and one of the
+comments claimed a property the other broke. It is resolved once in the
+shared chrome and handed to both. The count of pending requests then
+runs only for somebody already found entitled, and stays a count: the
+banner needs a number, and the page that needs the rows is one click
+away.
+
+### Four audit actions that were defined and never written
+
+`dev_access.requested`, `.approved`, `.denied` and `.rejected` had
+existed since the audit constants were written, with a comment
+describing the three-step story they tell. Nothing wrote any of them.
+The log began at "somebody redeemed a link", which reads as though the
+panel invented the request.
+
+They are written in the store, beside the rule that decides them, for
+the same reason redemption already was: a future caller — a command-line
+approve, a support tool — would otherwise have to remember. A decision
+that lost the race writes nothing, because a log recording decisions the
+database refused cannot be trusted about the ones it accepted.
+
+**`.rejected` needed a limit that the others did not.** A link presented
+after it was denied, or after it was already used, is the single most
+interesting event in this mechanism — and the redemption URL is public.
+Filing an entry for every string presented would let a stranger write
+rows into an append-only table, at the speed of their connection, in a
+table this panel is deliberately not allowed to `DELETE` from. So an
+entry is written only when the token **matches a real row**: a token
+matching nothing is somebody guessing base64 of 32 random bytes and
+teaches nobody anything, while a token matching a row is a fact about a
+link this deployment actually issued. The test asserts both halves,
+including that a made-up token writes nothing.
+
+### One bound that only appeared once somebody read the text out loud
+
+The reason column is `TEXT`, and nothing capped it, because until this
+phase nothing rendered it to a customer. It is now bounded — refused
+rather than truncated, since a sentence cut off mid-word is one an owner
+might decide differently on, and the person who typed it is at a shell
+and can retype it. Counted in runes rather than bytes, because a byte
+limit would cut a shorter sentence than it promises, and would do it
+only for the languages this panel was written for.
+
+The stylesheet carries the other half: the reason is the one string on
+that page that arrived from outside, bounded in length and not in shape,
+so a single legal 500-character word must wrap rather than push the page
+sideways. That is not something the browser test can see — no policy
+violation, no console error, just a page that looks wrong — which is
+worth remembering about what browser tests do and do not cover.

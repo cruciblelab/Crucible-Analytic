@@ -1,0 +1,85 @@
+{{define "icerik"}}
+{{- /* Said before the first row, not after. Somebody about to decide
+whether to let a stranger into their customers' data should learn how
+much the panel actually verified *before* they read the reason, not
+after they have already formed an impression of it. The answer is
+nothing: the request came from somebody with a shell on this server, and
+the reason is a sentence that person typed. */}}
+<p class="uyari kilit" role="note">{{t "erisim.kim"}}</p>
+
+{{- if .Data.Pending}}
+<section class="bolum">
+<h2>{{t "erisim.bekleyen.baslik"}}</h2>
+{{- range .Data.Pending}}
+<article class="kart bekleyen">
+<p class="gerekce">{{.Reason}}</p>
+<dl class="ozet">
+<dt>{{t "erisim.alan.istendi"}}</dt>
+<dd>{{$.F.DateTime .RequestedAt}} <span class="ipucu">({{$.F.Since .RequestedAt}})</span></dd>
+<dt>{{t "erisim.alan.karar_suresi"}}</dt>
+<dd>{{$.F.DateTime .RequestExpiresAt}}</dd>
+<dt>{{t "erisim.alan.oturum_suresi"}}</dt>
+<dd>{{$.F.Duration .SessionTTL}}</dd>
+</dl>
+{{- /* Two buttons, one form each. A single form with two submit
+buttons would make the decision depend on which button the browser
+chose to send, and "approve" is not a value to leave to that. */}}
+<div class="satir">
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="onayla">
+<input type="hidden" name="istek" value="{{.ID}}">
+<button type="submit">{{t "erisim.onayla"}}</button>
+</form>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="reddet">
+<input type="hidden" name="istek" value="{{.ID}}">
+<button type="submit" class="tehlikeli">{{t "erisim.reddet"}}</button>
+</form>
+</div>
+<p class="ipucu">{{t "erisim.karar_ipucu"}}</p>
+</article>
+{{- end}}
+</section>
+{{- else}}
+<p>{{t "erisim.bekleyen_yok"}}</p>
+{{- end}}
+
+{{- if .Data.Recent}}
+<section class="bolum">
+<h2>{{t "erisim.gecmis.baslik"}}</h2>
+<p class="ipucu">{{t "erisim.gecmis.ipucu"}}</p>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "erisim.sutun.gerekce"}}</th>
+<th scope="col">{{t "erisim.sutun.durum"}}</th>
+<th scope="col">{{t "erisim.sutun.istendi"}}</th>
+<th scope="col">{{t "erisim.sutun.kullanildi"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Recent}}
+<tr>
+<th scope="row">{{.Reason}}</th>
+<td>
+<span class="rozet durum-{{.State}}">{{.StateLabel}}</span>
+{{- with .DecidedBy}}<br><span class="ipucu">{{.}}</span>{{end}}
+</td>
+<td>{{$.F.DateTime .RequestedAt}}</td>
+<td>
+{{- if .UsedAt.IsZero}}{{$.F.Dash}}
+{{- else}}{{$.F.DateTime .UsedAt}}
+{{- with .UsedFrom}}<br><span class="ipucu">{{.}}</span>{{end}}
+{{- end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</section>
+{{- else if .Data.Empty}}
+<p class="ipucu">{{t "erisim.hic_yok"}}</p>
+{{- end}}
+{{end}}
