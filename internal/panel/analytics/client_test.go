@@ -81,7 +81,7 @@ func TestANilClientAnswersRatherThanCrashing(t *testing.T) {
 	if !errors.Is(board.TrafficErr, ErrUnavailable) || !errors.Is(board.BeaconErr, ErrUnavailable) {
 		t.Errorf("a nil client returned %v / %v", board.TrafficErr, board.BeaconErr)
 	}
-	if _, _, err := c.KnownSites(context.Background()); !errors.Is(err, ErrUnavailable) {
+	if _, _, err := c.KnownSites(context.Background(), true, true); !errors.Is(err, ErrUnavailable) {
 		t.Errorf("KnownSites on a nil client returned %v", err)
 	}
 }

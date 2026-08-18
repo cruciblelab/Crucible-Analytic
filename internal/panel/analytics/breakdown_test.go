@@ -217,7 +217,8 @@ func TestTheBotsFilterIsNeverSent(t *testing.T) {
 	for kind := range breakdowns {
 		want = append(want, BreakdownRequest{Kind: kind, Limit: 8})
 	}
-	c.FetchSite(context.Background(), "site", from, to, want...)
+	c.FetchSite(context.Background(), "site", from, to,
+		SiteRequest{Traffic: true, Beacon: true, Breakdowns: want})
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -249,8 +250,10 @@ func TestARangeIsSentOnEveryCall(t *testing.T) {
 	}))
 
 	from, to := window()
-	c.FetchSite(context.Background(), "site", from, to,
-		BreakdownRequest{Kind: BreakdownPages, Limit: 8, Offset: 16})
+	c.FetchSite(context.Background(), "site", from, to, SiteRequest{
+		Traffic: true, Beacon: true,
+		Breakdowns: []BreakdownRequest{{Kind: BreakdownPages, Limit: 8, Offset: 16}},
+	})
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -290,10 +293,13 @@ func TestOneBreakdownFailingIsNotThePageFailing(t *testing.T) {
 	}))
 
 	from, to := window()
-	site := c.FetchSite(context.Background(), "site", from, to,
-		BreakdownRequest{Kind: BreakdownPages, Limit: 8},
-		BreakdownRequest{Kind: BreakdownEvents, Limit: 8},
-	)
+	site := c.FetchSite(context.Background(), "site", from, to, SiteRequest{
+		Traffic: true, Beacon: true,
+		Breakdowns: []BreakdownRequest{
+			{Kind: BreakdownPages, Limit: 8},
+			{Kind: BreakdownEvents, Limit: 8},
+		},
+	})
 
 	if got := site.Breakdowns[BreakdownPages]; got.Err != nil {
 		t.Errorf("the working breakdown carries an error: %v", got.Err)
@@ -391,7 +397,8 @@ func TestAPageIsOneRoundOfCalls(t *testing.T) {
 		want = append(want, BreakdownRequest{Kind: kind, Limit: 8})
 	}
 	from, to := window()
-	site := c.FetchSite(context.Background(), "site", from, to, want...)
+	site := c.FetchSite(context.Background(), "site", from, to,
+		SiteRequest{Traffic: true, Beacon: true, Breakdowns: want})
 
 	for kind, b := range site.Breakdowns {
 		if b.Err != nil {
@@ -412,10 +419,12 @@ func TestAPageIsOneRoundOfCalls(t *testing.T) {
 func TestAnUnconfiguredClientAnswersEveryBreakdown(t *testing.T) {
 	var c *Client
 	from, to := window()
-	site := c.FetchSite(context.Background(), "site", from, to,
-		BreakdownRequest{Kind: BreakdownPages},
-		BreakdownRequest{Kind: BreakdownEvents},
-	)
+	site := c.FetchSite(context.Background(), "site", from, to, SiteRequest{
+		Traffic: true, Beacon: true,
+		Breakdowns: []BreakdownRequest{
+			{Kind: BreakdownPages}, {Kind: BreakdownEvents},
+		},
+	})
 	for _, kind := range []BreakdownKind{BreakdownPages, BreakdownEvents} {
 		b, ok := site.Breakdowns[kind]
 		if !ok {

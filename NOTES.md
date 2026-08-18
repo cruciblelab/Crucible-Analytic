@@ -3488,3 +3488,107 @@ Worth writing down because the first two explanations - mojibake, a
 broken heredoc - were both wrong and both plausible, and one identical
 character has been sitting in `internal/beacon/useragent.go` since that
 file was written for exactly the same reason.
+
+## Not showing somebody twelve things they cannot read
+
+The person who buys a website does not know what a TLS fingerprint is
+and has no reason to. D1 gave every customer the same six cards and D2
+added six sections underneath, so the page reached twelve blocks that
+nobody had chosen — and for most customers several of them are numbers
+they cannot interpret, which is worse than no number at all, because it
+invites a wrong conclusion instead of none.
+
+So the visible set is a per-site setting, written in the wizard by the
+installer sitting with the customer, changeable afterwards. The plan
+recorded this as C6 in the user's own words; what D2 changed is the
+size of the gap, since C6 was written when there were six blocks rather
+than twelve.
+
+### The saving has to reach the database
+
+Hiding a block in the template would leave its query running: Postgres
+still does the group-by, the API still serialises it, and the only thing
+saved is some HTML. So the request is built from the visible set, not
+from the registry, and the test asserts the *request* — a count of paths
+the API was asked for, not a stopwatch. A timing assertion here would be
+both flakier and weaker.
+
+The measurement from D2 says what that is worth: the pages breakdown
+costs 3.3 ms, countries 2.0 ms, and the other four are free because they
+finish inside the summary calls. A customer who wanted two cards and one
+table stops paying for five queries per page view, for ever.
+
+Two summaries fell out of the same rule. A page with no beacon card and
+no breakdown does not fetch the beacon summary at all — which is the
+collector-only deployment, the one where that call could never have
+shown anything. `KnownSites` got the same treatment: it used to ask both
+site lists whenever either source came back empty, and now asks only for
+the one somebody is going to read.
+
+### Unset means the default; "none" had to be spelled out
+
+An empty list is what every deployment that predates this setting
+already has, so unset has to mean the full page. A panel that emptied
+itself on upgrade would be the worst possible reading of "not
+configured".
+
+The first draft stopped there and called the missing case a stated
+limit: you can select a subset, not nothing. A live run showed why that
+was wrong. A deployment running only the collector cannot turn the
+beacon sections off, so its customer gets six tables that all say the
+snippet was never installed — six blocks of noise, on the page whose
+entire purpose is not confusing somebody who does not know what a
+snippet is.
+
+Unset and set-to-empty are the same value on disk, so the two states had
+to be made different. `ViewNone` is a word a form can send and a database
+can keep, unlike an absence. In the wizard it is what unticking
+everything means, which makes the interface read the way a person would
+expect while leaving unset alone.
+
+The consequence, handled rather than argued away: a site with both sets
+cleared has an empty page, and it says so in a sentence that points at
+the setting instead of rendering a heading over blank space.
+
+### Ids out of a database are ids from a version that may not exist
+
+The stored values become catalog keys and API path segments on every
+later page load. A card removed from a build, or a row written by a
+version that had one this one does not, has to be dropped and logged
+rather than rendered — and a set where *every* id is unknown still draws
+the default rather than nothing, because a blank page is a worse answer
+than a stale one.
+
+The write path checks against the same registries, so a posted id that
+is not offered by the form never reaches storage. That check lives in
+the web package rather than in the settings registry, and the reason is
+worth writing down: the closed sets live in the packages that own them,
+and copying them into `internal/panel` to validate against would create
+a second source of truth for exactly the thing a closed set exists to
+prevent.
+
+### Three failures, all mine, all found by running it
+
+**A test that left a setting behind.** The C6 end-to-end tests narrowed
+the visible set on the site the D2 tests use, and never put it back. The
+suite shares one database and the row outlives the process, so the D2
+sections test began failing on a *later* `go test` run with four
+sections missing. Every C6 test now restores the unset state; writing
+the empty list back is a genuine restore rather than a different
+configuration.
+
+**A test that asserted on a word.** Checking that the visitors card was
+gone by looking for "Ziyaretçi" failed on a perfectly correct page: that
+is the visitors card and also the visitors column every breakdown table
+carries. The assertions read the block's own data attribute now.
+
+**A browser test that clicked Çıkış.** `form button[type=submit]` takes
+the first match in the document, and the chrome's sign-out is a form
+with a submit button that comes before the step's own. The browser
+signed itself out, landed on the sign-in page, and reported that the
+step had saved nothing — which was true, and had nothing to do with the
+step. The click is scoped to `main form` now.
+
+That last one only became diagnosable after the script was wrapped so a
+failed locator reports the page it was looking at rather than a stack
+trace naming the selector. The selector was never the interesting part.

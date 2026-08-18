@@ -305,7 +305,7 @@ func TestNoDeadCatalogEntries(t *testing.T) {
 // an entry in one place and not the other surfaces, from one side as a
 // missing translation and from the other as a key nothing uses.
 var (
-	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "toplama", "saklama", "kontrol", "devir"}
+	wizardStepIDs = []string{"baslangic", "veritabani", "siteler", "gorunum", "toplama", "saklama", "kontrol", "devir"}
 	// welcomeStepIDs mirrors welcomeSteps in internal/panel/web. Same
 	// deal as the list above: the titles are assembled at runtime from
 	// the step id, so neither the template walk nor the source scan sees

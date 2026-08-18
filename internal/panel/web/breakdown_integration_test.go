@@ -15,8 +15,11 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -411,5 +414,218 @@ func TestThePageStaysInsideItsDeadline(t *testing.T) {
 	if avg > analytics.PageTimeout {
 		t.Errorf("the page took %v on average, past the %v deadline the client sets - "+
 			"a page that reaches its own timeout draws nothing", avg, analytics.PageTimeout)
+	}
+}
+
+// countingAPI is analyticsAPI with a tally of the paths it was asked for.
+//
+// The point of C6 is that a block nobody chose costs nothing, and
+// "nothing" has to mean no query - not a hidden block whose query still
+// runs. Counting paths is the only way to assert that from outside; a
+// timing assertion would be both flakier and weaker.
+func countingAPI(t *testing.T, srv *Server) *[]string {
+	t.Helper()
+	base, token := analyticsAPI(t)
+
+	var (
+		mu    sync.Mutex
+		paths []string
+	)
+	upstream, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		httputil.NewSingleHostReverseProxy(upstream).ServeHTTP(w, r)
+	}))
+	t.Cleanup(proxy.Close)
+
+	client, err := analytics.New(proxy.URL, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Analytics = client
+
+	// Returned by pointer so a caller reads it after the page was drawn;
+	// the slice itself is appended to from the proxy's goroutines.
+	seen := &paths
+	t.Cleanup(func() { mu.Lock(); mu.Unlock() })
+	return seen
+}
+
+// setVisible stores a site's visible sets and restores them afterwards.
+//
+// Restoring matters more here than in most tests: the suite shares one
+// database and the setting outlives the process, so a narrowed set left
+// behind makes an unrelated test fail on a later `go test` run rather
+// than in the same one. That is exactly how this helper came to exist -
+// the D2 sections test started reporting four missing sections, from a
+// row a C6 test had written the run before.
+//
+// The empty list is the unset state, so writing it back is a genuine
+// restore rather than a different configuration.
+func setVisible(t *testing.T, store *panel.Store, site string, cards, breakdowns []string) {
+	t.Helper()
+	ctx := context.Background()
+	for key, value := range map[panel.Key][]string{
+		panel.KeyVisibleCards:      cards,
+		panel.KeyVisibleBreakdowns: breakdowns,
+	} {
+		if err := store.SetSetting(ctx, key, site, value, nil); err != nil {
+			t.Fatalf("setting %s: %v", key, err)
+		}
+	}
+	t.Cleanup(func() {
+		for _, key := range []panel.Key{panel.KeyVisibleCards, panel.KeyVisibleBreakdowns} {
+			if err := store.SetSetting(ctx, key, site, []string{}, nil); err != nil {
+				t.Errorf("restoring %s: %v", key, err)
+			}
+		}
+	})
+}
+
+// TestABlockNobodyChoseIsNeverQueried is the C6 phase, end to end.
+//
+// A customer who was sold "how many people, and how many of them were
+// bots" gets three blocks. The other nine are not merely absent from the
+// HTML - the API is never asked about them, so the database never runs
+// those group-by queries at all.
+func TestABlockNobodyChoseIsNeverQueried(t *testing.T) {
+	srv, store := setupTestServer(t)
+	seen := countingAPI(t, srv)
+	seedBeacon(t, breakdownSite, time.Now().Add(-3*time.Hour), breakdownFixture())
+
+	// Two collector cards and one beacon breakdown. Deliberately mixed:
+	// it is the case where the beacon summary is needed for the share
+	// even though no beacon card is shown.
+	setVisible(t, store, breakdownSite,
+		[]string{string(cardHumanIPs), string(cardBotIPs)},
+		[]string{string(analytics.BreakdownPages)})
+
+	server, client, _ := signedInOwner(t, srv, store, breakdownSite, "c6-secim")
+	status, body := get(t, client, server.URL+sitePath(breakdownSite))
+	if status != http.StatusOK {
+		t.Fatalf("the dashboard answered %d", status)
+	}
+
+	// What was asked for: both summaries and exactly one breakdown.
+	var breakdownCalls []string
+	for _, p := range *seen {
+		if strings.Contains(p, "/beacon/") && !strings.HasSuffix(p, "/beacon/summary") {
+			breakdownCalls = append(breakdownCalls, p)
+		}
+	}
+	if len(breakdownCalls) != 1 || !strings.HasSuffix(breakdownCalls[0], "/beacon/pages") {
+		t.Errorf("the page made %d breakdown calls (%v); one block was chosen, so one call "+
+			"is the whole point - a hidden block whose query still runs saves nothing",
+			len(breakdownCalls), breakdownCalls)
+	}
+	for _, closed := range []string{"/beacon/referrers", "/beacon/campaigns",
+		"/beacon/devices", "/beacon/countries", "/beacon/events"} {
+		for _, p := range *seen {
+			if strings.HasSuffix(p, closed) {
+				t.Errorf("a closed breakdown was queried anyway: %s", p)
+			}
+		}
+	}
+
+	// And the page draws what was chosen, and only that.
+	//
+	// Checked by the block's own data attribute rather than by its
+	// heading text. The first version compared labels and failed on a
+	// correct page: "Ziyaretçi" is the visitors *card* and also the
+	// visitors *column* every breakdown table carries, so the word being
+	// present said nothing about which block was drawn.
+	for _, want := range []string{
+		`data-kart="` + string(cardHumanIPs) + `"`,
+		`data-kart="` + string(cardBotIPs) + `"`,
+		`data-kirilim="` + string(analytics.BreakdownPages) + `"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the page is missing the chosen block %s", want)
+		}
+	}
+	for _, gone := range []string{
+		`data-kart="` + string(cardVisitors) + `"`,
+		`data-kart="` + string(cardPageviews) + `"`,
+		`data-kirilim="` + string(analytics.BreakdownReferrers) + `"`,
+		`data-kirilim="` + string(analytics.BreakdownEvents) + `"`,
+	} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the page draws %s, which nobody chose", gone)
+		}
+	}
+}
+
+// TestACollectorOnlyPageNeverTouchesTheBeacon.
+//
+// The narrowest useful selection, and the one that saves the most: a
+// customer who only wanted the bot and human counts. No beacon card and
+// no breakdown means the beacon summary is not fetched either - so a
+// deployment with no snippet at all stops paying for a query whose answer
+// nothing on the page reads.
+func TestACollectorOnlyPageNeverTouchesTheBeacon(t *testing.T) {
+	srv, store := setupTestServer(t)
+	seen := countingAPI(t, srv)
+	seedTraffic(t, breakdownSite, time.Now().Add(-2*time.Hour), 6)
+
+	// One collector card and no breakdown at all. "None" has to be
+	// sayable: the first version of this test wrote an empty list and
+	// expected nothing to be drawn, and a live run showed all six
+	// sections instead, because unset and set-to-empty were the same
+	// value on disk. ViewNone is what made the difference expressible.
+	setVisible(t, store, breakdownSite,
+		[]string{string(cardBotIPs)},
+		[]string{ViewNone})
+
+	server, client, _ := signedInOwner(t, srv, store, breakdownSite, "c6-yalniz-collector")
+	if status, _ := get(t, client, server.URL+sitePath(breakdownSite)); status != http.StatusOK {
+		t.Fatalf("the dashboard answered %d", status)
+	}
+
+	for _, p := range *seen {
+		if strings.Contains(p, "/beacon/") {
+			t.Errorf("a page with no beacon block called %s", p)
+		}
+	}
+	var traffic int
+	for _, p := range *seen {
+		if strings.HasSuffix(p, "/summary") && !strings.Contains(p, "/beacon/") {
+			traffic++
+		}
+	}
+	if traffic == 0 {
+		t.Error("the collector summary was not fetched, on a page whose only card reads it")
+	}
+}
+
+// TestAStoredIdNobodyKnowsDoesNotReachTheAPI.
+//
+// The visible set comes out of a database and its values become catalog
+// keys and API path segments. A row written by a version that had a
+// breakdown this build does not is the realistic case; a hostile one is
+// the same code path.
+func TestAStoredIdNobodyKnowsDoesNotReachTheAPI(t *testing.T) {
+	srv, store := setupTestServer(t)
+	seen := countingAPI(t, srv)
+	seedBeacon(t, breakdownSite, time.Now().Add(-3*time.Hour), breakdownFixture())
+
+	setVisible(t, store, breakdownSite, []string{},
+		[]string{"ja4", "../../beacon/raw", string(analytics.BreakdownPages)})
+
+	server, client, _ := signedInOwner(t, srv, store, breakdownSite, "c6-bilinmeyen")
+	if status, _ := get(t, client, server.URL+sitePath(breakdownSite)); status != http.StatusOK {
+		t.Fatalf("the dashboard answered %d", status)
+	}
+
+	for _, p := range *seen {
+		for _, bad := range []string{"ja4", "raw", ".."} {
+			if strings.Contains(p, bad) {
+				t.Errorf("a stored id reached the API as %s", p)
+			}
+		}
 	}
 }

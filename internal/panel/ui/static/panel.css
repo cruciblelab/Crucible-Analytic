@@ -832,3 +832,50 @@ code.secret {
   margin: 0 0 var(--olcu);
   font-size: 0.875rem;
 }
+
+/* ---- the visible-set step ---- */
+
+/* One block per site, so a deployment with three sites reads as three
+   groups rather than one long list of ticks. */
+.gorunum {
+  border-top: 1px solid var(--kart-kenar);
+  padding-top: var(--olcu);
+  margin-top: var(--olcu);
+}
+
+.gorunum h2 {
+  font-size: 1rem;
+  margin: 0 0 var(--olcu);
+}
+
+.gorunum fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--olcu);
+}
+
+.gorunum legend {
+  font-size: 0.8125rem;
+  color: var(--metin-soluk);
+  font-weight: 600;
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+/* The help sentence sits under the label rather than beside it: these
+   are explanations for somebody who does not know the terms, and a line
+   that has to be hunted for is a line nobody reads. */
+.secim {
+  margin-bottom: 10px;
+}
+
+.secim label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 400;
+}
+
+.secim .ipucu {
+  margin: 2px 0 0 24px;
+}

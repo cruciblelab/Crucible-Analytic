@@ -196,7 +196,7 @@ type Dashboard struct {
 // copies of "fetch the summaries concurrently under one deadline" is two
 // places for a timeout or an error rule to drift.
 func (c *Client) FetchDashboard(ctx context.Context, site string, from, to time.Time) Dashboard {
-	return c.FetchSite(ctx, site, from, to).Dashboard
+	return c.FetchSite(ctx, site, from, to, SiteRequest{Traffic: true, Beacon: true}).Dashboard
 }
 
 // KnownSites lists the sites each source has ever written a row for.
@@ -211,7 +211,12 @@ func (c *Client) FetchDashboard(ctx context.Context, site string, from, to time.
 // Called only when a summary comes back empty. In the ordinary case -
 // there are numbers - the answer would change nothing on the page, and a
 // dashboard should not pay for a distinction it is not drawing.
-func (c *Client) KnownSites(ctx context.Context) (traffic, beacon []string, err error) {
+// wantTraffic and wantBeacon select which lists KnownSites reads.
+//
+// Named rather than two bare booleans at every call site, because
+// reading KnownSites(ctx, true, false) at a distance tells nobody which
+// source is which.
+func (c *Client) KnownSites(ctx context.Context, wantTraffic, wantBeacon bool) (traffic, beacon []string, err error) {
 	if !c.Configured() {
 		return nil, nil, ErrUnavailable
 	}
@@ -222,15 +227,25 @@ func (c *Client) KnownSites(ctx context.Context) (traffic, beacon []string, err 
 		wg               sync.WaitGroup
 		trafficErr, bErr error
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		traffic, trafficErr = c.siteList(ctx, "/api/v1/sites")
-	}()
-	go func() {
-		defer wg.Done()
-		beacon, bErr = c.siteList(ctx, "/api/v1/beacon/sites")
-	}()
+	// Only the lists somebody is going to read. A page whose collector
+	// card came back empty needs the collector's list and has no use for
+	// the beacon's, and fetching it anyway is a round trip bought for a
+	// question nothing asks - the same waste the visible-set setting
+	// exists to remove one level up.
+	if wantTraffic {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			traffic, trafficErr = c.siteList(ctx, "/api/v1/sites")
+		}()
+	}
+	if wantBeacon {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			beacon, bErr = c.siteList(ctx, "/api/v1/beacon/sites")
+		}()
+	}
 	wg.Wait()
 
 	// Either failing means the question cannot be answered, and

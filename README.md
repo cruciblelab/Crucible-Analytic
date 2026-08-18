@@ -1031,6 +1031,12 @@ A few things about that page are deliberate:
   cards answer the question a figure raises: which pages, from where,
   which campaign, on what device, from which country, and which custom
   events. Eight rows each, with the full paginated list one click away.
+- **Which of those a customer sees is a setting, not a decision this
+  project makes for them.** The person who bought a website does not
+  know what a TLS fingerprint is and has no reason to; the installer
+  asks what they want and turns those on. A block that is off is not
+  merely hidden - its call is never made, so the saving reaches the
+  database rather than stopping at the template.
 - **The period is whole days in the panel's timezone.** Sessions are
   counted inside the range, so one that began before it is truncated —
   "the last seven days" measured from the current instant produces
@@ -1059,6 +1065,13 @@ A few things about that page are deliberate:
 - **A failure is never drawn as zero.** A card reading "0 visitors"
   because a call timed out is not a missing number, it is a wrong one,
   and the reader has no way to tell.
+- **The visible set is per site, and unset means the default.** Every
+  deployment that predates the setting draws the full page; a page that
+  emptied itself on upgrade would be the worst reading of "not
+  configured". Saying "none" is therefore a value of its own rather than
+  an empty list - a collector-only deployment needs to turn the beacon
+  sections off, and its customer should not be handed six tables that
+  all say the snippet was never installed.
 - **Numbers stop at the site boundary.** The panel's API token reads
   every site — it serves all of them — so the only thing between one
   customer and another is the panel's own access check. An account with

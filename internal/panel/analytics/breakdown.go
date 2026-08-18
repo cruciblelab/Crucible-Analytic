@@ -108,6 +108,24 @@ type BreakdownRequest struct {
 	Offset int
 }
 
+// SiteRequest is everything one page wants fetched.
+//
+// The two summaries are flags rather than always-on because a
+// deployment chooses which blocks its customer sees, and a call whose
+// answer nothing draws is a query somebody's database runs for nothing.
+// That is the whole point of making the visible set configurable: the
+// saving has to reach the database, not stop at the template.
+//
+// A summary that was not asked for comes back zero with a nil error,
+// which is indistinguishable from "installed, nothing in this period" -
+// so a caller must not skip one whose numbers it then divides by. The
+// panel decides that from its own registries; see the web package.
+type SiteRequest struct {
+	Traffic    bool
+	Beacon     bool
+	Breakdowns []BreakdownRequest
+}
+
 // Site is everything one panel page needs from the API.
 //
 // The summaries come along with the breakdowns because a share needs a
@@ -229,12 +247,20 @@ func decodeEvents(raw json.RawMessage) ([]Row, error) {
 // page that made two rounds would be bounded by twice PageTimeout while
 // looking, in the code, like it was bounded by one.
 func (c *Client) FetchSite(ctx context.Context, site string, from, to time.Time,
-	want ...BreakdownRequest) Site {
+	want SiteRequest) Site {
 
-	out := Site{Breakdowns: make(map[BreakdownKind]Breakdown, len(want))}
+	out := Site{Breakdowns: make(map[BreakdownKind]Breakdown, len(want.Breakdowns))}
 	if !c.Configured() {
-		out.TrafficErr, out.BeaconErr = ErrUnavailable, ErrUnavailable
-		for _, req := range want {
+		// Only what was asked for is reported unavailable. A summary
+		// nobody wanted is not a failure, and saying it failed would put
+		// a page-wide warning on a page that is fine.
+		if want.Traffic {
+			out.TrafficErr = ErrUnavailable
+		}
+		if want.Beacon {
+			out.BeaconErr = ErrUnavailable
+		}
+		for _, req := range want.Breakdowns {
 			out.Breakdowns[req.Kind] = Breakdown{
 				Kind: req.Kind, Limit: req.Limit, Offset: req.Offset, Err: ErrUnavailable,
 			}
@@ -249,16 +275,21 @@ func (c *Client) FetchSite(ctx context.Context, site string, from, to time.Time,
 		wg sync.WaitGroup
 		mu sync.Mutex
 	)
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		out.Traffic, out.TrafficErr = c.summary(ctx, site, from, to)
-	}()
-	go func() {
-		defer wg.Done()
-		out.Beacon, out.BeaconErr = c.beaconSummary(ctx, site, from, to)
-	}()
-	for _, req := range want {
+	if want.Traffic {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out.Traffic, out.TrafficErr = c.summary(ctx, site, from, to)
+		}()
+	}
+	if want.Beacon {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out.Beacon, out.BeaconErr = c.beaconSummary(ctx, site, from, to)
+		}()
+	}
+	for _, req := range want.Breakdowns {
 		wg.Add(1)
 		go func(req BreakdownRequest) {
 			defer wg.Done()

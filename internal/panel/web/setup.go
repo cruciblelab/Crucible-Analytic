@@ -64,6 +64,11 @@ var wizardSteps = []wizardStep{
 	{ID: "baslangic"},
 	{ID: "veritabani"},
 	{ID: "siteler", Writes: true},
+	// What the customer will actually see. Placed here because it is
+	// per-site and the step before it is where the sites come from, and
+	// because it is the one step in this wizard that is not a technical
+	// question: it asks what this particular customer wants to look at.
+	{ID: "gorunum", Writes: true},
 	{ID: "toplama"},
 	{ID: "saklama", Writes: true},
 	{ID: "kontrol"},
@@ -107,6 +112,10 @@ type setupPage struct {
 	Sites []string
 	// SitesRaw is what the form field shows.
 	SitesRaw string
+
+	// Visible is the per-site choice of blocks, for the step that edits
+	// it.
+	Visible []siteVisibility
 
 	// Config is the read-only view of the config files.
 	ConfigNotice   string
@@ -346,6 +355,13 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		data.Sites = toStringList(value)
 		data.SitesRaw = strings.Join(data.Sites, "\n")
 
+	case "gorunum":
+		rows, err := s.visibilityRows(ctx, lang)
+		if err != nil {
+			return err
+		}
+		data.Visible = rows
+
 	case "toplama":
 		data.ConfigNotice = panel.ConfigFileNotice
 		data.ConfigSettings = panel.ConfigFileSettings(s.ConfigFileValues)
@@ -529,6 +545,8 @@ func (s *Server) saveStep(w http.ResponseWriter, r *http.Request, lang *ui.Langu
 	switch step.ID {
 	case "siteler":
 		s.saveSites(r, lang, access, &data)
+	case "gorunum":
+		s.saveVisible(r, lang, access, &data)
 	case "saklama":
 		s.saveRetention(r, lang, access, &data)
 	case "kontrol":

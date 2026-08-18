@@ -226,6 +226,49 @@ const (
 	// Empty means "use what the config file says", which is the state
 	// every deployment starts in.
 	KeyPanelTimezone Key = "panel.timezone"
+
+	// KeyVisibleCards and KeyVisibleBreakdowns are which blocks a site's
+	// page shows.
+	//
+	// # Why this is a setting at all
+	//
+	// The person who buys a website does not know what a TLS fingerprint
+	// is, and does not want to. Deciding for every customer that they
+	// see the same twelve blocks is deciding that most of them see
+	// several they cannot read - and a page carrying a number somebody
+	// cannot interpret is worse than a page without it, because it
+	// invites a wrong conclusion rather than no conclusion.
+	//
+	// So the installer asks what this customer wants and turns those on.
+	// The rest stay off until somebody asks for them.
+	//
+	// # Empty means the default, never a blank page
+	//
+	// An unset row is every deployment that existed before this setting
+	// did, and a page that went blank on upgrade would be the worst
+	// possible reading of "not configured". It is also the rule the
+	// dashboard already follows one level down: a view is never hidden,
+	// because a customer who cannot see what they are paying for never
+	// finds out they have it.
+	//
+	// The cost of that rule, stated because it is a real limit rather
+	// than an oversight: a deployment cannot select *nothing*. The
+	// smallest expressible answer is one block. A section with nothing
+	// behind it already says so in its own words, which is the honest
+	// version of hiding it.
+	//
+	// # The values are ids, and the closed set is not here
+	//
+	// Both hold ids from registries this package cannot see: the cards
+	// live in internal/panel/web and the breakdown kinds in
+	// internal/panel/analytics, and neither may import back into this
+	// one. Copying the lists here to validate against would create a
+	// second source of truth for a closed set - the exact failure the
+	// registries exist to prevent - so the check lives at the write
+	// path, next to the registry it checks, and the page looks every id
+	// up before using it.
+	KeyVisibleCards      Key = "panel.cards"
+	KeyVisibleBreakdowns Key = "panel.breakdowns"
 )
 
 // The privacy settings.
@@ -334,6 +377,23 @@ var registry = map[Key]Definition{
 		Default: "",
 		Label:   "Sitenin adı",
 		Help:    "Panelde görünen ad. Site kimliğini değiştirmez — snippet olduğu gibi kalır.",
+	},
+	KeyVisibleCards: {
+		Key: KeyVisibleCards, Scope: ScopeSite, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Gösterilecek kartlar",
+		Help: "Bu sitenin panosunda hangi özet kartlarının görüneceği. Boş " +
+			"bırakılırsa varsayılan altısı gösterilir — boş, \"hiçbiri\" demek " +
+			"değil. Kapalı bir kartın verisi analitik servisinden hiç istenmez.",
+	},
+	KeyVisibleBreakdowns: {
+		Key: KeyVisibleBreakdowns, Scope: ScopeSite, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Gösterilecek kırılımlar",
+		Help: "Kartların altındaki hangi kırılım tablolarının görüneceği: sayfalar, " +
+			"kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar. Boş bırakılırsa " +
+			"hepsi gösterilir. Kapalı bir kırılımın sorgusu hiç atılmaz, yani " +
+			"sayfa da o kadar hızlanır.",
 	},
 	KeyPanelTimezone: {
 		Key: KeyPanelTimezone, Scope: ScopeGlobal, Kind: KindString,

@@ -531,22 +531,44 @@ Bu bağlantı:
 
 ### 9.3 Sihirbazı yürütün
 
-Bağlantı sizi yedi adımlı teknik sihirbaza götürür:
+Bağlantı sizi sekiz adımlı sihirbaza götürür:
 
 | # | Adım | Ne yapar |
 |---|---|---|
 | 1 | Başlangıç | Kapsamı anlatır |
 | 2 | Veritabanı ve şema | **Hiçbir şey değiştirmez.** Gerçek sorgular atar, bulduğunu söyler |
 | 3 | Siteler | Beacon'ın kabul edeceği site kimlikleri — **yazar** |
-| 4 | Yapılandırma dosyaları | Dosyalardaki değerleri **gösterir**, değiştiremez |
-| 5 | Saklama süreleri | Saklama sürelerini yazar — **geliştirici şifresini her seferinde sorar** |
-| 6 | Kontrol | Kontrolleri düğmeye basınca **gerçekten çalıştırır** |
-| 7 | Devir teslim | §9.4 |
+| 4 | Müşteri ne görecek | Panoda hangi blokların görüneceği — **yazar**, aşağıya bakın |
+| 5 | Yapılandırma dosyaları | Dosyalardaki değerleri **gösterir**, değiştiremez |
+| 6 | Saklama süreleri | Saklama sürelerini yazar — **geliştirici şifresini her seferinde sorar** |
+| 7 | Kontrol | Kontrolleri düğmeye basınca **gerçekten çalıştırır** |
+| 8 | Devir teslim | §9.4 |
+
+**4. adım sihirbazdaki tek teknik olmayan soru, ve onu müşteriye
+sormanız için var.** Siteyi yaptıran kişi bot, parmak izi, DDoS gibi
+şeyleri bilmek zorunda değil; panelinde okuyamayacağı bir sayı,
+olmayan bir sayıdan kötüdür — çünkü yanlış bir sonuca davet eder.
+Yanına oturun, ne görmek istediğini sorun, yalnız onları işaretleyin.
+
+Üç şey bilerek böyle:
+
+- **İşaretlenmeyen blok yalnız gizlenmiyor, sorgusu hiç atılmıyor.**
+  Ölçüldü: sayfalar kırılımı 3,3 ms, ülkeler 2,0 ms. İki kart ve bir
+  tablo isteyen bir müşteri, her sayfa açılışında beş sorgudan
+  kurtuluyor. Yalnız collector kartı seçilmişse beacon özeti bile
+  çekilmiyor.
+- **Hiç dokunmazsanız varsayılan altı kart ve altı kırılım gösterilir.**
+  Form zaten o hâlde açılıyor, yani adımı geçmek bir şeyi kapatmaz.
+- **Hepsini kaldırmak "hiçbiri" demektir** ve bu bilerek söylenebilir:
+  yalnız collector çalıştıran bir kurulumda beacon kırılımları
+  kapatılmazsa müşteri "snippet kurulmamış" diyen altı tablo görür.
+
+Sonradan değiştirmek için bu adıma geri dönebilirsiniz.
 
 **Her adım değiştirdiğini anında kaydeder.** Yarıda bırakırsanız yarım
 bir kurulum kalır — saklanan bir taslak değil.
 
-6. adım **14 kontrol** çalıştırır. Kontrol listesi eksik olan her satırın
+7. adım **14 kontrol** çalıştırır. Kontrol listesi eksik olan her satırın
 yanına çalıştırılacak komutu yazar.
 
 **Bu 14'ün içinde "servisler ayakta mı" yok.** Kontrol kodu yazılmış ve

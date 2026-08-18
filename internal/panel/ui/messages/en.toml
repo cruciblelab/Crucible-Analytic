@@ -175,6 +175,14 @@ govde = "The site ids the beacon will accept events for. The snippet is public, 
 etiket = "Site ids"
 ipucu = "One per line, or comma-separated. Letters, digits, underscore and dash; 64 characters at most."
 
+[metin.kurulum.adim.gorunum]
+baslik = "What the customer sees"
+govde = "The one step in this wizard that is not a technical question. The person who had the website built does not have to know what a bot, a fingerprint or a DDoS is — their panel should carry only the blocks they asked for."
+ipucu = "An unticked block is not merely hidden: its query is never made, so the page gets that much faster. Untick everything and that site shows no blocks at all. This can be changed again here or in the site's settings."
+site_yok = "No sites are configured yet. Fill in the Sites step first."
+kartlar = "Summary cards"
+kirilimlar = "Breakdown tables"
+
 [metin.kurulum.adim.toplama]
 baslik = "Config files"
 govde = "The collector mode, the backend address, TLS and the trusted proxies live in config files. This step shows them; it cannot change them."
@@ -524,6 +532,9 @@ kaydedilemedi = "The decision could not be saved."
 # installed, it is installed and this period is empty, or the data source
 # cannot be reached. One "no data" sentence for all three would present a
 # setup step nobody performed as though it were a measurement.
+
+[metin.pano]
+hicbiri = "No blocks are selected for this site. Cards and breakdowns are turned on in the site's settings."
 
 [metin.pano.kirilim]
 tumu = "All %s"

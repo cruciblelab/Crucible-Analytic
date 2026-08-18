@@ -211,10 +211,11 @@ func breakdownPath(siteID string, kind analytics.BreakdownKind) string {
 
 // sections builds the six section views for the site page.
 func (s *Server) sections(lang *ui.Language, f *ui.Formatter, siteID string,
-	site analytics.Site, presence sourcePresence, days int) []breakdownView {
+	site analytics.Site, presence sourcePresence, days int,
+	shown []analytics.BreakdownKind) []breakdownView {
 
-	out := make([]breakdownView, 0, len(defaultBreakdowns))
-	for _, kind := range defaultBreakdowns {
+	out := make([]breakdownView, 0, len(shown))
+	for _, kind := range shown {
 		def, ok := breakdownDefs[kind]
 		if !ok {
 			continue
@@ -387,11 +388,17 @@ func (s *Server) detailData(ctx context.Context, lang *ui.Language, siteID strin
 	}
 
 	f := ui.NewFormatter(lang, s.zone(ctx))
-	site := s.Analytics.FetchSite(ctx, siteID, from, to, analytics.BreakdownRequest{
-		Kind: def.Kind, Limit: detailRows, Offset: (page - 1) * detailRows,
+	// The beacon summary comes along because every share on this page is
+	// a percentage of it; no cards are drawn here, so no other summary is
+	// asked for.
+	site := s.Analytics.FetchSite(ctx, siteID, from, to, analytics.SiteRequest{
+		Beacon: true,
+		Breakdowns: []analytics.BreakdownRequest{{
+			Kind: def.Kind, Limit: detailRows, Offset: (page - 1) * detailRows,
+		}},
 	})
 
-	presence := s.presence(ctx, site.Dashboard, siteID)
+	presence := s.presence(ctx, analytics.SiteRequest{Beacon: true}, site.Dashboard, siteID)
 	data.Section = s.section(lang, f, def, site, presence)
 
 	b := site.Breakdowns[def.Kind]

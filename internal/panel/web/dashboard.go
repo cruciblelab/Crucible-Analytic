@@ -280,22 +280,29 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 
 	f := ui.NewFormatter(lang, s.zone(ctx))
 
-	// One call for the whole page: two summaries and six breakdowns,
-	// concurrently, under one deadline. Fetching the cards and then the
-	// sections would bound the page at twice PageTimeout while reading,
-	// here, as though it were bounded by one.
-	want := make([]analytics.BreakdownRequest, 0, len(defaultBreakdowns))
-	for _, kind := range defaultBreakdowns {
-		want = append(want, analytics.BreakdownRequest{Kind: kind, Limit: sectionRows})
-	}
-	site := s.Analytics.FetchSite(ctx, siteID, from, to, want...)
+	// What this customer chose to see, and nothing else. The request is
+	// built from that set rather than from the registry, so a block that
+	// is off is not merely hidden - its call is never made.
+	//
+	// One call for the whole page: the summaries and the sections
+	// together, concurrently, under one deadline. Fetching the cards and
+	// then the sections would bound the page at twice PageTimeout while
+	// reading, here, as though it were bounded by one.
+	shown := s.visible(ctx, siteID)
+	req := shown.request(sectionRows)
+	site := s.Analytics.FetchSite(ctx, siteID, from, to, req)
 	board := site.Dashboard
 
-	// Both sources failing the same way is a page-wide problem rather
-	// than six identical card messages.
-	if board.TrafficErr != nil && board.BeaconErr != nil {
+	// Every source this page actually asked for failing the same way is a
+	// page-wide problem rather than six identical card messages.
+	//
+	// "Asked for" and not "both", now that a page can skip one: a summary
+	// nobody wanted comes back zero with a nil error, so testing both
+	// unconditionally would silence the notice on a page that shows only
+	// beacon cards - exactly the page a customer with no collector has.
+	if failed, err := allRequestedFailed(req, board); failed {
 		switch {
-		case errors.Is(board.TrafficErr, analytics.ErrRefused):
+		case errors.Is(err, analytics.ErrRefused):
 			data.Notice = lang.T("pano.hata.reddedildi")
 		default:
 			data.Notice = lang.T("pano.hata.ulasilamiyor")
@@ -303,15 +310,15 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	}
 
 	// Asked only when something came back empty, and only once for the
-	// page however many cards need it.
-	presence := s.presence(ctx, board, siteID)
+	// page however many cards need it - and only about sources this page
+	// fetched, so a skipped summary does not buy a lookup nothing reads.
+	presence := s.presence(ctx, req, board, siteID)
 
-	for _, id := range defaultCards {
+	for _, id := range shown.Cards {
 		def, ok := cards[id]
 		if !ok {
-			// Unreachable while defaultCards names registry entries; a
-			// future edit that broke that should drop the card rather
-			// than render a blank one.
+			// Unreachable: visibleCards drops unknown ids and logs them.
+			// Kept because rendering a blank card is the worse failure.
 			continue
 		}
 		view := cardView{
@@ -327,7 +334,13 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		}
 		data.Cards = append(data.Cards, view)
 	}
-	data.Sections = s.sections(lang, f, siteID, site, presence, days)
+	data.Sections = s.sections(lang, f, siteID, site, presence, days, shown.Breakdowns)
+	if shown.Empty() {
+		// Somebody turned everything off. Said in a sentence rather than
+		// left as a heading over blank space, which reads as a fault and
+		// sends a customer to support for a setting.
+		data.Notice = lang.T("pano.hicbiri")
+	}
 	return data
 }
 
@@ -338,16 +351,51 @@ type sourcePresence struct {
 	traffic, bacon bool
 }
 
+// allRequestedFailed reports whether every summary this page asked for
+// came back failed, and with which error.
+//
+// A page that asked for neither is not a failed page: it draws
+// breakdowns and their own errors, which are carried per section.
+func allRequestedFailed(req analytics.SiteRequest, board analytics.Dashboard) (bool, error) {
+	var asked int
+	var failed int
+	var first error
+	if req.Traffic {
+		asked++
+		if board.TrafficErr != nil {
+			failed++
+			first = board.TrafficErr
+		}
+	}
+	if req.Beacon {
+		asked++
+		if board.BeaconErr != nil {
+			failed++
+			if first == nil {
+				first = board.BeaconErr
+			}
+		}
+	}
+	return asked > 0 && asked == failed, first
+}
+
 // presence answers "has this source ever seen this site" - once, and
 // only when something is empty.
-func (s *Server) presence(ctx context.Context, board analytics.Dashboard, siteID string) sourcePresence {
-	trafficEmpty := board.TrafficErr == nil && board.Traffic.Snapshots == 0
-	beaconEmpty := board.BeaconErr == nil && board.Beacon.Pageviews == 0 && board.Beacon.Events == 0
+func (s *Server) presence(ctx context.Context, req analytics.SiteRequest,
+	board analytics.Dashboard, siteID string) sourcePresence {
+
+	// A summary that was not fetched is zero with no error, which is
+	// exactly what "installed and empty" looks like. Counting it as empty
+	// would buy a KnownSites round trip for a source nothing on the page
+	// reads - the one thing this whole setting exists to stop.
+	trafficEmpty := req.Traffic && board.TrafficErr == nil && board.Traffic.Snapshots == 0
+	beaconEmpty := req.Beacon && board.BeaconErr == nil &&
+		board.Beacon.Pageviews == 0 && board.Beacon.Events == 0
 	if !trafficEmpty && !beaconEmpty {
 		return sourcePresence{}
 	}
 
-	traffic, beacon, err := s.Analytics.KnownSites(ctx)
+	traffic, beacon, err := s.Analytics.KnownSites(ctx, trafficEmpty, beaconEmpty)
 	if err != nil {
 		// Unknown rather than assumed. Telling somebody to install a
 		// snippet they already have is worse than saying only that the
@@ -355,6 +403,9 @@ func (s *Server) presence(ctx context.Context, board analytics.Dashboard, siteID
 		s.logger().Warn("panel: listing known sites", "err", err)
 		return sourcePresence{}
 	}
+	// A list that was not asked for reports "not seen", which is only
+	// ever read for the source that was empty in the first place - the
+	// caller decides emptiness per source and never consults the other.
 	return sourcePresence{
 		known:   true,
 		traffic: slices.Contains(traffic, siteID),

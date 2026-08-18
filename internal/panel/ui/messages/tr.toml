@@ -202,6 +202,14 @@ govde = "Beacon'ın olay kabul edeceği site kimlikleri. Snippet herkese açık 
 etiket = "Site kimlikleri"
 ipucu = "Her satıra bir tane, ya da virgülle ayırın. Harf, rakam, alt çizgi ve tire; en fazla 64 karakter."
 
+[metin.kurulum.adim.gorunum]
+baslik = "Müşteri ne görecek"
+govde = "Bu sihirbazdaki tek teknik olmayan adım. Siteyi yaptıran kişi bot, parmak izi, DDoS gibi şeyleri bilmek zorunda değil — panelinde yalnız istediği bloklar görünsün."
+ipucu = "İşaretlenmeyen blok yalnız gizlenmiyor: sorgusu da hiç atılmıyor, yani sayfa o kadar hızlanıyor. Hepsini kaldırırsanız o site için hiçbir blok gösterilmez. Sonradan buradan ya da site ayarlarından değiştirilebilir."
+site_yok = "Henüz site tanımlı değil. Önce Siteler adımını doldurun."
+kartlar = "Özet kartları"
+kirilimlar = "Kırılım tabloları"
+
 [metin.kurulum.adim.toplama]
 baslik = "Yapılandırma dosyaları"
 govde = "Toplayıcı modu, backend adresi, TLS ve güvenilir vekiller yapılandırma dosyalarında durur. Bu adım onları gösterir; değiştiremez."
@@ -553,6 +561,9 @@ kaydedilemedi = "Karar kaydedilemedi."
 # dönem boş, ya da veri kaynağına ulaşılamıyor. Üçünü tek "veri yok"
 # cümlesine indirmek, yapılmamış bir kurulum adımını ölçüm sonucu gibi
 # gösterirdi.
+
+[metin.pano]
+hicbiri = "Bu site için gösterilecek hiçbir blok seçilmemiş. Kartlar ve kırılımlar site ayarlarından açılır."
 
 [metin.pano.kirilim]
 tumu = "Tümü (%s)"

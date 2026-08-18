@@ -65,7 +65,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **9/13** | A2, A3, A5.2, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **7/9** | C6, C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **8/9** | C7 |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
@@ -166,6 +166,20 @@ düzeltmekten ucuz.)*
   (`//host` ve `/\host` dâhil); bekleyen ikinci faktör bir oturum değil.
   Bağlantıyı gizlemek yetki değil: gezinme filtreleniyor **ve** her
   handler yeteneği ayrıca soruyor
+- **C6** Müşteri ne görecek — **bu projenin tek teknik olmayan ayarı.**
+  Siteyi yaptıran kişi parmak izinin ne olduğunu bilmiyor ve bilmek
+  zorunda da değil; D1+D2 sonrası sayfa on iki bloka çıkmıştı ve hiçbiri
+  seçilebilir değildi. Artık site başına iki ayar, kurulum sihirbazında
+  bir adım (yedinciden sekizinciye çıktı), sonradan da değiştirilebilir.
+  **Gizlemek yetmez, sorgu hiç atılmamalı:** istek kayıttan değil seçili
+  kümeden kuruluyor, ve testi süre değil **API'ye giden yol sayısı**
+  ölçüyor. Yalnız collector kartı seçen bir sayfa beacon özetini bile
+  çekmiyor; `KnownSites` de artık yalnız okunacak listeyi soruyor.
+  **Canlı koşuda kendi kuralımı düzelttim:** "boş = varsayılan" tek
+  başına yetmiyordu — yalnız collector çalıştıran bir kurulum beacon
+  kırılımlarını kapatamıyor, müşterisi de "snippet kurulmamış" diyen
+  altı tablo görüyordu. `ViewNone` o yüzden var: boş liste ile "hiçbiri"
+  diskte farklı olmak zorunda
 - **KURULUM.md** Sabit kurulum kılavuzu (Türkçe) — indirmeden devir
   teslime kadar, her komut yazılmadan önce çalıştırıldı. Yazma işi dört
   gerçek hata buldu, dördü de belgede değil **koddaki/örnekteki**
@@ -232,17 +246,16 @@ düzeltmekten ucuz.)*
 seviyesindeydi, arayüz yarımdı. Aynı ölçüt geçerli — "müşteri bunu
 görüyor mu" sorusu "mekanizma tam mı" sorusunun önünde.)*
 
-1. **C6 — görünür kart seti ayarı.** Artık mümkün: D1 kart kaydını
-   kapalı küme olarak yazdı, yani bu faz bir *seçim* bağlamak, sayfayı
-   sökmek değil — ve D2 aynısını kırılım kaydı için yaptı, yani ayar iki
-   listeyi birden kapsayabilir.
-2. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
+1. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
    de açtı, yani bunlar mimari değil kablolama: `[asn_lookup]`'ın
    tamamı, `[cache]`, `storage.flush_interval_seconds`, beacon
    tampon/parti boyutları, bot skor eşiği.
-3. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
-   izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok.
+   izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
+   kapalı küme tuttuğu için yeni bloklar da doğrudan seçilebilir olur.
+3. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
+   tek madde; davet ve parola sıfırlama hâlâ yok.
 
 **Bunların dışında, ürün olmak için üç eksik** *(ölçüldü, 2026-08-18)*:
 CI yok (`govulncheck` elle çalışıyor — denetimin en kötü iki bulgusu
@@ -2089,10 +2102,17 @@ Chromium. Yarış testi: sekiz eşzamanlı karar → tam bir kabul, yedi
 geçerli CSRF jetonu taşıyor, yani jeton eksikliğinden değil yetkiden
 düşüyorlar.
 
-#### C6 — Görünür kart seti, kurulum başına yapılandırılır ⚠️ **yeni**
+#### C6 — Görünür kart **ve kırılım** seti, kurulum başına yapılandırılır
 
-**Karar (kullanıcı):** Müşterinin panelinde hangi kartların göründüğü
-sabit değil, **ayardır** — geliştirici sihirbazında biz belirleriz.
+**Karar (kullanıcı):** Müşterinin panelinde ne göründüğü sabit değil,
+**ayardır** — geliştirici sihirbazında biz belirleriz, sonra geliştirici
+ayarlarından değiştirilebilir.
+
+**Kapsam D2'den sonra genişledi.** Bu madde yazıldığında sayfada altı
+kart vardı; D2 altı **bölüm** daha ekledi ve onlar da sabit. Müşterinin
+sayfası şu an on iki blok ve hiçbiri seçilebilir değil, yani maddenin
+gerekçesi ikiye katlandı. C6 ikisini birden kapsıyor: **kart seti ve
+kırılım seti, iki ayrı ayar, tek mekanizma.**
 
 Mantığı şu: sıradan, teknik olmayan bir kişi "DDoS sayısı", "bot parmak
 izi" ne demek bilmez. Kuruluma başlarken **müşteriye ne istediğini
@@ -2119,9 +2139,22 @@ ilk bakışta kaybettirir. Kart setini yapılandırılabilir yapmak bunu
 kökten çözer: varsayılan olarak müşteriye **tek bir anlaşılır sayı**
 gösterilir, geri kalanı isteyene açılır.
 
-**Bitti ölçütü:** kart seti `panel_settings`'te; sihirbaz onu yazıyor;
-geliştirici ayarlarından değiştirilebiliyor; kapalı bir kartın verisi
-API'den hiç istenmiyor (boşuna sorgu yok).
+**Hız, ve bu ölçülebilir bir iddia.** "Kapalı olanın sorgusu hiç
+atılmaz" kuralı D2'den sonra gerçek bir rakama oturuyor: gerçek bir
+veritabanında ölçüldüğünde site sayfası sekiz çağrı yapıyor ve bunun
+sayfalar kırılımı +3,3 ms, ülkeler kırılımı +2,0 ms tutuyor (kalan
+dördü özet çağrılarının içinde bittiği için ölçülebilir maliyeti yok).
+Yalnız iki kart ve bir bölüm isteyen bir kurulum, o sorguları hiç
+atmamalı — ve bunun testi "daha hızlı" demek değil, **stub API'ye o
+yolun hiç gelmediğini** doğrulamak.
+
+**Bitti ölçütü:** kart seti ve kırılım seti `panel_settings`'te, site
+başına; sihirbaz ikisini de yazıyor; geliştirici ayarlarından
+değiştirilebiliyor; **kapalı olanın verisi API'den hiç istenmiyor** — ve
+bunu isteği sayan bir test kanıtlıyor, süre ölçen bir test değil; boş
+küme "hiçbir şey gösterme" demek değil, çünkü kartsız bir pano ürünün
+kendisini gizlemek olurdu (D5'in "görünüm asla gizlenmez" kuralının
+kart tarafındaki karşılığı).
 
 #### C7 — Boş durumlar, API kesintisi, ve e-posta yolu
 

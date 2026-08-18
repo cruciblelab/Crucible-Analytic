@@ -291,7 +291,7 @@ func TestTheMoreLinkAppearsOnlyWhenThereIsMore(t *testing.T) {
 				analytics.BreakdownPages: {Kind: analytics.BreakdownPages, Rows: rows, Total: tc.total},
 			},
 		}
-		views := srv.sections(lang, f, "site", site, sourcePresence{}, 7)
+		views := srv.sections(lang, f, "site", site, sourcePresence{}, 7, defaultBreakdowns)
 		var pages breakdownView
 		for _, v := range views {
 			if v.Kind == analytics.BreakdownPages {

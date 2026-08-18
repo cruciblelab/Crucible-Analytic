@@ -1,0 +1,50 @@
+{{define "icerik"}}
+{{template "kurulum_ilerleme" .}}
+<p>{{t "kurulum.adim.gorunum.govde"}}</p>
+<p class="ipucu">{{t "kurulum.adim.gorunum.ipucu"}}</p>
+
+{{- if not .Data.Visible}}
+{{- /* No sites yet. Said plainly rather than drawn as an empty form,
+which reads as a page that failed to load. */}}
+<p class="ipucu">{{t "kurulum.adim.gorunum.site_yok"}}</p>
+{{- else}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+{{- range $site := .Data.Visible}}
+<section class="gorunum" aria-labelledby="gorunum-{{$site.SiteID}}">
+<h2 id="gorunum-{{$site.SiteID}}">{{$site.Name}}</h2>
+
+<fieldset>
+<legend>{{t "kurulum.adim.gorunum.kartlar"}}</legend>
+{{- range $site.Cards}}
+<div class="secim">
+<label>
+<input type="checkbox" name="{{$site.CardField}}" value="{{.ID}}"{{if .Checked}} checked{{end}}>
+{{.Label}}
+</label>
+<p class="ipucu">{{.Help}}</p>
+</div>
+{{- end}}
+</fieldset>
+
+<fieldset>
+<legend>{{t "kurulum.adim.gorunum.kirilimlar"}}</legend>
+{{- range $site.Breakdowns}}
+<div class="secim">
+<label>
+<input type="checkbox" name="{{$site.BreakdownField}}" value="{{.ID}}"{{if .Checked}} checked{{end}}>
+{{.Label}}
+</label>
+<p class="ipucu">{{.Help}}</p>
+</div>
+{{- end}}
+</fieldset>
+</section>
+{{- end}}
+
+<button type="submit">{{t "kurulum.kaydet"}}</button>
+</form>
+{{- end}}
+{{template "kurulum_gezinme" .}}
+{{end}}
