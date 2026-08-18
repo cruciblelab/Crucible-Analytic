@@ -63,7 +63,7 @@ tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **9/13** | A2, A3, A5.2, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **10/13** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **8/9** | C7 |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
@@ -246,16 +246,16 @@ düzeltmekten ucuz.)*
 seviyesindeydi, arayüz yarımdı. Aynı ölçüt geçerli — "müşteri bunu
 görüyor mu" sorusu "mekanizma tam mı" sorusunun önünde.)*
 
-1. **A5.2 — kalan ayarların göçü.** A5.1 canlı okuma yolunu iki serviste
-   de açtı, yani bunlar mimari değil kablolama: `[asn_lookup]`'ın
-   tamamı, `[cache]`, `storage.flush_interval_seconds`, beacon
-   tampon/parti boyutları, bot skor eşiği.
-2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+1. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar da doğrudan seçilebilir olur.
-3. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
+2. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
    tek madde; davet ve parola sıfırlama hâlâ yok.
+3. **A2/A3 — collector'da saklama süresi ve kalan ayar yüzeyi.** A5.2
+   saldırıyı durduran dördünü canlı yaptı; `traffic_snapshots`'ın
+   saklama süresi hâlâ yalnız dosyadan okunuyor, yani panel
+   `beacon_events`'i izliyor ama collector'ın tablosunu izlemiyor.
 
 **Bunların dışında, ürün olmak için üç eksik** *(ölçüldü, 2026-08-18)*:
 CI yok (`govulncheck` elle çalışıyor — denetimin en kötü iki bulgusu
@@ -274,8 +274,8 @@ betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
 | **Collector'da saklama süresi yalnız dosyadan okunuyor** | **A5.2** (A5.1 collector'a canlı okuyucuyu ekledi; saklama henüz o yoldan geçmiyor, yani `beacon_events` paneli izliyor `traffic_snapshots` izlemiyor) |
 | **Saklama değişikliği en geç bir saat içinde etkili** | bilinçli — uygulamak idempotent ama kısa saklamalı site için her turda satır silme demek; dakikada bir çalıştırmak boşuna tarama olurdu |
 | **Mod değişiminin tarihi denetim kaydından okunmalı** | **D5** (mekanizma hazır: `ActionSettingChanged` eski değeri taşıyor) |
-| `logs.level` yalnız beacon'da bağlı | **A5.2** (collector'un canlı okuyucusu artık var, log seviyesi henüz o yoldan geçmiyor) |
-| Collector tarafı canlı ayarlar (geo, skor, flush) — **limitler A5.1'de bağlandı** | A5.2 |
+| ~~`logs.level` yalnız beacon'da bağlı~~ | ✅ **A5.2'de kapandı** — `logs.level` ve `logs.verbose_until` iki serviste de canlı; ikisinin de `Live` bayrağı düzeltildi |
+| ~~Collector tarafı canlı ayarlar (geo, skor)~~ | ✅ **A5.2'de kapandı** (limitler A5.1'de). **`storage.flush_interval_seconds` bilerek dışarıda** — sebep kapsam değil değer: yazma aralığı bir destek çağrısının ihtiyacı değil, bir performans ayarı |
 | Sıkıştırılmış log görüntüleyicide açılmalı | B1 |
 | Bakım yalnız açılışta çalışıyor | B3 |
 | Log hacmi ve debug penceresinin maliyeti ölçülmedi | B4 |
@@ -757,12 +757,115 @@ yoktu. Açık risk listesindeki "iki tablo iki ayrı yerden
 yapılandırılıyor" maddesi kapandı, ve A5.2'nin kalan anahtarları artık
 mimari değil kablolama.
 
-#### A5.2 — Kalan anahtarlar *(sonraki faz)*
+#### A5.2 — Saldırıyı durduran ayarlar ✅ **yapıldı**
 
-`[asn_lookup]`'ın tamamı, `[cache]`, `storage.flush_interval_seconds`,
-beacon tampon/parti boyutları, bot skor eşiği, analitik profili ve site
-başına derinlik. A5.1 canlı okuma yolunu açtığı için bunlar mimari değil
-kablolama — her biri bir kayıt girdisi, bir `Set*` ve bir test.
+**Bu maddenin ilk hâli "kalan her şey, mekanik kablolama" diyordu ve
+yanlıştı.** Kalan alanları tek tek okuyunca ikiye ayrıldılar: çalışan
+bir süreç bazılarını istekler arasında değiştirebilir, bazılarını
+kuruluşta sabitlemiştir. İkisini aynı listeye koymak, müşteriye
+değiştiremeyeceği bir ayarı değiştirebilirmiş gibi göstermek olurdu —
+A6'nın `Live` bayrağının var olma sebebi tam da bu.
+
+##### Canlı olacaklar, ve neden bu dördü
+
+| Anahtar | Neden |
+|---|---|
+| `asn_lookup.blocked_countries` | Her bağlantıda bakılan saf veri |
+| `asn_lookup.blocked_asns` | Aynı |
+| `asn_lookup.known_bot_asns` | Skorlama anında bakılıyor |
+| `asn_lookup.apply_to_scoring` | Yukarıdakini açan/kapatan bayrak |
+
+**Seçim ölçütü "kolay olan" değil, "destek çağrısının gerçekten
+istediği".** Bugün "şu ülkeden saldırı geliyor, kapat" demek SSH +
+dosya düzenleme + yeniden başlatma demek — yani saldırı sürerken en
+uzun yol. Diğer aday alanların hiçbiri bu ağırlıkta değil.
+
+**Yapılacak asıl iş bir optimizasyonu kaybetmemek.** `NewGeoBlocklist`
+iki liste de boşsa **nil** dönüyor ve sunucu bunu görünce bağlantı
+başına ülke/ASN çözümlemesini hiç yapmıyor. Liste canlı olunca o "boş
+mu" sorusu açılışta bir kez değil, her bağlantıda sorulmak zorunda —
+ama yine tek bir atomik okuma kadar ucuz kalmalı, yoksa hiçbir şey
+engellemeyen bir kurulum, hiç kullanmadığı bir özellik için her
+bağlantıda LRU'ya gitmeye başlar.
+
+##### Canlı olmayacaklar, ve bunu panelin söylemesi
+
+`[cache]`'in tamamı (pencere/TTL/temizlik: `ratestore` kurulurken
+sabitleniyor), `asn_lookup.enabled` (açmak ~135 MB tablo yüklemek),
+`cache_max_entries` (LRU boyutu), beacon tampon/parti boyutları (kanal
+kapasitesi). Bunlar `Live: false` kalacak; panel "yeniden başlatma
+gerekiyor" diyecek. **Yalan söylemekten iyisi budur.**
+
+`storage.flush_interval_seconds` sınırda: ticker `Run` içinde bir kez
+kuruluyor, `Reset` ile canlı yapılabilir. Bu fazda **yapılmıyor** —
+sebebi kapsam değil, değer: yazma aralığını değiştirmek bir destek
+çağrısının ihtiyacı değil, bir performans ayarı, ve yarım bir canlılık
+eklemek yerine bir sonraki fazda düzgün ölçülerek yapılması daha
+doğru.
+
+##### Önce düzeltilecek üç tutarsızlık
+
+Fazı yazarken kayıt ile gerçeği karşılaştırınca çıktılar:
+
+1. **`logs.level` canlı okunuyor ama `Live: false`.** Beacon her turda
+   `slog.LevelVar` üzerinden uyguluyor. Panel müşteriye "yeniden
+   başlatın" diyor, gerekmiyorken.
+2. **`logs.verbose_until` de canlı okunuyor** ve durum daha kötü: testin
+   listesinde hiç yok, yani kontrol ona hiç bakmıyor.
+3. **Testte gerekçesiz bir muafiyet var:** `if !def.Live && key !=
+   "logs.level"`. Kuralı yakalaması gereken testin, tam da yakalayacağı
+   satırı elle atlaması. Muafiyet kalkıyor.
+
+Ayrıca **log seviyesi collector'da hiç canlı değil** — beacon'da var,
+collector'da yok. İki süreç de log yazıyor; asimetri kaza.
+
+##### Bitti ölçütü
+
+Kayıt girdileri; collector'ın `applySettings`'i dördünü de uyguluyor;
+göç komutu dosyadan taşıyor; **canlı değişimin gerçek eşzamanlı yük
+altında çalıştığı ölçülüyor** — bağlantılar akarken listeye ülke
+ekleniyor ve engellenmeye başladığı görülüyor, `-race` altında.
+
+##### Ne yapıldı, ve yazarken çıkan dört hata
+
+Dördü de kayıt girdisiyle, canlı uygulamayla ve göç girdisiyle bağlandı;
+üç `Live` tutarsızlığı ile testteki gerekçesiz muafiyet kalktı;
+`GeoBlocklist` `atomic.Pointer` ile değiştirilebilir hâle geldi ve `nil`
+optimizasyonunun yerini `Active()` aldı; collector'ın log seviyesi de
+canlı oldu (`_ = logControls` satırı, collector'ın kendi `Controls`'unu
+kurup çöpe attığı yerdi).
+
+**Ölçüm:** yük testi 8 işçiyle kesintisiz bağlantı akıtırken liste
+değişiyor — engelden sonra açılan **~11.000 bağlantının 0'ı** sunuldu,
+engel kalkınca yeniden sunulmaya başladı, `-race` altında.
+
+Yazarken çıkan ve kayda değer dört hata (dördüncüsü üç ayrı testte):
+
+1. **Yük testinin ilk hâli hiçbir şey kanıtlamıyordu.** Üç ayrı atış
+   yapıyordu ve değişimle yarışan atış "0 sunuldu" diyordu — bu, "engel
+   anında etki etti" ile "goroutine `Set` döndükten sonra çalıştı, o
+   sırada uçan hiç bağlantı yoktu" ile aynı sonucu veriyor. İlginç şey
+   olmuş olsa da olmasa da geçen test, kanıt değildir. Kesintisiz akışa
+   çevrildi.
+2. **Sonra o test gerçek bir yanlış atfı yakaladı:** "engelliyken
+   sunuldu" denen 3 bağlantı, engel *kalktıktan* sonra çevrilmiş
+   olanlardı. Deneme artık iki ucundan da damgalanıyor; değişimi
+   ortasında yakalayanlar hiçbir tarafa yazılmıyor (her seferinde tam
+   `işçi × değişim` = 16 tane, ki bu da damganın çalıştığının kendi
+   kontrolü).
+3. **`known_bot_asns` canlıydı ama uygulanmıyordu.** `applySettings`
+   listeyi *uzunluğuna* bakarak karşılaştırıyordu; bir ASN'yi başkasıyla
+   değiştirmek uzunluğu korur. Yeni liste veritabanında durur, panelde
+   güncel görünür, skorlamaya hiç ulaşmazdı. Artık **her turda
+   uygulanıyor, karşılaştırma yalnızca "log yazayım mı" sorusuna
+   bakıyor** — bir güvenlik ayarının doğruluğu, kendi değişim
+   dedektörünün isabetine bağlı kalmamalı.
+4. **Entegrasyon testleri ikinci koşuda kırmızıydı.** İki test yalnızca
+   daha önce çalışmadıkları bir veritabanında geçiyordu; kendi
+   yazdıklarını temizlemedikleri için ikinci koşuda kendi izlerine
+   takılıyorlardı. Testin en kötü yanlış olma biçimi bu: yazarken yeşil,
+   sonraki kişide kırmızı. `clearSiteSettings` ile önce ve sonra
+   temizleniyor.
 
 ---
 
@@ -2873,7 +2976,7 @@ olduğu** yazılıyor. Bir riski "kalan" diye bırakmak, onu unutmakla aynı
 | Doğrulanamayan 5 adım ayrı gösterilmeli | **C2.5** | `UncheckedSteps()` hazır; ayrı gösterme şablon işi |
 | Sıkıştırılmış log paneldeki görüntüleyicide açılmalı | **B1** | `.log.gz` okuma, log görüntüleyicinin parçası |
 | Bakım yalnız açılışta çalışıyor | **B3** | Uzun ömürlü süreç için onarım operasyonu; arka plan zamanlayıcısı bilerek reddedildi |
-| Collector tarafı canlı ayarlar (geo, skor eşiği, flush) — limitler A5.1'de bağlandı | **A5.2** | Okuyucu ve limitler yazıldı, kalanı mekanik |
+| ~~Collector tarafı canlı ayarlar (geo, skor eşiği, flush)~~ | ✅ **A5.2'de kapandı** | Geo listeleri, bot ASN listesi ve `apply_to_scoring` canlı; flush aralığı bilerek dışarıda (performans ayarı, destek çağrısının ihtiyacı değil). **"Kalanı mekanik" tahmini yanlıştı** — alanlar okununca ikiye ayrıldılar ve biri sessizce uygulanmıyordu |
 | `GRANT SELECT` elle veriliyor | **F2** | Kurulum betiği; preflight zaten uyarıyor |
 | Log hacmi ölçülmedi | **B4** | Sağlık sayfası zaten disk ve tablo boyutu gösterecek |
 | Anahtar listesi iki yerde | — | Bağımlılık tek yöne baksın diye bilinçli; test uyuşmayı yakalıyor |

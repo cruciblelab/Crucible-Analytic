@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -152,6 +153,46 @@ const (
 	// so a row edited by hand into something that is not a network
 	// cannot widen who gets believed.
 	KeyTrustedProxies Key = "beacon.trusted_proxies"
+)
+
+// The settings that stop an attack, moved out of the config file in
+// A5.2.
+//
+// Chosen by what a support call actually asks for rather than by what
+// was easiest to wire. "We are being hit from there, block it" is the
+// request, and until now the answer was SSH, an edit and a restart - the
+// longest possible path while an attack is in progress.
+//
+// All four are pure data consulted per connection or per flush, which is
+// what makes them honestly live. The rest of [asn_lookup] is not:
+// enabling the lookup loads a hundred-odd megabytes of range tables and
+// the cache size is fixed when the LRU is built, so those stay in the
+// file and the panel says so rather than offering a control it could not
+// honour.
+const (
+	// KeyBlockedCountries lists ISO 3166-1 alpha-2 codes to reject
+	// outright. Live.
+	//
+	// Rejection here is unconditional and independent of the overload
+	// policy: blocking by geography is a deliberate decision, not load
+	// shedding. An address the lookup could not resolve is never blocked
+	// by it - a rule needs a value to match against.
+	KeyBlockedCountries Key = "collector.blocked_countries"
+	// KeyBlockedASNs lists autonomous system numbers to reject. Live.
+	KeyBlockedASNs Key = "collector.blocked_asns"
+	// KeyKnownBotASNs lists networks whose traffic gets a bot-score
+	// bonus. Live.
+	//
+	// Separate from KeyBlockedASNs and deliberately so: a blocked network
+	// never reaches scoring at all, so one list cannot serve both. This
+	// one marks traffic; that one refuses it.
+	KeyKnownBotASNs Key = "collector.known_bot_asns"
+	// KeyApplyASNToScoring turns the signal above on. Live.
+	//
+	// Off by default, because an ASN bonus applied to a deployment that
+	// never chose one would change every score in the table for a reason
+	// nobody could point at.
+	KeyApplyASNToScoring Key = "collector.apply_asn_to_scoring"
 )
 
 // The admission limits, per service. Catalogue #8, #9 and #10.
@@ -410,6 +451,50 @@ var registry = map[Key]Definition{
 		Developer: true,
 		Live:      true,
 	},
+	KeyBlockedCountries: {
+		Key: KeyBlockedCountries, Scope: ScopeGlobal, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Engellenen ülkeler",
+		Help: "Buradaki ülkelerden gelen bağlantılar reddedilir. İki harfli ülke kodu, " +
+			"satır başına bir tane (TR, DE, CN). Değişiklik anında geçerli olur — " +
+			"yeniden başlatma gerekmez. Ülkesi belirlenemeyen bir adres bu listeyle " +
+			"asla engellenmez.",
+		Developer: true,
+		Live:      true,
+		Check:     checkCountryCodes,
+	},
+	KeyBlockedASNs: {
+		Key: KeyBlockedASNs, Scope: ScopeGlobal, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Engellenen ağlar (ASN)",
+		Help: "Buradaki otonom sistem numaralarından gelen bağlantılar reddedilir. " +
+			"Yalnız rakam, satır başına bir tane. Değişiklik anında geçerli olur.",
+		Developer: true,
+		Live:      true,
+		Check:     checkASNList,
+	},
+	KeyKnownBotASNs: {
+		Key: KeyKnownBotASNs, Scope: ScopeGlobal, Kind: KindStringList,
+		Default: []string{},
+		Label:   "Bot olarak işaretlenen ağlar (ASN)",
+		Help: "Bu ağlardan gelen trafiğin bot puanına ekleme yapılır — engellenmez, " +
+			"işaretlenir. Engellenen ağlar listesinden ayrıdır: engellenen bir ağ " +
+			"zaten puanlamaya hiç ulaşmaz. Yalnız \"ASN puanlamaya uygulansın\" " +
+			"açıkken kullanılır.",
+		Developer: true,
+		Live:      true,
+		Check:     checkASNList,
+	},
+	KeyApplyASNToScoring: {
+		Key: KeyApplyASNToScoring, Scope: ScopeGlobal, Kind: KindBool,
+		Default: false,
+		Label:   "ASN puanlamaya uygulansın",
+		Help: "Kapalıyken yukarıdaki bot ağı listesi hiç kullanılmaz. Varsayılan kapalı: " +
+			"kimsenin seçmediği bir eklenti, tablodaki her puanı kimsenin " +
+			"gösteremeyeceği bir sebeple değiştirirdi.",
+		Developer: true,
+		Live:      true,
+	},
 	KeyTrustedProxies: {
 		Key: KeyTrustedProxies, Scope: ScopeGlobal, Kind: KindStringList,
 		Default: []string{},
@@ -494,16 +579,27 @@ var registry = map[Key]Definition{
 	KeyLogLevel: {
 		Key: KeyLogLevel, Scope: ScopeGlobal, Kind: KindEnum,
 		Default: "info", Enum: []string{"debug", "info", "warn", "error"},
-		Label:     "Kayıt ayrıntı düzeyi",
-		Help:      "debug, en sık karşılaşılan yanlış yapılandırmayı görünür kılar; çok ayrıntılıdır.",
+		Label: "Kayıt ayrıntı düzeyi",
+		Help: "debug, en sık karşılaşılan yanlış yapılandırmayı görünür kılar; çok ayrıntılıdır. " +
+			"Değişiklik bir sonraki kayıt satırında geçerli olur.",
 		Developer: true,
+		// Live, and it was not marked so until A5.2. The services apply
+		// it through a slog.LevelVar, which is read on every record, so a
+		// change takes effect on the next line - and the panel was
+		// telling the customer to restart for it.
+		Live: true,
 	},
 	KeyLogVerboseUntil: {
 		Key: KeyLogVerboseUntil, Scope: ScopeGlobal, Kind: KindString,
-		Default:   "",
-		Label:     "Ayrıntılı kayıt bitiş zamanı",
-		Help:      "Geçici olarak debug'a çıkarır ve kendiliğinden söner.",
+		Default: "",
+		Label:   "Ayrıntılı kayıt bitiş zamanı",
+		Help: "Geçici olarak debug'a çıkarır ve kendiliğinden söner. " +
+			"Değişiklik bir sonraki kayıt satırında geçerli olur.",
 		Developer: true,
+		// Same as above, and it was in a worse state: read live and
+		// absent from the test that binds the two lists together, so
+		// nothing looked at it at all.
+		Live: true,
 	},
 	KeyAnalyticsRetentionDays: {
 		Key: KeyAnalyticsRetentionDays, Scope: ScopeSite, Kind: KindInt,
@@ -1114,6 +1210,61 @@ func (s *Store) LogLifecycle(ctx context.Context) (archiveAfter, retention, impo
 // A bare address is accepted and read as a single host, because that is
 // what somebody with one proxy will type and refusing it would be
 // pedantry.
+// checkCountryCodes refuses anything that is not a two-letter code.
+//
+// Validated on the way in rather than shrugged off at read time: a
+// stored "Turkiye" would never match asnlookup's "TR", so the setting
+// would appear to save and block nothing - the worst outcome for a
+// control somebody reached for during an attack.
+func checkCountryCodes(value any) error {
+	entries, ok := value.([]string)
+	if !ok {
+		return errors.New("expected a list of country codes")
+	}
+	for _, entry := range entries {
+		code := strings.ToUpper(strings.TrimSpace(entry))
+		if code == "" {
+			return errors.New("the list has an empty line in it")
+		}
+		if len(code) != 2 {
+			return fmt.Errorf("%q is not a two-letter country code (TR, DE, CN)", entry)
+		}
+		for _, r := range code {
+			if r < 'A' || r > 'Z' {
+				return fmt.Errorf("%q is not a two-letter country code (TR, DE, CN)", entry)
+			}
+		}
+	}
+	return nil
+}
+
+// checkASNList refuses anything that is not a positive number.
+//
+// Stored as text because the column is text; never treated as text. Zero
+// is refused explicitly: it is asnlookup's "not resolved", so a rule
+// built from it would match every address the lookup could not place.
+func checkASNList(value any) error {
+	entries, ok := value.([]string)
+	if !ok {
+		return errors.New("expected a list of ASN numbers")
+	}
+	for _, entry := range entries {
+		raw := strings.TrimSpace(entry)
+		if raw == "" {
+			return errors.New("the list has an empty line in it")
+		}
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			return fmt.Errorf("%q is not a number (an ASN is written as digits only, e.g. 64512)", entry)
+		}
+		if n <= 0 {
+			return fmt.Errorf("%d is not a usable ASN; 0 is what the lookup reports for an "+
+				"address it could not place, so a rule made from it would match those", n)
+		}
+	}
+	return nil
+}
+
 func checkPrefixes(value any) error {
 	entries, ok := value.([]string)
 	if !ok {

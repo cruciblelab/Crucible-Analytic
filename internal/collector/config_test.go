@@ -530,3 +530,90 @@ known_bot_asns = [64514, 64515]
 		t.Errorf("KnownBotASNs = %v, want %v", cfg.ASNLookup.KnownBotASNs, want)
 	}
 }
+
+// --- A5.2: the settings that stop an attack ---
+
+// TestLiveBlocklistTakesTheStoredListOverTheFile.
+//
+// A nil source is the deployment that never granted SELECT on
+// panel_settings: it has to keep working from its file, which is the
+// promise A6 made and the reason a settings failure is logged rather
+// than fatal.
+func TestLiveBlocklistFallsBackToTheFile(t *testing.T) {
+	cfg := ASNLookupConfig{
+		BlockedCountries: []string{"CN"},
+		BlockedASNs:      []int{64512},
+	}
+	countries, asns := cfg.LiveBlocklist(nil)
+	if !slices.Equal(countries, []string{"CN"}) {
+		t.Errorf("countries = %v, want the file's", countries)
+	}
+	if !slices.Equal(asns, []int{64512}) {
+		t.Errorf("asns = %v, want the file's", asns)
+	}
+}
+
+// TestLiveKnownBotASNsIsNilWhenTheSignalIsOff.
+//
+// nil rather than an empty map, because that is what scoring.Score
+// already treats as "no ASN component" - so turning the signal off needs
+// no separate switch anywhere downstream, and a deployment that never
+// chose one gets exactly the scores it got before.
+func TestLiveKnownBotASNsIsNilWhenTheSignalIsOff(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  ASNLookupConfig
+	}{
+		{"apply_to_scoring off", ASNLookupConfig{KnownBotASNs: []int{64512}}},
+		{"on but no list", ASNLookupConfig{ApplyToScoring: true}},
+		{"neither", ASNLookupConfig{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.LiveKnownBotASNs(nil); got != nil {
+				t.Errorf("LiveKnownBotASNs = %v, want nil", got)
+			}
+		})
+	}
+
+	on := ASNLookupConfig{ApplyToScoring: true, KnownBotASNs: []int{64512, 64513}}
+	got := on.LiveKnownBotASNs(nil)
+	if len(got) != 2 {
+		t.Fatalf("LiveKnownBotASNs = %v, want two entries", got)
+	}
+	if _, ok := got[64512]; !ok {
+		t.Error("64512 is missing from the list the file configured")
+	}
+}
+
+// TestASNsSurviveTheTextRoundTrip.
+//
+// ASNs are numbers in a config file and text in the settings column,
+// because the column is text. The round trip is not a smell - the panel
+// validates each entry as a positive number before storing it, and this
+// parses again before using it - but a value that could not survive it
+// would become a rule nobody wrote.
+func TestASNsSurviveTheTextRoundTrip(t *testing.T) {
+	in := []int{64512, 4294967294}
+	if got := asnNumbers(intsAsStrings(in)); !slices.Equal(got, in) {
+		t.Errorf("round trip = %v, want %v", got, in)
+	}
+}
+
+// TestRubbishASNsAreDroppedRatherThanBecomingZero.
+//
+// Zero is asnlookup's "not resolved", so an entry that parsed to zero
+// would match every address the lookup could not place - the opposite of
+// what a malformed line means. These come out of a database column that
+// a person can edit by hand.
+func TestRubbishASNsAreDroppedRatherThanBecomingZero(t *testing.T) {
+	got := asnNumbers([]string{"64512", "", "  ", "abc", "-1", "0", "64513"})
+	if !slices.Equal(got, []int{64512, 64513}) {
+		t.Errorf("asnNumbers = %v, want only the two real ones", got)
+	}
+	for _, n := range got {
+		if n == 0 {
+			t.Error("a dropped entry became 0, which matches every unresolved address")
+		}
+	}
+}

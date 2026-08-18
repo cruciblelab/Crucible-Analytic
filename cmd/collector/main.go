@@ -11,8 +11,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -65,7 +67,6 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
-	_ = logControls
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -128,23 +129,19 @@ func main() {
 		close(lookupDone)
 	}
 
-	// nil if both lists are empty (the default) - see NewGeoBlocklist.
-	// Only actually wired into a server below when lookup is also
-	// non-nil, since a blocklist is meaningless without a resolver to
-	// check it against.
+	// Always a real blocklist, empty or not, because the lists can be
+	// replaced from the panel while this process runs (A5.2). Only wired
+	// into a server below when lookup is also non-nil, since a blocklist
+	// is meaningless without a resolver to check it against - and the
+	// servers ask Active() per connection, so an empty one costs an
+	// atomic load rather than a geography lookup.
 	geoBlocklist := limiter.NewGeoBlocklist(cfg.ASNLookup.BlockedCountries, cfg.ASNLookup.BlockedASNs)
 
 	// nil unless apply_to_scoring is explicitly on and at least one ASN
 	// is configured - map lookups against a nil map are safe and always
 	// miss, so scoring.Score doesn't need its own separate on/off switch
 	// for this beyond the map being nil or not.
-	var knownBotASNs map[int]struct{}
-	if cfg.ASNLookup.ApplyToScoring && len(cfg.ASNLookup.KnownBotASNs) > 0 {
-		knownBotASNs = make(map[int]struct{}, len(cfg.ASNLookup.KnownBotASNs))
-		for _, asn := range cfg.ASNLookup.KnownBotASNs {
-			knownBotASNs[asn] = struct{}{}
-		}
-	}
+	knownBotASNs := cfg.ASNLookup.LiveKnownBotASNs(nil)
 
 	flusher := &storage.Flusher{
 		Store:     store,
@@ -174,6 +171,14 @@ func main() {
 		// resolver means every row's ASN is 0, which scoring.Score never
 		// matches anyway - see its own zero-value guard), so it's wired
 		// here too rather than unconditionally.
+		//
+		// The live setter below (applySettings) does call
+		// SetKnownBotASNs unconditionally, which looks like a
+		// disagreement and is not: 0 cannot be a key by either route -
+		// collector.Load rejects a non-positive entry in the file and
+		// the settings validator rejects one in the panel - so a list
+		// applied without a resolver matches nothing, exactly as this
+		// guard arranges by omission.
 		flusher.KnownBotASNs = knownBotASNs
 	}
 	// Retention, on its own slow schedule. A failure is logged rather
@@ -239,8 +244,34 @@ func main() {
 	// Seeded from the file so the first apply reports what the process is
 	// starting on rather than a change from nothing.
 	lastLimits := cfg.Limits.LiveLimits(nil)
+	lastCountries, lastASNs := cfg.ASNLookup.LiveBlocklist(nil)
+	lastBotASNs := knownBotASNs
+
+	// # Every setting below is applied on every poll, and compared only
+	// to decide whether to say so
+	//
+	// The obvious shape is the other way round - compare, and apply only
+	// on a change - and that is how this was written. It put the
+	// correctness of a live setting behind the accuracy of its own
+	// change detector, and the known-bot ASN list got that detector
+	// wrong: it compared lengths, on the reasoning that diffing a map
+	// every poll was not worth a log line. True about the log line, and
+	// wrong about everything else, because swapping one ASN for another
+	// keeps the length. The new list would have sat in the database,
+	// shown in the panel as the current value, and never reached
+	// scoring.
+	//
+	// Applying unconditionally costs one atomic store per setting per
+	// poll (SetConfig, Set and SetKnownBotASNs are all a single store
+	// over freshly built values - none of them touches a counter, a
+	// semaphore or a queue, so re-applying an unchanged value is not
+	// observable to traffic in flight). A comparison that is now only
+	// ever wrong about whether to log is a comparison that cannot break
+	// a security setting.
 	applySettings := func() {
-		if limits := cfg.Limits.LiveLimits(live); limits != lastLimits {
+		limits := cfg.Limits.LiveLimits(live)
+		lim.SetConfig(limits)
+		if limits != lastLimits {
 			// Logged at Info with both policies. This is the one setting
 			// here that can stop traffic reaching the customer's site,
 			// and somebody reading the log afterwards should find the
@@ -251,7 +282,44 @@ func main() {
 				"max_per_second", limits.MaxRequestsPerSecond,
 				"throttle_queue", limits.ThrottleQueueSize)
 			lastLimits = limits
-			lim.SetConfig(limits)
+		}
+
+		// The blocklist. Logged at Info for the same reason as the
+		// limits and more so: this one refuses traffic outright, and
+		// "when did we start blocking that country" is a question
+		// somebody asks days later.
+		countries, blockedASNs := cfg.ASNLookup.LiveBlocklist(live)
+		geoBlocklist.Set(countries, blockedASNs)
+		if !slices.Equal(countries, lastCountries) || !slices.Equal(blockedASNs, lastASNs) {
+			logger.Info("geo blocklist changed",
+				"countries", len(countries), "asns", len(blockedASNs),
+				"was_countries", len(lastCountries), "was_asns", len(lastASNs))
+			lastCountries, lastASNs = countries, blockedASNs
+		}
+
+		// The scoring signal.
+		botASNs := cfg.ASNLookup.LiveKnownBotASNs(live)
+		flusher.SetKnownBotASNs(botASNs)
+		if !maps.Equal(botASNs, lastBotASNs) {
+			logger.Info("known-bot ASN list changed", "asns", len(botASNs), "was", len(lastBotASNs))
+			lastBotASNs = botASNs
+		}
+
+		// The log level, and any temporary raise to debug. Live in the
+		// beacon since A6 and discarded here until A5.2 - the collector
+		// built its Controls and threw them away, so the one process a
+		// support call most often needs verbose was the one that could
+		// not be turned up without a restart.
+		configured, err := logging.ParseLevel(
+			live.String(settings.KeyLogLevel, "", cfg.Logging.Level,
+				[]string{"debug", "info", "warn", "error"}))
+		if err != nil {
+			configured = logControls.Base()
+		}
+		before := logControls.Level()
+		after := logControls.Apply(configured, live.String(settings.KeyLogVerboseUntil, "", "", nil), time.Now())
+		if after != before {
+			logger.Info("logging level changed", "from", before.String(), "to", after.String())
 		}
 	}
 	applySettings()

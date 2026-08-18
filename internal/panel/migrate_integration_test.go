@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -35,8 +36,15 @@ func clearMigrated(t *testing.T, s *Store, keys ...Key) {
 			_, _ = s.pool.Exec(context.Background(),
 				`DELETE FROM panel_settings WHERE key = $1`, string(key))
 		}
+		// panel_audit_log, not panel_audit. It said panel_audit until
+		// A5.2 and the error went into the blank that ignores it, so this
+		// half of the helper has never once run - the rows it promises to
+		// clear have been accumulating since A5.1. Nothing failed because
+		// the one test that reads them filters by its own temp-dir path,
+		// which is different every run; the point is that a helper whose
+		// errors are discarded cannot report that it is not working.
 		_, _ = s.pool.Exec(context.Background(),
-			`DELETE FROM panel_audit WHERE action = $1`, ActionSettingMigrated)
+			`DELETE FROM panel_audit_log WHERE action = $1`, ActionSettingMigrated)
 	}
 	clear()
 	t.Cleanup(clear)
@@ -77,8 +85,15 @@ throttle_queue_size = 512
 		KeyCollectorOverloadPolicy: "throttle",
 		KeyCollectorThrottleQueue:  512,
 	}
+	// Only the keys this file sets. It used to assert that every outcome
+	// in the report was written, which held while the collector's
+	// catalogue was exactly these four - and broke the moment A5.2 added
+	// the [asn_lookup] entries, correctly reporting them as absent from a
+	// file that only has a [limits] table. Widening the file to set them
+	// too would have kept the loop and lost the test: "the file does not
+	// set it" is a case this file is here to produce.
 	for _, o := range outcomes {
-		if !o.Written {
+		if _, mine := want[o.Key]; mine && !o.Written {
 			t.Errorf("%s was not written: %s", o.Key, o.Skipped)
 		}
 	}
@@ -240,6 +255,117 @@ func TestStore_RealDB_MigrationRefusesAnUnknownService(t *testing.T) {
 	_, err := s.MigrateSettings(context.Background(), "kollektor", path)
 	if !errors.Is(err, ErrUnknownService) {
 		t.Fatalf("err = %v, want ErrUnknownService", err)
+	}
+}
+
+// TestStore_RealDB_BlocklistMigratesFromNumbersToText.
+//
+// A5.2's four keys, and the one place they can go wrong on the way in: a
+// config file writes ASNs as TOML numbers (blocked_asns = [64512]) while
+// the settings column holds text, so these are the only entries in the
+// catalogue whose stored shape differs from the file's. A conversion
+// that silently dropped an entry would produce a blocklist shorter than
+// the file's, which blocks less than the operator believes and says
+// nothing about it.
+//
+// Migrated together rather than one test each because they come from one
+// [asn_lookup] table and a wrong path is the likeliest mistake - reading
+// blocked_asns into known_bot_asns would leave both tests green if each
+// only checked its own key was non-empty.
+func TestStore_RealDB_BlocklistMigratesFromNumbersToText(t *testing.T) {
+	s := newTestStore(t, "panel-migrate-blocklist")
+	ctx := context.Background()
+	clearMigrated(t, s,
+		KeyBlockedCountries, KeyBlockedASNs, KeyKnownBotASNs, KeyApplyASNToScoring)
+
+	path := writeConfig(t, `
+site_id = "bir-site"
+
+[asn_lookup]
+blocked_countries = ["RU", "KP"]
+blocked_asns = [64512, 64513]
+known_bot_asns = [15169, 32934]
+apply_to_scoring = true
+`)
+
+	outcomes, err := s.MigrateSettings(ctx, "collector", path)
+	if err != nil {
+		t.Fatalf("MigrateSettings: %v", err)
+	}
+	for _, o := range outcomes {
+		switch o.Key {
+		case KeyBlockedCountries, KeyBlockedASNs, KeyKnownBotASNs, KeyApplyASNToScoring:
+			if !o.Written {
+				t.Errorf("%s was not written: %s", o.Key, o.Skipped)
+			}
+		}
+	}
+
+	// Each list asserted whole, in order, against the key it belongs to:
+	// the numbers must have become text, and neither ASN list may have
+	// picked up the other's entries.
+	for key, want := range map[Key][]string{
+		KeyBlockedCountries: {"RU", "KP"},
+		KeyBlockedASNs:      {"64512", "64513"},
+		KeyKnownBotASNs:     {"15169", "32934"},
+	} {
+		got, err := s.GetSetting(ctx, key, "")
+		if err != nil {
+			t.Fatalf("GetSetting(%s): %v", key, err)
+		}
+		list, ok := got.([]string)
+		if !ok {
+			t.Errorf("%s = %v (%T), want a list of text", key, got, got)
+			continue
+		}
+		if !slices.Equal(list, want) {
+			t.Errorf("%s = %v, want %v", key, list, want)
+		}
+	}
+
+	if got, err := s.GetSetting(ctx, KeyApplyASNToScoring, ""); err != nil {
+		t.Fatal(err)
+	} else if got != true {
+		t.Errorf("%s = %v (%T), want true", KeyApplyASNToScoring, got, got)
+	}
+}
+
+// TestStore_RealDB_MigrationRefusesAnASNThatWouldMatchEverything.
+//
+// 0 is asnlookup's "could not resolve", so an ASN 0 rule would block
+// every address the lookup failed on rather than one network. The
+// validator refuses it; this is here because the conversion above sits
+// between the file and that validator, and a conversion is exactly where
+// a value can arrive in a shape the validator no longer recognises.
+func TestStore_RealDB_MigrationRefusesAnASNThatWouldMatchEverything(t *testing.T) {
+	s := newTestStore(t, "panel-migrate-asn-zero")
+	ctx := context.Background()
+	clearMigrated(t, s, KeyBlockedASNs)
+
+	path := writeConfig(t, "[asn_lookup]\nblocked_asns = [64512, 0]\n")
+	outcomes, err := s.MigrateSettings(ctx, "collector", path)
+	if err != nil {
+		t.Fatalf("MigrateSettings: %v", err)
+	}
+	for _, o := range outcomes {
+		if o.Key != KeyBlockedASNs {
+			continue
+		}
+		if o.Written {
+			t.Error("a blocklist containing AS0 was accepted")
+		}
+		if o.Skipped == "" {
+			t.Error("it was skipped with no reason given")
+		}
+	}
+	// Refused whole, like the proxy list: a partial list blocks less than
+	// the file says and nobody would notice which entry went missing.
+	got, err := s.GetSetting(ctx, KeyBlockedASNs, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list, ok := got.([]string); ok && len(list) != 0 {
+		t.Errorf("a partial list was stored: %v", list)
 	}
 }
 

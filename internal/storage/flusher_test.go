@@ -235,3 +235,103 @@ func TestFlusher_NilKnownBotASNsNoScoreBonusEvenWithResolver(t *testing.T) {
 		t.Errorf("row IsKnownBotASN = %v, BotScore = %d, want false/0 with nil KnownBotASNs", rows[0].IsKnownBotASN, rows[0].BotScore)
 	}
 }
+
+// TestSetKnownBotASNsReplacesTheSignalWhileFlushing.
+//
+// A5.2 made this list changeable from the panel. The field it replaces
+// is read once per flush, so a list arriving mid-flush has to apply to
+// the next one rather than to half of this one - and the read has to be
+// safe while a poll is publishing a new list, which is what -race is
+// here to say.
+func TestSetKnownBotASNsReplacesTheSignalWhileFlushing(t *testing.T) {
+	f := &Flusher{SiteID: "test-site"}
+
+	// Built with nothing, so the field is nil and the signal is off.
+	if got := f.knownBotASNs(); got != nil {
+		t.Errorf("a Flusher built with no list reports %v, want nil", got)
+	}
+
+	f.SetKnownBotASNs(map[int]struct{}{64512: {}})
+	if _, ok := f.knownBotASNs()[64512]; !ok {
+		t.Error("the list just published is not in force")
+	}
+
+	// And back off, which is what apply_to_scoring = false means.
+	f.SetKnownBotASNs(nil)
+	if got := f.knownBotASNs(); got != nil {
+		t.Errorf("turning the signal off left %v in force", got)
+	}
+}
+
+// TestSetKnownBotASNsAppliesASwapThatKeepsTheSameLength.
+//
+// The case that was actually broken, and not here: cmd/collector applied
+// this list only when it decided the list had changed, and decided that
+// by comparing lengths. Replacing one ASN with another is the single
+// most likely edit a support call produces - "it is not that network, it
+// is this one" - and it is exactly the edit that keeps the length. The
+// collector would have kept scoring against the old ASN while the panel
+// showed the new one.
+//
+// The gate is gone (the collector now applies every poll and compares
+// only to decide whether to log it), so what is left to hold is this:
+// the setter itself must replace, not merge. A merge would leave the old
+// ASN flagged forever, which is the same customer-visible symptom
+// arrived at from the other direction.
+func TestSetKnownBotASNsAppliesASwapThatKeepsTheSameLength(t *testing.T) {
+	f := &Flusher{SiteID: "test-site"}
+
+	const was, now = 64512, 64513
+	f.SetKnownBotASNs(map[int]struct{}{was: {}})
+	f.SetKnownBotASNs(map[int]struct{}{now: {}})
+
+	if _, ok := f.knownBotASNs()[now]; !ok {
+		t.Errorf("AS%d is not in force after a same-length swap", now)
+	}
+	if _, ok := f.knownBotASNs()[was]; ok {
+		t.Errorf("AS%d is still in force after being swapped out; the setter merged instead of replacing", was)
+	}
+}
+
+// TestTheFieldStillWorksForCallersThatNeverSetIt.
+//
+// Every existing caller builds a Flusher with the field and never calls
+// the setter. Adding a live path must not change what they read - the
+// atomic is consulted first and falls through when nothing was ever
+// published.
+func TestTheFieldStillWorksForCallersThatNeverSetIt(t *testing.T) {
+	f := &Flusher{SiteID: "test-site", KnownBotASNs: map[int]struct{}{64512: {}}}
+	if _, ok := f.knownBotASNs()[64512]; !ok {
+		t.Error("a Flusher built with the field no longer reads it")
+	}
+}
+
+// TestSetKnownBotASNsIsSafeAlongsideReads, under -race.
+func TestSetKnownBotASNsIsSafeAlongsideReads(t *testing.T) {
+	f := &Flusher{SiteID: "test-site"}
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = f.knownBotASNs()
+				}
+			}
+		}()
+	}
+	for i := range 200 {
+		// A fresh map each time. Mutating a published one would be a
+		// data race no atomic pointer can fix, which is why the setter's
+		// contract says the caller builds and hands over.
+		f.SetKnownBotASNs(map[int]struct{}{64512 + i: {}})
+	}
+	close(stop)
+	wg.Wait()
+}

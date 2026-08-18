@@ -14,6 +14,7 @@ package collector
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,6 +150,75 @@ func (c LimitsConfig) LiveLimits(src *settings.Source) limiter.Config {
 	}
 	cfg.Policy = limiter.Policy(policy)
 	return cfg
+}
+
+// LiveBlocklist is the country and ASN denylist in force, taking the
+// stored values over the file's when a source is present.
+//
+// Returns the two lists rather than a built *limiter.GeoBlocklist so the
+// caller can compare them against what is already applied and log only a
+// real change - a blocklist rebuilt every poll would say nothing about
+// whether anything moved.
+func (c ASNLookupConfig) LiveBlocklist(src *settings.Source) (countries []string, asns []int) {
+	countries = c.BlockedCountries
+	asns = c.BlockedASNs
+	if src == nil {
+		return countries, asns
+	}
+	countries = src.Strings(settings.KeyBlockedCountries, "", countries)
+	asns = asnNumbers(src.Strings(settings.KeyBlockedASNs, "", intsAsStrings(c.BlockedASNs)))
+	return countries, asns
+}
+
+// LiveKnownBotASNs is the scoring signal in force.
+//
+// Nil when the signal is off, which is what scoring.Score already treats
+// as "no ASN component" - so turning it off needs no separate switch
+// anywhere downstream.
+func (c ASNLookupConfig) LiveKnownBotASNs(src *settings.Source) map[int]struct{} {
+	apply := c.ApplyToScoring
+	list := c.KnownBotASNs
+	if src != nil {
+		apply = src.Bool(settings.KeyApplyASNToScoring, "", apply)
+		list = asnNumbers(src.Strings(settings.KeyKnownBotASNs, "", intsAsStrings(c.KnownBotASNs)))
+	}
+	if !apply || len(list) == 0 {
+		return nil
+	}
+	out := make(map[int]struct{}, len(list))
+	for _, asn := range list {
+		out[asn] = struct{}{}
+	}
+	return out
+}
+
+// intsAsStrings and asnNumbers carry ASNs across the settings layer,
+// which speaks lists of text because the column is text.
+//
+// The round trip is not a smell: the panel validates every entry as a
+// positive number before it is stored, and this parses again before it
+// is used. A row edited by hand into something that is not a number
+// cannot become a rule - it is dropped here rather than turning into a
+// zero, which is asnlookup's "not resolved" and would match every
+// address the lookup could not place.
+func intsAsStrings(in []int) []string {
+	out := make([]string, 0, len(in))
+	for _, n := range in {
+		out = append(out, strconv.Itoa(n))
+	}
+	return out
+}
+
+func asnNumbers(in []string) []int {
+	out := make([]int, 0, len(in))
+	for _, raw := range in {
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || n <= 0 {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 // BotDataConfig points at the known-bot fingerprint file.

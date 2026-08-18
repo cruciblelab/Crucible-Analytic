@@ -339,4 +339,13 @@ const (
 	KeyBeaconMaxPerSecond   = "beacon.limits.max_requests_per_second"
 	KeyBeaconOverloadPolicy = "beacon.limits.overload_policy"
 	KeyBeaconThrottleQueue  = "beacon.limits.throttle_queue_size"
+
+	// A5.2: the settings that stop an attack. All four are pure data
+	// consulted per connection or per flush, which is what makes them
+	// honestly live - the rest of [asn_lookup] is not, and stays in the
+	// file.
+	KeyBlockedCountries  = "collector.blocked_countries"
+	KeyBlockedASNs       = "collector.blocked_asns"
+	KeyKnownBotASNs      = "collector.known_bot_asns"
+	KeyApplyASNToScoring = "collector.apply_asn_to_scoring"
 )

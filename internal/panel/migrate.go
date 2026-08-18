@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 
 	"github.com/BurntSushi/toml"
 	"github.com/jackc/pgx/v5"
@@ -54,6 +55,46 @@ type migratable struct {
 	// key inside a table.
 	path []string
 	key  Key
+	// convert reshapes the file's value into the one the setting takes,
+	// for the entries where the two genuinely differ.
+	//
+	// Only one shape does so far: a config file writes ASNs as numbers
+	// (blocked_asns = [64512]) and the settings column is text, so the
+	// registry's kind is a string list. Loosening the validator to
+	// accept numbers into any string list would have been the smaller
+	// diff and the wrong one - it would let a number become a string
+	// silently for every setting, everywhere, to spare one conversion
+	// here.
+	//
+	// Nil means the file's value goes straight to Validate.
+	convert func(any) any
+}
+
+// asnsAsText turns a TOML list of numbers into the list of text the
+// settings column holds.
+//
+// Anything that is not a whole number is passed through untouched, so
+// the registry's own validator is what refuses it and the operator gets
+// that message rather than a silently dropped entry.
+func asnsAsText(value any) any {
+	list, ok := value.([]any)
+	if !ok {
+		return value
+	}
+	out := make([]string, 0, len(list))
+	for _, item := range list {
+		switch n := item.(type) {
+		case int64:
+			out = append(out, strconv.FormatInt(n, 10))
+		case int:
+			out = append(out, strconv.Itoa(n))
+		case string:
+			out = append(out, n)
+		default:
+			return value
+		}
+	}
+	return out
 }
 
 // migrations maps each service's config file to the settings that have
@@ -69,6 +110,12 @@ var migrations = map[string][]migratable{
 		{path: []string{"limits", "max_requests_per_second"}, key: KeyCollectorMaxPerSecond},
 		{path: []string{"limits", "overload_policy"}, key: KeyCollectorOverloadPolicy},
 		{path: []string{"limits", "throttle_queue_size"}, key: KeyCollectorThrottleQueue},
+
+		// A5.2. The two blocklists and the scoring signal.
+		{path: []string{"asn_lookup", "blocked_countries"}, key: KeyBlockedCountries},
+		{path: []string{"asn_lookup", "blocked_asns"}, key: KeyBlockedASNs, convert: asnsAsText},
+		{path: []string{"asn_lookup", "known_bot_asns"}, key: KeyKnownBotASNs, convert: asnsAsText},
+		{path: []string{"asn_lookup", "apply_to_scoring"}, key: KeyApplyASNToScoring},
 	},
 	"beacon": {
 		{path: []string{"trusted_proxies"}, key: KeyTrustedProxies},
@@ -150,6 +197,9 @@ func (s *Store) MigrateSettings(ctx context.Context, service, path string) ([]Mi
 			continue
 		}
 		outcome.Value = raw
+		if entry.convert != nil {
+			raw = entry.convert(raw)
+		}
 
 		// Through the registry's own validator, which also canonicalises
 		// - so an int arriving from TOML as int64 is stored in the shape

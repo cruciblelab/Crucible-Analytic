@@ -3592,3 +3592,165 @@ step. The click is scoped to `main form` now.
 That last one only became diagnosable after the script was wrapped so a
 failed locator reports the page it was looking at rather than a stack
 trace naming the selector. The selector was never the interesting part.
+
+## The settings that stop an attack
+
+A5.2 made four settings changeable on a running collector — the blocked
+country list, the blocked ASN list, the known-bot ASN list, and the flag
+that turns the last one into a scoring signal. The choice of *which four*
+was not "the easy ones": it was what a support call actually reaches for.
+"We are being hit from there, block it" meant SSH, an edit and a
+restart — the longest possible path while an attack is in progress.
+
+### Keeping an optimisation while making it changeable
+
+`NewGeoBlocklist` used to return **nil** when both lists were empty, and
+the servers read that nil to skip resolving each connection's country and
+ASN entirely. That is a real saving for the common deployment, which
+blocks nothing, and losing it would mean paying for a geography lookup
+per connection to support a feature nobody had switched on.
+
+A list that can be filled in later cannot answer "is there anything
+here?" once at startup, so the question moved to `Active()` — one atomic
+load, the same answer, asked per connection. The rules themselves sit
+behind `atomic.Pointer[geoRules]` and are never mutated after `Set`
+builds them, so a connection that has read the pointer keeps a consistent
+view for the whole of its check even if another list arrives mid-decision.
+
+### A live setting that was never applied
+
+`applySettings` compared the new known-bot ASN list against the old one
+and applied it only on a change — and compared them **by length**, on the
+reasoning that diffing a map every poll was not worth a log line. That
+reasoning was true about the log line and wrong about everything else,
+because the same comparison gated the apply.
+
+Replacing one ASN with another keeps the length. It is also the single
+most likely edit a support call produces: *it is not that network, it is
+this one*. The new list would have sat in the database, shown in the
+panel as the current value, and never reached scoring.
+
+The fix is not a better comparison. Every setting is now applied on every
+poll, and compared only to decide whether to log it — `SetConfig`, `Set`
+and `SetKnownBotASNs` are each a single atomic store over freshly built
+values, so re-applying an unchanged value costs one store and is not
+observable to traffic in flight. A comparison that can only ever be wrong
+about whether to log is a comparison that cannot break a security
+setting.
+
+### A load test that passed without proving anything
+
+The phase's own done-criterion asked for the change to be measured under
+real concurrent load. The first version fired three separate bursts with
+the blocklist change made between them, and passed: the burst racing the
+change reported zero connections served.
+
+Zero is what a working blocklist produces. It is also what a goroutine
+scheduled entirely after `Set` returned produces, with nothing in flight
+during the change at all. A test that passes the same way whether or not
+the interesting thing happened is not evidence, so it was rewritten to
+keep a continuous stream of connections running across both changes and
+to assert that each phase carried traffic *before* asserting what
+happened to it.
+
+The rewritten test immediately reported 3 of 9803 connections served
+while blocked — and that was the test being wrong, not the code. An
+attempt was tagged with the phase current when its dial *began*; three
+attempts tagged "blocked" had dialled after the block was lifted.
+Attributing them to the blocked phase would have reported a leak that did
+not exist. Attempts are bracketed now: an attempt counts for a phase only
+if that phase held at both ends, and one that straddles a change is
+counted separately. The straddle count lands on exactly workers × changes
+(16 for 8 workers across 2 changes), which is itself a check that the
+brackets work.
+
+The measurement: **0 of ~11,000** connections dialled after the country
+was blocked were served, traffic resumed when it was lifted, under
+`-race`.
+
+### Numbers in a file, text in a column
+
+A config file writes ASNs as TOML numbers (`blocked_asns = [64512]`) and
+the settings column holds text, so these are the only entries in the
+migration catalogue whose stored shape differs from the file's. Loosening
+the validator to accept numbers into any string list would have been the
+smaller diff and the wrong one — it would let a number become a string
+silently for every setting, everywhere, to spare one conversion in one
+place. The conversion is per-entry, and anything that is not a whole
+number passes through untouched so the registry's own validator is what
+refuses it and the operator gets that message.
+
+AS0 is refused at both ends, which matters more than it looks: 0 is
+asnlookup's "could not resolve", so an AS0 rule would block every address
+the lookup failed on rather than one network.
+
+### Tests that only pass on a database they have not run against
+
+Running the integration suite twice in a row failed the second time. Two
+tests were writing rows they never cleaned up and then, on the next run,
+tripping over their own traces.
+
+`TestRetentionNeedsTheDeveloperPassword` posts 120 days with a wrong
+password and expects a refusal — but its last step sets that site to 120
+with the right one. On the second run the handler correctly saw no
+change, answered "nothing changed", and never reached the password check
+the test exists to make.
+`TestTheStepOffersEveryBlockPreTicked` asserts an unconfigured site opens
+on the default set, while its neighbours save narrowed sets for that site
+and leave them there.
+
+This is the worst way for a test to be wrong: green when you write it,
+red for the next person, who has changed something unrelated and now has
+to work out that they did not break it. Both are fixed by clearing the
+per-site rows before the test as well as after — before, because a run
+that was interrupted leaves rows behind, and cleaning only on the way out
+makes the next result depend on how the last run ended.
+
+A related one found while reading that code: `clearMigrated` had been
+deleting from `panel_audit`, and the table is `panel_audit_log`. The
+error went into the blank identifier that ignores it, so half of that
+helper had never once run. Nothing failed, because the only test that
+reads those rows filters by its own temp-dir path — but a helper whose
+errors are discarded cannot report that it is not working.
+
+A third one appeared only after running the suite enough times, and it is
+the best of the three. `TestSignInWithAPassword` tries an address that
+has **no account**, to prove the panel answers a wrong password and an
+unknown address identically — anything else is a way to ask the panel
+which addresses have accounts. `makeUser` clears the failed attempts for
+every account it creates, which is every address except that one, because
+nothing creates it. Its attempts accumulated across runs until the rate
+limiter tripped, and the test then reported that the unknown address
+answered 429 while the wrong password answered 401: a real difference,
+correctly detected, entirely manufactured by the test database. The
+oracle was in the fixture, not in the panel. Attempts against the test
+domain are now cleared before and after like everything else.
+
+Three of these in one phase is a pattern worth naming: **every table a
+test writes to needs an owner, and "the test that created the row" is not
+always available as an owner.** The two that bit hardest were both rows
+nobody created on purpose — a settings value written by a handler, and
+attempts recorded for an address that exists only to not exist.
+
+### What a running collector actually did
+
+The load test proves the mechanism; this proves the path from the panel's
+table to a process in the traffic path. A real collector, against the
+real database, with a two-second poll:
+
+| Change written to `panel_settings` | What the running process logged |
+|---|---|
+| `blocked_countries` → `["RU","CN"]` (file said `["KP"]`) | `geo blocklist changed countries=2 was_countries=1` |
+| `known_bot_asns` → `["64513"]` (file said `[64512]`) | `known-bot ASN list changed asns=1 was=1` |
+| `logs.level` → `debug` | `logging level changed from=INFO to=DEBUG` |
+| `blocked_asns` → `["0","abc","64520"]`, edited by hand past the panel | `geo blocklist changed asns=1` |
+
+The second row is the whole point of the fix: **`asns=1 was=1`** is a line
+the old length comparison could never have produced, because it decided
+nothing had changed. The third row was impossible in the collector at all
+before this phase.
+
+The fourth is the hand-edited row the validator never saw. AS0 and `abc`
+were both dropped and only 64520 became a rule — 0 is asnlookup's "could
+not resolve", so an AS0 rule would have blocked every address the lookup
+failed on.

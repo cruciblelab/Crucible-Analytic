@@ -273,10 +273,16 @@ func (s *Server) admit(ctx context.Context) (limiter.Decision, func()) {
 }
 
 // geoBlocked reports whether remoteIP's country/ASN matches GeoBlocklist.
-// Always false if GeoBlocklist or Resolver is nil, so callers never need
-// to null-check both themselves.
+// Always false when there is no Resolver or nothing is blocked, so
+// callers never need to check either themselves.
+//
+// Active rather than a nil check, since A5.2: the lists can be replaced
+// while this server is running, so "is anything blocked" is a question
+// per connection rather than one answered at startup. It stays one
+// atomic load, which is what keeps a deployment that blocks nothing -
+// the default - from paying for a geography lookup on every connection.
 func (s *Server) geoBlocked(remoteIP netip.Addr) bool {
-	if s.GeoBlocklist == nil || s.Resolver == nil {
+	if s.Resolver == nil || !s.GeoBlocklist.Active() {
 		return false
 	}
 	geo := s.Resolver.Resolve(remoteIP)

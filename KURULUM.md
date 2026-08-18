@@ -673,6 +673,33 @@ Komut:
 okunamadığında süreç o değerlerle çalışır. Değişen tek şey, değişikliğin
 artık panelden yapılıyor olması.
 
+### Yeniden başlatmadan değişenler
+
+Aşağıdakiler çalışan süreçte, bir yoklama aralığı içinde etkili olur —
+saldırı sürerken SSH'a ihtiyaç duymamanız için:
+
+| Ayar | Ne yapar |
+|---|---|
+| `limits.*` (her iki serviste ayrı) | Eşzamanlı bağlantı tavanı, saniyedeki istek, aşırı yük politikası, kuyruk |
+| `asn_lookup.blocked_countries` | Ülke engel listesi (ISO 3166-1 alpha-2, örn. `["RU","KP"]`) |
+| `asn_lookup.blocked_asns` | ASN engel listesi (pozitif sayılar) |
+| `asn_lookup.known_bot_asns` + `apply_to_scoring` | Bot skoruna ASN katkısı |
+| `beacon.trusted_proxies` | Hangi ağların ilettiği başlıklara güvenileceği |
+| `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
+
+**AS 0 kabul edilmez** — hem dosyada hem panelde reddedilir. Sebebi:
+0, ASN çözümlemesinin "bulamadım" değeri; bir AS0 kuralı tek bir ağı
+değil, çözümlenemeyen **her** adresi engellerdi.
+
+Hiçbir şey engellemeyen kurulum bu özelliğin bedelini ödemez: sunucular
+bağlantının ülkesini çözmeden önce "engellenen bir şey var mı" diye
+sorar ve bu soru tek bir atomik okumadır.
+
+**Yeniden başlatma isteyenler** panelde öyle işaretlidir (tampon
+boyutları, önbellek pencereleri, `asn_lookup.enabled`) — süreç o
+değerleri kanallarını ve tablolarını kurarken sabitler. Panel bunu
+söyler; kabul edip sessizce yok saymaz.
+
 ---
 
 ## 13. Gerçekten çalışıyor mu

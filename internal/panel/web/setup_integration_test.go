@@ -42,6 +42,43 @@ const testDevPassword = "kurulum-sihirbazi-parolasi"
 // set analytics retention on.
 const testSite = "kurulum-testi"
 
+// clearSiteSettings removes the per-site settings rows this package's
+// tests write, before the test and again after it.
+//
+// # Why this exists
+//
+// Without it the suite passes on a database it has never run against and
+// fails on the second run, which is the worst way for a test to be
+// wrong: it is green when you write it and red for the next person, who
+// has changed something unrelated and now has to work out that they did
+// not break it.
+//
+// Two tests were failing exactly that way when A5.2 first ran the
+// integration suite twice in a row. TestRetentionNeedsTheDeveloperPassword
+// posts 120 days with a wrong password and expects a refusal - but its
+// last step sets that site to 120 with the right one, so on the second
+// run the handler correctly sees no change, answers "nothing changed",
+// and never reaches the password check the test is about.
+// TestTheStepOffersEveryBlockPreTicked asserts an unconfigured site opens
+// on the default set, while its neighbours in the same file save narrowed
+// sets for that site and leave them there.
+//
+// Before as well as after, for the same reason clearMigrated does it in
+// the panel package: a run that was interrupted leaves rows behind, and
+// cleaning only on the way out makes the next run's result depend on how
+// the last one ended.
+func clearSiteSettings(t *testing.T, store *panel.Store, sites ...string) {
+	t.Helper()
+	clear := func() {
+		for _, site := range sites {
+			_, _ = store.Pool().Exec(context.Background(),
+				`DELETE FROM panel_settings WHERE site_id = $1`, site)
+		}
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 // testReasonPrefix marks every dev-access row these tests create, so
 // the cleanup can find them and nothing else.
 const testReasonPrefix = "web-testi:"
@@ -88,6 +125,27 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		_, _ = store.Pool().Exec(context.Background(),
 			`DELETE FROM panel_dev_access WHERE reason LIKE $1`, testReasonPrefix+"%")
 	})
+	clearSiteSettings(t, store, testSite, visibilitySite, dashboardSite, breakdownSite)
+
+	// Failed sign-in attempts against this package's test domain, for the
+	// same reason and with the same before-and-after shape.
+	//
+	// makeUser already clears them for each account it creates, which
+	// covers every address except the one that matters here: the sign-in
+	// tests deliberately try an address that has *no* account, to prove
+	// the panel answers identically whether or not it exists. Nothing
+	// creates that address, so nothing was cleaning up after it, and its
+	// attempts accumulated across runs until the rate limiter tripped -
+	// at which point the unknown address got a 429 and the wrong password
+	// a 401, and TestSignInWithAPassword correctly reported a difference
+	// between the two as an account-enumeration oracle. The oracle was in
+	// the test database, not in the panel.
+	clearAttempts := func() {
+		_, _ = store.Pool().Exec(context.Background(),
+			`DELETE FROM panel_login_attempts WHERE email LIKE $1`, "%"+testEmailSuffix)
+	}
+	clearAttempts()
+	t.Cleanup(clearAttempts)
 
 	return &Server{
 		Renderer:   renderer,

@@ -1104,9 +1104,32 @@ rather than from what would be convenient:
   during an incident, and an incident is the worst possible moment to be
   asked for a restart.
 
+- **The blocklists and the known-bot ASN signal** — `blocked_countries`,
+  `blocked_asns`, `known_bot_asns` and the `apply_to_scoring` flag that
+  turns the last one on. Same reasoning, one step further: "we are being
+  hit from there, block it" is the sentence a support call is actually
+  made of, and until this it meant SSH, an edit and a restart — the
+  longest possible path while an attack is in progress.
+- **The log level**, in both services, along with the temporary raise to
+  debug that switches itself off again. It was live in the beacon and
+  discarded in the collector, which built its controls and threw them
+  away; the process a support call most often needs verbose was the one
+  that could not be turned up without a restart.
+
 The limits are **per service and not shared**, because one number could
 not honestly mean both: the collector sees every connection to the site,
 the beacon only the visitors whose browser ran the snippet.
+
+A deployment that blocks nothing — the default — does not pay for the
+feature: the servers ask whether anything is blocked at all before
+resolving a connection's country, and that question is one atomic load.
+
+Not everything can be live, and the panel says which. Buffer sizes,
+cache windows and `asn_lookup.enabled` are fixed when the process builds
+its channels and tables, so they are marked as needing a restart rather
+than accepted and quietly ignored. `storage.flush_interval_seconds`
+could be made live and deliberately is not: it is a performance knob, not
+something an incident reaches for.
 
 **A value resolves in three layers, each narrower than the last:** the
 stored row if there is one, else the config file, else the built-in

@@ -1,13 +1,44 @@
 package limiter
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
-func TestNewGeoBlocklist_EmptyInputsReturnNil(t *testing.T) {
-	if b := NewGeoBlocklist(nil, nil); b != nil {
-		t.Errorf("NewGeoBlocklist(nil, nil) = %v, want nil", b)
+// TestAnEmptyBlocklistIsUsableAndInactive.
+//
+// This used to assert that empty input produced a nil blocklist, so a
+// caller could skip resolving country and ASN entirely. A5.2 made the
+// lists replaceable while connections are served, and a nil cannot be
+// filled in later - so the constructor always returns something and the
+// question moved to Active, which callers ask per connection.
+//
+// The optimisation itself is unchanged and is what this pins: a
+// deployment blocking nothing must still report inactive, because that
+// is what stops it paying for a geography lookup on every connection.
+func TestAnEmptyBlocklistIsUsableAndInactive(t *testing.T) {
+	for _, b := range []*GeoBlocklist{
+		NewGeoBlocklist(nil, nil),
+		NewGeoBlocklist([]string{}, []int{}),
+		// Entries that mean nothing: a blank line, and the zero ASN that
+		// is asnlookup's "not resolved". Both would match traffic nobody
+		// asked to block.
+		NewGeoBlocklist([]string{"", "   "}, []int{0}),
+	} {
+		if b == nil {
+			t.Fatal("NewGeoBlocklist returned nil; it must always return a usable blocklist")
+		}
+		if b.Active() {
+			t.Error("an empty blocklist reports active, so every connection would pay for a lookup")
+		}
+		if b.Blocked("CN", 64512) {
+			t.Error("an empty blocklist blocked something")
+		}
 	}
-	if b := NewGeoBlocklist([]string{}, []int{}); b != nil {
-		t.Errorf("NewGeoBlocklist(empty, empty) = %v, want nil", b)
+	// And nil stays safe, because a server may have no blocklist at all.
+	var none *GeoBlocklist
+	if none.Active() || none.Blocked("CN", 64512) {
+		t.Error("a nil blocklist is not inert")
 	}
 }
 
@@ -63,5 +94,66 @@ func TestGeoBlocklist_NilBlocklistNeverBlocks(t *testing.T) {
 	var b *GeoBlocklist
 	if b.Blocked("CN", 64512) {
 		t.Error("nil GeoBlocklist blocked a lookup, want it to always report false")
+	}
+}
+
+// TestSetReplacesTheRulesWhileBlockedIsRunning.
+//
+// The whole point of A5.2: "we are being hit from there, block it" has
+// to work without a restart. Run under -race, which is what makes the
+// atomic publication meaningful rather than decorative.
+func TestSetReplacesTheRulesWhileBlockedIsRunning(t *testing.T) {
+	b := NewGeoBlocklist(nil, nil)
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Readers, as a server's connections would be.
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					b.Blocked("CN", 64512)
+					b.Active()
+				}
+			}
+		}()
+	}
+
+	// Writers, as the settings poll would be.
+	for i := range 100 {
+		if i%2 == 0 {
+			b.Set([]string{"CN"}, []int{64512})
+		} else {
+			b.Set(nil, nil)
+		}
+	}
+	close(stop)
+	wg.Wait()
+
+	// And the last write is what stands.
+	b.Set([]string{"RU"}, nil)
+	if !b.Active() {
+		t.Error("a blocklist with a country in it reports inactive")
+	}
+	if !b.Blocked("RU", 0) {
+		t.Error("the country just set is not blocked")
+	}
+	if b.Blocked("CN", 64512) {
+		t.Error("a rule from a previous version of the list is still in force")
+	}
+}
+
+// TestSetIsSafeOnNil, because a caller may hold one it never built.
+func TestSetIsSafeOnNil(t *testing.T) {
+	var b *GeoBlocklist
+	b.Set([]string{"CN"}, []int{64512})
+	if b.Active() {
+		t.Error("a nil blocklist became active")
 	}
 }

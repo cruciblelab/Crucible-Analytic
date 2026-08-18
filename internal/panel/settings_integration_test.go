@@ -252,6 +252,7 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 		"campaign.extra_params",
 		"campaign.store_click_ids",
 		"logs.level",
+		"logs.verbose_until",
 		"privacy.ip_storage",
 
 		// A5.1.
@@ -264,6 +265,12 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 		"beacon.limits.max_requests_per_second",
 		"beacon.limits.overload_policy",
 		"beacon.limits.throttle_queue_size",
+
+		// A5.2.
+		"collector.blocked_countries",
+		"collector.blocked_asns",
+		"collector.known_bot_asns",
+		"collector.apply_asn_to_scoring",
 	}
 	for _, key := range readByServices {
 		def, ok := Lookup(key)
@@ -271,7 +278,11 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 			t.Errorf("a service reads %q but the panel does not define it, so nobody can change it", key)
 			continue
 		}
-		if !def.Live && key != "logs.level" {
+		// No exemptions. There was one - `key != "logs.level"` - carrying
+		// no reason, which meant the check skipped the single line it
+		// would have caught. A test that excuses the case it exists for
+		// is worse than no test: it reports a clean run.
+		if !def.Live {
 			t.Errorf("%q is read live by a service but is not marked Live, so the panel will "+
 				"tell a customer it needs a restart when it does not", key)
 		}
