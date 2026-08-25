@@ -173,6 +173,9 @@ baslik = "Sites"
 govde = "The site ids the beacon will accept events for. The snippet is public, which is what makes this list mandatory: without it anyone could write rows under any site name they liked."
 etiket = "Site ids"
 ipucu = "One per line, or comma-separated. Letters, digits, underscore and dash; 64 characters at most."
+altalan_baslik = "Subdomains: one site or separate?"
+altalan = "You decide, by which site id you put in the snippet. Put the SAME id on \"site.com\" and \"blog.site.com\" and they are one site with one dashboard; put DIFFERENT ids and they are two sites, each with its own."
+altalan_geri_alinamaz = "Settle this now: it cannot be merged later. A visitor id is derived irreversibly from the site id and a daily salt, so in data collected under two ids the same person browsing both is permanently two visitors. Pageview counts can be added up afterwards; unique visitors cannot."
 
 [metin.kurulum.adim.gorunum]
 baslik = "What the customer sees"

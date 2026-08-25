@@ -333,6 +333,30 @@ than defaulted because an unset one would silently commingle two sites'
 rows the moment a second collector pointed at the same database - a
 data-integrity problem you'd notice long after the fact.
 
+#### Subdomains are whatever you say they are, once
+
+`site.com` and `blog.site.com` are one site if you put the same `site_id`
+in both snippets, and two sites if you do not. Nothing in the product
+decides this for you, and the wizard's Sites step says so, because it is
+the one decision in an installation that **cannot be revised later**.
+
+A visitor id is `HMAC(daily_salt, site_id ‖ ip ‖ user_agent)`. The site
+id is inside the hash, so under two ids the same person browsing both is
+two visitors, in the stored data, permanently. There is no id in common
+to merge on afterwards - the salt has rotated and the hash does not
+invert.
+
+What *can* be added up afterwards is anything that is a count of events:
+pageviews, sessions, custom events. What cannot is anything that counts
+distinct people. So a deployment that splits subdomains and later wants
+one number for "visitors to our site" has to accept that the number it
+can compute is "visitors to each, summed", which is larger and is not
+the same question.
+
+The safe default, if nobody has an opinion: **one `site_id` for the whole
+property**, and use the pages breakdown to see the subdomains separately.
+That direction is recoverable; the other is not.
+
 ### Tokens
 
 Callers authenticate with `Authorization: Bearer <token>`. The config

@@ -367,8 +367,9 @@ func TestSetupWizardInABrowser(t *testing.T) {
 		StepTitles   []string `json:"step_titles"`
 		StepsVisited []string `json:"steps_visited"`
 
-		SavedMessage string `json:"saved_message"`
-		SitesAfter   string `json:"sites_after"`
+		SavedMessage     string `json:"saved_message"`
+		SitesAfter       string `json:"sites_after"`
+		SubdomainWarning string `json:"subdomain_warning"`
 
 		PasswordFieldType string `json:"password_field_type"`
 		ChecksBefore      int    `json:"checks_before"`
@@ -434,6 +435,15 @@ func TestSetupWizardInABrowser(t *testing.T) {
 	// direct database assertion, in the same goroutine as the write.
 	if !strings.Contains(report.SitesAfter, "tarayici-sitesi") {
 		t.Errorf("the saved sites did not come back from the store: %q", report.SitesAfter)
+	}
+	// Both halves: what the choice is, and that it is final. Either one
+	// alone is a worse warning than none - "you decide" without "you
+	// decide once" invites revisiting it later, which is the mistake.
+	for _, phrase := range []string{"blog.site.com", "birleştirilemez"} {
+		if !strings.Contains(report.SubdomainWarning, phrase) {
+			t.Errorf("the sites step's subdomain warning is missing %q; it read: %q",
+				phrase, report.SubdomainWarning)
+		}
 	}
 
 	// The password field must be a password field: this page is filled
@@ -531,6 +541,12 @@ for (;;) {
 // button comes first in the document - a bare button[type=submit]
 // selector clicks that one and ends the session instead of saving.
 await page.goto(base + '/kurulum/siteler', { waitUntil: 'load' });
+// The subdomain warning, read the way an installer reads it: rendered
+// text on the page, not a string in a message file. This is the only
+// decision in the wizard that cannot be revised afterwards, so it has
+// to be visible before the field is filled in rather than explained
+// somewhere the installer would have to go looking.
+report.subdomain_warning = (await page.locator('main .uyari').allInnerTexts()).join(' ').trim();
 await page.fill('#siteler', 'tarayici-sitesi');
 await page.click('main button[type="submit"]');
 await page.waitForLoadState('load');

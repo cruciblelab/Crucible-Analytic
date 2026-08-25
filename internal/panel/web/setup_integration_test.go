@@ -372,6 +372,18 @@ func TestSetupFlow(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("the sites step answered %d", status)
 	}
+
+	// The subdomain warning has to be on this page, because this is the
+	// page where the decision is made and it is the only decision in the
+	// wizard that cannot be undone: a visitor id is derived from the site
+	// id, so two ids means the same person is permanently two visitors.
+	// Asserted here rather than left to the catalogue, because a string
+	// that exists only in a message file is a string nobody reads.
+	for _, phrase := range []string{"blog.site.com", "birleştirilemez"} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("the sites step does not warn about subdomains (%q missing)", phrase)
+		}
+	}
 	match := csrfPattern.FindStringSubmatch(body)
 	if match == nil {
 		t.Fatal("the sites form carries no CSRF token")

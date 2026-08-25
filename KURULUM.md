@@ -371,6 +371,37 @@ chown crucible: /etc/crucible/*.toml
 **Dosya izinleri gerçekten önemli:** bu dosyalar veritabanı parolasını,
 IP hash anahtarını ve geliştirici şifresinin hash'ini taşır.
 
+### Önce site kimliğine karar verin — bu geri alınamaz
+
+`site.com` ile `blog.site.com`, iki snippet'e **aynı** site kimliğini
+yazarsanız tek sitedir; **farklı** yazarsanız iki ayrı sitedir. Ürün
+sizin yerinize karar vermiyor, ve bu kurulumun sonradan
+düzeltilemeyecek **tek** kararı.
+
+Sebebi ziyaretçi kimliğinin üretimi:
+
+```
+visitor_id = HMAC(günlük_tuz, site_id ‖ ip ‖ user_agent)
+```
+
+Site kimliği hash'in **içinde**. İki ayrı kimlikle toplanan veride
+ikisini de gezen aynı kişi, kayıtlarda kalıcı olarak iki ziyaretçidir.
+Sonradan birleştirecek ortak bir kimlik yok: tuz döndü, hash tersine
+çevrilmiyor.
+
+| Sonradan toplanabilir | Sonradan toplanamaz |
+|---|---|
+| Sayfa görüntüleme, oturum, özel olay — hepsi olay sayısı | Tekil ziyaretçi — kişi sayısı |
+
+Yani alt alan adlarını ayıran bir kurulum, sonradan "sitemizin ziyaretçi
+sayısı" için tek bir sayı isterse eline geçen "her birinin ziyaretçisi,
+toplanmış" olur; bu daha büyük bir sayıdır ve aynı sorunun cevabı
+değildir.
+
+**Kimsenin özel bir talebi yoksa:** tüm mülk için **tek site kimliği**
+kullanın, alt alan adlarını sayfa kırılımından görün. Bu yön geri
+alınabilir; diğeri değil.
+
 ### Her dosyada mutlaka değiştirilecekler
 
 | Dosya | Alan | Not |

@@ -1,6 +1,11 @@
 {{define "icerik"}}
 {{template "kurulum_ilerleme" .}}
 <p>{{t "kurulum.adim.siteler.govde"}}</p>
+<div class="uyari" role="note">
+<strong class="uyari-baslik">{{t "kurulum.adim.siteler.altalan_baslik"}}</strong>
+<p>{{t "kurulum.adim.siteler.altalan"}}</p>
+<p>{{t "kurulum.adim.siteler.altalan_geri_alinamaz"}}</p>
+</div>
 <form method="post" action="">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 <div class="alan">

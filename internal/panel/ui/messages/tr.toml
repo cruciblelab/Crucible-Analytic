@@ -200,6 +200,9 @@ baslik = "Siteler"
 govde = "Beacon'ın olay kabul edeceği site kimlikleri. Snippet herkese açık olduğu için bu liste zorunlu: olmadan herkes istediği site adıyla satır yazabilirdi."
 etiket = "Site kimlikleri"
 ipucu = "Her satıra bir tane, ya da virgülle ayırın. Harf, rakam, alt çizgi ve tire; en fazla 64 karakter."
+altalan_baslik = "Alt alan adları: tek site mi, ayrı mı?"
+altalan = "Kararı siz veriyorsunuz, snippet'e hangi site kimliğini yazdığınızla. \"site.com\" ve \"blog.site.com\" sayfalarına AYNI kimliği yazarsanız tek site sayılır ve tek panoda toplanır; FARKLI kimlik yazarsanız iki ayrı site olur, her birinin kendi panosu olur."
+altalan_geri_alinamaz = "Bunu şimdi kararlaştırın: sonradan birleştirilemez. Ziyaretçi kimliği site kimliğinden ve günlük bir tuzdan geri döndürülemez biçimde üretiliyor, yani iki ayrı kimlikle toplanmış veride ikisini de gezen aynı kişi kalıcı olarak iki ziyaretçidir. Görüntüleme sayıları sonradan toplanabilir, tekil ziyaretçi sayılamaz."
 
 [metin.kurulum.adim.gorunum]
 baslik = "Müşteri ne görecek"
