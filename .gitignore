@@ -1,5 +1,45 @@
+# What this repository distributes is source code. Nothing else.
+#
+# The licence says the same thing in NOTICE, but a sentence in a file is
+# a promise and this list is the enforcement: a deployment's collected
+# data, its database, its logs and its build output are not ours to
+# publish, and several of them would carry visitors' personal data if
+# they were ever committed by accident.
+
+# Build output
 /collector
 /bin/
 *.test
 *.out
+*.exe
+
+# Configuration, which carries the database password, the IP hash key
+# and the developer password's hash.
 /config.toml
+/collector.toml
+/beacon.toml
+/analytics-api.toml
+/panel.toml
+*.local.toml
+
+# Runtime output: logs, fetched datasets, database dumps. All three are
+# a deployment's own data.
+/logs/
+*.log
+*.log.gz
+/bot_data.json
+/data/
+*.csv
+*.sql.gz
+*.dump
+
+# Certificates and keys
+*.pem
+*.key
+*.crt
+
+# Test fixtures are source, whatever their extension. Without this a
+# checked-in .csv or .pem under testdata/ would be ignored silently and
+# the next person would find a test that passes for them and fails in a
+# fresh clone.
+!**/testdata/**

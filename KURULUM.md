@@ -913,5 +913,6 @@ Tamamı ve güncel hali için `PLAN.md` §0.5 ve `SECURITY.md`.
 | Neden böyle yapıldı, hangi karar niye | `NOTES.md` |
 | Ne bitti, ne kaldı, hangi risk kimin | `PLAN.md` |
 | Güvenlik: ne denetlendi, ne açık | `SECURITY.md` |
-| Hangi veri neden saklanıyor | `VERI-ENVANTERI.md` |
+| Hangi veri neden saklanıyor | `README.md` → "Privacy model" ve §879'daki `privacy.ip_storage` satırı |
+| Lisans, atıf ve dağıtım kapsamı | `LICENSE`, `NOTICE`, `THIRD-PARTY.md` |
 | Üçüncü taraf veri ve lisanslar | `THIRD-PARTY.md` |

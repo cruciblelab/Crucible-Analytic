@@ -727,8 +727,9 @@ with `localStorage.setItem('crucible.disabled', '1')`.
   needs 1.23, which keeps the toolchain requirement lower for whatever the
   target VPS already has installed.
 - **The known-bot JA4 list is fetched, never shipped.** This repository
-  contains no copy of it, deliberately: the project is MIT and anyone may
-  take it, but that dataset belongs to somebody else, and a permissively
+  contains no copy of it, deliberately: the project is permissively
+  licensed and anyone may take it, but that dataset belongs to somebody
+  else, and a permissively
   licensed repository carrying third-party data under unstated terms
   hands that uncertainty to everyone who clones it. See `THIRD-PARTY.md`.
 
@@ -1744,3 +1745,33 @@ scoped out rather than built now; see `NOTES.md` for its design and the
 open questions it would need to resolve. The `RateStore` interface and
 scoring package are shaped to make these additive later, not to pre-build
 them now.
+
+## Licence
+
+Apache-2.0. See `LICENSE` for the terms and `NOTICE` for the attribution
+that has to travel with a redistribution; `THIRD-PARTY.md` covers what
+else is inside a build and under what terms.
+
+**Running it as a service is allowed**, including as a paid one, and
+including by a competitor. There is no clause preventing that, and its
+absence is a decision: the people this is built for are the agencies and
+developers who install it for a customer, and a licence that a client's
+lawyer has to think about is friction aimed at the wrong person.
+
+**Attribution is the part that is asked for**, and it is the reason this
+is Apache-2.0 rather than MIT. Section 4 requires a redistributor to keep
+the licence, state what they changed, and carry `NOTICE`'s attribution
+text; MIT asks only that a copyright line travel with the source. Running
+the software is not redistribution and requires none of it.
+
+**No warranty and no liability**, in sections 7 and 8 — which matters
+more here than in most projects, because the collector sits in the
+traffic path of a live site and the beacon writes personal data. What a
+deployment keeps, for how long, and under whose legal responsibility is
+the deployment's own decision. See "Privacy model" above and
+`SECURITY.md`.
+
+**What ships is source code.** Not a deployment's collected analytics,
+database, logs, binaries, config files or third-party datasets — none of
+those are ours to publish, and several would carry real visitors'
+personal data. `.gitignore` enforces this rather than trusting it.

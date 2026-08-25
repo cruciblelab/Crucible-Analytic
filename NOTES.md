@@ -3846,3 +3846,70 @@ One more, caught in the new tests themselves: the first version of
 "out of range is refused" case passed on `timescale_dsn is required` and
 the bounds were never exercised. The tests assert *which* error now, not
 just that there was one.
+
+## Apache-2.0, and the two things a licence cannot do
+
+The project was MIT. It is Apache-2.0 now, on a customer decision with
+three requirements: running it as a service stays allowed, attribution
+gets stricter, and no liability is accepted.
+
+Apache-2.0 answers all three with a text lawyers already recognise.
+Section 4 is the part that matters: a redistributor has to keep the
+licence, state what they changed, and carry the `NOTICE` file's
+attribution. MIT asks only that a copyright line travel with the source.
+Sections 7 and 8 are a page of disclaimer where MIT has one sentence.
+
+The alternative on the table was "MIT plus our own extra terms", which
+would have given the exact rule asked for — including visible
+attribution in the panel's own footer. It was refused for a reason worth
+recording: a bespoke licence is not a stricter licence, it is an
+unfamiliar one. Every corporate adopter's lawyer has to read it from
+scratch, and the friction lands on exactly the people this is built for.
+A well-known licence that gets 90% of the rule is worth more than a
+custom one that gets 100% and is never adopted.
+
+### Verified rather than remembered
+
+The `LICENSE` file was copied from a dependency's own Apache-2.0 text
+and then diffed against `apache.org/licenses/LICENSE-2.0.txt`. It is
+byte-identical ignoring trailing whitespace. Reproducing a 202-line
+legal text from memory is exactly the kind of thing that looks right and
+is subtly wrong, and a licence is a bad place to find that out.
+
+### What a licence does not do
+
+Two of the customer's four requirements are not licence terms at all,
+and putting them in the licence would have been the mistake:
+
+**"Ship code, not data."** A licence grants rights to a work; it cannot
+stop a release from containing a database dump. That is a property of
+what gets committed, so it lives in `.gitignore` — collected analytics,
+database dumps, logs, binaries, config files and fetched datasets, each
+excluded for its own reason, several of them because they would carry
+real visitors' personal data. The rule was already followed; it was
+never written down or enforced.
+
+`.gitignore` needed one exception, and it is the kind that bites later:
+`*.csv` and `*.pem` are runtime output at the root and legitimate test
+fixtures under `testdata/`. Without `!**/testdata/**` a future fixture
+would be ignored silently, and the next person would have a test that
+passes for them and fails in a fresh clone. Verified by actually
+running `git add` in a scratch repository rather than by reading
+`check-ignore`'s output, which prints the matching rule for negations
+too and is easy to misread.
+
+**"Accept no responsibility."** Sections 7 and 8 disclaim warranty and
+liability, which is the most a licence can do. What data a deployment
+keeps, for how long, and who is legally responsible for it is the
+deployment's decision under its own jurisdiction, and no licence text
+changes that. The README says so plainly rather than implying the
+licence has settled it.
+
+### A file that never existed
+
+Found while checking the new cross-references: `KURULUM.md` sent readers
+to `VERI-ENVANTERI.md` for "which data is kept and why", and that file
+has never existed in this repository — not deleted, never created,
+though the task list records it as done. The reference is repointed at
+the README's privacy model, and every `FILE.md` reference in every
+document is now checked to resolve.

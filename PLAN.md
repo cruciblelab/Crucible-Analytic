@@ -306,6 +306,77 @@ betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
 
 ---
 
+## 0.6 Verilen kararlar — üç açık soru kapandı
+
+Uzun süredir açık duran üç soruyu müşteri karara bağladı. Üçü de ürün
+kararı, mühendislik kararı değil; buraya yazılıyorlar çünkü kodda
+karşılıkları var ve gerekçeleri altı ay sonra sorulacak.
+
+### 1. Analitik saklama süresi: dosyadan, varsayılan 90, tavan 730
+
+**Karar:** panelden tamamen kaldırıldı, yalnız servislerin
+yapılandırma dosyasından değişiyor. Varsayılan 90 gün, tavan 730 gün
+(eskiden 3650).
+
+**Neden panelden çıktı:** kayıttaki her başka ayar işletimsel — yanlış
+değer başarıma, doğruluğa veya diske mal olur. Bu ayar bir insanın
+gezinme geçmişinin ne kadar tutulacağını belirliyor ve KVKK'nın
+ölçülülük ilkesinin doğrudan konusu. Geliştirici parolası arkasındaydı;
+o güçlü bir kilit ama müşterinin hâlâ içinde durduğu bir odanın
+kapısındaydı — değer HTTP üzerinden görünüyor ve değişiyordu.
+
+**Tavan neden 730:** 3650, "sakla" ile "sonsuza kadar sakla" arasındaki
+farkın kaybolduğu nokta diye seçilmişti; bu aritmetik hakkında doğru bir
+cümle ve sayı için yanlış bir temel. Bir yıl değil iki yıl, çünkü eski
+analitiğin dürüst kullanımı "geçen yılın aynı ayı".
+
+**Beraberinde giden:** `analytics.compress_after_days` tamamen
+kaldırıldı — hiçbir servis okumuyordu. Etiketi, yardım metni, parola
+kapısı ve denetim kaydı vardı; yaptığı hiçbir şey yoktu.
+
+### 2. Alt alan adları: ayrı sayılır, seçim kurulumda söylenir
+
+**Karar:** `site.com` ve `blog.site.com`, snippet'lere aynı site kimliği
+yazılırsa tek site, farklı yazılırsa iki site. Ürün karar vermiyor;
+**sihirbaz bunu söylüyor.**
+
+**Neden kod değil belge işi:** hangi alan adlarının tek sayılacağı zaten
+snippet'e yazılan metinle belirleniyordu. Eksik olan mekanizma değil,
+bir karar verildiğini söyleyen cümleydi.
+
+**Neden geri alınamaz:** `visitor_id = HMAC(günlük_tuz, site_id ‖ ip ‖
+user_agent)`. Site kimliği hash'in içinde, tuz dönüyor, hash tersine
+çevrilmiyor. İki kimlikle toplanan veride ikisini de gezen kişi kalıcı
+olarak iki ziyaretçi. Olay sayıları sonradan toplanabilir, kişi sayıları
+toplanamaz — bu yüzden panelde "birleştir" düğmesi **yapılmadı**:
+görüntüleme toplamlarını doğru, ziyaretçi sayısını yanlış gösteren bir
+düğme, dipnotla bile müşteriyi yanıltır.
+
+### 3. Lisans: Apache-2.0
+
+**Karar:** MIT'ten Apache-2.0'a geçildi. SaaS'a çevirmek serbest,
+rakip dâhil. Atıf zorunluluğu MIT'ten katı, sorumluluk kabul edilmiyor,
+dağıtılan şey yalnız kod.
+
+| İstenen | Apache-2.0'da karşılığı |
+|---|---|
+| SaaS serbest olsun | Madde 2–3, kısıt yok |
+| Atıf daha katı olsun | Madde 4: lisans korunur, değişiklik beyan edilir, `NOTICE` taşınır |
+| Sorumluluk kabul edilmesin | Madde 7–8, MIT'in tek cümlesinden çok daha ayrıntılı |
+| Veri/log/build dağıtılmasın | Lisans metninin işi değil: `.gitignore` + `NOTICE` + `THIRD-PARTY.md` |
+
+**Neden özel metin değil:** "MIT + kendi ek şartlarımız" istenen kuralı
+birebir verirdi ama artık standart bir lisans olmazdı; her kurumsal
+kullanıcının hukukçusu metni tek tek okumak zorunda kalır ve bu
+benimsemeyi düşürür. Apache-2.0 istenenlerin dördünü de tanınmış bir
+metinle veriyor.
+
+**Bu bir hukuki görüş değil.** Metin birebir apache.org'un kanonik
+sürümüyle karşılaştırıldı ve aynı; yayına çıkmadan bir hukukçuya
+okutulmalı.
+
+---
+
 ## 1. Şu an ne var (yazıldı, test edildi, gerçek veriyle doğrulandı)
 
 ~22.400 satır Go, 13 iç paket, 3 çalışan binary.
@@ -1166,7 +1237,8 @@ reddedildiğini gösteren test.
 de vereceğiz. Kendileri crona mı bağlar, panelden manuel mi yapar, bizi
 ilgilendirmez."*
 
-**Sorun.** Depo public ve MIT. İçinde başkasının verisinin bir anlık
+**Sorun.** Depo public ve izin verici lisanslı *(o gün MIT'ti; müşteri
+kararıyla Apache-2.0'a geçti — gerekçesi §0.6'da)*. İçinde başkasının verisinin bir anlık
 görüntüsü duruyor: `internal/scoring/known_bots.json` — The Bot
 Aquarium'un topluluk arşivinden 2026-07-21'de alınmış 51 kayıt.
 README kaynağı söylüyor ama **hangi şartlarla yeniden dağıtabildiğimizi

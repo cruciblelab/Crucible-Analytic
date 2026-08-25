@@ -1,6 +1,7 @@
 # Third-party code and data
 
-Crucible Analytic is MIT-licensed (see `LICENSE`). This file records
+Crucible Analytic is licensed under Apache-2.0 (see `LICENSE` and
+`NOTICE`). This file records
 what else is inside a build, and under what terms, so that anyone who
 clones, forks or redistributes this repository knows exactly what they
 are carrying.
@@ -72,17 +73,47 @@ Indirect dependencies (`github.com/boombuler/barcode`,
 are MIT or BSD-3-Clause.
 
 All of these are permissive and compatible with redistributing this
-project under MIT. None is copyleft, so no obligation propagates to
-anyone who forks this.
+project under Apache-2.0. None is copyleft, so no obligation propagates
+to anyone who forks this.
 
-## What MIT does and does not give you
+## What Apache-2.0 does and does not give you
 
 It gives anyone the right to use, modify, sell and redistribute this
-code, including in closed-source products, provided the copyright notice
-travels with it.
+code, including in closed-source products, and including running it as a
+paid service. There is no clause here that stops a competitor doing
+that, and that is a decision rather than an oversight: the people this
+is built for are the agencies and developers who install it for a
+customer, and a licence their client's lawyer has to think about is
+friction aimed at the wrong person.
+
+What it asks in return is **attribution that survives redistribution**.
+This is where Apache-2.0 is stricter than MIT, and why the project is
+under it: section 4 requires a redistributor to keep the licence, state
+what they changed, and carry the `NOTICE` file's attribution text. MIT
+asks only that a copyright line travel with the source. Running the
+software as a service is not redistribution and requires none of this.
 
 It does **not** grant rights to the name "Crucible Analytic" or to
-CrucibleLAB's branding. A fork is expected to carry its own name.
+CrucibleLAB's branding - section 6 is explicit that trademark rights are
+not granted. A fork is expected to carry its own name.
 
-It also carries no warranty. This software is under active development;
+It carries **no warranty and no liability**, in sections 7 and 8, in
+considerably more detail than MIT's single sentence. This software is
+under active development and sits in the traffic path of a live site;
 see `PLAN.md` for what is finished and what is not.
+
+## What is in a release, and what is never in one
+
+The licence covers code. What this repository and its releases contain
+is source code and nothing else:
+
+| Not distributed | Why |
+|---|---|
+| Collected analytics, database dumps | A deployment's own data, and it describes real visitors |
+| Logs | Same, and access logs contain IP addresses |
+| Build output, binaries | Reproducible from source; a binary nobody can check is not a contribution |
+| Third-party datasets | The rule at the top of this file: ship the mechanism, not the data |
+| Config files | They carry the database password, the IP hash key and the developer password's hash |
+
+`.gitignore` enforces this rather than trusting it, with one exception
+it names: anything under `testdata/` is source however it is spelled.

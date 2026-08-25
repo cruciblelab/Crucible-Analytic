@@ -1,0 +1,14 @@
+Crucible Analytic
+Copyright 2026 CrucibleLAB
+
+This product includes software developed at CrucibleLAB
+(https://github.com/cruciblelab/crucible-analytic).
+
+Section 4(d) of the Apache License, Version 2.0 requires that this file
+travel with the work: anyone redistributing Crucible Analytic, modified
+or not, in source or object form, must include a readable copy of the
+attribution notices above. Running it as a service is not
+redistribution and requires nothing.
+
+Third-party data this software can fetch at runtime is not distributed
+with it and is not covered by the Apache License. See THIRD-PARTY.md.
