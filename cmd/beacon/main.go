@@ -303,10 +303,12 @@ func main() {
 			return
 		}
 		apply := func() {
-			// The live allowlist, not the config file's: a site added
-			// from the panel is one this process is writing rows for, so
-			// its retention has to be read too.
-			policy := cfg.RetentionPolicy(live, live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+			// From the file, and only the file. The ticker below still
+			// earns its place: the policy no longer changes under a
+			// running process, but the row-level trim for sites keeping
+			// less than the deployment has to keep running, because what
+			// changes hourly is the data, not the rule.
+			policy := cfg.RetentionPolicy()
 			report, err := manager.Apply(settingsCtx, policy)
 			if err != nil {
 				logger.Warn("retention: could not apply", "err", err, logging.In(logging.CategoryError))

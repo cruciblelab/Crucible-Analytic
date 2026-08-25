@@ -558,7 +558,7 @@ func (s *Server) storedTimezone(ctx context.Context) string {
 //
 // The default case is the security-relevant one. Showing err.Error()
 // unconditionally is the obvious thing to write and it is wrong: the
-// same call that returns "analytics.retention_days must be between 1 and
+// same call that returns "logs.retention_days must be between 1 and
 // 3650" also returns wrapped database errors, and a pgx error carries
 // constraint names, SQL state and sometimes the query text. Rendering
 // that into the customer's browser is CWE-209.

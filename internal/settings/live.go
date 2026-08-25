@@ -318,7 +318,11 @@ const (
 	KeyLogLevel             = "logs.level"
 	KeyLogVerboseUntil      = "logs.verbose_until"
 	KeyPrivacyIPStorage     = "privacy.ip_storage"
-	KeyAnalyticsRetention   = "analytics.retention_days"
+
+	// analytics.retention_days was here until it moved to the services'
+	// config files. It is the one setting in this project with legal
+	// rather than operational weight, and it now takes reaching the
+	// server to change - see internal/beacon.Config.RetentionPolicy.
 
 	// A5.1 moved these out of the config files. The panel's registry
 	// explains why these first: they are the repair catalogue's own top

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -373,12 +374,11 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		}
 		data.Retention = rows
 		data.Prompt = panel.PromptFor(access, s.Gate != nil && s.Gate.Configured(), retentionKeys...)
-		if !anySiteScoped(rows) {
-			// Analytics retention is per site, so with no sites there is
-			// nothing to set it on. Saying that beats rendering a field
-			// whose save would be refused by the store.
-			data.Message = lang.T("kurulum.saklama.site_yok")
-		}
+		// This step used to refuse itself when no site was configured,
+		// because analytics retention was per site and there was nothing
+		// to set it on. That setting has moved to the services' config
+		// files; what is left is deployment-wide and needs no site, so
+		// the refusal would now block a step that works.
 
 	case "kontrol":
 		data.Manual = preflight.ManualSteps()
@@ -432,22 +432,32 @@ func (s *Server) loadHandover(ctx context.Context, lang *ui.Language, data *setu
 	return nil
 }
 
-// retentionKeys are the settings the retention step touches. Both carry
-// legal weight, so both are behind the developer password - which is
-// exactly why this step is in the developer's wizard and not the
-// owner's.
+// retentionKeys are the settings the retention step touches. It carries
+// legal weight - access logs contain IP addresses - so it is behind the
+// developer password, which is why this step is in the developer's
+// wizard and not the owner's.
+//
+// # Analytics retention used to be here and is not any more
+//
+// It moved to the services' config files. Log retention stays because
+// the two are not the same kind of decision: logs are the deployment's
+// own operational record, written by processes the installer runs, while
+// the analytics tables are the visitors' data. Both have legal weight,
+// but only one of them is somebody else's.
+//
+// The step keeps its per-site plumbing below, unused for now. It is
+// three small types and it is what any future per-site value on this
+// page will need; deleting it to add it back is not an improvement.
 var retentionKeys = []panel.Key{
-	panel.KeyAnalyticsRetentionDays,
 	panel.KeyLogRetentionDays,
 }
 
 // retentionRow is one editable value on the retention step.
 //
-// The two keys have different scopes and the page has to respect that
-// rather than average over it: log retention is one number for the
-// deployment, and analytics retention belongs to a site. Writing the
-// second one globally is not a simplification, it is a value the store
-// refuses - which is how this was found.
+// Site scoping is respected rather than averaged over: log retention is
+// one number for the deployment, and a site-scoped value belongs to a
+// site. Writing a site-scoped key globally is not a simplification, it
+// is a value the store refuses - which is how this was found.
 type retentionRow struct {
 	// Site is empty for a deployment-wide value.
 	Site string
@@ -460,15 +470,6 @@ type retentionRow struct {
 // SiteScoped reports whether this row belongs to one site.
 func (r retentionRow) SiteScoped() bool { return r.Site != "" }
 
-func anySiteScoped(rows []retentionRow) bool {
-	for _, row := range rows {
-		if row.SiteScoped() {
-			return true
-		}
-	}
-	return false
-}
-
 // retentionFieldName is the form name for one row. The separator is a
 // colon because a site id cannot contain one - the settings registry
 // bounds it to letters, digits, underscore and dash - so the two halves
@@ -480,8 +481,10 @@ func retentionFieldName(key panel.Key, site string) string {
 	return string(key) + ":" + site
 }
 
-// retentionRows builds the page: the deployment-wide log retention, and
-// one analytics retention per configured site.
+// retentionRows builds the page: the deployment-wide log retention.
+//
+// One row today. It reads from retentionKeys rather than naming the key
+// so that the step does not have to be rewritten to gain a second one.
 func (s *Server) retentionRows(ctx context.Context, access panel.Access) ([]retentionRow, error) {
 	global, err := s.Store.SettingsView(ctx, access, "")
 	if err != nil {
@@ -489,31 +492,11 @@ func (s *Server) retentionRows(ctx context.Context, access panel.Access) ([]rete
 	}
 	rows := []retentionRow{}
 	for _, view := range global {
-		if view.Definition.Key == panel.KeyLogRetentionDays {
+		if slices.Contains(retentionKeys, view.Definition.Key) {
 			rows = append(rows, retentionRow{
 				Field: retentionFieldName(view.Definition.Key, ""),
 				View:  view,
 			})
-		}
-	}
-
-	value, err := s.Store.GetSetting(ctx, panel.KeyBeaconSites, "")
-	if err != nil {
-		return nil, err
-	}
-	for _, site := range toStringList(value) {
-		views, err := s.Store.SettingsView(ctx, access, site)
-		if err != nil {
-			return nil, err
-		}
-		for _, view := range views {
-			if view.Definition.Key == panel.KeyAnalyticsRetentionDays {
-				rows = append(rows, retentionRow{
-					Site:  site,
-					Field: retentionFieldName(view.Definition.Key, site),
-					View:  view,
-				})
-			}
 		}
 	}
 	return rows, nil

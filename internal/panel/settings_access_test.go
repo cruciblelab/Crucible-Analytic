@@ -212,13 +212,17 @@ func TestLockNotices_SayWhyAndWhatToDoNext(t *testing.T) {
 // a customer. Anything else in developer mode is theirs to change.
 //
 // Written as an explicit list because the check that matters is human -
-// somebody has to have decided that each of these seven really does
+// somebody has to have decided that each of these six really does
 // decide what personal data is kept. A test that derived the list from
 // the flag would only be asserting that the code equals itself.
+//
+// It was seven. analytics.retention_days left the registry entirely
+// rather than losing its flag: how long visit records are kept is now a
+// config-file value, because the developer password made it a locked
+// door in a room the customer was still standing in.
 func TestRegistry_OnlyLegallyWeightedSettingsAreWithheld(t *testing.T) {
 	weighted := map[Key]bool{
 		KeyPrivacyIPStorage:          true, // whether whole addresses are stored
-		KeyAnalyticsRetentionDays:    true, // how long visit records are kept
 		KeyLogRetentionDays:          true, // access logs contain addresses
 		KeyLogImportantRetentionDays: true, // the "who got in" trail
 		KeyCampaignDropParams:        true, // utm_term can carry real search text

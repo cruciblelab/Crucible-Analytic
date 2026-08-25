@@ -305,8 +305,11 @@ doğrulandı, çıkan matris yukarıdaki tablodur.
 
 ### 5.1 Geliştirici şifresi
 
-Hukuki ağırlığı olan ayarları (saklama süresi, IP saklama modu)
+Hukuki ağırlığı olan ayarları (IP saklama modu, log saklama süresi)
 korur. **Her seferinde sorulur**, oturum tutmaz.
+
+*Analitik saklama süresi bu listede değil: o ayar panelde hiç yok,
+yalnız yapılandırma dosyasından değişiyor — bkz. §12.*
 
 ```bash
 ./bin/devpass
@@ -700,6 +703,46 @@ boyutları, önbellek pencereleri, `asn_lookup.enabled`) — süreç o
 değerleri kanallarını ve tablolarını kurarken sabitler. Panel bunu
 söyler; kabul edip sessizce yok saymaz.
 
+### Panelde hiç olmayan ayar: saklama süresi
+
+Yukarıdaki her şey dosyadan panele taşındı. **Analitik saklama süresi
+ters yöne gitti** ve gerekçesi tam tersi olduğu için ayrıca yazıyorum.
+
+Ziyaret kayıtlarının ne kadar tutulacağı, bu projedeki tek **hukuki**
+ağırlıklı ayar. Paneldeki diğer her değer başarımı, doğruluğu veya diski
+belirler; bu, bir insanın gezinme geçmişinin hiç duymadığı biri
+tarafından ne kadar tutulacağını belirler.
+
+Eskiden geliştirici parolası arkasında paneldeydi. O güçlü bir kilit —
+ama müşterinin hâlâ içinde durduğu bir odanın kapısındaydı: değer HTTP
+üzerinden görünüyor, HTTP üzerinden değişiyordu ve sızmış tek bir parola
+onu başkasının kararı yapmaya yetiyordu. Artık her iki servisin de
+`[retention]` bölümünde:
+
+```toml
+[retention]
+days = 90                          # varsayılan; 1..730 arası
+per_site = { "musteri-a" = 30 }    # daha azını isteyen tek müşteri
+interval_hours = 1
+```
+
+**Tavan 730 gün** (2 yıl), eskiden 3650'di. Sebep: on yıl "sakla" ile
+"sonsuza kadar sakla" arasındaki farkın kaybolduğu nokta olarak
+seçilmişti — bu aritmetik hakkında bir cümle, bu ürünün altında
+çalıştığı hukuk hakkında değil. Bir yıl değil iki yıl, çünkü eski
+analitiğin dürüst kullanımı "geçen yılın aynı ayı" ve 365'lik tavan tam
+da o karşılaştırmayı gereken son gün imkânsız kılar.
+
+**Sınırın dışında bir değer yazan dosyayla servis başlamaz.** Kırpmaz,
+görmezden gelmez, reddeder. En çok eski kurulumdan gelen için önemli:
+3650 eskiden geçerliydi ve sınır dışı değerin eski davranışı sessizce 90
+güne düşmekti — beş yıl sakladığını sanan bir kurulum üç ay saklıyor
+olurdu ve bunu müşteriden öğrenirdi.
+
+**Site başına saklama süresi taşınmayı sağ atlattı**, dosyada. "Bu
+müşteri 30 gün istedi" gerçek bir taleptir. Hypertable en uzun süreyi
+isteyen siteye göre tutar, daha kısa isteyenler satır satır temizlenir.
+
 ---
 
 ## 13. Gerçekten çalışıyor mu
@@ -823,8 +866,9 @@ Dürüst olmak, sonradan sürpriz olmaktan iyidir.
   kampanya, cihaz, ülke ve olay kırılımları site sayfasında; parmak izi,
   ASN, skor dağılımı ve kesişim görünümlerinin panelde karşılığı yok.
   API uçları hazır ve jetonla doğrudan çağrılabilir.
-- **Collector'da saklama süresi hâlâ dosyadan okunuyor.** Beacon paneli
-  izliyor, collector henüz değil.
+- **Saklama süresi panelden değiştirilemez, bilerek.** İki servis de
+  kendi yapılandırma dosyasından okuyor; değiştirmek sunucuya erişmeyi
+  gerektiriyor. Gerekçesi §12'de.
 
 Tamamı ve güncel hali için `PLAN.md` §0.5 ve `SECURITY.md`.
 

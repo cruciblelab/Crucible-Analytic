@@ -935,8 +935,10 @@ The rules that shape it:
   session, no "finish" that applies everything at once. Stopping halfway
   leaves a half-configured deployment, which is true and visible.
 - **Retention asks for the developer password**, every time, because
-  those settings carry legal weight - and analytics retention is asked
-  per site, because that is the scope it actually has.
+  log retention carries legal weight: access logs contain addresses.
+  Analytics retention is not on this step at all - it lives in the
+  services' config files, so changing how long visit records are kept
+  means reaching the server.
 - **The final check runs real queries**, on a button, not on page load.
   Required failures block handover; recommended ones do not. Beside it
   is the list of things the panel can never do, each row saying *why*,
@@ -1148,6 +1150,51 @@ Without it nothing breaks: each process runs on its config file exactly
 as before, and says so in its log. With it, a change takes effect within
 one polling interval and no restart.
 
+#### One setting went the other way
+
+Everything above moved *out* of the config files. Analytics retention
+moved *into* them, and the reasoning is worth stating because it is the
+opposite of the rest of this section.
+
+How long visit records are kept is the only setting here with legal
+rather than operational weight. Every other value in the panel decides
+performance, accuracy or disk; this one decides how long a person's
+browsing is held by somebody they have never heard of. KVKK's
+proportionality rule is its direct subject.
+
+It used to be a panel setting behind the developer password. That is a
+strong lock, and it was on the door of a room the customer was still
+standing in: the value was visible over HTTP, editable over HTTP, and one
+leaked password away from being somebody else's decision. So it is a
+config-file value now, in each service's `[retention]` section, and
+changing it means reaching the server.
+
+```toml
+[retention]
+days = 90                             # the default; 1..730
+per_site = { "musteri-a" = 30 }       # the one customer who asked for less
+interval_hours = 1
+```
+
+The ceiling is **730 days**, down from ten years. Ten was chosen as the
+point past which "keep it" and "keep it forever" stop differing, which is
+a statement about arithmetic rather than about the law this runs under; a
+product whose ceiling is a decade invites a deployment nobody can defend.
+Two years rather than one because the honest use for old analytics is
+"the same month last year", and a ceiling of 365 makes that comparison
+impossible on the last day it is needed.
+
+A file asking for more is **refused at startup** rather than clamped or
+ignored. That matters most for a deployment upgrading from an older
+build, where 3650 was legal: the previous behaviour for an out-of-range
+value was to fall back to 90 days silently, so a deployment believing it
+kept five years would have kept three months and found out from a
+customer.
+
+Per-site retention survived the move, in the file, because "this customer
+asked for thirty days" is a real request. The hypertable keeps whatever
+the longest site needs; shorter sites are trimmed by row.
+
 #### Moving what a file already says
 
 An existing deployment's tuning has to survive the move. One command
@@ -1321,10 +1368,12 @@ properly means reviewing the layout with it in front of you.
 ## The developer password
 
 A short list of settings changes what personal data this deployment
-stores, or for how long: `privacy.ip_storage`,
-`analytics.retention_days`, `logs.retention_days`,
+stores, or for how long: `privacy.ip_storage`, `logs.retention_days`,
 `logs.important_retention_days`, `campaign.drop_params`,
 `campaign.extra_params`, `campaign.store_click_ids`.
+
+`analytics.retention_days` was on that list and is no longer a panel
+setting at all — see below.
 
 Changing any of them from the panel needs a second password, separate
 from the one the operator logged in with. The panel password answers

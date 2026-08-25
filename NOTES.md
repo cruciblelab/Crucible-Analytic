@@ -3754,3 +3754,95 @@ The fourth is the hand-edited row the validator never saw. AS0 and `abc`
 were both dropped and only 64520 became a rule — 0 is asnlookup's "could
 not resolve", so an AS0 rule would have blocked every address the lookup
 failed on.
+
+## Retention left the panel
+
+Three decisions were open at the end of A5.2 and the customer settled all
+three. The first was how long analytics data is kept and where that is
+decided: **the config file, default 90 days, ceiling 730.**
+
+### Why a setting moved backwards
+
+Everything in A5.1 and A5.2 moved settings *out* of config files and into
+the panel, on the argument that reaching a server during an incident is
+the longest possible path. Retention went the other way, and the reason
+is not inconsistency.
+
+Every other setting in the registry is operational: a wrong value costs
+performance, accuracy or disk. Retention decides how long a person's
+browsing is held by an organisation they have never heard of, and it is
+the direct subject of KVKK's proportionality rule. It was already behind
+the developer password, which is a strong lock — on the door of a room
+the customer was still standing in. The value was visible over HTTP,
+editable over HTTP, and one leaked password away from being somebody
+else's decision.
+
+Nothing was lost in the move except reach. Per-site retention came along
+into the file, because "this customer asked for thirty days" is a real
+request and dropping it would have made the relocation a removal.
+
+### The ceiling, and why it is not ten years
+
+`MaxDays` was 3650, documented as "the point past which keep it and keep
+it forever stop differing in any way that matters". That is a true
+sentence about arithmetic and the wrong basis for the number. A product
+whose ceiling is a decade invites a deployment nobody can defend.
+
+730 rather than 365 because the honest use for old analytics is "the same
+month last year", and a ceiling of one year makes that comparison
+impossible on the last day it is wanted.
+
+### The dangerous direction of a lowered ceiling
+
+Both services treated an out-of-range retention as unset and fell back to
+90 days. With a ceiling of 3650 that was nearly unreachable. With a
+ceiling of 730 it is the *most likely* state of an upgrading deployment,
+because 3650 used to be legal and is exactly what somebody wanting "keep
+everything" would have written.
+
+Falling back would mean a deployment that believes it keeps five years
+keeping three months, and finding out when a customer asks for last
+year's figures. So both services now refuse to start, naming the value
+and the bounds. Refusing is louder than any log line and cannot be
+missed — the same reasoning `privacy.ip_storage` already used one
+function below.
+
+### A setting that did nothing at all
+
+`analytics.compress_after_days` went with it, for a different reason:
+**nothing read it.** It had a label, help text, a developer-password gate
+and an audit trail, and no service anywhere in the repository ever looked
+the key up. A customer could change it, the panel would record the
+change, and TimescaleDB would go on compressing exactly as before.
+
+That is the same class of defect A5.2 spent a phase on — a setting whose
+correctness nobody could observe — and it had been sitting in the
+registry the whole time. The mirror test that catches this only walks
+keys marked `Live`, so a non-live key with no reader was invisible to it.
+If chunk compression is worth having it needs a reader first.
+
+### What the removal touched, and what it revealed
+
+Removing two registry keys reached further than expected, and two of the
+places it reached were already broken:
+
+- The wizard's retention step refused itself when no site was configured,
+  because analytics retention was per site. With that setting gone the
+  refusal blocked a step that works.
+- `TestRetentionNeedsTheDeveloperPassword` cleaned up by calling
+  `SetSetting` on a password-gated key, which the store refuses. The
+  error went to the blank identifier, so the cleanup had never once run.
+  It deletes the row directly now. That is the third instance of the same
+  pattern this week: **an error assigned to `_` in a test helper cannot
+  report that the helper does not work.**
+- No site-scoped integer setting remains, so the test that proved
+  "site row overrides, missing row falls through" had to move to the site
+  name. Worth noticing rather than deleting: it is now the only test of
+  that mechanism.
+
+One more, caught in the new tests themselves: the first version of
+`internal/beacon/config_test.go` put the two required fields under a
+`[storage]` table header, where the loader never read them. Every
+"out of range is refused" case passed on `timescale_dsn is required` and
+the bounds were never exercised. The tests assert *which* error now, not
+just that there was one.

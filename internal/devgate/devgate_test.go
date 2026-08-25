@@ -308,18 +308,18 @@ func TestVerify_OnePasswordEntryCanCoverSeveralActions(t *testing.T) {
 	gate, _ := newTestGate(t, Options{})
 
 	result := gate.Verify(context.Background(), Request{
-		Actions:  []string{"privacy.ip_storage", "analytics.retention_days"},
+		Actions:  []string{"privacy.ip_storage", "logs.retention_days"},
 		Password: testPassword,
 	})
 	if !result.OK() {
 		t.Fatalf("verify: %s", result.Decision)
 	}
-	for _, action := range []string{"privacy.ip_storage", "analytics.retention_days"} {
+	for _, action := range []string{"privacy.ip_storage", "logs.retention_days"} {
 		if !result.For(action).Authorizes(action) {
 			t.Errorf("%s was not authorized", action)
 		}
 	}
-	if result.For("privacy.ip_storage").Authorizes("analytics.retention_days") {
+	if result.For("privacy.ip_storage").Authorizes("logs.retention_days") {
 		t.Error("authorizations from one entry are interchangeable; they must not be")
 	}
 	if result.For("campaign.drop_params").Authorizes("campaign.drop_params") {

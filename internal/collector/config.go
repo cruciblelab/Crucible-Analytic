@@ -278,31 +278,34 @@ func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IP
 
 // RetentionConfig bounds how long traffic_snapshots is kept.
 //
-// The collector reads this from its file rather than from the panel,
-// because the collector has no live-settings reader yet (A6-devam). The
-// beacon does, so beacon_events already follows the panel. The two
-// tables are therefore configured in different places for now, which is
-// a gap worth naming rather than papering over.
+// Read from this file and nowhere else, which used to be the odd half of
+// a pair: beacon_events followed the panel while traffic_snapshots
+// followed the file, and the two tables were configured in different
+// places. The gap closed from the other end - the panel's retention
+// setting was removed rather than a matching one added here, because how
+// long visit records are kept is the one setting in this project with
+// legal weight and it belongs where somebody has to reach the server.
 type RetentionConfig struct {
-	// Days is the retention. Zero, or anything out of range, takes the
-	// default of 90 - out-of-range is treated as unset rather than
-	// clamped, so a config saying 20000 is visible as a mistake.
+	// Days is the retention. Zero takes the default of 90; anything
+	// outside retention's bounds is refused by validate.
 	Days int `toml:"days"`
 	// IntervalHours is how often the policy is re-applied. Zero takes an
 	// hour.
 	IntervalHours int `toml:"interval_hours"`
 }
 
-// DefaultRetentionDays matches the panel's default and the read API's
-// maximum range.
+// DefaultRetentionDays is what a file that says nothing gets, and
+// matches the read API's maximum range.
 const DefaultRetentionDays = 90
 
-// Resolved is the configured retention, or the default.
+// Resolved is the configured retention, or the default when the file
+// says nothing. A value outside the bounds never reaches here - validate
+// refuses the file.
 func (r RetentionConfig) Resolved() int {
-	if r.Days >= retention.MinDays && r.Days <= retention.MaxDays {
-		return r.Days
+	if r.Days == 0 {
+		return DefaultRetentionDays
 	}
-	return DefaultRetentionDays
+	return r.Days
 }
 
 // Interval is how often to re-apply, defaulting to an hour.
@@ -593,6 +596,19 @@ func (c *Config) validate() error {
 		}
 	}
 
+	// Same reasoning as ip_storage below, and the same direction of
+	// danger. The ceiling came down from ten years to two when retention
+	// left the panel, so a file written against an older build can now
+	// be out of range - and the old behaviour for out of range was to
+	// fall back to 90 days. A deployment that believes it keeps five
+	// years, silently keeping three months, would find out when somebody
+	// asked for last year's figures and they were gone.
+	if c.Retention.Days != 0 &&
+		(c.Retention.Days < retention.MinDays || c.Retention.Days > retention.MaxDays) {
+		return fmt.Errorf("config: retention.days is %d, outside %d..%d - "+
+			"visit records are personal data and this build will not keep them longer",
+			c.Retention.Days, retention.MinDays, retention.MaxDays)
+	}
 	// Rejected here even though privacy.ParseIPMode would quietly fall
 	// back to masked. The two are answering different questions: at
 	// runtime a bad value must not stop a running service, but at

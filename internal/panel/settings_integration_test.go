@@ -137,27 +137,33 @@ func TestSettings_RefusesAScopeMismatch(t *testing.T) {
 	if err := setGuarded(t, store, KeyLogRetentionDays, "somesite", 30); err == nil {
 		t.Error("a global setting accepted a site")
 	}
-	if err := setGuarded(t, store, KeyAnalyticsRetentionDays, "", 30); err == nil {
+	if err := setGuarded(t, store, KeySiteName, "", "Bir Site"); err == nil {
 		t.Error("a per-site setting accepted no site")
 	}
 }
 
-// "Set it once for the deployment, override it for the one site that
-// needs it" has to work without writing a row per site.
+// "Give one site its own value, leave the rest on the default" has to
+// work without writing a row per site.
+//
+// Written against analytics.retention_days until that key moved to the
+// config files, and now against the site name - which is the last
+// site-scoped key with a scalar value, so this is also the only
+// remaining test of the fall-through itself.
 func TestSettings_SiteValueOverridesTheGlobalOne(t *testing.T) {
 	store := settingsStore(t)
 	ctx := context.Background()
 
-	if err := setGuarded(t, store, KeyAnalyticsRetentionDays, "site-a", 30); err != nil {
+	if err := setGuarded(t, store, KeySiteName, "site-a", "Bir Site"); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
-	if got, _ := store.GetIntSetting(ctx, KeyAnalyticsRetentionDays, "site-a"); got != 30 {
-		t.Errorf("site-a = %d, want its own 30", got)
+	if got, _ := store.GetSetting(ctx, KeySiteName, "site-a"); got != "Bir Site" {
+		t.Errorf("site-a = %v, want its own %q", got, "Bir Site")
 	}
-	// A site with no row of its own falls through to the default.
-	if got, _ := store.GetIntSetting(ctx, KeyAnalyticsRetentionDays, "site-b"); got != 90 {
-		t.Errorf("site-b = %d, want the default 90", got)
+	// A site with no row of its own falls through to the default rather
+	// than reading the other site's.
+	if got, _ := store.GetSetting(ctx, KeySiteName, "site-b"); got != "" {
+		t.Errorf("site-b = %v, want the default empty name", got)
 	}
 }
 

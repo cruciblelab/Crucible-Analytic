@@ -230,16 +230,29 @@ const (
 	OverloadThrottle   = "throttle"
 )
 
-// The analytics lifecycle settings.
-const (
-	// KeyAnalyticsRetentionDays is how long traffic_snapshots and
-	// beacon_events are kept.
-	KeyAnalyticsRetentionDays Key = "analytics.retention_days"
-	// KeyAnalyticsCompressAfterDays is when TimescaleDB compresses a
-	// chunk. Usually the better answer than deleting: the customer keeps
-	// their history and gets most of the disk back.
-	KeyAnalyticsCompressAfterDays Key = "analytics.compress_after_days"
-)
+// # The analytics lifecycle settings are not here, deliberately
+//
+// How long visit records are kept used to be two keys in this registry -
+// analytics.retention_days and analytics.compress_after_days - shown
+// behind the developer password. Both are gone, for two different
+// reasons worth keeping written down.
+//
+// Retention moved to the services' config files, where changing it means
+// reaching the server. Everything else in this registry is operational:
+// a wrong value costs performance, accuracy or disk. Retention is the one
+// with legal weight - it is the direct subject of KVKK's "no longer than
+// the purpose needs" - and the developer password was a lock on the door
+// of a room the customer was still standing in. The value was visible,
+// editable over HTTP, and one leaked password away from being somebody
+// else's decision. See internal/beacon.Config.RetentionPolicy.
+//
+// Compression was removed because nothing read it. It had a label, help
+// text and a password gate, and no service anywhere in this repository
+// ever looked the key up: a customer could change it, the panel would
+// record the change in the audit log, and TimescaleDB would go on
+// compressing exactly as before. A setting that does nothing is worse
+// than a missing one, because it is believed. If chunk compression is
+// worth having it needs a reader first, and then it can come back.
 
 // The panel's own presentation settings.
 //
@@ -600,24 +613,6 @@ var registry = map[Key]Definition{
 		// absent from the test that binds the two lists together, so
 		// nothing looked at it at all.
 		Live: true,
-	},
-	KeyAnalyticsRetentionDays: {
-		Key: KeyAnalyticsRetentionDays, Scope: ScopeSite, Kind: KindInt,
-		Default: 90, Min: 1, Max: 3650,
-		Label:     "Analitik verisi saklama süresi (gün)",
-		Help:      "Bu süreden eski ziyaret kayıtları silinir.",
-		Developer: true,
-
-		RequiresDeveloperPassword: true,
-		GateReason: "Ziyaret kayıtlarının ne kadar süre saklanacağı, KVKK'nın " +
-			"\"gerektiğinden uzun tutma\" ilkesinin doğrudan konusudur.",
-	},
-	KeyAnalyticsCompressAfterDays: {
-		Key: KeyAnalyticsCompressAfterDays, Scope: ScopeSite, Kind: KindInt,
-		Default: 30, Min: 1, Max: 3650,
-		Label:     "Kaç gün sonra sıkıştırılsın",
-		Help:      "Geçmiş korunur, diskin çoğu geri alınır.",
-		Developer: true,
 	},
 	KeyPrivacyIPStorage: {
 		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,

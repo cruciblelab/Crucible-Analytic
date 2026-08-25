@@ -155,7 +155,6 @@ bos = "At least one site id is required."
 
 [metin.kurulum.saklama]
 sayi_degil = "%s is not a number."
-site_yok = "Analytics retention belongs to a site, and this deployment has none configured yet. Fill in the Sites step first."
 
 [metin.kurulum.adim.baslangic]
 baslik = "Start"

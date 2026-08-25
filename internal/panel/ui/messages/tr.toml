@@ -182,7 +182,6 @@ bos = "En az bir site kimliği gerekiyor."
 
 [metin.kurulum.saklama]
 sayi_degil = "%s bir sayı değil."
-site_yok = "Analitik saklama süresi siteye bağlıdır ve bu kurulumda henüz site tanımlı değil. Önce Siteler adımını doldurun."
 
 [metin.kurulum.adim.baslangic]
 baslik = "Başlangıç"

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -615,5 +616,66 @@ func TestRubbishASNsAreDroppedRatherThanBecomingZero(t *testing.T) {
 		if n == 0 {
 			t.Error("a dropped entry became 0, which matches every unresolved address")
 		}
+	}
+}
+
+// TestLoad_RetentionOutsideTheBoundsIsRefused.
+//
+// The ceiling came down from ten years to two when retention left the
+// panel for the config files, which means a file written against an
+// older build can now be out of range. The old behaviour for out of
+// range was to fall back to 90 days without saying so - and a
+// deployment that believes it keeps five years while keeping three
+// months finds out from a customer asking for last year's figures.
+//
+// 3650 is in the table on purpose: it was the previous ceiling and is
+// therefore the exact value an existing deployment is most likely to
+// have written down.
+func TestLoad_RetentionOutsideTheBoundsIsRefused(t *testing.T) {
+	for _, days := range []int{-1, 3650, 731, 20000} {
+		t.Run(strconv.Itoa(days), func(t *testing.T) {
+			path := writeTOML(t, `
+site_id = "bir-site"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[retention]
+days = `+strconv.Itoa(days)+`
+`)
+			if _, err := Load(path); err == nil {
+				t.Errorf("Load() accepted retention.days = %d", days)
+			}
+		})
+	}
+}
+
+// TestLoad_RetentionInsideTheBoundsIsKept, including the two ends and
+// the "said nothing" case that takes the default.
+func TestLoad_RetentionInsideTheBoundsIsKept(t *testing.T) {
+	for _, tc := range []struct{ days, want int }{
+		{0, DefaultRetentionDays}, // unset
+		{1, 1},                    // the floor
+		{90, 90},                  // the default, written out
+		{730, 730},                // the ceiling
+	} {
+		t.Run(strconv.Itoa(tc.days), func(t *testing.T) {
+			path := writeTOML(t, `
+site_id = "bir-site"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[retention]
+days = `+strconv.Itoa(tc.days)+`
+`)
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(): %v", err)
+			}
+			if got := cfg.Retention.Resolved(); got != tc.want {
+				t.Errorf("Resolved() = %d, want %d", got, tc.want)
+			}
+		})
 	}
 }

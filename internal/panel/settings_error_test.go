@@ -26,9 +26,9 @@ func TestOnlyValidationErrorsAreSafeToShow(t *testing.T) {
 		key   Key
 		value any
 	}{
-		{"int below the floor", KeyAnalyticsRetentionDays, 0},
-		{"int above the ceiling", KeyAnalyticsRetentionDays, 1 << 30},
-		{"int that is not a number", KeyAnalyticsRetentionDays, "otuz"},
+		{"int below the floor", KeyLogRetentionDays, 0},
+		{"int above the ceiling", KeyLogRetentionDays, 1 << 30},
+		{"int that is not a number", KeyLogRetentionDays, "otuz"},
 		{"bool that is not a bool", KeyCampaignStoreClickID, "belki"},
 		{"enum outside the set", KeyPrivacyIPStorage, "yarim"},
 		{"string that is not a string", KeySiteName, 42},

@@ -90,14 +90,14 @@ func TestSource_FallsBackWhenNothingIsStored(t *testing.T) {
 // value and the service would use another.
 func TestSource_SiteValueOverridesTheGlobalOne(t *testing.T) {
 	pool := testPool(t)
-	write(t, pool, "test.settings.analytics.retention_days", "", "90")
-	write(t, pool, "test.settings.analytics.retention_days", "site-a", "30")
+	write(t, pool, "test.settings.logs.retention_days", "", "90")
+	write(t, pool, "test.settings.logs.retention_days", "site-a", "30")
 
 	src := New(context.Background(), pool, Config{})
-	if got := src.Int("test.settings.analytics.retention_days", "site-a", 90, 1, 3650); got != 30 {
+	if got := src.Int("test.settings.logs.retention_days", "site-a", 90, 1, 3650); got != 30 {
 		t.Errorf("site-a got %d, want its own 30", got)
 	}
-	if got := src.Int("test.settings.analytics.retention_days", "site-b", 90, 1, 3650); got != 90 {
+	if got := src.Int("test.settings.logs.retention_days", "site-b", 90, 1, 3650); got != 90 {
 		t.Errorf("site-b got %d, want the global 90", got)
 	}
 }

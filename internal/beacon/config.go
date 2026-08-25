@@ -241,6 +241,29 @@ func (c Config) validate() error {
 	if _, err := logging.ParseLevel(c.Logging.Level); err != nil {
 		return fmt.Errorf("beacon: %w", err)
 	}
+	// Retention is refused rather than clamped or ignored, and this is
+	// the one place in this file where that choice is not merely tidy.
+	// The ceiling came down from ten years to two, so a file written
+	// against an older build can now be out of range - and the old
+	// behaviour for out of range was to fall back to the 90-day default.
+	// A deployment that believes it keeps five years, silently keeping
+	// three months, would find out when a customer asked for last year's
+	// figures and they were gone. Refusing to start is louder than any
+	// log line and cannot be missed.
+	if c.Retention.Days != 0 && (c.Retention.Days < retention.MinDays || c.Retention.Days > retention.MaxDays) {
+		return fmt.Errorf("beacon: retention.days is %d, outside %d..%d - "+
+			"visit records are personal data and this build will not keep them longer",
+			c.Retention.Days, retention.MinDays, retention.MaxDays)
+	}
+	for site, days := range c.Retention.PerSite {
+		if !siteIDPattern.MatchString(site) {
+			return fmt.Errorf("beacon: retention.per_site has an invalid site %q", site)
+		}
+		if days < retention.MinDays || days > retention.MaxDays {
+			return fmt.Errorf("beacon: retention.per_site[%q] is %d, outside %d..%d",
+				site, days, retention.MinDays, retention.MaxDays)
+		}
+	}
 	if c.ASNLookup.Enabled {
 		if c.ASNLookup.CacheMaxEntries <= 0 {
 			return fmt.Errorf("beacon: asn_lookup.cache_max_entries must be positive")
@@ -284,35 +307,51 @@ func (c CampaignConfig) Live(src *settings.Source) CampaignPolicy {
 }
 
 // RetentionPolicy resolves how long this deployment keeps analytics
-// data, preferring the panel's settings over the config file.
+// data.
 //
-// The per-site figures come from the sites this process is configured to
-// accept. A site nobody serves cannot have its retention read, and does
-// not need to be: nothing is writing rows for it.
-func (c Config) RetentionPolicy(source *settings.Source, sites []string) retention.Policy {
+// # It reads the config file and nothing else
+//
+// It used to prefer the panel's stored value, per site, over the file's.
+// That path is gone: how long visit records are kept is the one setting
+// in this project with legal weight rather than operational weight, and
+// it now lives where a person has to reach the server to change it. The
+// panel showed it behind the developer password, which is a lock on the
+// door of a room the customer was still standing in - the value was
+// visible, editable over HTTP, and one leaked password away from being
+// somebody else's decision.
+//
+// Per-site retention survives the move, in the file: "this customer
+// asked for thirty days" is a real request and refusing to answer it
+// would have been the migration losing a capability rather than
+// relocating one.
+func (c Config) RetentionPolicy() retention.Policy {
 	policy := retention.Policy{Days: c.Retention.Resolved(), PerSite: map[string]int{}}
-	if source == nil {
-		return policy
-	}
-
-	policy.Days = source.Int(settings.KeyAnalyticsRetention, "", policy.Days, retention.MinDays, retention.MaxDays)
-	for _, site := range sites {
-		days := source.Int(settings.KeyAnalyticsRetention, site, policy.Days, retention.MinDays, retention.MaxDays)
-		if days != policy.Days {
+	for site, days := range c.Retention.PerSite {
+		if days == policy.Days {
 			// Only the sites that differ. An entry equal to the
 			// deployment-wide figure would put a site on the row-delete
 			// path for no reason - see internal/retention.
-			policy.PerSite[site] = days
+			continue
 		}
+		policy.PerSite[site] = days
 	}
 	return policy
 }
 
 // RetentionConfig is the [retention] section.
 type RetentionConfig struct {
-	// Days is the fallback when the panel has no figure stored. Zero
-	// takes DefaultRetentionDays.
+	// Days is how long analytics data is kept. Zero takes
+	// DefaultRetentionDays; anything outside retention's bounds is
+	// refused by validate rather than accepted.
 	Days int `toml:"days"`
+	// PerSite overrides Days for named sites, for the deployment that
+	// serves one customer who asked for less than the others.
+	//
+	// Only shorter is a useful override in practice, but longer is
+	// permitted: the hypertable keeps whatever the longest site needs
+	// and the shorter ones are trimmed by row, which is what
+	// internal/retention is arranged around.
+	PerSite map[string]int `toml:"per_site"`
 	// IntervalHours is how often the policy is re-applied. Zero takes
 	// the default.
 	//
@@ -323,19 +362,19 @@ type RetentionConfig struct {
 	IntervalHours int `toml:"interval_hours"`
 }
 
-// DefaultRetentionDays matches the panel's own default and the read
-// API's maximum range.
+// DefaultRetentionDays is what a file that says nothing gets, and
+// matches the read API's maximum range.
 const DefaultRetentionDays = 90
 
 // Resolved is the configured retention, or the default when the file
-// says nothing usable. Out-of-range is treated as unset rather than
-// clamped: a config saying 20000 days is a mistake, and silently turning
-// it into ten years would hide it.
+// says nothing. A value outside the bounds never reaches here - validate
+// refuses the file - so this does not have to decide what to do with
+// one.
 func (r RetentionConfig) Resolved() int {
-	if r.Days >= retention.MinDays && r.Days <= retention.MaxDays {
-		return r.Days
+	if r.Days == 0 {
+		return DefaultRetentionDays
 	}
-	return DefaultRetentionDays
+	return r.Days
 }
 
 // Interval resolves how often to re-apply, defaulting to an hour.

@@ -113,7 +113,7 @@ func TestDeveloperPasswordCheckNeedsTheKeyList(t *testing.T) {
 		t.Fatalf("devgate.New: %v", err)
 	}
 
-	keys := []string{"privacy.ip_storage", "analytics.retention_days"}
+	keys := []string{"privacy.ip_storage", "logs.retention_days"}
 
 	// No gate at all: the wizard was not told, which is not the same as
 	// there being no password.

@@ -476,6 +476,14 @@ func TestSetupFlow(t *testing.T) {
 
 // TestRetentionNeedsTheDeveloperPassword walks the one step in the
 // wizard that changes something legally weighted.
+//
+// It used to walk analytics retention, which was per site. That setting
+// left the panel for the services' config files, so the step - and this
+// test - is about log retention now: one deployment-wide number, still
+// behind the developer password, because access logs contain addresses.
+// The property under test is unchanged and is the one the whole design
+// turns on: a wrong password changes nothing, the right one saves, and
+// the next change asks again.
 func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	srv, store := setupTestServer(t)
 	ctx := context.Background()
@@ -497,22 +505,33 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Analytics retention is per site, so the step needs one to exist.
-	// This is the defect the first run of this test found: the wizard
-	// was writing a site-scoped setting globally, and the store refused
-	// it in a message nobody would have seen until an install.
-	if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{testSite}, nil); err != nil {
-		t.Fatalf("SetSetting(sites): %v", err)
+	// Cleared before anything else, so this test never starts on a value
+	// its own last run left: the step short-circuits on "nothing
+	// changed", which would skip the password check this test exists to
+	// make.
+	//
+	// By deleting the row rather than calling SetSetting, because
+	// SetSetting refuses this key without the developer password - which
+	// is the point of the key. The version of this that called
+	// SetSetting had the same problem and never reported it: it ran in a
+	// cleanup with the error assigned to the blank identifier, so it had
+	// been failing silently for as long as it existed.
+	clearRetention := func() {
+		if _, err := store.Pool().Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE key = $1`, string(panel.KeyLogRetentionDays)); err != nil {
+			t.Errorf("clearing log retention: %v", err)
+		}
 	}
+	clearRetention()
+	t.Cleanup(clearRetention)
 
 	status, body := get(t, client, server.URL+SetupPathPrefix+"saklama")
 	if status != http.StatusOK {
 		t.Fatalf("the retention step answered %d", status)
 	}
-	// The per-site field carries the site in its name, so two sites
-	// cannot collide in one POST.
-	if !strings.Contains(body, `name="analytics.retention_days:`+testSite+`"`) {
-		t.Fatalf("the retention step has no per-site field for %q:\n%s", testSite, body)
+	field := string(panel.KeyLogRetentionDays)
+	if !strings.Contains(body, `name="`+field+`"`) {
+		t.Fatalf("the retention step has no field for %q:\n%s", field, body)
 	}
 	if !strings.Contains(body, `name="developer_password"`) {
 		t.Fatal("the retention step shows no password field to somebody who may use one")
@@ -523,15 +542,15 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	}
 	csrf := match[1]
 
-	before, err := store.GetSetting(ctx, panel.KeyAnalyticsRetentionDays, testSite)
+	before, err := store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// A wrong password changes nothing.
 	resp, err = client.PostForm(server.URL+SetupPathPrefix+"saklama", url.Values{
-		"csrf_token": {csrf},
-		string(panel.KeyAnalyticsRetentionDays) + ":" + testSite: {"120"},
+		"csrf_token":         {csrf},
+		field:                {"120"},
 		"developer_password": {"yanlis-parola-yanlis"},
 	})
 	if err != nil {
@@ -542,15 +561,15 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	if !strings.Contains(string(refused), "yanlış") {
 		t.Errorf("a wrong password did not produce the refusal message:\n%s", refused)
 	}
-	after, _ := store.GetSetting(ctx, panel.KeyAnalyticsRetentionDays, testSite)
+	after, _ := store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
 	if after != before {
 		t.Fatalf("a refused save changed the setting from %v to %v", before, after)
 	}
 
 	// The right one does.
 	resp, err = client.PostForm(server.URL+SetupPathPrefix+"saklama", url.Values{
-		"csrf_token": {csrf},
-		string(panel.KeyAnalyticsRetentionDays) + ":" + testSite: {"120"},
+		"csrf_token":         {csrf},
+		field:                {"120"},
 		"developer_password": {testDevPassword},
 	})
 	if err != nil {
@@ -562,7 +581,7 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 		t.Fatalf("the correct password did not save (status %d, %d bytes):\n%s",
 			resp.StatusCode, len(accepted), accepted)
 	}
-	after, _ = store.GetSetting(ctx, panel.KeyAnalyticsRetentionDays, testSite)
+	after, _ = store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
 	if after != int64(120) && after != 120 {
 		t.Errorf("the setting is %v (%T), want 120", after, after)
 	}
@@ -572,7 +591,7 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	// only in the gate's own tests.
 	resp, err = client.PostForm(server.URL+SetupPathPrefix+"saklama", url.Values{
 		"csrf_token": {csrf},
-		string(panel.KeyAnalyticsRetentionDays) + ":" + testSite: {"200"},
+		field:        {"200"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -582,16 +601,10 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	if !strings.Contains(string(again), "girilmedi") {
 		t.Errorf("a second save with no password was not asked again:\n%s", again)
 	}
-	after, _ = store.GetSetting(ctx, panel.KeyAnalyticsRetentionDays, testSite)
+	after, _ = store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
 	if after == int64(200) || after == 200 {
 		t.Fatal("a second save went through without a password")
 	}
-
-	// Put it back, so a re-run starts where it started rather than
-	// against a value the previous run left.
-	t.Cleanup(func() {
-		_ = store.SetSetting(context.Background(), panel.KeyAnalyticsRetentionDays, testSite, nil, nil)
-	})
 }
 
 // TestListenAndServeDrainsOnCancel moved here from the unit suite when

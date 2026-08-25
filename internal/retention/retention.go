@@ -71,15 +71,30 @@ func (t Table) Valid() bool {
 	return t == TableTrafficSnapshots || t == TableBeaconEvents
 }
 
-// Bounds on a retention setting, matched to the panel's registry so a
-// value that passes there cannot be refused here.
+// Bounds on a retention setting.
+//
+// Enforced here rather than in a config parser because both services
+// reach this package and neither should be able to apply a policy the
+// other would refuse. A file asking for more is a mistake, and Apply
+// says so instead of clamping - a deployment that thinks it keeps five
+// years and keeps two would find out from a customer, not from us.
 const (
 	// MinDays is one day. Zero would mean "delete everything", and there
 	// is no way to type that by accident here.
 	MinDays = 1
-	// MaxDays is ten years, the point past which "keep it" and "keep it
-	// forever" stop differing in any way that matters.
-	MaxDays = 3650
+	// MaxDays is two years.
+	//
+	// It was ten, chosen as "the point past which keep it and keep it
+	// forever stop differing". That was a statement about arithmetic and
+	// not about the law this project is written under: visit records are
+	// personal data, KVKK asks that they be kept for as long as the
+	// purpose needs and no longer, and a product whose ceiling is a
+	// decade invites a deployment nobody can defend.
+	//
+	// Two years rather than one because the honest use for old analytics
+	// is "the same month last year", and a ceiling of 365 makes that
+	// comparison impossible on the last day it is needed.
+	MaxDays = 730
 )
 
 // Policy is what one deployment wants kept.
