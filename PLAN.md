@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/13** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **8.5/9** | C7'nin e-posta yolu — *tartışma bekliyor* |
+| **C** Panel HTTP yüzeyi | 🟡 **8/10** | C7.2 (parola sıfırlama), C7.3 (e-posta sihirbazı) |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
@@ -2373,7 +2373,12 @@ küme "hiçbir şey gösterme" demek değil, çünkü kartsız bir pano ürünü
 kendisini gizlemek olurdu (D5'in "görünüm asla gizlenmez" kuralının
 kart tarafındaki karşılığı).
 
-#### C7 — Boş durumlar, API kesintisi, ve e-posta yolu
+#### C7.1 — Boş durumlar ve API kesintisi ✅ **yapıldı**
+
+*(Bu madde "C7 — boş durumlar, API kesintisi, ve e-posta yolu" idi.
+Tartışmadan sonra üçe bölündü: C7.1 burada, parola sıfırlama C7.2,
+e-posta sihirbazı C7.3. A5.1/A5.2 ile aynı desen; eski ad commit
+mesajlarında geçtiği için "C7" olarak anılmaya devam edebilir.)*
 
 **Faz açılırken ölçüldü (2026-08-26) ve üç parçadan ikisi çoktan
 yapılmıştı.** D1 boşluk sözlüğünü (`hasData`, `neverInstalled`,
@@ -2427,25 +2432,125 @@ bağlantı verir. Sıfır göstermez.
 > bir sayfaya yönlendirmek olurdu. B4 yapıldığında bu satır oraya
 > bağlanacak — kayıt burada duruyor ki unutulmasın.
 
-**E-posta yolu — projede hiç yok** *(bu parça, müşterinin isteğiyle
-**ayrı bir tartışmaya bırakıldı**: "e-posta kısmına geçeceğimiz zaman
-bekle, ekstra bir konuşma yapalım". Aşağıdaki karar önceki oturumdan
-kalan taslak, kesinleşmiş değil.)* (`grep`: sıfır SMTP/mail). Ama iki
+**E-posta yolu — projede hiç yok.** *(Tartışma yapıldı, 2026-08-26.
+Sonuç aşağıda; bu parça ikiye bölündü ve C7.2 / C7.3 oldu.)* (`grep`: sıfır SMTP/mail). Ama iki
 planlı özellik e-posta gerektiriyor: `SendOwnerPasswordReset` (22.
 operasyon) bir bağlantı yolluyor, ve sahip sihirbazı "meslektaş davetini
 öneriyor".
 
-**Karar: e-posta zorunlu olmasın.** Gerekçe kullanıcının kendi
-kısıtından geliyor — "kurulum ve çalıştırma yükünü azaltacak şekilde
-olmalı, 'şurada şunu ayarla' istemiyorum". Bir SMTP sunucusu
-yapılandırmak tam olarak o yük.
+##### Tartışmada ölçülen: sorun sanıldığı yerde değildi
 
-- **Varsayılan (e-postasız):** şifre sıfırlama bağlantısı operasyonu
-  çalıştıran kişinin ekranında görünür, sahibe telefonla/WhatsApp'la
-  iletilir. Davet bağlantısı, davet eden yöneticinin ekranında görünür,
-  meslektaşına nasıl isterse öyle yollar.
-- **İsteğe bağlı SMTP:** yapılandırılmışsa bağlantılar e-postayla gider.
-  Ürün onsuz eksiksiz çalışır.
+Fazı açarken üç şey ölçüldü ve tartışmanın zeminini değiştirdiler:
+
+1. **Davet zaten e-postasız çalışıyor.** Devir teslim bağlantısı
+   ekranda bir kez gösteriliyor, `sha256` ile hash'li saklanıyor,
+   süreli ve tek kullanımlık. Aynı desen geliştirici erişiminde de
+   kullanılıyor. Yani ürünün **en hassas iki akışı** e-posta olmadan
+   çözülmüş durumda ve mekanizma iki kez kanıtlanmış.
+2. **Parola sıfırlama hiç yok.** Ne e-postalısı ne e-postasızı — akış
+   mevcut değil. Yani mesele "sıfırlamaya e-posta eklemek" değil,
+   "sıfırlamayı yazmak".
+3. **Panel kurtarma kodu sözü veriyor ve tutmuyor.** Katalogda şu cümle
+   duruyor: *"Kurtarma kodu henüz yok: telefonunuzu kaybederseniz
+   sitenin sahibi veya işletmeci iki faktörünüzü sıfırlayabilir."*
+   "Henüz" diyen bir cümle, tutulmayı bekleyen bir söz.
+
+##### Karar (müşteri, 2026-08-26)
+
+**Ölçek gerçek:** "çok sayıda olabilecek" — yani otuz kurulumda
+"beni ara" bir destek kuyruğudur. Bu, kurtarma kodlarını nezaket
+olmaktan çıkarıp gereklilik yapıyor.
+
+**İki yol birden.** Kurtarma kodları birincil, operatör bağlantısı
+kodlarını da kaybeden için ikinci ağ.
+
+**E-posta olacak, ama API anahtarı istemeyen biçimde**, ve adım adım
+doğrulanan bir sihirbazla: *"bunları yap, doğrula butonu, doğrulayınca
+sıradaki adıma geçer, DNS'ler falan her şey"*. Bu tarif, panelin zaten
+kullandığı preflight desenidir — **panel yapamaz ama kontrol eder ve
+ne yapılacağını söyler**.
+
+**SMTP'nin bu fazda mı olacağına müşteri karar veremedi** ("ne cevap
+vereceğimi bilmiyorum"), ve karar bana bırakıldı: **ayrı faz.**
+Gerekçe, tarifin kendisi — doğrulama butonlu, DNS kontrollü, ilerlemesi
+kaybolmayan bir kurulum sihirbazı "SMTP ayarı eklemek" değil, kendi
+başına bir faz. Yarım yapılmış hâli hiç yapılmamışından kötü olur.
+
+---
+
+#### C7.2 — Parola sıfırlama, e-postasız ⬜
+
+**Ne:** hesabını açamayan sahibin kendi başına içeri girebilmesi.
+
+**Kurtarma kodları.** Hesap kurulurken (`RedeemOwnerClaim` anında)
+üretilir, **bir kez** gösterilir, `sha256` ile hash'li saklanır — davet
+jetonlarının bugün kullandığı desenin aynısı. Tek kod hem parola
+sıfırlamaya hem kayıp ikinci faktöre yarar, çünkü müşteri tarafından
+bakınca "telefonumu kaybettim" ile "parolamı unuttum" aynı problemdir:
+*giremiyorum*.
+
+**Operatör bağlantısı.** Kodlarını da kaybeden için, bugünkü desenin
+aynısı: panele girmiş biri bağlantı üretir, ekranda görünür, nasıl
+isterse öyle iletir.
+
+**Neden e-posta yok:** bu fazın hiçbir yapılandırmaya ihtiyacı yok ve
+ürünü **e-postasız eksiksiz** hâle getiriyor. C7.3 ondan sonra saf
+katkı olur, zorunluluk değil.
+
+**Bitti ölçütü:** kodları olan bir sahip, operatöre hiç dokunmadan,
+gerçek tarayıcıda parolasını sıfırlayıp giriyor; kullanılan kod ikinci
+kez çalışmıyor; kalan kod sayısı panelde görünüyor; ve katalogdaki
+"henüz yok" cümlesi kalkıyor çünkü artık yalan.
+
+---
+
+#### C7.3 — E-posta kurulum sihirbazı ⬜
+
+**Şekil:** her adım *yap → doğrula → sonraki*. Doğrulama gerçek bir
+kontrol; "kaydedildi" değil, "sunucu şunu dedi".
+
+| Adım | Doğrulama nasıl yapılır |
+|---|---|
+| Gönderen adresi | Alan adı biçim kontrolü |
+| SMTP bağlantısı | Gerçekten bağlan, STARTTLS, AUTH — sunucunun cevabı gösterilir |
+| SPF | `net.LookupTXT`, gönderen IP yetkili mi |
+| DKIM | Test postasının başlığında imza var mı |
+| DMARC | `net.LookupTXT`, kayıt var mı ve politikası ne |
+| Gerçek gönderim | Kurulumu yapanın yazdığı adrese tek posta, sunucunun cevabı raporlanır |
+
+**API anahtarı gerekmiyor, bilerek.** SMTP, müşterinin **zaten sahip
+olduğu** kimlik bilgileriyle çalışır — barındırma sağlayıcısının SMTP'si,
+Workspace, Yandex, ne varsa. Üçüncü taraf e-posta API'si (Resend, SES)
+**yapılmayacak**: kendi sunucusunda barınan, gizlilik odaklı bir ürünün
+müşteri adreslerini başkasının servisinden geçirmesi, üstüne kuruluma
+bir hesap ve fatura eklemesi demek.
+
+**DKIM imzalanmayacak, doğrulanacak.** İmzalamak ya bir kütüphane ya da
+kanonikleştirme kodu ister; her gerçek SMTP sağlayıcısı zaten imzalıyor.
+Yarım bir DKIM, sağlayıcınınkine güvenmekten kötü.
+
+**Yeni bağımlılık yok** *(ölçüldü)*: `net.LookupTXT` ve `net/smtp`
+stdlib'de.
+
+**Bağlantı her zaman ekranda da görünür.** E-posta hiçbir zaman tek yol
+değil. Sebep teslimattır: taze bir VDS'ten SPF/DKIM/DMARC'sız çıkan
+posta spam'e düşer ya da reddedilir, ve 2024'te Gmail/Yahoo bu şartları
+sıkılaştırdı. Sessizce kaybolan bir parola sıfırlama, en kötü hata
+biçimi — kişi bekler, panel "gönderildi" der. **Panel asla yalnız
+"gönderildi" demeyecek**; ne gönderdiğini, kime, ve sunucunun ne
+cevapladığını söyleyecek.
+
+**Port 587**, 25 değil: çoğu VDS 25'i dışarı kapatıyor.
+
+**İlerleme kaybolmaz.** Her adımın doğrulanmış durumu `panel_settings`'e
+yazılır — sihirbazın zaten kuralı bu ("her adım değiştirdiğini hemen
+işler"). Sekmeyi kapatan kişi kaldığı yerden devam eder.
+
+**Bitti ölçütü:** gerçek bir SMTP sunucusuna karşı, yanlış parolayla
+reddedildiği ve doğrusuyla teslim edildiği görülür; SPF/DMARC
+kontrolleri gerçek DNS'e karşı hem geçen hem kalan bir alan adıyla
+denenir; ve doğrulanmış bir adım, süreç yeniden başlatıldıktan sonra
+hâlâ doğrulanmış görünür.
 
 ---
 

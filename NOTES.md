@@ -4152,3 +4152,81 @@ C7 says the outage message should link to the health page. There is no
 health page — that is B4, and group B stands at 1/7. Adding the link now
 would point a worried customer at a 404. The requirement stays in the
 plan, attached to B4, so that finishing B4 is also finishing this.
+
+## The email discussion, and three measurements that moved it
+
+The customer asked to talk about the email path before it was built.
+Opening the question meant measuring the ground first, and the ground
+was not where the plan said it was.
+
+**Invitations already work without email.** The handover link is shown
+on screen once, stored as a sha256 hash, time-limited and single-use;
+developer access uses the same pattern. The two most security-sensitive
+flows in the product are already solved with no mail server anywhere,
+and the mechanism has been proven twice.
+
+**Password reset does not exist at all.** Not the emailed kind, not the
+other kind. So the question was never "should reset send email" — it was
+"reset has not been written".
+
+**The panel already promises recovery codes and does not deliver them.**
+The catalogue says, in both languages: *"There are no recovery codes yet:
+if you lose your phone, the site's owner or the operator can reset your
+second factor."* A sentence containing "yet" is a promise waiting to be
+kept.
+
+### Scale is what makes recovery codes necessary rather than nice
+
+The customer's "there could be many" turned out to mean installations,
+not message volume. That distinction decides the design. With one
+customer, "ring your agency" is fine. With thirty, it is a support
+queue, and the person queuing is locked out of their own analytics at
+eleven at night.
+
+Recovery codes are the only mechanism that makes the owner
+self-sufficient with **zero configuration** — no SMTP, no third party,
+no DNS. They are generated when the account is created, shown once, and
+hashed at rest, which is the pattern this repository already uses three
+times over. One code serves both password reset and a lost second
+factor, because from the customer's side "I lost my phone" and "I forgot
+my password" are the same problem: *I cannot get in*.
+
+### What "verify button" actually described
+
+The customer's description of the email setup — *do these things, a
+verify button, when it verifies it moves to the next step, DNS and
+everything* — is the preflight pattern this project already runs on:
+**the panel cannot do this, but it checks it and tells you what to do.**
+It is the same shape as the database-role checks in the installer.
+
+It is also considerably more than "add an SMTP setting", which is why it
+became its own phase rather than a bullet inside C7. Its own phase can
+be done properly; a bullet would have been done quickly and badly.
+
+### Two decisions that will look conservative later
+
+**No third-party email API.** One API key is genuinely less setup than
+SMTP, and the customer even asked for a no-API-key option, so the
+temptation cuts both ways. It is refused because a self-hosted,
+privacy-first product should not route its customers' addresses through
+somebody else's service, and because it adds an account and a bill to an
+install this project has worked hard to keep to one binary and one
+config file.
+
+**DKIM is verified, not signed.** Signing needs canonicalisation code or
+a dependency, and every real SMTP provider already signs. A half-built
+DKIM implementation is worse than relying on the provider's, and the
+check that matters — *is the mail actually signed* — can be made by
+reading the headers of a test send.
+
+### Why the link stays on screen even when email works
+
+Because deliverability fails silently. Mail leaving a fresh VPS without
+SPF, DKIM and DMARC lands in spam or is rejected outright, and Gmail and
+Yahoo tightened those requirements in 2024. A password reset that
+vanishes quietly is the worst available failure: the person waits, and
+the panel says "sent".
+
+So the panel will never say only "sent". It will say what it sent, to
+whom, and what the receiving server answered — and the link will be on
+the screen regardless, because that is the path that cannot fail.
