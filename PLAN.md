@@ -84,9 +84,9 @@ gerekçe değil bahane olur.
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **10/13** | A2, A3, A8, A9 |
-| **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **8/10** | C7.2 (parola sıfırlama), C7.3 (e-posta sihirbazı) |
+| **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
+| **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
+| **C** Panel HTTP yüzeyi | 🟡 **9/11** | C7.2 (parola sıfırlama), C7.3 (e-posta sihirbazı) |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
@@ -262,34 +262,40 @@ düzeltmekten ucuz.)*
   asla superadmin üretmiyor. Teknik kapı: onay **oturumda**, yetki
   değil — her istek yine "bu kişi bir şeye sahip mi" diye soruyor
 
-### Sıradaki üç iş, önem sırasıyla
+### Sıradaki işler, önem sırasıyla
 
-*(Sıra D1'de bir kez değişti ve gerekçesi ölçümdü: altyapı ürün
-seviyesindeydi, arayüz yarımdı. **2026-08-26'da bir kez daha değişti**,
-ve gerekçesi yine ölçüm: bu oturumda faz sonu doğrulaması elle yapıldı
-ve yaklaşık kırk dakika sürdü — dört etiket kümesi, tarayıcı paketi,
-çapraz derleme, ve konteyner veritabanını geri aldığı için baştan
-kurma. O bedel her fazda ödeniyor ve ödeyen şey bir insanın
-hatırlaması. Ürünü müşteriye yaklaştıran her faz, ondan önce ödenmemiş
-bu bedeli büyütüyor.)*
+*(Sıra iki kez ölçümle değişti. D1'de: altyapı ürün seviyesindeydi,
+arayüz yarımdı. 2026-08-26'da: faz sonu doğrulaması elle yapılıyordu ve
+kırk dakika sürüyordu, o yüzden G1 öne alındı — ve ilk koşuşunda
+kimsenin dokunmadığı kodda 34 erişilebilir zafiyet buldu.)*
 
-1. ~~**C7 — boş durumlar, API kesintisi**~~ ✅ **yapıldı
-   (2026-08-26).** Faz açılınca ölçüldü: iki parçanın da büyük kısmı
-   D1/D2 sırasında yan ürün olarak teslim edilmişti, plan ise onları
-   "kalan iş" diye listelemeye devam ediyordu. Eklenen, panelin
-   **geri kalanının** analitik kesintisinden etkilenmediğini kanıtlayan
-   iki test: biri yapısal (istemciye dokunabilen dosyalar kapalı bir
-   liste), biri davranışsal (API ölüyken site listesi, hesap, üye
-   listesi ve çıkış çalışıyor). **E-posta yolu ayrı tutuldu** —
-   müşteri onu ayrıca konuşmak istedi.
+1. **C7.2 — parola sıfırlama, e-postasız.** Kurtarma kodları +
+   operatör bağlantısı. Bu faz bittiğinde ürünün **müşteri açısından
+   işlevsel boşluğu kalmıyor**: kurulur, devredilir, girilir, parola
+   unutulursa kendi başına geri alınır, pano çalışır. Küçük ve
+   kendi kendine yeten; hiçbir yapılandırma istemiyor. Ayrıca panelin
+   katalogda verdiği "kurtarma kodu **henüz** yok" sözünü tutuyor.
 2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
-   kapalı küme tuttuğu için yeni bloklar da doğrudan seçilebilir olur.
+   kapalı küme tuttuğu için yeni bloklar doğrudan seçilebilir olur.
+3. **G2 — sürüm paketi.** *(Gerekçesi düzeltildi.)* Bu madde "C7'den
+   sonra, çünkü davet e-postası gönderemeyen bir ürünü paketlemek
+   bitmemiş bir şeyi paketlemektir" diye sıralanmıştı. **O öncül
+   yanlıştı ve ölçümle çürüdü:** davet bağlantısı e-postasız çalışıyor,
+   ve iki yıldır ürünün en hassas iki akışı zaten böyle çözülmüş. Doğru
+   gerekçe şu: C7.2'den sonra paketlenecek şey **eksiksiz**, ve erken
+   paketlemek gerçek kurulum demek — gerçek kurulum da gerçek geri
+   bildirim.
 
-**Sonrası:** G2 (sürüm paketi) → F2 (kurulum betiği) → A2/A3. G2 C7'den
-sonra, çünkü davet e-postası gönderemeyen bir ürünü paketlemek
-bitmemiş bir şeyi paketlemektir.
+**Sonrası:** F2 (kurulum betiği, G2'nin devamı) → C7.3 (e-posta
+sihirbazı) → B4/B7 (sağlık sayfası ve sürüm kavramı; C7.1'in "sağlık
+sayfasına bağlantı ver" maddesi B4'ü bekliyor, G2'nin sürüm damgası
+B7'yi) → A2/A3 → D4–D8 → B'nin kalanı → E.
+
+**Bilerek en sona bırakılan:** E grubu (tek binary, tek yapılandırma).
+Beş süreci birleştirmek, hepsi hâlâ değişirken yapılırsa iki kez
+yapılır.
 
 **Ürün olmak için üç eksik — üçünün de artık sahibi var**
 *(2026-08-26)*:
@@ -2319,7 +2325,7 @@ Chromium. Yarış testi: sekiz eşzamanlı karar → tam bir kabul, yedi
 geçerli CSRF jetonu taşıyor, yani jeton eksikliğinden değil yetkiden
 düşüyorlar.
 
-#### C6 — Görünür kart **ve kırılım** seti, kurulum başına yapılandırılır
+#### C6 — Görünür kart **ve kırılım** seti, kurulum başına yapılandırılır ✅ **yapıldı**
 
 **Karar (kullanıcı):** Müşterinin panelinde ne göründüğü sabit değil,
 **ayardır** — geliştirici sihirbazında biz belirleriz, sonra geliştirici
@@ -2657,7 +2663,7 @@ bir sütun, taşma yok, yatay kaydırma yok, CSP ihlali yok; aralık seçici
 üç bağlantı + bir "şu an buradasınız", ve tıklamak alttaki tarihleri
 gerçekten değiştiriyor. Hiçbiri ResponseRecorder'dan görülemez.
 
-#### D2 — Detaya inişler: sayfalar, kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar
+#### D2 — Detaya inişler: sayfalar, kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar ✅ **yapıldı**
 
 D1 altı sayı gösteriyor. Bir sayının **neden** o olduğunu gösteren
 hiçbir şey yok: hangi sayfa, nereden gelindi, hangi kampanya. API'de
