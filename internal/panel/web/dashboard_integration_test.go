@@ -296,3 +296,84 @@ func TestTheRangePickerChangesTheRange(t *testing.T) {
 		}
 	}
 }
+
+// TestTheRestOfThePanelSurvivesTheAPIGoingAway.
+//
+// The dashboard's own survival is tested above. This is the other half
+// of the same promise and the one nothing was checking: every page that
+// is not about analytics has to be untouched by an analytics outage,
+// because all of them read panel_* tables and none of them needs the
+// read API at all.
+//
+// That is true by construction today - only two files in this package
+// call the client, which TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI
+// pins down. This test is the behavioural half: construction can be
+// right while a shared helper, a middleware or a template still drags
+// the API into a request by accident.
+//
+// A customer whose analytics service is down must still be able to sign
+// in, read their account, and manage members. Those are the pages they
+// need *most* during an outage, since one of them is how they reach
+// somebody who can fix it.
+func TestTheRestOfThePanelSurvivesTheAPIGoingAway(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+
+	// Nothing is listening on port 1, so every call the client makes
+	// fails at connect - the fastest honest imitation of an outage.
+	client, err := analytics.New("http://127.0.0.1:1", "jeton")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Analytics = client
+
+	const site = "kesinti-sitesi"
+	owner := makeUser(t, store, "kesinti-sahip", false)
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{site}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	client2 := signedIn(t, server.URL, owner.Email)
+	base := srv.Renderer.Catalogs().Base()
+
+	for name, path := range map[string]string{
+		"the site list":   "/",
+		"their account":   AccountPath,
+		"the member list": MembersPathPrefix + site + membersPathSuffix,
+	} {
+		t.Run(name, func(t *testing.T) {
+			status, body := get(t, client2, server.URL+path)
+			if status != http.StatusOK {
+				t.Fatalf("%s answered %d while the analytics API was down; it does not read "+
+					"analytics and must not care", name, status)
+			}
+			// Not merely a 200: an error page rendered with a 200 would
+			// pass the check above and fail the customer.
+			//
+			// The key is hata.500.baslik and not hata.sunucu, which is
+			// what this was written with. That key does not exist, and a
+			// missing key comes back wrapped in markers rather than
+			// empty - so the assertion was comparing the page against a
+			// string it could never contain and passing on every input.
+			if strings.Contains(body, shown(base.T("hata.500.baslik"))) {
+				t.Errorf("%s rendered the server-error page", name)
+			}
+		})
+	}
+
+	// And signing out still works, which matters because it is the one
+	// action somebody takes when a page looks broken.
+	resp, err := client2.PostForm(server.URL+LogoutPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 500 {
+		t.Errorf("signing out answered %d with the analytics API down", resp.StatusCode)
+	}
+}

@@ -4090,3 +4090,65 @@ One more that only appears once a machine is doing the checking: a
 mojibake test passes on a document whose Turkish has been flattened to
 ASCII, because "s" is not corruption. So there is a second test
 asserting the characters are still present.
+
+## C7, and a phase that was mostly already built
+
+Opening C7 meant reading what it asked for and then reading the code,
+and the two did not match. Two of its three parts — telling "the snippet
+was never seen" apart from "the snippet works and nobody came", and
+saying something honest when the read API is down — were already there.
+D1 wrote the vocabulary (`hasData`, `neverInstalled`, `nothingInRange`,
+`unreachable`, `refused`) and D2 gave breakdowns the same treatment.
+Both catalogues already carry the outage sentence, and it is a good one:
+*"Nothing is missing — it has not arrived."*
+
+They were delivered as a side effect of building the interface, while
+the plan went on listing them as outstanding. Writing the phase up as
+though it were new work would have been the easy thing and a lie; the
+phase text now says what was found.
+
+### The half that was missing was the half nothing could see
+
+The dashboard's survival was tested. The claim that *the rest of the
+panel* is untouched by an analytics outage was not — it was true by
+construction, because only two files in the package touch the client.
+
+True by construction is a fine reason to believe something today and no
+reason at all to believe it next month. The first person to put a
+visitor count on the site list breaks it, and nothing would have said
+so: the page would render, the number would be a zero, and a customer
+would read that zero as "nobody visited".
+
+So there are two tests now, and they catch different failures.
+`TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI` is structural and pins
+the set of files allowed to call the client. It fails when somebody adds
+a third, which is the point — the message tells them to add the file to
+the list and, while they are there, decide what the new page says when
+the fetch fails. That catches the call rather than the symptom, and a
+page that called the API and swallowed the error would pass every
+behavioural test while quietly showing zeroes.
+
+The behavioural one runs the panel with its client pointed at a dead
+port and walks the site list, the account page, the member list and
+sign-out. Those are the pages a customer needs *most* during an outage,
+because one of them is how they reach the person who can fix it.
+
+### The assertion that could not have failed
+
+The behavioural test was written asserting that no page rendered the
+server-error text, looked up as `hata.sunucu`. That key does not exist.
+A missing key comes back wrapped in markers rather than empty, so the
+test was comparing the page against a string it could never contain, and
+would have passed on a panel that returned an error page for every route.
+
+It is `hata.500.baslik` now, and the fix was checked the only way worth
+checking it: by forcing the branch true and confirming all three
+subtests fired. An assertion nobody has watched fail is an assertion
+nobody has tested.
+
+### What could not be done, and why it is written down rather than dropped
+
+C7 says the outage message should link to the health page. There is no
+health page — that is B4, and group B stands at 1/7. Adding the link now
+would point a worried customer at a 404. The requirement stays in the
+plan, attached to B4, so that finishing B4 is also finishing this.

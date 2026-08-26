@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/13** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **1/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **8/9** | C7 |
+| **C** Panel HTTP yüzeyi | 🟡 **8.5/9** | C7'nin e-posta yolu — *tartışma bekliyor* |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
@@ -273,11 +273,15 @@ kurma. O bedel her fazda ödeniyor ve ödeyen şey bir insanın
 hatırlaması. Ürünü müşteriye yaklaştıran her faz, ondan önce ödenmemiş
 bu bedeli büyütüyor.)*
 
-1. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
-   tek madde. D3'ün önüne alındı: D grubunun kalanı *daha çok veri
-   gösteriyor*, ama panel bugün API çökerse müşteriye ne diyeceğini
-   bilmiyor. Yeni sütun eklemeden önce mevcut sayfaların kötü bir günü
-   olması gerekiyor.
+1. ~~**C7 — boş durumlar, API kesintisi**~~ ✅ **yapıldı
+   (2026-08-26).** Faz açılınca ölçüldü: iki parçanın da büyük kısmı
+   D1/D2 sırasında yan ürün olarak teslim edilmişti, plan ise onları
+   "kalan iş" diye listelemeye devam ediyordu. Eklenen, panelin
+   **geri kalanının** analitik kesintisinden etkilenmediğini kanıtlayan
+   iki test: biri yapısal (istemciye dokunabilen dosyalar kapalı bir
+   liste), biri davranışsal (API ölüyken site listesi, hesap, üye
+   listesi ve çıkış çalışıyor). **E-posta yolu ayrı tutuldu** —
+   müşteri onu ayrıca konuşmak istedi.
 2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
@@ -2371,6 +2375,17 @@ kart tarafındaki karşılığı).
 
 #### C7 — Boş durumlar, API kesintisi, ve e-posta yolu
 
+**Faz açılırken ölçüldü (2026-08-26) ve üç parçadan ikisi çoktan
+yapılmıştı.** D1 boşluk sözlüğünü (`hasData`, `neverInstalled`,
+`nothingInRange`, `unreachable`, `refused`), D2 de aynısını kırılımlar
+için yazmış; kesinti cümlesi iki katalogda da duruyor ve panonun
+kesintide ayakta kaldığını doğrulayan bir test var. Yani bu maddenin
+büyük kısmı, planda "kalan iş" diye dururken, arayüz fazları sırasında
+yan ürün olarak teslim edilmiş.
+
+Bu, faz metnini yeniden yazmayı gerektirdi. Aşağıdaki üç bölüm ne
+istendiğini anlatıyor; her birinin altında **bugün ne bulunduğu** var.
+
 Üç küçük ama gerçek boşluk:
 
 **Boş durumlar.** Kurulumdan sonraki ilk saat, müşterinin ürünün
@@ -2380,13 +2395,42 @@ ayrım (§D5'in aynı kuralı): **"snippet henüz hiç görülmedi"** ile
 "0" olarak çizilmemeli. Birincisi bir kurulum hatası, ikincisi normal
 bir pazartesi sabahı.
 
+> **Bulundu: yapılmış (D1/D2).** Ayrım `emptinessFor` içinde ve
+> önceliği doğru: önce hata, sonra "kaynak hiç yazdı mı", sonra dönem.
+> `KnownSites` başarısız olursa "kurulmamış" **varsayılmıyor** — zaten
+> kurulu bir snippet'i tekrar kurmasını söylemek, yalnız "bu dönem boş"
+> demekten kötü.
+
 **Okuma API'si düştüğünde.** Panelin tek sert bağımlılığı bu ve ne
 göstereceği yazılmamıştı. Karar: panel çalışmaya devam eder (ayarlar,
 üyeler, sağlık hepsi `panel_*` tablolarından okunur), yalnız analitik
 kartları "veri kaynağına şu an ulaşılamıyor" der ve sağlık sayfasına
 bağlantı verir. Sıfır göstermez.
 
-**E-posta yolu — projede hiç yok** (`grep`: sıfır SMTP/mail). Ama iki
+> **Bulundu: kart tarafı yapılmış, kanıtın yarısı eksikti.** Panonun
+> kesintide 200 döndüğü ve sıfır çizmediği test ediliyordu. Panelin
+> **geri kalanının** kesintiden etkilenmediği ise yalnızca *inşa gereği*
+> doğruydu — pakette yalnız iki dosya istemciye dokunuyor — ve inşa
+> gereği doğru olan şey, biri site listesine bir ziyaretçi sayısı
+> koyduğu gün sessizce yanlış olur.
+>
+> **Bu fazda eklendi:** yapısal test, analitik istemcisine dokunmasına
+> izin verilen dosyaları kapalı bir listeye bağlıyor (yeni bir sayfa
+> eklemek testi düşürüyor, ve düşme mesajı kesintide ne göstermesi
+> gerektiğini söylüyor); davranışsal test ise API ölüyken site listesi,
+> hesap, üye listesi ve çıkışın hâlâ çalıştığını gösteriyor — müşterinin
+> bir kesinti sırasında **en çok** ihtiyaç duyduğu sayfalar bunlar,
+> çünkü biri sorunu çözebilecek kişiye ulaşma yolu.
+>
+> **"Sağlık sayfasına bağlantı verir" yapılamadı: sağlık sayfası yok.**
+> O **B4**'ün işi ve B grubu 1/7. Bağlantıyı şimdi eklemek, var olmayan
+> bir sayfaya yönlendirmek olurdu. B4 yapıldığında bu satır oraya
+> bağlanacak — kayıt burada duruyor ki unutulmasın.
+
+**E-posta yolu — projede hiç yok** *(bu parça, müşterinin isteğiyle
+**ayrı bir tartışmaya bırakıldı**: "e-posta kısmına geçeceğimiz zaman
+bekle, ekstra bir konuşma yapalım". Aşağıdaki karar önceki oturumdan
+kalan taslak, kesinleşmiş değil.)* (`grep`: sıfır SMTP/mail). Ama iki
 planlı özellik e-posta gerektiriyor: `SendOwnerPasswordReset` (22.
 operasyon) bir bağlantı yolluyor, ve sahip sihirbazı "meslektaş davetini
 öneriyor".
