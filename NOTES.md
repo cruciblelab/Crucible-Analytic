@@ -4317,3 +4317,33 @@ it was observed: the cleanup pattern was read, the mismatch was noticed,
 and the suite was run twice to confirm it rather than to discover it.
 The CI gate's second integration pass would have caught it too, which
 is what that pass is for.
+
+### The check that reported all eight of ten
+
+Adding a table turned up two places that had to hear about it, and one
+of them had been wrong for longer than this phase.
+
+`KURULUM.md`'s GRANT block needed the new table and its sequence, which
+is obvious. The wizard's "are the panel tables applied" check needed it
+too — and while adding it, the list turned out to name eight tables
+where the schema creates ten. `panel_owner_claims` had been missing
+since invitations were built.
+
+The check reported "all eight present" and meant it. That is worse than
+having no check at all: a deployment missing either table passes the
+wizard, hands the panel over to a customer, and then fails at runtime on
+the one page that existed to catch exactly that.
+
+The list is package level now and a test parses `../schema.sql` and
+refuses a mismatch — by path rather than by import, because preflight
+deliberately does not import panel and a test asserts that too. The
+failure message says to update KURULUM.md's grants as well, since a
+table the panel role cannot reach fails the same way as a table that is
+not there.
+
+Verified rather than asserted: the documented GRANT block was applied to
+a real role on a real database, and the privileges read back — the panel
+role can insert into and delete from the recovery table and use its
+sequence, and still cannot read `traffic_snapshots`. (The collector
+column of that measurement proves nothing here: this development
+database gives that role superuser, unlike a real installation.)

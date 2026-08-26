@@ -214,7 +214,7 @@ GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   panel_users, panel_sessions, panel_site_members,
   panel_settings, panel_api_tokens, panel_dev_access,
-  panel_owner_claims, panel_login_attempts
+  panel_owner_claims, panel_login_attempts, panel_recovery_codes
   TO panel_user;
 
 -- Denetim kaydı yalnız eklenebilir. UPDATE/DELETE bilerek yok:
@@ -234,7 +234,7 @@ GRANT SELECT, INSERT ON panel_audit_log TO panel_user;
 GRANT USAGE, SELECT ON
   panel_users_id_seq, panel_audit_log_id_seq, panel_api_tokens_id_seq,
   panel_dev_access_id_seq, panel_owner_claims_id_seq,
-  panel_login_attempts_id_seq
+  panel_login_attempts_id_seq, panel_recovery_codes_id_seq
   TO panel_user;
 
 -- Canlı ayar okuma. İSTEĞE BAĞLI ama şiddetle önerilir:

@@ -272,6 +272,21 @@ func noDatabase(result CheckResult) CheckResult {
 
 // --- database checks ---
 
+// panelTables is every table internal/panel/schema.sql creates.
+//
+// Package level so a test can read it. That test parses the schema file
+// and refuses a mismatch, which is the only thing that keeps this list
+// true: it was written with eight names and the schema had ten by the
+// time anybody looked. A check reporting "all eight present" while two
+// are missing is worse than no check - the wizard passes, handover or
+// recovery then fails at runtime, and the page meant to catch it said
+// everything was fine.
+var panelTables = []string{
+	"panel_users", "panel_sessions", "panel_site_members", "panel_audit_log",
+	"panel_api_tokens", "panel_dev_access", "panel_login_attempts", "panel_settings",
+	"panel_owner_claims", "panel_recovery_codes",
+}
+
 func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.panel", Severity: SeverityRequired,
@@ -281,11 +296,7 @@ func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {
 	if c.pool == nil {
 		return noDatabase(result)
 	}
-	want := []string{
-		"panel_users", "panel_sessions", "panel_site_members", "panel_audit_log",
-		"panel_api_tokens", "panel_dev_access", "panel_login_attempts", "panel_settings",
-	}
-	missing, err := c.missingTables(ctx, want)
+	missing, err := c.missingTables(ctx, panelTables)
 	if err != nil {
 		result.Status, result.Detail = CheckFail, "Tablolar sorgulanamadı: "+err.Error()
 		return result
@@ -295,7 +306,8 @@ func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {
 		result.Detail = "Eksik tablo: " + strings.Join(missing, ", ")
 		return result
 	}
-	result.Status, result.Detail = CheckPass, fmt.Sprintf("%d tablonun hepsi yerinde.", len(want))
+	result.Status, result.Detail = CheckPass,
+		fmt.Sprintf("%d tablonun hepsi yerinde.", len(panelTables))
 	return result
 }
 
