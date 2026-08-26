@@ -3911,8 +3911,13 @@ Found while checking the new cross-references: `KURULUM.md` sent readers
 to `VERI-ENVANTERI.md` for "which data is kept and why", and that file
 has never existed in this repository — not deleted, never created,
 though the task list records it as done. The reference is repointed at
-the README's privacy model, and every `FILE.md` reference in every
-document is now checked to resolve.
+the README's privacy model, and every cross-document reference is now
+checked to resolve.
+
+The check that found it is a naive grep for backticked filenames, which
+is worth saying because it flags this very paragraph: the name above is
+being described, not linked. A checker that cannot tell a reference from
+a mention is still worth having when the alternative is not checking.
 
 ## Planning the release pipeline, and what measuring it turned up
 
