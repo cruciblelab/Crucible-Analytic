@@ -189,7 +189,9 @@ func TestFingerprint_WiresharkCrossValidation(t *testing.T) {
 	}
 }
 
-func readHexFixture(t *testing.T, path string) []byte {
+// readHexFixture takes a testing.TB, not a *testing.T, so the fuzz seed
+// corpus in fuzz_test.go can load the same fixtures from a *testing.F.
+func readHexFixture(t testing.TB, path string) []byte {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {

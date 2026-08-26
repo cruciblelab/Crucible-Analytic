@@ -1557,7 +1557,32 @@ go test -tags loadtest ./internal/loadtest/... ./internal/asnlookup/... -v
 # Needs node, playwright and a chromium build. Drives a real browser
 # against the real handler tree.
 CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
+
+# Fuzzing the parsers that read bytes chosen by a stranger. The seed
+# corpus runs as an ordinary unit test; -fuzz is what actually searches,
+# and it runs until it finds something or you stop it. The pattern must
+# be anchored: an unanchored FuzzParseClientHello also matches
+# FuzzParseClientHelloFromRecords, and go test refuses to fuzz two at
+# once rather than picking one.
+go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
+go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
+
+# Static analysis. It reports, it does not gate - see below.
+gosec -severity=medium ./...
 ```
+
+Fuzzing runs nightly rather than on every change, because what it finds
+is a function of time spent rather than of pass or fail. A crash is
+written to `testdata/fuzz/` and becomes a permanent regression case from
+then on, so a finding is worth committing.
+
+`gosec` is not a gate here, deliberately. Its first run on this
+repository produced 28 findings of which exactly one was real (an
+`http.Server` with no timeouts, which turned out to leave the TLS
+handshake entirely unbounded). Failing a build on that ratio means being
+wrong 27 times for every time it is right, and a red build that is
+usually wrong is one people learn to click past. It runs nightly and a
+person triages it. PLAN.md's group H has the full triage.
 
 The browser suite is not decoration. `httptest.ResponseRecorder` cannot
 tell you whether Chromium *refused* the stylesheet under the

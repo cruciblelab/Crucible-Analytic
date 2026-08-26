@@ -4347,3 +4347,140 @@ role can insert into and delete from the recovery table and use its
 sequence, and still cannot read `traffic_snapshots`. (The collector
 column of that measurement proves nothing here: this development
 database gives that role superuser, unlike a real installation.)
+
+## A feeling, and what measuring it found
+
+The instruction was not a bug report. It was: *we are going as planned,
+but I feel we are going in a way that is very exposed to security holes —
+let's add security scanning phases.*
+
+A feeling is not evidence, but it is a claim, and claims can be measured.
+Two questions, asked of the whole repository:
+
+```
+=== is there a recover() on the connection path:   (empty)
+=== is there a fuzz target:                        (empty)
+```
+
+Not "few". None. No `recover()` anywhere under `internal/` or `cmd/`, and
+no fuzz target at all. The feeling was pointing at something real, and the
+rest of the day was spent finding out what.
+
+### What the fuzzer found: nothing, which is worth having
+
+The JA4 parser is the code with the least protection between it and a
+stranger: `ParseClientHelloFromRecords` is handed the first bytes off the
+socket, before anything is validated, authenticated, or decrypted. And an
+unrecovered panic in Go kills the entire process — which, for a proxy
+sitting in front of the customer's website, means the customer's website
+goes down. Available to anyone who can open a TCP connection.
+
+Two fuzz targets, seeded with the five real FoxIO captures plus the shapes
+that break a parser written without bounds checks. **~19.6 million
+executions, zero crashes.** `cursor.go`'s discipline of returning an `ok`
+from every read holds up.
+
+That is a real result even though it found nothing, for two reasons. It
+converts "written defensively" — a statement of intent — into a
+measurement. And it is now regression protection: a future change that
+drops a bounds check cannot pass quietly.
+
+One detail worth keeping: the seed corpus grew from 10 to 143 entries
+during the run, meaning the mutator kept reaching code it had not reached
+before. Seeding from real handshakes is why. From random bytes it would
+have spent the whole time failing at the record header.
+
+### What a structural question found: a way to stop the collector
+
+The fuzzer proved the parser does not panic *today*. It cannot prove no
+code on that goroutine ever will. So the second question was structural:
+if something did panic there, what happens?
+
+`internal/proxy`'s accept loop hands each connection to a bare goroutine.
+No recover, anywhere on the path. So: the process dies, every other
+visitor's connection dies with it, and an attacker who found the input
+repeats it after each restart — a supervisor does not help.
+
+Demonstrated rather than argued. A rate store that panics on its first
+call, one connection to trigger it, one more to prove the server still
+serves. Before the fix the test did not fail; it killed the test binary
+and the package reported a panic trace. That is the exposure, printed.
+
+The fix is a recover at all three goroutine roots — the connection
+handler and *both* splice goroutines, because `recover()` only sees
+panics on its own goroutine and the one in `handleConn` does nothing for
+the two it spawns.
+
+There is a real argument against recovering panics: it can mask bugs and
+leave a process in a corrupt state. It loses here on internal
+consistency. The limiter already has a `fail_open` mode whose entire
+purpose is that the collector must never be the reason a site is
+unreachable. A process-killing panic contradicts a commitment this
+project already made. net/http made the same call in `conn.serve`, which
+is why every other server here already had the protection — they run on
+`http.Server`; `internal/proxy` does not. So the log is loud, with the
+stack, at Error: recovered is not the same as fine.
+
+### What the scanner found: one in twenty-eight
+
+`gosec` over 111 files and 29,984 lines: 28 findings. Triaged by hand,
+**exactly one was real.**
+
+The four open redirects are false positives — `rawNext` already rejects
+`//host` and `/\host`, including the one every hand-rolled check forgets.
+The five integer overflows are all bounded (`Score` is clamped to
+`MaxScore = 100` at its source). The file permissions are on public bot
+data, where `0644` is the intent.
+
+The one real finding was `internal/fullproxy` running an `http.Server`
+with no timeouts at all, while the other three servers set all four. And
+it was worse than the rule's own description. net/http derives the TLS
+handshake deadline from the smallest non-zero of
+ReadHeaderTimeout/ReadTimeout/WriteTimeout, and applies **none** when all
+three are zero. So the exposure was not slow headers after a handshake:
+a client could send one byte and hold a goroutine, a socket, and up to
+32KB of capture buffer open forever. Measured both ways — 10 seconds and
+still holding before, 302ms against a 300ms bound after.
+
+Only two of the four timeouts were added. A reverse proxy carries
+whatever the customer's site serves, so a `ReadTimeout` breaks a large
+upload and a `WriteTimeout` breaks a large download, and both break it by
+the size of the file rather than by anything the customer did wrong. The
+beacon and the API can cap all four because their request and response
+sizes are bounded; this one cannot, and bounding those is the backend's
+job because only the backend knows what it serves.
+
+That 1-in-28 ratio is not a complaint about gosec, it is the design input
+for where it belongs. Gating on it would paint the pipeline red 27 times
+for every time it is right, and a red that is usually wrong is a red
+people learn to click past — the same lesson G1 already learned about
+`TestLiveFetch`. So it reports nightly and a person triages.
+
+### The shape both holes shared
+
+Neither hole was exotic. Both were *one component forgetting what the
+other three do*: three servers set timeouts and one did not; everything
+on `http.Server` got a per-connection recover for free and the one server
+that is not on `http.Server` did not.
+
+A person noticing would have caught both. The whole point of this group
+is not to depend on that person, which is why H4 exists — the invariant
+written as a test that enumerates the servers, so the next component to
+forget is caught by the build rather than by whoever happens to look.
+
+### The test that was checking nothing
+
+Adding group H to PLAN.md changed nothing in the mirror test that is
+supposed to hold the group table and the phase headings to each other.
+Renaming the heading changed nothing either. Its three regexes were
+written `[A-G]` — the alphabet on the day it was written — so a group
+outside that range matched neither side, both sides saw nothing, and the
+two nothings agreed.
+
+That is precisely the failure the test exists to prevent, one level up: a
+number nobody could check. Widened to `[A-Z]`, and verified the way it
+should have been the first time — by breaking the count on purpose and
+watching it fail: `group H: the table says 1/3, the headings say 0/4`.
+
+Worth stating plainly, because I described this test earlier as a two-way
+mirror: it was, within a range it did not say it had.

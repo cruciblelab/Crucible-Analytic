@@ -18,10 +18,21 @@ import (
 // rather than to renumber.
 var parentHeadings = map[string]bool{"A5": true, "C7": true}
 
+// The letter class is [A-Z], not the [A-G] it was written as.
+//
+// [A-G] was the alphabet the day this was written, and it silently
+// stopped being true the moment group H was added: a group outside the
+// range matches neither the heading pattern nor the table pattern, so
+// both sides of the "mirror" saw nothing and agreed with each other
+// perfectly. The test kept passing. That is the same failure this test
+// exists to prevent, one level up - a check nobody could check.
+//
+// Hardcoding today's last letter is what caused it, so it is not
+// repeated: [A-Z] needs no edit when group I arrives.
 var (
-	phaseHeading = regexp.MustCompile(`^#### ([A-G]I?[0-9]+(?:\.[0-9]+)?) — (.*)$`)
-	groupRow     = regexp.MustCompile(`^\| \*\*([A-G]I?)\*\* [^|]*\| [^*]*\*\*([0-9]+)/([0-9]+)\*\*`)
-	groupOf      = regexp.MustCompile(`^([A-G]I?)`)
+	phaseHeading = regexp.MustCompile(`^#### ([A-Z]I?[0-9]+(?:\.[0-9]+)?) — (.*)$`)
+	groupRow     = regexp.MustCompile(`^\| \*\*([A-Z]I?)\*\* [^|]*\| [^*]*\*\*([0-9]+)/([0-9]+)\*\*`)
+	groupOf      = regexp.MustCompile(`^([A-Z]I?)`)
 )
 
 // TestPlan_TheGroupTableMatchesThePhaseHeadings.

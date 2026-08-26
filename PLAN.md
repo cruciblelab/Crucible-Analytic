@@ -90,6 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
+| **H** Güvenlik taraması | 🟡 **0/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H2, H3, H4 |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
 
 ### Bitmiş maddeler
@@ -3046,6 +3047,165 @@ sırası gelir. İmzalama/noter onayı: kimsenin istediğine dair kanıt yok.
 **toplamları aynı**; paket temiz bir VM'de açılıp KURULUM.md izlenerek
 çalışıyor; ve pakette "asla" listesinden hiçbir dosya olmadığı
 makineyle doğrulanıyor.
+
+---
+
+### H. Güvenlik taraması — okumanın bulamadığı sınıf
+
+**Neden bu grup var.** Kullanıcının cümlesi şuydu: *"planlandığı gibi
+gidiyoruz ama güvenlik açıklarına çok açık şekilde gittiğimizi
+hissediyorum."* His ölçülebilir bir iddiadır, ve ölçüldü. İki soru
+soruldu, ikisinin de cevabı boş döndü:
+
+```
+=== bağlantı yolunda recover var mı:   (boş)
+=== fuzz hedefi var mı:                (boş)
+```
+
+Depoda `internal/` ve `cmd/` altında **tek bir `recover()` yoktu** ve
+**tek bir fuzz hedefi yoktu**. AI.3 denetimi (OWASP/CWE/ASVS) kodu
+*okuyarak* sekiz bulgu çıkarmıştı; bu grup, okumanın yapı gereği
+bulamadığı sınıfı hedefliyor.
+
+**O sınıfın somut ispatı, bu grubun kurulduğu gün bulunan iki delik.**
+İkisi de kod okunarak fark edilmedi; ikisi de "diğer üç sunucu bunu
+yapıyor, bu biri yapmıyor" şeklinde **yapısal bir soru** sorulunca
+düştü:
+
+| Bulunan | Nasıl | Etkisi |
+|---|---|---|
+| `internal/proxy` bağlantı goroutine'inde `recover()` yok | Yapısal soru | Herhangi bir panik **tüm süreci** öldürüyordu — collector müşterinin sitesinin önünde durduğu için **sitenin kapanması** demek |
+| `internal/fullproxy` `http.Server`'ında hiçbir zaman aşımı yok | `gosec` G112 | TLS el sıkışması **hiç sınırlanmıyordu**; tek baytla süresiz bağlantı tutulabiliyordu |
+
+İkisi de aynı gün düzeltildi ve ikisinin de testi, düzeltme geri
+alınınca kırmızıya dönüyor (ölçüldü: biri test ikilisini panikle
+öldürüyor, diğeri 10 sn sonra hâlâ bağlantıyı tutuyor).
+
+**Grubun asıl dersi bu tabloda:** iki delik de *tek bir bileşenin,
+diğerlerinin yaptığı bir şeyi unutması*ydı. Bu yüzden H4 var.
+
+---
+
+#### H1 — Saldırgan baytlarını okuyan ayrıştırıcıları fuzz'la 🟡 **ja4 yapıldı**
+
+**Kapsam.** Doğrulanmamış, kimliklendirilmemiş, şifresi çözülmemiş
+baytları okuyan her ayrıştırıcı. `internal/ja4` bugün yapıldı:
+`FuzzParseClientHelloFromRecords` ve `FuzzParseClientHello`, tohum
+korpusu beş gerçek FoxIO yakalaması **artı** her katmanda budanmış ve
+sahip olduğundan fazlasını iddia eden uzunluklar.
+
+**Ölçüm:** iki hedefte toplam **~19,6 milyon çalıştırma, sıfır çökme**
+(9.641.740 + 9.984.884). `cursor.go`'nun her okumada `ok` döndürme
+disiplini işini yapıyor. Bu bir "temiz çıktı" değil, **regresyon
+koruması**: bundan sonra sınır kontrolünü kaldıran bir değişiklik
+sessizce geçemez.
+
+Kalan hedefler, saldırgana yakınlık sırasıyla: beacon'ın JSON gövdesi
+(tarayıcıdan gelir), `asnlookup`'ın aralık tabloları, `botdata`'nın
+yukarı akıştan çektiği JSON.
+
+**Neden tohum korpusu gerçek el sıkışmalardan başlıyor.** Rastgele
+baytlardan başlayan bir mutasyoncu uzantı ayrıştırmasının derinine
+neredeyse hiç ulaşamaz; geçerli bir hello'dan başlayan ise ilk
+saniyelerde ulaşır. Fark ölçüldü: korpus 10'dan 143'e çıktı, yani
+mutasyoncu sürekli **yeni kod yolu** buluyordu.
+
+**Bitti ölçütü:** dört ayrıştırıcının dördünde de hedef var; gecelik
+işte korpus biriktirerek koşuyor; bulunan her çökme `testdata/fuzz/`
+altına commit'leniyor (Go bunu kendisi yapar ve o dosya kalıcı bir
+regresyon testine dönüşür).
+
+---
+
+#### H2 — Statik tarama: **kapı değil rapor**, taban çizgisiyle
+
+**Bugün ölçülen oran, bu fazın tüm tasarımını belirliyor.** `gosec`
+111 dosya / 29.984 satırda **28 bulgu** verdi. Elle üçlendi:
+
+| Bulgu | Adet | Gerçek mi |
+|---|---|---|
+| G112 zaman aşımı yok | 1 | ✅ **Gerçek** — düzeltildi (yukarıdaki tablo) |
+| G710 açık yönlendirme | 4 | ❌ Hayır — `rawNext` zaten `//host` **ve** `/\host` reddediyor |
+| G115 tamsayı taşması | 5 | ❌ Hayır — hepsi sınırlı; `Score` kaynağında `MaxScore = 100`'e kırpılıyor |
+| G304 değişkenle dosya açma | 5 | ❌ Hayır — yollar kendi yapılandırmamızdan, kullanıcı girdisinden değil |
+| G301/G302 izinler | 2 | ❌ Hayır — herkese açık bot verisi, `0644` bilerek |
+| G703 yol geçişi | 1 | ❌ Hayır — kendi test yardımcım |
+| G104 işlenmemiş hata | 9 | ❌ Hayır — çoğu `defer x.Close()` |
+
+**28'de 1.** Bu oranı bir kapıya bağlamak, hattı %96 gürültüyle
+kırmızıya boyamak olurdu — ve G1'in dersini tekrar ederdi: *her test
+birleşmeyi engellememeli.* Kırmızının anlamı olması, kırmızının nadir
+olmasına bağlı.
+
+**Tasarım:** taban çizgisi dosyası. Bugünkü 27 gürültü, **her biri
+neden gürültü olduğu yazılarak** dondurulur; tarama yalnız **yeni**
+bulgu çıkınca konuşur. Bir kapı isteniyorsa kapı "sıfır bulgu" değil,
+**"taban çizgisinde olmayan bulgu yok"** olur.
+
+**Bitti ölçütü:** taban çizgisi commit'li ve her satırında gerekçe var;
+kasten sokulmuş bir açık (ör. `exec.Command` ile birleştirilmiş girdi)
+taramada **görünüyor**; ve taban çizgisi eskiyince — düzeltilen bir
+bulgu hâlâ listede duruyorsa — bunu söyleyen bir kontrol var.
+
+---
+
+#### H3 — Sır taraması ve bağımlılık kapısı
+
+**Neden ayrı.** `govulncheck` zaten kapıda ve *erişilebilirlik*
+analiziyle iki gerçek bulgu çıkardı (AI.3). Ama iki soruyu hiç
+sormuyor: (1) depoya **sır** sızdı mı, (2) bir bağımlılık **yeni**
+eklendiğinde onu kim gördü.
+
+Birincisi bu proje için sıradan bir hijyen maddesi değil: yapılandırma
+dosyası geliştirici parola hash'ini ve IP anahtarını taşıyor, ve
+`KURULUM.md` gerçek `GRANT` blokları içeriyor. Yanlış bir kopyala-yapıştır
+tam olarak bu depoya sır sokar. Tarama **git geçmişini** de kapsamalı —
+sonradan silinen bir sır silinmiş olmaz.
+
+**Bitti ölçütü:** geçmiş dâhil tarandı ve çıkan her eşleşme ya gerçek
+(döndürüldü) ya da yazılı gerekçeyle test verisi; yeni bağımlılık
+eklendiğinde PR'da görünüyor.
+
+---
+
+#### H4 — Yapısal güvenlik değişmezleri: "biri unutunca" testi
+
+**Bu fazın gerekçesi bir tahmin değil, bu grubun kurulduğu gün bulunan
+iki deliğin ortak şekli.** İkisi de şuydu: *dört sunucudan üçü doğru
+şeyi yapıyor, biri yapmıyor.* `internal/api`, `internal/beacon`,
+`internal/panel/web` dört zaman aşımını da kuruyordu; `internal/fullproxy`
+hiçbirini. `net/http` üstünde koşan her şey bağlantı başına
+`recover`'ı bedavadan alıyordu; `internal/proxy` — tek `http.Server`
+kullanmayan — almıyordu.
+
+İkisini de **bir insanın fark etmesi** bulmuş olurdu. Bu grubun tüm
+iddiası, o insana bağlı kalmamak.
+
+Yazılacak testler, iddiayı yorumda değil derlemede tutan cinsten
+(§3.4'ün "listeye karşı bakılır, hafızaya karşı değil" kuralı):
+
+- Dinleyen her `http.Server`'ın `ReadHeaderTimeout`'u var — sunucu
+  listesi testte sayılır, yeni sunucu eklenip listeye girmezse test
+  bunu söyler
+- Saldırgan baytına dokunan her goroutine kökünde `recover` var
+- Yeni bir `net.Listener` kabul döngüsü eklendiğinde ikisini de sorar
+
+**Bitti ölçütü:** zaman aşımını kaldırmak testi kırıyor (bugün elle
+ölçüldü: kaldırınca 10 sn sonra bağlantı hâlâ açık); `recover`'ı
+kaldırmak testi kırıyor (bugün elle ölçüldü: test ikilisi paniğe
+ölüyor); ve **listeye girmemiş yeni bir sunucu** testi kırıyor — bu
+sonuncusu asıl olan, çünkü diğer ikisi zaten bugün var.
+
+---
+
+#### H'nin gereksiz kılmadığı şey
+
+Tarama, denetimin yerine geçmez. AI.3'ün sekiz bulgusunun hiçbirini
+`gosec` bulamazdı: yetki modeli, sızdıran hata mesajı, kayıt sırası
+gibi şeylerin hepsi **niyet** gerektirir. Bugünkü oran da bunu söylüyor
+— araç 28 şey işaret etti, birini doğru işaret etti, ve o birini de
+*insan* gerçek olduğuna karar verdiği için düzelttik. Araçlar
+okumadığın yeri tarar; okuduğun yeri anlamaz.
 
 ---
 

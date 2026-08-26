@@ -116,7 +116,12 @@ func (s *Server) logger() *slog.Logger {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
+	// Ordered so conn.Close runs even when a panic unwinds through here:
+	// deferred calls run last-in-first-out, so recoverConn stops the
+	// unwinding first and Close then still fires. See recover.go for why
+	// this exists at all.
 	defer conn.Close()
+	defer recoverConn(s.logger(), "handleConn")
 
 	remoteIP, ok := ipFromAddr(conn.RemoteAddr())
 	if !ok {
@@ -196,5 +201,5 @@ func (s *Server) pipeToBackend(conn net.Conn, clientReader io.Reader) {
 	}
 	defer backendConn.Close()
 
-	pipeConns(conn, clientReader, backendConn)
+	pipeConns(s.logger(), conn, clientReader, backendConn)
 }

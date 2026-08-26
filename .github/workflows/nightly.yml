@@ -17,6 +17,18 @@
 #
 #   vulns     A CVE published against code nobody touched is exactly the
 #             case a pull-request-only run cannot see.
+#
+#   fuzz      Fuzzing is not pass/fail, it is time spent. A gate can only
+#             afford seconds, and seconds find what the seed corpus
+#             already covers. Minutes per night, with the corpus carried
+#             between runs, is where it starts finding things nobody
+#             seeded. See PLAN.md, H1.
+#
+#   sast      gosec's first run on this repository produced 28 findings,
+#             of which exactly one was real (PLAN.md, H2). Gating on that
+#             ratio paints the pipeline red 27 times for every time it is
+#             right, and a red that is usually wrong is a red people learn
+#             to click past. It reports; a person triages.
 name: nightly
 
 on:
@@ -74,3 +86,68 @@ jobs:
       # it pass" but "is it stable enough to be a gate". One green night
       # says nothing about a range assertion on a shared runner.
       - run: go test -tags loadtest -race -count=3 -timeout 20m ./internal/loadtest/
+
+  fuzz:
+    name: fuzz the parsers that read attacker bytes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The corpus is the point of running this nightly rather than in
+      # the gate. Go writes inputs that reached new coverage into
+      # GOCACHE/fuzz and reuses them next time, so night N starts where
+      # night N-1 stopped instead of rediscovering the same first
+      # thousand paths. Keyed by run_id with a date prefix so each night
+      # restores the most recent one and saves its own.
+      - name: restore the fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: fuzz-corpus-
+
+      # -fuzz takes one target per invocation, and the pattern is
+      # anchored: an unanchored FuzzParseClientHello also matches
+      # FuzzParseClientHelloFromRecords, and go test refuses to fuzz two
+      # at once rather than picking one.
+      - name: ja4 - the first bytes off the socket
+        run: |
+          go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
+          go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
+
+      # A crash is written to testdata/fuzz/ as a regression case, which
+      # is the artifact actually worth having - it turns a one-off
+      # finding into a permanent unit test. Upload it, because the
+      # workspace is thrown away and a crasher nobody kept is a night
+      # wasted.
+      - name: keep any crasher
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashers
+          path: internal/**/testdata/fuzz/**
+          if-no-files-found: ignore
+
+  sast:
+    name: gosec - reports, does not gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # No `|| true` and no continue-on-error: this job is allowed to be
+      # red, because red here means "a human should look", not "the
+      # change is broken". It is in nightly precisely so that being red
+      # blocks nobody. Until H2's baseline exists, that will be red every
+      # night on the 27 findings already triaged as noise - which is
+      # honest about the current state rather than hiding it behind a
+      # suppression nobody wrote down.
+      - run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          "$(go env GOPATH)/bin/gosec" -fmt=text -severity=medium ./...

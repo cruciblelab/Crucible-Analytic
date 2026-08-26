@@ -75,7 +75,35 @@ type Server struct {
 	Resolver     Resolver
 	// DialTimeout bounds connecting to the backend. Defaults to 10s if <= 0.
 	DialTimeout time.Duration
+	// ReadHeaderTimeout bounds how long a client may take to send its TLS
+	// ClientHello and then its request headers. Defaults to
+	// defaultReadHeaderTimeout if <= 0. This is the slowloris bound - see
+	// the http.Server construction in Serve for why it is set here and why
+	// ReadTimeout/WriteTimeout deliberately are not.
+	ReadHeaderTimeout time.Duration
+	// IdleTimeout bounds how long an established keep-alive connection may
+	// sit with no request in flight. Defaults to defaultIdleTimeout if <= 0.
+	IdleTimeout time.Duration
 	Logger      *slog.Logger
+}
+
+// Timeout defaults for the front-facing HTTP server. Generous rather than
+// tight: the point is to bound the unbounded, not to disconnect slow
+// mobile clients on a bad connection.
+const (
+	defaultReadHeaderTimeout = 20 * time.Second
+	defaultIdleTimeout       = 120 * time.Second
+)
+
+// orDefault substitutes def for any non-positive d. Not cmp.Or, which
+// only replaces exactly zero: a negative duration is a deadline already in
+// the past, so it would turn a misconfiguration into a server that closes
+// every connection instantly rather than into the documented default.
+func orDefault(d, def time.Duration) time.Duration {
+	if d <= 0 {
+		return def
+	}
+	return d
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -147,9 +175,36 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}
 	tlsLn := tls.NewListener(&snoopListener{Listener: ln}, tlsConfig)
 
+	// Why only two of the four timeouts.
+	//
+	// ReadHeaderTimeout and IdleTimeout bound things that are purely the
+	// client's choice: how long it takes to say what it wants, and how long
+	// it sits idle afterwards. Neither has a legitimate reason to be
+	// unbounded, and leaving them so is a slowloris - a client that opens
+	// connections and sends one byte holds a goroutine and a socket each,
+	// costing the attacker almost nothing.
+	//
+	// ReadHeaderTimeout carries extra weight here beyond headers.
+	// net/http derives the TLS handshake deadline from the smallest
+	// non-zero of ReadHeaderTimeout/ReadTimeout/WriteTimeout
+	// (server.go, tlsHandshakeTimeout), and applies none at all when every
+	// one of them is zero - which is what this server did before. So an
+	// unfinished ClientHello could be held open forever, and each one also
+	// pinned up to maxSnoopBytes of capture buffer.
+	//
+	// ReadTimeout and WriteTimeout are deliberately left unset. Unlike the
+	// beacon and the API - which have bounded request and response sizes
+	// and can safely cap both - this is a reverse proxy carrying whatever
+	// the customer's site serves. A ReadTimeout breaks a large upload and a
+	// WriteTimeout breaks a large download or a streaming response, and it
+	// breaks them by the size of the file rather than by anything the
+	// customer did wrong. Bounding those is the backend's job, since only
+	// the backend knows what it serves.
 	httpServer := &http.Server{
-		Handler:     s.recordingHandler(reverseProxy),
-		ConnContext: connectFingerprintContext,
+		Handler:           s.recordingHandler(reverseProxy),
+		ConnContext:       connectFingerprintContext,
+		ReadHeaderTimeout: orDefault(s.ReadHeaderTimeout, defaultReadHeaderTimeout),
+		IdleTimeout:       orDefault(s.IdleTimeout, defaultIdleTimeout),
 	}
 
 	s.logger().Info("fullproxy listening", "addr", ln.Addr().String(), "backend", backendURL.String())
