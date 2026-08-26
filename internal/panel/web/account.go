@@ -65,6 +65,13 @@ type accountPage struct {
 	// QRURL is where the page fetches the enrolment image.
 	QRURL string
 
+	// RecoveryLeft is how many unused recovery codes this account has.
+	//
+	// Shown as a number rather than a yes/no, because "you have some"
+	// and "you have one" call for different behaviour from the reader
+	// and only one of them is urgent.
+	RecoveryLeft int
+
 	Message string
 	Failed  bool
 }
@@ -113,6 +120,14 @@ func (s *Server) saveAccount(w http.ResponseWriter, r *http.Request, lang *ui.La
 	// with a default that does nothing is the difference between an
 	// unknown value being ignored and it falling into whichever branch
 	// happens to be first.
+	// Regenerating recovery codes ends on a different page - the one
+	// that shows them - so it is handled before the switch below, which
+	// exists to produce an accountPage.
+	if r.PostFormValue("islem") == "kurtarma" {
+		s.regenerateRecoveryCodes(w, r, lang, user, p)
+		return
+	}
+
 	switch r.PostFormValue("islem") {
 	case "ad":
 		data = s.saveDisplayName(ctx, lang, user, r.PostFormValue("ad"))
@@ -137,6 +152,46 @@ func (s *Server) saveAccount(w http.ResponseWriter, r *http.Request, lang *ui.La
 	}
 
 	s.renderAccount(w, r, lang, p, data)
+}
+
+// regenerateRecoveryCodes issues a fresh set to the signed-in account.
+//
+// # Why the current password is asked for
+//
+// This mints credentials. A session somebody else is holding - a shared
+// machine, a stolen cookie - could otherwise print eight codes that keep
+// working long after the session is gone, which turns a temporary
+// problem into a permanent one. It is the same reason turning off the
+// second factor asks, one function below.
+func (s *Server) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request,
+	lang *ui.Language, user panel.User, p panel.Principal) {
+
+	ctx := r.Context()
+	ok, _ := panel.VerifyPassword(user.PasswordHash, r.PostFormValue("mevcut_parola"))
+	if !ok {
+		s.renderAccount(w, r, lang, p, accountPage{
+			Message: lang.T("hesap.hata.mevcut_parola"), Failed: true,
+		})
+		return
+	}
+
+	codes, err := s.Store.GenerateRecoveryCodes(ctx, user.ID, user.ID)
+	if err != nil {
+		s.logger().Error("panel: generating recovery codes", "err", err)
+		s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
+		return
+	}
+	id := user.ID
+	_ = s.Store.Record(ctx, panel.AuditEntry{
+		Action: panel.ActionRecoveryCodesIssued, ActorKind: panel.PrincipalUser,
+		ActorID: &id, ActorLabel: user.Email,
+		Detail: map[string]any{"for": user.Email, "count": len(codes), "self": true},
+	})
+
+	s.renderRecoveryCodes(w, r, lang, recoveryCodesPage{
+		Codes:   formatCodes(codes),
+		NextURL: AccountPath,
+	})
 }
 
 func (s *Server) saveDisplayName(ctx context.Context, lang *ui.Language, user panel.User, name string) accountPage {
@@ -404,6 +459,14 @@ func (s *Server) renderAccount(w http.ResponseWriter, r *http.Request, lang *ui.
 	if data.Enrolling {
 		data.ManualKey = pending
 		data.QRURL = TOTPQRPath
+	}
+	// A failure here is logged and not fatal: it costs the reader a
+	// number on a page, and taking the whole account page down over it
+	// would be a worse trade than showing the rest.
+	if left, err := s.Store.CountRecoveryCodes(ctx, p.UserID); err != nil {
+		s.logger().Warn("panel: counting recovery codes", "err", err)
+	} else {
+		data.RecoveryLeft = left
 	}
 
 	// Built from the principal alone: this page belongs to an account,

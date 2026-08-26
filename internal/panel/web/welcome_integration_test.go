@@ -12,6 +12,7 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -139,15 +140,28 @@ func TestHandoverCreatesAnOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	claimed, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusSeeOther {
+	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("claiming answered %d", resp.StatusCode)
 	}
-	// Straight into the wizard, already signed in: asking somebody to
-	// type a password they set four seconds ago reads as not having
-	// believed them.
-	if got := resp.Header.Get("Location"); got != WelcomePathPrefix+welcomeSteps[0].ID {
-		t.Errorf("claiming led to %q, want the owner's wizard", got)
+
+	// The recovery codes, rendered rather than redirected past.
+	//
+	// This used to be a 303 into the owner's wizard. It is a page now
+	// because these codes exist in readable form exactly once - carrying
+	// them through a redirect would mean putting eight of them in the
+	// session, which is a database table, and they are stored as digests
+	// everywhere else precisely so they are not readable at rest.
+	//
+	// Counted rather than matched: the codes are random, so what can be
+	// asserted is that the right number of them arrived and that the
+	// page says where the reader goes next.
+	if got := strings.Count(string(claimed), `class="secret"`); got != panel.RecoveryCodeCount {
+		t.Errorf("the page after claiming shows %d codes, want %d", got, panel.RecoveryCodeCount)
+	}
+	if !strings.Contains(string(claimed), WelcomePathPrefix+welcomeSteps[0].ID) {
+		t.Error("the recovery-code page does not link on to the owner's wizard")
 	}
 
 	// The account exists, owns the site, and is not a superadmin.

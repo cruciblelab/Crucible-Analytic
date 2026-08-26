@@ -110,6 +110,10 @@ func (s *Server) Handler() http.Handler {
 	// so that a wrong method is a 405 rather than falling through to the
 	// catch-all and being reported as a page that does not exist.
 	mux.HandleFunc(LoginPath, s.loginHandler)
+	// Registered before SecondFactorPath would matter: both live under
+	// /giris/, and ServeMux matches the longer pattern regardless of
+	// order, so this is placement for a reader rather than for the mux.
+	mux.HandleFunc(RecoveryPath, s.recoveryHandler)
 	mux.HandleFunc(SecondFactorPath, s.secondFactorHandler)
 	mux.HandleFunc(LogoutPath, s.logoutHandler)
 	mux.HandleFunc(AccountPath, s.accountHandler)

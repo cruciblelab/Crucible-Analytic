@@ -57,6 +57,15 @@ const (
 	ActionTokenCreated = "token.created"
 	ActionTokenRevoked = "token.revoked"
 
+	// Recovery codes. Issuing is recorded because it mints credentials
+	// that outlive the session that asked for them, and using one is
+	// recorded because it is the one way into an account that goes round
+	// both the password and the second factor. "Who got in, how, and
+	// from where" has to be answerable afterwards - that is the whole
+	// price of having a way in at all.
+	ActionRecoveryCodesIssued = "recovery.issued"
+	ActionRecoveryCodeUsed    = "recovery.used"
+
 	// Settings changes. Recorded with the old and the new value, because
 	// "who set the retention to 3650 days" is a question that gets asked
 	// months later, when the only thing anybody remembers is that it

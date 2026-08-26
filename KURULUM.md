@@ -312,6 +312,21 @@ doğrulandı, çıkan matris yukarıdaki tablodur.
 
 Üçünü de kuruluma başlamadan üretin.
 
+### 5.0 Müşteri kilitlenirse ne olacak — hiçbir şey yapmanız gerekmiyor
+
+Hesap oluşturulduğunda müşteriye **sekiz tek kullanımlık kurtarma kodu**
+bir kez gösteriliyor. Parolasını unutur ya da telefonunu kaybederse,
+giriş sayfasındaki "Giremiyorum" bağlantısından kendi başına geri
+giriyor. **Sizi aramasına gerek yok, e-posta sunucusu gerekmiyor,
+ayarlanacak bir şey yok.**
+
+Kodlarını da kaybederse: üye listesinden kodlarını yenileyip birini
+kendisine iletirsiniz. Ayrı bir mekanizma değil, aynı form.
+
+Müşteriye söylemeniz gereken tek şey: **o sayfadaki kodları saklasın.**
+Sayfa kapandığında kodların kendisi kayboluyor, panelde yalnız
+karşılıkları duruyor.
+
 ### 5.1 Geliştirici şifresi
 
 Hukuki ağırlığı olan ayarları (IP saklama modu, log saklama süresi)

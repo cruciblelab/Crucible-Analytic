@@ -149,6 +149,7 @@ parola = "Parola"
 gonder = "Giriş yap"
 baslik = "Giriş"
 govde = "Devam etmek için giriş yapın."
+giremiyorum = "Giremiyorum — kurtarma kodumu kullanacağım"
 
 # --- Kurulum sihirbazı (C2) ---
 #
@@ -343,7 +344,7 @@ baslatildi = "Kodu tarayın, sonra uygulamanızdaki kodu girin."
 vazgecildi = "İki aşamalı doğrulama kurulumundan vazgeçildi. Hesabınızda bir değişiklik olmadı."
 acildi = "İki aşamalı doğrulama açıldı."
 kapandi = "İki aşamalı doğrulama kapatıldı."
-kurtarma_yok = "Kurtarma kodu henüz yok: telefonunuzu kaybederseniz sitenin sahibi veya işletmeci iki faktörünüzü sıfırlayabilir."
+kurtarma_var = "Kurtarma kodlarınız var: telefonunuzu ya da parolanızı kaybederseniz kimseyi beklemeden geri girebilirsiniz."
 
 [metin.hesap.gelistirici]
 baslik = "Geliştirici modu"
@@ -667,3 +668,31 @@ trafik = "Okunamadı."
 [metin.pano.bos.reddedildi]
 beacon = "Erişim reddedildi."
 trafik = "Erişim reddedildi."
+
+[metin.kurtarma]
+baslik = "Kurtarma kodlarınız"
+ilk = "Hesabınız hazır. Aşağıdaki kodları saklayın — parolanızı unutur ya da telefonunuzu kaybederseniz, kimseyi beklemeden panele geri girmenizi sağlarlar."
+yeni = "İşte yeni kurtarma kodlarınız. Eskiler artık geçersiz."
+verildi = "%s için yeni kurtarma kodları. Kendisine ulaştırın — bu kodlar bir daha gösterilmeyecek."
+uyari_baslik = "Bu kodlar bir daha gösterilmeyecek"
+uyari = "Şimdi bir yere kaydedin: parola yöneticiniz, telefonunuzun notları, ya da bir kâğıt. Sayfayı kapattığınızda kodların kendisi kaybolur; panelde yalnız karşılıkları saklanıyor."
+nasil = "Her kod yalnız bir kez çalışır. Giremediğinizde giriş sayfasındaki \"Giremiyorum\" bağlantısını kullanın. Kodlarınız biterse ya da hepsini kaybederseniz, hesap sayfanızdan yenilerini üretebilirsiniz."
+kaydettim = "Kaydettim, devam et"
+kalan = "Kalan kurtarma kodu"
+kalan_az = "Kurtarma kodlarınız azalıyor. Bitmeden yenilerini üretin."
+kalan_yok = "Hiç kurtarma kodunuz kalmadı. Şimdi üretin — giremediğiniz gün geç olur."
+uret = "Yeni kurtarma kodları üret"
+uret_uyari = "Yeni kodlar üretmek eskileri geçersiz kılar."
+
+[metin.kurtarma.giris]
+baslik = "Giremiyorum"
+govde = "Kurtarma kodlarınızdan birini kullanarak yeni bir parola belirleyin. Kod tek kullanımlıktır."
+kod = "Kurtarma kodu"
+kod_ipucu = "Hesabınızı açtığınızda size verilen kodlardan biri. Tireler ve boşluklar önemli değil."
+2fa = "Telefonuma da erişemiyorum"
+2fa_ipucu = "İşaretlerseniz iki aşamalı doğrulama kapatılır ve sonradan yeniden kurmanız gerekir. İşaretlemezseniz olduğu gibi kalır."
+gonder = "Parolamı sıfırla"
+geri = "Giriş sayfasına dön"
+
+[metin.kurtarma.hata]
+gecersiz = "E-posta adresi veya kurtarma kodu doğru değil."

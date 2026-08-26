@@ -123,6 +123,7 @@ parola = "Password"
 gonder = "Sign in"
 baslik = "Sign in"
 govde = "Sign in to continue."
+giremiyorum = "I cannot get in — use a recovery code"
 
 # --- Setup wizard (C2) ---
 #
@@ -316,7 +317,7 @@ baslatildi = "Scan the code, then enter the code your app shows."
 vazgecildi = "Two-factor setup was cancelled. Nothing about your account changed."
 acildi = "Two-factor authentication is on."
 kapandi = "Two-factor authentication is off."
-kurtarma_yok = "There are no recovery codes yet: if you lose your phone, the site's owner or the operator can reset your second factor."
+kurtarma_var = "You have recovery codes: if you lose your phone or your password, you can get back in without waiting for anybody."
 
 [metin.hesap.gelistirici]
 baslik = "Developer mode"
@@ -638,3 +639,31 @@ trafik = "Could not be read."
 [metin.pano.bos.reddedildi]
 beacon = "Access refused."
 trafik = "Access refused."
+
+[metin.kurtarma]
+baslik = "Your recovery codes"
+ilk = "Your account is ready. Keep the codes below — if you forget your password or lose your phone, they get you back into the panel without waiting for anybody."
+yeni = "Here are your new recovery codes. The old ones no longer work."
+verildi = "New recovery codes for %s. Pass them on — these will not be shown again."
+uyari_baslik = "These will not be shown again"
+uyari = "Save them somewhere now: your password manager, your phone's notes, or a piece of paper. Once you close this page the codes themselves are gone; the panel only keeps what they hash to."
+nasil = "Each code works once. When you cannot get in, use the \"I cannot get in\" link on the sign-in page. If you run out or lose them all, you can generate a new set from your account page."
+kaydettim = "Saved them, continue"
+kalan = "Recovery codes left"
+kalan_az = "You are running low on recovery codes. Generate a new set before they run out."
+kalan_yok = "You have no recovery codes left. Generate some now — the day you cannot get in is too late."
+uret = "Generate new recovery codes"
+uret_uyari = "Generating a new set invalidates the old one."
+
+[metin.kurtarma.giris]
+baslik = "I cannot get in"
+govde = "Use one of your recovery codes to set a new password. Each code works once."
+kod = "Recovery code"
+kod_ipucu = "One of the codes you were given when your account was created. Dashes and spaces do not matter."
+2fa = "I cannot reach my phone either"
+2fa_ipucu = "Tick this and two-factor authentication is switched off, so you will have to set it up again. Leave it and it stays as it is."
+gonder = "Reset my password"
+geri = "Back to sign in"
+
+[metin.kurtarma.hata]
+gecersiz = "That email address and recovery code do not match."

@@ -58,6 +58,12 @@ type loginPage struct {
 	Next string
 	// Error is the one sentence shown on any failure.
 	Error string
+	// RecoveryPath is where somebody who cannot get in goes. Carried on
+	// the page rather than written into the template, so the route and
+	// the link cannot drift apart - and shown on every render, including
+	// a failed one, because a failed sign-in is exactly when it is
+	// wanted.
+	RecoveryPath string
 	// RememberedName greets the account awaiting a code. It is the
 	// display name rather than the address: the person reading it just
 	// proved they know the password, and the page is more useful if it

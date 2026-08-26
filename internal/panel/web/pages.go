@@ -96,6 +96,10 @@ func (s *Server) sitesHandler(w http.ResponseWriter, r *http.Request, p panel.Pr
 func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, lang *ui.Language,
 	status int, data loginPage) {
 
+	// Set here rather than at each of the three call sites, so a fourth
+	// one cannot forget it and quietly render a sign-in page with no way
+	// out of it.
+	data.RecoveryPath = RecoveryPath
 	s.Renderer.Render(w, r, status, "giris", &ui.Page{
 		L:       lang,
 		Title:   lang.T("giris.baslik"),

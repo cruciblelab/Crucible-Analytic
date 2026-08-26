@@ -4230,3 +4230,90 @@ the panel says "sent".
 So the panel will never say only "sent". It will say what it sent, to
 whom, and what the receiving server answered — and the link will be on
 the screen regardless, because that is the path that cannot fail.
+
+## Recovery codes: a promise the panel had already made
+
+The account page said, in both languages, that recovery codes did not
+exist *yet*. A sentence with "yet" in it is a promise, and it had been
+sitting there since two-factor authentication was built.
+
+C7.2 keeps it. An owner who cannot get in uses a code, sets a new
+password, and is inside — with no operator awake, no mail server, and
+nothing configured anywhere.
+
+### One mechanism instead of two
+
+The plan called for two paths: recovery codes for the customer, and an
+operator-minted link for somebody who lost those too. Building the
+second as its own token type would have meant a second table, a second
+redemption route and a second audit trail, all shaped exactly like the
+first.
+
+It is one mechanism: **the operator does not mint a link, they
+regenerate the codes.** They hand one over however they like, and it
+goes through the same form the customer would have used. One redemption
+path, one thing to get right, one place to look when somebody asks how
+an account was entered.
+
+### Digests, not argon2id
+
+Every other credential here is stored as a SHA-256 digest and passwords
+are argon2id, so the choice needs stating rather than assuming. These
+are twelve characters this process drew from `crypto/rand` — sixty bits
+— not a phrase a person chose. There is no dictionary to resist, so the
+slow hash would buy nothing that the entropy does not already provide,
+and it would cost a redemption the same tens of milliseconds a sign-in
+pays. What guards them beyond the entropy is the sign-in throttle, which
+this form shares deliberately: an attacker who found the password form
+rate-limited would otherwise simply move to this one and guess codes
+instead. Two doors, one budget.
+
+### Three decisions where the safe answer is not the obvious one
+
+**The address is checked after the code, not in the query.** Filtering
+on the address would do less work when the address does not exist, and
+that difference is measurable from outside — it would answer, to anyone
+on the internet, which addresses have accounts on this deployment. So
+the code is consumed by digest alone and the account it belongs to is
+compared afterwards, inside the same transaction, which rolls back when
+they do not match. That rollback is a feature: somebody who mistyped
+their own address does not lose the code for it.
+
+**The second factor is kept unless asked for.** "I forgot my password"
+and "I lost my phone" arrive at the same form and are not the same
+request. Clearing it by default would quietly downgrade every account
+that ever reset a password. And when it is *not* cleared, the recovery
+code does not skip it — the redemption hands off to the second-factor
+page like an ordinary sign-in. Otherwise a recovery code would make the
+second factor optional for anybody who found one.
+
+**Regenerating asks for the current password.** It mints credentials
+that outlive the session asking for them, so a stolen session could
+otherwise print eight codes that keep working long after the session is
+gone: a temporary problem turned permanent.
+
+### The codes are rendered, never carried
+
+Claiming an invitation used to redirect into the owner's wizard. It now
+renders the codes instead, and the redirect happens on a click.
+
+The alternative was to keep the redirect and put the codes in the
+session — which is a database table. Eight readable codes at rest, to
+save one redirect, in a system that stores them as digests everywhere
+else precisely so they are not readable at rest anywhere. So the page is
+the only place they exist in readable form, and it says so: somebody who
+closes the tab has lost them, and is told where to make more.
+
+### Found by predicting it, then checking
+
+The first version of the store tests minted accounts under a domain of
+their own — `@kurtarma-testi.invalid` — while `newTestStore` sweeps up
+accounts whose address contains its namespace. Nothing swept them up,
+`CreateUser` refuses a duplicate, and the second run of the suite failed
+on every test with eight accounts stranded in the table.
+
+That is the third time this week, and this time it was predicted before
+it was observed: the cleanup pattern was read, the mismatch was noticed,
+and the suite was run twice to confirm it rather than to discover it.
+The CI gate's second integration pass would have caught it too, which
+is what that pass is for.

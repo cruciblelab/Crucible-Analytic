@@ -1390,6 +1390,43 @@ throughout. That is groundwork for a right-to-left language, not a
 claim of support: no RTL pack has been written or tested, and doing one
 properly means reviewing the layout with it in front of you.
 
+## Getting back in
+
+An owner who has forgotten their password, or lost the phone their
+second factor lives on, does not have to reach anybody. Eight
+single-use recovery codes are generated when the account is created and
+shown once; one of them, on the sign-in page's "I cannot get in" link,
+sets a new password.
+
+**No email is involved and nothing needs configuring.** That is the
+point rather than a limitation: a mail server is a configuration burden
+with a silent failure mode, since mail leaving a fresh VPS without SPF,
+DKIM and DMARC lands in spam or is rejected outright — and a password
+reset that vanishes quietly is the worst failure available, because the
+person waits while the panel says "sent".
+
+The details that matter:
+
+- **A code proves who you are; it does not skip your second factor.** An
+  account that still has one is sent to the second-factor page as usual.
+  The form offers to clear it, for somebody who has genuinely lost their
+  phone, and that is a choice the person makes rather than something the
+  code does by itself.
+- **A wrong code and an unknown address answer identically.** The page
+  is reachable without signing in, so any difference between the two
+  would tell anybody on the internet which addresses have accounts here.
+- **It shares the sign-in throttle**, by address. Two forms into one
+  account count against one budget.
+- **A mistyped new password does not spend a code**; the form-level
+  checks happen before the credential is touched.
+- **Somebody who lost the codes too** is not stuck: an operator
+  regenerates the set from the member list and passes one on. There is
+  no second kind of link and no second flow — the same form redeems it.
+
+Codes are stored as SHA-256 digests, like every other high-entropy
+credential here. The account page shows how many are left and warns
+before they run out.
+
 ## The developer password
 
 A short list of settings changes what personal data this deployment

@@ -42,9 +42,19 @@ func newTestRenderer(t *testing.T) *Renderer {
 // It is a struct rather than the web package's own type because ui
 // deliberately does not import the packages that render through it -
 // html/template matches on field names, which is all either side needs.
+// loginData stands in for web.loginPage, whose fields the sign-in
+// template reads.
+//
+// A copy of another package's shape, which is usually the thing this
+// repository refuses to have - but ui cannot import web without making
+// a cycle, since web is what imports ui. It is a mirror that checks
+// itself: a field added to loginPage and forgotten here makes the
+// template fail to render and these tests go red, which is exactly what
+// happened when RecoveryPath was added.
 func loginData() any {
 	return struct {
 		Email, Next, Error, RememberedName string
+		RecoveryPath                       string
 	}{}
 }
 

@@ -76,10 +76,12 @@ func TestOwnerWizardInABrowser(t *testing.T) {
 		CSPViolations []string `json:"csp_violations"`
 		ConsoleErrors []string `json:"console_errors"`
 
-		ClaimHeading     string `json:"claim_heading"`
-		ClaimShowsEmail  bool   `json:"claim_shows_email"`
-		PasswordFieldTyp string `json:"password_field_type"`
-		AfterClaim       string `json:"after_claim"`
+		ClaimHeading      string   `json:"claim_heading"`
+		ClaimShowsEmail   bool     `json:"claim_shows_email"`
+		PasswordFieldTyp  string   `json:"password_field_type"`
+		AfterClaim        string   `json:"after_claim"`
+		RecoveryCodes     []string `json:"recovery_codes"`
+		RecoveryWarnsOnce bool     `json:"recovery_warns_once"`
 
 		StepTitles   []string `json:"step_titles"`
 		StepsVisited []string `json:"steps_visited"`
@@ -111,8 +113,23 @@ func TestOwnerWizardInABrowser(t *testing.T) {
 	if report.PasswordFieldTyp != "password" {
 		t.Errorf("the password field is type %q", report.PasswordFieldTyp)
 	}
-	if report.AfterClaim != WelcomePathPrefix+welcomeSteps[0].ID {
-		t.Errorf("claiming landed on %q, want the wizard's first step", report.AfterClaim)
+	// Claiming now lands on the recovery codes rather than the wizard.
+	// The wizard is one deliberate click further on, which the script
+	// takes - so the assertions below about the steps still hold.
+	if len(report.RecoveryCodes) != panel.RecoveryCodeCount {
+		t.Errorf("the page after claiming showed %d recovery codes, want %d",
+			len(report.RecoveryCodes), panel.RecoveryCodeCount)
+	}
+	for _, code := range report.RecoveryCodes {
+		if panel.NormalizeRecoveryCode(code) == "" {
+			t.Errorf("a rendered recovery code normalises to nothing: %q", code)
+		}
+	}
+	if !report.RecoveryWarnsOnce {
+		t.Error("the recovery-code page does not warn that the codes are shown once")
+	}
+	if report.AfterClaim != ClaimPathPrefix+token {
+		t.Errorf("claiming landed on %q, want the codes page at the claim URL", report.AfterClaim)
 	}
 
 	// ---- the wizard ----
@@ -206,7 +223,24 @@ await page.fill('#parola', 'tarayici-sahip-parolasi');
 await page.fill('#parola_tekrar', 'tarayici-sahip-parolasi');
 await page.click('main button[type=submit]');
 await page.waitForLoadState();
+
+// ---- the recovery codes ----
+//
+// The page a new owner sees before anything else, and the only time
+// these exist in readable form. Read here rather than trusted: this is
+// the moment the customer either saves them or does not, and if the page
+// showed nothing the account would have no way back into it.
 report.after_claim = path();
+report.recovery_codes = (await page.locator('main code.secret').allInnerTexts())
+  .map((s) => s.trim()).filter((s) => s.length > 0);
+report.recovery_warns_once = (await page.textContent('main') ?? '')
+  .includes('bir daha gösterilmeyecek');
+await collectCSP();
+
+// Continuing is a deliberate click, never automatic: the whole point of
+// the page is that somebody reads it before moving on.
+await page.click('main a.dugme');
+await page.waitForLoadState();
 report.step_titles = await page.locator('nav.ilerleme li').allInnerTexts()
   .then((xs) => xs.map((s) => s.trim()));
 await collectCSP();

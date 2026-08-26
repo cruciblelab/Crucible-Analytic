@@ -105,8 +105,29 @@ every copy of this page. */}}
 <input type="hidden" name="islem" value="2fa-basla">
 <button type="submit">{{t "hesap.2fa.ac"}}</button>
 </form>
-<p class="ipucu">{{t "hesap.2fa.kurtarma_yok"}}</p>
+<p class="ipucu">{{t "hesap.2fa.kurtarma_var"}}</p>
 {{- end}}
+</section>
+
+<section class="bolum">
+<h2>{{t "kurtarma.baslik"}}</h2>
+<p>{{t "kurtarma.kalan"}}: <strong>{{.Data.RecoveryLeft}}</strong></p>
+{{- if eq .Data.RecoveryLeft 0}}
+<p class="uyari" role="alert">{{t "kurtarma.kalan_yok"}}</p>
+{{- else if le .Data.RecoveryLeft 2}}
+<p class="uyari" role="note">{{t "kurtarma.kalan_az"}}</p>
+{{- end}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="kurtarma">
+<div class="alan">
+<label for="kurtarma_parola">{{t "hesap.parola.mevcut"}}</label>
+<input id="kurtarma_parola" name="mevcut_parola" type="password"
+       autocomplete="current-password" required>
+</div>
+<button type="submit">{{t "kurtarma.uret"}}</button>
+<p class="ipucu">{{t "kurtarma.uret_uyari"}}</p>
+</form>
 </section>
 
 {{- if .Data.CanUseDeveloperMode}}

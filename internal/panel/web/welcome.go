@@ -211,7 +211,7 @@ func (s *Server) submitClaim(w http.ResponseWriter, r *http.Request, lang *ui.La
 		return
 	}
 
-	user, err := s.Store.RedeemOwnerClaim(ctx, token, hash, sites, peerAddr(r))
+	user, codes, err := s.Store.RedeemOwnerClaim(ctx, token, hash, sites, peerAddr(r))
 	if err != nil {
 		if errors.Is(err, panel.ErrClaimInvalid) {
 			// It was open when the page was drawn and is not now: it
@@ -243,7 +243,62 @@ func (s *Server) submitClaim(w http.ResponseWriter, r *http.Request, lang *ui.La
 	if err := s.Store.TouchLastLogin(ctx, user.ID); err != nil {
 		s.logger().Warn("panel: touching last login", "err", err)
 	}
-	http.Redirect(w, r, WelcomePathPrefix+welcomeSteps[0].ID, http.StatusSeeOther)
+
+	// The recovery codes, rendered here rather than carried anywhere.
+	//
+	// Not redirected to the wizard with the codes in the session: the
+	// session store is a database table, so that would put eight
+	// readable codes at rest to save one redirect - and they are stored
+	// as digests everywhere else precisely so they are not readable at
+	// rest anywhere.
+	//
+	// Which means this page is the only time they exist in readable
+	// form, and it has to say so. Somebody who closes the tab has lost
+	// them, and the page tells them where to make more.
+	s.renderRecoveryCodes(w, r, lang, recoveryCodesPage{
+		Codes:    formatCodes(codes),
+		NextURL:  WelcomePathPrefix + welcomeSteps[0].ID,
+		FirstRun: true,
+	})
+}
+
+// formatCodes groups each code for reading. Presentation only - what
+// gets typed back is normalised before anything is compared.
+func formatCodes(codes []string) []string {
+	out := make([]string, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, panel.FormatRecoveryCode(c))
+	}
+	return out
+}
+
+// recoveryCodesPage is the one page in this panel that shows a secret.
+type recoveryCodesPage struct {
+	Codes []string
+	// NextURL is where the reader goes when they say they have saved
+	// them. Never automatic: the whole point is a deliberate click.
+	NextURL string
+	// FirstRun distinguishes "here is your new account" from "you asked
+	// for a new set", which are the same page and not the same sentence.
+	FirstRun bool
+	// Issued marks a set an operator generated for somebody else, so
+	// the page tells them to pass it on rather than to save it.
+	Issued bool
+	// For is whose codes these are, when Issued.
+	For string
+}
+
+func (s *Server) renderRecoveryCodes(w http.ResponseWriter, r *http.Request,
+	lang *ui.Language, data recoveryCodesPage) {
+
+	s.Renderer.Render(w, r, http.StatusOK, "kurtarma_kodlari", &ui.Page{
+		L:       lang,
+		Title:   lang.T("kurtarma.baslik"),
+		Heading: lang.T("kurtarma.baslik"),
+		F:       ui.NewFormatter(lang, s.zone(r.Context())),
+		CSRF:    s.Sessions.CSRFToken(r.Context()),
+		Data:    data,
+	})
 }
 
 func (s *Server) renderClaim(w http.ResponseWriter, r *http.Request, lang *ui.Language,

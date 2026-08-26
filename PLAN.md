@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **9/11** | C7.2 (parola sıfırlama), C7.3 (e-posta sihirbazı) |
+| **C** Panel HTTP yüzeyi | 🟡 **10/11** | C7.3 (e-posta sihirbazı — tartışma yapıldı, sıra bekliyor) |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
@@ -2484,7 +2484,7 @@ başına bir faz. Yarım yapılmış hâli hiç yapılmamışından kötü olur.
 
 ---
 
-#### C7.2 — Parola sıfırlama, e-postasız ⬜
+#### C7.2 — Parola sıfırlama, e-postasız ✅ **yapıldı**
 
 **Ne:** hesabını açamayan sahibin kendi başına içeri girebilmesi.
 
@@ -2507,6 +2507,24 @@ katkı olur, zorunluluk değil.
 gerçek tarayıcıda parolasını sıfırlayıp giriyor; kullanılan kod ikinci
 kez çalışmıyor; kalan kod sayısı panelde görünüyor; ve katalogdaki
 "henüz yok" cümlesi kalkıyor çünkü artık yalan.
+
+##### Karşılandı (2026-08-26)
+
+Dördü de ölçüldü. Sahip HTTP üzerinden kodla girip yeni parolasını
+kuruyor; kod ikinci denemede reddediliyor; hesap sayfası kalan sayıyı
+gösteriyor (2'de uyarı, 0'da alarm); ve "henüz yok" cümlesi yerini
+`kurtarma_var`'a bıraktı.
+
+**Operatör yolu ayrı bir jeton türü olmadı**, ve bu tasarımı
+basitleştiren karar: operatör bağlantı üretmiyor, **kurtarma kodlarını
+yeniliyor**. Tek kullanım yolu, tek denetim izi, tek redemption akışı.
+
+**İkinci faktör istenmedikçe korunuyor.** "Parolamı unuttum" ile
+"telefonumu kaybettim" aynı forma geliyor ama aynı istek değil; her
+sıfırlamada 2FA'yı silmek, onu kullanan her hesabı sessizce zayıflatmak
+olurdu. Kutucuk işaretlenmezse hesabın 2FA'sı duruyor ve kod
+sahibi **yine de** 2FA'yı geçmek zorunda — yoksa kurtarma kodu, onu
+bulan herkes için ikinci faktörü isteğe bağlı yapardı.
 
 ---
 

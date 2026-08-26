@@ -5,6 +5,7 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"strings"
 	"sync"
@@ -62,13 +63,23 @@ func TestOwnerClaimIsSingleUseUnderConcurrency(t *testing.T) {
 			// Released together, so the attempts genuinely overlap
 			// rather than queueing behind each other's setup.
 			<-start
-			user, err := store.RedeemOwnerClaim(ctx, token, hash,
+			user, codes, err := store.RedeemOwnerClaim(ctx, token, hash,
 				[]string{"claim-yaris"}, netip.MustParseAddr("203.0.113.9"))
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
 			case err == nil:
 				users = append(users, user)
+				// The winner must come away with a usable account, and
+				// an account nobody can recover is not one. Codes are
+				// written in the same transaction as the owner, so a
+				// race that produced a user with an empty set would be
+				// the transaction not holding.
+				if len(codes) != RecoveryCodeCount {
+					other = append(other, fmt.Errorf(
+						"the owner that was created got %d recovery codes, want %d",
+						len(codes), RecoveryCodeCount))
+				}
 			case errors.Is(err, ErrClaimInvalid):
 				refusals++
 			default:
@@ -121,7 +132,7 @@ func TestOwnerClaimRefusesEveryDeadLinkTheSameWay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := store.RedeemOwnerClaim(ctx, usedToken, hash, nil, netip.Addr{})
+	user, _, err := store.RedeemOwnerClaim(ctx, usedToken, hash, nil, netip.Addr{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +171,7 @@ func TestOwnerClaimRefusesEveryDeadLinkTheSameWay(t *testing.T) {
 			if _, err := store.LookupOwnerClaim(ctx, tc.token); !errors.Is(err, ErrClaimInvalid) {
 				t.Errorf("LookupOwnerClaim = %v, want ErrClaimInvalid", err)
 			}
-			_, err := store.RedeemOwnerClaim(ctx, tc.token, hash, nil, netip.Addr{})
+			_, _, err := store.RedeemOwnerClaim(ctx, tc.token, hash, nil, netip.Addr{})
 			if !errors.Is(err, ErrClaimInvalid) {
 				t.Errorf("RedeemOwnerClaim = %v, want ErrClaimInvalid", err)
 			}

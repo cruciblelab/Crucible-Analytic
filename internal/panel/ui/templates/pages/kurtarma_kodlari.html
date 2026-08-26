@@ -1,0 +1,26 @@
+{{define "icerik"}}
+{{- if .Data.Issued}}
+<p>{{t "kurtarma.verildi" .Data.For}}</p>
+{{- else if .Data.FirstRun}}
+<p>{{t "kurtarma.ilk"}}</p>
+{{- else}}
+<p>{{t "kurtarma.yeni"}}</p>
+{{- end}}
+
+<div class="uyari" role="note">
+<strong class="uyari-baslik">{{t "kurtarma.uyari_baslik"}}</strong>
+<p>{{t "kurtarma.uyari"}}</p>
+</div>
+
+<ul class="kodlar">
+{{- range .Data.Codes}}
+<li><code class="secret">{{.}}</code></li>
+{{- end}}
+</ul>
+
+<p class="ipucu">{{t "kurtarma.nasil"}}</p>
+
+{{- if .Data.NextURL}}
+<p><a class="dugme" href="{{.Data.NextURL}}">{{t "kurtarma.kaydettim"}}</a></p>
+{{- end}}
+{{end}}

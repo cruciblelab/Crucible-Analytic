@@ -313,3 +313,43 @@ CREATE TABLE IF NOT EXISTS panel_settings (
 -- deployment-wide row" is the read every service performs on its refresh
 -- interval, so it has to be an index lookup rather than a scan.
 CREATE INDEX IF NOT EXISTS idx_panel_settings_key ON panel_settings (key, site_id);
+
+-- Recovery codes: how somebody gets back into their own panel without
+-- anybody else being awake.
+--
+-- The alternative this replaces was "ring whoever installed it". That
+-- works for one customer and becomes a support queue at thirty, with the
+-- person in the queue locked out of their own analytics at eleven at
+-- night. It is also what the panel already promised - the account page
+-- said recovery codes did not exist "yet".
+--
+-- Stored as a SHA-256 hex digest, the same form as every other
+-- high-entropy credential here (invitations, developer links, API
+-- tokens). Not argon2id: these are 60 bits this process drew from
+-- crypto/rand, not a phrase a person chose, so there is no dictionary to
+-- resist and the slow hash would buy nothing. What guards them is the
+-- entropy plus the login throttle, which this flow shares with sign-in.
+CREATE TABLE IF NOT EXISTS panel_recovery_codes (
+    id      BIGSERIAL PRIMARY KEY,
+    user_id BIGINT    NOT NULL REFERENCES panel_users(id) ON DELETE CASCADE,
+    sha256  TEXT      NOT NULL UNIQUE,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Who issued this set. NULL when the account minted its own at
+    -- creation; set when an operator regenerated them for somebody who
+    -- lost theirs, which is the second path and the reason this column
+    -- exists rather than being inferred.
+    created_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+
+    -- Consumed atomically, like an invitation: a code that another
+    -- request has already taken does not match, so two tabs produce one
+    -- reset rather than two.
+    used_at   TIMESTAMPTZ,
+    used_from INET
+);
+
+-- Redemption looks a code up by its digest alone - the address is
+-- checked afterwards, so that a wrong address and a wrong code cost the
+-- same work and answer the same way.
+CREATE INDEX IF NOT EXISTS idx_panel_recovery_user
+    ON panel_recovery_codes (user_id) WHERE used_at IS NULL;

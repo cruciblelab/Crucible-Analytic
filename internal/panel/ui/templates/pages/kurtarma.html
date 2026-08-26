@@ -1,0 +1,49 @@
+{{define "icerik"}}
+<p>{{t "kurtarma.giris.govde"}}</p>
+
+{{- if .Data.Error}}
+<p class="uyari" role="alert">{{.Data.Error}}</p>
+{{- end}}
+
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+<div class="alan">
+<label for="eposta">{{t "giris.eposta"}}</label>
+<input id="eposta" name="eposta" type="email" autocomplete="username"
+       value="{{.Data.Email}}" required>
+</div>
+
+<div class="alan">
+<label for="kod">{{t "kurtarma.giris.kod"}}</label>
+<input id="kod" name="kod" type="text" autocomplete="one-time-code"
+       spellcheck="false" autocapitalize="characters" required>
+<p class="ipucu">{{t "kurtarma.giris.kod_ipucu"}}</p>
+</div>
+
+<div class="alan">
+<label for="yeni_parola">{{t "hesap.parola.yeni"}}</label>
+<input id="yeni_parola" name="yeni_parola" type="password"
+       autocomplete="new-password" required>
+</div>
+
+<div class="alan">
+<label for="yeni_parola_tekrar">{{t "hesap.parola.tekrar"}}</label>
+<input id="yeni_parola_tekrar" name="yeni_parola_tekrar" type="password"
+       autocomplete="new-password" required>
+</div>
+
+<div class="alan secim">
+<label for="ikinci_faktor">
+<input id="ikinci_faktor" name="ikinci_faktor" type="checkbox" value="1"
+       {{if .Data.ClearSecondFactor}}checked{{end}}>
+{{t "kurtarma.giris.2fa"}}
+</label>
+<p class="ipucu">{{t "kurtarma.giris.2fa_ipucu"}}</p>
+</div>
+
+<button type="submit">{{t "kurtarma.giris.gonder"}}</button>
+</form>
+
+<p><a href="{{.Data.LoginPath}}">{{t "kurtarma.giris.geri"}}</a></p>
+{{end}}

@@ -153,9 +153,26 @@ func (s *Store) LookupOwnerClaim(ctx context.Context, token string) (OwnerClaim,
 // The consuming UPDATE carries `used_at IS NULL` in its WHERE clause and
 // runs first, so the race is decided by the database rather than by the
 // order two requests happen to arrive in.
-func (s *Store) RedeemOwnerClaim(ctx context.Context, token, passwordHash string, sites []string, from netip.Addr) (User, error) {
+// RedeemOwnerClaim also returns the account's recovery codes, in the
+// clear and for the only time they exist that way.
+//
+// Minted in the same transaction as the account rather than afterwards,
+// because the failure mode of "afterwards" is an account with no way
+// back into it - and nobody would notice until the day it mattered. If
+// the codes cannot be written, the owner is not created either and the
+// invitation stays unused.
+func (s *Store) RedeemOwnerClaim(ctx context.Context, token, passwordHash string, sites []string, from netip.Addr) (User, []string, error) {
 	if token == "" || passwordHash == "" {
-		return User{}, ErrClaimInvalid
+		return User{}, nil, ErrClaimInvalid
+	}
+
+	codes := make([]string, 0, RecoveryCodeCount)
+	for range RecoveryCodeCount {
+		code, err := newRecoveryCode()
+		if err != nil {
+			return User{}, nil, err
+		}
+		codes = append(codes, code)
 	}
 
 	var user User
@@ -213,12 +230,19 @@ func (s *Store) RedeemOwnerClaim(ctx context.Context, token, passwordHash string
 			claimID, user.ID); err != nil {
 			return fmt.Errorf("panel: record invitation use: %w", err)
 		}
+
+		// The account minted these itself, so created_by stays NULL:
+		// there is nobody to name at handover, and a set an operator
+		// issued later is a different fact worth telling apart.
+		if err := storeRecoveryCodes(ctx, tx, user.ID, 0, codes); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
-		return User{}, err
+		return User{}, nil, err
 	}
-	return user, nil
+	return user, codes, nil
 }
 
 // OpenOwnerClaims lists invitations nobody has accepted yet.
