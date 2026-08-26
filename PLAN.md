@@ -26,17 +26,26 @@ verir: **JS çalıştırmayan ama siteye giren nedir.**
 
 ## 0.5 DURUM — tek bakışta nerede olduğumuz
 
-*Son güncelleme: 2026-08-18 (C4, C3, AI.3, C5, A5.1, D1 sonrası). Bu
-bölüm her faz sonunda güncellenir ve belgenin geri kalanını okumadan "nerede
-kaldık" sorusunu cevaplar.*
+*Son güncelleme: 2026-08-26 (D2, C6, A5.2 ve üç ürün kararı sonrası —
+§0.6). Bu bölüm her faz sonunda güncellenir ve belgenin geri kalanını
+okumadan "nerede kaldık" sorusunu cevaplar.*
 
-**Rakamlar:** 23 iç paket, **5 binary** (`collector`, `beacon`,
-`analytics-api`, `devpass`, **`panel`**), 85 test dosyası, ~49 bin satır
-Go (~25 bin'i test dışı). Panel açılıyor, dinliyor, sayfa çiziyor,
-**kurulabiliyor ve girilebiliyor**: ilk çalıştırma tespiti, geliştirici
-sihirbazı, devir teslim, giriş, iki faktör, hesap ve üye yönetimi
-çalışıyor. Zincirin tamamı — boş veritabanından oturum açmış sahibe —
-uçtan uca yürüyor.
+**Rakamlar** *(ölçüldü, 2026-08-26)*: 23 iç paket, **5 binary**
+(`collector`, `beacon`, `analytics-api`, `devpass`, `panel`), 103 test
+dosyası, **836 test fonksiyonu**, ~59.900 satır Go — **29.128'i test
+dışı, 30.755'i test**. Yani test kodu üretim kodundan fazla, ve bu
+oran bilinçli: bu projede bir şeyin çalıştığı iddiası ancak gerçek
+bağımlılığa karşı ölçüldüyse kabul ediliyor.
+
+Belgeler ~10.000 satır (`README`, `PLAN`, `NOTES`, `KURULUM`,
+`SECURITY`, `THIRD-PARTY`).
+
+**Zincirin tamamı — boş veritabanından oturum açmış sahibe — uçtan uca
+yürüyor.** İlk çalıştırma tespiti, geliştirici sihirbazı (8 adım), devir
+teslim, giriş, iki faktör, hesap ve üye yönetimi, pano ve kırılım
+sayfaları çalışıyor. Doğrulama gerçek PostgreSQL 16 + TimescaleDB
+2.17.2'ye, gerçek Chromium'a (8 tarayıcı testi) ve gerçek eşzamanlı TCP
+yüküne karşı yapılıyor.
 
 **Modülerlik ölçümü (2026-08-17, AI.2 sonrası).** 22 paketin **12'si
 yaprak** — hiçbir iç bağımlılığı yok. Bağımlılık grafiği sığ ve tek
@@ -50,13 +59,25 @@ paketine geçti. Sınır artık yorumda değil testte: `preflight`'ın
 `internal/panel`'i import etmediğini `TestPreflightDoesNotImportThePanel`
 tutuyor.
 
-**Bölmenin bir sonraki adımı hak edildi (2026-08-18).** C3 ve C4 sonrası
-`internal/panel` yeniden **3.955** test dışı satır (davet kayıtları ve
-üyelik yüzeyi eklendi) ve `internal/panel/web` **3.650**. AI.2'nin
-"kimlik ailesi C4'ten sonra bölünür" notu artık vadesi gelmiş bir borç:
-ayarlar ve kimlik aileleri `Access`, `Principal`, `Role` ve `Store`
-tiplerini paylaşıyor, ve o tipler C4 ile son şeklini aldı. `internal/api`
-(3.340) ikinci sırada.
+**Bölme borcu büyüdü ve ölçüsü burada (2026-08-26).** C3/C4 sonrası
+`internal/panel` 3.955 test dışı satırdı, `internal/panel/web` 3.650.
+Şimdi **4.837** ve **5.470** — yani D1, D2 ve C6 en büyük iki paketi
+sırasıyla %22 ve %50 büyüttü ve `internal/panel/web` deponun en büyük
+paketi oldu.
+
+| Paket | Test dışı satır |
+|---|---|
+| `internal/panel/web` | 5.470 |
+| `internal/panel` | 4.837 |
+| `internal/api` | 3.340 |
+| `internal/beacon` | 2.561 |
+| `internal/panel/ui` | 2.098 |
+
+AI.2'nin "kimlik ailesi C4'ten sonra bölünür" notu artık geciken bir
+borç. **Bilinçli olarak ertelendi:** D grubu aynı iki pakete yazmaya
+devam edecek, ve akan bir yüzeyi bölmek bittikten sonra bölmekten pahalı.
+Ama D grubu bitmeden büyümeye devam ederse bu satır bir sonraki fazda
+gerekçe değil bahane olur.
 
 ### Gruplar
 
