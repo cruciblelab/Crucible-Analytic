@@ -120,6 +120,15 @@ for b in collector beacon analytics-api panel devpass; do
 done
 ```
 
+**Sürüm damgası şu an yalnız panelde çalışıyor.** `-X main.version`
+linker'a "bu paketteki `main.version` değişkenini şu değere ayarla"
+diyor; o değişken **yalnız `cmd/panel`'de tanımlı**. Diğer dördünde
+olmadığı için bayrak sessizce hiçbir şey yapmıyor — Go linker'ı olmayan
+bir sembol için uyarmıyor *(ölçüldü: `go tool nm`)*. Yani yukarıdaki
+komut doğru, ama bugün yalnız panel sürümünü söyleyebiliyor; diğer dört
+süreç "hangi yapıdasınız" sorusuna cevap veremez. Plandaki **G2** bunu
+kapatıyor.
+
 **Öneri: sunucuda derlemeyin.** Başka bir makinede derleyip yalnız
 `bin/` dizinini kopyalayın. Sunucuda Go bulunmaması, sunucuda
 derleyicinin bulunmamasıdır — küçük ama bedava bir kazanç.

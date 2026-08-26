@@ -89,7 +89,8 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | 🟡 **8/9** | C7 |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **F** Ertelenen | ⬜ **0/3** | bilerek sonraya |
+| **G** Yayın hattı | ⬜ **0/2** | G1, G2 — *ürün olmayı engelleyen ikisi* |
+| **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
 
 ### Bitmiş maddeler
 
@@ -264,25 +265,45 @@ düzeltmekten ucuz.)*
 ### Sıradaki üç iş, önem sırasıyla
 
 *(Sıra D1'de bir kez değişti ve gerekçesi ölçümdü: altyapı ürün
-seviyesindeydi, arayüz yarımdı. Aynı ölçüt geçerli — "müşteri bunu
-görüyor mu" sorusu "mekanizma tam mı" sorusunun önünde.)*
+seviyesindeydi, arayüz yarımdı. **2026-08-26'da bir kez daha değişti**,
+ve gerekçesi yine ölçüm: bu oturumda faz sonu doğrulaması elle yapıldı
+ve yaklaşık kırk dakika sürdü — dört etiket kümesi, tarayıcı paketi,
+çapraz derleme, ve konteyner veritabanını geri aldığı için baştan
+kurma. O bedel her fazda ödeniyor ve ödeyen şey bir insanın
+hatırlaması. Ürünü müşteriye yaklaştıran her faz, ondan önce ödenmemiş
+bu bedeli büyütüyor.)*
 
-1. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+1. **G1 — CI.** Öne alındı. Sebebi "iyi pratik" değil ölçüm: bu projenin
+   "bitti" tanımı gerçek bağımlılığa karşı doğrulama, ve o doğrulama şu
+   an tamamen elle. Denetimin en kötü iki bulgusu bağımlılıktaydı ve
+   `govulncheck` buldu — okumayla bulunamazdı. **Bir sonraki faz ne
+   olursa olsun, bu ondan önce gelmeli**, çünkü her yeni faz elle
+   ödenen bedeli artırıyor.
+2. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
+   tek madde. D3'ün önüne alındı: D grubunun kalanı *daha çok veri
+   gösteriyor*, ama panel bugün API çökerse müşteriye ne diyeceğini
+   bilmiyor. Yeni sütun eklemeden önce mevcut sayfaların kötü bir günü
+   olması gerekiyor.
+3. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar da doğrudan seçilebilir olur.
-2. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
-   tek madde; davet ve parola sıfırlama hâlâ yok.
-3. **A2/A3 — collector'da saklama süresi ve kalan ayar yüzeyi.** A5.2
-   saldırıyı durduran dördünü canlı yaptı; `traffic_snapshots`'ın
-   saklama süresi hâlâ yalnız dosyadan okunuyor, yani panel
-   `beacon_events`'i izliyor ama collector'ın tablosunu izlemiyor.
 
-**Bunların dışında, ürün olmak için üç eksik** *(ölçüldü, 2026-08-18)*:
-CI yok (`govulncheck` elle çalışıyor — denetimin en kötü iki bulgusu
-bağımlılıktaydı, o aracı bir insanın hatırlamasına bağlamak denetimin
-kendi dersine aykırı); dağıtım aracı yok (systemd unit'i, kurulum
-betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
+**Sonrası:** G2 (sürüm paketi) → F2 (kurulum betiği) → A2/A3. G2 C7'den
+sonra, çünkü davet e-postası gönderemeyen bir ürünü paketlemek
+bitmemiş bir şeyi paketlemektir.
+
+**Ürün olmak için üç eksik — üçünün de artık sahibi var**
+*(2026-08-26)*:
+
+| Eksik | Sahibi |
+|---|---|
+| CI yok; `govulncheck` bir insanın hatırlamasına bağlı | **G1** |
+| Dağıtım aracı yok: sürüm paketi, systemd unit'leri, kurulum betiği | **G2**, sonra **F2** |
+| E-posta yolu yok: davet ve parola sıfırlama | **C7** |
+
+Üçü de 2026-08-18'de "açık" olarak yazılmıştı ve sahipsizdi. Sahipsiz
+bir eksik, unutulmuş bir eksiktir.
 
 ### Açık riskler ve sahipleri
 
@@ -311,7 +332,9 @@ betiği, sürüm paketi); e-posta yolu yok (C7 — davet ve parola sıfırlama).
 | **Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor** — oturum tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması | **açık** (AI.3'te bulundu, hesap sayfasında yazılı; kapatmak `scs` şemasına sütun eklemek demek) |
 | **İki faktör kurtarma kodu yok** — kaybeden kişiyi sahip ya da işletmeci kurtarıyor; tek sahip kaybederse kabuk gerekiyor | **açık** (AI.3; kayıt ve kod formunda yazılı) |
 | **Panelde global eşzamanlılık sınırı yok** — her giriş denemesi bir argon2id doğrulaması, sınır kuyruk değil throttle sayaçları | **açık** (AI.3; panel varsayılan `127.0.0.1` dinliyor ve TLS'i sonlandıran bir proxy arkasında çalışması bekleniyor) |
-| **`govulncheck` düzenli çalıştırılmalı** — denetimin en kötü iki bulgusu bağımlılıktaydı ve okumayla bulunamazdı | **açık** (AI.3; bugün elle, sürüm kontrol listesinde yazılı — CI yok) |
+| **`govulncheck` düzenli çalıştırılmalı** — denetimin en kötü iki bulgusu bağımlılıktaydı ve okumayla bulunamazdı | **G1** (hem PR'da hem zamanlanmış: değişmemiş koda karşı çıkan yeni bir CVE'yi yalnız-PR koşusu yapısal olarak kaçırır) |
+| **Beş binary'nin dördü sürümünü söyleyemiyor** — `main.version` sembolü yalnız `panel`'de var, ama KURULUM.md beşini de `-X main.version` ile derletiyor ve linker olmayan sembol için uyarmıyor *(ölçüldü 2026-08-26, `go tool nm`)* | **G2** sembolü ekler, **B7** gösterir |
+| **Entegrasyon paketinin tekrar koşulabilirliği çürüyebilir** — bugün üç test yalnız daha önce koşmadıkları veritabanında geçiyordu; taze veritabanı sağlayan bir CI bunları gizlerdi | **G1** (aynı işte, aynı veritabanına karşı iki kez koşulur) |
 | **Kurulum dili config dosyasında, panelde değil** | **A5** (kullanıcı: "ilerleyen zamanlarda"; kayıttaki ilk **dinamik** enum olacak — diller derlemeye bağlı) |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
@@ -2693,10 +2716,159 @@ Bugünkü README collector'ı anlatıyor. Ürün dört parça.
 
 ---
 
+### G. Yayın hattı — disiplinin insan hafızasına bağlı kalmaması
+
+Bu grup, "ürün olmak için üç eksik" listesindeki ilk ikisine sahip
+çıkıyor. Üçüncüsü (e-posta yolu) zaten C7'nin.
+
+**Neden kendi grubu, F'nin içi değil.** F "bilerek sonraya bırakıldı"
+demek. Bu ikisi bırakılmadı — engelliyor. Aynı listeye koymak
+önceliği hakkında yalan söylemek olurdu.
+
+---
+
+#### G1 — CI: neyin birleşmeyi engellediği, neyin yalnız haber verdiği
+
+**Neden bu faz var.** Bu projenin "bitti" tanımı (§9) gerçek bağımlılığa
+karşı doğrulama. Bugün o doğrulamayı elle yaptım: dört etiket kümesi,
+tarayıcı paketi, dört hedefe çapraz derleme, ve arada konteyner
+veritabanını geri aldığı için baştan kurma. Bu bedel **her faz**
+ödeniyor ve ödeyen şey bir insanın hatırlaması.
+
+Denetimin en kötü iki bulgusu bağımlılıktaydı ve **okumayla
+bulunamazdı** — `govulncheck` buldu. O aracı bir insanın hatırlamasına
+bağlamak, denetimin kendi dersine aykırı.
+
+##### Asıl tasarım kararı: dört test yüzeyi aynı şey değil
+
+Bu depoda dört ayrı test yüzeyi var ve **hepsi birleşmeyi engellememeli**:
+
+| Yüzey | Neye ihtiyacı var | CI'daki rolü |
+|---|---|---|
+| Varsayılan (`-race ./...`) | Hiçbir şey | **Kapı** |
+| `integration` | PostgreSQL 16 + TimescaleDB 2.17.2, dört şema | **Kapı** |
+| Tarayıcı (`CA_BROWSER_TEST=1`) | node + playwright + chromium | **Kapı** |
+| `loadtest` | Gerçek eşzamanlı TCP, zamanlamaya duyarlı | **Gecelik** — aralıkları gerçek makinede ayarlandı; paylaşımlı koşucuda gürültülü olabilir. Kararı tahminle vermeyeceğiz: gecelik koşup N koşuda kararlı çıkarsa kapıya alınır |
+
+Ve bir test **hiçbir zaman kapı olmamalı**: `internal/botdata.TestLiveFetch`
+halka açık internete çıkıyor. Bugün oturum boyunca üç kez denendi,
+üçünde de `thebotaquarium.com` erişilemedi — düz `curl` de zaman aşımına
+uğradı. Değişiklikle ilgisi olmayan sebeplerle kırmızı olan bir test
+kapı olamaz. **Silinmemeli de**: varlık sebebi tam olarak "yukarı akış
+veri kaynağı taşındı mı, şekli değişti mi" sorusu. Yani gecelik koşar ve
+**bildirir**, engellemez.
+
+`govulncheck` de hem PR'da hem **zamanlanmış** koşmalı: değişmemiş koda
+karşı çıkan yeni bir CVE, yalnız-PR koşusunun yapısal olarak kaçırdığı
+durumdur.
+
+##### Bugünün kanıtladığı, aşikâr olmayan gereklilik
+
+**Entegrasyon paketi aynı işte, aynı veritabanına karşı iki kez
+koşmalı.**
+
+Bugün üç test bulundu ve üçü de yalnızca *daha önce koşmadıkları* bir
+veritabanında geçiyordu: biri kendi yazdığı 120 günü ikinci koşuda
+"değişen bir şey yok" olarak görüyor ve varlık sebebi olan parola
+kontrolüne hiç ulaşmıyordu; biri hesabı olmayan bir adrese yapılan
+girişleri biriktirip hız sınırını tetikliyor ve **panelde olmayan bir
+hesap sızdırma açığı** bildiriyordu.
+
+Her koşuda taze veritabanı sağlayan bir CI bu üçünü **gizlerdi** —
+sonsuza kadar, ve yalnız bir geliştiricinin makinesinde ortaya
+çıkarlardı. İki kez koşmak, başka türlü görünmez olan bir hata sınıfı
+için ucuz bir kapı.
+
+##### Kapıda ne var
+
+Biçim ve statik: `gofmt -l`, `go vet` (iki etiket kümesi de),
+`govulncheck`. Testler: yukarıdaki üç kapı yüzeyi, entegrasyon **iki
+kez**. Derleme: dört hedefe çapraz derleme (`linux/amd64`,
+`linux/arm64`, `darwin/arm64`, `windows/amd64`). Belgeler: Türkçe
+karakter bozulması kontrolü — bugüne kadar elle yapıldı, kullanıcının
+açık şartı ve bir `grep`'lik iş.
+
+##### CI'nın gereksiz kılmadığı şey
+
+Gerçek bağımlılığa karşı doğrulama **standart olarak kalıyor**; CI aynı
+paketleri koşuyor, çıtayı indirmiyor. Ve CI'nın koşamadığı bir doğrulama
+sınıfı var: "gerçek collector'ı çalıştır, veritabanından ayarı değiştir,
+logda göründüğünü izle" gibi keşif niteliğindeki kontroller. Onlar faz
+sonunda elle yapılmaya devam edecek.
+
+**Bitti ölçütü:** bilerek bozulmuş bir biçimlendirme, bilerek eklenmiş
+bir yarış koşulu ve bilerek eskitilmiş bir bağımlılık içeren üç ayrı
+PR'ın hattı tarafından reddedildiği **bir kez gösterilir**. Yeşil bir
+hattın bir şeyi yakaladığının tek kanıtı, bir şeyi reddettiğini
+görmektir.
+
+---
+
+#### G2 — Sürüm paketi: müşterinin kurduğu şey
+
+**Neden erteleme değil.** KURULUM.md 17 bölüm elle yapılacak iş
+anlatıyor. Dürüst — ama ürünün ilk izlenimi bu, ve elle yapılan her adım
+yanlış yapılabilen bir adım. Rol ayrımı bu sistemin güvenlik temelinin
+yarısı ve şu an elle yazılıyor.
+
+##### Ölçülen bulgu: beş binary'nin dördü sürümünü söyleyemiyor
+
+KURULUM.md §3 beş binary'yi de şu döngüyle derletiyor:
+
+```bash
+go build -ldflags "-X main.version=$VERSION" -o "bin/$b" "./cmd/$b"
+```
+
+Ölçüm (2026-08-26, `go tool nm`): `main.version` sembolü **yalnız
+`panel`'de var**. Diğer dördünde yok, ve Go linker'ı olmayan bir sembole
+`-X` verilmesinden şikâyet etmiyor — sessizce hiçbir şey yapıyor. Yani
+belgedeki komut dört binary için işlevsiz ve bunu söyleyen bir şey yok.
+
+Destek "hangi yapıdasınız" diye sorduğunda cevap veremeyen dört süreç
+demek bu. **Sembolü eklemek G2'nin işi** (yapının özelliği), onu sağlık
+sayfasında ve operasyon kaydında göstermek **B7'nin** — ve sıra bu
+şekilde olmalı: hiçbir şeyin okumadığı bir sürüm damgası, A5.2'de
+kaldırdığım "hiçbir şey yapmayan ayar" deseninin aynısı olurdu.
+
+##### Kapsam
+
+- **Tekrarlanabilir derleme:** `-trimpath`, `CGO_ENABLED=0`, sabitlenmiş
+  Go sürümü. Aynı commit, aynı bayt.
+- **Sürüm damgası beş binary'de de**, yukarıdaki ölçümün gereği.
+- **systemd unit dosyaları** dört uzun ömürlü servis için, bu projenin
+  duruşunun gerektirdiği sıkılaştırmayla: `User=`, `NoNewPrivileges=`,
+  `ProtectSystem=strict`, `PrivateTmp=`, log ağacı için dar bir
+  `ReadWritePaths=`.
+- **Pakette ne var:** binary'ler, dört `schema.sql`, örnek
+  yapılandırmalar, `LICENSE` + `NOTICE` + `THIRD-PARTY.md`, `KURULUM.md`.
+- **Pakette asla ne yok:** bot verisi (A10 kuralı: mekanizmayı gönder,
+  veriyi değil), toplanan analitik, loglar, gerçek yapılandırma
+  dosyaları. `.gitignore`'daki liste — yayın anında da **makineyle**
+  kontrol edilir, sözle değil.
+- **SHA-256 toplamları.**
+
+##### Kapsam dışı, bilerek
+
+Kurulum betiği **F2**'nin (aşağıda) — kurulacak bir şey olduktan sonra
+sırası gelir. İmzalama/noter onayı: kimsenin istediğine dair kanıt yok.
+
+**Bitti ölçütü:** iki farklı makinede aynı commit'ten alınan iki yapının
+**toplamları aynı**; paket temiz bir VM'de açılıp KURULUM.md izlenerek
+çalışıyor; ve pakette "asla" listesinden hiçbir dosya olmadığı
+makineyle doğrulanıyor.
+
+---
+
 ### F. Sonraya bırakılanlar (karar verildi: bu yayda değil)
 
 Bunlar **kapsam dışı değil, ertelenmiş**. Fark önemli: §7'dekiler
 yapılmayacak, buradakiler sonra yapılacak.
+
+**F2 artık tam olarak "ertelenmiş" değil.** G grubunun doğal üçüncü
+adımı: G2 kurulacak paketi üretir, F2 onu kurar. Numarası F2 kalıyor
+çünkü commit mesajlarında ve risk tablosunda o adla geçiyor — bu
+belgenin numaralandırma konusundaki kuralı, düzeltmek yerine
+açıklamak.
 
 #### F1 — Yedekleme
 

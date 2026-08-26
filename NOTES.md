@@ -3913,3 +3913,84 @@ has never existed in this repository — not deleted, never created,
 though the task list records it as done. The reference is repointed at
 the README's privacy model, and every `FILE.md` reference in every
 document is now checked to resolve.
+
+## Planning the release pipeline, and what measuring it turned up
+
+Two of the three things standing between this and a product had no owner
+in the plan: there is no CI, and there is no way to package a release.
+Both are now group G, planned rather than listed.
+
+### Not every test should gate a merge
+
+The obvious CI is "run the tests". This repository has four test
+surfaces and they do not mean the same thing, so treating them alike
+would produce a pipeline that is either useless or permanently red.
+
+`internal/botdata.TestLiveFetch` reaches the public internet to check
+that the known-bot data source still exists and still has the shape the
+parser expects. It failed every time it ran today, because the host was
+unreachable from this container — plain `curl` timed out on the TLS
+handshake too. In a merge gate that is a test which fails for reasons
+having nothing to do with the change, and the predictable response to a
+test like that is for people to start ignoring red. Deleting it is worse:
+noticing that an upstream source moved is exactly its job. So it runs on
+a schedule and reports, and never blocks.
+
+The load tests are the other awkward case, for a different reason. Their
+assertions are ranges tuned on a real machine — "between 5 and 20 of 50
+got through" — and a shared CI runner is noisier than that. The honest
+plan is not to guess: run them nightly, and promote them to the gate
+only if they prove stable over a run of nights.
+
+`govulncheck` needs both. On every pull request, because that is where a
+new dependency arrives; and on a schedule, because a CVE published
+against code nobody touched is precisely the case a PR-only run cannot
+see.
+
+### The requirement that would not have been obvious yesterday
+
+**The integration suite has to run twice, in the same job, against the
+same database.**
+
+Three tests were found today that only passed against a database their
+own previous run had not touched. A CI that provisions a clean
+PostgreSQL for every run — which is the normal, recommended design —
+would have hidden all three permanently. They would have shown up only
+on a developer's machine, on the second run of the day, looking like an
+unrelated regression.
+
+So the pipeline runs the suite twice. It costs one more run of a suite
+that takes about half a minute, and it guards a class of bug that is
+otherwise invisible to the machine that is supposed to be guarding.
+
+### Four binaries that cannot say what they are
+
+Measured while planning G2, with `go tool nm`: the symbol `main.version`
+exists only in `cmd/panel`. `KURULUM.md` tells the installer to build
+all five with `-ldflags "-X main.version=$VERSION"`, and the Go linker
+does not warn when `-X` names a symbol that is not there — it silently
+does nothing.
+
+So the documented build command is inert for four of the five binaries,
+and support's first question, "which build are you running", has no
+answer for the collector, the beacon, the API or `devpass`.
+
+Adding the symbol belongs to G2, because it is a property of the build.
+Surfacing it — in the health page, in the operations log — is B7's, and
+the order matters that way round: a version stamp that nothing reads
+would be the same shape as the setting A5.2 deleted for doing nothing.
+
+### Why G1 moved to the front
+
+The plan's order changed once before, on a measurement. It changed again
+here, on another one: this session's end-of-phase verification was done
+by hand and took roughly forty minutes — four tag sets, the browser
+suite, cross-compilation, and rebuilding the database from nothing after
+the container rolled `/usr` and `/var` back.
+
+That cost is paid every phase, and the thing paying it is a person
+remembering to. Every phase that brings the product closer to a customer
+also makes that unpaid bill larger. The two worst findings in the
+security audit were in dependencies and were found by a tool, not by
+reading — leaving that tool dependent on someone's memory contradicts
+the audit's own lesson.
