@@ -3908,16 +3908,19 @@ licence has settled it.
 ### A file that never existed
 
 Found while checking the new cross-references: `KURULUM.md` sent readers
-to `VERI-ENVANTERI.md` for "which data is kept and why", and that file
-has never existed in this repository — not deleted, never created,
-though the task list records it as done. The reference is repointed at
-the README's privacy model, and every cross-document reference is now
-checked to resolve.
+to a data-inventory document — VERI-ENVANTERI, named without backticks
+here on purpose — for "which data is kept and why", and that file has
+never existed in this repository. Not deleted, never created, though the
+task list records it as done. The reference is repointed at the README's
+privacy model.
 
-The check that found it is a naive grep for backticked filenames, which
-is worth saying because it flags this very paragraph: the name above is
-being described, not linked. A checker that cannot tell a reference from
-a mention is still worth having when the alternative is not checking.
+The name is deliberately not written as a link above, and that is the
+whole lesson rather than a footnote to it. A backticked filename reads
+as a promise: a reader follows it. G1 turned this check into a test
+(`internal/docs`), and the first thing that test failed on was this
+paragraph — correctly, while it still used backticks to name a file that
+does not exist. The fix is not to teach the checker about intent, which
+is impossible, but to stop writing dangling links.
 
 ## Planning the release pipeline, and what measuring it turned up
 
@@ -3999,3 +4002,91 @@ also makes that unpaid bill larger. The two worst findings in the
 security audit were in dependencies and were found by a tool, not by
 reading — leaving that tool dependent on someone's memory contradicts
 the audit's own lesson.
+
+## G1: the pipeline found its own reason on the first run
+
+The gate was written, then run once by hand before being committed. Its
+own justification — "the two worst findings in the audit were in
+dependencies and could not have been found by reading" — turned out to
+be understated.
+
+`govulncheck` against the tree as it stood: **34 vulnerabilities in the
+standard library, all reachable**, with example traces through
+`fullproxy.Server.Serve`, `beacon.Serve` and `asnlookup.NewResolver`.
+Zero in third-party dependencies.
+
+Nothing in this repository had changed. `go.mod` pinned `go 1.25.0`, the
+patches landed in releases up to 1.25.13, and the audit that ran
+`govulncheck` by hand had run it before those CVEs were published. This
+is exactly the case the nightly job was written for — "a CVE published
+against code nobody touched is what a pull-request-only run cannot see"
+— and the evidence arrived before the pipeline did.
+
+The fix is one line: `go 1.25.13` in `go.mod`, which is a patch bump and
+raises what a builder needs by nothing that matters. Measured after:
+0 vulnerabilities. KURULUM.md's requirement moved with it, with the
+number in it, because "1.25.0+" would now be a documented instruction to
+build something vulnerable.
+
+### Making the browser suite portable was a prerequisite, not a detour
+
+The browser tests write an ESM script to a temp directory and run it
+with node. A script there cannot resolve `playwright` by name, so it
+imported the module by absolute path — and that path was
+`/opt/node22/lib/node_modules/playwright/index.js`, written into nine
+scripts across eight files. Chromium's location was hard-coded the same
+way, nine more times.
+
+Both are facts about one container. The browser suite is a merge gate,
+so on a runner the gate would have been red from the first commit.
+
+`internal/browsertest` resolves both instead of assuming them, and the
+order is ask-then-guess: the environment if it was told, then `npm root
+-g` because node already knows where its global modules are, then the
+historical default. Every candidate is checked for existence first.
+
+Chromium ends differently: if nothing names one, the `executablePath` is
+removed from the script rather than defaulted. A Playwright that
+installed its own browser finds it without help, and pointing it at a
+binary that is not there fails with a message about a missing file —
+a worse error than the one it replaces. That branch cannot be reached on
+this machine, which is why `defaultChromium` is a var: the package's own
+test swaps it to exercise the path only CI will take. A branch only CI
+can reach is a branch nobody can debug when it breaks.
+
+`Prepare` refuses a script whose expected literals are absent rather than
+returning it unchanged. A silent no-op would leave the container's path
+in place, the test would pass here and fail everywhere else, and the
+failure would name Playwright rather than this function — the same shape
+as the `-X main.version` no-op and the discarded cleanup errors found
+earlier this week.
+
+### A test that named its dependency wrongly
+
+`TestLiveFetch` was under the `integration` tag, alongside the tests that
+need a real TimescaleDB. Those two dependencies are not alike: a database
+this repository starts is available whenever somebody starts it; a third
+party's web server is available when they decide it is.
+
+It has its own `network` tag now. The tag names the dependency rather
+than the ceremony, which means the gate stops carrying it without a
+special case in YAML, and the next network test is filed correctly by
+whoever writes it.
+
+### Two invariants that were being checked by remembering
+
+Turkish text must not be mojibake, and a document that names another
+document must name one that exists. Both have been broken here before,
+and both were checked by running a regex by hand after edits.
+
+`internal/docs` makes them `go test`. Its first run failed — on a
+paragraph in this file, which named the non-existent VERI-ENVANTERI in
+backticks while describing the very bug. The lesson is not that the
+checker is too naive to tell a reference from a mention. It cannot be
+taught that, and it should not be: a backticked filename reads as a
+promise and a reader follows it. The prose changed.
+
+One more that only appears once a machine is doing the checking: a
+mojibake test passes on a document whose Turkish has been flattened to
+ASCII, because "s" is not corruption. So there is a second test
+asserting the characters are still present.

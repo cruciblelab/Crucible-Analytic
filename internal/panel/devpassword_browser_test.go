@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
+	"github.com/cruciblelab/crucible-analytic/internal/browsertest"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
@@ -366,7 +367,11 @@ await browser.close();
 console.log(JSON.stringify(report));
 `
 	path := filepath.Join(t.TempDir(), "gate.mjs")
-	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(ready), 0o600); err != nil {
 		t.Fatalf("writing the browser script: %v", err)
 	}
 	return path

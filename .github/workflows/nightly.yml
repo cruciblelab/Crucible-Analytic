@@ -1,0 +1,76 @@
+# What must not gate a merge, and must still be watched.
+#
+# Three things run here, for three different reasons. None of them is
+# "we ran out of room in ci.yml".
+#
+#   network   A third party's web server is up when they decide it is.
+#             A test that depends on it goes red for reasons unrelated
+#             to the change, and a gate that does that teaches people to
+#             ignore red. Deleting it is worse: noticing that the source
+#             moved is its whole job.
+#
+#   loadtest  Its assertions are ranges tuned on a real machine - "5 to
+#             20 of 50 connections got through" - and a shared runner is
+#             noisier than that. Whether it can be a gate is a question
+#             about this runner, and the honest way to answer it is to
+#             collect nights rather than to guess. See PLAN.md, G1.
+#
+#   vulns     A CVE published against code nobody touched is exactly the
+#             case a pull-request-only run cannot see.
+name: nightly
+
+on:
+  schedule:
+    # 03:17 UTC. Not on the hour: every scheduler on this platform is
+    # busiest then, and a delayed run reports later than it needs to.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  vulnerabilities:
+    name: govulncheck against unchanged code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # By full path. `go install` puts it in GOPATH/bin, and
+          # whether that is on PATH is the runner image's business, not
+          # ours - it was not on this project's development container,
+          # where the command was simply "not found" and the step would
+          # have looked like a tooling problem rather than a missing
+          # check.
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  network:
+    name: the known-bot source still exists and still parses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Failing here means one of two things and both are worth knowing:
+      # the source moved, or it changed shape. Either way every
+      # deployment is quietly losing the known-bot signal, because this
+      # project fetches that data rather than shipping it.
+      - run: go test -tags network -count=1 -v ./internal/botdata/
+
+  load:
+    name: limits and the live blocklist under real concurrency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # -count=3 because the question this job is answering is not "did
+      # it pass" but "is it stable enough to be a gate". One green night
+      # says nothing about a range assertion on a shared runner.
+      - run: go test -tags loadtest -race -count=3 -timeout 20m ./internal/loadtest/

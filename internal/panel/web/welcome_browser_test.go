@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/browsertest"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 )
 
@@ -264,7 +265,11 @@ console.log(JSON.stringify(report));
 `
 	dir := t.TempDir()
 	path := filepath.Join(dir, "welcome.mjs")
-	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(ready), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path

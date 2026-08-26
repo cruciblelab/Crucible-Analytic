@@ -12,6 +12,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/browsertest"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 )
 
@@ -218,7 +219,11 @@ await browser.close();
 `
 	dir := t.TempDir()
 	name := filepath.Join(dir, "gorunum.mjs")
-	if err := os.WriteFile(name, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(ready), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return name

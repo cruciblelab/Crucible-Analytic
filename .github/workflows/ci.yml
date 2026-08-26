@@ -1,0 +1,178 @@
+# The merge gate.
+#
+# Everything here has to pass before a change lands. What is deliberately
+# NOT here is in nightly.yml, and the split is the point of this file:
+# a test that can fail for reasons unrelated to the change teaches people
+# to ignore red, and a pipeline nobody reads is worse than none.
+#
+# See PLAN.md, G1.
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# A second push to the same branch cancels the first: the older run is
+# reporting on code nobody will merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cheap and independent of everything: if the tree is not formatted or
+  # does not vet, nothing below is worth spending a database on.
+  static:
+    name: format, vet, vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^vendor/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt'd:"; echo "$unformatted"
+            gofmt -d $unformatted
+            exit 1
+          fi
+
+      # Both tag sets. A test file that only compiles under a build tag
+      # is a test file nobody vets otherwise, and this repository has 37
+      # of them.
+      - name: go vet
+        run: |
+          go vet ./...
+          go vet -tags integration ./...
+          go vet -tags loadtest ./internal/loadtest/
+
+      # The reason this phase exists. The two worst findings in the
+      # security audit were in dependencies and could not have been
+      # found by reading; leaving that tool dependent on somebody's
+      # memory contradicts the audit's own lesson.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          # By full path. `go install` puts it in GOPATH/bin, and
+          # whether that is on PATH is the runner image's business, not
+          # ours - it was not on this project's development container,
+          # where the command was simply "not found" and the step would
+          # have looked like a tooling problem rather than a missing
+          # check.
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  # No database, no browser, no network. If this is red the rest is noise.
+  unit:
+    name: unit (-race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -race -count=1 ./...
+
+  integration:
+    name: integration + browser (-race)
+    runs-on: ubuntu-latest
+
+    services:
+      timescale:
+        # The image docker-compose.yml already pins, so CI and a
+        # developer's machine are the same database, and KURULUM.md
+        # documents these versions as the tested ones. Written out
+        # rather than held in an env var: `services.*.image` does not
+        # take the env context, so a variable here would look like it
+        # configured the image while the literal below did the work.
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: collector
+          POSTGRES_PASSWORD: collector
+          POSTGRES_DB: analytics
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U collector -d analytics"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: apply the schemas
+        env:
+          PGPASSWORD: collector
+        run: |
+          for f in internal/panel/schema.sql internal/storage/schema.sql \
+                   internal/beacon/schema.sql internal/asnlookup/schema.sql; do
+            echo "== $f"
+            psql -h localhost -U collector -d analytics -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+          psql -h localhost -U collector -d analytics -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public'"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Playwright brings its own Chromium and knows where it put it, so
+      # nothing here sets CA_CHROMIUM - internal/browsertest leaves the
+      # executablePath out entirely when nobody names one.
+      - name: install playwright
+        run: |
+          npm install -g playwright
+          npx --yes playwright install --with-deps chromium
+          echo "CA_PLAYWRIGHT_JS=$(npm root -g)/playwright/index.js" >> "$GITHUB_ENV"
+
+      # Twice, against the same database, and this is not belt and
+      # braces. Three tests were found on 2026-08-26 that only passed
+      # against a database their own previous run had not touched: one
+      # short-circuited on "nothing changed" and skipped the password
+      # check it exists to make, another accumulated failed sign-ins for
+      # an address with no account until the rate limiter tripped and it
+      # reported an account-enumeration oracle that was in the fixture.
+      #
+      # A clean database per run - the normal, recommended design -
+      # would have hidden all three permanently, leaving them to appear
+      # only on a developer's second run of the day.
+      - name: integration, first run
+        env:
+          CA_BROWSER_TEST: "1"
+        run: go test -tags integration -race -count=1 ./...
+
+      - name: integration, second run against the same database
+        env:
+          CA_BROWSER_TEST: "1"
+        run: go test -tags integration -race -count=1 ./...
+
+  # It ships as a binary somebody copies to a server, so it has to build
+  # for the servers people have. Cheap enough to gate.
+  cross-compile:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - env:
+          GOOS: ${{ matrix.target.goos }}
+          GOARCH: ${{ matrix.target.goarch }}
+        run: go build -o /dev/null ./...

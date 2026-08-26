@@ -1,4 +1,4 @@
-//go:build integration
+//go:build network
 
 package botdata
 
@@ -19,7 +19,26 @@ import (
 // ships a copy of that data, a parser that has silently stopped matching
 // the source means every deployment quietly loses the signal.
 //
-//	go test -tags integration ./internal/botdata/ -run TestLiveFetch -v
+//	go test -tags network ./internal/botdata/ -run TestLiveFetch -v
+//
+// # Why its own tag rather than "integration"
+//
+// It was under the integration tag, alongside the tests that need a real
+// TimescaleDB. Those two dependencies are not alike. A database this
+// repository starts is available whenever somebody chooses to start it;
+// a third party's web server is available when they decide it is, and on
+// 2026-08-26 it was not - three runs, all timed out on the TLS
+// handshake, with plain curl failing the same way.
+//
+// That difference decides where a test belongs in CI. This one cannot
+// gate a merge: it goes red for reasons having nothing to do with the
+// change, and the predictable result is that people learn to ignore red.
+// It also must not be deleted, because noticing that the source moved is
+// its entire job - a deployment would otherwise lose the known-bot
+// signal with no error anywhere. So it runs on a schedule and reports.
+//
+// The tag names the dependency instead of the ceremony, which also means
+// the next network test is filed correctly by whoever writes it.
 func TestLiveFetch(t *testing.T) {
 	if os.Getenv("CA_OFFLINE") != "" {
 		t.Skip("CA_OFFLINE is set")

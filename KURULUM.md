@@ -86,7 +86,7 @@ kaynaktan geldiğini söyler**.
 
 | Gereken | Sürüm | Not |
 |---|---|---|
-| Go | **1.25.0+** | `go.mod`'daki sürüm. Eski bir araç zinciri ileride bir özellikte patlamaz, modülü baştan reddeder. Sunucuda gerekmez — başka yerde derleyip binary'yi kopyalayabilirsiniz. |
+| Go | **1.25.13+** | `go.mod`'daki sürüm. **Yama sürümü kasıtlı:** 1.25.0 ile derlenen bir ağaçta `govulncheck` standart kütüphanede 34 erişilebilir zafiyet buluyor, 1.25.13 ile sıfır *(ölçüldü 2026-08-26)*. Kod değişmedi; CVE'ler sonradan yayımlandı. Eski bir araç zinciri ileride bir özellikte patlamaz, modülü baştan reddeder. Sunucuda gerekmez — başka yerde derleyip binary'yi kopyalayabilirsiniz. |
 | PostgreSQL | **16.6 ile test edildi** | Aşağıya bakın. |
 | TimescaleDB | **2.17.2 ile test edildi** | Saklama politikaları ve sıkıştırma bunu ister. |
 | `psql` | — | Şemaları uygulamak için. |

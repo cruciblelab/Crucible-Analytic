@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | 🟡 **8/9** | C7 |
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **G** Yayın hattı | ⬜ **0/2** | G1, G2 — *ürün olmayı engelleyen ikisi* |
+| **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
 
 ### Bitmiş maddeler
@@ -273,18 +273,12 @@ kurma. O bedel her fazda ödeniyor ve ödeyen şey bir insanın
 hatırlaması. Ürünü müşteriye yaklaştıran her faz, ondan önce ödenmemiş
 bu bedeli büyütüyor.)*
 
-1. **G1 — CI.** Öne alındı. Sebebi "iyi pratik" değil ölçüm: bu projenin
-   "bitti" tanımı gerçek bağımlılığa karşı doğrulama, ve o doğrulama şu
-   an tamamen elle. Denetimin en kötü iki bulgusu bağımlılıktaydı ve
-   `govulncheck` buldu — okumayla bulunamazdı. **Bir sonraki faz ne
-   olursa olsun, bu ondan önce gelmeli**, çünkü her yeni faz elle
-   ödenen bedeli artırıyor.
-2. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
+1. **C7 — boş durumlar, API kesintisi, e-posta yolu.** C grubunda kalan
    tek madde. D3'ün önüne alındı: D grubunun kalanı *daha çok veri
    gösteriyor*, ama panel bugün API çökerse müşteriye ne diyeceğini
    bilmiyor. Yeni sütun eklemeden önce mevcut sayfaların kötü bir günü
    olması gerekiyor.
-3. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar da doğrudan seçilebilir olur.
@@ -298,7 +292,7 @@ bitmemiş bir şeyi paketlemektir.
 
 | Eksik | Sahibi |
 |---|---|
-| CI yok; `govulncheck` bir insanın hatırlamasına bağlı | **G1** |
+| ~~CI yok~~ | ✅ **G1'de kapandı.** İlk koşuşunda 1.25.0 araç zincirinde **34 erişilebilir stdlib zafiyeti** buldu — kod değişmemişti, CVE'ler sonradan çıkmıştı. `go.mod` 1.25.13'e alındı, sonrası sıfır |
 | Dağıtım aracı yok: sürüm paketi, systemd unit'leri, kurulum betiği | **G2**, sonra **F2** |
 | E-posta yolu yok: davet ve parola sıfırlama | **C7** |
 
@@ -332,9 +326,9 @@ bir eksik, unutulmuş bir eksiktir.
 | **Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor** — oturum tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması | **açık** (AI.3'te bulundu, hesap sayfasında yazılı; kapatmak `scs` şemasına sütun eklemek demek) |
 | **İki faktör kurtarma kodu yok** — kaybeden kişiyi sahip ya da işletmeci kurtarıyor; tek sahip kaybederse kabuk gerekiyor | **açık** (AI.3; kayıt ve kod formunda yazılı) |
 | **Panelde global eşzamanlılık sınırı yok** — her giriş denemesi bir argon2id doğrulaması, sınır kuyruk değil throttle sayaçları | **açık** (AI.3; panel varsayılan `127.0.0.1` dinliyor ve TLS'i sonlandıran bir proxy arkasında çalışması bekleniyor) |
-| **`govulncheck` düzenli çalıştırılmalı** — denetimin en kötü iki bulgusu bağımlılıktaydı ve okumayla bulunamazdı | **G1** (hem PR'da hem zamanlanmış: değişmemiş koda karşı çıkan yeni bir CVE'yi yalnız-PR koşusu yapısal olarak kaçırır) |
+| ~~`govulncheck` düzenli çalıştırılmalı~~ | ✅ **G1'de kapandı** — hem kapıda hem gecelik. Gerekçe teorik değildi: ilk koşu 34 bulgu verdi |
 | **Beş binary'nin dördü sürümünü söyleyemiyor** — `main.version` sembolü yalnız `panel`'de var, ama KURULUM.md beşini de `-X main.version` ile derletiyor ve linker olmayan sembol için uyarmıyor *(ölçüldü 2026-08-26, `go tool nm`)* | **G2** sembolü ekler, **B7** gösterir |
-| **Entegrasyon paketinin tekrar koşulabilirliği çürüyebilir** — bugün üç test yalnız daha önce koşmadıkları veritabanında geçiyordu; taze veritabanı sağlayan bir CI bunları gizlerdi | **G1** (aynı işte, aynı veritabanına karşı iki kez koşulur) |
+| ~~Entegrasyon paketinin tekrar koşulabilirliği çürüyebilir~~ | ✅ **G1'de kapandı** — kapı aynı işte, aynı veritabanına karşı iki kez koşuyor |
 | **Kurulum dili config dosyasında, panelde değil** | **A5** (kullanıcı: "ilerleyen zamanlarda"; kayıttaki ilk **dinamik** enum olacak — diller derlemeye bağlı) |
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
@@ -2727,7 +2721,7 @@ demek. Bu ikisi bırakılmadı — engelliyor. Aynı listeye koymak
 
 ---
 
-#### G1 — CI: neyin birleşmeyi engellediği, neyin yalnız haber verdiği
+#### G1 — CI: neyin birleşmeyi engellediği, neyin yalnız haber verdiği ✅ **yapıldı**
 
 **Neden bu faz var.** Bu projenin "bitti" tanımı (§9) gerçek bağımlılığa
 karşı doğrulama. Bugün o doğrulamayı elle yaptım: dört etiket kümesi,

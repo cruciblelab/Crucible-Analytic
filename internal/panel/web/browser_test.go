@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/browsertest"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -310,7 +311,11 @@ await browser.close();
 console.log(JSON.stringify(report));
 `
 	path := filepath.Join(t.TempDir(), "panel-browser.mjs")
-	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(ready), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -574,7 +579,11 @@ await browser.close();
 console.log(JSON.stringify(report));
 `
 	path := filepath.Join(t.TempDir(), "wizard-browser.mjs")
-	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(ready), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path

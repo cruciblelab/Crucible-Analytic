@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/browsertest"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 )
@@ -238,7 +239,11 @@ await browser.close();
 `
 	dir := t.TempDir()
 	name := filepath.Join(dir, "pano.mjs")
-	if err := os.WriteFile(name, []byte(script), 0o600); err != nil {
+	ready, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, []byte(ready), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return name
