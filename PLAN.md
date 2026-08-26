@@ -3137,10 +3137,59 @@ kırmızıya boyamak olurdu — ve G1'in dersini tekrar ederdi: *her test
 birleşmeyi engellememeli.* Kırmızının anlamı olması, kırmızının nadir
 olmasına bağlı.
 
-**Tasarım:** taban çizgisi dosyası. Bugünkü 27 gürültü, **her biri
-neden gürültü olduğu yazılarak** dondurulur; tarama yalnız **yeni**
-bulgu çıkınca konuşur. Bir kapı isteniyorsa kapı "sıfır bulgu" değil,
-**"taban çizgisinde olmayan bulgu yok"** olur.
+**Tasarım:** taban çizgisi dosyası. Bugünkü gürültü, **her biri neden
+gürültü olduğu yazılarak** dondurulur; tarama yalnız **yeni** bulgu
+çıkınca konuşur. Bir kapı isteniyorsa kapı "sıfır bulgu" değil,
+**"taban çizgisinde olmayan bulgu yok"** olur. (G112 düzeltildikten
+sonra `-severity=medium` ile kalan sayı **18**.)
+
+##### gosec'in kendi bastırması bu iş için kullanılamaz — ölçüldü
+
+Aracın tek yerleşik mekanizması `--exclude-rules="yol:KURAL"`, yani
+**yola** göre. Bunun ne yaptığı tahmin edilmedi, denendi: bir dosyada
+bir kural bastırıldıktan sonra **aynı dosyaya aynı kuraldan gerçek bir
+ikinci bulgu** eklendi.
+
+```
+bastırma yokken:  2 G402
+bastırma varken:  0 G402
+```
+
+Yani mekanizmanın kendisi, bu grubun kapatmak için var olduğu deliği
+açıyor. Ve tam olarak yanlış dosyada açıyor: `internal/panel/web/auth.go`
+bugün üç bulgu taşıyor **ve** C7.3 ile D grubunun büyüteceği dosya.
+
+**Taban çizgisi bu yüzden kural + dosya + işaretlenen kodun hash'i ile
+anahtarlanacak, yola göre değil.** gosec'in JSON'undaki `code` alanı
+buna uygun (satır numarası önekleri soyulduktan sonra). Üç davranışı da
+doğru veren tek anahtarlama bu:
+
+| Olan | Olması gereken | Hash anahtarlı |
+|---|---|---|
+| Dosyada satırlar kayıyor | Ses çıkarma | Hash aynı — sessiz ✅ |
+| İşaretli satırın kendisi değişiyor | Yeniden üçle | Hash değişti — konuşur ✅ |
+| Aynı dosyaya aynı kuraldan **yeni** bulgu | **Bildir** | Yeni hash — konuşur ✅ |
+
+##### Sıralama: neden C7.3'ten önce
+
+Tarayıcının hangi fazda işe yarayacağı da tahmin edilmedi, denendi.
+Sonraki fazların yazacağı kod sınıfları kasten yazılıp tarandı:
+
+```
+G402 (CWE-295) TLS InsecureSkipVerify → HIGH/HIGH   ... C7.3'ün SMTP'si
+G204 (CWE-78)  değişkenle alt süreç   → MEDIUM/HIGH ... F2'nin betiği
+```
+
+"SMTP bağlanmıyor" diye sertifika doğrulamasını kapatmak, e-posta kuran
+her projede en az bir kez yazılan satır — ve `gosec` onu en yüksek
+güvenle yakalıyor. Aynısı B1'in sıkıştırılmış log görüntüleyicisi (arşiv
+yolu geçişi) ve G2'nin paketi için de geçerli.
+
+Yani tarayıcının **en çok işe yarayacağı fazlar sonrakiler**. H2'yi
+onlardan sonraya almak, en riskli kodu taramasız yazmak olurdu. Ama
+H2'yi öne alıp aracın kendi bastırmasını kullanmak daha kötü olurdu:
+erken almanın tüm faydası, ilk bastırılan dosyada geri verilirdi.
+İkisi birlikte tek sonuç veriyor — **önce, ve hash anahtarlı.**
 
 **Bitti ölçütü:** taban çizgisi commit'li ve her satırında gerekçe var;
 kasten sokulmuş bir açık (ör. `exec.Command` ile birleştirilmiş girdi)
