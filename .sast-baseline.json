@@ -1,0 +1,173 @@
+{
+  "note": "Triaged gosec findings. Every entry needs a reason - see internal/sast. Regenerate with: go run ./internal/sast/cmd/sastdiff -init",
+  "entries": [
+    {
+      "fingerprint": "d86bd2b8b02d562ff7cc74b8",
+      "rule": "G115",
+      "file": "internal/argon2id/argon2id.go",
+      "severity": "HIGH",
+      "reason": "len(want) is the length of a key this package's own encoder produced and decode() parsed back; bounding it differently would require write access to panel_users.password_hash, which is already game over.",
+      "snippet": "got := argon2.IDKey([]byte(plain), salt, p.time, p.memory, p.threads, uint32(len(want)))"
+    },
+    {
+      "fingerprint": "a51e54607167e243fdde969b",
+      "rule": "G304",
+      "file": "internal/asnlookup/asnlookup.go",
+      "severity": "MEDIUM",
+      "reason": "The path is built from asn_lookup.local_csv_path in the config file, not from a request. A deployment that can set this can already read the disk as this user.",
+      "snippet": "f, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "e90a2cfcf1385ff0740f226d",
+      "rule": "G115",
+      "file": "internal/beacon/visitor.go",
+      "severity": "HIGH",
+      "reason": "Length framing over siteID, the masked network and the User-Agent. The only unbounded-looking one is the header, and net/http caps request headers (MaxHeaderBytes, 1MB by default) long before 4GiB.",
+      "snippet": "binary.BigEndian.PutUint32(length[:], uint32(len(field)))"
+    },
+    {
+      "fingerprint": "0547dcb4fe36d64dc99e86eb",
+      "rule": "G115",
+      "file": "internal/beacon/writer.go",
+      "severity": "HIGH",
+      "reason": "n is the row count pgx CopyFrom returns on success; the error path returns above this line, so it is never negative.",
+      "snippet": "w.written.Add(uint64(n))"
+    },
+    {
+      "fingerprint": "6d39ae7dd70b7f1a3c141aae",
+      "rule": "G301",
+      "file": "internal/botdata/botdata.go",
+      "severity": "MEDIUM",
+      "reason": "The bot-data cache directory. Its contents are a public list fetched from a public source - no secret, and 0755 is what a shared cache directory should be.",
+      "snippet": "if err := os.MkdirAll(dir, 0o755); err != nil {"
+    },
+    {
+      "fingerprint": "69ffe5e1e8c9472b62ec73b6",
+      "rule": "G302",
+      "file": "internal/botdata/botdata.go",
+      "severity": "MEDIUM",
+      "reason": "Same file, same reason: public bot data, deliberately world-readable. 0600 would mean re-fetching it per service account.",
+      "snippet": "if err := os.Chmod(tmpName, 0o644); err != nil {"
+    },
+    {
+      "fingerprint": "b826a52f92470fe0a43f355f",
+      "rule": "G304",
+      "file": "internal/botdata/botdata.go",
+      "severity": "MEDIUM",
+      "reason": "Cache path from the config file, not from a request.",
+      "snippet": "raw, err := os.ReadFile(path)"
+    },
+    {
+      "fingerprint": "e87eab1ed5f3613d8a57534a",
+      "rule": "G703",
+      "file": "internal/browsertest/browsertest.go",
+      "severity": "HIGH",
+      "reason": "Test-only helper that probes for a Playwright/Chromium install. The paths come from the environment or npm, it is never built into a shipped binary, and it only ever calls Stat.",
+      "snippet": "_, err := os.Stat(path)"
+    },
+    {
+      "fingerprint": "6a07b0c48c9632a127c49753",
+      "rule": "G115",
+      "file": "internal/ja4/grease.go",
+      "severity": "HIGH",
+      "reason": "Truncation is the operation, not an accident: GREASE detection compares the high and low bytes of a uint16 (RFC 8701), so byte(v) is deliberate.",
+      "snippet": "return byte(v) == b && b&0x0f == 0x0a"
+    },
+    {
+      "fingerprint": "4d6e90ec4cf4f41d2675eb26",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
+      "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
+    },
+    {
+      "fingerprint": "d020082a35a957f24d2196ed",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Same, the read side of compressing a rotated log.",
+      "snippet": "source, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "66f5946d5a67d042e4e0b6f7",
+      "rule": "G304",
+      "file": "internal/logging/tree.go",
+      "severity": "MEDIUM",
+      "reason": "Same: <logs.dir>/<service>/<day>/<category>.log, every component either config or a closed set.",
+      "snippet": "opened, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, filePerm)"
+    },
+    {
+      "fingerprint": "12737d4a256ea9fdb0e91ae7",
+      "rule": "G115",
+      "file": "internal/panel/preflight/disk_linux.go",
+      "severity": "HIGH",
+      "reason": "Bsize is a filesystem block size from statfs. A negative one would mean the kernel lied about the filesystem.",
+      "snippet": "return stat.Bavail * uint64(stat.Bsize), nil"
+    },
+    {
+      "fingerprint": "624a3104f4a4acfbd694a90d",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
+      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "350d5279b7410b58d11468f1",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
+      "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "798c1599668a9329270b6212",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
+      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "f1393b798a3aaa96ff378e19",
+      "rule": "G710",
+      "file": "internal/panel/web/chrome.go",
+      "severity": "MEDIUM",
+      "reason": "Target is the LoginPath constant. Only the path of the current URL is carried, never the query string - deliberately, since that is where a reset token or a search term would be.",
+      "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "fa42d02f0b0211ce9728d1b4",
+      "rule": "G304",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
+      "snippet": "rf, err := os.Open(reportPath)"
+    },
+    {
+      "fingerprint": "15ed33029fa76d5146f7fccb",
+      "rule": "G304",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag; the baseline it reads is a tracked file in the repository.",
+      "snippet": "bf, err := os.Open(baselinePath)"
+    },
+    {
+      "fingerprint": "1748a1a1ae9aa19df8614039",
+      "rule": "G306",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "The baseline it writes is committed to the repository and read by everyone; 0600 would be wrong for a tracked file.",
+      "snippet": "if err := os.WriteFile(path, body, 0o644); err != nil {"
+    },
+    {
+      "fingerprint": "35d93e8789460abbc3ae3bf8",
+      "rule": "G115",
+      "file": "internal/storage/row.go",
+      "severity": "HIGH",
+      "reason": "scoring.Score is clamped to MaxScore (100) where it is computed, so it cannot reach int16's range. If that clamp is ever removed the flagged line changes and this entry stops matching.",
+      "snippet": "BotScore:        int16(result.Score),"
+    }
+  ]
+}

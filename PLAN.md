@@ -90,7 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **2/8** | D3–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
-| **H** Güvenlik taraması | 🟡 **0/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H2, H3, H4 |
+| **H** Güvenlik taraması | 🟡 **1/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
 
 ### Bitmiş maddeler
@@ -265,17 +265,31 @@ düzeltmekten ucuz.)*
 
 ### Sıradaki işler, önem sırasıyla
 
-*(Sıra iki kez ölçümle değişti. D1'de: altyapı ürün seviyesindeydi,
+*(Sıra üç kez ölçümle değişti. D1'de: altyapı ürün seviyesindeydi,
 arayüz yarımdı. 2026-08-26'da: faz sonu doğrulaması elle yapılıyordu ve
 kırk dakika sürüyordu, o yüzden G1 öne alındı — ve ilk koşuşunda
-kimsenin dokunmadığı kodda 34 erişilebilir zafiyet buldu.)*
+kimsenin dokunmadığı kodda 34 erişilebilir zafiyet buldu. Aynı gün
+ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
+**denenerek** öne alındı.)*
 
-1. **C7.2 — parola sıfırlama, e-postasız.** Kurtarma kodları +
-   operatör bağlantısı. Bu faz bittiğinde ürünün **müşteri açısından
-   işlevsel boşluğu kalmıyor**: kurulur, devredilir, girilir, parola
-   unutulursa kendi başına geri alınır, pano çalışır. Küçük ve
-   kendi kendine yeten; hiçbir yapılandırma istemiyor. Ayrıca panelin
-   katalogda verdiği "kurtarma kodu **henüz** yok" sözünü tutuyor.
+1. ~~**H2 — statik taramanın taban çizgisi.**~~ ✅ **yapıldı** — kapıda,
+   sürüm sabitli, 21 giriş gerekçeli. Aşağıdaki gerekçe olduğu gibi
+   duruyor çünkü **sırayı belirleyen buydu** ve sonraki üç faz için
+   hâlâ geçerli: artık D3, G2, F2 ve C7.3 taranarak yazılacak.
+
+   Sıradaki üç fazın üçü de
+   `gosec`'in yakaladığı sınıflarda **yeni yüzey** ekliyor, ve bu
+   tahmin değil: o kod sınıfları kasten yazılıp tarandı. G2'nin paketi
+   ve F2'nin betiği arşiv yolu geçişi ile değişkenli alt süreç
+   (`G204`, MEDIUM/HIGH) demek; C7.3'ün SMTP'si sertifika doğrulamasını
+   kapatma satırı demek (`G402`, **HIGH/HIGH**) — e-posta kuran her
+   projede en az bir kez yazılan satır.
+
+   Yani tarayıcı en çok **bundan sonra** işe yarayacak, ve şu an
+   anlamlı bir yeşili olmadığı için hiçbir şey tespit etmiyor: taban
+   çizgisi yokken her gece aynı 18 bulguyu yeniden buluyor ve yarın
+   girecek 19'uncuyu onların içinde kaybediyor. Küçük faz, ama
+   kendisinden sonraki üçünün taranıp taranmayacağına karar veren faz.
 2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
@@ -293,6 +307,13 @@ kimsenin dokunmadığı kodda 34 erişilebilir zafiyet buldu.)*
 sihirbazı) → B4/B7 (sağlık sayfası ve sürüm kavramı; C7.1'in "sağlık
 sayfasına bağlantı ver" maddesi B4'ü bekliyor, G2'nin sürüm damgası
 B7'yi) → A2/A3 → D4–D8 → B'nin kalanı → E.
+
+**H'nin kalanı sıraya girmiyor, sıraya paralel gidiyor.** H1 (kalan üç
+ayrıştırıcı), H3 (sır taraması) ve H4 (yapısal değişmezler) hiçbir
+fazı beklemiyor ve hiçbir faz onları beklemiyor. Sıraya sokmak, onları
+"sırası gelmedi" diye erteleme hakkı doğururdu; oysa üçü de bir
+öğleden sonralık iş. H2 istisna, çünkü **kendisinden sonraki fazların
+taranıp taranmayacağını** belirliyor — o yüzden o sırada.
 
 **Bilerek en sona bırakılan:** E grubu (tek binary, tek yapılandırma).
 Beş süreci birleştirmek, hepsi hâlâ değişirken yapılırsa iki kez
@@ -3117,7 +3138,19 @@ regresyon testine dönüşür).
 
 ---
 
-#### H2 — Statik tarama: **kapı değil rapor**, taban çizgisiyle
+#### H2 — Statik tarama, taban çizgisiyle ✅ **yapıldı**
+
+> **Yapılırken bir karar tersine döndü ve bu başlıkta duruyor.** Bu faz
+> "kapı değil rapor" diye planlanmıştı; gerekçe 28'de 1 oranıydı. Taban
+> çizgisi o oranı ortadan kaldırdı: çıplak tarama 21 bulgu, taban
+> çizgisine karşı **sıfır**. Artık kırmızı "değişikliğin yeni bir bulgu
+> soktu" demek, yani değişiklik hakkında bir şey söylüyor — kapının
+> tanımı bu. **Kapıya alındı.** Gerekçeyi çürüten şey ölçüm değişikliği
+> değil, altındaki olgunun değişmesiydi.
+>
+> Üçlemenin yapıldığı yer de değişti ve bu ikinci sebep: satırı yeni
+> yazan kişi neden güvenli olduğunu bilir; gecelik koşu o soruyu, kodu
+> yazmamış birine sorar.
 
 **Bugün ölçülen oran, bu fazın tüm tasarımını belirliyor.** `gosec`
 111 dosya / 29.984 satırda **28 bulgu** verdi. Elle üçlendi:
@@ -3191,10 +3224,43 @@ H2'yi öne alıp aracın kendi bastırmasını kullanmak daha kötü olurdu:
 erken almanın tüm faydası, ilk bastırılan dosyada geri verilirdi.
 İkisi birlikte tek sonuç veriyor — **önce, ve hash anahtarlı.**
 
-**Bitti ölçütü:** taban çizgisi commit'li ve her satırında gerekçe var;
-kasten sokulmuş bir açık (ör. `exec.Command` ile birleştirilmiş girdi)
-taramada **görünüyor**; ve taban çizgisi eskiyince — düzeltilen bir
-bulgu hâlâ listede duruyorsa — bunu söyleyen bir kontrol var.
+##### Yapıldı: `internal/sast`, ve ölçülen dört davranış
+
+Parmak izi **kural + dosya + işaretli kodun hash'i**; satır numarası
+hiç girmiyor. Üç davranış birim testinde, dördü uçtan uca ölçüldü:
+
+| Durum | Beklenen | Ölçülen |
+|---|---|---|
+| Temiz depo | sessiz | `no new findings (21 in the report, all in the baseline)`, çıkış 0 |
+| **Zaten taban çizgisi girişi olan dosyaya** gerçek G402 eklendi | bildir | `NEW G402 auth.go:464 (HIGH/HIGH)`, çıkış 1 |
+| Düzeltilmiş bulgu listede kaldı | bildir | `STALE G112 fullproxy/server.go`, çıkış 1 |
+| Aynı kod farklı satıra kaydı | sessiz | parmak izi değişmiyor |
+
+İkinci satır bu fazın tüm gerekçesi: **gosec'in kendi mekanizmasının
+yuttuğu durum** (2 → 0), burada çıkış kodu 1 veriyor.
+
+**Taban çizgisi 21 giriş, 18 değil.** Fark, aracın kendi kodunda çıkan
+üç bulgu — tarayıcı kendini de tarıyor, muafiyet listesi sıfırdan
+başlamıyor. `TestBaseline_CoversTheToolItself` bunu koruyor.
+
+Yerleşim: `internal/sast/cmd/sastdiff`, kökteki `cmd/` değil. "Bu
+ürünün kaç binary'si var" sorusunun kesin bir cevabı var ve bir
+geliştirme aracı onu değiştirmemeli.
+
+**Sürüm sabitlendi (`v2.29.0`), `@latest` değil.** Sabitlenmemiş bir
+tarayıcı, kapının altındaki taban çizgisinin anlamını kimse karar
+vermeden değiştirir — bir sabah herkes, kimsenin benimsemediği bir
+kural yüzünden engellenir. Gecelikte `@latest` koşuyor, tam da bunu
+öğrenmek için: yeni gosec'in gördüğü fazladan şey varsa bu bir insan
+kararıdır, bozuk bir yapı değil.
+
+**Bitti ölçütü — hepsi karşılandı:** taban çizgisi commit'li ve **her
+satırında gerekçe var** (testi yazan kişinin kendi tembel gerekçesini
+yakaladı: "Same tool, same reason" dört kelimeydi ve reddedildi);
+kasten sokulmuş bir açık taramada görünüyor; eskiyen giriş bildiriliyor;
+ve mutlak yol kontrolü var — `gosec` mutlak yol yazıyor, parmak izi
+yolu içeriyor, yani normalleştirme olmasa taban çizgisi CI'da hiçbir
+şeyle eşleşmez ve her gece 21 bulgu "yeni" görünürdü.
 
 ---
 

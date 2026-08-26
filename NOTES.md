@@ -4484,3 +4484,105 @@ watching it fail: `group H: the table says 1/3, the headings say 0/4`.
 
 Worth stating plainly, because I described this test earlier as a two-way
 mirror: it was, within a range it did not say it had.
+
+## The baseline, and the mechanism that would have undone it
+
+H2 was planned as "report, do not gate", and the reasoning was the ratio:
+28 findings, one real. It finished as a gate. The reversal is worth
+writing down, because what changed was not the opinion but the fact
+underneath it.
+
+### Placing the phase by measurement rather than by assertion
+
+The question was whether the scanner belonged before or after the phases
+still to come. The first answer was "before, it's the smallest phase" —
+which is not a reason, size has nothing to do with it.
+
+The measurable version: does the scanner catch the kind of bug the next
+phases will risk introducing? So the bug classes were written on purpose
+and scanned:
+
+```
+G402 (CWE-295) TLS InsecureSkipVerify → HIGH/HIGH   ... C7.3's SMTP
+G204 (CWE-78)  subprocess with variable → MEDIUM/HIGH ... F2's installer
+```
+
+Turning off certificate verification to make SMTP connect is the line
+that gets written at least once in every project that sets up email, and
+gosec catches it with its highest confidence. So the scanner is worth
+most *after* this point — which is precisely the argument for building it
+*before*.
+
+### The mechanism that would have made that pointless
+
+gosec's only built-in suppression is `--exclude-rules="path:RULE"` — per
+file, not per finding. That was tested rather than assumed: a rule was
+suppressed for a file, and then a genuinely broken second instance of the
+same rule was added to that same file.
+
+```
+suppression off:  2 findings
+suppression on:   0 findings
+```
+
+The mechanism hides exactly what a baseline exists to surface, and it
+does it in the worst possible place: `internal/panel/web/auth.go` carries
+three findings today and is the file the email wizard will grow.
+
+So the ordering question was never the real question. Moving H2 earlier
+and then using gosec's own suppression would have handed back the entire
+benefit at the first suppressed file. Both halves resolve to one answer:
+before, and keyed by content.
+
+A finding's identity is the rule, the file, and a hash of the flagged
+code, with the line number deliberately excluded. That is the only keying
+that gets all three cases right: a line shifting is silent (a baseline
+that cries on every unrelated edit is one people regenerate without
+reading), editing the flagged line brings the finding back (the judgement
+"this conversion is bounded" was about particular code, and that code is
+now different code), and a new finding in an already-baselined file is
+reported.
+
+### Three things the work turned up that reading would not have
+
+**The baseline has 21 entries, not 18.** The extra three are in the tool
+itself — the scanner scans its own code, which is how an exemption list
+avoids starting. A test now holds that open.
+
+**gosec reports absolute paths, and the fingerprint includes the path.**
+A baseline written in `/home/user/Crucible-Analytic` matches nothing in
+`/home/runner/work/...`. Without normalisation every finding would read
+as new on every CI run, and the obvious fix — regenerating on the runner
+— breaks it locally instead. Symmetrical, silent, and permanent. There is
+a test that fails if the two ever stop agreeing.
+
+**The reason test caught its own author.** One of the twenty-one reasons
+was "Same tool, same reason." — four words, which restates a decision
+instead of supporting it. The check that requires a reason to be at least
+six words rejected it before the commit. Crude heuristic, real catch.
+
+### Why it can gate now
+
+The thing that justified "report only" was the ratio, and the baseline
+removes it: a bare scan is 21 findings of which zero are defects, against
+the baseline it is zero. Red now means "this change introduced something
+nobody has triaged", which is a statement about the change — the
+definition of a gate.
+
+There is a second reason, and it may be the better one: it puts the
+triage where the knowledge is. The person who just wrote the line knows
+why it is safe. A nightly run asks that question of whoever reads the log
+next, about code they did not write.
+
+Verified end to end rather than reasoned about: a real `InsecureSkipVerify`
+planted in `auth.go` — a file that already carries three baselined
+findings — comes out as `NEW G402 auth.go:464 (HIGH/HIGH)` with exit
+status 1. That is the case gosec's own mechanism swallowed.
+
+The version is pinned at `v2.29.0`. An unpinned scanner rewrites the
+meaning of the baseline underneath a gate, and the first anyone would
+know is a morning where every contributor is blocked by a rule nobody
+chose to adopt. The nightly job runs `@latest` against the same baseline
+for exactly that question — and in doing so it stopped being "the scan"
+and became the same shape as govulncheck: what does a tool see today in
+code nobody touched.

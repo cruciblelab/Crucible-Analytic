@@ -65,6 +65,40 @@ jobs:
           # check.
           "$(go env GOPATH)/bin/govulncheck" ./...
 
+      # gosec against the committed baseline. This gates, where the raw
+      # scan deliberately did not.
+      #
+      # The reason for the reversal is that the thing which justified
+      # "report only" changed. A bare scan is 21 findings of which zero
+      # are defects, and gating on that count would be wrong 21 times for
+      # every time it was right. Against a baseline, red means "your
+      # change introduced a finding nobody has triaged" - which is about
+      # the change, which is what a gate is for.
+      #
+      # It also puts the triage where it belongs. The person who just
+      # wrote the line knows why it is safe; a nightly run hands that
+      # question to whoever reads the log next, about code they did not
+      # write.
+      #
+      # The version is pinned, not @latest. gosec gains rules between
+      # releases, and an unpinned scanner would rewrite the meaning of
+      # the baseline underneath a gate - every contributor blocked one
+      # morning by a rule nobody chose to adopt. Upgrading is a commit,
+      # with whatever new findings it brings triaged in that commit.
+      # nightly.yml runs @latest precisely to find out when that is worth
+      # doing.
+      # -no-fail rather than `|| true`: gosec exits non-zero whenever it
+      # finds anything, and it always finds the 21 baselined items, so its
+      # own exit status carries no information here. sastdiff is the
+      # verdict. The flag says that on purpose - a shell `|| true` would
+      # swallow a real failure (a scan that crashed, a bad flag) just as
+      # quietly as the expected one.
+      - name: gosec against the baseline
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          "$(go env GOPATH)/bin/gosec" -fmt=json -quiet -no-fail -severity=medium -out=gosec.json ./...
+          go run ./internal/sast/cmd/sastdiff -report gosec.json
+
   # No database, no browser, no network. If this is red the rest is noise.
   unit:
     name: unit (-race)

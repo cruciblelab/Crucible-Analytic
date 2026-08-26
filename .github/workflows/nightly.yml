@@ -133,7 +133,7 @@ jobs:
           if-no-files-found: ignore
 
   sast:
-    name: gosec - reports, does not gate
+    name: has gosec learned a rule we have not adopted
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,13 +141,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # No `|| true` and no continue-on-error: this job is allowed to be
-      # red, because red here means "a human should look", not "the
-      # change is broken". It is in nightly precisely so that being red
-      # blocks nobody. Until H2's baseline exists, that will be red every
-      # night on the 27 findings already triaged as noise - which is
-      # honest about the current state rather than hiding it behind a
-      # suppression nobody wrote down.
+      # @latest here, against the pinned version in the gate.
+      #
+      # The scan itself moved to ci.yml once it had a baseline to compare
+      # against, so this job is no longer "the scan". What is left is the
+      # question only a schedule can ask: gosec gains rules between
+      # releases, and a new rule fires against code nobody touched -
+      # structurally the same case as a CVE published against an
+      # unchanged dependency, which is why govulncheck also runs here.
+      #
+      # Red means the newer gosec sees something the pinned one does not.
+      # That is a human's decision (adopt the rule and triage what it
+      # finds, or don't), not a broken build - which is exactly why it is
+      # here and not in the gate.
       - run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          "$(go env GOPATH)/bin/gosec" -fmt=text -severity=medium ./...
+          "$(go env GOPATH)/bin/gosec" -fmt=json -quiet -no-fail -severity=medium -out=gosec.json ./...
+          go run ./internal/sast/cmd/sastdiff -report gosec.json

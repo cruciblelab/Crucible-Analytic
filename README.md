@@ -1567,8 +1567,11 @@ CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
 go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
 go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
 
-# Static analysis. It reports, it does not gate - see below.
-gosec -severity=medium ./...
+# Static analysis, against the committed baseline of triaged findings.
+# This is what CI gates on; `gosec` alone always exits non-zero, because
+# the repository always has its 21 baselined items.
+gosec -fmt=json -quiet -no-fail -severity=medium -out=gosec.json ./...
+go run ./internal/sast/cmd/sastdiff -report gosec.json
 ```
 
 Fuzzing runs nightly rather than on every change, because what it finds
@@ -1576,13 +1579,38 @@ is a function of time spent rather than of pass or fail. A crash is
 written to `testdata/fuzz/` and becomes a permanent regression case from
 then on, so a finding is worth committing.
 
-`gosec` is not a gate here, deliberately. Its first run on this
-repository produced 28 findings of which exactly one was real (an
-`http.Server` with no timeouts, which turned out to leave the TLS
-handshake entirely unbounded). Failing a build on that ratio means being
-wrong 27 times for every time it is right, and a red build that is
-usually wrong is one people learn to click past. It runs nightly and a
-person triages it. PLAN.md's group H has the full triage.
+### The SAST baseline
+
+`gosec`'s first run on this repository produced 28 findings of which
+exactly one was real — an `http.Server` with no timeouts, which turned
+out to leave the TLS handshake entirely unbounded. Gating on a raw count
+like that means being wrong 27 times for every time it is right, and a
+red build that is usually wrong is one people learn to click past.
+
+So the gate is not "zero findings", it is **"nothing the baseline does
+not already know about"**. `.sast-baseline.json` holds each triaged
+finding with the reason it is not a defect; a test refuses the file if
+any reason is missing, and refuses a reason too short to be an argument.
+
+`internal/sast` exists rather than gosec's own `--exclude-rules` because
+that mechanism suppresses a rule for a whole *file*. That was measured
+rather than assumed: with a rule suppressed for a file, a genuinely new
+finding of the same rule in the same file reported nothing (2 findings
+became 0). A finding here is keyed by rule, file, and a hash of the
+flagged code — never the line number — which gets all three cases right:
+lines shifting is silent, editing the flagged line brings it back for
+triage, and a new finding in an already-baselined file is reported.
+
+To add a finding after triaging it, append an entry with its fingerprint
+(printed by `sastdiff`) and a reason. To rebuild from scratch,
+`sastdiff -init` writes every reason empty and the test suite refuses it
+until a person fills them in.
+
+The pinned version in CI (`v2.29.0`) is deliberate: an unpinned scanner
+rewrites what the baseline means underneath a gate. `nightly.yml` runs
+`@latest` against the same baseline to report when a newer gosec sees
+something the pinned one does not — a decision for a person, not a
+broken build. PLAN.md's group H has the full triage.
 
 The browser suite is not decoration. `httptest.ResponseRecorder` cannot
 tell you whether Chromium *refused* the stylesheet under the
