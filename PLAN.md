@@ -2796,6 +2796,29 @@ PR'ın hattı tarafından reddedildiği **bir kez gösterilir**. Yeşil bir
 hattın bir şeyi yakaladığının tek kanıtı, bir şeyi reddettiğini
 görmektir.
 
+##### Karşılandı (2026-08-26)
+
+**Reddettiği gösterildi**, üçü de ayrı bir kopyada, kapının kendi
+komutlarıyla: biçimlendirilmemiş dosyayı `gofmt -l` listeledi; sekiz
+goroutine'in paylaşılan bir sayacı artırdığı gerçek bir yarışı `-race`
+`WARNING: DATA RACE` ile bildirdi; zafiyetli araç zinciri için uydurma
+gerekmedi — **ağacın kendisinde vardı**, `govulncheck` 34 erişilebilir
+stdlib bulgusu verdi ve `go.mod` 1.25.13'e alındıktan sonra sıfıra
+düştü.
+
+**Kabul ettiği de gösterildi**, gerçek GitHub Actions üzerinde
+([koşu #1](https://github.com/cruciblelab/Crucible-Analytic/actions/runs/32952332945)):
+yedi işin hepsi yeşil, 4 dk 15 sn. Entegrasyon işi gerçek
+`timescale/timescaledb:2.17.2-pg16` servis konteynerine karşı **iki kez**
+koştu (101 sn ve 73 sn) ve ikisi de geçti — yani tekrar koşulabilirlik
+taze bir CI veritabanında da tutuyor.
+
+Tarayıcı testleri **atlanmadı**: adımda `CA_BROWSER_TEST=1` ayarlıyken
+atlama dalı hiç çalışmıyor, test ya koşuyor ya da `Prepare` hatasıyla
+düşüyor. `CA_CHROMIUM` verilmedi, yani `internal/browsertest`'in
+"kimse tarayıcı adı vermedi → `executablePath` hiç yazma" dalı — bu
+makinede erişilemeyen dal — CI'da gerçekten çalıştı.
+
 ---
 
 #### G2 — Sürüm paketi: müşterinin kurduğu şey
