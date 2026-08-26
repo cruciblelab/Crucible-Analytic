@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -47,9 +48,39 @@ func TestTheDefaultBreakdownsAreAllRealBreakdowns(t *testing.T) {
 		}
 		seen[kind] = true
 	}
-	for kind := range breakdownDefs {
+	// The technical breakdowns are not in the default view - they are
+	// appended in developer mode - so they are counted from their own
+	// list. Still counted, though: a breakdown defined and reachable from
+	// neither list is one nobody can ever see and nobody will ever notice
+	// is broken.
+	for _, kind := range technicalBreakdowns {
+		def, ok := breakdownDefs[kind]
+		if !ok {
+			t.Errorf("%q is in the technical list and is not a breakdown", kind)
+			continue
+		}
+		if !def.Technical {
+			t.Errorf("%q is shown in developer mode and is not marked Technical, so the "+
+				"detail page would not gate it", kind)
+		}
+		if !analytics.KnownBreakdown(kind) {
+			t.Errorf("%q is drawn here and the client cannot fetch it", kind)
+		}
+		if seen[kind] {
+			t.Errorf("%q is in both the default view and the technical list", kind)
+		}
+		seen[kind] = true
+	}
+	for kind, def := range breakdownDefs {
 		if !seen[kind] {
 			t.Errorf("%q is defined and never shown", kind)
+		}
+		// And the other direction: a breakdown marked Technical that is
+		// not in the technical list is gated on the detail page and
+		// unreachable from the site page, which reads as a broken link
+		// rather than as a deliberate omission.
+		if def.Technical && !slices.Contains(technicalBreakdowns, kind) {
+			t.Errorf("%q is marked Technical and is not in technicalBreakdowns", kind)
 		}
 	}
 }

@@ -571,6 +571,8 @@ hicbiri = "Bu site için gösterilecek hiçbir blok seçilmemiş. Kartlar ve kı
 [metin.pano.kirilim]
 tumu = "Tümü (%s)"
 sutun_ziyaretci = "Ziyaretçi"
+sutun_bot = "Bot adres"
+bilinen_bot = "bilinen bot"
 sutun_pay = "Pay"
 geri = "← Site özeti"
 sayfalama = "Sayfalar"
@@ -617,6 +619,27 @@ aciklama = "Sitenizin kendi tanımladığı özel olaylar: form gönderimi, tık
 sutun = "Olay"
 sayi = "Kez"
 bos_grup = "Adsız"
+
+[metin.pano.kirilim.parmak-izi]
+baslik = "Parmak izleri"
+aciklama = "Bağlanan istemci yazılımının TLS parmak izi (JA4). Bu sayı ölçüm kodundan değil, sunucuya gelen bağlantıdan gelir — yani JavaScript çalıştırmayan istemciler de burada görünür. Arama motoru botları, tarayıcılar ve otomatik araçlar birbirinden burada ayrılır."
+sutun = "Parmak izi"
+sayi = "Adres"
+bos_grup = "Parmak izi alınamadı"
+
+[metin.pano.kirilim.asn]
+baslik = "Ağlar"
+aciklama = "Adreslerin ait olduğu ağ (ASN). Veri merkezi trafiğini ev ve telefon operatörlerinden ayıran şey budur: bir sitenin ziyaretçileri operatörlere dağılır, otomatik trafik birkaç veri merkezinde toplanır."
+sutun = "Ağ"
+sayi = "Adres"
+bos_grup = "Çözümlenemedi"
+
+[metin.pano.kirilim.sunucu-ulke]
+baslik = "Ülkeler (sunucuya gelen)"
+aciklama = "Sunucuya bağlanan adreslerin ülkesi. Yukarıdaki \"Ülkeler\" bölümüyle aynı şey değildir: o, sayfa açan kişileri sayar; bu, bağlanan her adresi — sayfayı hiç açmayanlar dâhil. İki sayı birbirine eşit olmaz ve toplanmaz."
+sutun = "Ülke"
+sayi = "Adres"
+bos_grup = "Belirlenemedi"
 
 [metin.pano.aralik]
 baslik = "Dönem"

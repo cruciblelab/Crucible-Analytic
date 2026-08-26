@@ -345,14 +345,24 @@ var (
 	// from the kind at runtime. A missing bos_grup is the one nobody
 	// would notice - it appears only on sites that have a row with no
 	// referrer, which is most of them, on a line nobody reads twice.
-	dashboardBreakdowns = []string{"sayfa", "kaynak", "kampanya", "cihaz", "ulke", "olay"}
+	// The last three are the collector's, shown only in developer mode
+	// (D3). Listed here all the same: a key is dead or alive regardless of
+	// who is allowed to read it, and leaving them out would have this test
+	// demand the deletion of words the panel needs.
+	dashboardBreakdowns = []string{
+		"sayfa", "kaynak", "kampanya", "cihaz", "ulke", "olay",
+		"parmak-izi", "asn", "sunucu-ulke",
+	}
 
 	// Campaigns is absent here and that is the API's shape, not an
 	// oversight: its endpoint excludes untagged traffic in SQL, so there
 	// is no never-determined group to name. A word for a row that can
 	// never render is how a catalog starts describing a page that does
 	// not exist.
-	dashboardNamedGroups = []string{"sayfa", "kaynak", "cihaz", "ulke", "olay"}
+	dashboardNamedGroups = []string{
+		"sayfa", "kaynak", "cihaz", "ulke", "olay",
+		"parmak-izi", "asn", "sunucu-ulke",
+	}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template

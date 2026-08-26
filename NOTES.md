@@ -4586,3 +4586,116 @@ chose to adopt. The nightly job runs `@latest` against the same baseline
 for exactly that question — and in doing so it stopped being "the scan"
 and became the same shape as govulncheck: what does a tool see today in
 code nobody touched.
+
+## D3: three sections, and two bugs the phase had to find first
+
+D2 put six breakdowns on the site page and left a note in the registry
+saying fingerprints, ASNs and the cross-source views belonged to D3.
+This is the three breakdowns; the score histogram, the crossover views
+and the raw export are still open, because none of them is
+breakdown-shaped and forcing them into that mechanism would be the wrong
+kind of reuse.
+
+### The decision the phase turns on
+
+The collector's rows and the beacon's rows are not the same quantity.
+The beacon counts pageviews and the people behind them; the collector
+counts addresses, and cannot know how many people are behind one.
+
+That difference had to be carried in three places or it would have
+produced a table that renders perfectly and answers the wrong question:
+
+- **A third metric.** Collector breakdowns divide by the traffic
+  summary's address count. Dividing them by the beacon's pageviews gives
+  "twelve addresses out of four hundred pageviews", which is not a
+  percentage of anything.
+- **A separate row field.** The second column holds visitors for a beacon
+  breakdown and bot addresses for a collector one. Reusing `Visitors`
+  would have put a plausible number under a heading that asks something
+  else.
+- **A per-view column heading.** That heading was one fixed key in the
+  template. It had to move into the view, because the alternative was a
+  second renderer - and the partial's own comment says why there is only
+  one: two would drift, and the empty-group row and the missing-
+  denominator dash are exactly what drifts.
+
+The countries question was the trap D2 flagged. The API has two:
+`/countries` counts addresses the collector saw, `/beacon/countries`
+counts people who opened a page. They are separate kinds here rather than
+two modes of one, so there is no way to draw one while labelling it the
+other - and the collector's is ordered last of the three, because putting
+it directly under the beacon's would invite exactly the comparison the
+separation exists to prevent.
+
+### The gate, and why it is two different gates
+
+The site page needs the role *and* the preference. A detail page reached
+by URL needs only the role.
+
+That looks like an inconsistency and is the opposite. `ShowsTechnical`
+exists because the role and the preference answer different questions:
+the role says whether this person may ever see a fingerprint, the
+preference says whether they want to right now. The site page appears
+without anybody asking for it, so it obeys D6 - no fingerprints in the
+default view. Typing the address of the fingerprints page *is* asking.
+Refusing that would make the preference an authority, which is the one
+thing it was designed not to be.
+
+The paired test is the one D1 established for the analytics token's blast
+radius. An owner and a viewer on the same site, and the viewer's
+developer preference turned **on** - deliberately, because a gate you can
+open by ticking your own box is not a gate. The owner gets 200 with a
+fingerprint on the page; the viewer gets 404 with none. Both halves in
+one test, because checking only the refusal passes against a handler that
+refuses everybody.
+
+### Two bugs, both quiet, both found by measuring
+
+**The same mistake in two places.** `request()` and `detailData` each
+hardcoded the beacon summary. That was correct for all six D2 breakdowns
+and D2 left a note beside it saying what to do when it stopped being -
+which D3 did. The failure is silent: every row and every count draws
+fine, and only the share column empties to dashes, because a summary
+nobody asked for comes back a legitimate zero rather than an error. Both
+call sites now go through one `summaryFlags`, since they had already
+proved they drift.
+
+**An unresolved ASN is "0", not "".** The API selects `asn::text` from an
+INTEGER column defaulting to 0; the country column is TEXT defaulting to
+''. Both mean "never determined" and only one looks like it. Sharing one
+decoder drew the unresolved addresses as a group named 0 - which reads as
+a real network number. It took a real database to notice, so there is now
+a unit test too.
+
+### The browser measurement, and a wrong conclusion I had to withdraw
+
+A JA4 fingerprint is fifty characters of unbroken hex that wrap nowhere -
+the longest unbreakable string this product puts in a table cell. Worth a
+browser test, since nothing in Go can answer it.
+
+It passed immediately, so I tried to break it. Removing `.tablo-kaydir`'s
+`overflow-x: auto` changed nothing. Removing `th.ad`'s `overflow-wrap:
+anywhere` changed nothing. I concluded the measurement was broken - that
+`scrollWidth` on a section with `overflow: visible` cannot report an
+overflowing child - and that the D2 test had been vacuous all along.
+
+That was wrong, and forcing the issue is what showed it: a table pinned
+to `width: 3000px` **with the scroll container also removed** reports
+`overflowing: 3` and `page_scrolls_sideways: true`, and the test fails
+loudly. The measurement has teeth.
+
+The real explanation is that there are two independent defences, either
+of which is sufficient: the wrap rule keeps the fingerprint narrow, and
+the scroll container keeps anything wide inside its own box. Each of my
+single-removal experiments was defeated by the other layer. The lesson is
+about the experiment rather than the code - removing one guard proves
+nothing when a second one covers the same failure, and "I could not break
+it" is not the same measurement as "it cannot break".
+
+### What H2 bought, one phase later
+
+The gate built in the previous phase ran against this one's code and
+reported no new findings. That is the first evidence that the ordering
+argument was right: D3 is the first phase written with the scanner
+already in place, and C7.3's SMTP - the one that will try to hand it an
+`InsecureSkipVerify` - is still ahead.

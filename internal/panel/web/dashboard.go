@@ -252,7 +252,7 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	days := s.rangeFrom(r)
 	from, to := wholeDays(time.Now().In(s.zone(r.Context())), days)
 
-	data := s.dashboardData(r.Context(), lang, siteID, days, from, to)
+	data := s.dashboardData(r.Context(), lang, siteID, days, from, to, access.ShowsTechnical())
 	page := s.page(r, lang, access, "siteler", siteID)
 	page.Site = ui.SiteView{ID: siteID, Name: s.siteName(r.Context(), access, siteID)}
 	page.Heading = page.Site.Name
@@ -265,8 +265,14 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // dashboardData fetches and shapes the page.
+// technical says whether to draw the developer-mode sections. It is
+// Access.ShowsTechnical - both the role and the preference - rather than
+// the role alone, because this is the page that appears without anybody
+// asking for it, and D6's rule is that the default view carries no
+// fingerprints and no jargon. The detail pages take the role alone; see
+// detailHandler for why the two differ.
 func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
-	siteID string, days int, from, to time.Time) dashboardPage {
+	siteID string, days int, from, to time.Time, technical bool) dashboardPage {
 
 	data := dashboardPage{SiteID: siteID, From: from, To: to}
 	for _, d := range rangeDays {
@@ -289,6 +295,19 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	// then the sections would bound the page at twice PageTimeout while
 	// reading, here, as though it were bounded by one.
 	shown := s.visible(ctx, siteID)
+	// The technical sections join the visible set here, before the request
+	// is built, because they have to be *fetched* as well as drawn -
+	// appending them further down would have rendered three sections whose
+	// every call was never made.
+	//
+	// Appended rather than configured: C6 lets a deployment choose which
+	// blocks its customer sees, and these are not among them. They are not
+	// a customer's choice to make, they are a different reader's page, and
+	// putting "fingerprints" on a visibility screen would offer a setting
+	// to somebody who will never see its effect either way.
+	if technical {
+		shown.Breakdowns = append(append([]analytics.BreakdownKind(nil), shown.Breakdowns...), technicalBreakdowns...)
+	}
 	req := shown.request(sectionRows)
 	site := s.Analytics.FetchSite(ctx, siteID, from, to, req)
 	board := site.Dashboard

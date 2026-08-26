@@ -148,8 +148,20 @@ func TestTheSectionsDrawRealGroups(t *testing.T) {
 	}
 
 	lang := srv.Renderer.Catalogs().Base()
-	for kind := range breakdownDefs {
-		if !strings.Contains(body, shown(lang.T("pano.kirilim."+string(kind)+".baslik"))) {
+	for kind, def := range breakdownDefs {
+		heading := shown(lang.T("pano.kirilim." + string(kind) + ".baslik"))
+		// This owner has not turned developer mode on, so D6's rule
+		// applies: the default view carries no fingerprints, no ASNs and
+		// no jargon. Asserted here rather than only in the gating test,
+		// because this is the page a customer actually opens.
+		if def.Technical {
+			if strings.Contains(body, heading) {
+				t.Errorf("the default view shows the %q section to somebody who has not asked "+
+					"for developer mode", kind)
+			}
+			continue
+		}
+		if !strings.Contains(body, heading) {
 			t.Errorf("the page has no %q section", kind)
 		}
 	}

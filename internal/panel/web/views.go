@@ -199,12 +199,47 @@ func (v visibleSets) request(limit int) analytics.SiteRequest {
 			req.Beacon = true
 		}
 	}
-	// Every breakdown this panel draws is beacon-sourced and every one of
-	// them divides by the beacon summary. If that ever stops being true,
-	// this line has to read the breakdown's own source instead - and the
-	// test below is what will say so.
-	if len(v.Breakdowns) > 0 {
-		req.Beacon = true
-	}
+	// Each breakdown turns on the summary it divides by, rather than all
+	// of them turning on the beacon's. See summaryFlags.
+	//
+	// This was `if len(v.Breakdowns) > 0 { req.Beacon = true }` while every
+	// breakdown was beacon-sourced, with a note saying it had to read the
+	// breakdown's own source once that stopped being true. D3 made it stop
+	// being true, and the test that said so is
+	// TestEveryBreakdownAsksForTheSummaryItDividesBy.
+	//
+	// Getting this wrong does not fail loudly. A collector breakdown whose
+	// traffic summary was never fetched still draws every row; only the
+	// share column empties to dashes, because the denominator came back a
+	// legitimate zero.
+	traffic, beacon := summaryFlags(v.Breakdowns...)
+	req.Traffic = req.Traffic || traffic
+	req.Beacon = req.Beacon || beacon
 	return req
+}
+
+// summaryFlags says which summaries a set of breakdowns divides by.
+//
+// One function with two callers - request() for the site page and
+// detailData for a breakdown's own page - because they had drifted
+// already. detailData hardcoded the beacon summary, which was right for
+// all six D2 breakdowns and silently wrong for D3's three: every row and
+// count drew fine, and only the share column emptied to dashes, because a
+// summary nobody asked for comes back a legitimate zero rather than an
+// error.
+//
+// An unknown metric turns nothing on, deliberately. The alternative is
+// guessing a denominator, and a share computed against the wrong total is
+// worse than no share at all: the dash says "not known", a number says
+// something false.
+func summaryFlags(kinds ...analytics.BreakdownKind) (traffic, beacon bool) {
+	for _, kind := range kinds {
+		switch breakdownDefs[kind].Metric {
+		case metricAddresses:
+			traffic = true
+		case metricPageviews, metricEvents:
+			beacon = true
+		}
+	}
+	return traffic, beacon
 }

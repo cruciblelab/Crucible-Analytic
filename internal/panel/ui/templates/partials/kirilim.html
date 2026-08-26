@@ -24,7 +24,10 @@ locale's digit grouping like every other number on the page. */}}
 <tr>
 <th scope="col">{{.ColumnLabel}}</th>
 <th scope="col" class="sayi">{{.CountLabel}}</th>
-<th scope="col" class="sayi">{{t "pano.kirilim.sutun_ziyaretci"}}</th>
+{{- /* Not a fixed key: this column is visitors for a beacon breakdown
+and bot addresses for a collector one, and the heading comes from the
+registry entry that decided which. */}}
+<th scope="col" class="sayi">{{.SecondLabel}}</th>
 <th scope="col" class="sayi">{{t "pano.kirilim.sutun_pay"}}</th>
 </tr>
 </thead>
@@ -35,7 +38,13 @@ locale's digit grouping like every other number on the page. */}}
 blank one. The API flags it rather than dropping it so the groups still
 add up to the site's total; drawing it as an empty cell would lose that
 on the last hop, and dropping it would make the column quietly short. */}}
-<th scope="row" class="ad{{if .Named}} adsiz{{end}}">{{.Label}}</th>
+<th scope="row" class="ad{{if .Named}} adsiz{{end}}">{{.Label}}
+{{- /* The resolved name sits beside the key rather than replacing it:
+"Google LLC" is what a person reads and "15169" is what they paste into
+a search, and a table that drops either has dropped the half somebody
+needed. */}}
+{{- if .Detail}} <span class="ayrinti">{{.Detail}}</span>{{end}}
+{{- if .KnownBot}} <span class="rozet-bot">{{t "pano.kirilim.bilinen_bot"}}</span>{{end}}</th>
 <td class="sayi">{{.Count}}</td>
 <td class="sayi">{{.Visitors}}</td>
 <td class="sayi soluk">{{.Share}}</td>

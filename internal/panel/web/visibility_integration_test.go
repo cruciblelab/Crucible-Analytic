@@ -108,8 +108,20 @@ func TestTheStepOffersEveryBlockPreTicked(t *testing.T) {
 			t.Errorf("the step does not offer the %q card", id)
 		}
 	}
-	for kind := range breakdownDefs {
-		if !strings.Contains(body, `value="`+string(kind)+`"`) {
+	for kind, def := range breakdownDefs {
+		offered := strings.Contains(body, `value="`+string(kind)+`"`)
+		// The technical breakdowns are deliberately not offered. They are
+		// not a customer's choice to make: they appear in developer mode
+		// and nowhere else, so a checkbox for one would be a setting whose
+		// effect the person ticking it can never see.
+		if def.Technical {
+			if offered {
+				t.Errorf("the step offers the %q breakdown, which only developer mode shows - "+
+					"a setting nobody can observe the effect of", kind)
+			}
+			continue
+		}
+		if !offered {
 			t.Errorf("the step does not offer the %q breakdown", kind)
 		}
 	}

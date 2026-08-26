@@ -181,22 +181,59 @@ func TestAClosedBlockIsNeverRequested(t *testing.T) {
 	}
 }
 
-// TestEveryBreakdownStillDividesByTheBeaconSummary.
+// TestEveryBreakdownAsksForTheSummaryItDividesBy.
 //
-// request() forces the beacon summary on whenever any breakdown is shown,
-// and that shortcut is only correct while every breakdown is
-// beacon-sourced and divides by it. D3 adds collector-side ones; this is
-// the test that will say so rather than a comment nobody re-reads.
-func TestEveryBreakdownStillDividesByTheBeaconSummary(t *testing.T) {
+// This replaces TestEveryBreakdownStillDividesByTheBeaconSummary, which
+// asserted that every breakdown was beacon-sourced so request() could
+// force the beacon summary on for all of them. It did its job: D3 added
+// the collector's three and this test is what said the shortcut had
+// expired.
+//
+// The invariant it leaves behind is stronger, not weaker. Rather than
+// "they are all the same", it now checks each breakdown individually
+// against the summary its shares are a percentage of - which is what the
+// old rule was a shorthand for.
+//
+// The failure it guards is quiet. A breakdown whose denominator summary
+// was never requested still draws every row and every count; only the
+// share column empties to dashes, because a summary nobody asked for
+// comes back a legitimate zero rather than an error.
+func TestEveryBreakdownAsksForTheSummaryItDividesBy(t *testing.T) {
 	for kind, def := range breakdownDefs {
-		if def.Source != sourceBeacon {
-			t.Errorf("%s reads %s, so request() forcing the beacon summary on is no longer "+
-				"the right rule - it has to ask each breakdown for its own source", kind, def.Source)
-		}
-		if def.Metric != metricPageviews && def.Metric != metricEvents {
-			t.Errorf("%s divides by %q, which is not one of the beacon summary's totals",
+		req := visibleSets{Breakdowns: []analytics.BreakdownKind{kind}}.request(sectionRows)
+
+		switch def.Metric {
+		case metricPageviews, metricEvents:
+			if !req.Beacon {
+				t.Errorf("%s divides by the beacon summary and request() did not ask for it", kind)
+			}
+		case metricAddresses:
+			if !req.Traffic {
+				t.Errorf("%s divides by the traffic summary and request() did not ask for it", kind)
+			}
+		default:
+			t.Errorf("%s divides by %q, which no summary provides - add the case here and in request()",
 				kind, def.Metric)
 		}
+	}
+}
+
+// TestABreakdownDoesNotDragInASummaryNobodyDividesBy.
+//
+// The other direction, and the reason it matters is cost rather than
+// correctness: a summary that was asked for is a query somebody's
+// database runs. C6's whole point is that turning a block off has to
+// reach the database instead of stopping at the template, and a request()
+// that switched both summaries on for any breakdown at all would undo
+// that quietly.
+func TestABreakdownDoesNotDragInASummaryNobodyDividesBy(t *testing.T) {
+	beaconOnly := visibleSets{Breakdowns: []analytics.BreakdownKind{analytics.BreakdownPages}}.request(sectionRows)
+	if beaconOnly.Traffic {
+		t.Error("a beacon breakdown asked for the traffic summary, which nothing on that page divides by")
+	}
+	collectorOnly := visibleSets{Breakdowns: []analytics.BreakdownKind{analytics.BreakdownFingerprints}}.request(sectionRows)
+	if collectorOnly.Beacon {
+		t.Error("a collector breakdown asked for the beacon summary, which nothing on that page divides by")
 	}
 }
 

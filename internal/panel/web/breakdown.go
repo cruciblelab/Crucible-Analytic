@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
@@ -51,6 +52,16 @@ const (
 	metricPageviews metric = "goruntuleme"
 	// metricEvents: rows are counted in custom-event occurrences.
 	metricEvents metric = "olay"
+	// metricAddresses: rows are counted in distinct IP addresses seen by
+	// the collector.
+	//
+	// A third metric rather than a reuse of pageviews, for the reason this
+	// type exists at all. The collector's breakdowns divide by the traffic
+	// summary's address count; dividing them by the beacon's pageviews
+	// would produce shares that render perfectly, sum to something near
+	// 100%, and mean nothing - twelve addresses out of four hundred
+	// pageviews is not a percentage of anything.
+	metricAddresses metric = "adres"
 )
 
 // breakdownDef describes one section.
@@ -68,14 +79,28 @@ type breakdownDef struct {
 	// never render, which is how a catalog starts describing a page that
 	// no longer exists.
 	NamedGroup bool
+	// Technical marks a breakdown that only appears in developer mode.
+	//
+	// D6's rule is that the default view carries no fingerprints, no ASNs
+	// and no jargon, because the person who had the site built cannot act
+	// on a JA4 hash. These sections exist for the person who can.
+	Technical bool
+	// Bots is whether the row's second column is the bot count rather
+	// than the visitor count.
+	//
+	// It tracks Technical today and is still its own field, because the
+	// two say different things: one is who may see the section, the other
+	// is which number the row carries. A breakdown that is technical and
+	// counts visitors is not a contradiction, and the first one that
+	// exists should be a table edit rather than a wrong column heading.
+	Bots bool
 }
 
 // breakdownDefs is every breakdown this panel knows how to draw.
 //
-// Six, and the six are the ones a customer asks for unprompted. What is
-// missing is missing on purpose: fingerprints, ASNs, score distributions
-// and the cross-source views belong to D3, which adds columns to these
-// sections rather than pages beside them.
+// Nine. The first six are the ones a customer asks for unprompted; the
+// last three are the collector's, and they appear only in developer mode
+// (D3). A shop owner reading their own numbers never meets a JA4 hash.
 var breakdownDefs = map[analytics.BreakdownKind]breakdownDef{
 	analytics.BreakdownPages: {
 		Kind: analytics.BreakdownPages, Source: sourceBeacon,
@@ -101,6 +126,39 @@ var breakdownDefs = map[analytics.BreakdownKind]breakdownDef{
 		Kind: analytics.BreakdownEvents, Source: sourceBeacon,
 		Metric: metricEvents, NamedGroup: true,
 	},
+
+	// D3's three. Source is the collector, so their empty-state sentences
+	// come from the traffic side: a site with no snippet still has these
+	// numbers, because the collector sees every connection whether or not
+	// anything ran JavaScript. That is the whole reason they are worth a
+	// section.
+	analytics.BreakdownFingerprints: {
+		Kind: analytics.BreakdownFingerprints, Source: sourceTraffic,
+		Metric: metricAddresses, NamedGroup: true, Technical: true, Bots: true,
+	},
+	analytics.BreakdownASNs: {
+		Kind: analytics.BreakdownASNs, Source: sourceTraffic,
+		Metric: metricAddresses, NamedGroup: true, Technical: true, Bots: true,
+	},
+	analytics.BreakdownServerCountries: {
+		Kind: analytics.BreakdownServerCountries, Source: sourceTraffic,
+		Metric: metricAddresses, NamedGroup: true, Technical: true, Bots: true,
+	},
+}
+
+// technicalBreakdowns is the order the developer-mode sections appear in,
+// after the six ordinary ones.
+//
+// Fingerprints first because it is the question only this collector can
+// answer - what connected, whether or not it ran any JavaScript. Then the
+// network behind it, then where it was. Countries last of the three
+// because it is the one that overlaps a section already on the page, and
+// putting it directly under the beacon's countries would invite exactly
+// the comparison the two kinds exist to keep apart.
+var technicalBreakdowns = []analytics.BreakdownKind{
+	analytics.BreakdownFingerprints,
+	analytics.BreakdownASNs,
+	analytics.BreakdownServerCountries,
 }
 
 // defaultBreakdowns is the order the sections appear in.
@@ -153,6 +211,17 @@ type breakdownRow struct {
 	// Share is the row's percentage of the summary, or the dash when
 	// there is no denominator. Never "0%" for a missing total.
 	Share string
+	// Detail is a human-readable name beside Label where the API resolved
+	// one: an ASN's organisation, or the bot behind a fingerprint.
+	//
+	// Beside rather than instead of. "Google LLC" is what a person reads
+	// and "15169" is what they paste into a search, and a table that
+	// drops either has dropped the half somebody needed.
+	Detail string
+	// KnownBot marks a fingerprint the scoring package recognises, so the
+	// template can say so rather than leaving the reader to infer it from
+	// a bot count that happens to equal the address count.
+	KnownBot bool
 }
 
 // breakdownView is one section.
@@ -166,6 +235,15 @@ type breakdownView struct {
 	// understand, and the counts genuinely are not the same quantity.
 	ColumnLabel string
 	CountLabel  string
+	// SecondLabel heads the third column, which is visitors for a beacon
+	// breakdown and bot addresses for a collector one.
+	//
+	// It moved out of the template, where it was one shared key, when D3
+	// gave the column two meanings. Leaving it there would have meant
+	// either a second renderer - which this partial's own comment warns
+	// against, because two drift - or a table that says "Visitors" over
+	// a count of bot addresses.
+	SecondLabel string
 	Rows        []breakdownRow
 	// Total is how many groups exist; Shown is how many are drawn.
 	Total int
@@ -241,6 +319,7 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 		Help:        lang.T(key + ".aciklama"),
 		ColumnLabel: lang.T(key + ".sutun"),
 		CountLabel:  lang.T(key + ".sayi"),
+		SecondLabel: lang.T(secondColumnKey(def)),
 	}
 
 	b := site.Breakdowns[def.Kind]
@@ -257,10 +336,7 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 		return view
 	}
 
-	total := int64(site.Beacon.Pageviews)
-	if def.Metric == metricEvents {
-		total = int64(site.Beacon.Events)
-	}
+	total := shareDenominator(def, site)
 
 	for _, row := range b.Rows {
 		out := breakdownRow{
@@ -270,6 +346,23 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 			Visitors: f.Number(int64(row.Visitors)),
 			Share:    f.Share(int64(row.Count), total),
 		}
+		// The collector's rows carry bot addresses where the beacon's
+		// carry visitors. Same column position, different question, and
+		// the heading above it comes from the same registry entry that
+		// set this - see breakdownDef.Bots.
+		if def.Bots {
+			out.Visitors = f.Number(int64(row.Bots))
+		}
+		if row.Label != "" {
+			// An ASN's organisation or a known bot's name. Shown beside
+			// the key rather than instead of it: "Google LLC" is what a
+			// person reads, "15169" is what they search for, and a table
+			// that drops either is missing the half somebody needs.
+			out.Detail = row.Label
+		}
+		if row.KnownBot {
+			out.KnownBot = true
+		}
 		if row.Empty && def.NamedGroup {
 			out.Label = lang.T(key + ".bos_grup")
 			out.Named = true
@@ -278,6 +371,35 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 	}
 	view.Shown = len(view.Rows)
 	return view
+}
+
+// secondColumnKey names the third column for this breakdown.
+func secondColumnKey(def breakdownDef) string {
+	if def.Bots {
+		return "pano.kirilim.sutun_bot"
+	}
+	return "pano.kirilim.sutun_ziyaretci"
+}
+
+// shareDenominator picks the total a row's percentage is a share of.
+//
+// Three metrics, three denominators, and getting it wrong is the failure
+// this whole type exists to prevent: a wrong denominator produces
+// percentages that look plausible, sum to something near 100, and answer
+// a question nobody asked. Twelve addresses out of four hundred pageviews
+// is not a percentage of anything.
+func shareDenominator(def breakdownDef, site analytics.Site) int64 {
+	switch def.Metric {
+	case metricEvents:
+		return int64(site.Beacon.Events)
+	case metricAddresses:
+		// The collector's own count of distinct addresses, which is what
+		// its breakdowns are groups of. Reaching for the beacon here
+		// would divide addresses by pageviews.
+		return int64(site.Traffic.UniqueIPs)
+	default:
+		return int64(site.Beacon.Pageviews)
+	}
 }
 
 // breakdownEmptiness is emptinessFor with the breakdown's own error and
@@ -340,6 +462,26 @@ func (s *Server) detailHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A technical breakdown reached by URL is refused by the *role*, not
+	// by the preference - and the difference is the whole reason those are
+	// two things (see panel.Access.ShowsTechnical).
+	//
+	// The role is a boundary: somebody who may never see fingerprints must
+	// not get them by typing a path, which is exactly what this line
+	// stops. The preference is not a boundary, it is a choice about what
+	// appears unbidden - and navigating to the address of a thing is
+	// itself an unambiguous request to see it. Refusing that would make
+	// the toggle mean something it was explicitly designed not to mean.
+	//
+	// 404 rather than 403, matching siteAccess: a refusal that describes
+	// what it is refusing tells the reader a page exists for people unlike
+	// them, which is a fact about the deployment they have no business
+	// learning from an error code.
+	if def.Technical && !access.Can(panel.CapUseDeveloperMode) {
+		s.Renderer.ErrorIn(w, r, http.StatusNotFound, lang)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
 	default:
@@ -388,17 +530,23 @@ func (s *Server) detailData(ctx context.Context, lang *ui.Language, siteID strin
 	}
 
 	f := ui.NewFormatter(lang, s.zone(ctx))
-	// The beacon summary comes along because every share on this page is
-	// a percentage of it; no cards are drawn here, so no other summary is
-	// asked for.
-	site := s.Analytics.FetchSite(ctx, siteID, from, to, analytics.SiteRequest{
-		Beacon: true,
-		Breakdowns: []analytics.BreakdownRequest{{
-			Kind: def.Kind, Limit: detailRows, Offset: (page - 1) * detailRows,
-		}},
-	})
+	// The summary this breakdown divides by comes along, because every
+	// share on this page is a percentage of it. Which one that is comes
+	// from summaryFlags rather than from a constant here: this line read
+	// `Beacon: true` until D3, which was right for all six beacon
+	// breakdowns and silently wrong for the collector's three.
+	//
+	// No cards are drawn on this page, so nothing else is asked for.
+	traffic, beacon := summaryFlags(def.Kind)
+	summaries := analytics.SiteRequest{Traffic: traffic, Beacon: beacon}
 
-	presence := s.presence(ctx, analytics.SiteRequest{Beacon: true}, site.Dashboard, siteID)
+	req := summaries
+	req.Breakdowns = []analytics.BreakdownRequest{{
+		Kind: def.Kind, Limit: detailRows, Offset: (page - 1) * detailRows,
+	}}
+	site := s.Analytics.FetchSite(ctx, siteID, from, to, req)
+
+	presence := s.presence(ctx, summaries, site.Dashboard, siteID)
 	data.Section = s.section(lang, f, def, site, presence)
 
 	b := site.Breakdowns[def.Kind]

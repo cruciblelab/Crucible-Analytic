@@ -49,6 +49,28 @@ const (
 	BreakdownCountries BreakdownKind = "ulke"
 	// BreakdownEvents groups by custom event name.
 	BreakdownEvents BreakdownKind = "olay"
+
+	// The three below come from the collector rather than the beacon, and
+	// count *addresses* rather than pageviews. They are what the panel
+	// shows in developer mode; see the web package's registry.
+
+	// BreakdownFingerprints groups by JA4 TLS fingerprint: which client
+	// software connected, whether or not it ran any JavaScript.
+	BreakdownFingerprints BreakdownKind = "parmak-izi"
+	// BreakdownASNs groups by the network an address belongs to, which is
+	// how a datacentre's traffic separates from a phone network's.
+	BreakdownASNs BreakdownKind = "asn"
+	// BreakdownServerCountries groups the *collector's* countries: every
+	// address that reached the server, including everything that never
+	// ran the beacon.
+	//
+	// Deliberately a different kind from BreakdownCountries rather than a
+	// mode of it. They answer different questions - addresses that
+	// arrived, versus people who opened a page - and the API's own route
+	// comment warns that offering both under one name invites a panel to
+	// compare them. Two kinds means two sections, two headings, and no
+	// way to draw one while labelling it the other.
+	BreakdownServerCountries BreakdownKind = "sunucu-ulke"
 )
 
 // Row is one line of a breakdown.
@@ -82,6 +104,31 @@ type Row struct {
 	// Params is set only for campaigns: the utm_* parameters decoded out
 	// of Key by the API, so a panel does not re-implement query parsing.
 	Params map[string]string
+
+	// Bots is set only for the collector-side breakdowns: how many of
+	// Count's addresses scored as bots.
+	//
+	// A separate field rather than a reuse of Visitors, even though both
+	// are "the second number in the row". Visitors means distinct people
+	// behind Count; this means addresses that scored above the bot
+	// threshold. Putting one in the other's field would be a lie that
+	// renders perfectly - the table would draw, the column would have a
+	// heading, and the number under it would answer a different question
+	// than the heading asks.
+	//
+	// The same reasoning is why Count is not renamed: for a collector
+	// breakdown it is unique addresses, for a beacon one it is pageviews,
+	// and what it is called on screen comes from the panel's registry.
+	Bots int
+	// Label is a human-readable name for Key where the API resolved one:
+	// an ASN's organisation, or the bot behind a known fingerprint.
+	// Empty when there is none, which is not the same as unknown - see
+	// Empty.
+	Label string
+	// KnownBot marks a fingerprint the scoring package recognises. Kept
+	// apart from Label being non-empty because an ASN also has a label
+	// and is not a bot.
+	KnownBot bool
 }
 
 // Breakdown is one grouped list as fetched.
@@ -138,7 +185,14 @@ type Site struct {
 
 // breakdownSpec is what fetching one kind requires.
 type breakdownSpec struct {
-	// path is the segment after /beacon/.
+	// path is the segment after /api/v1/sites/{site}/, including the
+	// "beacon/" prefix where there is one.
+	//
+	// It used to be the segment after a hardcoded "/beacon/", which was
+	// right while every breakdown came from the beacon. The collector's
+	// own breakdowns (D3) sit directly under the site, so the prefix
+	// moved into the table where it is visible per row rather than
+	// implied for all of them.
 	path string
 	// key is the envelope field the rows arrive under.
 	//
@@ -153,12 +207,20 @@ type breakdownSpec struct {
 }
 
 var breakdowns = map[BreakdownKind]breakdownSpec{
-	BreakdownPages:     {path: "pages", key: "pages", decode: decodeGroups},
-	BreakdownReferrers: {path: "referrers", key: "referrers", decode: decodeGroups},
-	BreakdownDevices:   {path: "devices", key: "devices", decode: decodeGroups},
-	BreakdownCountries: {path: "countries", key: "countries", decode: decodeGroups},
-	BreakdownCampaigns: {path: "campaigns", key: "campaigns", decode: decodeCampaigns},
-	BreakdownEvents:    {path: "events", key: "events", decode: decodeEvents},
+	BreakdownPages:     {path: "beacon/pages", key: "pages", decode: decodeGroups},
+	BreakdownReferrers: {path: "beacon/referrers", key: "referrers", decode: decodeGroups},
+	BreakdownDevices:   {path: "beacon/devices", key: "devices", decode: decodeGroups},
+	BreakdownCountries: {path: "beacon/countries", key: "countries", decode: decodeGroups},
+	BreakdownCampaigns: {path: "beacon/campaigns", key: "campaigns", decode: decodeCampaigns},
+	BreakdownEvents:    {path: "beacon/events", key: "events", decode: decodeEvents},
+
+	// The collector's own breakdowns. Note BreakdownServerCountries and
+	// BreakdownCountries answer under the same envelope key from
+	// different paths - which is exactly why path and key are separate
+	// fields rather than one.
+	BreakdownFingerprints:    {path: "ja4", key: "ja4", decode: decodeJA4s},
+	BreakdownASNs:            {path: "asns", key: "asns", decode: decodeASNGroups},
+	BreakdownServerCountries: {path: "countries", key: "countries", decode: decodeAddressGroups},
 }
 
 // KnownBreakdown reports whether a kind is one this client can fetch.
@@ -199,6 +261,97 @@ func decodeGroups(raw json.RawMessage) ([]Row, error) {
 	out := make([]Row, 0, len(in))
 	for _, r := range in {
 		out = append(out, Row{Key: r.Key, Empty: r.Empty, Count: r.Pageviews, Visitors: r.Visitors})
+	}
+	return out, nil
+}
+
+// addressGroupRow is the collector's GroupStat: one country's or one
+// ASN's share of a site's *addresses*.
+type addressGroupRow struct {
+	Key       string `json:"key"`
+	Label     string `json:"label"`
+	UniqueIPs int    `json:"unique_ips"`
+	BotIPs    int    `json:"bot_ips"`
+}
+
+// ja4Row is the collector's JA4Stat.
+type ja4Row struct {
+	JA4           string `json:"ja4"`
+	Label         string `json:"label"`
+	IsKnownBotJA4 bool   `json:"is_known_bot_ja4"`
+	UniqueIPs     int    `json:"unique_ips"`
+	BotIPs        int    `json:"bot_ips"`
+	Empty         bool   `json:"empty"`
+}
+
+// decodeASNGroups reads the ASN rows.
+//
+// Separate from decodeAddressGroups for one character: the unresolved
+// group arrives as "0" here and as "" there, because the API selects
+// asn::text out of an INTEGER column that defaults to 0, while country is
+// TEXT defaulting to ”. Both mean "never determined" and neither is a
+// real group.
+//
+// Discovered by a test rather than by reading: sharing the decoder drew
+// the unresolved ASNs as a group literally named 0, which looks like a
+// network number and is not one. Writing it as two functions rather than
+// a flag keeps the reason next to the code that needs it.
+func decodeASNGroups(raw json.RawMessage) ([]Row, error) {
+	rows, err := decodeAddressGroups(raw)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if rows[i].Key == "0" {
+			rows[i].Empty = true
+		}
+	}
+	return rows, nil
+}
+
+// decodeAddressGroups reads the collector's country and ASN rows.
+//
+// Count is unique addresses, not pageviews, and Visitors stays zero -
+// the collector cannot know how many people are behind an address, and
+// filling that field with the address count would put a plausible number
+// under a heading that asks a different question.
+//
+// Empty is derived from an absent key rather than read from a flag: the
+// collector's GroupStat has no Empty field, and its doc says addresses
+// whose country never resolved are grouped under an empty key rather
+// than dropped. So the flag is what an empty key means, and deriving it
+// here keeps that knowledge in one place instead of in every caller that
+// draws a row.
+func decodeAddressGroups(raw json.RawMessage) ([]Row, error) {
+	var in []addressGroupRow
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, err
+	}
+	out := make([]Row, 0, len(in))
+	for _, r := range in {
+		out = append(out, Row{
+			Key: r.Key, Label: r.Label, Empty: r.Key == "",
+			Count: r.UniqueIPs, Bots: r.BotIPs,
+		})
+	}
+	return out, nil
+}
+
+// decodeJA4s reads the fingerprint rows. Unlike the address groups this
+// endpoint does carry an explicit Empty flag, for traffic that had no
+// usable fingerprint at all - plaintext HTTP, or a ClientHello that could
+// not be parsed in time.
+func decodeJA4s(raw json.RawMessage) ([]Row, error) {
+	var in []ja4Row
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, err
+	}
+	out := make([]Row, 0, len(in))
+	for _, r := range in {
+		out = append(out, Row{
+			Key: r.JA4, Label: r.Label, Empty: r.Empty, KnownBot: r.IsKnownBotJA4,
+			Count: r.UniqueIPs, Bots: r.BotIPs,
+		})
 	}
 	return out, nil
 }
@@ -333,7 +486,7 @@ func (c *Client) breakdown(ctx context.Context, site string, req BreakdownReques
 	// denominator counting the same population - see breakdownQuery.
 
 	var env map[string]json.RawMessage
-	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/beacon/"+spec.path, from, to, q, &env)
+	err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/"+spec.path, from, to, q, &env)
 	if err != nil {
 		out.Err = err
 		return out

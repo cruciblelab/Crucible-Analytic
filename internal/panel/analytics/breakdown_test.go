@@ -29,7 +29,7 @@ func window() (time.Time, time.Time) {
 // exactly that way.
 func emptyBody(path string) string {
 	for _, spec := range breakdowns {
-		if strings.HasSuffix(path, "/beacon/"+spec.path) {
+		if strings.HasSuffix(path, "/"+spec.path) {
 			return `{"total":0,"` + spec.key + `":[]}`
 		}
 	}
@@ -70,6 +70,13 @@ func TestEveryBreakdownDecodesItsOwnRowShape(t *testing.T) {
 			{"key":"utm_source=bulten","params":{"utm_source":"bulten"},"pageviews":6,"visitors":5}]}`,
 		BreakdownEvents: `{"total":1,"events":[
 			{"name":"kayit","count":14,"visitors":9}]}`,
+		BreakdownFingerprints: `{"total":2,"ja4":[
+			{"ja4":"t13d1516h2_8daaf6152771_b186095e22b6","label":"Googlebot","is_known_bot_ja4":true,"unique_ips":12,"bot_ips":12},
+			{"ja4":"","empty":true,"unique_ips":3,"bot_ips":1}]}`,
+		BreakdownASNs: `{"total":2,"asns":[
+			{"key":"15169","label":"Google LLC","unique_ips":31,"bot_ips":28}]}`,
+		BreakdownServerCountries: `{"total":2,"countries":[
+			{"key":"TR","unique_ips":44,"bot_ips":6}]}`,
 	}
 	// What the first row of each must come out as, in the flattened shape.
 	want := map[BreakdownKind]Row{
@@ -86,6 +93,20 @@ func TestEveryBreakdownDecodesItsOwnRowShape(t *testing.T) {
 		// broken; it would just report every event as having happened
 		// zero times.
 		BreakdownEvents: {Key: "kayit", Count: 14, Visitors: 9},
+
+		// The collector's three. Count is addresses, not pageviews, and
+		// Visitors stays zero on purpose - the collector cannot know how
+		// many people are behind an address, and a number there would be
+		// a plausible answer to a question nobody asked.
+		BreakdownFingerprints: {
+			Key: "t13d1516h2_8daaf6152771_b186095e22b6", Label: "Googlebot",
+			KnownBot: true, Count: 12, Bots: 12,
+		},
+		BreakdownASNs: {Key: "15169", Label: "Google LLC", Count: 31, Bots: 28},
+		// Empty is derived from the absent key rather than read from a
+		// flag: the collector's GroupStat has no empty field, it groups
+		// unresolved addresses under "" instead.
+		BreakdownServerCountries: {Key: "TR", Count: 44, Bots: 6},
 	}
 
 	if len(bodies) != len(breakdowns) {
@@ -371,7 +392,10 @@ func TestAnUnknownKindIsNotATransportFailure(t *testing.T) {
 // Measured rather than asserted structurally: the handler blocks until
 // every call has arrived, so the test can only pass if they overlap.
 func TestAPageIsOneRoundOfCalls(t *testing.T) {
-	const calls = 8
+	// Derived, not typed: this was 8 while the registry held six
+	// breakdowns and two summaries, and adding D3's three turned the
+	// number into a deadlock waiting for a caller that never came.
+	calls := len(breakdowns) + 2
 	var (
 		mu      sync.Mutex
 		arrived int
@@ -439,15 +463,26 @@ func TestAnUnconfiguredClientAnswersEveryBreakdown(t *testing.T) {
 	}
 }
 
-// TestEveryRegisteredPathAndKeyIsDistinct.
+// TestEveryRegisteredPathIsDistinct.
 //
-// Two kinds sharing a path would silently draw one breakdown twice;
-// sharing an envelope key is how a decoder ends up reading somebody
-// else's rows. Both are one careless copy-paste away, and neither fails
-// anywhere else.
-func TestEveryRegisteredPathAndKeyIsDistinct(t *testing.T) {
+// Two kinds sharing a path would silently draw one breakdown twice - one
+// careless copy-paste away, and it fails nowhere else.
+//
+// This used to require the *envelope key* to be unique too, on the
+// grounds that sharing one is how a decoder reads somebody else's rows.
+// D3 showed that reasoning was a coincidence of the six breakdowns it was
+// written against, all of which lived under /beacon/. The collector's
+// countries answer under "countries" from /countries, and the beacon's
+// answer under "countries" from /beacon/countries. The key is read out of
+// the response to *this kind's own request*, so two kinds can share one
+// only if they also share a path - which is what is actually checked
+// here, and what actually matters.
+//
+// Kept as a rename rather than a deletion: the invariant narrowed, it did
+// not disappear, and a future reader deserves to know which of the two it
+// lost rather than to find one check where there were two.
+func TestEveryRegisteredPathIsDistinct(t *testing.T) {
 	paths := map[string]BreakdownKind{}
-	keys := map[string]BreakdownKind{}
 	for kind, spec := range breakdowns {
 		if spec.path == "" || spec.key == "" || spec.decode == nil {
 			t.Errorf("%s is registered incompletely: %+v", kind, spec)
@@ -455,11 +490,7 @@ func TestEveryRegisteredPathAndKeyIsDistinct(t *testing.T) {
 		if other, dup := paths[spec.path]; dup {
 			t.Errorf("%s and %s share the path %q", kind, other, spec.path)
 		}
-		if other, dup := keys[spec.key]; dup {
-			t.Errorf("%s and %s share the envelope key %q", kind, other, spec.key)
-		}
 		paths[spec.path] = kind
-		keys[spec.key] = kind
 	}
 }
 
@@ -502,10 +533,22 @@ func TestTotalIsGroupsNotRows(t *testing.T) {
 	}
 }
 
-// TestTheRegistryCoversTheDocumentedSix keeps the plan and the code
-// together: the phase is six breakdowns, named in PLAN.md §D2.
-func TestTheRegistryCoversTheDocumentedSix(t *testing.T) {
-	want := []string{"cihaz", "kampanya", "kaynak", "olay", "sayfa", "ulke"}
+// TestTheRegistryCoversTheDocumentedKinds keeps the plan and the code
+// together: six beacon breakdowns from PLAN.md §D2, and the collector's
+// three from §D3.
+//
+// The list is spelled out rather than counted. A count would pass while
+// somebody swapped one kind for another, and the point of this test is
+// that the set is closed - each of these becomes a path segment in a
+// request to another service.
+func TestTheRegistryCoversTheDocumentedKinds(t *testing.T) {
+	want := []string{
+		// D2, the beacon's six.
+		"cihaz", "kampanya", "kaynak", "olay", "sayfa", "ulke",
+		// D3, the collector's three.
+		"asn", "parmak-izi", "sunucu-ulke",
+	}
+	sort.Strings(want)
 	got := make([]string, 0, len(breakdowns))
 	for kind := range breakdowns {
 		got = append(got, string(kind))
@@ -541,5 +584,71 @@ func TestDecodersRejectRubbishRatherThanReturningNothing(t *testing.T) {
 		if len(rows) != 0 {
 			t.Errorf("%s turned an empty array into %d rows", name, len(rows))
 		}
+	}
+}
+
+// TestAnUnresolvedASNIsTheNeverDeterminedGroupNotNetworkZero.
+//
+// The API selects asn::text out of an INTEGER column that defaults to 0,
+// so an address whose network never resolved arrives as "0" - while an
+// unresolved country arrives as "", because that column is TEXT. Both
+// mean the same thing and only one of them looks like it.
+//
+// Sharing one decoder drew the unresolved addresses as a group named 0,
+// which reads as a real network number. It took a real database to
+// notice; this is the cheap version, so the next person to touch these
+// decoders does not need one.
+func TestAnUnresolvedASNIsTheNeverDeterminedGroupNotNetworkZero(t *testing.T) {
+	const body = `{"total":2,"asns":[
+		{"key":"15169","label":"Google LLC","unique_ips":31,"bot_ips":28},
+		{"key":"0","unique_ips":4,"bot_ips":1}]}`
+
+	from, to := window()
+	c := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	got := c.breakdown(context.Background(), "site",
+		BreakdownRequest{Kind: BreakdownASNs, Limit: 8}, from, to)
+	if got.Err != nil {
+		t.Fatalf("breakdown: %v", got.Err)
+	}
+	if len(got.Rows) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got.Rows))
+	}
+	if got.Rows[0].Empty {
+		t.Error("a resolved network was flagged as never determined")
+	}
+	if !got.Rows[1].Empty {
+		t.Error(`the "0" network was not flagged; the panel would draw a group named 0, ` +
+			`which reads as a real network number`)
+	}
+}
+
+// TestAnUnresolvedCountryIsStillTheEmptyKey - the other half, so a future
+// change that unified the two decoders breaks something in both
+// directions rather than only one.
+func TestAnUnresolvedCountryIsStillTheEmptyKey(t *testing.T) {
+	const body = `{"total":2,"countries":[
+		{"key":"TR","unique_ips":44,"bot_ips":6},
+		{"key":"","unique_ips":5,"bot_ips":2}]}`
+
+	from, to := window()
+	c := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	got := c.breakdown(context.Background(), "site",
+		BreakdownRequest{Kind: BreakdownServerCountries, Limit: 8}, from, to)
+	if got.Err != nil {
+		t.Fatalf("breakdown: %v", got.Err)
+	}
+	if got.Rows[0].Empty || !got.Rows[1].Empty {
+		t.Errorf("the empty-key group was not the one flagged: %+v", got.Rows)
+	}
+	// And "0" is a real country code nowhere, but it is a real *network*
+	// somewhere - so the country decoder must not borrow the ASN rule.
+	if got.Rows[0].Key == "0" {
+		t.Error("a country decoder is treating 0 specially, which is the ASN column's problem")
 	}
 }

@@ -87,7 +87,19 @@ func TestTheVisibleSetStepInABrowser(t *testing.T) {
 		t.Errorf("console errors: %v", report.ConsoleErrors)
 	}
 
-	if want := len(cards) + len(breakdownDefs); report.Boxes != want {
+	// Every card, and every breakdown a customer may choose. The
+	// technical ones are excluded on purpose: they appear in developer
+	// mode and nowhere else, so a box for one would be a setting whose
+	// effect the person ticking it can never see. Counted from the
+	// registry rather than written as a number, so the first technical
+	// breakdown that is wrongly left offerable changes this count.
+	offerable := 0
+	for _, def := range breakdownDefs {
+		if !def.Technical {
+			offerable++
+		}
+	}
+	if want := len(cards) + offerable; report.Boxes != want {
 		t.Errorf("the step drew %d boxes for one site, want %d", report.Boxes, want)
 	}
 	if want := len(defaultCards) + len(defaultBreakdowns); report.Ticked != want {

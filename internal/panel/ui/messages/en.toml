@@ -542,6 +542,8 @@ hicbiri = "No blocks are selected for this site. Cards and breakdowns are turned
 [metin.pano.kirilim]
 tumu = "All %s"
 sutun_ziyaretci = "Visitors"
+sutun_bot = "Bot addresses"
+bilinen_bot = "known bot"
 sutun_pay = "Share"
 geri = "← Site summary"
 sayfalama = "Pages"
@@ -588,6 +590,27 @@ aciklama = "Custom events your own site defines: a form submitted, a click, a do
 sutun = "Event"
 sayi = "Times"
 bos_grup = "Unnamed"
+
+[metin.pano.kirilim.parmak-izi]
+baslik = "Fingerprints"
+aciklama = "The TLS fingerprint (JA4) of the client software that connected. This number comes from the connection itself rather than from the measurement snippet, so clients that never run JavaScript appear here too. It is what separates search-engine crawlers, browsers and automated tools from one another."
+sutun = "Fingerprint"
+sayi = "Addresses"
+bos_grup = "No fingerprint"
+
+[metin.pano.kirilim.asn]
+baslik = "Networks"
+aciklama = "The network (ASN) an address belongs to. This is what separates datacentre traffic from home and mobile providers: a site's visitors spread across consumer networks, while automated traffic collects in a handful of datacentres."
+sutun = "Network"
+sayi = "Addresses"
+bos_grup = "Not resolved"
+
+[metin.pano.kirilim.sunucu-ulke]
+baslik = "Countries (reaching the server)"
+aciklama = "The country of the addresses that connected to the server. Not the same as the \"Countries\" section above: that counts people who opened a page, this counts every address that connected — including those that never opened one. The two numbers will not match and do not add up."
+sutun = "Country"
+sayi = "Addresses"
+bos_grup = "Not determined"
 
 [metin.pano.aralik]
 baslik = "Period"

@@ -87,7 +87,7 @@ gerekçe değil bahane olur.
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **10/11** | C7.3 (e-posta sihirbazı — tartışma yapıldı, sıra bekliyor) |
-| **D** Dashboard | 🟡 **2/8** | D3–D8 |
+| **D** Dashboard | 🟡 **2/8** | D3 (kırılımlar bitti, skor/kesişim/dışa aktarma kaldı), D4–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
 | **H** Güvenlik taraması | 🟡 **1/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
@@ -290,7 +290,9 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
    çizgisi yokken her gece aynı 18 bulguyu yeniden buluyor ve yarın
    girecek 19'uncuyu onların içinde kaybediyor. Küçük faz, ama
    kendisinden sonraki üçünün taranıp taranmayacağına karar veren faz.
-2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** D2 o sayfaları
+2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** *(Kırılım kısmı
+   yapıldı: parmak izi, ASN, sunucu ülkeleri. Skor dağılımı, kesişim ve
+   ham dışa aktarma kaldı — üçü de kırılım şeklinde değil.)* D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar doğrudan seçilebilir olur.
@@ -2781,11 +2783,77 @@ sebeple ayrı: bir kırılımı "veri yok" diye çizmek, kurulmamış snippet'i
 - Gerçek bir tarayıcıda: telefon genişliğinde tablo taşmıyor mu,
   sayfalama bağlantıları gerçekten dönemi koruyor mu.
 
-#### D3 — Aynı sayfalar üzerinde geliştirici modu katmanları
+#### D3 — Aynı sayfalar üzerinde geliştirici modu katmanları 🟡 **kırılımlar yapıldı**
 
 Parmak izleri, ASN'ler, skorlar, kesişim görünümleri, ham dışa aktarma.
 **Yeni sayfa değil, aynı sayfaya sütun.** Sayfalar sayfası sütun kazanır;
 farklı bir sayfalar sayfasına dönüşmez.
+
+##### Yapılan: collector'ın üç kırılımı
+
+`parmak-izi`, `asn`, `sunucu-ulke` — D2'nin yazdığı kayda, aynı tek
+çiziciye, aynı detay sayfası mekanizmasına eklendi. Yeni sayfa yok.
+
+**Neden `sunucu-ulke` ayrı bir kırılım, `ulke`'nin bir kipi değil.**
+İkisi farklı soruya cevap veriyor: biri sayfa açan **kişileri**, diğeri
+sunucuya ulaşan **her adresi** sayıyor — sayfayı hiç açmayanlar dâhil.
+API'nin kendi route yorumu bunu uyarıyordu. İki ayrı kırılım demek iki
+ayrı başlık demek, ve birini çizip diğerinin adıyla etiketlemenin yolu
+kalmıyor. Bölüm sırasında da en sona konuldu: beacon'ın ülkelerinin hemen
+altına koymak, tam da ayrı tutulma sebebi olan karşılaştırmaya davet
+olurdu.
+
+**Üçüncü metrik: `adres`.** Beacon satırları görüntüleme sayıyor,
+collector satırları adres. Payda da farklı — collector kırılımları
+trafik özetinin adres sayısına bölünüyor. Aynı payda ile bölmek "dört
+yüz görüntülemenin on iki adresi" gibi, mükemmel çizilen ve hiçbir şey
+ifade etmeyen bir yüzde üretirdi.
+
+**İkinci sütun ayrı bir alan.** `Visitors` "bu sayının arkasında kaç
+kişi var" demek; collector'da o soru cevapsız (bir adresin arkasında kaç
+kişi olduğu bilinemez). O sütun bot adres sayısını taşıyor ve **ayrı bir
+alan** — aynı alanı kullanmak, başlığı doğru ama altındaki sayısı başka
+bir soruya cevap veren bir tablo üretirdi.
+
+##### Kapı: rol ile tercih aynı şey değil
+
+| Yer | Neye bakıyor | Neden |
+|---|---|---|
+| Site sayfası | **Rol + tercih** (`ShowsTechnical`) | Bu sayfa kimse istemeden açılıyor; D6 varsayılan görünümde parmak izi olmamasını söylüyor |
+| Detay sayfası | **Yalnız rol** (`CapUseDeveloperMode`) | Bir şeyin adresine gitmek, o şeyi görmek istemenin ta kendisi. Tercihle reddetmek, tercihi bir yetkiye çevirirdi |
+
+Reddetme **404**, 403 değil — `siteAccess` ile aynı sebep: ne
+reddettiğini söyleyen bir ret, okuyucuya kendisi gibi olmayan insanlar
+için bir sayfa olduğunu söyler.
+
+Eşli test (D1'in jeton yarıçapı testinin aynısı): aynı sitede bir sahip
+**ve** bir izleyici, ikisinde de geliştirici tercihi **açık**. Sahip 200
+alıp parmak izini görüyor, izleyici 404 alıyor ve cevapta parmak izi
+yok. Tercihin izleyicide de açık olması bilerek: kendi kutusunu
+işaretleyerek açılabilen bir kapı, kapı değildir.
+
+##### Ölçerken çıkan iki hata
+
+**`request()` ve `detailData` aynı hatayı iki yerde yapıyordu.** İkisi de
+beacon özetini sabitliyordu. D2'de bu doğruydu ve kodun yanına "bu doğru
+olmaktan çıkarsa şöyle olmalı" diye yazılmıştı; D3 onu çıkardı. Sessiz
+bir hata: satırlar ve sayılar çiziliyor, yalnız pay sütunu tireye
+düşüyor — çünkü istenmeyen özet, hata değil **meşru sıfır** dönüyor.
+Tek `summaryFlags` fonksiyonuna alındı, iki çağıran da onu kullanıyor.
+
+**Çözülemeyen ASN `"0"` geliyor, `""` değil.** API `asn::text` seçiyor ve
+sütun INTEGER, varsayılanı 0; ülke sütunu ise TEXT, varsayılanı ''.
+Tek çözücü paylaşmak, çözülemeyen adresleri **0 adlı bir grup** olarak
+çiziyordu — gerçek bir ağ numarası gibi görünen bir şey. Gerçek
+veritabanı buldu; artık birim testi de var.
+
+##### Bu fazda yapılmayanlar
+
+Skor dağılımı, kesişim görünümleri ve ham dışa aktarma. Üçü de kırılım
+şeklinde değil (histogram, iki liste artı özet, ve bir indirme), yani
+D2'nin kayıt/çizici mekanizmasına oturmuyorlar — kendi görünümlerini
+istiyorlar. Kırılımlar bitti diye faz bitmiş sayılmıyor; başlıktaki
+işaret bunu söylüyor.
 
 #### D4 — Ayar sayfaları ve akan operasyon penceresi
 
