@@ -121,6 +121,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+dashboardPathSuffix, s.dashboardHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+breakdownPathSegment+"{kirilim}", s.detailHandler)
+	mux.HandleFunc(MembersPathPrefix+"{site}"+addressListPathSegment+"{liste}", s.addressListHandler)
 	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)

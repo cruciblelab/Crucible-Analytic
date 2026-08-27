@@ -1,0 +1,92 @@
+{{define "skor_dagilimi"}}
+{{- /* The bot-score histogram. Bars rather than a chart library: ten
+fixed bands with a width each is the whole of it, and a chart library
+would be a dependency and a Content-Security-Policy argument for a
+picture CSS already draws. */}}
+<section class="kirilim teknik" aria-labelledby="skor-baslik">
+<header class="kirilim-baslik">
+<h2 id="skor-baslik">{{t "pano.skor.baslik"}}</h2>
+{{- if .Total}}<span class="tumu-metin">{{tf "pano.skor.toplam" .Total}}</span>{{end}}
+</header>
+
+{{- if .Empty}}
+<p class="kirilim-bos durum-{{.Empty}}">{{.Text}}</p>
+{{- else}}
+<ul class="skor-bantlar">
+{{- range .Bands}}
+<li class="skor-bant{{if .Bot}} bot{{end}}">
+<span class="bant-ad">{{.Label}}</span>
+{{- /* A class rather than an inline width. The policy is
+`style-src 'self'` with no unsafe-inline, so a style attribute is
+blocked outright - and a bar that silently does not render is worse than
+one rounded to ten per cent. */}}
+<span class="bant-cubuk"><span class="bant-dolgu g{{.Width}}"></span></span>
+<span class="bant-sayi">{{.Count}}</span>
+</li>
+{{- end}}
+</ul>
+<p class="ipucu">{{t "pano.skor.aciklama"}}</p>
+{{- end}}
+</section>
+{{end}}
+
+{{define "kesisim"}}
+{{- /* What the collector saw against what the beacon heard. This is the
+measurement the product exists to make: a beacon-only tool can only ever
+count the visitors that ran its JavaScript, so it cannot report the size
+of the population it is missing. */}}
+<section class="kirilim teknik" aria-labelledby="kesisim-baslik">
+<header class="kirilim-baslik">
+<h2 id="kesisim-baslik">{{t "pano.kesisim.baslik"}}</h2>
+</header>
+
+{{- if .Empty}}
+<p class="kirilim-bos durum-{{.Empty}}">{{.Text}}</p>
+{{- else}}
+<dl class="kesisim-ozet">
+<div><dt>{{t "pano.kesisim.gorulen"}}</dt><dd>{{.Seen}}</dd></div>
+<div><dt>{{t "pano.kesisim.js_calistiran"}}</dt><dd>{{.RanJS}}</dd></div>
+<div><dt>{{t "pano.kesisim.sessiz"}}</dt><dd>{{.Silent}}</dd></div>
+<div><dt>{{t "pano.kesisim.kapsam"}}</dt><dd>{{.Coverage}}</dd></div>
+</dl>
+
+{{- /* Only when it is not zero. Zero is the correct value, and a "0"
+beside the numbers above invites a reader to treat a fault indicator as
+a measurement. */}}
+{{- if .BeaconOnly}}
+<p class="uyari-satiri">{{.BeaconOnly}}</p>
+{{- end}}
+
+{{- if .Bands}}
+<div class="tablo-kaydir">
+<table class="kirilim-tablo">
+<thead>
+<tr>
+<th scope="col">{{t "pano.kesisim.bant"}}</th>
+<th scope="col" class="sayi">{{t "pano.kesisim.adres"}}</th>
+<th scope="col" class="sayi">{{t "pano.kesisim.js_calistiran"}}</th>
+<th scope="col" class="sayi">{{t "pano.kesisim.kapsam"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Bands}}
+<tr>
+<th scope="row" class="ad">{{.Label}}</th>
+<td class="sayi">{{.Count}}</td>
+<td class="sayi">{{.RanJS}}</td>
+<td class="sayi soluk">{{.Coverage}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+{{- end}}
+
+<p class="kesisim-baglantilar">
+<a href="{{.SilentURL}}">{{t "pano.adres.sessiz.baslik"}}</a>
+<a href="{{.BotsURL}}">{{t "pano.adres.js-bot.baslik"}}</a>
+</p>
+<p class="ipucu">{{t "pano.kesisim.aciklama"}}</p>
+{{- end}}
+</section>
+{{end}}

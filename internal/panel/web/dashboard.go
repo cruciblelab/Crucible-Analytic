@@ -186,6 +186,15 @@ type dashboardPage struct {
 	// where, which campaign. A card without one of these is a number a
 	// customer can read and not act on.
 	Sections []breakdownView
+	// Scores and Crossover are the developer-mode views that are not
+	// breakdowns. Drawn only when technical is true; a zero value renders
+	// nothing, which is what the template checks.
+	Scores    scoreView
+	Crossover crossoverView
+	// Technical says whether those two were asked for at all, so the
+	// template can tell "developer mode is off" from "developer mode is
+	// on and the collector has nothing".
+	Technical bool
 	// From and To are the range these numbers cover, in the panel's
 	// zone, shown because a figure with no period attached is not a
 	// figure.
@@ -354,6 +363,18 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		data.Cards = append(data.Cards, view)
 	}
 	data.Sections = s.sections(lang, f, siteID, site, presence, days, shown.Breakdowns)
+
+	// The histogram and the coverage summary. Fetched separately from the
+	// breakdowns rather than folded into FetchSite: they are not
+	// breakdown-shaped, and a request type that carried both would have
+	// one field set for nine callers and three for one.
+	if technical {
+		tech := s.Analytics.FetchTechnical(ctx, siteID, from, to, analytics.TechnicalRequest{
+			Scores: true, Crossover: true,
+		})
+		data.Technical = true
+		data.Scores, data.Crossover = s.technicalSections(lang, f, siteID, tech, board, presence, days)
+	}
 	if shown.Empty() {
 		// Somebody turned everything off. Said in a sentence rather than
 		// left as a heading over blank space, which reads as a fault and

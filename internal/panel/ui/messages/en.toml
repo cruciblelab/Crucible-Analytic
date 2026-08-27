@@ -612,6 +612,43 @@ sutun = "Country"
 sayi = "Addresses"
 bos_grup = "Not determined"
 
+[metin.pano.skor]
+baslik = "Bot score distribution"
+toplam = "%s addresses"
+aciklama = "The behavioural score the collector gives every address it sees. A high score means the requests did not look like a person browsing — rate, regularity, a recognised bot fingerprint. On a healthy site the mass sits on the left."
+aralik = "%s–%s"
+
+[metin.pano.kesisim]
+baslik = "What the server saw against what the snippet heard"
+gorulen = "Addresses reaching the server"
+js_calistiran = "Ran JavaScript"
+sessiz = "Never ran it"
+kapsam = "Coverage"
+bant = "Score band"
+adres = "Addresses"
+yalniz_beacon = "%s addresses were seen by the measurement snippet but never reached the server. That is not a measurement, it is a configuration signal: either the collector is not in the path for that traffic, or the beacon's trusted_proxies is wrong and it is recording the proxy's address instead of the visitor's."
+aciklama = "An analytics tool that relies only on a measurement snippet can never see a visitor that did not run it — so it cannot report how large the population it is missing is. This section counts that gap."
+
+[metin.pano.adres.sessiz]
+baslik = "Silent addresses"
+aciklama = "Addresses that connected to the server and never ran the measurement snippet. Search-engine crawlers, API clients, tools with no browser — and visitors with JavaScript turned off. A beacon-only tool sees none of them."
+
+[metin.pano.adres.js-bot]
+baslik = "Bots that ran JavaScript"
+aciklama = "Addresses that did run the measurement snippet, and whose behaviour or self-reported identity still points at automation. The blind spot in the other direction: a beacon-only tool counts these as visitors."
+
+[metin.pano.adres]
+geri = "← Back to the site"
+adres = "Address"
+skor = "Score"
+hiz = "Req/s"
+ulke = "Country"
+ag = "Network"
+parmak_izi = "Fingerprint"
+istemci = "Client"
+son = "Last seen"
+bot_ua = "identifies itself as a bot"
+
 [metin.pano.aralik]
 baslik = "Period"
 

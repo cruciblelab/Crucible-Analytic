@@ -19,6 +19,13 @@ import (
 var analyticsCallers = []string{
 	"breakdown.go",
 	"dashboard.go",
+	// D3's developer-mode views. What each shows when the fetch fails is
+	// decided rather than defaulted: the histogram and the coverage
+	// summary fall through the same four-state emptiness the cards use,
+	// and the address list pages - which fetch no summary to base that on
+	// - report the transport failure as itself. None of them renders a
+	// zero.
+	"technical.go",
 }
 
 // TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI.

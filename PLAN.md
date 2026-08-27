@@ -87,7 +87,7 @@ gerekçe değil bahane olur.
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
 | **C** Panel HTTP yüzeyi | 🟡 **10/11** | C7.3 (e-posta sihirbazı — tartışma yapıldı, sıra bekliyor) |
-| **D** Dashboard | 🟡 **2/8** | D3 (kırılımlar bitti, skor/kesişim/dışa aktarma kaldı), D4–D8 |
+| **D** Dashboard | 🟡 **3/8** | D4–D8 (D3'ten yalnız ham dışa aktarma kaldı, karar bekliyor) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **1/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
@@ -290,9 +290,9 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
    çizgisi yokken her gece aynı 18 bulguyu yeniden buluyor ve yarın
    girecek 19'uncuyu onların içinde kaybediyor. Küçük faz, ama
    kendisinden sonraki üçünün taranıp taranmayacağına karar veren faz.
-2. **D3 — aynı sayfalar üzerinde geliştirici katmanı.** *(Kırılım kısmı
-   yapıldı: parmak izi, ASN, sunucu ülkeleri. Skor dağılımı, kesişim ve
-   ham dışa aktarma kaldı — üçü de kırılım şeklinde değil.)* D2 o sayfaları
+2. ~~**D3 — aynı sayfalar üzerinde geliştirici katmanı.**~~ ✅ **yapıldı**
+   *(Ham dışa aktarma hariç: o bir çizim işi değil, senin verdiğin karara
+   bağlı bir ayar — geliştirici şifresinin arkasında.)* D2 o sayfaları
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar doğrudan seçilebilir olur.
@@ -2783,7 +2783,7 @@ sebeple ayrı: bir kırılımı "veri yok" diye çizmek, kurulmamış snippet'i
 - Gerçek bir tarayıcıda: telefon genişliğinde tablo taşmıyor mu,
   sayfalama bağlantıları gerçekten dönemi koruyor mu.
 
-#### D3 — Aynı sayfalar üzerinde geliştirici modu katmanları 🟡 **kırılımlar yapıldı**
+#### D3 — Aynı sayfalar üzerinde geliştirici modu katmanları ✅ **yapıldı** *(ham dışa aktarma hariç, karar bekliyor)*
 
 Parmak izleri, ASN'ler, skorlar, kesişim görünümleri, ham dışa aktarma.
 **Yeni sayfa değil, aynı sayfaya sütun.** Sayfalar sayfası sütun kazanır;
@@ -2847,30 +2847,65 @@ Tek çözücü paylaşmak, çözülemeyen adresleri **0 adlı bir grup** olarak
 çiziyordu — gerçek bir ağ numarası gibi görünen bir şey. Gerçek
 veritabanı buldu; artık birim testi de var.
 
-##### Bu fazda yapılmayanlar
+##### Yapılan, ikinci kısım: kırılım olmayan görünümler
 
-Skor dağılımı, kesişim görünümleri ve ham dışa aktarma. Üçü de kırılım
-şeklinde değil (histogram, iki liste artı özet, ve bir indirme), yani
-D2'nin kayıt/çizici mekanizmasına oturmuyorlar — kendi görünümlerini
-istiyorlar. Kırılımlar bitti diye faz bitmiş sayılmıyor; başlıktaki
-işaret bunu söylüyor.
+**Skor dağılımı** ve **kesişim özeti** site sayfasında iki bölüm;
+**sessiz adresler** ve **JavaScript çalıştıran botlar** kendi sayfalarında,
+kesişim bölümünden ulaşılıyor. Gezinmeden değil — o, onları o bölümün
+parçası olmaktan çıkarıp ayrı bir hedefe dönüştürürdü.
 
-**Ham dışa aktarma bir çizim işi değil, bir karar.** `Snapshot` satırı
-her satırında `IP` taşıyor. Veritabanında ham adres yok (A7.8) ama dışa
-aktarma **panelden çıkan bir dosya** üretir: hiçbir saklama politikasının
-kapsamadığı, oturumdan uzun yaşayan, müşterinin istediğine
-gönderebileceği bir şey.
+**Kesişim, ürünün asıl iddiası.** Yalnız ölçüm koduna dayanan bir araç,
+kodu çalıştırmayan ziyaretçiyi göremez — dolayısıyla **kaçırdığı
+kitlenin büyüklüğünü de bildiremez**. Bu bölüm o farkı sayıyor, ve
+uçtan uca ölçüldü: beş adres collector'a ulaştı, hiçbiri beacon
+çalıştırmadı; beacon tabanlı bir araç "sıfır ziyaretçi" derdi, bu sayfa
+beşini listeliyor.
 
-**Verilen karar (kullanıcı, 2026-08-27):** dışa aktarmanın maskeli mi
-maskesiz mi olacağı **geliştirici şifresine bağlı bir ayar** olacak,
+**`beacon_only_ips` bir ölçüm değil, yapılandırma işareti.** Doğru
+kurulumda sıfırdır, çünkü sayfayı açan tarayıcı zorunlu olarak önce
+collector'dan geçmiştir. Sıfır olmadığında diğer sayıların yanına
+çizilmiyor — kendi cümlesiyle, ne anlama geldiği yazılarak gösteriliyor.
+Sıfırken hiç çizilmiyor: bir arıza göstergesini ölçüm gibi okutmamak
+için.
+
+**Kapı aynı kapı.** Adres listeleri de rolle reddediliyor (tercihle
+değil), 404 ile, ve eşli test tekrarlandı — varsayılmadı: bunlar farklı
+bir handler ve farklı bir kayıt, ve bir handler'daki kapı diğeri
+hakkında hiçbir şey kanıtlamaz. Kaldırma testiyle doğrulandı: kontrol
+çıkarılınca izleyici 200 alıp adresleri görüyor.
+
+##### İki hata, ikisi de yapısal testlerden
+
+**İnline stil CSP'ye takıldı — ve yorumumda tersini yazmıştım.**
+Histogram çubuklarını `style="width: N%"` ile çizmiştim ve yorumda
+"politika stil özniteliğine izin veriyor" demiştim. Vermiyor:
+`style-src 'self'`, `unsafe-inline` yok. Yapısal test tarayıcıya
+gitmeden söyledi. On bir genişlik sınıfına çevrildi; %10 çözünürlük bir
+bakışta okunan şekil için fazlasıyla yeterli.
+
+**Tarayıcı testinin değişmezi eksik kaldı.** "Her bölüm ya tablo çizer
+ya sebebini söyler" doğruydu, ta ki histogram üçüncü bir şekil
+(`<ul>` çubuk listesi) getirene kadar: 11 bölüm, 4 tablo, 6 açıklama —
+biri sayılmıyordu. Değişmezi gevşetmek yerine ölçüm genişletildi, ve
+çubuk sayısının sıfır olmaması ayrıca kontrol ediliyor: sıfır olması,
+engellenmiş bir inline stilin görüneceği şeyin ta kendisi.
+
+##### Yapılmayan: ham dışa aktarma
+
+**Bir çizim işi değil, bir karar.** `Snapshot` satırı her satırında `IP`
+taşıyor. Veritabanında ham adres yok (A7.8) ama dışa aktarma **panelden
+çıkan bir dosya** üretir: hiçbir saklama politikasının kapsamadığı,
+oturumdan uzun yaşayan, müşterinin istediğine gönderebileceği bir şey.
+
+**Verilen karar (kullanıcı, 2026-08-27):** maskeli mi maskesiz mi
+olacağı **geliştirici şifresine bağlı bir ayar** olacak,
 `KeyPrivacyIPStorage` ile aynı kapının arkasında. "Daha sonra istersek
-değiştiririz" — yani varsayılan bugünden bağlanmıyor, ama ayarın kapısı
-bugünden belli.
+değiştiririz" — varsayılan bugünden bağlanmıyor, ama ayarın kapısı
+belli.
 
-*Not: `privacy.ip_storage` (maskeli/full) **zaten** o kapının arkasında
-— A7.5'in `RequiresDeveloperPassword` taşıyan altı ayarından biri.
-Eklenecek yeni bir kapı yok; dışa aktarma geldiğinde aynı kapıya
-takılacak.*
+*Not: `privacy.ip_storage` **zaten** o kapının arkasında — A7.5'in
+`RequiresDeveloperPassword` taşıyan altı ayarından biri. Eklenecek yeni
+bir kapı yok.*
 
 #### D4 — Ayar sayfaları ve akan operasyon penceresi
 

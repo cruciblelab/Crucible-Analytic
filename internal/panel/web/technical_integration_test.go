@@ -331,6 +331,7 @@ func TestTechnicalSectionsInABrowser(t *testing.T) {
 		ConsoleErrors             []string `json:"console_errors"`
 		Sections                  int      `json:"sections"`
 		SectionsWithRows          int      `json:"sections_with_rows"`
+		SectionsWithBars          int      `json:"sections_with_bars"`
 		SectionsExplained         int      `json:"sections_explained"`
 		Overflowing               int      `json:"overflowing"`
 		PageScrollsSideways       bool     `json:"page_scrolls_sideways"`
@@ -351,14 +352,27 @@ func TestTechnicalSectionsInABrowser(t *testing.T) {
 		t.Errorf("console errors: %v", report.ConsoleErrors)
 	}
 
-	// Nine sections, not six: this owner has developer mode on.
-	if want := len(defaultBreakdowns) + len(technicalBreakdowns); report.Sections != want {
+	// Eleven, not six: six beacon breakdowns, three collector ones, and
+	// the histogram and the crossover summary. Composed from the
+	// registries rather than typed, so adding a technical view without
+	// drawing it changes this count.
+	const nonBreakdownSections = 2 // the histogram and the crossover summary
+	if want := len(defaultBreakdowns) + len(technicalBreakdowns) + nonBreakdownSections; report.Sections != want {
 		t.Errorf("the page drew %d sections, want %d - developer mode is on for this owner",
 			report.Sections, want)
 	}
-	if report.SectionsWithRows+report.SectionsExplained != report.Sections {
-		t.Errorf("%d sections, %d with rows and %d explained: one is drawing neither a table "+
-			"nor a reason", report.Sections, report.SectionsWithRows, report.SectionsExplained)
+
+	// Every section draws something: a table, a list of bars, or a
+	// sentence saying why it has neither. A section that draws none of
+	// the three is a heading over blank space, which reads as a fault.
+	if got := report.SectionsWithRows + report.SectionsWithBars + report.SectionsExplained; got != report.Sections {
+		t.Errorf("%d sections but only %d draw anything (%d tables, %d bar lists, %d explained): "+
+			"one is a heading over nothing",
+			report.Sections, got, report.SectionsWithRows, report.SectionsWithBars, report.SectionsExplained)
+	}
+	if report.SectionsWithBars == 0 {
+		t.Error("no bar list rendered; the histogram drew a heading and no bars, which is what " +
+			"a blocked inline style would look like")
 	}
 
 	// The measurement this test exists for.
@@ -376,5 +390,161 @@ func TestTechnicalSectionsInABrowser(t *testing.T) {
 	// and no ASN, so all three technical sections have a named group.
 	if report.NamedRows == 0 {
 		t.Error("no named row rendered; the never-determined group is drawn blank or dropped")
+	}
+}
+
+// TestTheHistogramAndCrossoverDrawRealNumbers is D3's remainder.
+//
+// Two endpoints the panel never called before, and the crossover one
+// joins two tables that store an address differently depending on the
+// deployment's privacy mode - a join a stub cannot exercise at all.
+func TestTheHistogramAndCrossoverDrawRealNumbers(t *testing.T) {
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+	seedEnriched(t, technicalSite, time.Now().Add(-3*time.Hour))
+
+	client, base := developerOwner(t, srv, store, technicalSite, "d3-teknik-sayilar")
+	status, body := get(t, client, base+sitePath(technicalSite))
+	if status != http.StatusOK {
+		t.Fatalf("the dashboard answered %d", status)
+	}
+
+	lang := srv.Renderer.Catalogs().Base()
+	for _, key := range []string{"pano.skor.baslik", "pano.kesisim.baslik"} {
+		if !strings.Contains(body, shown(lang.T(key))) {
+			t.Errorf("developer mode is on and the page has no %q section", key)
+		}
+	}
+
+	// Five addresses were seeded and none of them ran the beacon, so the
+	// crossover has to report five seen and five silent. Asserted on the
+	// numbers rather than on the section rendering, because a section
+	// that fetched nothing still renders - it just renders a sentence.
+	if !strings.Contains(body, shown(lang.T("pano.kesisim.sessiz"))) {
+		t.Error("the crossover section has no silent count")
+	}
+	if strings.Contains(body, shown(lang.T("pano.bos.ulasilamiyor.trafik"))) {
+		t.Error("a technical section reports the API unreachable while the others drew fine")
+	}
+
+	// The histogram's bands. Two addresses scored 92-95 and two scored
+	// 4-6, so both ends of the range have to be present.
+	for _, band := range []string{"0–9", "90–100"} {
+		if !strings.Contains(body, shown(band)) {
+			t.Errorf("the histogram has no %s band; the empty ones must be drawn too", band)
+		}
+	}
+}
+
+// TestTheSilentListNamesTheAddressesNobodyElseCanSee.
+//
+// This is the product's actual claim, end to end: five addresses reached
+// the collector, none ran the beacon, so a beacon-only tool would report
+// zero visitors while this page lists five.
+func TestTheSilentListNamesTheAddressesNobodyElseCanSee(t *testing.T) {
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+	seedEnriched(t, technicalSite, time.Now().Add(-3*time.Hour))
+
+	client, base := developerOwner(t, srv, store, technicalSite, "d3-sessiz")
+	status, body := get(t, client, base+addressListPath(technicalSite, analytics.ListSilent))
+	if status != http.StatusOK {
+		t.Fatalf("the silent list answered %d", status)
+	}
+
+	// The addresses as stored, which is what the page can show: masked
+	// networks rather than whole addresses. Both seeded networks have to
+	// be there.
+	for _, want := range []string{"198.51.100", "203.0.113"} {
+		if !strings.Contains(body, shown(want)) {
+			t.Errorf("the silent list does not show %q, which the seeded rows contain", want)
+		}
+	}
+	// And the fingerprint column, which is the reason this list is
+	// developer-only.
+	if !strings.Contains(body, shown(ja4Googlebot)) {
+		t.Error("the silent list has no fingerprint column filled in")
+	}
+}
+
+// TestAnAddressListIsRefusedToARoleThatMayNotSeeIt is the paired test
+// again, for the pages D3's remainder adds.
+//
+// Repeated rather than assumed from the breakdown one: these are a
+// different handler with a different registry, and a gate that exists in
+// one handler proves nothing about the other. This is a list of
+// addresses and fingerprints, which is exactly what a viewer's role says
+// they may never see.
+func TestAnAddressListIsRefusedToARoleThatMayNotSeeIt(t *testing.T) {
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+	seedEnriched(t, technicalSite, time.Now().Add(-3*time.Hour))
+
+	ctx := context.Background()
+	server, ownerClient, owner := signedInOwner(t, srv, store, technicalSite, "d3-liste-sahip")
+	if err := store.SetDeveloperMode(ctx, owner.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	viewer := makeUser(t, store, "d3-liste-izleyici", false)
+	if err := store.AddMember(ctx, technicalSite, viewer.ID, panel.RoleViewer, nil); err != nil {
+		t.Fatal(err)
+	}
+	// On for the viewer too: a gate that a user can open by ticking their
+	// own box is not a gate.
+	if err := store.SetDeveloperMode(ctx, viewer.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	viewerClient := signedIn(t, server.URL, viewer.Email)
+
+	for _, kind := range []analytics.AddressListKind{analytics.ListSilent, analytics.ListJSBots} {
+		path := addressListPath(technicalSite, kind)
+
+		if status, body := get(t, ownerClient, server.URL+path); status != http.StatusOK {
+			t.Errorf("%s: the owner got %d for a page their role allows", kind, status)
+		} else if kind == analytics.ListSilent && !strings.Contains(body, shown("198.51.100")) {
+			t.Errorf("%s: the owner's page lists no address, so the refusal below proves nothing", kind)
+		}
+
+		if status, body := get(t, viewerClient, server.URL+path); status != http.StatusNotFound {
+			t.Errorf("%s: a viewer got %d; want 404", kind, status)
+		} else if strings.Contains(body, shown("198.51.100")) {
+			t.Errorf("%s: the refusal page still listed an address", kind)
+		}
+	}
+}
+
+// TestAnUnknownAddressListIs404, so a path segment somebody typed never
+// reaches the API as an endpoint name.
+func TestAnUnknownAddressListIs404(t *testing.T) {
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+
+	client, base := developerOwner(t, srv, store, technicalSite, "d3-bilinmeyen")
+	for _, segment := range []string{"yok", "..%2Fadmin", "crossover%2Fsummary"} {
+		status, _ := get(t, client, base+MembersPathPrefix+technicalSite+addressListPathSegment+segment)
+		if status != http.StatusNotFound {
+			t.Errorf("segment %q answered %d, want 404", segment, status)
+		}
+	}
+}
+
+// TestTheTechnicalSectionsStayOffTheDefaultView. D6's rule, asserted for
+// the two sections as it already is for the three breakdowns: the page a
+// customer opens carries no histogram and no jargon.
+func TestTheTechnicalSectionsStayOffTheDefaultView(t *testing.T) {
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+	seedEnriched(t, technicalSite, time.Now().Add(-3*time.Hour))
+
+	// An owner with the preference off.
+	server, client, _ := signedInOwner(t, srv, store, technicalSite, "d3-varsayilan")
+	_, body := get(t, client, server.URL+sitePath(technicalSite))
+
+	lang := srv.Renderer.Catalogs().Base()
+	for _, key := range []string{"pano.skor.baslik", "pano.kesisim.baslik"} {
+		if strings.Contains(body, shown(lang.T(key))) {
+			t.Errorf("the default view shows %q to somebody who has not turned developer mode on", key)
+		}
 	}
 }

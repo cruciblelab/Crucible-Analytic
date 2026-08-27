@@ -879,3 +879,87 @@ code.secret {
 .secim .ipucu {
   margin: 2px 0 0 24px;
 }
+
+/* D3's developer-mode sections. */
+
+/* The score histogram's bars. Eleven width classes rather than an inline
+   style: the policy is `style-src 'self'` with no unsafe-inline, so a
+   style attribute would be blocked and the bar would silently not
+   render. Ten per cent is plenty of resolution for a shape read at a
+   glance. */
+.skor-bantlar { list-style: none; margin: 8px 0 0; padding: 0; }
+.skor-bant {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 4rem;
+  align-items: center;
+  gap: var(--olcu);
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+.skor-bant .bant-ad { font-size: 0.9375rem; color: var(--metin-soluk); }
+.skor-bant .bant-sayi { text-align: right; }
+.bant-cubuk {
+  display: block;
+  background: var(--vurgu-zemin);
+  border-radius: var(--yuvarlak);
+  overflow: hidden;
+}
+.bant-dolgu {
+  display: block;
+  height: 0.75rem;
+  background: var(--vurgu);
+  border-radius: var(--yuvarlak);
+}
+/* The bands at the top of the range are a different kind of thing, not a
+   larger amount of the same thing, so they are coloured rather than just
+   longer. The threshold is scoring's own (see botBandFrom). */
+.skor-bant.bot .bant-dolgu { background: var(--tehlike, #b4402f); }
+
+.bant-dolgu.g0   { width: 0; }
+.bant-dolgu.g10  { width: 10%; }
+.bant-dolgu.g20  { width: 20%; }
+.bant-dolgu.g30  { width: 30%; }
+.bant-dolgu.g40  { width: 40%; }
+.bant-dolgu.g50  { width: 50%; }
+.bant-dolgu.g60  { width: 60%; }
+.bant-dolgu.g70  { width: 70%; }
+.bant-dolgu.g80  { width: 80%; }
+.bant-dolgu.g90  { width: 90%; }
+.bant-dolgu.g100 { width: 100%; }
+
+/* The crossover summary's four figures. */
+.kesisim-ozet {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--olcu);
+  margin: 8px 0 var(--olcu);
+}
+.kesisim-ozet dt { font-size: 0.9375rem; color: var(--metin-soluk); }
+.kesisim-ozet dd {
+  margin: 2px 0 0;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+.kesisim-baglantilar { display: flex; flex-wrap: wrap; gap: var(--olcu); margin: var(--olcu) 0 0; }
+
+/* A configuration signal, not a measurement - so it does not sit among
+   the numbers above and does not look like one. */
+.uyari-satiri {
+  margin: var(--olcu) 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--uyari, #b8860b);
+  background: var(--vurgu-zemin);
+  font-size: 0.9375rem;
+}
+
+/* The resolved name beside a key, and the badge for a client that says
+   it is a bot. */
+.ayrinti { color: var(--metin-soluk); font-size: 0.875rem; }
+.rozet-bot {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--yuvarlak);
+  background: var(--vurgu-zemin);
+  color: var(--metin-soluk);
+  font-size: 0.8125rem;
+}

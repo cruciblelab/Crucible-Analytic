@@ -1,0 +1,101 @@
+{{define "icerik"}}
+{{- /* One address list, a page at a time. Reached from the crossover
+section rather than from the navigation, which is what keeps it part of
+that section rather than a destination of its own - D3's rule is columns
+on the same page, not pages beside it.
+
+The way back is first, in the same place the breakdown detail page puts
+it: a reader who came to check one thing wants the door where it was
+last time. */}}
+<p class="geri"><a href="{{.Data.SitePath}}">{{t "pano.adres.geri"}}</a></p>
+
+<nav class="aralik" aria-label="{{t "pano.aralik.baslik"}}">
+<ul>
+{{- range .Data.Ranges}}
+<li>
+{{- if .Selected}}
+<span class="secili" aria-current="true">{{.Label}}</span>
+{{- else}}
+<a href="{{.URL}}">{{.Label}}</a>
+{{- end}}
+</li>
+{{- end}}
+</ul>
+<p class="ipucu">
+{{$.F.Date .Data.From}} – {{$.F.Date (.Data.To.AddDate 0 0 -1)}}
+<span class="gizli">({{$.F.ZoneName}})</span>
+</p>
+</nav>
+
+<section class="kirilim" aria-labelledby="adres-baslik">
+<header class="kirilim-baslik">
+<h2 id="adres-baslik">{{.Data.Title}}</h2>
+{{- if .Data.Total}}<span class="tumu-metin">{{.Data.Total}}</span>{{end}}
+</header>
+
+{{- if .Data.Empty}}
+<p class="kirilim-bos durum-{{.Data.Empty}}">{{.Data.Text}}</p>
+{{- else}}
+<div class="tablo-kaydir">
+<table class="kirilim-tablo">
+<thead>
+<tr>
+<th scope="col">{{t "pano.adres.adres"}}</th>
+<th scope="col" class="sayi">{{t "pano.adres.skor"}}</th>
+{{- /* The request rate is the collector's own measurement and only the
+silent list carries it; the browser is the beacon's and only the JS-bot
+list has one. Each list draws the columns it has rather than showing the
+other's empty - a blank cell says "looked for and not found", and
+neither was ever looked for. */}}
+{{- if .Data.ShowsClient}}
+<th scope="col">{{t "pano.adres.istemci"}}</th>
+{{- else}}
+<th scope="col" class="sayi">{{t "pano.adres.hiz"}}</th>
+{{- end}}
+<th scope="col">{{t "pano.adres.ulke"}}</th>
+<th scope="col">{{t "pano.adres.ag"}}</th>
+<th scope="col">{{t "pano.adres.parmak_izi"}}</th>
+<th scope="col">{{t "pano.adres.son"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Rows}}
+<tr>
+<th scope="row" class="ad">{{.Address}}</th>
+<td class="sayi">{{.Score}}</td>
+{{- if $.Data.ShowsClient}}
+<td>{{.Client}}
+{{- if .BotUA}} <span class="rozet-bot">{{t "pano.adres.bot_ua"}}</span>{{end}}</td>
+{{- else}}
+<td class="sayi">{{.Rate}}</td>
+{{- end}}
+<td>{{.Country}}</td>
+<td>{{.Network}}</td>
+<td class="ad">{{.JA4}}
+{{- if .JA4Label}} <span class="ayrinti">{{.JA4Label}}</span>{{end}}</td>
+<td class="soluk">{{.Last}}</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</div>
+<p class="ipucu">{{.Data.Help}}</p>
+{{- end}}
+</section>
+
+{{- if gt .Data.Pages 1}}
+<nav class="sayfalama" aria-label="{{t "pano.kirilim.sayfalama"}}">
+{{- if .Data.PrevURL}}
+<a rel="prev" href="{{.Data.PrevURL}}">{{t "pano.kirilim.onceki"}}</a>
+{{- else}}
+<span class="soluk">{{t "pano.kirilim.onceki"}}</span>
+{{- end}}
+<span class="konum">{{.Data.Page}} / {{.Data.Pages}}</span>
+{{- if .Data.NextURL}}
+<a rel="next" href="{{.Data.NextURL}}">{{t "pano.kirilim.sonraki"}}</a>
+{{- else}}
+<span class="soluk">{{t "pano.kirilim.sonraki"}}</span>
+{{- end}}
+</nav>
+{{- end}}
+{{end}}

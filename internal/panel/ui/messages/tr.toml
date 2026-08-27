@@ -641,6 +641,43 @@ sutun = "Ülke"
 sayi = "Adres"
 bos_grup = "Belirlenemedi"
 
+[metin.pano.skor]
+baslik = "Bot skoru dağılımı"
+toplam = "%s adres"
+aciklama = "Collector'ın gördüğü her adrese verdiği davranış skoru. Yüksek skor, isteklerin insan gezinme desenine benzemediği anlamına gelir — hız, düzenlilik, tanınan bot parmak izi. Sağlıklı bir sitede yığılma soldadır."
+aralik = "%s–%s"
+
+[metin.pano.kesisim]
+baslik = "Sunucunun gördüğü, ölçüm kodunun duyduğu"
+gorulen = "Sunucuya ulaşan adres"
+js_calistiran = "JavaScript çalıştıran"
+sessiz = "Hiç çalıştırmayan"
+kapsam = "Kapsam"
+bant = "Skor bandı"
+adres = "Adres"
+yalniz_beacon = "%s adres ölçüm kodundan görüldü ama sunucuya hiç ulaşmadı. Bu bir ölçüm değil, bir yapılandırma işareti: ya collector trafiğin yolunda değil, ya da beacon'ın trusted_proxies ayarı yanlış ve ziyaretçinin adresi yerine vekilinkini kaydediyor."
+aciklama = "Yalnız ölçüm koduna dayanan analitik araçları, kodu çalıştırmayan ziyaretçiyi hiç göremez — dolayısıyla kaçırdığı kitlenin büyüklüğünü de bildiremez. Bu bölüm o farkı sayıyor."
+
+[metin.pano.adres.sessiz]
+baslik = "Sessiz adresler"
+aciklama = "Sunucuya bağlanan ama ölçüm kodunu hiç çalıştırmayan adresler. Arama motoru botları, API istemcileri, tarayıcısız araçlar — ve JavaScript'i kapalı ziyaretçiler. Beacon tabanlı bir araç bunların hiçbirini görmez."
+
+[metin.pano.adres.js-bot]
+baslik = "JavaScript çalıştıran botlar"
+aciklama = "Ölçüm kodunu gerçekten çalıştıran, ama davranışı ya da kendi bildirdiği kimliği otomasyona işaret eden adresler. Ters yöndeki kör nokta: beacon tabanlı bir araç bunları ziyaretçi olarak sayar."
+
+[metin.pano.adres]
+geri = "← Siteye dön"
+adres = "Adres"
+skor = "Skor"
+hiz = "İstek/sn"
+ulke = "Ülke"
+ag = "Ağ"
+parmak_izi = "Parmak izi"
+istemci = "İstemci"
+son = "Son görülme"
+bot_ua = "kendini bot olarak bildiriyor"
+
 [metin.pano.aralik]
 baslik = "Dönem"
 

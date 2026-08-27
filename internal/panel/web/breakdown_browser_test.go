@@ -209,6 +209,11 @@ await collectCSP();
 report.sections = await page.locator('.kirilim').count();
 report.sections_with_rows = await page.locator('.kirilim table.kirilim-tablo').count();
 report.sections_explained = await page.locator('.kirilim .kirilim-bos').count();
+// D3's histogram draws a list of bars rather than a table, so a section
+// is one of three shapes rather than two. Counted separately so the
+// invariant stays "every section draws something" instead of being
+// weakened to "most of them do".
+report.sections_with_bars = await page.locator('.kirilim .skor-bantlar').count();
 report.named_rows = await page.locator('.kirilim-tablo th.ad.adsiz').count();
 report.overflowing = await overflowing();
 report.page_scrolls_sideways = await sideways();

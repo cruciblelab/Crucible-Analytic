@@ -48,5 +48,14 @@ what, from where, brought by which campaign. */}}
 {{- range .Data.Sections}}
 {{template "kirilim" .}}
 {{- end}}
+
+{{- /* Developer mode only. Last on the page, after everything a customer
+reads: D6's rule is that the default view carries no fingerprints and no
+jargon, and somebody who turned the toggle on still came for the numbers
+above. */}}
+{{- if .Data.Technical}}
+{{template "skor_dagilimi" .Data.Scores}}
+{{template "kesisim" .Data.Crossover}}
+{{- end}}
 </div>
 {{end}}

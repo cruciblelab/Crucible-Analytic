@@ -359,6 +359,12 @@ var (
 	// is no never-determined group to name. A word for a row that can
 	// never render is how a catalog starts describing a page that does
 	// not exist.
+	// dashboardAddressLists mirrors the address-list registry, for the
+	// same reason as the cards and breakdowns: the title and description
+	// are assembled from the kind at runtime, so the template walk cannot
+	// see them.
+	dashboardAddressLists = []string{"sessiz", "js-bot"}
+
 	dashboardNamedGroups = []string{
 		"sayfa", "kaynak", "cihaz", "ulke", "olay",
 		"parmak-izi", "asn", "sunucu-ulke",
@@ -398,6 +404,12 @@ func computedKeys() []string {
 			"pano.kirilim."+id+".aciklama",
 			"pano.kirilim."+id+".sutun",
 			"pano.kirilim."+id+".sayi",
+		)
+	}
+	for _, id := range dashboardAddressLists {
+		keys = append(keys,
+			"pano.adres."+id+".baslik",
+			"pano.adres."+id+".aciklama",
 		)
 	}
 	for _, id := range dashboardNamedGroups {

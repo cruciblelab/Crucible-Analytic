@@ -4790,3 +4790,76 @@ KURULUM.md. That cannot be done from this container, and pretending
 otherwise would be the kind of unverified claim this phase spent its time
 removing. It is real remaining work, and F2 - the install script - is the
 phase that automates the thing that check would be testing.
+
+## D3, finished: the measurement the product exists to make
+
+The three breakdowns were the mechanical half. The other half is the one
+that justifies the whole architecture.
+
+An analytics tool that relies on a snippet in the page can only ever
+count visitors that ran it. That is not a limitation it can report,
+because the population it missed never touched it - there is no number
+to be short by. This collector sits in the connection path, so it sees
+both, and the difference is a number: five addresses reached the server,
+none of them ran the beacon, and a beacon-only tool would have said zero
+visitors while this page lists five.
+
+That is the crossover section, and it is why the two address lists exist
+beside it: the silent ones nothing else can see, and the bots that did
+run JavaScript and would be counted as people.
+
+### A number that is not a measurement
+
+`beacon_only_ips` counts addresses the beacon heard that the collector
+never saw. In a correct deployment it is zero, because a browser that
+loaded the page necessarily connected through the collector first. A
+non-zero value means the collector is not in the path, or the beacon's
+`trusted_proxies` is wrong and it is recording a proxy's address.
+
+So it is not drawn beside the other three. It appears only when it is
+non-zero, in its own sentence, saying what it means. Drawing "0" next to
+the counts would invite a reader to treat a fault indicator as a
+measurement - the same mistake as reporting an unreachable API as zero
+traffic, which this panel refuses everywhere else.
+
+### Two findings, both from tests that already existed
+
+**An inline style, and a comment claiming it was allowed.** The histogram
+drew its bars with `style="width: N%"`, and the comment beside it said
+the Content-Security-Policy permits style attributes and forbids only
+inline `<style>` and `<script>`. It does not: the policy is
+`style-src 'self'` with no `unsafe-inline`, so the attribute is blocked
+and the bars would have rendered at zero width. The structural test that
+forbids inline styles said so before a browser ever saw it. Eleven width
+classes now, at ten per cent resolution, which is plenty for a shape read
+at a glance.
+
+Worth noting what the failure would have looked like without that test: a
+page that renders, with headings, and bars of zero length. Nothing
+errors.
+
+**A browser invariant that quietly stopped covering everything.** The
+browser test asserted that every section either draws a table or says why
+it does not. True for nine breakdowns; the histogram draws a list of
+bars, which is a third shape. The measurement said 11 sections, 4 tables,
+6 explanations - one unaccounted for.
+
+The tempting fix is to relax the invariant. The right one is to widen the
+measurement, because "every section draws something" is the property
+worth having: a heading over blank space reads as a fault. So the script
+counts bar lists too, and there is now a separate check that the count is
+not zero - because zero bar lists is exactly what a blocked inline style
+would have looked like.
+
+### What is left, and why it is not mine to finish
+
+Raw export. `Snapshot` carries an `IP` on every row, and while the
+database never holds a whole address, an export produces a *file that
+leaves the panel*: outside any retention policy, outliving the session,
+forwardable to anyone.
+
+That is a decision of the same class as the IP masking one, which went to
+a lawyer. It now has an owner's answer - masked or not is a setting behind
+the developer password, alongside `privacy.ip_storage` - and that setting
+already exists behind that gate, so what remains is the export itself
+under a decision that has been made rather than assumed.
