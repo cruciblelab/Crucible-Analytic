@@ -48,6 +48,21 @@ GRANT USAGE, SELECT ON
   panel_login_attempts_id_seq, panel_recovery_codes_id_seq
   TO panel_user;
 
+-- The heartbeat: every service writes its own row, the panel reads them.
+--
+-- Four writers on one table, which is the only place in this schema
+-- where a GRANT cannot express the whole rule - "only your own row" is
+-- not something GRANT can say. Row-level security in
+-- internal/heartbeat/schema.sql says it, keyed on current_user, so this
+-- grant is deliberately broader than the actual permission.
+--
+-- No DELETE for anybody. A service has no reason to remove its own row,
+-- and a row that disappears reads as "this service was never installed"
+-- rather than "this service is gone" - which is the wrong sentence at
+-- the moment it matters.
+GRANT SELECT, INSERT, UPDATE ON service_heartbeat
+  TO collector, beacon_writer, analytics_reader, panel_user;
+
 -- Live settings. Optional, and strongly recommended: without it the
 -- collector and the beacon read only their own files, and nothing changed
 -- in the panel ever reaches them.

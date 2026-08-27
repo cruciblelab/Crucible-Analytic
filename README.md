@@ -819,7 +819,15 @@ leaving `asn_lookup.enabled = false`):
 ```bash
 psql "$TIMESCALE_DSN" -f internal/storage/schema.sql
 psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
+psql "$TIMESCALE_DSN" -f internal/heartbeat/schema.sql
 ```
+
+The third is the health channel: one row per service, written on a timer,
+carrying the build, the uptime, the counters and the last failure. It is
+what lets the panel say "the collector is up and every write since
+Tuesday has failed" - a sentence no liveness endpoint can produce.
+Skipping it costs nothing but the health page; the services log a warning
+once and carry on.
 
 **If you already had this collector running before country/ASN
 enrichment or ASN scoring existed** (i.e. `docker compose up -d` already

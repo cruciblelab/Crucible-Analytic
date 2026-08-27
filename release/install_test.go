@@ -808,3 +808,144 @@ func TestInstallClosesTheDefaultsNobodyChose(t *testing.T) {
 		}
 	})
 }
+
+// TestTheHeartbeatRefusesACrossServiceWrite is the assertion verify.sql
+// cannot make.
+//
+// Four services write to one table, so "only your own row" comes from
+// row-level security rather than from a privilege - and no privilege
+// query can see it. has_table_privilege reports UPDATE for all four,
+// correctly, because all four do hold UPDATE; what stops the beacon
+// rewriting the collector's row is a policy, and a policy is only
+// visible by trying.
+//
+// Why it matters: without it a compromised beacon could write "collector,
+// healthy, beat_at: now" over the collector's row and hide an outage from
+// the one page built to show it.
+func TestTheHeartbeatRefusesACrossServiceWrite(t *testing.T) {
+	const db = "ca_install_heartbeat_test"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	if out, ok := runInstall(t, db); !ok {
+		t.Fatalf("the install failed:\n%s", out)
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsnFor(superuserDSN(t), db))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	// SET ROLE rather than a second connection: the role passwords are
+	// generated into a config file this test never reads, and a
+	// superuser that has SET ROLE to a non-superuser is checked as that
+	// role - RLS included, since only the table's owner and a superuser
+	// bypass policies, and SET ROLE gives up both.
+	as := func(t *testing.T, role string, fn func(conn *pgxpool.Conn)) {
+		t.Helper()
+		conn, err := pool.Acquire(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Release()
+		if _, err := conn.Exec(ctx, "SET ROLE "+role); err != nil {
+			t.Fatalf("SET ROLE %s: %v", role, err)
+		}
+		defer func() { _, _ = conn.Exec(context.Background(), "RESET ROLE") }()
+		fn(conn)
+	}
+
+	// Each service writes its own row, which must work or the feature is
+	// pointless.
+	for _, role := range []string{"collector", "beacon_writer", "analytics_reader"} {
+		as(t, role, func(conn *pgxpool.Conn) {
+			_, err := conn.Exec(ctx, `
+				INSERT INTO service_heartbeat (service, version, started_at, beat_at)
+				VALUES (current_user, 'v-test', now(), now())`)
+			if err != nil {
+				t.Fatalf("%s could not write its own heartbeat row: %v", role, err)
+			}
+		})
+	}
+
+	t.Run("a service cannot insert another's row", func(t *testing.T) {
+		as(t, "beacon_writer", func(conn *pgxpool.Conn) {
+			_, err := conn.Exec(ctx, `
+				INSERT INTO service_heartbeat (service, started_at, beat_at)
+				VALUES ('panel_user', now(), now())`)
+			if err == nil {
+				t.Fatal("the beacon wrote a row belonging to panel_user")
+			}
+			if !strings.Contains(err.Error(), "row-level security") {
+				t.Errorf("the insert failed for the wrong reason: %v", err)
+			}
+		})
+	})
+
+	t.Run("a service cannot overwrite another's row", func(t *testing.T) {
+		as(t, "beacon_writer", func(conn *pgxpool.Conn) {
+			tag, err := conn.Exec(ctx,
+				`UPDATE service_heartbeat SET version = 'FALSIFIED' WHERE service = 'collector'`)
+			if err != nil {
+				t.Fatalf("the update errored rather than matching nothing: %v", err)
+			}
+			// RLS filters rather than refuses, so this is zero rows
+			// affected rather than an error. Asserted on the count for
+			// that reason - a test expecting an error here would fail
+			// against correct behaviour.
+			if tag.RowsAffected() != 0 {
+				t.Errorf("the beacon updated %d of the collector's rows", tag.RowsAffected())
+			}
+		})
+
+		// And the collector's row really is untouched, read back
+		// independently of the connection that tried.
+		var version string
+		if err := pool.QueryRow(ctx,
+			`SELECT version FROM service_heartbeat WHERE service = 'collector'`).Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		if version != "v-test" {
+			t.Errorf("the collector's row now says %q", version)
+		}
+	})
+
+	t.Run("a service cannot rename its own row into another's", func(t *testing.T) {
+		// Update the row you are allowed to touch, and change its key
+		// to somebody else's.
+		//
+		// This passes with or without an explicit WITH CHECK - measured,
+		// after a mutation of the schema left it green: a policy with no
+		// WITH CHECK uses its USING expression for the post-image too.
+		// The test asserts the property rather than the mechanism, which
+		// is why it keeps holding when the mechanism changes.
+		as(t, "analytics_reader", func(conn *pgxpool.Conn) {
+			_, err := conn.Exec(ctx,
+				`UPDATE service_heartbeat SET service = 'collector' WHERE service = current_user`)
+			if err == nil {
+				t.Fatal("a service renamed its own heartbeat row into another service's")
+			}
+			if !strings.Contains(err.Error(), "row-level security") {
+				t.Errorf("the rename failed for the wrong reason: %v", err)
+			}
+		})
+	})
+
+	t.Run("the panel reads every row and writes none of them", func(t *testing.T) {
+		as(t, "panel_user", func(conn *pgxpool.Conn) {
+			var n int
+			if err := conn.QueryRow(ctx, `SELECT count(*) FROM service_heartbeat`).Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n < 3 {
+				t.Errorf("the panel sees %d heartbeat rows, want at least the three just written", n)
+			}
+			tag, err := conn.Exec(ctx, `UPDATE service_heartbeat SET version = 'x' WHERE service = 'collector'`)
+			if err == nil && tag.RowsAffected() != 0 {
+				t.Errorf("the panel rewrote %d rows it does not own", tag.RowsAffected())
+			}
+		})
+	})
+}

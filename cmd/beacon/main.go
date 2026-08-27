@@ -35,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
@@ -207,6 +208,32 @@ func main() {
 	// be given a limit from the panel during the incident where it turns
 	// out to need one.
 	srv.Limiter = limiter.New(cfg.Limits.LiveLimits(nil))
+
+	// The health channel. /healthz says the process is up; this says
+	// what it has been doing - and dropped is the number that matters
+	// most here, because a beacon shedding events under load looks
+	// perfectly healthy to anything that only asks whether it answers.
+	beat := heartbeat.New(heartbeat.Options{
+		Pool:    writer.Pool(),
+		Version: buildinfo.Version(version),
+		Logger:  logger,
+		Counters: func() map[string]int64 {
+			accepted, serverDropped, rejected := srv.Counters()
+			written, writerDropped := writer.Counters()
+			return map[string]int64{
+				heartbeat.CounterAccepted: int64(accepted),
+				heartbeat.CounterRejected: int64(rejected),
+				heartbeat.CounterWritten:  int64(written),
+				// One number, from two places that both shed. A request
+				// refused at the door and a row thrown away at the
+				// writer are the same loss to a customer's numbers, and
+				// splitting them on the page would ask an operator to
+				// add up two figures to answer one question.
+				heartbeat.CounterDropped: int64(serverDropped + writerDropped),
+			}
+		},
+	})
+	go beat.Run(ctx)
 
 	// Seeded from the config so the first applySettings call reports the
 	// mode the process is actually starting on, rather than reporting a

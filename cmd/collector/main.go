@@ -23,6 +23,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/collector"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
@@ -119,6 +120,30 @@ func main() {
 		store.Close()
 		os.Exit(1)
 	}
+
+	// The health channel.
+	//
+	// The collector has no HTTP server and should not get one - it is
+	// the process that touches attacker bytes. So it says how it is by
+	// writing a row, which also answers the question a liveness endpoint
+	// cannot: not "am I up" but "did my last write succeed". See
+	// internal/heartbeat.
+	//
+	// Started in its own goroutine and never waited on. Nothing about
+	// monitoring may delay or stop the thing being monitored.
+	beat := heartbeat.New(heartbeat.Options{
+		Pool:    writer.Pool(),
+		Version: buildinfo.Version(version),
+		Logger:  logger,
+		Counters: func() map[string]int64 {
+			written, failed := writer.Counters()
+			return map[string]int64{
+				heartbeat.CounterWritten: int64(written),
+				heartbeat.CounterDropped: int64(failed),
+			}
+		},
+	})
+	go beat.Run(ctx)
 
 	// ASN/country lookup is entirely optional and additive - unlike the
 	// TimescaleDB connection above, a failure to set it up here doesn't

@@ -177,7 +177,8 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     for f in "${HERE}"/../schema/*.sql; do psql_db -f "$f"; done
   else
     for f in internal/panel/schema.sql internal/storage/schema.sql \
-             internal/beacon/schema.sql internal/asnlookup/schema.sql; do
+             internal/beacon/schema.sql internal/asnlookup/schema.sql \
+             internal/heartbeat/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi

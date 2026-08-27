@@ -82,6 +82,7 @@ cp internal/panel/schema.sql      "${STAGE}/schema/01-panel.sql"
 cp internal/storage/schema.sql    "${STAGE}/schema/02-storage.sql"
 cp internal/beacon/schema.sql     "${STAGE}/schema/03-beacon.sql"
 cp internal/asnlookup/schema.sql  "${STAGE}/schema/04-asnlookup.sql"
+cp internal/heartbeat/schema.sql  "${STAGE}/schema/05-heartbeat.sql"
 
 echo "== example configuration"
 for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml; do

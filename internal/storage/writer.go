@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,6 +25,19 @@ var columns = []string{
 // INSERTs.
 type Writer struct {
 	pool *pgxpool.Pool
+
+	// Counters, for the health page.
+	//
+	// Added for B4, which asks the question no liveness check answers:
+	// is the collector still writing? A process that is up and has
+	// failed every write since Tuesday looks perfectly healthy to
+	// anything that only asks whether it is running.
+	//
+	// Rows rather than batches, because a batch is an implementation
+	// detail of the flush interval and a row is what a customer's
+	// numbers are made of.
+	written atomic.Uint64
+	failed  atomic.Uint64
 }
 
 // NewWriter opens a connection pool to databaseURL and verifies it's
@@ -56,9 +70,19 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 		}, nil
 	}))
 	if err != nil {
+		w.failed.Add(uint64(len(rows)))
 		return n, fmt.Errorf("storage: copy rows: %w", err)
 	}
+	// n is the row count CopyFrom returns on success, so the error path
+	// above has already returned and it is never negative.
+	w.written.Add(uint64(n))
 	return n, nil
+}
+
+// Counters reports rows written and rows lost to a failed write, since
+// the process started.
+func (w *Writer) Counters() (written, failed uint64) {
+	return w.written.Load(), w.failed.Load()
 }
 
 // Close releases the connection pool. Safe to call once.

@@ -75,6 +75,14 @@ func NewStore(ctx context.Context, databaseURL string) (*Store, error) {
 }
 
 // Close releases the connection pool. Safe to call once.
+// Pool exposes the connection pool for work that is not a query this
+// package owns - today, the heartbeat row.
+//
+// Deliberately narrow, and the narrowness is the point: this role holds
+// SELECT and nothing else on the analytics tables, so a caller handed
+// this pool gains no ability to write anything it could not already.
+func (s *Store) Pool() *pgxpool.Pool { return s.pool }
+
 func (s *Store) Close() {
 	s.pool.Close()
 }

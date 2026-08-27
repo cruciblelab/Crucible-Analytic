@@ -33,6 +33,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/api"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
@@ -125,6 +126,25 @@ func main() {
 		logger.Info("bot data not present; JA4 fingerprints will be reported without labels",
 			"how", "run: collector -config <file> -update-bot-data")
 	}
+
+	// The health channel. This service only reads, so it has no counters
+
+	// worth reporting - what it contributes is its build and the fact
+
+	// that it is answering, which is what "the panel could not reach the
+
+	// read API" needs a second opinion about.
+
+	beat := heartbeat.New(heartbeat.Options{
+
+		Pool: store.Pool(),
+
+		Version: buildinfo.Version(version),
+
+		Logger: logger,
+	})
+
+	go beat.Run(ctx)
 
 	srv := &api.Server{
 		ListenAddr: cfg.ListenAddr,

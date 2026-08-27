@@ -153,6 +153,30 @@ UNION ALL SELECT 'no service role owns a background job',
          SELECT 1 FROM timescaledb_information.jobs
          WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user'))
 
+-- The heartbeat table, and the one rule a GRANT cannot express.
+--
+-- Four services write to one table, so "only your own row" has to come
+-- from row-level security rather than from a privilege. What is checked
+-- here is that RLS is switched on at all: a table with the policies
+-- defined and ENABLE ROW LEVEL SECURITY missing enforces nothing, reads
+-- perfectly in \d, and hands every service every row.
+--
+-- Whether the policies actually refuse a cross-service write is not a
+-- question a privilege query can answer - it needs an attempt - so that
+-- is asserted in release/install_test.go against a real connection.
+UNION ALL SELECT 'the heartbeat table has row-level security on',
+       (SELECT relrowsecurity FROM pg_class WHERE relname = 'service_heartbeat')
+UNION ALL SELECT 'the heartbeat has both a read and a write policy',
+       (SELECT count(*) FROM pg_policies
+        WHERE tablename = 'service_heartbeat') >= 2
+UNION ALL SELECT 'the panel can read the heartbeat',
+       has_table_privilege('panel_user', 'service_heartbeat', 'SELECT')
+UNION ALL SELECT 'nobody can delete a heartbeat row',
+       NOT has_table_privilege('collector', 'service_heartbeat', 'DELETE')
+   AND NOT has_table_privilege('beacon_writer', 'service_heartbeat', 'DELETE')
+   AND NOT has_table_privilege('analytics_reader', 'service_heartbeat', 'DELETE')
+   AND NOT has_table_privilege('panel_user', 'service_heartbeat', 'DELETE')
+
 -- And that no service role owns a table.
 --
 -- This is the one that no GRANT reveals and no privilege listing makes
