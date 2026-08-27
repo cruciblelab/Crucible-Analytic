@@ -5531,3 +5531,40 @@ Ve ikincisi, üçüncü kez: **var olmayan bir deliği uyaran yorum, var olan
 delikleri anlatan yorumlara inanmamayı öğretir.** `harden.sql` "hiçbir şey
 iş zamanlamaz" diyordu; `preflight` `information_schema` tuzağını iki
 fonksiyon aşağıda anlatıp yine ona düşmüştü. İkisi de doğru okunuyordu.
+
+### Altıncı kusur: beacon kendi örnek dosyasından hiç başlamamış
+
+Zincire beacon bacağını eklerken çıktı:
+
+```
+beacon: parse .../conf/beacon.toml: toml: line 100 (last key "limits"):
+expected a top-level item to end with a newline, comment, or EOF,
+but got 'd' instead
+```
+
+`beacon.example.toml` **geçerli TOML değildi.** A5.1'de bir paragraf
+cümlenin ortasına yapıştırılmış, ikinci yarısının `#`'i düşmüştü:
+
+```
+# Bounds this process's own resource use, exactly as the collector's
+# # Also moved to the panel in A5.1, ...
+[limits] does. Zero or absent means no limit for that dimension.
+```
+
+`install.sh` bu dosyayı operatörün dizinine olduğu gibi kopyalıyor. Yani
+beacon'ı çalıştıran her kurulum "config error" alıp süreç hiç
+başlamıyordu — aylardır.
+
+Neden kimse görmedi: beacon, kendi örnek dosyasından hiç başlatılmamıştı.
+Diğer üç servis bir yolla başlatılmıştı, beacon kimsenin koşmadığıydı. Ve
+depodaki en ucuz test eksikti: `release/examples_test.go` — dört örnek
+yapılandırma, servislerin kullandığı ayrıştırıcıyla, ayrıştırılıyor mu.
+Dosyanın *değerleri* mantıklı mı sorusu her servisin kendi config
+testinde; *dosya ayrıştırıcının kabul edeceği bir dosya mı* sorusu bu, ve
+bir operatöre bir akşam kaybettiren arıza da bu — çünkü hata bir yorum
+satırının numarasını veriyor.
+
+Beacon bacağı eklendikten sonra pano artık altı kartın altısında da sayı
+gösteriyor, ve test bunu böyle istiyor: bir kartın hâlâ "ölçüm gelmedi"
+demesi artık başarısızlık. Zayıf hâli ("bir kartta sayı var") dört beacon
+kartı boşken geçiyordu — müşterinin ilk baktığı dört kart.

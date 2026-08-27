@@ -9,9 +9,12 @@
 //
 //	does a real request end up as a number on the dashboard?
 //
-// That was two halves - collector writes rows, and separately rows come
-// back through the API to the panel - and two halves that each pass are
-// not a chain that works. This runs the chain.
+// That was halves - the collector writes rows, the beacon writes its
+// own, and separately rows come back through the API to the panel - and
+// halves that each pass are not a chain that works. This runs the chain,
+// both sides of it: a proxied HTTPS request and a pageview from the
+// snippet, ending at six dashboard cards that all have to carry a
+// number.
 //
 //	go test -tags e2e ./e2e/ -v -timeout 15m
 //
@@ -117,9 +120,11 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// proxied every visitor to the analytics API. release/ports_test.go
 	// now holds them apart.
 	collectorAddr := "127.0.0.1:18443"
+	beaconAddr := "127.0.0.1:18081"
 	apiAddr := "127.0.0.1:18080"
 	panelAddr := "127.0.0.1:18090"
 	setConfig(t, pkg, "collector.toml", `^listen_addr = ".*"$`, fmt.Sprintf(`listen_addr = %q`, collectorAddr))
+	setConfig(t, pkg, "beacon.toml", `^listen_addr = ".*"$`, fmt.Sprintf(`listen_addr = %q`, beaconAddr))
 	setConfig(t, pkg, "analytics-api.toml", `^listen_addr = ".*"$`, fmt.Sprintf(`listen_addr = %q`, apiAddr))
 	setConfig(t, pkg, "panel.toml", `^listen_addr = ".*"$`, fmt.Sprintf(`listen_addr = %q`, panelAddr))
 	setConfig(t, pkg, "panel.toml", `^analytics_api_url = ".*"$`,
@@ -137,10 +142,12 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	setConfig(t, pkg, "panel.toml", `^# secure_cookies = true$`, `secure_cookies = false`)
 
 	start(t, pkg, "collector", "collector.toml")
+	start(t, pkg, "beacon", "beacon.toml")
 	start(t, pkg, "analytics-api", "analytics-api.toml")
 	start(t, pkg, "panel", "panel.toml")
 
 	waitListening(t, collectorAddr)
+	waitListening(t, beaconAddr)
 	waitListening(t, apiAddr)
 	waitListening(t, panelAddr)
 
@@ -206,6 +213,29 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 		t.Logf("retention on traffic_snapshots: %s", policyDays)
 	}
 
+	// ---- and the other half of the product: a pageview ----
+	//
+	// The beacon is a separate process, a separate role and a separate
+	// table, and the four cards a customer looks at first come from it.
+	// Without this the dashboard renders "no snippet installed" four
+	// times and the chain is only half proved - which is exactly the
+	// shape of half-proof this whole test was written against.
+	sendPageview(t, beaconAddr)
+
+	var events int
+	deadline = time.Now().Add(flushWait)
+	for time.Now().Before(deadline) {
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM beacon_events WHERE site_id = $1`, site).Scan(&events); err == nil && events > 0 {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if events == 0 {
+		t.Fatalf("no row reached beacon_events within %s; the beacon accepted the event and never wrote it", flushWait)
+	}
+	t.Logf("the beacon wrote %d row(s)", events)
+
 	// ---- the read API can see it ----
 	//
 	// Under a different database role, over HTTP, with a token whose
@@ -231,6 +261,19 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	page := panelDashboard(t, pkg, panelAddr)
 	if !strings.Contains(page, site) {
 		t.Fatalf("the dashboard does not mention %s", site)
+	}
+	// Every card, not just one. Both halves of the product wrote a row
+	// by now - the collector's proxied request and the beacon's
+	// pageview - so a card still saying "no measurement has arrived" is
+	// a real gap rather than a deployment nobody has finished.
+	//
+	// The weaker "some card has a number" version passed while all four
+	// beacon cards read "the snippet is not installed", which is what a
+	// customer sees first and was the half this test did not cover.
+	for _, line := range cardLines(page) {
+		if strings.HasSuffix(line, "(empty)") {
+			t.Errorf("a dashboard card has nothing in it: %s", line)
+		}
 	}
 	if !hasANumber(page) {
 		t.Errorf("the dashboard rendered but shows no figure; the panel reached the API and got nothing")
@@ -340,13 +383,14 @@ func install(t *testing.T, pkg, dsn, db string) {
 	}
 }
 
-// writeConfigs does the operator's part: four database passwords and an
-// API token, pasted into four files.
+// writeConfigs does the operator's part: four database passwords, a
+// site id, an API token and the beacon's allowlist, pasted into four
+// files.
 //
 // Every line here is a hand edit a real operator makes, and the number
-// of them is the finding. The token is the sharpest: it goes in one file
-// and its SHA-256 in another, which is the same shape as the IP key that
-// install.sh grew a whole verification step for.
+// of them is worth looking at. The token is the sharpest: it goes in one
+// file and its SHA-256 in another, which is the same shape as the IP key
+// that install.sh grew a whole verification step for.
 func writeConfigs(t *testing.T, pkg, db string) string {
 	t.Helper()
 
@@ -387,6 +431,14 @@ func writeConfigs(t *testing.T, pkg, db string) string {
 	setConfig(t, pkg, "panel.toml", `^analytics_api_token = ".*"$`,
 		fmt.Sprintf(`analytics_api_token = %q`, token))
 
+	// The beacon. Its site list is an allowlist rather than a
+	// credential - the snippet is public, so the site in a POST body is
+	// a claim - and a deployment that forgets this line has a beacon
+	// that answers every request and stores nothing.
+	setConfig(t, pkg, "beacon.toml", `^timescale_dsn = ".*"$`,
+		fmt.Sprintf(`timescale_dsn = %q`, dsnFmt("beacon_writer")))
+	setConfig(t, pkg, "beacon.toml", `^sites = \[.*\]$`, fmt.Sprintf(`sites = [%q]`, site))
+
 	return token
 }
 
@@ -399,12 +451,21 @@ func setConfig(t *testing.T, pkg, name, pattern, replacement string) {
 		t.Fatal(err)
 	}
 	re := regexp.MustCompile("(?m)" + pattern)
-	if !re.Match(body) {
+	found := re.FindAll(body, -1)
+	switch len(found) {
+	case 0:
 		t.Fatalf("%s: nothing matched %s", name, pattern)
+	case 1:
+	default:
+		// The comment here used to say "once" while the code below
+		// replaced every match, which is the kind of claim this project
+		// keeps catching itself making. A pattern matching twice would
+		// rewrite a commented-out example or a second section as well,
+		// and the config would then be wrong in a way that shows up
+		// only as a service refusing to start.
+		t.Fatalf("%s: %s matched %d times; a config edit that hits more than one line is not an edit",
+			name, pattern, len(found))
 	}
-	// Once. A pattern matching twice would silently rewrite a comment or
-	// a second section, and the config would be wrong in a way that only
-	// shows up as a service refusing to start.
 	replaced := re.ReplaceAll(body, []byte(replacement))
 	if err := os.WriteFile(path, replaced, 0o600); err != nil {
 		t.Fatal(err)
@@ -516,6 +577,54 @@ func throughProxy(t *testing.T, collectorAddr string, origin *originServer) stri
 		t.Fatal(err)
 	}
 	return string(body)
+}
+
+// --------------------------------------------------------------- beacon
+
+// sendPageview POSTs one event, the way the snippet in a page does.
+//
+// Hand-built rather than driven through a browser: what is being proved
+// here is that the beacon process accepts a real request over HTTP and
+// the row reaches the database under the right site. Whether the
+// snippet itself builds this body correctly is a different question,
+// and internal/browsertest answers it against a real Chromium.
+func sendPageview(t *testing.T, beaconAddr string) {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]any{
+		"site":     site,
+		"type":     "pageview",
+		"url":      "/fiyatlandirma",
+		"title":    "Fiyatlandırma",
+		"language": "tr-TR",
+		"screen_w": 1920,
+		"screen_h": 1080,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := http.NewRequest(http.MethodPost,
+		"http://"+beaconAddr+"/_ca/event", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// A real browser's, because the beacon classifies it: an empty
+	// user-agent is the sort of thing a bot filter drops, and a test
+	// whose row is filtered out later would report the wrong fault.
+	req.Header.Set("User-Agent",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36")
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("the beacon did not answer: %v", err)
+	}
+	defer resp.Body.Close()
+	answer, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		t.Fatalf("the beacon answered %d: %s", resp.StatusCode, answer)
+	}
 }
 
 // ------------------------------------------------------------------ api

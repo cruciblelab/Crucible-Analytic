@@ -91,13 +91,14 @@ batch_size = 500
 flush_interval_seconds = 2
 
 # Bounds this process's own resource use, exactly as the collector's
-# # Also moved to the panel in A5.1, on the same terms as trusted_proxies
+# [limits] does. Zero or absent means no limit for that dimension.
+#
+# Also moved to the panel in A5.1, on the same terms as trusted_proxies
 # above: the file is the fallback, the panel is where a change is made.
 # The beacon's limits are their own settings, separate from the
 # collector's - the collector sees every connection to the site and this
 # sees only the visitors whose browser ran the snippet, so one number
 # could not honestly mean both.
-[limits] does. Zero or absent means no limit for that dimension.
 [limits]
 # max_concurrent_requests = 0
 # max_requests_per_second = 0
