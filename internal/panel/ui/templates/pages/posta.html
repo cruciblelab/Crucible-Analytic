@@ -1,0 +1,231 @@
+{{define "icerik"}}
+{{- /* Said first, before any field. Somebody who arrives here thinking
+the panel needs email in order to work will configure it under pressure
+and blame the panel when their provider refuses. The truth - that
+invitations and reset links are always shown on screen - changes how
+much this page matters, so it goes above it rather than below. */}}
+<p class="ipucu">{{t "posta.giris"}}</p>
+
+{{- if .Data.KeyMissing}}
+<section class="bolum">
+<h2>{{t "posta.anahtar.baslik"}}</h2>
+<p class="uyari" role="note">{{t "posta.anahtar.govde"}}</p>
+<p class="ipucu">{{t "posta.anahtar.neden"}}</p>
+</section>
+{{- end}}
+
+{{- if .Data.Probe}}
+{{- with .Data.Probe}}
+<section class="bolum sonuc">
+<h2>{{t "posta.sonuc.baslik"}}</h2>
+<p class="{{if .OK}}basarili{{else}}uyari{{end}}">{{.Headline}}</p>
+{{- if .Advice}}
+<p>{{.Advice}}</p>
+{{- end}}
+
+{{- /* Three facts as a list rather than one verdict. "It failed" and
+"it connected, encrypted the link, and then the password was refused"
+are the same outcome and completely different information: the second
+says which half of the setup is already right. */}}
+<ul class="kontrol">
+<li class="{{if .Reached}}gecti{{else}}kaldi{{end}}">{{t "posta.sonuc.ulasildi"}}</li>
+<li class="{{if .Encrypted}}gecti{{else}}kaldi{{end}}">{{t "posta.sonuc.sifreli"}}</li>
+<li class="{{if .Authenticated}}gecti{{else}}kaldi{{end}}">{{t "posta.sonuc.dogrulandi"}}</li>
+</ul>
+
+{{- if .SuggestedPort}}
+<p class="ipucu">{{printf (t "posta.sonuc.port_onerisi") .SuggestedPort .SuggestedEncLabel}}</p>
+{{- end}}
+
+{{- if .AuthOffered}}
+<p class="ipucu">{{t "posta.sonuc.sunulan"}}:
+{{- range $i, $m := .AuthOffered}}{{if $i}}, {{end}}<code>{{$m}}</code>{{end}}</p>
+{{- end}}
+
+{{- /* Under a label saying whose words these are. The diagnosis above
+is the panel's sentence about what happened; this is the server's. A
+page that ran them together would be putting words in somebody's
+mouth, and the operator forwarding this to their provider's support
+desk needs to know which half came from where. */}}
+{{- if .ServerSaid}}
+<p class="ipucu">{{t "posta.durum.sunucu_dedi"}}: <code>{{.ServerSaid}}</code></p>
+{{- end}}
+</section>
+{{- end}}
+{{- end}}
+
+<section class="bolum">
+<h2>{{t "posta.baslik"}}</h2>
+
+{{- if .Data.Account.Configured}}
+{{- if .Data.Account.PasswordUnreadable}}
+<p class="uyari" role="note">{{t "posta.durum.acilamiyor"}}</p>
+{{- end}}
+{{- if not .Data.Account.VerifiedAt.IsZero}}
+<p class="ipucu">
+{{- if .Data.Account.VerifiedOK}}
+{{printf (t "posta.durum.tamam") ($.F.DateTime .Data.Account.VerifiedAt)}}
+{{- else}}
+{{printf (t "posta.durum.basarisiz") ($.F.DateTime .Data.Account.VerifiedAt)}}
+{{- if .Data.Account.VerifiedDiagnosis}}
+{{t (printf "posta.tani.%s" .Data.Account.VerifiedDiagnosis)}}
+{{- end}}
+{{- end}}
+</p>
+{{- else}}
+<p class="ipucu">{{t "posta.durum.hic"}}</p>
+{{- end}}
+{{- else}}
+<p>{{t "posta.yok"}}</p>
+{{- end}}
+
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="kaydet">
+
+<p>
+<label for="sunucu">{{t "posta.sunucu"}}</label>
+<input id="sunucu" name="sunucu" type="text" required
+       autocomplete="off" spellcheck="false"
+       value="{{.Data.Form.Host}}">
+<span class="ipucu">{{t "posta.sunucu_ipucu"}}</span>
+</p>
+
+<p>
+<label for="port">{{t "posta.port"}}</label>
+<input id="port" name="port" type="number" min="1" max="65535" required
+       value="{{.Data.Form.Port}}">
+<span class="ipucu">{{t "posta.port_ipucu"}}</span>
+</p>
+
+<p>
+<label for="sifreleme">{{t "posta.sifreleme"}}</label>
+<select id="sifreleme" name="sifreleme">
+<option value="starttls"{{if eq .Data.Form.Encryption "starttls"}} selected{{end}}>{{t "posta.mod.starttls"}}</option>
+<option value="implicit"{{if eq .Data.Form.Encryption "implicit"}} selected{{end}}>{{t "posta.mod.implicit"}}</option>
+</select>
+</p>
+
+<p>
+<label for="kullanici">{{t "posta.kullanici"}}</label>
+<input id="kullanici" name="kullanici" type="text"
+       autocomplete="off" spellcheck="false"
+       value="{{.Data.Form.Username}}">
+<span class="ipucu">{{t "posta.kullanici_ipucu"}}</span>
+</p>
+
+{{- /* Empty every time. There is no value to put here: the account the
+handler reads has no password field at all, so this box cannot be
+pre-filled even by mistake. Submitting it empty means "keep what is
+stored", which is why removing a password needs its own checkbox. */}}
+<p>
+<label for="sifre">{{t "posta.sifre"}}</label>
+<input id="sifre" name="sifre" type="password" autocomplete="new-password" value="">
+<span class="ipucu">{{t "posta.sifre_ipucu"}}</span>
+<span class="ipucu">{{if .Data.Account.HasPassword}}{{t "posta.sifre_var"}}{{else}}{{t "posta.sifre_yok"}}{{end}}</span>
+</p>
+
+{{- if .Data.Account.HasPassword}}
+<p>
+<label for="sifre_sil"><input id="sifre_sil" name="sifre_sil" type="checkbox" value="1"> {{t "posta.sifre_sil"}}</label>
+</p>
+{{- end}}
+
+<p>
+<label for="gonderen">{{t "posta.gonderen"}}</label>
+<input id="gonderen" name="gonderen" type="email" required
+       autocomplete="off" spellcheck="false"
+       value="{{.Data.Form.FromAddr}}">
+<span class="ipucu">{{t "posta.gonderen_ipucu"}}</span>
+</p>
+
+<p>
+<label for="gonderen_ad">{{t "posta.gonderen_ad"}}</label>
+<input id="gonderen_ad" name="gonderen_ad" type="text" value="{{.Data.Form.FromName}}">
+<span class="ipucu">{{t "posta.gonderen_ad_ipucu"}}</span>
+</p>
+
+<p>
+<label for="acik"><input id="acik" name="acik" type="checkbox" value="1"{{if .Data.Form.Enabled}} checked{{end}}> {{t "posta.acik"}}</label>
+<span class="ipucu">{{t "posta.acik_ipucu"}}</span>
+</p>
+
+<button type="submit">{{t "posta.kaydet"}}</button>
+</form>
+</section>
+
+{{- if .Data.Account.Configured}}
+<section class="bolum">
+<h2>{{t "posta.dogrula"}}</h2>
+<p class="ipucu">{{t "posta.dogrula_ipucu"}}</p>
+
+{{- /* Two forms rather than one with two buttons, for the same reason
+as the access page: which action ran must not depend on which submit
+button the browser chose to send. Here the second one puts a real
+message in somebody's inbox. */}}
+<div class="satir">
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="dogrula">
+<button type="submit">{{t "posta.dogrula"}}</button>
+</form>
+</div>
+
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="deneme">
+<p>
+<label for="deneme_adres">{{t "posta.deneme_adres"}}</label>
+<input id="deneme_adres" name="deneme_adres" type="email" required
+       autocomplete="off" spellcheck="false"
+       value="{{.Data.Form.TestTo}}">
+<span class="ipucu">{{t "posta.deneme_ipucu"}}</span>
+</p>
+<button type="submit">{{t "posta.deneme"}}</button>
+</form>
+</section>
+
+{{- if .Data.DNS}}
+{{- with .Data.DNS}}
+<section class="bolum">
+<h2>{{t "posta.dns.baslik"}}</h2>
+<p class="ipucu">{{t "posta.dns.ipucu"}}</p>
+<dl class="ozet">
+<dt>{{t "posta.dns.alan"}}</dt>
+<dd><code>{{.Domain}}</code></dd>
+</dl>
+
+{{- if .Unavailable}}
+<p class="ipucu">{{t "posta.dns.bakilamadi"}}</p>
+{{- else}}
+<ul class="kontrol">
+<li class="{{if .SPFFound}}gecti{{else}}kaldi{{end}}">
+{{- if .SPFFound}}{{t "posta.dns.spf_var"}}: <code>{{.SPFRecord}}</code>
+{{- else}}{{t "posta.dns.spf_yok"}}{{end}}</li>
+<li class="{{if .DMARCFound}}gecti{{else}}kaldi{{end}}">
+{{- if .DMARCFound}}{{t "posta.dns.dmarc_var"}}
+{{- if .DMARCPolicy}} ({{t "posta.dns.politika"}}: <code>{{.DMARCPolicy}}</code>){{end}}
+{{- else}}{{t "posta.dns.dmarc_yok"}}{{end}}</li>
+</ul>
+{{- end}}
+
+{{- /* Said out loud rather than left as an absence. A page listing SPF
+and DMARC and saying nothing about DKIM reads as "DKIM is fine"; the
+truth is that this panel cannot check it and that guessing would
+report a correctly configured domain as broken. */}}
+<p class="ipucu">{{t "posta.dns.dkim"}}</p>
+</section>
+{{- end}}
+{{- end}}
+
+<section class="bolum">
+<h2>{{t "posta.sil"}}</h2>
+<p class="ipucu">{{t "posta.sil_ipucu"}}</p>
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+<input type="hidden" name="islem" value="sil">
+<button type="submit" class="tehlikeli">{{t "posta.sil"}}</button>
+</form>
+</section>
+{{- end}}
+{{end}}

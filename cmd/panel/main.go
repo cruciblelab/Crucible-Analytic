@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -34,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
+	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
 // version is stamped at build time:
@@ -115,6 +117,24 @@ func main() {
 	}
 	renderer.SetZone(zone)
 
+	// The encryption key for the stored SMTP password.
+	//
+	// Absent is a supported deployment - the mail page renders and says
+	// no password can be stored - so ErrNoKey is not fatal here. A key
+	// that is present and malformed already failed in LoadConfig, so by
+	// this point any other error would be a bug rather than a
+	// configuration mistake; logged rather than swallowed for that
+	// reason.
+	secretKey, err := cfg.Secrets()
+	switch {
+	case err == nil:
+		logger.Info("panel: outgoing mail passwords will be encrypted at rest")
+	case errors.Is(err, sealed.ErrNoKey):
+		logger.Info("panel: no secret_key is configured; an outgoing mail account with a password cannot be saved")
+	default:
+		fatal(logger, "secret_key", err)
+	}
+
 	// The configured language must actually exist, or the deployment
 	// would silently run in Turkish while the config file named another.
 	if cfg.Language != "" && catalogs.ByCode(cfg.Language) == nil {
@@ -188,6 +208,7 @@ func main() {
 		Renderer:         renderer,
 		Logger:           logger,
 		HSTS:             cfg.HSTS,
+		SecretKey:        secretKey,
 		Zone:             zone,
 		Language:         cfg.Language,
 		Store:            store,

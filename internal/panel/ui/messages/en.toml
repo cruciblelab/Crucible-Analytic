@@ -62,6 +62,7 @@ cikis = "Sign out"
 siteler = "Sites"
 uyeler = "Members"
 erisim = "Access requests"
+posta = "Outgoing email"
 hesap = "My account"
 atla = "Skip to content"
 panel = "Panel"
@@ -727,3 +728,128 @@ geri = "Back to sign in"
 
 [metin.kurtarma.hata]
 gecersiz = "That email address and recovery code do not match."
+
+# --- Outgoing email (C7.3) ---
+#
+# The job of this page is not sending. It is saying why sending did not
+# work. The panel runs without email: invitations are links (C7.1), and
+# password reset runs on recovery codes and an operator link (C7.2) -
+# both built that way deliberately. This is a convenience, and a
+# convenience must never break the thing it is a convenience for.
+#
+# The "posta.tani.*" and "posta.oneri.*" keys mirror the mail.Diagnosis
+# values. A closed set with a two-way mirror test: a diagnosis with no
+# sentence is a missing key, and a key with no diagnosis is a dead entry.
+
+[metin.posta]
+baslik = "Outgoing email"
+giris = "The panel works without email: invitation and password-reset links are always shown on screen. Email only saves you from passing them on yourself."
+yok = "No sending account has been configured yet."
+sunucu = "SMTP server"
+sunucu_ipucu = "The address your provider gave you. For example: smtp.gmail.com"
+port = "Port"
+port_ipucu = "587 is the right answer at most providers. Choose \"TLS from the start\" for providers that use 465."
+sifreleme = "Encryption"
+kullanici = "Username"
+kullanici_ipucu = "Usually your full email address. Leave it empty for no authentication - only meaningful for a relay on this same machine."
+sifre = "Password"
+sifre_ipucu = "Leave empty to keep the stored password. What you type is stored encrypted in the database."
+sifre_var = "A password is stored."
+sifre_yok = "No password is stored."
+sifre_sil = "Remove the stored password"
+gonderen = "Sender address"
+gonderen_ipucu = "The address that appears as \"From\". Your provider may only allow sending from the mailbox you authenticated as."
+gonderen_ad = "Sender name"
+gonderen_ad_ipucu = "Optional. Shown beside the address in the recipient's inbox."
+acik = "Email sending is on"
+acik_ipucu = "When off the settings are kept but the panel sends nothing. Useful when your provider is having a bad week, without having to retype the password afterwards."
+kaydet = "Save"
+dogrula = "Test the connection"
+dogrula_ipucu = "Connects, negotiates encryption and authenticates - without sending anything."
+deneme = "Send a test message"
+deneme_adres = "Test address"
+deneme_ipucu = "A real message goes to this address. Use your own."
+sil = "Delete the account"
+sil_ipucu = "Removes the settings and the stored password. The panel carries on working without email."
+kaydedildi = "The sending account was saved. Test the connection now."
+silindi = "The sending account was deleted."
+
+[metin.posta.mod]
+starttls = "STARTTLS (port 587)"
+implicit = "TLS from the start (port 465)"
+
+[metin.posta.anahtar]
+baslik = "No encryption key is configured"
+govde = "There is no secret_key in the panel's configuration file, so a mail password cannot be saved. The install script generates one; to add it by hand, put the output of `openssl rand -hex 32` into panel.toml as secret_key and restart the panel."
+neden = "The password is stored encrypted. Without a key it would have to be written in the clear, and that is refused so that a copy of the database does not carry a working mail password."
+
+[metin.posta.durum]
+hic = "This account has never been verified."
+tamam = "Verified on %s."
+basarisiz = "Tried on %s and failed."
+sunucu_dedi = "What the server itself said"
+acilamiyor = "The stored password cannot be opened with this key. The secret_key in panel.toml appears to have changed. Retype the password and save."
+
+[metin.posta.sonuc]
+baslik = "Test result"
+tamam = "Connected and authenticated."
+gonderildi = "The test message was accepted. Check the recipient's inbox - accepted does not mean delivered."
+ulasildi = "The server was reached"
+sifreli = "The connection was encrypted"
+dogrulandi = "Authenticated"
+sunulan = "What the server said it supports"
+port_onerisi = "Try port %d with %s instead."
+
+[metin.posta.tani]
+ulasilamiyor = "The server could not be reached at all."
+yanlis_port = "The port and the encryption setting do not match."
+sertifika = "The server's certificate could not be verified."
+sifreleme_yok = "The server offered no encryption, so the password was not sent."
+oauth_gerekiyor = "The server only accepts OAuth; password sign-in is turned off."
+kimlik_reddedildi = "The username or password was not accepted."
+gonderen_reddedildi = "The server would not accept this sender address."
+alici_reddedildi = "The server would not accept the recipient address."
+ileti_reddedildi = "The connection and the credentials are fine; the message itself was rejected."
+zaman_asimi = "The server connected and then stopped answering."
+gecersiz_adres = "That is not a valid email address."
+diger = "Something unexpected went wrong."
+
+[metin.posta.oneri]
+ulasilamiyor = "Check the server name and the port. Most hosting providers block outbound port 25 and some block 587 as well; ask yours whether this port is open."
+yanlis_port = "Choose STARTTLS if you are using 587, or \"TLS from the start\" if you are using 465."
+sertifika = "The server's certificate is not trusted on this machine. If it is a mail server you signed yourself, install its certificate authority here. There is no setting in this product that turns verification off and there will not be: a mail password sent over an unverified connection is a mail password handed to whoever answered."
+sifreleme_yok = "Your password never left this machine. Make sure the server supports STARTTLS, or try port 465 with \"TLS from the start\"."
+oauth_gerekiyor = "Your provider has turned off basic SMTP passwords. For Microsoft 365 and Google Workspace the fix is an app password, or turning SMTP AUTH back on in the admin settings. Checking the password here will not help."
+kimlik_reddedildi = "The username may need to be the full email address. If two-factor authentication is on, you need an app password rather than your ordinary one."
+gonderen_reddedildi = "Providers usually only allow sending from the mailbox you authenticated as. Try making the sender address the same as the username."
+alici_reddedildi = "Check the test address. The connection and the credentials are working."
+ileti_reddedildi = "The server's reply is below. Usually a size limit or a content filter."
+zaman_asimi = "The server accepted the connection and then said nothing. A firewall, or a slow server; try again."
+gecersiz_adres = "Check the address."
+diger = "The server's own reply is below; it is the most useful thing to pass on to your provider."
+
+[metin.posta.denemeileti]
+konu = "Crucible Analytic — test message"
+govde = "This message was sent to test your panel's outgoing email settings.\n\nIf you are reading it, they work.\n\nCrucible Analytic"
+
+[metin.posta.dns]
+baslik = "Domain records"
+ipucu = "These never block the test; they are shown for information. A DNS record added a minute ago is not visible yet."
+alan = "Domain"
+spf_var = "An SPF record was found"
+spf_yok = "No SPF record was found. Mail leaving your server is more likely to land in spam."
+dmarc_var = "A DMARC record was found"
+dmarc_yok = "No DMARC record was found. Gmail and Yahoo tightened their rules in 2024; domains without DMARC can fail to deliver even when the SMTP side is perfect."
+politika = "Policy"
+bakilamadi = "DNS could not be asked. That is a fact about this machine's network rather than about the domain."
+dkim = "DKIM is not checked here. The panel sends mail and never receives any - it cannot read the headers of a message it sent. Whether the domain publishes a DKIM record cannot be asked either: the selector is chosen by the provider and is not derivable from the domain. Every real provider signs already. A check that cannot work is worse than an absent one, because somebody believes it."
+
+[metin.posta.hata]
+port = "The port must be a number."
+gonderen = "The sender address is not a valid email address."
+anahtar_yok = "The password could not be saved: there is no secret_key in the panel's configuration file."
+kaydedilemedi = "The sending account could not be saved. Check the fields."
+once_kaydet = "Save the account first, then test it."
+acilamiyor = "The stored password cannot be opened with this key. Retype the password and save."
+okunamadi = "The sending account could not be read."
+silinemedi = "The sending account could not be deleted."

@@ -200,6 +200,13 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 			need: panel.CapManageMembers, site: true},
 		{id: "erisim", url: DevAccessRequestsPath, label: lang.T("gezinme.erisim"),
 			decides: true},
+		// Same gate as the access page and for a related reason: the
+		// mail account belongs to the machine rather than to a site, and
+		// the people who decide about the machine are the ones who own
+		// something on it. `decides` already carries "a signed-in person
+		// who owns a site", which is exactly the audience here.
+		{id: "posta", url: MailPath, label: lang.T("gezinme.posta"),
+			decides: true},
 		{id: "hesap", url: AccountPath, label: lang.T("gezinme.hesap")},
 	}
 

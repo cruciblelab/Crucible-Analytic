@@ -369,6 +369,32 @@ var (
 		"sayfa", "kaynak", "cihaz", "ulke", "olay",
 		"parmak-izi", "asn", "sunucu-ulke",
 	}
+
+	// mailDiagnoses mirrors the Diagnosis constants in internal/mail.
+	// Both the sentence and the advice under it are looked up as
+	// "posta.tani." and "posta.oneri." plus the value, so neither walk
+	// sees the family.
+	//
+	// This is the one where a missing key costs the most. A diagnosis is
+	// only ever reached by somebody whose mail is already not working,
+	// and the whole point of the page is that it names their situation -
+	// so the failure mode is the panel going blank on precisely the
+	// person it was built for. internal/panel/web holds the other
+	// direction, against the real constants, which is what catches a
+	// diagnosis added without a sentence.
+	//
+	// mail.DiagOK is deliberately absent: its value is the empty string
+	// and it has no sentence, because "nothing to say" is what it means.
+	mailDiagnoses = []string{
+		"ulasilamiyor", "yanlis_port", "sertifika", "sifreleme_yok",
+		"oauth_gerekiyor", "kimlik_reddedildi", "gonderen_reddedildi",
+		"alici_reddedildi", "ileti_reddedildi", "zaman_asimi",
+		"gecersiz_adres", "diger",
+	}
+
+	// mailEncryptions mirrors mail.Encryption. The option labels are
+	// looked up from the value when a probe suggests the other port.
+	mailEncryptions = []string{"starttls", "implicit"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -389,6 +415,12 @@ func computedKeys() []string {
 	}
 	for _, state := range devAccessStates {
 		keys = append(keys, "erisim.durum."+state)
+	}
+	for _, d := range mailDiagnoses {
+		keys = append(keys, "posta.tani."+d, "posta.oneri."+d)
+	}
+	for _, e := range mailEncryptions {
+		keys = append(keys, "posta.mod."+e)
 	}
 	for _, id := range dashboardCards {
 		keys = append(keys, "pano.kart."+id+".baslik", "pano.kart."+id+".aciklama")

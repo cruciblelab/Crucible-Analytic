@@ -13,6 +13,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
 // Server is the panel's HTTP surface.
@@ -51,6 +52,15 @@ type Server struct {
 	// see panel.ConfigFileSettings, which drops them on the entry
 	// itself so a call site cannot pass one by accident.
 	ConfigFileValues map[string]string
+	// SecretKey encrypts the stored SMTP password. See internal/sealed.
+	//
+	// A zero Key is a supported state and means no mail password can be
+	// stored - the mail page renders and says so. Parsed once at
+	// startup rather than on each request: a key that does not parse is
+	// a startup error (see Config.validate), so by the time a request
+	// arrives the only two possibilities are "set" and "not
+	// configured".
+	SecretKey sealed.Key
 	// HSTS is passed to the header middleware; see Config.HSTS.
 	HSTS bool
 	// Zone is the fallback time zone, from the config file.
@@ -123,6 +133,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(MembersPathPrefix+"{site}"+breakdownPathSegment+"{kirilim}", s.detailHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+addressListPathSegment+"{liste}", s.addressListHandler)
 	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
+	mux.HandleFunc(MailPath, s.mailHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)
 	mux.HandleFunc(TechnicalDoorPath, s.technicalDoorHandler)

@@ -46,6 +46,23 @@ const (
 	// working installation stops working.
 	ActionTechnicalDoorOpened = "setup.technical_door_opened"
 
+	// The outgoing mail account.
+	//
+	// Three actions rather than one "mail.changed", because they answer
+	// different questions and the useful one is usually the third.
+	// "Who pointed our mail at that server" and "when did verification
+	// last succeed" are the two things somebody asks when invitations
+	// stop arriving, and flattening them into one row loses the second.
+	//
+	// The detail carries the host, the port and the diagnosis - never
+	// the username and never anything derived from the password. The
+	// audit log's own comment says never credentials, and a mail server
+	// address is not one; the account name on it is close enough to be
+	// worth leaving out.
+	ActionMailSaved    = "mail.saved"
+	ActionMailVerified = "mail.verified"
+	ActionMailDeleted  = "mail.deleted"
+
 	ActionUserCreated  = "user.created"
 	ActionUserDisabled = "user.disabled"
 	ActionUserEnabled  = "user.enabled"

@@ -88,6 +88,7 @@ cikis = "Çıkış"
 siteler = "Siteler"
 uyeler = "Üyeler"
 erisim = "Erişim istekleri"
+posta = "Giden e-posta"
 hesap = "Hesabım"
 atla = "İçeriğe atla"
 panel = "Panel"
@@ -756,3 +757,133 @@ geri = "Giriş sayfasına dön"
 
 [metin.kurtarma.hata]
 gecersiz = "E-posta adresi veya kurtarma kodu doğru değil."
+
+# --- Giden e-posta (C7.3) ---
+#
+# Bu sayfanın asıl işi göndermek değil, **gönderemediğinde neden
+# gönderemediğini söylemek**. Panel e-postasız çalışıyor: davetler bir
+# bağlantı (C7.1), parola sıfırlama kurtarma kodları ve operatör
+# bağlantısı (C7.2) — ikisi de bilerek e-postasız kuruldu. Buradaki
+# katkı bir kolaylık, ve bir kolaylık kolaylaştırdığı şeyi asla
+# bozmamalı.
+#
+# "posta.tani.*" ve "posta.oneri.*" anahtarları mail.Diagnosis
+# değerlerinin karşılıkları. Kapalı bir küme ve iki yönlü ayna testi
+# var: karşılığı olmayan tanı eksik anahtar, tanısı olmayan anahtar ölü
+# giriş sayılıyor. Yeni bir tanı eklendiğinde "panelde ne yazacak"
+# sorusu, ekleyen kişi hâlâ ona bakarken soruluyor.
+
+[metin.posta]
+baslik = "Giden e-posta"
+giris = "Panel e-postasız da çalışır: davetler ve parola sıfırlama bağlantıları her zaman ekranda gösterilir. E-posta yalnızca bunları kendiniz iletmek zorunda kalmamanız için."
+yok = "Henüz bir gönderim hesabı tanımlanmadı."
+sunucu = "SMTP sunucusu"
+sunucu_ipucu = "Sağlayıcınızın verdiği adres. Örnek: smtp.yandex.com"
+port = "Port"
+port_ipucu = "587 çoğu sağlayıcıda doğru cevaptır. 465 kullanan sağlayıcılar için şifrelemeyi \"baştan TLS\" seçin."
+sifreleme = "Şifreleme"
+kullanici = "Kullanıcı adı"
+kullanici_ipucu = "Genellikle e-posta adresinizin tamamı. Boş bırakırsanız kimlik doğrulaması yapılmaz — yalnız aynı makinedeki bir relay için anlamlı."
+sifre = "Parola"
+sifre_ipucu = "Kayıtlı parolayı korumak için boş bırakın. Yazdığınız parola veritabanında şifrelenmiş olarak saklanır."
+sifre_var = "Kayıtlı bir parola var."
+sifre_yok = "Kayıtlı parola yok."
+sifre_sil = "Kayıtlı parolayı sil"
+gonderen = "Gönderen adresi"
+gonderen_ipucu = "İletilerde \"Kimden\" olarak görünecek adres. Sağlayıcınız yalnız kimlik doğruladığınız kutudan göndermenize izin veriyor olabilir."
+gonderen_ad = "Gönderen adı"
+gonderen_ad_ipucu = "İsteğe bağlı. Alıcının kutusunda adresin yanında görünür."
+acik = "E-posta gönderimi açık"
+acik_ipucu = "Kapalıyken ayarlar korunur ama panel hiçbir ileti göndermez. Sağlayıcınızın kötü bir hafta geçirdiği durumda parolayı yeniden yazmak zorunda kalmadan kapatabilirsiniz."
+kaydet = "Kaydet"
+dogrula = "Bağlantıyı sına"
+dogrula_ipucu = "Sunucuya bağlanır, şifrelemeyi kurar ve kimlik doğrular — hiçbir ileti göndermeden."
+deneme = "Deneme iletisi gönder"
+deneme_adres = "Deneme adresi"
+deneme_ipucu = "Bu adrese gerçek bir ileti gider. Kendi adresinizi yazın."
+sil = "Hesabı sil"
+sil_ipucu = "Ayarları ve kayıtlı parolayı kaldırır. Panel e-postasız çalışmaya devam eder."
+kaydedildi = "Gönderim hesabı kaydedildi. Şimdi bağlantıyı sınayın."
+silindi = "Gönderim hesabı silindi."
+
+[metin.posta.mod]
+starttls = "STARTTLS (port 587)"
+implicit = "Baştan TLS (port 465)"
+
+[metin.posta.anahtar]
+baslik = "Şifreleme anahtarı tanımlı değil"
+govde = "Panelin yapılandırma dosyasında secret_key yok, bu yüzden bir posta parolası kaydedilemez. Kurulum betiği bunu üretir; elle eklemek isterseniz `openssl rand -hex 32` çıktısını panel.toml içine secret_key olarak yazın ve paneli yeniden başlatın."
+neden = "Parola veritabanında şifrelenmiş saklanıyor. Anahtar olmadan düz metin yazmak gerekirdi — veritabanının bir yedeği çalışan bir posta parolası taşımasın diye kabul edilmiyor."
+
+[metin.posta.durum]
+hic = "Bu hesap hiç doğrulanmadı."
+tamam = "%s tarihinde doğrulandı."
+basarisiz = "%s tarihinde denendi ve başarısız oldu."
+sunucu_dedi = "Sunucunun kendi cevabı"
+acilamiyor = "Kayıtlı parola bu anahtarla açılamıyor. panel.toml içindeki secret_key değişmiş görünüyor. Parolayı yeniden yazıp kaydedin."
+
+[metin.posta.sonuc]
+baslik = "Sınama sonucu"
+tamam = "Bağlantı kuruldu ve kimlik doğrulandı."
+gonderildi = "Deneme iletisi kabul edildi. Alıcı kutusunu kontrol edin — kabul edilmesi teslim edildiği anlamına gelmez."
+ulasildi = "Sunucuya ulaşıldı"
+sifreli = "Bağlantı şifreli"
+dogrulandi = "Kimlik doğrulandı"
+sunulan = "Sunucunun desteklediğini söyledikleri"
+port_onerisi = "Bunun yerine port %d ve %s deneyin."
+
+# Tanılar. Her biri mail.Diagnosis değerlerinden birine karşılık gelir.
+[metin.posta.tani]
+ulasilamiyor = "Sunucuya hiç bağlanılamadı."
+yanlis_port = "Port ile şifreleme birbirini tutmuyor."
+sertifika = "Sunucunun sertifikası doğrulanamadı."
+sifreleme_yok = "Sunucu şifreleme sunmadı, bu yüzden parola gönderilmedi."
+oauth_gerekiyor = "Sunucu yalnız OAuth kabul ediyor; parolayla giriş kapalı."
+kimlik_reddedildi = "Kullanıcı adı veya parola kabul edilmedi."
+gonderen_reddedildi = "Sunucu bu gönderen adresini kabul etmedi."
+alici_reddedildi = "Sunucu alıcı adresini kabul etmedi."
+ileti_reddedildi = "Bağlantı ve kimlik doğru, iletinin kendisi reddedildi."
+zaman_asimi = "Sunucu bağlandı ama cevap vermeyi bıraktı."
+gecersiz_adres = "Girilen adres geçerli bir e-posta adresi değil."
+diger = "Beklenmedik bir sorun çıktı."
+
+# Ne yapılacağı. Tanı "ne oldu", bu "şimdi ne yapmalı".
+[metin.posta.oneri]
+ulasilamiyor = "Sunucu adı ve port doğru mu bakın. Çoğu barındırma sağlayıcısı giden 25 portunu, bazıları 587'yi de kapatır; sağlayıcınıza bu portun açık olup olmadığını sorun."
+yanlis_port = "587 kullanıyorsanız şifrelemeyi STARTTLS, 465 kullanıyorsanız \"baştan TLS\" seçin."
+sertifika = "Sunucunun sertifikası bu makinede güvenilir değil. Kendi imzaladığınız bir posta sunucusuysa sertifika otoritesini bu makineye kurun. Bu üründe doğrulamayı kapatan bir ayar yok ve olmayacak: doğrulanmamış bir bağlantıya verilen posta parolası, cevabı kim verdiyse ona verilmiş paroladır."
+sifreleme_yok = "Parolanız bu makineden hiç çıkmadı. Sunucunun STARTTLS desteklediğinden emin olun, ya da 465 portunu \"baştan TLS\" ile deneyin."
+oauth_gerekiyor = "Sağlayıcınız temel SMTP parolalarını kapatmış. Microsoft 365 ve Google Workspace için çözüm bir uygulama parolası üretmek ya da yönetici ayarlarından SMTP AUTH'u açmak. Panelin parolayı kontrol etmesi bu durumda hiçbir işe yaramaz."
+kimlik_reddedildi = "Kullanıcı adının tam e-posta adresi olması gerekebilir. İki aşamalı doğrulama açıksa normal parolanız değil, uygulama parolanız gerekiyordur."
+gonderen_reddedildi = "Sağlayıcılar genellikle yalnız kimlik doğruladığınız kutudan göndermeye izin verir. Gönderen adresini kullanıcı adıyla aynı yapmayı deneyin."
+alici_reddedildi = "Deneme adresini kontrol edin. Bağlantı ve kimlik doğrulama çalışıyor."
+ileti_reddedildi = "Sunucunun cevabı aşağıda. Genellikle boyut sınırı ya da bir içerik filtresi."
+zaman_asimi = "Sunucu bağlantıyı kabul edip cevap vermedi. Bir güvenlik duvarı ya da yavaş bir sunucu olabilir; tekrar deneyin."
+gecersiz_adres = "Adresi kontrol edin."
+diger = "Sunucunun kendi cevabı aşağıda; sağlayıcınıza iletebileceğiniz en yararlı bilgi odur."
+
+[metin.posta.denemeileti]
+konu = "Crucible Analytic — deneme iletisi"
+govde = "Bu ileti, panelinizin giden e-posta ayarlarını sınamak için gönderildi.\n\nBunu okuyorsanız ayarlar çalışıyor.\n\nCrucible Analytic"
+
+[metin.posta.dns]
+baslik = "Alan adı kayıtları"
+ipucu = "Bunlar sınamayı durdurmaz, yalnız bilgi olarak gösterilir. Yeni eklenen bir DNS kaydı hemen görünmez."
+alan = "Alan adı"
+spf_var = "SPF kaydı bulundu"
+spf_yok = "SPF kaydı bulunamadı. Sunucunuzdan çıkan postanın spam'e düşme ihtimali artar."
+dmarc_var = "DMARC kaydı bulundu"
+dmarc_yok = "DMARC kaydı bulunamadı. Gmail ve Yahoo 2024'te kurallarını sıkılaştırdı; DMARC'ı olmayan alan adları, SMTP tarafı kusursuz çalışsa bile teslim edilemeyebiliyor."
+politika = "Politika"
+bakilamadi = "DNS'e sorulamadı. Bu, alan adı hakkında değil bu makinenin ağı hakkında bir bilgi."
+dkim = "DKIM burada denetlenmiyor. Panel posta gönderiyor, hiç posta almıyor — gönderdiği bir iletinin başlıklarını okuyamaz. Alan adının DKIM kaydı olup olmadığı da sorulamıyor, çünkü seçici (selector) sağlayıcının belirlediği bir değer ve alan adından türetilemiyor. Gerçek sağlayıcıların hepsi zaten imzalıyor. Çalışamayacak bir kontrol, hiç olmayan bir kontrolden kötüdür — çünkü birisi ona inanır."
+
+[metin.posta.hata]
+port = "Port bir sayı olmalı."
+gonderen = "Gönderen adresi geçerli bir e-posta adresi değil."
+anahtar_yok = "Parola kaydedilemedi: panelin yapılandırma dosyasında secret_key yok."
+kaydedilemedi = "Gönderim hesabı kaydedilemedi. Alanları kontrol edin."
+once_kaydet = "Önce hesabı kaydedin, sonra sınayın."
+acilamiyor = "Kayıtlı parola bu anahtarla açılamıyor. Parolayı yeniden yazıp kaydedin."
+okunamadi = "Gönderim hesabı okunamadı."
+silinemedi = "Gönderim hesabı silinemedi."
