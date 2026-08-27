@@ -140,6 +140,11 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 		"ornek-yapilandirma/panel.example.toml",
 		"LICENSE", "NOTICE", "THIRD-PARTY.md", "KURULUM.md", "README.md",
 		"SHA256SUMS",
+		// The installer and its SQL. A package that told the operator to
+		// clone a repository to install it would be handing back the
+		// manual work F2 exists to remove.
+		"release/install.sh", "release/verify.sh",
+		"release/sql/grants.sql", "release/sql/verify.sql",
 	} {
 		if _, err := os.Stat(filepath.Join(stage, want)); err != nil {
 			t.Errorf("the package has no %s", want)

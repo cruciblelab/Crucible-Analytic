@@ -91,6 +91,15 @@ done
 echo "== systemd units"
 cp release/systemd/*.service "${STAGE}/systemd/"
 
+echo "== install and verify scripts"
+# The package carries its own installer and its own verifier. A release
+# whose install script lived only in the source repository would tell the
+# operator who downloaded a tarball to go and clone something, which is
+# the manual work F2 exists to remove.
+mkdir -p "${STAGE}/release/sql"
+install -m 0755 release/install.sh release/verify.sh "${STAGE}/release/"
+install -m 0644 release/sql/*.sql "${STAGE}/release/sql/"
+
 echo "== documents"
 cp LICENSE NOTICE THIRD-PARTY.md KURULUM.md README.md "${STAGE}/"
 

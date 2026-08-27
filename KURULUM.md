@@ -195,91 +195,54 @@ analytics veritabanında:        SELECT has_table_privilege(...)  -> t
 başka bir veritabanında:        ERROR: relation "traffic_snapshots" does not exist
 ```
 
-### 4.2 Veritabanını ve rolleri oluşturun
+### 4.2–4.4 Veritabanı, roller ve yetkiler
 
-```sql
--- Veritabanı
-CREATE DATABASE analytics;
-\c analytics
-CREATE EXTENSION IF NOT EXISTS timescaledb;
-
--- Dört rol. Parolaları değiştirin.
-CREATE ROLE collector         LOGIN PASSWORD 'degistirin';
-CREATE ROLE beacon_writer     LOGIN PASSWORD 'degistirin';
-CREATE ROLE analytics_reader  LOGIN PASSWORD 'degistirin';
-CREATE ROLE panel_user        LOGIN PASSWORD 'degistirin';
-
-GRANT CONNECT ON DATABASE analytics
-  TO collector, beacon_writer, analytics_reader, panel_user;
-GRANT USAGE ON SCHEMA public
-  TO collector, beacon_writer, analytics_reader, panel_user;
-```
-
-### 4.3 Şemaları uygulayın
-
-**Sıra önemli değil, ama hepsi gerekli.** Her biri elle uygulanır;
-hiçbir servis DDL çalıştırmaz.
+**Tek komut:**
 
 ```bash
-DSN="postgres://postgres@localhost:5432/analytics"
-
-psql "$DSN" -f internal/storage/schema.sql     # traffic_snapshots
-psql "$DSN" -f internal/beacon/schema.sql      # beacon_events
-psql "$DSN" -f internal/panel/schema.sql       # panel_* tabloları
-psql "$DSN" -f internal/asnlookup/schema.sql   # yalnız asn_lookup açacaksanız
+sudo ./release/install.sh
 ```
 
-`asnlookup` şemasını **yalnız** `asn_lookup.enabled = true` yapacaksanız
-uygulayın. Kapalıyken o tablolara hiç dokunulmaz.
+Veritabanını ve dört rolü oluşturur, şemaları uygular, yetki matrisini
+`release/sql/grants.sql`'den uygular, **ve sonucu veritabanına
+doğrulatır.** Doğrulama geçmezse kurulum bitmez.
 
-### 4.4 Yetkiler
+**Neden bu adım betikle:** rol ayrımı bu sistemin güvenlik temelinin
+yarısı. Elle yazılan bir GRANT yanlış yazılabilir, ve yanlış bir GRANT
+**hata vermez** — müşteriye hizmet veren, çalışan, ama tasarımın
+dayandığı özelliği taşımayan bir kurulum üretir.
 
-```sql
--- collector: kendi tablosuna yazar
-GRANT SELECT, INSERT ON traffic_snapshots TO collector;
+**Yetki bloğu burada tekrarlanmıyor, bilerek.** Tek kaynak
+`release/sql/grants.sql` ve her satırının gerekçesi orada yazılı. Aynı
+bloğun hem belgede hem betikte durması, ayrışmaya davettir — ve ayrışma
+hep aynı yönde olur: betik koştuğu için düzeltilir, belge bir sonraki
+işletmeciye başka bir şey vermesini söylemeye devam eder.
 
--- beacon: yalnız kendi tablosuna yazar
-GRANT INSERT ON beacon_events TO beacon_writer;
+Elle yapmak isterseniz betiğin yaptığı sıra şudur:
 
--- API: hiçbir şey yazamaz. HER İKİ tabloya da SELECT verin.
-GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
+```bash
+DSN="postgres://postgres@localhost:5432/analytics"   # SUPERUSER olarak
 
--- panel: yalnız kendi tablolarına. Analitik tablolarına ASLA.
-GRANT SELECT, INSERT, UPDATE, DELETE ON
-  panel_users, panel_sessions, panel_site_members,
-  panel_settings, panel_api_tokens, panel_dev_access,
-  panel_owner_claims, panel_login_attempts, panel_recovery_codes
-  TO panel_user;
+psql "$DSN" -f internal/panel/schema.sql
+psql "$DSN" -f internal/storage/schema.sql
+psql "$DSN" -f internal/beacon/schema.sql
+psql "$DSN" -f internal/asnlookup/schema.sql   # yalnız asn_lookup açıksa
 
--- Denetim kaydı yalnız eklenebilir. UPDATE/DELETE bilerek yok:
--- ele geçirilmiş bir panel süreci ne yaptığını silemesin diye.
-GRANT SELECT, INSERT ON panel_audit_log TO panel_user;
-
--- Dizi (sequence) yetkileri. Yalnız panel_user'a, ve tek tek adlarıyla.
---
--- Bu veritabanındaki BÜTÜN diziler panelin: traffic_snapshots ve
--- beacon_events'te BIGSERIAL yok, dolayısıyla collector ve
--- beacon_writer'ın hiçbir diziye ihtiyacı yok. "ALL SEQUENCES IN SCHEMA
--- public" yazmak onlara panelin dizileri üzerinde yetki verirdi —
--- karşılığında hiçbir şey vermeyen bir genişleme.
---
--- Adları tek tek yazmanın sebebi aynı: "ALL", bugün doğru olsa bile,
--- yarın public'e dizi ekleyen herkesi kapsar.
-GRANT USAGE, SELECT ON
-  panel_users_id_seq, panel_audit_log_id_seq, panel_api_tokens_id_seq,
-  panel_dev_access_id_seq, panel_owner_claims_id_seq,
-  panel_login_attempts_id_seq, panel_recovery_codes_id_seq
-  TO panel_user;
-
--- Canlı ayar okuma. İSTEĞE BAĞLI ama şiddetle önerilir:
--- bu grant olmadan collector ve beacon yalnız kendi dosyalarını okur,
--- ve panelden yapılan hiçbir ayar değişikliği onlara ulaşmaz.
-GRANT SELECT ON panel_settings TO collector, beacon_writer;
+psql "$DSN" -f release/sql/grants.sql
+psql "$DSN" -f release/sql/verify.sql          # her satır t olmalı
 ```
 
-**API'ye iki tabloyu da vermeyi unutmayın.** Yalnız `traffic_snapshots`
-verirseniz `/beacon/` ve `/crossover/` uçları 500 döner, geri kalan her
-şey çalışır — hata ayıklaması can sıkıcı bir arıza.
+**Şemaları superuser olarak uygulayın — servis rollerinden biriyle
+değil.** Bir tablonun **sahibi**, GRANT'lardan bağımsız olarak o tablo
+üzerinde her yetkiye örtük olarak sahiptir, kalıcı olarak. Şemaları
+`collector` olarak uygularsanız o rol bütün tabloların sahibi olur ve
+yalıtım **hiç yoktur** — üstelik her şey doğru görünür: GRANT'lar
+doğrudur, `\dp` çıktısı doğrudur, ve panel analitiği okuyabilir.
+
+*Bu, bu fazın kendi kurulumunda başına geldi: ilk koşu superuser olarak
+collector'ı kullandı, bütün GRANT'lar doğru uygulandı, ve
+`verify.sql` collector'ın `beacon_events`'e erişebildiğini bildirdi.
+`verify.sql` artık sahipliği de kontrol ediyor.*
 
 ### 4.5 Panelin analitiği okuyamadığını doğrulayın
 

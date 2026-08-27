@@ -4863,3 +4863,104 @@ a lawyer. It now has an owner's answer - masked or not is a setting behind
 the developer password, alongside `privacy.ip_storage` - and that setting
 already exists behind that gate, so what remains is the export itself
 under a decision that has been made rather than assumed.
+
+## F2: the authority no GRANT shows
+
+The install script was meant to save an afternoon per customer. What it
+was actually for is in the phase description: the role separation is half
+this system's security foundation and was typed by hand, and a wrong
+GRANT does not fail. It produces an installation that works, serves
+customers, and quietly does not have the property the design rests on.
+
+Three such silences turned up while building it, and all three were found
+by running the thing rather than reading it.
+
+### Roles are cluster-wide
+
+"If none of the four exist, create all four" skipped creating three of
+them on a machine that already had a `collector` role - which this
+project's own development cluster does. The GRANTs then failed on a role
+that was never made. The same thing would happen to any operator whose
+previous install got half way, or whose machine runs something else with
+a role of that name. Each role is checked and created on its own now.
+
+### `set -o pipefail` and a reader that stops early
+
+Twice, from one cause. `psql ... | grep -q` exits as soon as grep
+matches, psql dies of SIGPIPE, and the pipeline reports 141 - so the
+script aborted on the *success* case, silently, right after printing that
+a role already existed. `newsecret`'s `tr ... | head -c 32` was the same
+shape.
+
+Both replaced with forms that have no early-exiting reader. Any pipe
+whose consumer can stop first is a failed pipeline under these settings,
+and the failure looks like the script simply stopping.
+
+### The one that matters: table ownership
+
+A table's owner holds every privilege on it implicitly, for ever,
+regardless of what was granted or revoked.
+
+So schemas applied over a connection authenticated as `collector` leave
+that role owning every table, and the isolation is void - while looking
+perfect. The grants read correctly. A privilege listing reads correctly.
+And the panel can read analytics.
+
+This happened here. The first run of install.sh used a superuser DSN that
+happened to be the collector role; every GRANT applied without error; and
+the verification reported that the collector could touch `beacon_events`.
+The verification was right and the installation was wrong, which is the
+outcome that check exists for.
+
+`verify.sql` now asserts that no service role owns a table, and that none
+of the four is a superuser - the second because a superuser holds every
+privilege by definition, so every negative assertion turns false for one,
+and without a line naming that the failure is baffling.
+
+### One file, and refusing rather than reporting
+
+The GRANT block lived in KURULUM.md. It now lives in
+`release/sql/grants.sql`, with its reasoning, and the document points at
+it. A test fails if a `GRANT` line reappears in the document, because two
+copies drift in one direction every time: the script gets fixed because
+it runs, and the document keeps telling the next operator to grant
+something else.
+
+The verification is thirteen assertions and eight of them are negative,
+because a GRANT block that ran without error proves the statements were
+accepted and says nothing about what was *not* granted. A single false
+stops the install.
+
+And it was shown refusing, not passing. Each isolation property is broken
+in turn - the panel given read on analytics, the API given write, the
+audit log made erasable, a service role made superuser - and the script
+has to exit non-zero naming the assertion that fell.
+
+### The IP key check compared its own output with itself
+
+The plan singles this out: the key goes into two configuration files, the
+services never read each other's, and preflight can only see one - so it
+can check presence and not sameness. Different keys do not fail; the
+crossover join matches nothing, silently, and the view that proves this
+product's whole claim reads zero and looks like a quiet week.
+
+The first version generated a key, wrote it to both files, and compared
+them. That compares the script's output with itself and can never
+disagree - a hand-edited `beacon.toml` with a mistyped key passed it
+without a word. Which is exactly the failure it exists to catch, since
+the key is copied by hand.
+
+It reads both files first now, and refuses when they differ, reporting
+hashes rather than the keys: a mismatch is worth printing, the secret is
+not. A key already in place is never rotated, because rotating it would
+disconnect the pseudonym of every row already stored from everything
+written after.
+
+### What is still not done
+
+The package has still not been unpacked on a clean VM and installed by
+following KURULUM.md end to end. install.sh is now the thing that check
+would exercise, and it is tested against a real database - but "a fresh
+machine, from the tarball, by the document" remains untested, and saying
+otherwise would be the kind of unverified claim these two phases spent
+their time removing.

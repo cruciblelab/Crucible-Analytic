@@ -1567,15 +1567,23 @@ CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
 go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
 go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
 
+# Installing: database, four roles, the privilege matrix, and the
+# verification that the matrix is what it claims. An installation that
+# fails the verification does not finish.
+sudo ./release/install.sh
+
 # The release package: reproducible, and verified by a machine rather
 # than by care. Two builds of the same commit produce the same bytes.
 VERSION=$(git describe --tags --always) ./release/build.sh
 release/verify.sh dist/crucible-analytic-$VERSION   # also runs inside build.sh
 
 # The package tests build it twice, from two directories, and require
-# identical checksums - plus systemd's own verdict on the units. Minutes,
+# identical checksums; systemd's own verdict on the units; and the
+# install script against a real database, including four deliberately
+# broken isolation properties it has to refuse. Minutes and a database,
 # so nightly rather than a gate.
-go test -tags release -timeout 30m ./release/
+CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
+  go test -tags release -timeout 30m ./release/
 
 # Static analysis, against the committed baseline of triaged findings.
 # This is what CI gates on; `gosec` alone always exits non-zero, because

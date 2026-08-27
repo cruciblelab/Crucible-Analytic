@@ -24,10 +24,11 @@
 #             between runs, is where it starts finding things nobody
 #             seeded. See PLAN.md, H1.
 #
-#   release   Building the package twice from two directories takes
-#             minutes and needs no database. It is here for the same
-#             reason the load tests are: a gate that takes minutes is a
-#             gate people route around. See PLAN.md, G2.
+#   release   Building the package twice from two directories, and then
+#             installing it into a real database to check the privilege
+#             matrix it produces. Minutes, and a database. Here for the
+#             same reason the load tests are: a gate that takes minutes
+#             is a gate people route around. See PLAN.md, G2 and F2.
 #
 #   sast      gosec's first run on this repository produced 28 findings,
 #             of which exactly one was real (PLAN.md, H2). Gating on that
@@ -165,8 +166,22 @@ jobs:
           go run ./internal/sast/cmd/sastdiff -report gosec.json
 
   release:
-    name: the package builds, twice, to the same bytes
+    name: the package builds twice to the same bytes, and installs
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       # fetch-depth: 0 for the tags, since the version comes from
       # `git describe`. A shallow clone would stamp every build "unknown"
@@ -187,4 +202,14 @@ jobs:
         run: |
           command -v systemd-analyze >/dev/null || sudo apt-get install -y systemd
           systemd-analyze --version
+      # A database, because install.sh's whole point is the privilege
+      # matrix it produces and the only thing that can confirm one is
+      # PostgreSQL. The superuser here is `postgres`, deliberately not one
+      # of the four service roles: a superuser holds every privilege, so
+      # running the checks as one would pass every negative assertion for
+      # the wrong reason.
+      - name: psql, for the install script
+        run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client
       - run: go test -tags release -count=1 -timeout 30m -v ./release/
+        env:
+          CA_SUPERUSER_DSN: postgres://postgres:postgres@localhost:5432/postgres

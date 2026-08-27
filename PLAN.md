@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **1/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
-| **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
+| **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 
 ### Bitmiş maddeler
 
@@ -305,7 +305,7 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
    paketlemek gerçek kurulum demek — gerçek kurulum da gerçek geri
    bildirim.
 
-**Sonrası:** F2 (kurulum betiği, G2'nin devamı) → C7.3 (e-posta
+**Sonrası:** ~~F2 (kurulum betiği)~~ ✅ → C7.3 (e-posta
 sihirbazı) → B4/B7 (sağlık sayfası ve sürüm kavramı; C7.1'in "sağlık
 sayfasına bağlantı ver" maddesi B4'ü bekliyor, G2'nin sürüm damgası
 B7'yi) → A2/A3 → D4–D8 → B'nin kalanı → E.
@@ -3513,7 +3513,7 @@ geçmişi ürünün kendisi; tek diske emanet edilmiş durumda.
 panelde `ShowLastBackup()` göstergesi, sağlık sayfasında "son başarılı
 yedek" satırı.
 
-#### F2 — Kurulum betiği
+#### F2 — Kurulum betiği ✅ **yapıldı**
 
 Postgres + TimescaleDB, **dört veritabanı rolü ve GRANT'ları**, systemd
 unit dosyaları, TLS. Tek betik. Rol ayrımı bu projenin güvenlik
@@ -3532,6 +3532,70 @@ eşleştirmez ve sebebini söyleyen bir mesaj olmaz. Kurulum betiği bu iki
 dosyayı zaten birlikte yazan tek yer olduğu için doğru sahip odur:
 anahtarı bir kez üretir, ikisine de yazar, sonra ikisinin hash'ini
 karşılaştırıp bildirir.
+
+##### Ne oldu: üç sessiz yanlış, üçü de koşarak bulundu
+
+**1. Roller küme geneli, veritabanı başına değil.** "Hiçbiri yoksa
+dördünü oluştur" mantığı, kümede zaten `collector` olan bir makinede
+diğer üçünü hiç oluşturmuyordu — ve GRANT'lar var olmayan bir rolde
+patlıyordu. Kısmi kalmış bir önceki kurulumda da aynısı olurdu. Her rol
+tek tek kontrol edilip oluşturuluyor.
+
+**2. `set -o pipefail` + erken çıkan boru tüketicisi.** İki kez, aynı
+sebeple: `psql ... | grep -q` eşleşince grep hemen çıkıyor, psql SIGPIPE
+alıyor, boru hattı 141 dönüyor — yani betik **başarı** durumunda
+duruyordu. Sessizce. `newsecret`'teki `tr | head -c 32` de aynı şey.
+
+**3. Ve asıl olan: tablo sahipliği, hiçbir GRANT'ın göstermediği yetki.**
+Bir tablonun sahibi, GRANT'lardan bağımsız olarak o tablo üzerinde her
+yetkiye **örtük** olarak sahiptir. Şemalar `collector` olarak
+uygulanırsa o rol bütün tabloların sahibi olur ve yalıtım **hiç
+yoktur** — üstelik her şey doğru görünür: GRANT'lar doğrudur, `\dp`
+doğrudur, panel analitiği okuyabilir.
+
+Bu, bu fazın kendi ilk koşusunda oldu: superuser DSN'i collector'dı,
+bütün GRANT'lar doğru uygulandı, ve doğrulama collector'ın
+`beacon_events`'e erişebildiğini bildirdi. `verify.sql` artık sahipliği
+ve superuser'lığı da kontrol ediyor, KURULUM.md de uyarıyor.
+
+##### Doğrulama, tek kaynak, ve reddetme
+
+**GRANT bloğu artık tek yerde: `release/sql/grants.sql`.** KURULUM.md onu
+tekrarlamıyor, işaret ediyor — ve bir test belgede GRANT satırı kalmadığını
+tutuyor. Aynı bloğun iki yerde durması ayrışmaya davettir ve ayrışma hep
+aynı yönde olur: betik koştuğu için düzeltilir, belge bir sonraki
+işletmeciye başka bir şey söylemeye devam eder.
+
+**Doğrulama negatifleri de içeriyor**, çünkü asıl özellik onlar: bir
+GRANT bloğunun hatasız koşması ifadelerin kabul edildiğini kanıtlar,
+**ne verilmediğini** söylemez. On üç iddia, sekizi negatif. Tek bir `f`
+kurulumu bitirmiyor.
+
+**Reddettiği gösterildi, geçtiği değil.** Dört yalıtım özelliği tek tek
+bozulup betik yeniden koşuldu: panele analitik okuma verildi, API'ye
+yazma verildi, denetim kaydı silinebilir yapıldı, bir servis rolü
+superuser yapıldı. Dördünde de sıfırdan farklı çıkış ve hangi iddianın
+düştüğünün adı.
+
+##### IP anahtarı: ilk hâli kendi çıktısını kendisiyle karşılaştırıyordu
+
+İlk yazdığım kontrol anahtarı üretiyor, iki dosyaya da yazıyor, sonra
+karşılaştırıyordu — yani hiçbir zaman ayrışamazdı. Elle yanlış
+kopyalanmış bir `beacon.toml` sessizce geçti. Oysa yakalanacak hata tam
+olarak budur.
+
+Şimdi **önce okuyor, sonra yazıyor**: iki dosyada da anahtar varsa ve
+farklıysa reddediyor, hash'leriyle (anahtarın kendisiyle değil — ayrışma
+bildirilmeye değer, sır değil). Var olan anahtar asla döndürülmüyor:
+döndürmek, saklanmış her satırın takma adını kopartırdı.
+
+##### Kapsam dışı, bilerek
+
+**TLS sertifikası alınmıyor.** Sertifika, bu makineye çözümlenen bir alan
+adı ve betiğin tek başına tamamlayamayacağı bir ACME sınaması istiyor;
+yarısını yapmak, kimsenin hata ayıklayamayacağı yarım yapılandırılmış bir
+ters vekil bırakırdı. Betik ne yapılacağını söylüyor, KURULUM.md §8'e
+yönlendiriyor.
 
 #### F3 — Filo izleme paneli
 
