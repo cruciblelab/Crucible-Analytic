@@ -43,11 +43,11 @@ func (c Config) Send(m Message) Probe {
 	if from == "" {
 		from = c.Username
 	}
-	from, err := parseAddress(from)
+	from, err := ParseAddress(from)
 	if err != nil {
 		return Probe{Stage: StageSender, Err: fmt.Errorf("mail: sender %q: %w", c.From, err), Detail: err.Error()}
 	}
-	to, err := parseAddress(m.To)
+	to, err := ParseAddress(m.To)
 	if err != nil {
 		return Probe{Stage: StageRecipient, Err: fmt.Errorf("mail: recipient %q: %w", m.To, err), Detail: err.Error()}
 	}
@@ -102,7 +102,7 @@ func (c Config) Send(m Message) Probe {
 	return p
 }
 
-// parseAddress reduces an address to its bare mailbox form.
+// ParseAddress reduces an address to its bare mailbox form.
 //
 // net/mail's parser accepts "Ali Veli <ali@example.com>" and returns the
 // address inside it, which is convenient - somebody pasting a name and
@@ -110,7 +110,12 @@ func (c Config) Send(m Message) Probe {
 // construction, anything carrying a line break, so no separate check for
 // header injection is needed here: an address that could open a header
 // of its own never parses.
-func parseAddress(v string) (string, error) {
+//
+// Exported so the panel validates an address the same way this package
+// will, rather than with its own regular expression. Two validators for
+// one field is a page that accepts what the sender then refuses, and the
+// person retyping it is told nothing useful either time.
+func ParseAddress(v string) (string, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return "", ErrInvalidAddress

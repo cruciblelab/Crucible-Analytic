@@ -64,6 +64,20 @@ func newTestStore(t *testing.T, ns string) *Store {
 				t.Logf("cleanup %q: %v", sql, err)
 			}
 		}
+		// panel_smtp is a single global row, so it cannot be namespaced
+		// the way everything above is. Removed unconditionally instead,
+		// which is safe because the suite holds the advisory lock: no
+		// other run is looking at this database.
+		//
+		// Unconditional rather than conditional on a test having written
+		// one. A row left behind makes the *next* suite's "nothing is
+		// configured" case start from something configured, and that
+		// test would pass or fail depending on which tests ran before
+		// it - the exact shape of failure the namespacing above exists
+		// to prevent.
+		if _, err := pool.Exec(ctx, `DELETE FROM panel_smtp`); err != nil {
+			t.Logf("cleanup panel_smtp: %v", err)
+		}
 	}
 	cleanup() // in case a previous run died before its own cleanup
 	t.Cleanup(cleanup)

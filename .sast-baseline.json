@@ -106,6 +106,14 @@
       "snippet": "DiagBadCredentials Diagnosis = \"kimlik_reddedildi\""
     },
     {
+      "fingerprint": "933bafd1d6a5d04bb79b1fa2",
+      "rule": "G101",
+      "file": "internal/panel/mailaccount.go",
+      "severity": "HIGH",
+      "reason": "G101 matches the identifier name, not the value. mailPasswordLabel is the additional authenticated data binding a sealed value to the panel_smtp.password column - it is deliberately not secret, it is documented as not secret in internal/sealed, and its whole job is to be a fixed public string that a value from another column will not authenticate against. Third finding of this shape in the repository: a product whose subject matter is credentials names things after credentials, and G101 reads names.",
+      "snippet": "const mailPasswordLabel = \"panel_smtp.password\""
+    },
+    {
       "fingerprint": "12737d4a256ea9fdb0e91ae7",
       "rule": "G115",
       "file": "internal/panel/preflight/disk_linux.go",

@@ -278,19 +278,19 @@ func TestParseAddress(t *testing.T) {
 		{"sahip@ornek.com\nBcc: baskasi@ornek.com", "", true},
 	}
 	for _, tc := range tests {
-		got, err := parseAddress(tc.in)
+		got, err := ParseAddress(tc.in)
 		if tc.wantErr {
 			if err == nil {
-				t.Errorf("parseAddress(%q) = %q, want an error", tc.in, got)
+				t.Errorf("ParseAddress(%q) = %q, want an error", tc.in, got)
 			} else if !errors.Is(err, ErrInvalidAddress) {
-				t.Errorf("parseAddress(%q) error = %v, want ErrInvalidAddress", tc.in, err)
+				t.Errorf("ParseAddress(%q) error = %v, want ErrInvalidAddress", tc.in, err)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("parseAddress(%q): %v", tc.in, err)
+			t.Errorf("ParseAddress(%q): %v", tc.in, err)
 		} else if got != tc.want {
-			t.Errorf("parseAddress(%q) = %q, want %q", tc.in, got, tc.want)
+			t.Errorf("ParseAddress(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
