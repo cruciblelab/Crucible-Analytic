@@ -24,6 +24,11 @@
 #             between runs, is where it starts finding things nobody
 #             seeded. See PLAN.md, H1.
 #
+#   release   Building the package twice from two directories takes
+#             minutes and needs no database. It is here for the same
+#             reason the load tests are: a gate that takes minutes is a
+#             gate people route around. See PLAN.md, G2.
+#
 #   sast      gosec's first run on this repository produced 28 findings,
 #             of which exactly one was real (PLAN.md, H2). Gating on that
 #             ratio paints the pipeline red 27 times for every time it is
@@ -158,3 +163,28 @@ jobs:
           go install github.com/securego/gosec/v2/cmd/gosec@latest
           "$(go env GOPATH)/bin/gosec" -fmt=json -quiet -no-fail -severity=medium -out=gosec.json ./...
           go run ./internal/sast/cmd/sastdiff -report gosec.json
+
+  release:
+    name: the package builds, twice, to the same bytes
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 for the tags, since the version comes from
+      # `git describe`. A shallow clone would stamp every build "unknown"
+      # and the reproducibility check would still pass - on two packages
+      # that are both wrong.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # systemd-analyze is what validates the units. It is on the GitHub
+      # runner image; the test skips without it, and a skip here would be
+      # a check nobody notices stopped running - so it is installed
+      # explicitly rather than hoped for.
+      - name: systemd tooling
+        run: |
+          command -v systemd-analyze >/dev/null || sudo apt-get install -y systemd
+          systemd-analyze --version
+      - run: go test -tags release -count=1 -timeout 30m -v ./release/

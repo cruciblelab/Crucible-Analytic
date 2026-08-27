@@ -1,0 +1,68 @@
+# The collector: a proxy in front of the customer's website.
+#
+# Restart=always with a bounded burst, because this process being down is
+# the customer's site being down. internal/proxy recovers a panic per
+# connection so one bad request cannot get here (see its recover.go), but
+# a supervisor is what covers everything that is not a panic.
+[Unit]
+Description=Crucible Analytic collector
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Rate limiting belongs to [Unit], not [Service] - systemd moved it in
+# v229 and *ignores* it in the wrong section rather than refusing the
+# file. Written in [Service] first, and `systemd-analyze verify` is what
+# said so; a hand-written check of directive names had passed it happily,
+# because the name is real and only its section was wrong.
+#
+# Five failures in a minute is a configuration problem rather than a
+# transient one, and restarting forever hides it from whoever is reading
+# the logs.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=crucible
+Group=crucible
+ExecStart=/opt/crucible-analytic/bin/collector -config /etc/crucible-analytic/collector.toml
+Restart=always
+RestartSec=2s
+
+# Hardening. Each line removes something this process has no use for, and
+# every one of them is a thing an attacker who reached code execution
+# would otherwise have.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+# AF_UNIX is here for the PostgreSQL socket, which is how a local
+# database is normally reached.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# ProtectSystem=strict makes everything read-only; these two are the only
+# places this service writes. Narrow rather than convenient: the log tree
+# and the bot-data cache, and nothing else.
+ReadWritePaths=/var/log/crucible-analytic /var/lib/crucible-analytic
+
+# Ports below 1024 without running as root. The collector fronts a
+# website, so it binds 80 and 443.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

@@ -34,14 +34,33 @@ import (
 	"golang.org/x/term"
 
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
+	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
+// version is stamped at build time:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/devpass
+//
+// Left empty when it was not: internal/buildinfo falls back to the commit
+// Go embeds into every build made from a working tree, so an unstamped
+// binary still answers "which build is this" with something true.
+var version string
+
 func main() {
 	fromStdin := flag.Bool("stdin", false, "read the password from standard input instead of prompting")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	ipKey := flag.Bool("ipkey", false, "generate a random privacy.ip_hash_key instead of hashing a password")
 	flag.Parse()
+
+	// Before the config is read, and before anything can fail: this is the
+	// question asked when a process will not start, so it must not need a
+	// working installation to answer.
+	if *showVersion {
+		buildinfo.Print(os.Stdout, "devpass", version)
+		return
+	}
 
 	if *ipKey {
 		if err := printIPKey(); err != nil {

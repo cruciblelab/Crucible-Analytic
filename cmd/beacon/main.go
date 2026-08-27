@@ -34,11 +34,21 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
+	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
+
+// version is stamped at build time:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/beacon
+//
+// Left empty when it was not: internal/buildinfo falls back to the commit
+// Go embeds into every build made from a working tree, so an unstamped
+// binary still answers "which build is this" with something true.
+var version string
 
 func main() {
 	// Until the config is read, there is nowhere to write but stderr -
@@ -47,8 +57,17 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "beacon.toml", "path to the TOML config file")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	snippet := flag.Bool("snippet", false, "print the <script> tag to embed, given a base URL and a site id, then exit")
 	flag.Parse()
+
+	// Before the config is read, and before anything can fail: this is the
+	// question asked when a process will not start, so it must not need a
+	// working installation to answer.
+	if *showVersion {
+		buildinfo.Print(os.Stdout, "beacon", version)
+		return
+	}
 
 	if *snippet {
 		if err := printSnippet(flag.Args()); err != nil {

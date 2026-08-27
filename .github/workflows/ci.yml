@@ -49,6 +49,7 @@ jobs:
           go vet ./...
           go vet -tags integration ./...
           go vet -tags loadtest ./internal/loadtest/
+          go vet -tags release ./release/
 
       # The reason this phase exists. The two worst findings in the
       # security audit were in dependencies and could not have been

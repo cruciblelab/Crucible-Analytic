@@ -26,6 +26,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
@@ -39,8 +40,9 @@ import (
 //
 //	go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/panel
 //
-// Empty is honest rather than a made-up default: an unstamped build
-// shows no version in the footer instead of claiming one.
+// Left empty when it was not: internal/buildinfo falls back to the commit
+// Go embeds into every build made from a working tree, so an unstamped
+// binary still answers "which build is this" with something true.
 var version string
 
 func main() {
@@ -50,6 +52,7 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "panel.toml", "path to the TOML config file")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	devLink := flag.Bool("dev-link", false,
 		"mint a one-time developer access link, print it, and exit")
 	ownerLink := flag.String("owner-link", "",
@@ -65,6 +68,14 @@ func main() {
 	baseURL := flag.String("base-url", "",
 		"the address the panel is reached at, for the printed link (default http://<listen_addr>)")
 	flag.Parse()
+
+	// Before the config is read, and before anything can fail: this is the
+	// question asked when a process will not start, so it must not need a
+	// working installation to answer.
+	if *showVersion {
+		buildinfo.Print(os.Stdout, "panel", version)
+		return
+	}
 
 	cfg, err := web.LoadConfig(*configPath)
 	if err != nil {

@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | 🟡 **10/11** | C7.3 (e-posta sihirbazı — tartışma yapıldı, sıra bekliyor) |
 | **D** Dashboard | 🟡 **2/8** | D3 (kırılımlar bitti, skor/kesişim/dışa aktarma kaldı), D4–D8 |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **G** Yayın hattı | 🟡 **1/2** | G2 — sürüm paketi |
+| **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **1/4** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
 | **F** Ertelenen | ⬜ **0/3** | bilerek sonraya (F2 artık G'nin devamı) |
 
@@ -296,7 +296,7 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
    yazdı; bu faz sütun ekliyor. Kalan yirmi küsur API ucunun (parmak
    izi, ASN, skor, kesişim) panelde karşılığı hâlâ yok. C6 kayıtları
    kapalı küme tuttuğu için yeni bloklar doğrudan seçilebilir olur.
-3. **G2 — sürüm paketi.** *(Gerekçesi düzeltildi.)* Bu madde "C7'den
+3. ~~**G2 — sürüm paketi.**~~ ✅ **yapıldı** *(Gerekçesi düzeltildi.)* Bu madde "C7'den
    sonra, çünkü davet e-postası gönderemeyen bir ürünü paketlemek
    bitmemiş bir şeyi paketlemektir" diye sıralanmıştı. **O öncül
    yanlıştı ve ölçümle çürüdü:** davet bağlantısı e-postasız çalışıyor,
@@ -2855,6 +2855,23 @@ D2'nin kayıt/çizici mekanizmasına oturmuyorlar — kendi görünümlerini
 istiyorlar. Kırılımlar bitti diye faz bitmiş sayılmıyor; başlıktaki
 işaret bunu söylüyor.
 
+**Ham dışa aktarma bir çizim işi değil, bir karar.** `Snapshot` satırı
+her satırında `IP` taşıyor. Veritabanında ham adres yok (A7.8) ama dışa
+aktarma **panelden çıkan bir dosya** üretir: hiçbir saklama politikasının
+kapsamadığı, oturumdan uzun yaşayan, müşterinin istediğine
+gönderebileceği bir şey.
+
+**Verilen karar (kullanıcı, 2026-08-27):** dışa aktarmanın maskeli mi
+maskesiz mi olacağı **geliştirici şifresine bağlı bir ayar** olacak,
+`KeyPrivacyIPStorage` ile aynı kapının arkasında. "Daha sonra istersek
+değiştiririz" — yani varsayılan bugünden bağlanmıyor, ama ayarın kapısı
+bugünden belli.
+
+*Not: `privacy.ip_storage` (maskeli/full) **zaten** o kapının arkasında
+— A7.5'in `RequiresDeveloperPassword` taşıyan altı ayarından biri.
+Eklenecek yeni bir kapı yok; dışa aktarma geldiğinde aynı kapıya
+takılacak.*
+
 #### D4 — Ayar sayfaları ve akan operasyon penceresi
 
 Her ayar değişimi, o operasyonun kendi log satırlarını akıtan bir pencere
@@ -3084,7 +3101,7 @@ makinede erişilemeyen dal — CI'da gerçekten çalıştı.
 
 ---
 
-#### G2 — Sürüm paketi: müşterinin kurduğu şey
+#### G2 — Sürüm paketi: müşterinin kurduğu şey ✅ **yapıldı**
 
 **Neden erteleme değil.** KURULUM.md 17 bölüm elle yapılacak iş
 anlatıyor. Dürüst — ama ürünün ilk izlenimi bu, ve elle yapılan her adım
@@ -3132,10 +3149,57 @@ kaldırdığım "hiçbir şey yapmayan ayar" deseninin aynısı olurdu.
 Kurulum betiği **F2**'nin (aşağıda) — kurulacak bir şey olduktan sonra
 sırası gelir. İmzalama/noter onayı: kimsenin istediğine dair kanıt yok.
 
-**Bitti ölçütü:** iki farklı makinede aynı commit'ten alınan iki yapının
-**toplamları aynı**; paket temiz bir VM'de açılıp KURULUM.md izlenerek
-çalışıyor; ve pakette "asla" listesinden hiçbir dosya olmadığı
-makineyle doğrulanıyor.
+##### Ne oldu, ve ölçüm neyi çürüttü
+
+**Sürüm damgası beşinde de tutuyor.** `internal/buildinfo` + her main'de
+`-version`. Sembolü hiçbir şeyin okumadığı durum bu projenin reddettiği
+desen olduğu için bayrak G2'de eklendi; sağlık sayfasında göstermek hâlâ
+B7'nin.
+
+Fazladan bir şey de çıktı: Go zaten her yapıya commit'i gömüyor, o yüzden
+**damgasız bir yapı bile doğru bir şey söylüyor** (`beb1834b8960-dirty`).
+"Boş bırakmak dürüsttür" yerine "bildiğini söyle" — ve binary gerçekten
+biliyordu.
+
+**Tekrarlanabilirlik iddiası ilk hâlinde yanlıştı.** İki yapı aynı
+dizinden koşunca aynı baytları verdi; **farklı dizinden** koşunca beş
+binary de farklı çıktı. Sebep `-trimpath` değildi (o ikisinde de
+çalışıyordu) — benim az önce eklediğim **VCS gömme**siydi.
+
+Mantık şu: tekrarlanabilirliğin amacı, kaynak tarball'ını indiren birinin
+aynı baytları üretebilmesi. O kişinin git deposu **yok**. Yani git verisi
+gömen bir yapı, tam da varlık sebebi olan kişi tarafından doğrulanamaz.
+`-buildvcs=false` eklendi; sürüm zaten `-X` ile geliyor.
+
+**Aynı dizinde iki kez derleyen bir test bunu kaçırırdı** — o yüzden test
+`.git`'i olmayan bir kopyadan derliyor.
+
+**Kontrol betikten ayrıldı: `release/verify.sh`.** İlk hâlinde "asla"
+listesi `build.sh`'ın içindeydi, ve testi yazınca ortaya çıktı ki betik
+başta `rm -rf` yaptığı için ekilen dosyalar kontrolden önce siliniyor.
+Daha önemlisi: yalnız betiğin **kendi kopyaladığı** dosyaları görebilen
+bir kontrol, paketi değil `cp` satırlarını denetler. Ayrı betik, indirilen
+bir tarball'a da doğrultulabiliyor — ve Go kurulumu olmayan kişi de
+koşabiliyor.
+
+**systemd birimlerinde çalışmayan bir satır vardı.** `StartLimitBurst` ve
+`StartLimitIntervalSec` `[Service]`'te yazılmıştı; systemd bunları v229'da
+`[Unit]`'e taşıdı ve **yanlış bölümde sessizce yok sayıyor**. Elle
+yazdığım direktif-adı kontrolü bunu memnuniyetle geçirdi — adlar gerçek,
+yalnız bölüm yanlıştı. `systemd-analyze verify` söyledi. Bu, fazın var
+olma sebebiyle **aynı şekil**: doğru görünen, kabul edilen, hiçbir etkisi
+olmayan bir satır.
+
+**Bitti ölçütü — karşılananlar:** aynı commit'ten `.git`'i olmayan bir
+kopyada ve farklı önbellekle alınan iki yapının **toplamları aynı**;
+pakette "asla" listesinden dosya olmadığı makineyle doğrulanıyor **ve
+altı farklı yasak dosya ekilerek reddettiği gösterildi**; bozulmuş bir
+binary yakalanıyor; birimler systemd'nin kendisiyle doğrulanıyor; beş
+binary de sürümünü söylüyor.
+
+**Karşılanmayan:** paketin temiz bir VM'de açılıp KURULUM.md izlenerek
+çalıştığı. Bu konteynerde yapılamaz — gerçek bir sunucuda elle
+yapılacak, ve **F2 (kurulum betiği) tam da bunu otomatikleştirecek faz**.
 
 ---
 

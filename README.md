@@ -1567,6 +1567,16 @@ CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
 go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
 go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
 
+# The release package: reproducible, and verified by a machine rather
+# than by care. Two builds of the same commit produce the same bytes.
+VERSION=$(git describe --tags --always) ./release/build.sh
+release/verify.sh dist/crucible-analytic-$VERSION   # also runs inside build.sh
+
+# The package tests build it twice, from two directories, and require
+# identical checksums - plus systemd's own verdict on the units. Minutes,
+# so nightly rather than a gate.
+go test -tags release -timeout 30m ./release/
+
 # Static analysis, against the committed baseline of triaged findings.
 # This is what CI gates on; `gosec` alone always exits non-zero, because
 # the repository always has its 21 baselined items.

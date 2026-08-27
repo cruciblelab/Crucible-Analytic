@@ -110,6 +110,29 @@ gömülü.
 
 ## 3. Derleme
 
+**Kolay yol: hazır paketi kullanın.** Elinizde bir sürüm paketi varsa bu
+bölümü atlayın — binary'ler, şemalar, systemd birimleri ve örnek
+yapılandırmalar içinde. Açtıktan sonra ilk iş bütünlüğünü doğrulamak:
+
+```bash
+tar xzf crucible-analytic-*.tar.gz
+cd crucible-analytic-*/
+sha256sum -c SHA256SUMS
+```
+
+Kendiniz paketlemek isterseniz, deponun kökünde:
+
+```bash
+VERSION=$(git describe --tags --always) ./release/build.sh
+```
+
+Aynı commit'ten alınan iki yapı **aynı baytları** üretir (`-trimpath`,
+`CGO_ENABLED=0`, `-buildvcs=false`, go.mod'daki Go sürümü). Yani
+indirdiğiniz binary'nin bu kaynaktan çıktığını kendiniz doğrulayabilirsiniz
+— kimsenin kontrol edemeyeceği bir iddia, edilmeye değmez.
+
+Elle derlemek isterseniz:
+
 ```bash
 git clone https://github.com/cruciblelab/crucible-analytic.git
 cd crucible-analytic
@@ -120,14 +143,25 @@ for b in collector beacon analytics-api panel devpass; do
 done
 ```
 
-**Sürüm damgası şu an yalnız panelde çalışıyor.** `-X main.version`
-linker'a "bu paketteki `main.version` değişkenini şu değere ayarla"
-diyor; o değişken **yalnız `cmd/panel`'de tanımlı**. Diğer dördünde
-olmadığı için bayrak sessizce hiçbir şey yapmıyor — Go linker'ı olmayan
-bir sembol için uyarmıyor *(ölçüldü: `go tool nm`)*. Yani yukarıdaki
-komut doğru, ama bugün yalnız panel sürümünü söyleyebiliyor; diğer dört
-süreç "hangi yapıdasınız" sorusuna cevap veremez. Plandaki **G2** bunu
-kapatıyor.
+**Sürüm damgası beş binary'de de çalışıyor** *(G2'de kapandı)*. Her biri
+`-version` ile cevap veriyor — destek "hangi yapıdasınız" diye
+sorduğunda okunacak satır bu:
+
+```bash
+$ bin/collector -version
+collector v0.4.1 (go1.25.13 linux/amd64)
+```
+
+Damgasız derlerseniz de bir şey söyler: Go'nun her yapıya gömdüğü commit
+kullanılır (`a1b2c3d4e5f6`, çalışma ağacı kirliyse `-dirty` ekiyle).
+Yalnız `-buildvcs=false` ile depo dışında derlenmiş bir yapı `unknown`
+der.
+
+*Bu satır önceden "sürüm damgası yalnız panelde çalışıyor" diyordu ve
+doğruydu: `main.version` değişkeni yalnız `cmd/panel`'de tanımlıydı, ve
+Go linker'ı olmayan bir sembole `-X` verilince uyarmıyor — sessizce
+hiçbir şey yapıyor. Yani belgedeki komutun beş yinelemesinden dördü
+işlevsizdi (`go tool nm` ile ölçüldü).*
 
 **Öneri: sunucuda derlemeyin.** Başka bir makinede derleyip yalnız
 `bin/` dizinini kopyalayın. Sunucuda Go bulunmaması, sunucuda

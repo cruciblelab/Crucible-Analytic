@@ -32,9 +32,19 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/api"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
+	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
+
+// version is stamped at build time:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/analytics-api
+//
+// Left empty when it was not: internal/buildinfo falls back to the commit
+// Go embeds into every build made from a working tree, so an unstamped
+// binary still answers "which build is this" with something true.
+var version string
 
 func main() {
 	// Until the config is read, there is nowhere to write but stderr -
@@ -43,8 +53,17 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "analytics-api.toml", "path to the TOML config file")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	hashToken := flag.Bool("hash-token", false, "generate a random API token, print it with its SHA-256 hash, and exit")
 	flag.Parse()
+
+	// Before the config is read, and before anything can fail: this is the
+	// question asked when a process will not start, so it must not need a
+	// working installation to answer.
+	if *showVersion {
+		buildinfo.Print(os.Stdout, "analytics-api", version)
+		return
+	}
 
 	if *hashToken {
 		if err := printNewToken(); err != nil {

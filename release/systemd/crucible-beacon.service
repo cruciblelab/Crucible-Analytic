@@ -1,0 +1,56 @@
+# Crucible Analytic: beacon (the measurement endpoint browsers post to).
+[Unit]
+Description=Crucible Analytic beacon
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+# Rate limiting belongs to [Unit], not [Service] - systemd moved it in
+# v229 and *ignores* it in the wrong section rather than refusing the
+# file. Written in [Service] first, and `systemd-analyze verify` is what
+# said so; a hand-written check of directive names had passed it happily,
+# because the name is real and only its section was wrong.
+#
+# Five failures in a minute is a configuration problem rather than a
+# transient one, and restarting forever hides it from whoever is reading
+# the logs.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=crucible
+Group=crucible
+ExecStart=/opt/crucible-analytic/bin/beacon -config /etc/crucible-analytic/beacon.toml
+Restart=always
+RestartSec=2s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+ReadWritePaths=/var/log/crucible-analytic
+
+# No CAP_NET_BIND_SERVICE and no capabilities at all: these three listen
+# on high ports behind a reverse proxy. The collector is the only one
+# that fronts the internet directly, and it is the only unit here that
+# asks for the capability to bind 80 and 443.
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

@@ -20,6 +20,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
+	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/collector"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
@@ -39,6 +40,15 @@ type proxyServer interface {
 	ListenAndServe(ctx context.Context) error
 }
 
+// version is stamped at build time:
+//
+//	go build -ldflags "-X main.version=$(git describe --tags --always)" ./cmd/collector
+//
+// Left empty when it was not: internal/buildinfo falls back to the commit
+// Go embeds into every build made from a working tree, so an unstamped
+// binary still answers "which build is this" with something true.
+var version string
+
 func main() {
 	// Until the config is read, there is nowhere to write but stderr -
 	// the file tree is configured by the very file being loaded.
@@ -46,9 +56,18 @@ func main() {
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "collector.toml", "path to the TOML config file")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	updateBotData := flag.Bool("update-bot-data", false,
 		"fetch the known-bot fingerprint set into bot_data.path and exit (put this in cron)")
 	flag.Parse()
+
+	// Before the config is read, and before anything can fail: this is the
+	// question asked when a process will not start, so it must not need a
+	// working installation to answer.
+	if *showVersion {
+		buildinfo.Print(os.Stdout, "collector", version)
+		return
+	}
 
 	cfg, err := collector.Load(*configPath)
 	if err != nil {

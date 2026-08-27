@@ -4699,3 +4699,94 @@ reported no new findings. That is the first evidence that the ordering
 argument was right: D3 is the first phase written with the scanner
 already in place, and C7.3's SMTP - the one that will try to hand it an
 `InsecureSkipVerify` - is still ahead.
+
+## G2: the package, and three lines that looked right and did nothing
+
+The phase existed because of one measurement: KURULUM.md told operators to
+build all five binaries with `-X main.version=$VERSION`, and the symbol
+existed in one of them. The Go linker does not warn when `-X` names a
+symbol that is not there - it silently does nothing - so four of the five
+iterations of a documented command had no effect.
+
+By the end the phase had found two more of exactly that shape.
+
+### The version stamp, and what the binary already knew
+
+Adding `var version string` to four mains closes the finding, but a stamp
+nothing reads is the "setting that does nothing" pattern this project
+removed in A5.2. So all five got a `-version` flag: the question support
+asks, answered from a shell, without waiting for B7 to put it on a health
+page.
+
+Writing that turned up something better than the plan asked for. Go
+already embeds the VCS revision and a dirty flag into anything built from
+a working tree, with no flags at all. The old comment in cmd/panel said an
+unstamped build shows nothing because "empty is honest rather than a
+made-up default" - but empty was not the honest answer available. The
+binary knew exactly which commit it came from. So the stamp wins when
+there is one, the embedded revision answers when there is not, and
+`unknown` is left for the case where the binary genuinely knows neither.
+
+### The reproducibility claim was false, and the obvious test would have missed it
+
+Two builds from the same directory produced identical checksums. Two
+builds from *different* directories produced five different binaries.
+
+The cause was not `-trimpath`, which was working in both - it was the VCS
+embedding I had just added. And the reasoning that settles it is about who
+the property is for: the point of a reproducible release is that somebody
+who downloaded the source can rebuild it and get the same bytes. That
+person has a tarball, not a repository. A build that embeds git metadata
+is one they can never match, which makes the claim untestable by exactly
+the person it exists for. Hence `-buildvcs=false` in the release build,
+where the version comes from `-X` anyway.
+
+The test builds from an export with no `.git` in it, and asserts the
+export really has none. A test that built twice in one directory would
+have passed the whole time.
+
+### A check that could only see its own cp lines
+
+The scope note promised the "never ship this" list would be checked by a
+machine rather than by care. It was, inside build.sh - and writing the
+test that plants forbidden files exposed two problems at once.
+
+The small one: build.sh clears its staging directory before it starts, so
+files planted beforehand were deleted before the check could see them. The
+first version of that test planted three files and watched all three
+vanish.
+
+The larger one: a check that runs only inside the build can only ever
+inspect files the build itself copied. That is a check on the script's
+`cp` lines, not on the package. Extracted into `release/verify.sh`, it can
+be pointed at any directory - a package somebody else built, a tarball
+unpacked from a download - and it is the half a person can run without a
+Go toolchain, which is who receives a package rather than makes one. Six
+forbidden file kinds are planted in the test and each one has to be
+refused.
+
+### systemd disagreed with my own validator
+
+The units carried `StartLimitBurst` and `StartLimitIntervalSec` in
+`[Service]`. systemd moved those to `[Unit]` in v229 and *ignores* them in
+the wrong section rather than refusing the file, so the restart rate
+limiting I had written did nothing.
+
+I checked the units first with a hand-written list of directive names, and
+it passed - the names are real, only the section was wrong. `systemd-analyze
+verify` found it in one run. The check is now that tool rather than my
+list, because the only reliable reader of a systemd unit is systemd.
+
+Three findings in one phase, all the same shape as the one the phase was
+opened for: a line that looks right, is accepted by the thing reading it,
+and has no effect. None of them fails loudly, and none of them could be
+found by reading carefully - only by asking the thing that consumes the
+line what it thinks the line says.
+
+### What is not done
+
+The package has not been opened on a clean VM and installed by following
+KURULUM.md. That cannot be done from this container, and pretending
+otherwise would be the kind of unverified claim this phase spent its time
+removing. It is real remaining work, and F2 - the install script - is the
+phase that automates the thing that check would be testing.
