@@ -132,6 +132,7 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 		"bin/collector", "bin/beacon", "bin/analytics-api", "bin/panel", "bin/devpass",
 		"schema/01-panel.sql", "schema/02-storage.sql",
 		"schema/03-beacon.sql", "schema/04-asnlookup.sql",
+		"schema/05-heartbeat.sql", "schema/06-retention.sql",
 		"systemd/crucible-collector.service", "systemd/crucible-beacon.service",
 		"systemd/crucible-analytics-api.service", "systemd/crucible-panel.service",
 		"ornek-yapilandirma/config.example.toml",

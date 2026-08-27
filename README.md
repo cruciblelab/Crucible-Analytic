@@ -375,8 +375,10 @@ grant gets `403`, and `GET /api/v1/sites` returns only what that token can
 see, so other customers' site names don't leak.
 
 The tokens are bearer credentials: **terminate TLS in front of this API**.
-It binds to `127.0.0.1:8080` by default so that's a deliberate decision
-rather than an accident.
+It binds to `127.0.0.1:8082` by default so that's a deliberate decision
+rather than an accident. Not 8080: the collector's `backend_addr` - the
+customer's own website - defaults to that, and two services whose
+defaults collide is a misconfiguration nobody has to make on purpose.
 
 ### Endpoints
 
@@ -771,24 +773,38 @@ follow [`KURULUM.md`](KURULUM.md) instead, which is written for that and
 does not assume the database is a throwaway container.
 
 ```bash
-# 1. Start a local TimescaleDB (applies internal/storage/schema.sql on
-#    first boot via the Postgres image's docker-entrypoint-initdb.d hook).
+# 1. Start a local TimescaleDB. The container creates an empty database
+#    owned by `postgres` and nothing else - no schema is loaded here.
 docker compose up -d
 docker compose ps --format '{{.Name}}: {{.Health}}' # wait for "healthy"
 
-# 2. Copy the example config and fill in site_id / backend_addr /
+# 2. Install the product into it, the way a customer does: four roles,
+#    every schema, the grants, the hardening, and a verification step
+#    that refuses to finish if the role separation is not what it claims.
+#
+#    This replaced a `psql -f schema.sql` line, and the change is not
+#    cosmetic. The old setup made `collector` the superuser and the owner
+#    of every table, so the development database granted every service
+#    everything - and three real holes lived behind that for months
+#    (see internal/testdb). A development database that is more
+#    privileged than production is a development database that lies.
+SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
+  DB_NAME=analytics CONF_DIR=$(mktemp -d) PREFIX=$(mktemp -d) \
+  LOG_DIR=$(mktemp -d) STATE_DIR=$(mktemp -d) ./release/install.sh
+
+#    The integration suites connect as each service role and expect each
+#    password to be the role's own name. install.sh generates its own and
+#    writes them into config files; for a throwaway database, overwrite:
+for r in collector beacon_writer analytics_reader panel_user; do
+  psql postgres://postgres:postgres@localhost:5432/analytics \
+    -c "ALTER ROLE $r PASSWORD '$r'"
+done
+export CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/analytics
+
+# 3. Copy the example config and fill in site_id / backend_addr /
 #    timescale_dsn (and tls.cert_file/key_file if using mode = "full").
 cp config.example.toml config.toml
 $EDITOR config.toml
-
-# 3. ONLY if you just set asn_lookup.enabled = true in step 2: apply its
-#    schema too, once (creates both the country and ASN range tables).
-#    Unlike internal/storage/schema.sql, docker-compose.yml does NOT apply
-#    this one automatically - there's no docker-entrypoint-initdb.d mount
-#    for it, since it's optional and disabled by default. Skip this step
-#    entirely if asn_lookup.enabled is false (the default) - the collector
-#    runs fine without it existing.
-psql "postgres://collector:collector@localhost:5432/analytics" -f internal/asnlookup/schema.sql
 
 # 4. Run it (looks for ./config.toml by default; override with -config).
 go run ./cmd/collector
@@ -804,25 +820,20 @@ go run ./cmd/analytics-api
 
 # 6. Optionally, run the client-side beacon too, for page-level analytics
 #    the collector cannot see. Another separate process with its own
-#    config and its own schema - see "Client-side beacon" above.
-psql "postgres://collector:collector@localhost:5432/analytics" -f internal/beacon/schema.sql
+#    config - its schema is already there, step 2 applied every one.
 cp beacon.example.toml beacon.toml
 $EDITOR beacon.toml                      # set sites, DSN, trusted_proxies
 go run ./cmd/beacon
 go run ./cmd/beacon -snippet https://example.com mysite  # tag to embed
 ```
 
-If you're pointing `docker compose` at an already-existing TimescaleDB
-instead, apply both schemas once yourself (skip the second if you're
-leaving `asn_lookup.enabled = false`):
+If you're pointing at an already-existing TimescaleDB instead, run the
+same installer against it — `SUPERUSER_DSN` naming a superuser
+connection and `DB_NAME` the database. It applies every schema in the
+right order and is safe to re-run: existing roles keep their passwords
+and existing configuration files are never overwritten.
 
-```bash
-psql "$TIMESCALE_DSN" -f internal/storage/schema.sql
-psql "$TIMESCALE_DSN" -f internal/asnlookup/schema.sql
-psql "$TIMESCALE_DSN" -f internal/heartbeat/schema.sql
-```
-
-The third is the health channel: one row per service, written on a timer,
+One of those schemas is the health channel: one row per service, written on a timer,
 carrying the build, the uptime, the counters and the last failure. It is
 what lets the panel say "the collector is up and every write since
 Tuesday has failed" - a sentence no liveness endpoint can produce.
@@ -830,24 +841,30 @@ Skipping it costs nothing but the health page; the services log a warning
 once and carry on.
 
 **If you already had this collector running before country/ASN
-enrichment or ASN scoring existed** (i.e. `docker compose up -d` already
-created `traffic_snapshots` on an earlier version, so step 1's
-`docker-entrypoint-initdb.d` hook won't fire again against that existing
-volume), re-apply `internal/storage/schema.sql` yourself the same way:
-`psql "postgres://collector:collector@localhost:5432/analytics" -f internal/storage/schema.sql`.
-It's self-migrating (see "Optional: IP → country / ASN lookup" above), so
-this just adds the new columns (`country`/`asn`/`asn_org`/`is_known_bot_asn`)
-in place - no drop, no data loss.
+enrichment or ASN scoring existed**, re-run the installer from step 2
+against the same database. Every schema file is self-migrating (see
+"Optional: IP → country / ASN lookup" above), so this adds the new
+columns (`country`/`asn`/`asn_org`/`is_known_bot_asn`) in place — no
+drop, no data loss — and brings the grants up to date at the same time.
 
-Forgetting step 3 when `asn_lookup.enabled = true` isn't fatal - the
-collector still starts and runs normally, since a missing optional table
-is treated the same as any other refresh failure (logged, not fatal - see
-"Optional: IP → country / ASN lookup" above). It just means every lookup
-silently returns `Found: false` until you apply the schema and the next
-scheduled refresh runs, which is easy to mistake for "neither dataset
-covers this IP" rather than "the tables don't exist yet." Check the logs
+A database the installer never touched, with `asn_lookup.enabled = true`,
+isn't fatal — the collector still starts and runs normally, since a
+missing or unreadable range table is treated the same as any other
+refresh failure (logged, not fatal — see "Optional: IP → country / ASN
+lookup" above). It just means every lookup silently returns
+`Found: false`, which is easy to mistake for "neither dataset covers this
+IP" rather than "the collector cannot reach the tables." Check the logs
 for `asnlookup: failed to persist country ranges` / `asnlookup: failed to
 persist asn ranges` if lookups seem to never find anything.
+
+That quiet failure is not hypothetical. Until an end-to-end run of the
+installed package went looking, `release/sql/grants.sql` gave the
+collector and the beacon **no privilege at all** on either range table,
+so every installed deployment ran with the country and ASN columns
+permanently empty and nothing anywhere said so. The grants are there
+now, and `release/sql/verify.sql` asserts them — but the shape of the
+failure is worth remembering: an optional feature that fails softly
+fails invisibly.
 
 ### Configuration
 

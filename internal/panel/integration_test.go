@@ -9,7 +9,7 @@
 // under. Run with:
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/panel/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/panel/... -v
 
 package panel
@@ -25,10 +25,21 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The role the panel actually runs as.
+//
+// It was `collector` until an end-to-end run of the installed package
+// showed why that mattered: the development database had been created by
+// collector, so collector owned every table and this suite ran with
+// authority no deployment grants it. Three real holes were hiding behind
+// that - a retention feature that had never worked, two ungranted
+// tables - and none of them could have been caught from here.
+//
+// A suite that tests a role-separated design has to connect as the role.
+const testDatabaseURL = "postgres://panel_user:panel_user@localhost:5432/analytics"
 
 // newTestStore opens a Store and removes everything the test created
 // afterwards. Accounts are namespaced by a per-test email suffix and
@@ -38,18 +49,22 @@ func newTestStore(t *testing.T, ns string) *Store {
 
 	store, err := NewStore(context.Background(), testDatabaseURL)
 	if err != nil {
-		t.Fatalf("NewStore: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(store.Close)
 	lockPanelDatabase(t, store.Pool())
 
+	// Cleared through the schema's owner, not the panel's own pool.
+	//
+	// panel_user holds SELECT and INSERT on panel_audit_log and no
+	// DELETE - "nobody can erase the audit log" is an assertion in
+	// release/sql/verify.sql - so on a properly installed database the
+	// panel cannot remove its own audit rows, correctly. It could here
+	// only because the development database had been created by the
+	// role the tests connect as.
+	admin := testdb.Admin(t)
 	cleanup := func() {
-		pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-		if err != nil {
-			t.Logf("cleanup: %v", err)
-			return
-		}
-		defer pool.Close()
+		pool := admin
 		ctx := context.Background()
 		// Audit rows outlive their actor by design (ON DELETE SET NULL),
 		// so they have to be removed explicitly rather than by cascade.

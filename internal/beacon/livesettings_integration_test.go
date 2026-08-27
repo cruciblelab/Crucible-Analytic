@@ -20,6 +20,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 // storeSetting writes a deployment-wide row the way the panel does.
@@ -29,8 +30,15 @@ import (
 // internet can POST to, and the panel's data layer has no business in
 // it. The dependency pointing one way is the property; a test that
 // imported the panel to save five lines would quietly undo it.
-func storeSetting(t *testing.T, pool *pgxpool.Pool, key string, value any) {
+// The pool is the panel's, opened here rather than passed in: writing a
+// setting is what the panel does, and the beacon's role holds SELECT on
+// panel_settings and nothing more. Reading it back is the beacon's job
+// and uses the beacon's pool, which is the whole point of these tests -
+// one process writes the row, a different one with different privileges
+// picks it up.
+func storeSetting(t *testing.T, key string, value any) {
 	t.Helper()
+	pool := testdb.Pool(t, testdb.Panel)
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		t.Fatal(err)
@@ -64,12 +72,9 @@ func storeSetting(t *testing.T, pool *pgxpool.Pool, key string, value any) {
 // looking tidy.
 func settingsPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v (is docker compose up, with the panel schema applied?)", err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
+	// The beacon's own role. It may read panel_settings and write
+	// nothing there, which is exactly what settings.Source needs.
+	return testdb.Pool(t, testdb.Beacon)
 }
 
 func liveSource(t *testing.T, pool *pgxpool.Pool) *settings.Source {
@@ -99,7 +104,7 @@ func TestTrustedProxiesComeFromTheDatabaseWhenItHasThem(t *testing.T) {
 	}
 
 	// ---- stored: the panel decides ----
-	storeSetting(t, pool, settings.KeyTrustedProxies,
+	storeSetting(t, settings.KeyTrustedProxies,
 		[]string{"173.245.48.0/20", "2400:cb00::/32"})
 
 	fromPanel, err := cfg.LiveTrustedProxies(liveSource(t, pool))
@@ -139,7 +144,7 @@ func TestAStoredProxyListThatIsNotNetworksIsRefusedWhole(t *testing.T) {
 	pool := settingsPool(t)
 
 	cfg := Config{TrustedProxies: []string{"10.0.0.1/32"}}
-	storeSetting(t, pool, settings.KeyTrustedProxies,
+	storeSetting(t, settings.KeyTrustedProxies,
 		[]string{"173.245.48.0/20", "not-a-network"})
 
 	if _, err := cfg.LiveTrustedProxies(liveSource(t, pool)); err == nil {
@@ -172,7 +177,7 @@ func TestLimitsComeFromTheDatabaseFieldByField(t *testing.T) {
 	}
 
 	// ---- one field stored ----
-	storeSetting(t, pool, settings.KeyBeaconMaxConcurrent, 4000)
+	storeSetting(t, settings.KeyBeaconMaxConcurrent, 4000)
 	got = cfg.LiveLimits(liveSource(t, pool))
 	if got.MaxConcurrentConnections != 4000 {
 		t.Errorf("the stored ceiling did not take effect: %d", got.MaxConcurrentConnections)
@@ -182,7 +187,7 @@ func TestLimitsComeFromTheDatabaseFieldByField(t *testing.T) {
 	}
 
 	// ---- the policy, which is the one that can stop traffic ----
-	storeSetting(t, pool, settings.KeyBeaconOverloadPolicy, "throttle")
+	storeSetting(t, settings.KeyBeaconOverloadPolicy, "throttle")
 	got = cfg.LiveLimits(liveSource(t, pool))
 	if got.Policy != limiter.PolicyThrottle {
 		t.Errorf("policy = %q, want throttle", got.Policy)
@@ -199,7 +204,7 @@ func TestLimitsComeFromTheDatabaseFieldByField(t *testing.T) {
 func TestTheCollectorsLimitsAreNotTheBeacons(t *testing.T) {
 	pool := settingsPool(t)
 
-	storeSetting(t, pool, settings.KeyCollectorMaxConcurrent, 9000)
+	storeSetting(t, settings.KeyCollectorMaxConcurrent, 9000)
 
 	beaconLimits := LimitsConfig{MaxConcurrentRequests: 100}.LiveLimits(liveSource(t, pool))
 	if beaconLimits.MaxConcurrentConnections != 100 {

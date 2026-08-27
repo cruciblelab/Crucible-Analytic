@@ -18,15 +18,41 @@ import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
+// The collector's own role, which is what this package runs as. Its
+// password is the development cluster's convention; internal/testdb
+// explains the arrangement and why it is not one pool for everything.
 const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+
+// clearJA4 removes the rows a test wrote, through the schema's owner.
+//
+// Not through the writer's own pool, which is what this used to do: the
+// collector holds SELECT and INSERT on traffic_snapshots and no DELETE,
+// deliberately, so a compromise of the process on the traffic path
+// cannot erase history. The cleanup only worked because the development
+// database had been created by collector, which therefore owned the
+// table.
+func clearJA4(t *testing.T, ja4 ...string) {
+	t.Helper()
+	admin := testdb.Admin(t)
+	wipe := func() {
+		if _, err := admin.Exec(context.Background(),
+			`DELETE FROM traffic_snapshots WHERE ja4 = ANY($1)`, ja4); err != nil {
+			t.Logf("cleanup: deleting %v: %v", ja4, err)
+		}
+	}
+	wipe()
+	t.Cleanup(wipe)
+}
 
 func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 	ctx := context.Background()
 	w, err := NewWriter(ctx, testDatabaseURL)
 	if err != nil {
-		t.Fatalf("NewWriter: %v (is `docker compose up -d` running, with schema.sql applied?)", err)
+		t.Fatalf("NewWriter: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	// t.Cleanup, not defer: cleanups run in LIFO order relative to each
 	// other, but only *after* the test function (and its own defers) has
@@ -56,11 +82,7 @@ func TestWriter_RealTimescaleDB_WriteAndReadBack(t *testing.T) {
 		ASNName:         "Example Org",
 		IsKnownBotASN:   true,
 	}
-	t.Cleanup(func() {
-		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, row.JA4); err != nil {
-			t.Logf("cleanup: delete failed: %v", err)
-		}
-	})
+	clearJA4(t, row.JA4)
 
 	n, err := w.WriteRows(ctx, []Row{row})
 	if err != nil {
@@ -153,11 +175,7 @@ func TestWriter_RealTimescaleDB_TwoSitesStaySeparable(t *testing.T) {
 		{Time: now, SiteID: "site-a", IP: ip, JA4: ja4, BotScore: 10},
 		{Time: now, SiteID: "site-b", IP: ip, JA4: ja4, BotScore: 20},
 	}
-	t.Cleanup(func() {
-		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, ja4); err != nil {
-			t.Logf("cleanup: delete failed: %v", err)
-		}
-	})
+	clearJA4(t, ja4)
 
 	if _, err := w.WriteRows(ctx, rows); err != nil {
 		t.Fatalf("WriteRows: %v", err)
@@ -205,11 +223,7 @@ func TestWriter_RealTimescaleDB_GeoColumnsDefaultToZeroValue(t *testing.T) {
 		IP:   netip.MustParseAddr("203.0.113.43"),
 		JA4:  "t13d1516h2_integration_test_no_geo",
 	}
-	t.Cleanup(func() {
-		if _, err := w.pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE ja4 = $1`, row.JA4); err != nil {
-			t.Logf("cleanup: delete failed: %v", err)
-		}
-	})
+	clearJA4(t, row.JA4)
 
 	if _, err := w.WriteRows(ctx, []Row{row}); err != nil {
 		t.Fatalf("WriteRows: %v", err)

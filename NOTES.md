@@ -5371,3 +5371,163 @@ eklemek yerine dönüşüm tek yere alındı ve **doyuran** hâle getirildi:
 yanlış bir sayı", "en yüksek değerde takılı kalmış bir sayı"dan daha
 kötü bir arıza — ve kontrol dakikada bir çalışan bir yolda bir
 karşılaştırma.
+
+## Uçtan uca kanıt: ürünü kendi paketinden kurup çalıştırdık
+
+Bu fazın amacı tek bir cümleydi:
+
+> gerçek bir istek panoda bir sayıya dönüşüyor mu?
+
+Depodaki her test bir parçayı ölçüyordu. Entegrasyon paketleri bir paketi
+gerçek veritabanına karşı koşuyor; `release/` kurulum betiğinin iddia
+ettiği yetki matrisini üretip üretmediğine bakıyor. Hiçbiri müşterinin
+ilk sorduğu soruyu cevaplamamıştı. İki yarı ayrı ayrı geçiyordu, ve **ayrı
+ayrı geçen iki yarı çalışan bir zincir değildir.**
+
+Zinciri koştuk. `e2e/e2e_test.go`: tarball'ı derliyor, temiz bir
+veritabanına paketin kendi `install.sh`'ıyla kuruyor, dört yapılandırmayı
+bir operatörün doldurduğu gibi dolduruyor, üç süreci başlatıyor, gerçek
+bir HTTPS isteğini collector üzerinden gerçek bir origin'e geçiriyor, ve
+sonra satırı `traffic_snapshots`'ta, JA4'ü satırda, sayıyı okuma API'sinde
+ve panonun çizdiği rakamı sayfada arıyor.
+
+Geçti. Ama geçmeden önce **beş gerçek kusur** çıkardı, ve beşinin de aynı
+kökü vardı.
+
+### Kök: test ortamı üretimden daha yetkiliydi
+
+Geliştirme veritabanını `collector` kurmuştu. PostgreSQL'de tabloyu kuran
+rol onun sahibidir ve sahibe her şey açıktır. Yani on entegrasyon paketi,
+kendini "rol ayrımını sınayan testler" diye tarif ederken, hiçbir kurulumun
+hiçbir servise vermediği bir yetkiyle koşuyordu.
+
+Bu tek cümle beş kusuru birden açıklıyor. Hepsi eksik bir `GRANT`'ti ve
+hiçbiri o kurulumda görünemezdi.
+
+**1. Saklama politikası kurulu hiçbir sistemde çalışmamış.** Collector her
+açılışta uyguluyor; TimescaleDB ise **yetkiye değil sahipliğe** bakıyor:
+
+```
+ERROR:  must be owner of hypertable "traffic_snapshots"
+```
+
+`add_retention_policy` üzerinde `EXECUTE` açıkça verilmiş bir veritabanında
+ölçüldü. Yani sorun grant değil, sahiplik. Ve site başına kırpma `DELETE`
+istiyor — `grants.sql` onu da hiç vermemiş. Sonuç: iki hipertablo da
+sonsuza kadar büyüyordu, müşterinin sitesini de sunan makinede. `internal/
+retention` paketinin kendi yorumunun "önlemek için var" dediği sonuç tam
+olarak bu.
+
+Üstelik `harden.sql`'in yorumu "bu üründe hiçbir şey iş zamanlamaz"
+diyordu. Yanlıştı, yazıldığı gün yanlıştı. Bir dosyanın içinden sistemin
+geri kalanı hakkında yapılan ve hiçbir şeye karşı doğrulanmayan iddia,
+doğru okunan bir `REVOKE`'un bir özelliği nasıl kapattığının hikâyesidir.
+
+Çözüm üç `SECURITY DEFINER` sarmalayıcı (`internal/retention/schema.sql`),
+her biri yerine geçtiği yetkiden dar: `ca_set_retention` yalnız iki adlı
+tablodan birine, yalnız 1..730 aralığında bir saklama aralığı isteyebilir —
+`add_job` keyfî bir fonksiyon adı alır, bu bir aralık alır. İş yine kuran
+süperkullanıcıya ait çıkıyor (ölçüldü), yani `harden.sql`'in "bu karar
+oraya ait" cümlesi artık gerçekten orada oluyor.
+
+Kalan risk açıkça: ele geçirilmiş bir collector kendi tablosunun saklama
+süresini kısaltıp geçmişi yok edebilir. Tavanı aşamaz, diğer servisin
+tablosuna dokunamaz, kendi işini zamanlayamaz, tablo düşüremez. Bu artık
+zaten her yeni satırın ne diyeceğine karar veren bir süreç, ve alternatif
+hiç çalışmamış bir özellik.
+
+**2. Kurulum sihirbazı doğru kurulmuş her sistemde "tablo eksik" diyordu.**
+Bunu tek başına bir gösterici kusur sayıyorum: `preflight`, analitik
+tabloları `information_schema.tables`'a soruyordu. O görünüm **yalnız
+şu anki rolün bir yetkisi olduğu tabloları** listeler. Panel `panel_user`
+ile bağlanır ve `traffic_snapshots` üzerinde bilerek hiçbir yetkisi
+yoktur — ürünün üstünde durduğu izolasyon budur. Yani kontrol
+"Eksik tablo: traffic_snapshots, beacon_events" diyor, zorunlu bir kontrol
+başarısız oluyor, ve **başarısız zorunlu kontrol devir teslimi bloke
+ediyor.** Geliştirici kurulumu müşteriye hiç veremezdi.
+
+Tuzağın açıklaması aynı dosyada, iki fonksiyon aşağıda, `roleHasPrivilege`
+yorumunda zaten yazılıydı. Yazan biliyordu; sorgu yine de öyle yazılmıştı.
+
+**3. `ip_asn_ranges` ve `ip_country_ranges` için hiç `GRANT` yoktu.**
+Collector ve beacon ikisi de bu tabloları tazeliyor (`TRUNCATE` + `COPY`)
+ve ikisinin de tek bir yetkisi yoktu. Arıza tasarım gereği sessiz —
+"failed to set up ASN/country lookup, continuing without it" loglanıp devam
+ediliyor, çünkü coğrafyayı kaybetmek trafik yolunu düşürmemeli. Yani her
+kurulumda ASN ve ülke sütunları kalıcı olarak boştu ve tek belirti sessiz
+bir hafta gibi görünen bir kırılım sayfasıydı.
+
+**4. `install.sh`, DSN verildiğinde `--db`'yi yok sayıyordu.** `psql_db`
+`SUPERUSER_DSN`'i olduğu gibi geçiriyordu: betik adlandırılan veritabanını
+yaratıyor, boş bırakıyor, ve bütün şemaları, grant'leri ve REVOKE'ları
+DSN'in gösterdiği veritabanına uyguluyordu. Sonra başarı bildiriyordu,
+çünkü `verify.sql` `current_database()` soruyor — yani yanlışlıkla
+sertleştirdiği veritabanını kontrol ediyordu.
+
+Neden görünmedi: buradaki her test `dsnFor(superuserDSN(t), db)` geçiriyor,
+yani DSN zaten hedefi adlandırıyor. İkisinin anlaşmazlığa düşemeyeceği tek
+düzen. Bir düzine `install.sh` koşusu yanlış olan tek satır hakkında hiçbir
+şey kanıtlamamıştı. `sudo -u postgres` yolu hep doğruydu — yani hata elle
+kurulmuş bir sunucuda hiç görünmez, yalnız **konteynerin kullandığı yolda**
+görünür.
+
+**5. Örnek yapılandırmalarda 8080 çakışması.** Collector'ın `backend_addr`'ı
+(müşterinin kendi sitesi) ve okuma API'sinin `listen_addr`'ı ikisi de
+`127.0.0.1:8080`. İkisini de değiştirmeyen operatör trafik vekilini
+analitik API'sine yöneltir: site her ziyaretçiye JSON cevaplar. En kötü
+türden yanlış yapılandırma — iki dosya, her biri kendi başına doğru,
+yalnız birlikte okunduğunda yanlış, ki kimse dört yapılandırma dosyasını
+yan yana okumaz. `KURULUM.md`'in şeması bile çakışmayı çiziyordu.
+
+### Sonuç: ortamı üretime benzettik
+
+Beş kusurun kökü tekse, çözüm de tek olmalı.
+
+- `docker-compose.yml` artık şema yüklemiyor ve süperkullanıcı `postgres`.
+  Geliştirme veritabanı `release/install.sh` ile kuruluyor — dört rol,
+  bütün şemalar, grant'ler, sertleştirme, ve iddiayı doğrulamadan bitmeyi
+  reddeden bir kontrol.
+- CI aynısını yapıyor. Konteynerin süperkullanıcısı artık `collector`
+  değil; iş şemaları elle uygulamıyor, kurulumu koşuyor.
+- On entegrasyon paketi kodun koştuğu role geçti. `internal/testdb` bunu
+  tek yerde tutuyor: `Pool(t, role)` servis rolü, `Admin(t)` şema sahibi —
+  DDL ve analitik tablolarından satır silme için, ki hiçbir yazanda `DELETE`
+  yok ve olmamalı.
+
+Bu geçiş kendi başına iki şey daha ortaya çıkardı: heartbeat testinin
+temizliği hatayı yutuyordu ve doğru kurulmuş veritabanında **sessizce
+hiçbir şey yapmıyordu**; sağlık sayfası testi kalp atışını panelin
+havuzundan yazıyordu, yani satırın servis adı `panel_user` oluyordu — panel
+kendine ayakta olduğunu söylüyordu, collector'a değil. İkisi de yalnız iki
+paket aynı rolle bağlandığı için doğru görünmüştü.
+
+### Kalıcı hâle gelenler
+
+- `e2e/e2e_test.go` — zincir, kendi etiketiyle, birleştirme kapısında
+  değil. Saklama politikasının gerçekten kurulduğunu da orada doğruluyor:
+  kırılan şey `internal/retention`'ın kendi paketinden görünmez.
+- `release/ports_test.go` — iki varsayılan aynı portu istemesin, ve panelin
+  API'yi gösterdiği port API'nin dinlediğiyle aynı olsun.
+- `release/schemalist_test.go` — her şema build.sh'a, install.sh'a ve
+  paket içerik listesine ulaşsın. `internal/heartbeat/schema.sql` iki
+  listeye girip ikisine girmemişti; kimse fark etmemişti çünkü heartbeat
+  testleri tablo yokken atlıyor.
+- `release/install_test.go`'da `TestInstallHonoursTheDatabaseItWasGiven` —
+  var olmayan test. DSN bir veritabanını, `DB_NAME` başkasını adlandırıyor.
+- `verify.sql`'de yedi yeni doğrulama: sarmalayıcılar kurulu, PUBLIC onları
+  çağıramıyor, hepsi `search_path` sabitliyor, hiçbir yazanda `DELETE` yok,
+  adres aralıklarını iki yazan tazeleyebiliyor, panel onları göremiyor.
+
+Hepsi mutasyonla sınandı: her biri sınamak için var olduğu bozulmada
+kırmızıya döndü.
+
+### Bu fazın öğrettiği
+
+**Üretimden daha yetkili bir test düzeneği üretimi test etmez.** Beş
+kusurun tamamı aylarca görünmezdi ve hiçbiri ince değil. Yeşil bir paket,
+neyin altında koştuğuna bakılmadan okunduğunda bir cümle söylemez.
+
+Ve ikincisi, üçüncü kez: **var olmayan bir deliği uyaran yorum, var olan
+delikleri anlatan yorumlara inanmamayı öğretir.** `harden.sql` "hiçbir şey
+iş zamanlamaz" diyordu; `preflight` `information_schema` tuzağını iki
+fonksiyon aşağıda anlatıp yine ona düşmüştü. İkisi de doğru okunuyordu.

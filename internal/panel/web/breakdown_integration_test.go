@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
@@ -53,15 +53,12 @@ type beaconRow struct {
 // every column is populated would never produce one.
 func seedBeacon(t *testing.T, site string, when time.Time, rows []beaconRow) {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM beacon_events WHERE site_id = $1`, site)
-	})
+	// The beacon's rows go in as the beacon, and come out again through
+	// the schema's owner - no writer holds DELETE. The panel's own pool
+	// cannot do either: it has no access to the analytics tables at all,
+	// which is the property this page is built on top of.
+	testdb.CleanSite(t, testdb.Admin(t), site)
+	pool := testdb.Pool(t, testdb.Beacon)
 
 	for i, row := range rows {
 		_, err := pool.Exec(context.Background(), `

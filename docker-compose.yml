@@ -1,17 +1,44 @@
+# The development database.
+#
+# The superuser is `postgres` and the database it creates is empty. That
+# is deliberate and it changed: this file used to make `collector` the
+# superuser and let it own every table the schema created, which gave ten
+# integration suites cluster authority while they described themselves as
+# tests of a role-separated design. Three real holes lived behind that -
+# see internal/testdb for the list, all three found in one afternoon by
+# installing the package properly and running it.
+#
+# So nothing here loads a schema. Bring the container up and then install
+# the product the way a customer does:
+#
+#   docker compose up -d
+#   SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
+#     DB_NAME=analytics CONF_DIR=$(mktemp -d) PREFIX=$(mktemp -d) \
+#     LOG_DIR=$(mktemp -d) STATE_DIR=$(mktemp -d) ./release/install.sh
+#   for r in collector beacon_writer analytics_reader panel_user; do
+#     psql postgres://postgres:postgres@localhost:5432/analytics \
+#       -c "ALTER ROLE $r PASSWORD '$r'"
+#   done
+#   export CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/analytics
+#
+# The four roles then hold exactly what release/sql/grants.sql gives them
+# and nothing more, which is the only arrangement in which a missing
+# GRANT can fail a test. The passwords are set to the role names because
+# that is what internal/testdb expects; install.sh generates its own and
+# writes them into configuration files nobody here reads.
 services:
   timescaledb:
     image: timescale/timescaledb:2.17.2-pg16
     environment:
-      POSTGRES_USER: collector
-      POSTGRES_PASSWORD: collector
-      POSTGRES_DB: analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
     ports:
       - "5432:5432"
     volumes:
       - timescaledb-data:/var/lib/postgresql/data
-      - ./internal/storage/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U collector -d analytics"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 10

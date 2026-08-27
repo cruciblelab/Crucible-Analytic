@@ -19,6 +19,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 const healthSite = "saglik-testi"
@@ -34,9 +35,12 @@ func healthServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
 	if err := store.AddMember(ctx, healthSite, owner.ID, panel.RoleOwner, nil); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
+	admin := testdb.Admin(t)
 	t.Cleanup(func() {
-		_, _ = store.Pool().Exec(context.Background(),
-			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`)
+		if _, err := admin.Exec(context.Background(),
+			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`); err != nil {
+			t.Logf("clearing the test heartbeat rows: %v", err)
+		}
 	})
 
 	server := httptest.NewServer(srv.Handler())
@@ -44,17 +48,25 @@ func healthServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
 	return server, signedIn(t, server.URL, owner.Email), store
 }
 
-// writeBeat puts a row in the heartbeat table as the connecting role.
+// writeBeat puts a row in the heartbeat table as the collector.
 //
 // Through the reporter rather than by hand, so what the page reads is
 // what a service actually writes. A test that inserted its own row could
 // pass while the reporter wrote something else.
+//
+// On the collector's own connection, not the panel's. The heartbeat
+// table's row-level policy keys writes on current_user, so the row's
+// service name *is* the connecting role - and the page draws that name.
+// Written through the panel's pool this reported panel_user, which is
+// the panel telling itself it is alive rather than the collector saying
+// so. It only ever looked right because both suites used to connect as
+// the same role.
 func writeBeat(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error) {
 	t.Helper()
 
 	r := heartbeat.New(heartbeat.Options{
-		Pool:    store.Pool(),
+		Pool:    testdb.Pool(t, testdb.Collector),
 		Version: version,
 		Started: started,
 		Counters: func() map[string]int64 {
@@ -218,9 +230,14 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 
 	server := httptest.NewServer(srv.Handler())
 	defer server.Close()
+	// dbOwner, not admin: `admin` is already a panel user in this test,
+	// and the two meanings of the word are a page apart.
+	dbOwner := testdb.Admin(t)
 	t.Cleanup(func() {
-		_, _ = store.Pool().Exec(context.Background(),
-			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`)
+		if _, err := dbOwner.Exec(context.Background(),
+			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`); err != nil {
+			t.Logf("clearing the test heartbeat rows: %v", err)
+		}
 	})
 
 	if status, _ := get(t, signedIn(t, server.URL, owner.Email), server.URL+HealthPath); status != http.StatusOK {

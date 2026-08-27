@@ -6,7 +6,7 @@
 // actually groupable and filterable in SQL. Run with:
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/beacon/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test ./internal/api/ -tags integration
 
 package api

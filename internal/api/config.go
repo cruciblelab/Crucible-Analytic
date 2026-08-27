@@ -38,7 +38,10 @@ type Config struct {
 
 // LoadConfig reads and validates the API config at path.
 func LoadConfig(path string) (Config, error) {
-	cfg := Config{ListenAddr: "127.0.0.1:8080"} // loopback default: exposing this publicly should be a deliberate edit
+	cfg := Config{ListenAddr: "127.0.0.1:8082"} // loopback default: exposing this publicly should be a deliberate edit
+	// 8082 and not 8080: the collector proxies to the customer's own site
+	// on 8080, and two defaults on one port meant an untouched pair of
+	// example configs pointed the traffic proxy at this API.
 	if _, err := os.Stat(path); err != nil {
 		return Config{}, fmt.Errorf("api: config file %s: %w", path, err)
 	}

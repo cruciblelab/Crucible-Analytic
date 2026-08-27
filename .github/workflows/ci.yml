@@ -125,13 +125,22 @@ jobs:
         # take the env context, so a variable here would look like it
         # configured the image while the literal below did the work.
         image: timescale/timescaledb:2.17.2-pg16
+        # The superuser is `postgres`, not `collector`, and that is the
+        # whole point of this block.
+        #
+        # It used to be collector, which made the collector the cluster
+        # superuser and the owner of every table the schemas created. Ten
+        # integration suites then ran with authority no deployment gives
+        # any service while describing themselves as tests of a
+        # role-separated design - and three real holes lived behind that
+        # for months. See internal/testdb for the list.
         env:
-          POSTGRES_USER: collector
-          POSTGRES_PASSWORD: collector
-          POSTGRES_DB: analytics
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports: ["5432:5432"]
         options: >-
-          --health-cmd "pg_isready -U collector -d analytics"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -143,17 +152,33 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: apply the schemas
+      # Installed, not just schema-loaded.
+      #
+      # release/install.sh is what a customer runs: it creates the four
+      # roles, applies every schema, applies grants.sql and harden.sql,
+      # and refuses to finish unless verify.sql agrees that the
+      # separation is what it claims. Running it here means CI's database
+      # is the same shape as a deployment's - which is the only shape in
+      # which a missing GRANT can fail a test.
+      #
+      # The generated role passwords are then replaced with predictable
+      # ones, because the suites have to connect as each role and
+      # scraping four generated secrets out of a script's output would
+      # tie the tests to the wording of a message.
+      - name: install the database the way a customer does
         env:
-          PGPASSWORD: collector
+          PGPASSWORD: postgres
+          SUPERUSER_DSN: postgres://postgres:postgres@localhost:5432/postgres
+          DB_NAME: analytics
         run: |
-          for f in internal/panel/schema.sql internal/storage/schema.sql \
-                   internal/beacon/schema.sql internal/asnlookup/schema.sql; do
-            echo "== $f"
-            psql -h localhost -U collector -d analytics -v ON_ERROR_STOP=1 -q -f "$f"
+          CONF_DIR="$(mktemp -d)" PREFIX="$(mktemp -d)" \
+            LOG_DIR="$(mktemp -d)" STATE_DIR="$(mktemp -d)" \
+            ./release/install.sh
+          for role in collector beacon_writer analytics_reader panel_user; do
+            psql "postgres://postgres:postgres@localhost:5432/analytics" \
+              -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ${role} PASSWORD '${role}'"
           done
-          psql -h localhost -U collector -d analytics -tAc \
-            "SELECT count(*) FROM pg_tables WHERE schemaname='public'"
+          echo "CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/analytics" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:

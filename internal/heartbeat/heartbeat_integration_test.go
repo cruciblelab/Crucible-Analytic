@@ -16,26 +16,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
-
+// testPool connects as the collector - one of the four services that
+// writes a heartbeat - and clears its row through the schema's owner.
+//
+// The clearing used to run on the same pool and discard its error. No
+// service holds DELETE on service_heartbeat, deliberately: a row that
+// disappears reads as "this service was never installed" rather than
+// "this service is gone", which is the wrong sentence at the moment it
+// matters. So the cleanup had silently stopped doing anything the
+// moment the database was installed properly, and the suite went on
+// looking tidy because the row is upserted anyway.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v (is the database up, with internal/heartbeat/schema.sql applied?)", err)
-	}
-	if err := pool.Ping(context.Background()); err != nil {
-		pool.Close()
-		t.Fatalf("ping: %v", err)
-	}
-	t.Cleanup(pool.Close)
+	pool := testdb.Pool(t, testdb.Collector)
+	admin := testdb.Admin(t)
 
 	clean := func() {
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM service_heartbeat WHERE service = current_user`)
+		if _, err := admin.Exec(context.Background(),
+			`DELETE FROM service_heartbeat WHERE service = $1`, testdb.Collector); err != nil {
+			t.Logf("clearing the collector's heartbeat row: %v", err)
+		}
 	}
 	clean()
 	t.Cleanup(clean)

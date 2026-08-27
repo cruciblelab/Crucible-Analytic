@@ -7,7 +7,7 @@
 // with:
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/panel/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/panel/preflight/ -v
 
 package preflight
@@ -23,7 +23,37 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The role the panel actually runs as.
+//
+// It was `collector` until an end-to-end run of the installed package
+// showed why that mattered: the development database had been created by
+// collector, so collector owned every table and this suite ran with
+// authority no deployment grants it. Three real holes were hiding behind
+// that - a retention feature that had never worked, two ungranted
+// tables - and none of them could have been caught from here.
+//
+// A suite that tests a role-separated design has to connect as the role.
+const testDatabaseURL = "postgres://panel_user:panel_user@localhost:5432/analytics"
+
+// adminPool is a connection that owns the schema, for the one test that
+// has to change it.
+//
+// Skipped rather than failed when unset: a machine that can run the rest
+// of this suite as panel_user may have no superuser connection to offer,
+// and a test that cannot run is not a test that failed.
+func adminPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := os.Getenv("CA_SUPERUSER_DSN")
+	if dsn == "" {
+		t.Skip("set CA_SUPERUSER_DSN to a connection that owns the schema; this test alters a column")
+	}
+	pool, err := pgxpool.New(context.Background(), dsn)
+	if err != nil {
+		t.Fatalf("pgxpool.New (superuser): %v", err)
+	}
+	t.Cleanup(pool.Close)
+	return pool
+}
 
 // newTestChecker connects a Checker to the test database.
 //
@@ -34,11 +64,11 @@ func newTestChecker(t *testing.T) *Checker {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
 	if err != nil {
-		t.Fatalf("pgxpool.New: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+		t.Fatalf("pgxpool.New: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	if err := pool.Ping(context.Background()); err != nil {
 		pool.Close()
-		t.Fatalf("ping: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+		t.Fatalf("ping: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(pool.Close)
 	return New(pool, false)
@@ -76,15 +106,23 @@ func TestPreflight_DetectsASchemaFileThatWasNeverReapplied(t *testing.T) {
 
 	// Drop a self-migrating column, as a deployment that never re-ran the
 	// schema file would look.
-	if _, err := c.pool.Exec(ctx, `ALTER TABLE beacon_events DROP COLUMN IF EXISTS click_source`); err != nil {
+	//
+	// On a second connection, as whoever owns the schema. The checker
+	// stays as panel_user - that is the point of this suite - and
+	// panel_user cannot ALTER anything, which is correct and is exactly
+	// why the arrangement has to be two connections rather than one.
+	// Doing the DDL through the checker's own pool is what the first
+	// version did, and it worked only because the development database
+	// let the panel own the beacon's table.
+	admin := adminPool(t)
+	if _, err := admin.Exec(ctx, `ALTER TABLE beacon_events DROP COLUMN IF EXISTS click_source`); err != nil {
 		t.Fatalf("dropping column: %v", err)
 	}
-	// Registered after the pool's own cleanup, so it runs before it:
-	// t.Cleanup is last-in-first-out, and the column has to go back
-	// while there is still a connection to put it back with.
 	t.Cleanup(func() {
-		_, _ = c.pool.Exec(context.Background(),
-			`ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS click_source TEXT NOT NULL DEFAULT ''`)
+		if _, err := admin.Exec(context.Background(),
+			`ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS click_source TEXT NOT NULL DEFAULT ''`); err != nil {
+			t.Errorf("putting click_source back: %v - the database is now missing a column", err)
+		}
 	})
 
 	got := find(t, c.Run(ctx, Config{}), "schema.columns")
@@ -102,9 +140,14 @@ func TestPreflight_CatchesAPanelRoleThatCanReadAnalytics(t *testing.T) {
 	c := newTestChecker(t)
 	ctx := context.Background()
 
-	// The suite's own role is the superuser-ish `collector`, which by
-	// construction can read everything - so pointing the check at it must
-	// fail. That is the check working, not the deployment being wrong.
+	// Pointed at `collector`, which legitimately holds SELECT on
+	// traffic_snapshots - so a deployment that named it as the panel's
+	// role would be one where the panel can read analytics, and this
+	// check must fail. That is the check working, not the deployment
+	// being wrong.
+	//
+	// It has to name another role rather than rely on this suite's own,
+	// which is now panel_user and correctly holds nothing there.
 	got := find(t, c.Run(ctx, Config{
 		Roles: Roles{Panel: "collector"},
 	}), "grants.panel_isolation")

@@ -8,7 +8,7 @@
 // change that actually has to survive the store's transaction.
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/panel/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/panel/web/ -run TestSignIn -v
 
 package web

@@ -8,7 +8,7 @@
 // be. Run with:
 //
 //	docker compose up -d
-//	psql "postgres://collector:collector@localhost:5432/analytics" -f internal/storage/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/api/... -v
 
 package api
@@ -21,10 +21,17 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The read API's own role. It holds SELECT on both analytics tables and
+// nothing else, which is what the process it stands for holds.
+//
+// Seeding is a different job and uses a different role: rows in
+// traffic_snapshots come from the collector, rows in beacon_events from
+// the beacon, and removing either afterwards needs the schema's owner
+// because neither writer has DELETE. See internal/testdb for what that
+// separation was hiding.
 
 // seedRow is one row to insert for a test.
 type seedRow struct {
@@ -69,29 +76,25 @@ func newTestStoreWithJA4(t *testing.T, marker string, rows []seedRow) *Store {
 func seedStore(t *testing.T, rows []seedRow, ja4For func(seedRow) string) *Store {
 	t.Helper()
 
-	store, err := NewStore(context.Background(), testDatabaseURL)
+	store, err := NewStore(context.Background(), testdb.DSN(testdb.Reader))
 	if err != nil {
-		t.Fatalf("NewStore: %v (is `docker compose up -d` running, with internal/storage/schema.sql applied?)", err)
+		t.Fatalf("NewStore: %v (is the database up and installed?)", err)
 	}
 	t.Cleanup(store.Close)
 
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	seededSites := map[string]struct{}{}
+	// Cleared through the owner, before and after: neither writer holds
+	// DELETE on an analytics table, deliberately.
+	var seededSites []string
+	seen := map[string]bool{}
 	for _, r := range rows {
-		seededSites[r.site] = struct{}{}
-	}
-	t.Cleanup(func() {
-		for site := range seededSites {
-			if _, err := pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE site_id = $1`, site); err != nil {
-				t.Logf("cleanup: deleting site %s failed: %v", site, err)
-			}
+		if !seen[r.site] {
+			seen[r.site] = true
+			seededSites = append(seededSites, r.site)
 		}
-	})
+	}
+	testdb.CleanSite(t, testdb.Admin(t), seededSites...)
+
+	pool := testdb.Pool(t, testdb.Collector)
 
 	for _, r := range rows {
 		_, err := pool.Exec(context.Background(), `

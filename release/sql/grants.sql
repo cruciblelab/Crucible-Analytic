@@ -75,3 +75,33 @@ GRANT SELECT, INSERT, UPDATE ON service_heartbeat
 -- verify.sql asserts the absence, because a privilege nobody granted and
 -- a privilege nobody checked look identical from here.
 GRANT SELECT ON panel_settings TO collector, beacon_writer;
+
+-- The address ranges the collector and the beacon look ASN and country
+-- up in.
+--
+-- Missing entirely until an end-to-end run of the installed package went
+-- looking. Both services build an asnlookup.Resolver against these two
+-- tables and both refresh them - TRUNCATE and COPY, in one transaction -
+-- and neither held a single privilege on either. The failure is quiet by
+-- design: cmd/collector logs "failed to set up ASN/country lookup,
+-- continuing without it" and carries on, because losing geography must
+-- not take down the traffic path. So every installed deployment ran with
+-- the ASN and country columns permanently empty, and the only symptom
+-- was a breakdown page that looked like a quiet week.
+--
+-- The third hole of exactly this shape found in one afternoon, and all
+-- three had the same cause: the development database was created by the
+-- role the tests connect as, so it owned every table and no missing
+-- grant could ever show up. A test fixture that is more privileged than
+-- production does not test production.
+--
+-- TRUNCATE and not just DELETE: the refresh replaces the whole table,
+-- and a row-by-row delete of a routing table is a different operation
+-- with different costs. It adds no authority - a role that may INSERT
+-- every row may already replace the contents.
+--
+-- Both services, because both refresh. They hold the same data and the
+-- TRUNCATE takes an exclusive lock, so two refreshes serialise rather
+-- than interleave.
+GRANT SELECT, INSERT, TRUNCATE ON ip_asn_ranges, ip_country_ranges
+  TO collector, beacon_writer;

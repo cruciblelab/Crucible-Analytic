@@ -374,10 +374,18 @@ func (c *Checker) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	for table, columns := range expected {
 		for _, column := range columns {
 			var exists bool
+			// pg_catalog for the same reason as missingTables:
+			// information_schema.columns is filtered by the current
+			// user's privileges, and the panel deliberately has none on
+			// beacon_events. Asked through information_schema, every
+			// column of that table was missing on every real install.
 			err := c.pool.QueryRow(ctx, `
 				SELECT EXISTS (
-					SELECT 1 FROM information_schema.columns
-					WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2)`,
+					SELECT 1 FROM pg_catalog.pg_attribute a
+					JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+					JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+					WHERE n.nspname = 'public' AND c.relname = $1
+					  AND a.attname = $2 AND a.attnum > 0 AND NOT a.attisdropped)`,
 				table, column).Scan(&exists)
 			if err != nil {
 				result.Status, result.Detail = CheckFail, "Sütunlar sorgulanamadı: "+err.Error()
@@ -702,10 +710,36 @@ func (c *Checker) checkRetentionPolicies(ctx context.Context) CheckResult {
 }
 
 // missingTables returns which of want do not exist.
+//
+// pg_catalog, not information_schema, and the reason is the same one
+// written out under roleHasPrivilege below - which was already there,
+// two functions away, while this query did the exact thing it warns
+// about.
+//
+// information_schema.tables lists only tables the current user holds
+// some privilege on. The panel connects as panel_user, which by design
+// holds none at all on traffic_snapshots or beacon_events: that
+// isolation is the property the whole product rests on. So on every
+// correctly installed deployment this check reported the two analytics
+// tables as *missing*, the wizard's database step failed, and a failed
+// required check blocks handover - meaning the developer could never
+// give the deployment to its owner.
+//
+// It passed in development because the database there had been created
+// by the role the tests connect as, so that role owned everything and
+// information_schema showed it everything. The check was measuring the
+// fixture.
+//
+// pg_class answers "does this table exist" for anybody who can connect,
+// which is the question actually being asked. Whether the panel may
+// *read* those tables is a different question, asked elsewhere with
+// has_table_privilege, and the answer there is supposed to be no.
 func (c *Checker) missingTables(ctx context.Context, want []string) ([]string, error) {
 	rows, err := c.pool.Query(ctx, `
-		SELECT table_name FROM information_schema.tables
-		WHERE table_schema = 'public' AND table_name = ANY($1)`, want)
+		SELECT c.relname FROM pg_catalog.pg_class c
+		JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+		WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+		  AND c.relname = ANY($1)`, want)
 	if err != nil {
 		return nil, err
 	}

@@ -10,7 +10,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The role the panel actually runs as.
+//
+// It was `collector` until an end-to-end run of the installed package
+// showed why that mattered: the development database had been created by
+// collector, so collector owned every table and this suite ran with
+// authority no deployment grants it. Three real holes were hiding behind
+// that - a retention feature that had never worked, two ungranted
+// tables - and none of them could have been caught from here.
+//
+// A suite that tests a role-separated design has to connect as the role.
+const testDatabaseURL = "postgres://panel_user:panel_user@localhost:5432/analytics"
 
 // testKeyPrefix namespaces every row this suite writes.
 //
@@ -32,7 +42,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
 	if err != nil {
-		t.Fatalf("pgxpool.New: %v (is docker compose up, with the panel schema applied?)", err)
+		t.Fatalf("pgxpool.New: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(pool.Close)
 	t.Cleanup(func() {

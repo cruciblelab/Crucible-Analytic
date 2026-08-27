@@ -66,9 +66,42 @@ psql_super() {
   fi
 }
 
+# dsn_for_db returns a DSN pointed at a named database.
+#
+# This exists because psql_db used to pass SUPERUSER_DSN through
+# untouched, which meant --db was silently ignored whenever a DSN was
+# given. Measured, with SUPERUSER_DSN naming `postgres` and --db
+# analytics: the script created an empty `analytics` and then applied
+# every schema, every grant and every REVOKE to the maintenance
+# database. The install reported success, because verify.sql asked
+# `current_database()` - and so it was checking the database it had
+# just hardened by accident.
+#
+# It survived a suite that runs install.sh a dozen times because every
+# one of those runs passed a DSN that already named the target
+# database: the single arrangement in which the two disagree about
+# nothing. The `sudo -u postgres` path below was always correct, which
+# is why the bug never appeared on a real server - only on the path a
+# container uses, where the database is reached over TCP.
+#
+# The override is a trailing one in both DSN forms, measured against
+# libpq rather than assumed. A URI takes ?dbname= - or &dbname= when it
+# already carries a query - and libpq lets that beat the path. A
+# keyword string takes a second dbname=, where the last wins.
+dsn_for_db() {
+  case "$1" in
+    postgres://*|postgresql://*)
+      case "$1" in
+        *\?*) printf '%s&dbname=%s' "$1" "$2" ;;
+        *)    printf '%s?dbname=%s' "$1" "$2" ;;
+      esac ;;
+    *) printf '%s dbname=%s' "$1" "$2" ;;
+  esac
+}
+
 psql_db() {
   if [ -n "${SUPERUSER_DSN}" ]; then
-    ${PSQL} "${SUPERUSER_DSN}" "$@"
+    ${PSQL} "$(dsn_for_db "${SUPERUSER_DSN}" "${DB_NAME}")" "$@"
   else
     sudo -u postgres ${PSQL} -d "${DB_NAME}" "$@"
   fi
@@ -96,6 +129,16 @@ say "preflight"
 command -v psql >/dev/null || die "psql is not installed"
 [ -f "${HERE}/sql/grants.sql" ] || die "release/sql/grants.sql is missing; run this from the package"
 [ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
+
+# The database name reaches SQL as a bare identifier - CREATE DATABASE
+# takes no bound parameter - so it is checked here rather than quoted at
+# each of its uses. Whoever runs this script is already root, so this is
+# not a privilege boundary; it is the difference between a typo that
+# stops the install and a typo that runs as SQL. The same check keeps
+# the name safe to append to a DSN, which dsn_for_db does.
+case "${DB_NAME}" in
+  *[!A-Za-z0-9_]*|"") die "database name ${DB_NAME:-(empty)} is not a bare identifier (letters, digits and _)" ;;
+esac
 
 if [ "${DRY_RUN}" -eq 1 ]; then
   say "dry run: nothing will be changed"
@@ -178,7 +221,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   else
     for f in internal/panel/schema.sql internal/storage/schema.sql \
              internal/beacon/schema.sql internal/asnlookup/schema.sql \
-             internal/heartbeat/schema.sql; do
+             internal/heartbeat/schema.sql internal/retention/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi
@@ -242,12 +285,17 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   # regenerated: the site id in particular is the thing KURULUM.md calls
   # irreversible, because every stored row is keyed by it. Re-running this
   # script must not touch one.
+  declare -A FRESH_CONF=()
   copy_example() {
     src="$1"; dst="${CONF_DIR}/$2"
     [ -f "${dst}" ] && return 0
     for candidate in "${ROOT}/$1" "${HERE}/../ornek-yapilandirma/$1"; do
       if [ -f "${candidate}" ]; then
         install -m 0640 "${candidate}" "${dst}"
+        # Recorded so the password writer below can tell a file this run
+        # created - every value in it is still an example - from one an
+        # operator has been editing.
+        FRESH_CONF["$2"]=1
         say "   wrote ${dst}"
         return 0
       fi
@@ -258,6 +306,87 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   copy_example beacon.example.toml        beacon.toml
   copy_example analytics-api.example.toml analytics-api.toml
   copy_example panel.example.toml         panel.toml
+
+  # ---- the four database passwords ----
+  #
+  # The script generated these a hundred lines ago and used to print
+  # them with "put them in the matching configuration files", leaving
+  # four passwords to be retyped into four files by hand - in a script
+  # that goes to considerable trouble, immediately below, to stop
+  # exactly that happening with one key.
+  #
+  # It is not merely tedious. An unattended install - a container image
+  # built per customer, which is how this product is meant to be
+  # deployed - has nobody to read the screen, so it produced four
+  # configuration files that could not connect and four services that
+  # would not start. Found by installing the package and trying to run
+  # it.
+  #
+  # Written only into a file this run created, and only for a role this
+  # run created. Both halves matter. A role that already existed keeps
+  # its password, which this script does not know, so there is nothing
+  # to write; and a configuration file that was already here may hold a
+  # working password that this script must not overwrite.
+  #
+  # Only the password and the database name are replaced. The host is
+  # left as the example wrote it, because an operator pointing at a
+  # database on another machine edits that line and nothing here should
+  # undo it.
+  write_role_password() {
+    role="$1"; file="$2"; key="$3"
+    [ -n "${ROLE_PW[${role}]:-}" ] || return 0
+    [ -n "${FRESH_CONF[${file}]:-}" ] || return 0
+    f="${CONF_DIR}/${file}"
+    [ -f "${f}" ] || return 0
+
+    # newsecret produces hex, so the password cannot carry a character
+    # sed would read as syntax. That is a property of the generator
+    # rather than of this line, which is why it is said here: a generator
+    # that grew a wider alphabet would break this quietly.
+    sed -i -E "s|^([[:space:]]*${key}[[:space:]]*=[[:space:]]*\"postgres://${role}:)[^@]*(@[^/\"]*/)[^\"]*(\")|\1${ROLE_PW[${role}]}\2${DB_NAME}\3|" "${f}"
+    say "   wrote ${role}'s password into ${file}"
+  }
+  write_role_password collector        collector.toml     timescale_dsn
+  write_role_password beacon_writer    beacon.toml        timescale_dsn
+  write_role_password analytics_reader analytics-api.toml timescale_dsn
+  write_role_password panel_user       panel.toml         panel_dsn
+
+  # And the check that makes the writing worth anything: use what the
+  # file now says, as the service will.
+  #
+  # Read back out of the file rather than taken from the variable - the
+  # question is what the service is going to use, and only the file can
+  # answer it.
+  #
+  # Three questions, and the third is deliberately not "did the password
+  # work". Measured on the development cluster: pg_hba.conf there says
+  # `trust`, so psql connects with any password at all and a check that
+  # only tried to connect would have reported four correct passwords
+  # while the files held four wrong ones. So the password is compared
+  # against what was generated - a text question, true on every cluster -
+  # and the connection is used for the thing it can actually answer:
+  # that the DSN lands as the right role in the right database, which is
+  # what catches a mangled host or a database name left at the example's.
+  check_role_dsn() {
+    role="$1"; file="$2"; key="$3"
+    [ -n "${ROLE_PW[${role}]:-}" ] || return 0
+    [ -n "${FRESH_CONF[${file}]:-}" ] || return 0
+    dsn="$(sed -nE "s|^[[:space:]]*${key}[[:space:]]*=[[:space:]]*\"(.+)\"|\1|p" "${CONF_DIR}/${file}" | head -n1)"
+    [ -n "${dsn}" ] || die "${file} has no ${key} after writing one"
+
+    case "${dsn}" in
+      *":${ROLE_PW[${role}]}@"*) ;;
+      *) die "${file}'s ${key} does not carry the password this install generated for ${role}" ;;
+    esac
+
+    where="$(${PSQL} "${dsn}" -tAc "SELECT current_user || '@' || current_database()" 2>/dev/null || true)"
+    [ "${where}" = "${role}@${DB_NAME}" ] \
+      || die "${file}'s ${key} reaches ${where:-nothing}, not ${role}@${DB_NAME}"
+  }
+  check_role_dsn collector        collector.toml     timescale_dsn
+  check_role_dsn beacon_writer    beacon.toml        timescale_dsn
+  check_role_dsn analytics_reader analytics-api.toml timescale_dsn
+  check_role_dsn panel_user       panel.toml         panel_dsn
 
   # ---- the IP token key ----
   #
@@ -415,17 +544,58 @@ cat <<TLS
 TLS
 
 say "done"
-if [ "${#ROLE_PW[@]}" -gt 0 ]; then
+
+# What is left for a person to do about the four passwords, which is
+# now usually nothing.
+#
+# Split into the two cases rather than printing all four, because they
+# want opposite things. A password already written into a fresh config
+# file needs no action, and printing it puts a working credential into a
+# terminal buffer, a scrollback and whatever captured this script's
+# output for no benefit. A password generated for a role whose config
+# file was already here does need a person, because this script will not
+# overwrite a file it did not create.
+declare -a NEEDS_HAND=()
+if [ "${DRY_RUN}" -eq 0 ] && [ "${#ROLE_PW[@]}" -gt 0 ]; then
+  for role in collector beacon_writer analytics_reader panel_user; do
+    [ -n "${ROLE_PW[${role}]:-}" ] || continue
+    case "${role}" in
+      collector)        file=collector.toml ;;
+      beacon_writer)    file=beacon.toml ;;
+      analytics_reader) file=analytics-api.toml ;;
+      panel_user)       file=panel.toml ;;
+    esac
+    [ -n "${FRESH_CONF[${file}]:-}" ] || NEEDS_HAND+=("${role} ${file}")
+  done
+fi
+
+if [ "${#NEEDS_HAND[@]}" -gt 0 ]; then
   cat <<'SECRETS'
 
-Role passwords, generated once and shown once. Put them in the matching
-configuration files before starting anything. Roles that already existed
-are not listed: their passwords were left alone, because this script does
-not read the configuration files that hold them.
+These roles were created now, and their configuration files were already
+here - so this script did not touch them. It never overwrites a file it
+did not write, because that file may hold a working password, a site id
+that cannot be regenerated, or both.
+
+Put each password into the DSN in the file beside it, and start nothing
+before you have. Shown once; only the hash is kept.
 
 SECRETS
-  for role in collector beacon_writer analytics_reader panel_user; do
-    [ -n "${ROLE_PW[${role}]:-}" ] && printf '  %-18s %s\n' "${role}" "${ROLE_PW[${role}]}"
+  for entry in "${NEEDS_HAND[@]}"; do
+    set -- ${entry}
+    printf '  %-18s %-20s %s\n' "$1" "$2" "${ROLE_PW[$1]}"
   done
   echo
+elif [ "${#ROLE_PW[@]}" -gt 0 ]; then
+  cat <<'SECRETS'
+
+The four database passwords were generated and written into the
+configuration files. Each file was read back and checked: it carries the
+password this run generated, and its DSN reaches that role in this
+database.
+
+They are not printed. They are in the files, which are mode 0640, and a
+password on a terminal is a password in a scrollback.
+
+SECRETS
 fi

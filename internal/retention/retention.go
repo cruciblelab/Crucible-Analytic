@@ -274,26 +274,27 @@ func (m *Manager) run(ctx context.Context, policy Policy, dry bool) (Report, err
 
 // setPolicy installs or replaces the hypertable's retention policy.
 //
-// add_retention_policy takes the interval as a value, so the number is a
-// bound parameter. The table name cannot be - it is an identifier, and
-// the function will not accept a placeholder there - which is exactly
-// why Table is a closed set validated on the way in. The only strings
-// that reach this line are the two constants at the top of this file.
+// Through ca_set_retention rather than TimescaleDB's own function, and
+// that is not indirection for its own sake. add_retention_policy
+// requires the caller to *own* the hypertable - measured, on a
+// database installed by release/install.sh:
+//
+//	ERROR:  must be owner of hypertable "traffic_snapshots"
+//
+// even with EXECUTE granted explicitly. The tables belong to the
+// superuser that installed them, as they should, so this package can
+// only ever reach them through something that runs as their owner. See
+// schema.sql for the whole argument, including what the wrapper
+// deliberately does not allow.
+//
+// Both arguments are bound parameters now, the table included: it is a
+// value to this function rather than an identifier, which is a smaller
+// surface than the closed-set-of-constants rule that used to be the
+// only thing keeping it safe.
 func (m *Manager) setPolicy(ctx context.Context, days int) error {
-	interval := fmt.Sprintf("%d days", days)
-
-	// Removed first rather than relying on if_exists semantics to
-	// replace it: TimescaleDB refuses a second policy on the same
-	// hypertable, so "add" alone would fail on every change after the
-	// first, and the failure would look like a permissions problem.
 	if _, err := m.pool.Exec(ctx,
-		`SELECT remove_retention_policy($1, if_exists => true)`, string(m.table)); err != nil {
-		return fmt.Errorf("retention: remove existing policy on %s: %w", m.table, err)
-	}
-	if _, err := m.pool.Exec(ctx,
-		`SELECT add_retention_policy($1, drop_after => $2::interval)`,
-		string(m.table), interval); err != nil {
-		return fmt.Errorf("retention: add policy on %s: %w", m.table, err)
+		`SELECT ca_set_retention($1, $2)`, string(m.table), days); err != nil {
+		return fmt.Errorf("retention: set policy on %s: %w", m.table, err)
 	}
 	return nil
 }
@@ -304,40 +305,24 @@ func (m *Manager) setPolicy(ctx context.Context, days int) error {
 // A row-level delete, and the only one in this package. It runs solely
 // for a site that asked to keep less than the deployment does, which is
 // the one thing chunk-dropping cannot express - see the package comment.
+// Through the same privileged wrappers as the policy, and for a
+// sharper reason here: grants.sql gives the collector SELECT and
+// INSERT and the beacon INSERT alone. Neither has ever held DELETE, so
+// this path failed on every installed deployment - and giving them
+// DELETE to fix it would let either erase its table entirely.
+// ca_trim_site_rows can only remove one named site's rows past a
+// bounded age, which is all this function has ever wanted to do.
 func (m *Manager) trimSite(ctx context.Context, site string, days int, dry bool) (int64, error) {
-	cutoff := fmt.Sprintf("%d days", days)
-
+	fn := `SELECT ca_trim_site_rows($1, $2, $3)`
+	what := "trim"
 	if dry {
-		var n int64
-		err := m.pool.QueryRow(ctx, m.countSQL(), site, cutoff).Scan(&n)
-		if err != nil {
-			return 0, fmt.Errorf("retention: count %s rows for %s: %w", m.table, site, err)
-		}
-		return n, nil
+		fn = `SELECT ca_count_site_rows($1, $2, $3)`
+		what = "count"
 	}
 
-	tag, err := m.pool.Exec(ctx, m.deleteSQL(), site, cutoff)
-	if err != nil {
-		return 0, fmt.Errorf("retention: trim %s for %s: %w", m.table, site, err)
+	var n int64
+	if err := m.pool.QueryRow(ctx, fn, string(m.table), site, days).Scan(&n); err != nil {
+		return 0, fmt.Errorf("retention: %s %s rows for %s: %w", what, m.table, site, err)
 	}
-	return tag.RowsAffected(), nil
-}
-
-// countSQL and deleteSQL pair the two statements for one table.
-//
-// Written as complete literals per table rather than assembled from a
-// name, so that what runs is visible in full at the point it is read.
-// The site and the cutoff are bound parameters in every one of them.
-func (m *Manager) countSQL() string {
-	if m.table == TableTrafficSnapshots {
-		return `SELECT count(*) FROM traffic_snapshots WHERE site_id = $1 AND time < now() - $2::interval`
-	}
-	return `SELECT count(*) FROM beacon_events WHERE site_id = $1 AND time < now() - $2::interval`
-}
-
-func (m *Manager) deleteSQL() string {
-	if m.table == TableTrafficSnapshots {
-		return `DELETE FROM traffic_snapshots WHERE site_id = $1 AND time < now() - $2::interval`
-	}
-	return `DELETE FROM beacon_events WHERE site_id = $1 AND time < now() - $2::interval`
+	return n, nil
 }

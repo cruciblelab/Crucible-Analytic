@@ -37,7 +37,7 @@ panel_dsn = "postgres://panel_user:PAROLA@localhost:5432/analytics"
 #
 # Boş bırakmak desteklenen bir durum — site sayfaları "sayılar şu an
 # okunamıyor" der ve panel ayakta kalır.
-analytics_api_url = "http://127.0.0.1:8080"
+analytics_api_url = "http://127.0.0.1:8082"
 analytics_api_token = ""
 
 # Oturum çerezi Secure işaretlensin mi. Varsayılan: evet. Yalnız

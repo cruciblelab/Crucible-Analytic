@@ -9,7 +9,7 @@
 // what it was holding. Run with:
 //
 //	docker compose up -d
-//	psql "postgres://collector:collector@localhost:5432/analytics" -f internal/beacon/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/beacon/... -v
 
 package beacon
@@ -23,10 +23,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The beacon's own role for writing, a reader for looking at what it
+// wrote, and the schema's owner for taking it away again.
+//
+// Three connections where there was one, because that is how many the
+// deployment has. beacon_writer holds INSERT on beacon_events and
+// nothing else - not SELECT, not DELETE - so a suite that writes a row,
+// reads it back and cleans up cannot do all three as the beacon. It did,
+// for years, because the development database had been created by the
+// role the tests connected as. See internal/testdb.
 
 // newTestWriter opens a Writer against the real database and deletes
 // everything it wrote for siteID afterwards. Every test uses a site_id
@@ -35,32 +43,23 @@ const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics
 func newTestWriter(t *testing.T, siteID string, cfg WriterConfig) *Writer {
 	t.Helper()
 
-	writer, err := NewWriter(context.Background(), testDatabaseURL, cfg)
+	// Registered before the writer is built, so it runs after the
+	// writer's own Close: t.Cleanup is last-in-first-out, and rows have
+	// to be removed once nothing is still flushing them in.
+	testdb.CleanSite(t, testdb.Admin(t), siteID)
+
+	writer, err := NewWriter(context.Background(), testdb.DSN(testdb.Beacon), cfg)
 	if err != nil {
-		t.Fatalf("NewWriter: %v (is docker compose up and the schema applied?)", err)
+		t.Fatalf("NewWriter: %v (is the database up and installed?)", err)
 	}
-	t.Cleanup(func() {
-		pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-		if err != nil {
-			t.Logf("cleanup: %v", err)
-			return
-		}
-		defer pool.Close()
-		if _, err := pool.Exec(context.Background(), `DELETE FROM beacon_events WHERE site_id = $1`, siteID); err != nil {
-			t.Logf("cleanup: %v", err)
-		}
-		writer.Close()
-	})
+	t.Cleanup(writer.Close)
 	return writer
 }
 
 func countRows(t *testing.T, siteID string) int {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pool: %v", err)
-	}
-	defer pool.Close()
+	// As the API's role: the beacon cannot read what it wrote.
+	pool := testdb.Pool(t, testdb.Reader)
 
 	var n int
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM beacon_events WHERE site_id = $1`, siteID).Scan(&n); err != nil {
@@ -108,14 +107,10 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 		t.Fatalf("WriteRows: %v", err)
 	}
 
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pool: %v", err)
-	}
-	defer pool.Close()
+	pool := testdb.Pool(t, testdb.Reader)
 
 	var got Row
-	err = pool.QueryRow(context.Background(), `
+	err := pool.QueryRow(context.Background(), `
 		SELECT time, site_id, visitor_id, event_type, event_name,
 		       path, query, title, referrer_host, referrer_path,
 		       ip, browser, os, device, is_bot_ua,
@@ -278,11 +273,11 @@ func TestWriter_RealTimescaleDB_JoinsToTrafficSnapshotsByIP(t *testing.T) {
 	site := "beacon-join-test"
 	writer := newTestWriter(t, site, WriterConfig{})
 
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pool: %v", err)
-	}
-	defer pool.Close()
+	// The collector's rows go in as the collector, and the join is read
+	// as the API - which is the only role that may see both tables, and
+	// the reason the crossover view lives behind that API.
+	seed := testdb.Pool(t, testdb.Collector)
+	pool := testdb.Pool(t, testdb.Reader)
 	ctx := context.Background()
 
 	now := time.Now().UTC()
@@ -290,26 +285,13 @@ func TestWriter_RealTimescaleDB_JoinsToTrafficSnapshotsByIP(t *testing.T) {
 	ranJS := netip.MustParseAddr("203.0.113.50")
 	silent := netip.MustParseAddr("203.0.113.51")
 	for _, ip := range []netip.Addr{ranJS, silent} {
-		if _, err := pool.Exec(ctx, `
+		if _, err := seed.Exec(ctx, `
 			INSERT INTO traffic_snapshots
 			  (time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score)
 			VALUES ($1, $2, $3, 'x', 1, 1, 1.0, 10)`, now, site, ip); err != nil {
 			t.Fatalf("seed traffic_snapshots: %v", err)
 		}
 	}
-	t.Cleanup(func() {
-		// A fresh pool: the one above is closed by this function's own
-		// defer, which runs before any t.Cleanup does.
-		cleanupPool, err := pgxpool.New(context.Background(), testDatabaseURL)
-		if err != nil {
-			t.Logf("cleanup traffic_snapshots: %v", err)
-			return
-		}
-		defer cleanupPool.Close()
-		if _, err := cleanupPool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE site_id = $1`, site); err != nil {
-			t.Logf("cleanup traffic_snapshots: %v", err)
-		}
-	})
 
 	beaconRow := testRow(site, "/landing")
 	beaconRow.IP = ranJS
@@ -362,11 +344,7 @@ func TestWriter_RealTimescaleDB_StoresIPv6(t *testing.T) {
 		t.Fatalf("WriteRows: %v", err)
 	}
 
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pool: %v", err)
-	}
-	defer pool.Close()
+	pool := testdb.Pool(t, testdb.Reader)
 
 	var got netip.Addr
 	if err := pool.QueryRow(context.Background(), `SELECT ip FROM beacon_events WHERE site_id = $1`, site).Scan(&got); err != nil {

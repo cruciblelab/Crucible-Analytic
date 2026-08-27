@@ -31,10 +31,20 @@ import (
 // real setting, and the same link then refuses to open a second time.
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/panel/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/panel/web/ -run TestSetupFlow -v
 
-const testDatabaseURL = "postgres://collector:collector@localhost:5432/analytics"
+// The role the panel actually runs as.
+//
+// It was `collector` until an end-to-end run of the installed package
+// showed why that mattered: the development database had been created by
+// collector, so collector owned every table and this suite ran with
+// authority no deployment grants it. Three real holes were hiding behind
+// that - a retention feature that had never worked, two ungranted
+// tables - and none of them could have been caught from here.
+//
+// A suite that tests a role-separated design has to connect as the role.
+const testDatabaseURL = "postgres://panel_user:panel_user@localhost:5432/analytics"
 
 const testDevPassword = "kurulum-sihirbazi-parolasi"
 
@@ -88,7 +98,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 
 	store, err := panel.NewStore(context.Background(), testDatabaseURL)
 	if err != nil {
-		t.Fatalf("NewStore: %v (is docker compose up, with internal/panel/schema.sql applied?)", err)
+		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(store.Close)
 	lockPanelDatabase(t, store.Pool())

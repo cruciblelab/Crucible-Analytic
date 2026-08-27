@@ -153,6 +153,73 @@ UNION ALL SELECT 'no service role owns a background job',
          SELECT 1 FROM timescaledb_information.jobs
          WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user'))
 
+-- The address ranges, which nothing granted until an installed run went
+-- looking. Both writers refresh them; nobody else has any business in
+-- them at all.
+UNION ALL SELECT 'the writers can refresh the address ranges',
+       has_table_privilege('collector', 'ip_asn_ranges', 'SELECT')
+   AND has_table_privilege('collector', 'ip_asn_ranges', 'INSERT')
+   AND has_table_privilege('collector', 'ip_asn_ranges', 'TRUNCATE')
+   AND has_table_privilege('collector', 'ip_country_ranges', 'SELECT')
+   AND has_table_privilege('beacon_writer', 'ip_asn_ranges', 'SELECT')
+   AND has_table_privilege('beacon_writer', 'ip_country_ranges', 'TRUNCATE')
+UNION ALL SELECT 'the panel cannot see the address ranges',
+       NOT has_table_privilege('panel_user', 'ip_asn_ranges', 'SELECT')
+   AND NOT has_table_privilege('panel_user', 'ip_country_ranges', 'SELECT')
+
+-- Retention, which the revoke above would otherwise have turned off.
+--
+-- The collector applies a retention policy at every start and cannot
+-- own the hypertable, so it reaches TimescaleDB through the SECURITY
+-- DEFINER wrappers in internal/retention/schema.sql. Three facts about
+-- them, and the third is the one that would turn the fix into a hole.
+UNION ALL SELECT 'the retention wrappers are installed',
+       (SELECT count(*) FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public'
+          AND p.proname IN ('ca_set_retention', 'ca_trim_site_rows',
+                            'ca_count_site_rows', 'ca_check_retention_caller')) = 4
+UNION ALL SELECT 'the two writers can ask for a retention interval',
+       has_function_privilege('collector', 'public.ca_set_retention(text, integer)', 'EXECUTE')
+   AND has_function_privilege('beacon_writer', 'public.ca_set_retention(text, integer)', 'EXECUTE')
+
+-- PostgreSQL grants EXECUTE on a new function to PUBLIC. A SECURITY
+-- DEFINER function left at that default runs as its owner for anybody
+-- who can connect, which is the precise shape of what section 3 above
+-- was written to close - so the wrappers would have reopened it.
+UNION ALL SELECT 'PUBLIC cannot call the retention wrappers',
+       NOT EXISTS (
+         SELECT 1 FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname IN ('ca_set_retention', 'ca_trim_site_rows',
+                             'ca_count_site_rows', 'ca_check_retention_caller')
+           AND has_function_privilege('public', p.oid, 'EXECUTE'))
+
+-- A SECURITY DEFINER function that inherits the caller's search_path
+-- lets the caller decide which add_retention_policy runs. Asserted
+-- rather than trusted to the file that declares it, because a later
+-- CREATE OR REPLACE that forgets the SET is a one-line change with no
+-- visible symptom.
+UNION ALL SELECT 'every retention wrapper pins its search_path',
+       NOT EXISTS (
+         SELECT 1 FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname IN ('ca_set_retention', 'ca_trim_site_rows',
+                             'ca_count_site_rows', 'ca_check_retention_caller')
+           AND (NOT p.prosecdef
+                OR p.proconfig IS NULL
+                OR NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c
+                                WHERE c LIKE 'search\_path=%')))
+
+-- And the privilege the wrappers exist instead of. A writer that held
+-- DELETE could empty its own table in one statement; through the
+-- wrapper it can only remove one named site's rows past a bounded age.
+UNION ALL SELECT 'neither writer holds DELETE on its own table',
+       NOT has_table_privilege('collector', 'traffic_snapshots', 'DELETE')
+   AND NOT has_table_privilege('beacon_writer', 'beacon_events', 'DELETE')
+
 -- The heartbeat table, and the one rule a GRANT cannot express.
 --
 -- Four services write to one table, so "only your own row" has to come

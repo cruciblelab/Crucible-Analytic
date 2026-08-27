@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
@@ -31,10 +31,8 @@ const technicalSite = "d3-teknik"
 // decoder was wired to the right field.
 func seedEnriched(t *testing.T, site string, when time.Time) {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// As the collector: these are its rows.
+	pool := testdb.Pool(t, testdb.Collector)
 	t.Cleanup(pool.Close)
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(),

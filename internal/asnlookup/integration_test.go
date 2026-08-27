@@ -9,8 +9,8 @@
 // the pool-open-and-ping in NewResolver. Run it with:
 //
 //	docker compose up -d
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	docker compose ps --format '{{.Name}}: {{.Health}}' # wait for healthy
-//	psql "postgres://collector:collector@localhost:5432/analytics" -f internal/asnlookup/schema.sql
 //	go test -tags integration ./internal/asnlookup/... -run TestResolver_RealTimescaleDB -v
 
 package asnlookup
@@ -27,7 +27,7 @@ func TestResolver_RealTimescaleDB_WriteCountryRangesThenReadBack(t *testing.T) {
 	ctx := context.Background()
 	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, "", nil)
 	if err != nil {
-		t.Fatalf("NewResolver: %v (is `docker compose up -d` running, with both schema.sql files applied?)", err)
+		t.Fatalf("NewResolver: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	// t.Cleanup, not defer, and in this order: a plain `defer r.Close()`
 	// would close the pool before a t.Cleanup-registered truncate ever
@@ -114,7 +114,7 @@ func TestResolver_RealTimescaleDB_WriteASNRangesThenReadBack(t *testing.T) {
 	ctx := context.Background()
 	r, err := NewResolver(ctx, testDatabaseURL, CacheConfig{MaxEntries: 100, TTL: 0}, "", nil)
 	if err != nil {
-		t.Fatalf("NewResolver: %v (is `docker compose up -d` running, with both schema.sql files applied?)", err)
+		t.Fatalf("NewResolver: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(r.Close)
 	t.Cleanup(func() {

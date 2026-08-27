@@ -50,8 +50,8 @@ Beş süreç, **tek veritabanı**, dört ayrı veritabanı rolü:
                            ^
                            | yalnız SELECT
                   +--------+---------+
-                  | analytics-api    |  (:8080, salt okunur)
-                  | (:8080)          |
+                  | analytics-api    |  salt okunur
+                  | (:8082)          |
                   +--------+---------+
                            ^ HTTP + Bearer
                            |
@@ -874,10 +874,10 @@ doğrulamak isterseniz:
 curl -sI http://127.0.0.1:8090/giris | head -1
 
 # 2. API ayakta mı
-curl -s http://127.0.0.1:8080/healthz
+curl -s http://127.0.0.1:8082/healthz
 
 # 3. Jeton çalışıyor mu (panelin jetonuyla)
-curl -s -H "Authorization: Bearer $JETON" http://127.0.0.1:8080/api/v1/sites
+curl -s -H "Authorization: Bearer $JETON" http://127.0.0.1:8082/api/v1/sites
 
 # 4. Collector satır yazıyor mu
 psql "$DSN" -c "SELECT count(*), max(time) FROM traffic_snapshots;"

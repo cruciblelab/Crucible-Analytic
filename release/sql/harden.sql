@@ -68,9 +68,27 @@ REVOKE CONNECT, TEMPORARY ON DATABASE :"dbname" FROM PUBLIC;
 -- background worker slots are a fixed cluster-wide pool, and jobs are
 -- scheduled from it.
 --
--- Nothing in this product schedules a job. Compression and retention
--- policies, if a deployment ever wants them, are applied by the
--- superuser that installs - which is where that decision belongs.
+-- The first version of this comment said "nothing in this product
+-- schedules a job", and that was false when it was written. The
+-- collector applies a retention policy at every start, which is a
+-- scheduled job, and this REVOKE broke it: an end-to-end run of the
+-- installed package found
+--
+--     retention: remove existing policy on traffic_snapshots:
+--     ERROR: permission denied for function remove_retention_policy
+--
+-- in the collector's log, both hypertables growing forever, and nothing
+-- anywhere reporting a fault. A claim about the rest of the system,
+-- made from inside one file and checked against nothing, is how a
+-- REVOKE that reads correctly turns off a feature.
+--
+-- The revoke stays, because what it closes is real. What changed is
+-- that the retention policy now goes through the SECURITY DEFINER
+-- wrappers in internal/retention/schema.sql: the job is created by, and
+-- owned by, the superuser that installed - which is where this comment
+-- always said the decision belonged, and now where it actually happens.
+-- The service roles can ask for a retention interval on their own
+-- table. They still cannot name a function and a schedule.
 --
 -- Revoked by a loop rather than by signature: add_job and alter_job have
 -- several overloads, they have gained arguments between TimescaleDB

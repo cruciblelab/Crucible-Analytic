@@ -949,3 +949,103 @@ func TestTheHeartbeatRefusesACrossServiceWrite(t *testing.T) {
 		})
 	})
 }
+
+// TestInstallHonoursTheDatabaseItWasGiven.
+//
+// The test that did not exist, and its absence is the whole story.
+//
+// psql_db used to pass SUPERUSER_DSN through untouched, so DB_NAME was
+// silently ignored whenever a DSN was given: the script created the
+// named database, left it empty, and applied every schema, every grant
+// and every REVOKE to whatever database the DSN happened to point at. It
+// then reported success, because verify.sql asks current_database() -
+// and so it was checking the database it had just hardened by accident.
+//
+// Every existing test here passes dsnFor(superuserDSN(t), db), which
+// already names the target. That is the single arrangement in which the
+// two cannot disagree, so a dozen runs of install.sh proved nothing
+// about the one line that was wrong. This test is the arrangement they
+// were all missing: a DSN naming one database, DB_NAME naming another.
+//
+// The `sudo -u postgres` path was always correct, which is why this
+// never appeared on a hand-installed server - only on the path a
+// container uses, where the database is reached over TCP.
+func TestInstallHonoursTheDatabaseItWasGiven(t *testing.T) {
+	const db = "ca_install_target"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	// The DSN points at `postgres`, the maintenance database, and DB_NAME
+	// at the scratch one. An install that ignores the second lands
+	// everything in the first.
+	base := superuserDSN(t)
+	root := repoRoot(t)
+	cmd := exec.Command("./release/install.sh")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(base, "postgres"),
+		"DB_NAME="+db,
+		"CONF_DIR="+t.TempDir(),
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install.sh failed: %v\n%s", err, out)
+	}
+
+	ctx := context.Background()
+	target, err := pgxpool.New(ctx, dsnFor(base, db))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Close()
+
+	// The database it was told to install into has the schema.
+	var tables int
+	if err := target.QueryRow(ctx,
+		`SELECT count(*) FROM pg_tables WHERE schemaname = 'public'`).Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables < 10 {
+		t.Errorf("%s holds %d tables after an install into it; the schemas went somewhere else", db, tables)
+	}
+
+	// And the one it was merely connected through does not.
+	//
+	// Named tables rather than a count: the maintenance database on a
+	// developer's cluster may legitimately hold other things, and a
+	// count would turn somebody else's table into a failure here.
+	maintenance, err := pgxpool.New(ctx, dsnFor(base, "postgres"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer maintenance.Close()
+	for _, table := range []string{"traffic_snapshots", "beacon_events", "panel_users"} {
+		var present bool
+		if err := maintenance.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+			  JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			  WHERE n.nspname = 'public' AND c.relname = $1)`, table).Scan(&present); err != nil {
+			t.Fatal(err)
+		}
+		if present {
+			t.Errorf("the maintenance database now holds %s; the install went into the database it "+
+				"connected through rather than the one it was given", table)
+		}
+	}
+
+	// The hardening landed on the target too. ALTER DATABASE and REVOKE
+	// take an explicit name, so they could be right while the schemas
+	// were wrong - which is exactly what happened: the two halves
+	// disagreed and verify.sql was the only thing that noticed.
+	var telemetry string
+	if err := target.QueryRow(ctx,
+		`SELECT current_setting('timescaledb.telemetry_level', true)`).Scan(&telemetry); err != nil {
+		t.Fatal(err)
+	}
+	if telemetry != "off" {
+		t.Errorf("telemetry on %s is %q; the hardening was applied to another database", db, telemetry)
+	}
+}

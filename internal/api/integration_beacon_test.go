@@ -8,8 +8,7 @@
 // isolates one customer's client-side data from another's. Run with:
 //
 //	docker compose up -d
-//	psql "$DSN" -f internal/storage/schema.sql
-//	psql "$DSN" -f internal/beacon/schema.sql
+//	./release/install.sh   # see internal/testdb for the whole recipe
 //	go test -tags integration ./internal/api/... -v
 
 package api
@@ -20,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 // beaconSeed is one beacon_events row to insert for a test.
@@ -58,32 +57,27 @@ type beaconSeed struct {
 func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 	t.Helper()
 
-	store, err := NewStore(context.Background(), testDatabaseURL)
+	store, err := NewStore(context.Background(), testdb.DSN(testdb.Reader))
 	if err != nil {
-		t.Fatalf("NewStore: %v (is docker compose up, with both schemas applied?)", err)
+		t.Fatalf("NewStore: %v (is the database up and installed?)", err)
 	}
 	t.Cleanup(store.Close)
 
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	t.Cleanup(pool.Close)
-
-	seeded := map[string]struct{}{}
+	var seeded []string
+	seen := map[string]bool{}
 	for _, r := range rows {
-		seeded[r.site] = struct{}{}
-	}
-	t.Cleanup(func() {
-		for site := range seeded {
-			if _, err := pool.Exec(context.Background(), `DELETE FROM beacon_events WHERE site_id = $1`, site); err != nil {
-				t.Logf("cleanup: deleting beacon rows for %s failed: %v", site, err)
-			}
-			if _, err := pool.Exec(context.Background(), `DELETE FROM traffic_snapshots WHERE site_id = $1`, site); err != nil {
-				t.Logf("cleanup: deleting snapshot rows for %s failed: %v", site, err)
-			}
+		if !seen[r.site] {
+			seen[r.site] = true
+			seeded = append(seeded, r.site)
 		}
-	})
+	}
+	testdb.CleanSite(t, testdb.Admin(t), seeded...)
+
+	// As the beacon, which is the process these rows come from. It holds
+	// INSERT and not SELECT, so nothing in this helper may read them
+	// back - that is the read API's job, and the read API is what these
+	// tests are for.
+	pool := testdb.Pool(t, testdb.Beacon)
 
 	for _, r := range rows {
 		eventType := r.eventType
@@ -123,11 +117,8 @@ func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 // seedBeacon already set up cleanup for.
 func seedSnapshotsFor(t *testing.T, rows []seedRow) {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatalf("pgxpool.New: %v", err)
-	}
-	defer pool.Close()
+	// As the collector: these are its rows.
+	pool := testdb.Pool(t, testdb.Collector)
 
 	for _, r := range rows {
 		_, err := pool.Exec(context.Background(), `

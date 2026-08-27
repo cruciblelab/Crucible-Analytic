@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 
 	"github.com/cruciblelab/crucible-analytic/internal/api"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
@@ -51,9 +51,14 @@ func shown(s string) string { return template.HTMLEscapeString(s) }
 func analyticsAPI(t *testing.T) (base, token string) {
 	t.Helper()
 
-	store, err := api.NewStore(context.Background(), testDatabaseURL)
+	// The read API's own role, not the panel's. This stands in for the
+	// separate analytics-api process, and that process is the only one
+	// allowed to read both analytics tables - the panel reaches them
+	// through it and never directly, which is the boundary these pages
+	// exist on the far side of.
+	store, err := api.NewStore(context.Background(), testdb.DSN(testdb.Reader))
 	if err != nil {
-		t.Fatalf("api.NewStore: %v (is docker compose up?)", err)
+		t.Fatalf("api.NewStore: %v (is the database up and installed?)", err)
 	}
 	t.Cleanup(store.Close)
 
@@ -81,17 +86,11 @@ func analyticsAPI(t *testing.T) (base, token string) {
 // dashboard will ask for.
 func seedTraffic(t *testing.T, site string, when time.Time, rows int) {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), testDatabaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM traffic_snapshots WHERE site_id = $1`, site)
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM beacon_events WHERE site_id = $1`, site)
-	})
+	// The collector's rows, written as the collector and cleared by the
+	// owner of the schema. The panel's role - which this suite otherwise
+	// runs as - can touch neither table, and that is the point.
+	testdb.CleanSite(t, testdb.Admin(t), site)
+	pool := testdb.Pool(t, testdb.Collector)
 
 	for i := range rows {
 		_, err := pool.Exec(context.Background(), `
