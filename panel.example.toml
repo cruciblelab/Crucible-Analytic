@@ -105,6 +105,32 @@ language = "tr"
 [developer_gate]
 password_hash = ""
 
+# Panelin şifreleme anahtarı: 32 bayt, 64 hex karakter ya da base64.
+# Kurulum betiği (release/install.sh) yoksa üretir ve buraya yazar. Elle
+# üretmek isterseniz:
+#
+#     openssl rand -hex 32
+#
+# **Tek bir işi var:** giden posta şifresini veritabanında şifreli
+# tutmak. Bu veritabanındaki geri okunabilir tek sır o — panel parolaları
+# argon2id, davetler ve jetonlar SHA-256, hiçbirinin aslına ihtiyaç yok.
+# SMTP şifresi ise her gönderimde karşı sunucuya verilmek zorunda, yani
+# geri okunabilir olmak zorunda.
+#
+# Neyi engellediği tam olarak şu: veritabanının yapılandırma dosyası
+# olmadan ele geçmesi. Gecelik yedek, hazırlık ortamına geri yükleme,
+# hizmet dışı bırakılmış bir kopya — hepsi düz metin bir sütunu çalışan
+# bir posta şifresine çevirir. Neyi engellemediği de aynı derecede net:
+# panel sürecine ya da bu dosyaya erişen birini durdurmaz.
+#
+# Boş bırakmak desteklenen bir durum: posta hesabı kaydedilemez, posta
+# sayfası bunu söyler, panelin geri kalanı çalışır.
+#
+# Değiştirirseniz kayıtlı posta şifresi açılmaz olur. Kaybedilecek tek
+# şey odur — posta sayfası durumu söyler, şifre yeniden yazılır. Bilerek
+# böyle: anahtar tek bir sütunu koruyor, şemaya dokunmuyor.
+# secret_key = ""
+
 # Collector'ın bilinen-bot dosyası. Panel bunu **yazmaz**; kurulum
 # sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
 # burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —

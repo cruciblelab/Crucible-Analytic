@@ -353,3 +353,87 @@ CREATE TABLE IF NOT EXISTS panel_recovery_codes (
 -- same work and answer the same way.
 CREATE INDEX IF NOT EXISTS idx_panel_recovery_user
     ON panel_recovery_codes (user_id) WHERE used_at IS NULL;
+
+-- The outgoing mail account. One per deployment.
+--
+-- A single row rather than a settings key, for three reasons that are all
+-- about the password.
+--
+-- It cannot be hashed. Everything else credential-shaped in this database
+-- is a digest - passwords are argon2id, invitations and API tokens and
+-- recovery codes are SHA-256 - because nothing needs the original. An
+-- SMTP password has to be handed to somebody else's server on every send,
+-- so it has to be readable, and that makes it the only recoverable secret
+-- here. It gets its own table so that fact is visible in the schema
+-- instead of buried in one JSONB value among forty.
+--
+-- It is not stored in the clear either. password_sealed is AES-256-GCM
+-- under a key from the panel's config file (see internal/sealed), so a
+-- database copied without that file - a nightly dump, a staging restore,
+-- a decommissioned replica - carries no working mail password. That is
+-- the exposure this defends against and it is worth being exact: an
+-- attacker holding the panel process holds the key too, and this stops
+-- none of that.
+--
+-- And panel_settings is readable by collector and beacon_writer, which
+-- is right for a refresh interval and wrong for a credential. Keeping the
+-- account here means the GRANT can say panel_user and nothing else.
+CREATE TABLE IF NOT EXISTS panel_smtp (
+    -- One row, enforced rather than assumed. Without the CHECK a second
+    -- row is a legal insert, and the panel would start sending through
+    -- whichever one came back first.
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+    -- 'starttls' - connect in the clear and upgrade. Port 587.
+    -- 'implicit' - TLS from the first byte. Port 465.
+    -- No third value: an unencrypted option in this column would be a
+    -- setting whose only effect is to stop the password being sent, and
+    -- the code refuses to send it anyway.
+    encryption TEXT NOT NULL CHECK (encryption IN ('starttls', 'implicit')),
+
+    username TEXT NOT NULL DEFAULT '',
+    -- Sealed, never plaintext, and never a hash. Empty means an account
+    -- with no credentials - a local relay - which the code allows only
+    -- when there is no password to expose.
+    --
+    -- The column name says sealed rather than encrypted so a reader
+    -- writing a query cannot mistake it for something they can compare
+    -- against, GROUP BY, or index usefully.
+    password_sealed TEXT NOT NULL DEFAULT '',
+
+    -- The envelope sender and the From: header. Often but not always the
+    -- same as username: a provider may authenticate one mailbox and allow
+    -- sending as another.
+    from_address TEXT NOT NULL,
+    from_name    TEXT NOT NULL DEFAULT '',
+
+    -- Whether the panel should try to send at all. Separate from "is it
+    -- configured" so an operator whose provider is having a bad week can
+    -- turn it off without losing the settings and retyping the password.
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- The last verification, from the wizard's test button.
+    --
+    -- Stored because the answer to "why did nobody get the invitation"
+    -- is usually three weeks old by the time it is asked, and a panel
+    -- that can say "this account last verified in March and has been
+    -- failing authentication since" answers it without anybody
+    -- reproducing anything.
+    --
+    -- verified_diagnosis holds a mail.Diagnosis value, empty when the
+    -- last attempt succeeded. Deliberately not a foreign key to a
+    -- lookup table: the set of diagnoses is a fact about the code, and
+    -- a CHECK listing them would turn adding one into a migration.
+    verified_at         TIMESTAMPTZ,
+    verified_ok         BOOLEAN NOT NULL DEFAULT FALSE,
+    verified_diagnosis  TEXT    NOT NULL DEFAULT '',
+    -- What the server itself said, kept apart from the diagnosis - the
+    -- panel shows both, and neither field ever attributes to the server
+    -- something the server never said.
+    verified_server_said TEXT NOT NULL DEFAULT '',
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL
+);

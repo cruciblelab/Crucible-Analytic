@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
 // superuserDSN is a connection this test may create databases and roles
@@ -321,6 +323,20 @@ func TestInstallRefusesAnInstallationWhoseIsolationIsWrong(t *testing.T) {
 			undo:   "ALTER ROLE panel_user NOSUPERUSER",
 			names:  "none of the four is a superuser",
 		},
+		{
+			// The mail account is the only recoverable secret in this
+			// database, so it is the only table where a stray SELECT
+			// hands somebody a working credential rather than a number.
+			//
+			// The realistic way this happens is not malice: panel_smtp
+			// gets appended to the panel_settings GRANT by somebody
+			// tidying up a list, and two internet-facing processes
+			// silently gain the ability to read a mail password.
+			name:   "the collector can read the mail password",
+			break_: "GRANT SELECT ON panel_smtp TO collector",
+			undo:   "REVOKE SELECT ON panel_smtp FROM collector",
+			names:  "the collector CANNOT read the mail account",
+		},
 	}
 
 	for _, tc := range cases {
@@ -558,4 +574,115 @@ func replaceIPKey(t *testing.T, path, key string) {
 	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// TestInstallGeneratesAUsablePanelSecretKey, and does not rotate it.
+//
+// Two properties in one test because the second is only interesting if
+// the first holds. A key the script writes but internal/sealed cannot
+// parse would produce a panel that refuses to start with "secret_key:
+// the encryption key must be 32 bytes" - and the person reading that
+// message did not write the key, the installer did.
+//
+// So this asserts the link between the shell and the Go: whatever
+// install.sh produces has to be something ParseKey accepts and something
+// that round-trips a password. A test that only counted characters would
+// pass on 64 characters of anything.
+func TestInstallGeneratesAUsablePanelSecretKey(t *testing.T) {
+	const db = "ca_install_secretkey_test"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	conf := t.TempDir()
+	run := func() (string, bool) {
+		cmd := exec.Command("./release/install.sh")
+		cmd.Dir = repoRoot(t)
+		cmd.Env = append(os.Environ(),
+			"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+			"DB_NAME="+db, "CONF_DIR="+conf,
+			"PREFIX="+t.TempDir(), "LOG_DIR="+t.TempDir(), "STATE_DIR="+t.TempDir(),
+		)
+		out, err := cmd.CombinedOutput()
+		return string(out), err == nil
+	}
+
+	if out, ok := run(); !ok {
+		t.Fatalf("the first install failed:\n%s", out)
+	}
+
+	first := readTOMLValue(t, filepath.Join(conf, "panel.toml"), "secret_key")
+	if first == "" {
+		t.Fatal("install.sh did not write a secret_key into panel.toml")
+	}
+
+	key, err := sealed.ParseKey(first)
+	if err != nil {
+		t.Fatalf("install.sh wrote a secret_key the panel cannot parse: %v (%q)", err, first)
+	}
+	box, err := key.Seal("panel_smtp.password", "hunter2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := key.Open("panel_smtp.password", box)
+	if err != nil || got != "hunter2" {
+		t.Fatalf("the generated key does not round-trip: %q, %v", got, err)
+	}
+
+	// The commented-out line in panel.example.toml must have been
+	// replaced rather than left alongside a second definition - TOML
+	// takes the first, so a duplicate key would leave the panel reading
+	// whichever the substitution missed.
+	if n := countTOMLKey(t, filepath.Join(conf, "panel.toml"), "secret_key"); n != 1 {
+		t.Errorf("panel.toml has %d uncommented secret_key lines, want 1", n)
+	}
+
+	if out, ok := run(); !ok {
+		t.Fatalf("the second install failed:\n%s", out)
+	}
+	second := readTOMLValue(t, filepath.Join(conf, "panel.toml"), "secret_key")
+	if first != second {
+		t.Error("re-running rotated the panel secret_key; every stored mail password " +
+			"would stop opening, and invitations would quietly stop being delivered " +
+			"while the panel reported itself healthy")
+	}
+}
+
+// readTOMLValue pulls a top-level key out of a TOML file, ignoring
+// commented lines.
+func readTOMLValue(t *testing.T, path, key string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || !strings.HasPrefix(trimmed, key) {
+			continue
+		}
+		if _, value, ok := strings.Cut(trimmed, "="); ok {
+			return strings.Trim(strings.TrimSpace(value), `"`)
+		}
+	}
+	return ""
+}
+
+// countTOMLKey counts uncommented definitions of a key.
+func countTOMLKey(t *testing.T, path, key string) int {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if name, _, ok := strings.Cut(trimmed, "="); ok && strings.TrimSpace(name) == key {
+			n++
+		}
+	}
+	return n
 }

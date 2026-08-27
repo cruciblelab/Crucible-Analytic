@@ -284,7 +284,7 @@ func noDatabase(result CheckResult) CheckResult {
 var panelTables = []string{
 	"panel_users", "panel_sessions", "panel_site_members", "panel_audit_log",
 	"panel_api_tokens", "panel_dev_access", "panel_login_attempts", "panel_settings",
-	"panel_owner_claims", "panel_recovery_codes",
+	"panel_owner_claims", "panel_recovery_codes", "panel_smtp",
 }
 
 func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {

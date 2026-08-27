@@ -322,6 +322,50 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     die "the two files still disagree after writing (${a} vs ${b})"
   fi
   say "   ip_hash_key matches in both files (${a})"
+
+  # ---- the panel's secret_key ----
+  #
+  # A different problem from the one above, and a simpler one: this key
+  # lives in one file, so there is nothing to match. What it needs
+  # instead is never to change.
+  #
+  # It encrypts the stored SMTP password. Rotating it on a re-run would
+  # not break the panel and would not lose analytics - it would make the
+  # saved mail password stop opening, so invitations quietly stop being
+  # delivered while the panel reports itself healthy. Written only when
+  # absent, for that reason and no other.
+  read_secret_key() {
+    f="${CONF_DIR}/panel.toml"
+    [ -f "${f}" ] || return 0
+    sed -nE 's|^[[:space:]]*secret_key[[:space:]]*=[[:space:]]*"(.+)"|\1|p' "${f}" | head -n1
+  }
+
+  if [ -f "${CONF_DIR}/panel.toml" ]; then
+    if [ -n "$(read_secret_key)" ]; then
+      say "   reusing the panel secret_key already in place"
+    else
+      # 32 bytes as 64 hex characters: newsecret gives 24, so two of
+      # them and a trim. Written to a temporary variable first so a
+      # failure here cannot leave a half-written key in the file.
+      SECRET_KEY="$(newsecret)$(newsecret)"
+      SECRET_KEY="$(printf '%s' "${SECRET_KEY}" | cut -c1-64)"
+      if [ "${#SECRET_KEY}" -ne 64 ]; then
+        die "generated a ${#SECRET_KEY}-character secret_key, expected 64"
+      fi
+      if grep -qE '^[[:space:]]*#[[:space:]]*secret_key[[:space:]]*=' "${CONF_DIR}/panel.toml"; then
+        sed -i -E "0,/^[[:space:]]*#[[:space:]]*secret_key[[:space:]]*=.*/s||secret_key = \"${SECRET_KEY}\"|" "${CONF_DIR}/panel.toml"
+      else
+        printf '\nsecret_key = "%s"\n' "${SECRET_KEY}" >> "${CONF_DIR}/panel.toml"
+      fi
+      # Read back rather than trusting the write. sed -i against a
+      # commented line is exactly the kind of substitution that silently
+      # matches nothing.
+      if [ -z "$(read_secret_key)" ]; then
+        die "wrote a secret_key into panel.toml and could not read it back"
+      fi
+      say "   generated the panel secret_key ($(digest "$(read_secret_key)"))"
+    fi
+  fi
 fi
 
 # ----------------------------------------------------------------- units

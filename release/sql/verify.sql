@@ -38,6 +38,24 @@ UNION ALL SELECT 'nobody can erase the audit log',
 UNION ALL SELECT 'nobody can rewrite the audit log',
        NOT has_table_privilege('panel_user', 'panel_audit_log', 'UPDATE')
 
+-- The mail account. The only recoverable secret in this database, so the
+-- only one where a SELECT is worth something to whoever holds it.
+--
+-- The collector and the beacon are granted SELECT on panel_settings, and
+-- that grant is the reason panel_smtp is not a settings key: it would
+-- have carried the mail password to two processes that face the public
+-- internet and have no use for it. Asserted rather than assumed, because
+-- the failure mode is a line added to the settings GRANT months from now
+-- by somebody who never read this paragraph.
+UNION ALL SELECT 'the panel can use the mail account',
+       has_table_privilege('panel_user', 'panel_smtp', 'SELECT')
+UNION ALL SELECT 'the collector CANNOT read the mail account',
+       NOT has_table_privilege('collector', 'panel_smtp', 'SELECT')
+UNION ALL SELECT 'the beacon CANNOT read the mail account',
+       NOT has_table_privilege('beacon_writer', 'panel_smtp', 'SELECT')
+UNION ALL SELECT 'the API CANNOT read the mail account',
+       NOT has_table_privilege('analytics_reader', 'panel_smtp', 'SELECT')
+
 -- And that the roles exist at all.
 --
 -- Without this, a typo turns every negative above into a pass:

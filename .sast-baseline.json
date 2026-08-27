@@ -74,20 +74,20 @@
       "snippet": "return byte(v) == b && b&0x0f == 0x0a"
     },
     {
-      "fingerprint": "d020082a35a957f24d2196ed",
-      "rule": "G304",
-      "file": "internal/logging/lifecycle.go",
-      "severity": "MEDIUM",
-      "reason": "Same, the read side of compressing a rotated log.",
-      "snippet": "source, err := os.Open(path)"
-    },
-    {
       "fingerprint": "4d6e90ec4cf4f41d2675eb26",
       "rule": "G304",
       "file": "internal/logging/lifecycle.go",
       "severity": "MEDIUM",
       "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
       "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
+    },
+    {
+      "fingerprint": "d020082a35a957f24d2196ed",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Same, the read side of compressing a rotated log.",
+      "snippet": "source, err := os.Open(path)"
     },
     {
       "fingerprint": "66f5946d5a67d042e4e0b6f7",
@@ -114,12 +114,12 @@
       "snippet": "return stat.Bavail * uint64(stat.Bsize), nil"
     },
     {
-      "fingerprint": "624a3104f4a4acfbd694a90d",
+      "fingerprint": "798c1599668a9329270b6212",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
-      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
-      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
+      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
+      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
     },
     {
       "fingerprint": "350d5279b7410b58d11468f1",
@@ -130,12 +130,12 @@
       "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "798c1599668a9329270b6212",
+      "fingerprint": "624a3104f4a4acfbd694a90d",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
-      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
-      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
+      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
       "fingerprint": "f1393b798a3aaa96ff378e19",
@@ -162,12 +162,20 @@
       "snippet": "bf, err := os.Open(baselinePath)"
     },
     {
-      "fingerprint": "1748a1a1ae9aa19df8614039",
+      "fingerprint": "deef7fcc5a79364178911970",
       "rule": "G306",
       "file": "internal/sast/cmd/sastdiff/main.go",
       "severity": "MEDIUM",
       "reason": "The baseline it writes is committed to the repository and read by everyone; 0600 would be wrong for a tracked file.",
-      "snippet": "if err := os.WriteFile(path, body, 0o644); err != nil {"
+      "snippet": "return os.WriteFile(path, body, 0o644)"
+    },
+    {
+      "fingerprint": "e61dc6e0d70b17be25edad14",
+      "rule": "G407",
+      "file": "internal/sealed/sealed.go",
+      "severity": "HIGH",
+      "reason": "The nil is required, not hardcoded. cipher.NewGCMWithRandomNonce returns an AEAD that draws its own nonce - crypto/internal/fips140/aes/gcm calls drbg.Read(nonce) - and panics on any nonce handed to it (\"non-empty nonce passed to GCMWithRandomNonce\"). That construction was chosen precisely because it makes nonce reuse unreachable, which is how GCM actually fails in the field. Verified against the Go 1.25 source and by TestSealIsNotDeterministic, which seals the same plaintext fifty times and gets fifty different ciphertexts.",
+      "snippet": "box := k.aead.Seal(nil, nil, []byte(plaintext), []byte(label))"
     },
     {
       "fingerprint": "35d93e8789460abbc3ae3bf8",

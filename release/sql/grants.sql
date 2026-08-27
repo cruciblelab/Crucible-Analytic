@@ -24,7 +24,8 @@ GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   panel_users, panel_sessions, panel_site_members,
   panel_settings, panel_api_tokens, panel_dev_access,
-  panel_owner_claims, panel_login_attempts, panel_recovery_codes
+  panel_owner_claims, panel_login_attempts, panel_recovery_codes,
+  panel_smtp
   TO panel_user;
 
 -- The audit log is append-only. No UPDATE and no DELETE, deliberately:
@@ -50,4 +51,12 @@ GRANT USAGE, SELECT ON
 -- Live settings. Optional, and strongly recommended: without it the
 -- collector and the beacon read only their own files, and nothing changed
 -- in the panel ever reaches them.
+--
+-- Note what is NOT in this line. panel_smtp holds the outgoing mail
+-- account and is granted to panel_user alone - the collector and the
+-- beacon have no reason to read a mail password, and the reason the
+-- account lives in its own table rather than in panel_settings is
+-- precisely that this GRANT would otherwise have handed it to them.
+-- verify.sql asserts the absence, because a privilege nobody granted and
+-- a privilege nobody checked look identical from here.
 GRANT SELECT ON panel_settings TO collector, beacon_writer;

@@ -269,7 +269,7 @@ FROM (VALUES ('collector'),('beacon_writer'),
              ('analytics_reader'),('panel_user')) r(rolname)
 CROSS JOIN (VALUES ('traffic_snapshots'),('beacon_events'),
                    ('panel_users'),('panel_audit_log'),
-                   ('panel_settings')) t(tbl)
+                   ('panel_settings'),('panel_smtp')) t(tbl)
 ORDER BY 1, 2;
 ```
 
@@ -287,8 +287,9 @@ Beklenen tablo — §4.4 doğru uygulandıysa çıkacak olan budur:
 | collector | panel_settings | t | f | f | f |
 | collector | beacon_events | f | f | f | f |
 | panel_user | panel_audit_log | t | t | **f** | **f** |
-| panel_user | panel_users, panel_settings | t | t | t | t |
+| panel_user | panel_users, panel_settings, panel_smtp | t | t | t | t |
 | panel_user | traffic_snapshots, beacon_events | **f** | **f** | **f** | **f** |
+| collector, beacon_writer, analytics_reader | panel_smtp | **f** | **f** | **f** | **f** |
 
 Kalın yazılanlar tesadüf değil, tasarım:
 
@@ -299,6 +300,13 @@ Kalın yazılanlar tesadüf değil, tasarım:
   panel süreci ne yaptığını silemesin diye.
 - **Panel hiçbir analitik satırını göremiyor.** Bütün sistemin dayandığı
   satır bu; §4.1'in sebebi de bu.
+- **E-posta hesabını yalnız panel okuyabiliyor.** `panel_smtp`, bu
+  veritabanındaki tek geri okunabilir sır olan giden posta şifresini
+  tutuyor — şifrelenmiş olarak, anahtarı panelin yapılandırma dosyasında
+  (§5). Ayarların içinde değil, kendi tablosunda olmasının sebebi tam
+  olarak yukarıdaki `panel_settings` satırı: collector ve beacon o
+  tabloyu okuyabiliyor, ve posta şifresi internete bakan iki sürecin
+  eline geçmesi için hiçbir sebep yok.
 
 Bu blok gerçek bir TimescaleDB'ye (16.6 / 2.17.2) uygulanarak
 doğrulandı, çıkan matris yukarıdaki tablodur.

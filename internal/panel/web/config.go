@@ -10,6 +10,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
 // RolesConfig names the database role each service connects as.
@@ -119,6 +121,23 @@ type Config struct {
 	// from the panel by anyone, which is the safe direction.
 	DeveloperGate devgate.Config `toml:"developer_gate"`
 
+	// SecretKey encrypts the one secret this product stores that it has
+	// to be able to read back: the outgoing SMTP password. 32 bytes, as
+	// 64 hex characters or base64. See internal/sealed.
+	//
+	// Empty is a supported state and means exactly one thing: no mail
+	// account can be saved. The panel says so on the mail page and every
+	// other page works, which is the same shape as every other optional
+	// piece here - and much better than a panel that starts, accepts a
+	// password, and stores it where a database dump hands it over.
+	//
+	// Losing or changing it does not break the panel and does not lose
+	// anything else: the sealed password stops opening, the mail page
+	// says so, and somebody types the password again. That is the whole
+	// blast radius, and it is small on purpose - the key guards one
+	// column rather than being woven through the schema.
+	SecretKey string `toml:"secret_key"`
+
 	Logging logging.Config `toml:"logging"`
 }
 
@@ -168,7 +187,27 @@ func (c Config) validate() error {
 	if _, err := devgate.New(c.DeveloperGate, devgate.Options{}); err != nil {
 		return fmt.Errorf("panel: %w", err)
 	}
+	// A malformed key is a startup error while an absent one is not.
+	//
+	// The two are different situations and only one of them is a
+	// mistake: nothing set means mail was never configured, and a
+	// truncated or mistyped 32 bytes means somebody intended to
+	// configure it. Letting the second start would produce a panel that
+	// reports "this password cannot be decrypted" about every password
+	// it was ever given, with the reason sitting in a config file
+	// nobody has cause to re-read.
+	if _, err := c.Secrets(); err != nil && !errors.Is(err, sealed.ErrNoKey) {
+		return fmt.Errorf("panel: secret_key: %w", err)
+	}
 	return nil
+}
+
+// Secrets is the configured encryption key.
+//
+// Returns sealed.ErrNoKey when none is set, which callers treat as "mail
+// cannot be configured" rather than as a failure.
+func (c Config) Secrets() (sealed.Key, error) {
+	return sealed.ParseKey(c.SecretKey)
 }
 
 // Location resolves the configured zone.

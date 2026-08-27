@@ -1,11 +1,16 @@
 package web
 
 import (
+	"bytes"
+	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
 func writeConfig(t *testing.T, body string) string {
@@ -170,3 +175,76 @@ func itoa(n int) string {
 	}
 	return string(b)
 }
+
+// A key that is absent and a key that is wrong are different situations,
+// and only the second is a mistake somebody made.
+//
+// Absent means mail was never configured, which is a supported
+// deployment - the panel starts and says so on one page. Malformed means
+// somebody sat down to configure it and truncated a paste, and letting
+// that start produces a panel that reports "this password cannot be
+// decrypted" about every password it is ever given, with the cause in a
+// file nobody has a reason to open again.
+func TestSecretKeyIsOptionalButNeverHalfConfigured(t *testing.T) {
+	const dsn = `panel_dsn = "postgres://panel_user:x@localhost:5432/analytics"` + "\n"
+
+	valid := strings.Repeat("ab", keyHexLen/2)
+
+	tests := []struct {
+		name    string
+		line    string
+		wantErr bool
+	}{
+		{"absent", "", false},
+		{"empty string", `secret_key = ""`, false},
+		{"valid hex", `secret_key = "` + valid + `"`, false},
+		{"valid base64", `secret_key = "` + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)) + `"`, false},
+		{"truncated paste", `secret_key = "` + valid[:40] + `"`, true},
+		{"one character short", `secret_key = "` + valid[:len(valid)-1] + `"`, true},
+		{"not an encoding", `secret_key = "bu bir anahtar değil"`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(writeConfig(t, dsn+tc.line+"\n"))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("the panel started with a malformed secret_key")
+				}
+				if !strings.Contains(err.Error(), "secret_key") {
+					t.Errorf("the error does not name the setting: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			key, keyErr := cfg.Secrets()
+			if tc.line == "" || strings.Contains(tc.line, `""`) {
+				if !errors.Is(keyErr, sealed.ErrNoKey) {
+					t.Errorf("Secrets() = %v, want ErrNoKey for an unconfigured key", keyErr)
+				}
+				if key.IsSet() {
+					t.Error("IsSet() is true with no key configured")
+				}
+				return
+			}
+			if keyErr != nil {
+				t.Fatalf("Secrets(): %v", keyErr)
+			}
+			// The key the panel will actually use has to work, not merely
+			// parse - a config test that stopped at "no error" would pass
+			// on a key that seals nothing.
+			box, err := key.Seal("panel_smtp.password", "gizli")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got, err := key.Open("panel_smtp.password", box); err != nil || got != "gizli" {
+				t.Errorf("the configured key does not round-trip: %q, %v", got, err)
+			}
+		})
+	}
+}
+
+// keyHexLen is the hex length of a key, kept here rather than
+// hardcoded so a change to sealed.KeySize reaches this file.
+const keyHexLen = sealed.KeySize * 2
