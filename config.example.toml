@@ -121,6 +121,32 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # somebody reading this file to find out what the deployment keeps should
 # find them together.
 [privacy]
+
+# Moved here from [retention], where it silently did nothing.
+#
+# privacy.ip_hash_key is the field the collector and the beacon
+# read, and this placeholder sat under [retention] - so
+# release/install.sh, which writes the key by uncommenting this
+# line, put it in the wrong table on every fresh install. In masked
+# mode nothing needed it and nothing noticed; in hashed mode the
+# service refuses to start while holding a config file that visibly
+# contains an ip_hash_key. The installer reported "wrote the key"
+# and "matches in both files" throughout, because it looks for the
+# key with a regex that does not know what a table is.
+#
+# ip_hash_key keys the pseudonym in hashed mode. At least 32 bytes, and
+# it must be *identical* in the beacon's config - the two write the two
+# halves of the crossover join, and different keys make that join find
+# nothing with no error to say why.
+#
+# What hashed mode buys, precisely: an address cannot be recovered from
+# the database alone. It does not put addresses beyond the reach of
+# whoever also holds this key - a /24 has ~16.7M possible values and
+# trying them all takes under a second. The key lives beside the database
+# password, so the party who could reverse it is the party who could
+# already read everything.
+# ip_hash_key = ""
+
 # "masked" (the default) or "full".
 #
 # masked zeroes an IPv4 address's last octet (/24) and truncates IPv6 to
@@ -156,19 +182,6 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # How often the policy is re-applied. Hourly is plenty - installing it is
 # idempotent and TimescaleDB runs the drop on its own schedule.
 # interval_hours = 1
-#
-# ip_hash_key keys the pseudonym in hashed mode. At least 32 bytes, and
-# it must be *identical* in the beacon's config - the two write the two
-# halves of the crossover join, and different keys make that join find
-# nothing with no error to say why.
-#
-# What hashed mode buys, precisely: an address cannot be recovered from
-# the database alone. It does not put addresses beyond the reach of
-# whoever also holds this key - a /24 has ~16.7M possible values and
-# trying them all takes under a second. The key lives beside the database
-# password, so the party who could reverse it is the party who could
-# already read everything.
-# ip_hash_key = ""
 
 # --- Bilinen bot parmak izleri -------------------------------------------
 #

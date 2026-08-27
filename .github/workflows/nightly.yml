@@ -213,3 +213,53 @@ jobs:
       - run: go test -tags release -count=1 -timeout 30m -v ./release/
         env:
           CA_SUPERUSER_DSN: postgres://postgres:postgres@localhost:5432/postgres
+
+  # Both end-to-end suites, nightly, because both take minutes and one of
+  # them builds a container image.
+  #
+  # They ask the same question of two deployments, and the answer has
+  # already differed. The container found five things the tarball install
+  # did not: --db ignored whenever a DSN was given, config edits that
+  # need GNU sed and silently did nothing under BusyBox, and two keys
+  # written into TOML tables where no service reads them. None of those
+  # was a container bug; the container was where an installation nobody
+  # had quietly fixed by hand finally ran.
+  endtoend:
+    name: the whole product, from a tarball and from an image
+    runs-on: ubuntu-latest
+
+    services:
+      timescale:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: psql, for the install script
+        run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client
+
+      # The tarball: build the release package, install it, run the
+      # chain.
+      - name: from a tarball
+        run: go test -tags e2e -count=1 -timeout 20m -v ./e2e/
+        env:
+          CA_SUPERUSER_DSN: postgres://postgres:postgres@localhost:5432/postgres
+
+      # The image: build it, bring up docker/compose.yml, run the same
+      # chain. It brings its own database, so the service above is
+      # untouched by it.
+      - name: from the container image
+        run: go test -tags docker -count=1 -timeout 30m -v ./e2e/

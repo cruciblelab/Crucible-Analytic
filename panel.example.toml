@@ -67,6 +67,47 @@ timezone = "Europe/Istanbul"
 # kodu uydurmak yerine nereden alınacağını söyler.
 # beacon_url = "https://example.com"
 
+# Panelin şifreleme anahtarı: 32 bayt, 64 hex karakter ya da base64.
+# Kurulum betiği (release/install.sh) yoksa üretir ve buraya yazar. Elle
+# üretmek isterseniz:
+#
+#     openssl rand -hex 32
+#
+# **Tek bir işi var:** giden posta şifresini veritabanında şifreli
+# tutmak. Bu veritabanındaki geri okunabilir tek sır o — panel parolaları
+# argon2id, davetler ve jetonlar SHA-256, hiçbirinin aslına ihtiyaç yok.
+# SMTP şifresi ise her gönderimde karşı sunucuya verilmek zorunda, yani
+# geri okunabilir olmak zorunda.
+#
+# Neyi engellediği tam olarak şu: veritabanının yapılandırma dosyası
+# olmadan ele geçmesi. Gecelik yedek, hazırlık ortamına geri yükleme,
+# hizmet dışı bırakılmış bir kopya — hepsi düz metin bir sütunu çalışan
+# bir posta şifresine çevirir. Neyi engellemediği de aynı derecede net:
+# panel sürecine ya da bu dosyaya erişen birini durdurmaz.
+#
+# Boş bırakmak desteklenen bir durum: posta hesabı kaydedilemez, posta
+# sayfası bunu söyler, panelin geri kalanı çalışır.
+#
+# Değiştirirseniz kayıtlı posta şifresi açılmaz olur. Kaybedilecek tek
+# şey odur — posta sayfası durumu söyler, şifre yeniden yazılır. Bilerek
+# böyle: anahtar tek bir sütunu koruyor, şemaya dokunmuyor.
+# secret_key = ""
+
+# Collector'ın bilinen-bot dosyası. Panel bunu **yazmaz**; kurulum
+# sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
+# burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —
+# "baktık ve yoktu" ile aynı şey değil.
+# bot_data_path = "/var/lib/crucible/known_bots.json"
+
+# NOT: buradan aşağısı tablolara ait. secret_key ve bot_data_path
+# üst düzey ayarlar - yani [roles], [developer_gate] ve [logging]
+# başlıklarının **üstünde** olmak zorundalar. Bir zamanlar
+# [developer_gate]'in altındaydılar: install.sh secret_key'i üretip
+# "yazdım" diyor, panel açılıyor, ve anahtarı hiç görmüyordu - çünkü
+# TOML'da bir başlıktan sonraki her anahtar o tabloya ait. Panel tek
+# satır log basıp devam ediyordu, posta hesabı kaydedilemiyordu, ve
+# hiçbir şey hata vermiyordu.
+
 # Servislerin bağlandığı veritabanı rolleri. Panel bunlarla bağlanmaz;
 # kendi DSN'i var. Kurulum kontrollerinin **başka** bir rolün ne
 # yapabildiğini sorabilmesi için buradalar — panelin analitik tablolarını
@@ -105,37 +146,7 @@ language = "tr"
 [developer_gate]
 password_hash = ""
 
-# Panelin şifreleme anahtarı: 32 bayt, 64 hex karakter ya da base64.
-# Kurulum betiği (release/install.sh) yoksa üretir ve buraya yazar. Elle
-# üretmek isterseniz:
-#
-#     openssl rand -hex 32
-#
-# **Tek bir işi var:** giden posta şifresini veritabanında şifreli
-# tutmak. Bu veritabanındaki geri okunabilir tek sır o — panel parolaları
-# argon2id, davetler ve jetonlar SHA-256, hiçbirinin aslına ihtiyaç yok.
-# SMTP şifresi ise her gönderimde karşı sunucuya verilmek zorunda, yani
-# geri okunabilir olmak zorunda.
-#
-# Neyi engellediği tam olarak şu: veritabanının yapılandırma dosyası
-# olmadan ele geçmesi. Gecelik yedek, hazırlık ortamına geri yükleme,
-# hizmet dışı bırakılmış bir kopya — hepsi düz metin bir sütunu çalışan
-# bir posta şifresine çevirir. Neyi engellemediği de aynı derecede net:
-# panel sürecine ya da bu dosyaya erişen birini durdurmaz.
-#
-# Boş bırakmak desteklenen bir durum: posta hesabı kaydedilemez, posta
-# sayfası bunu söyler, panelin geri kalanı çalışır.
-#
-# Değiştirirseniz kayıtlı posta şifresi açılmaz olur. Kaybedilecek tek
-# şey odur — posta sayfası durumu söyler, şifre yeniden yazılır. Bilerek
-# böyle: anahtar tek bir sütunu koruyor, şemaya dokunmuyor.
-# secret_key = ""
 
-# Collector'ın bilinen-bot dosyası. Panel bunu **yazmaz**; kurulum
-# sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
-# burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —
-# "baktık ve yoktu" ile aynı şey değil.
-# bot_data_path = "/var/lib/crucible/known_bots.json"
 
 [logging]
 dir = "/var/log/crucible"

@@ -1,0 +1,195 @@
+# One customer's whole stack.
+#
+#   cd docker
+#   cp .env.example .env && $EDITOR .env      # the site and its backend
+#   docker compose up -d
+#   docker compose run --rm panel-cli panel -dev-link -base-url https://panel.example.com
+#
+# The last line prints a one-time link. Opening it is how the first
+# person gets in; the installer walks the wizard and hands over to the
+# owner at the end. Nothing else here needs a shell.
+#
+# # What is published and what is not
+#
+# The security control that a hand-installed server gets from
+# `listen_addr = "127.0.0.1:…"` does not exist inside a container: there,
+# 127.0.0.1 is that container alone, so the panel could not reach the read
+# API and the API would not be protected, it would be unreachable. The
+# entrypoint therefore binds these services to the container's own
+# address, and **this file is what replaces the loopback bind**: only the
+# collector and the beacon publish a port, because only they are meant to
+# be reached from outside.
+#
+# Read that as a rule rather than a default. Adding `ports:` to
+# analytics-api hands the read-only API - bearer token and all - to
+# anybody who can reach the host, and adding it to `panel` publishes a
+# login form over plain HTTP. If either has to be reachable, put a
+# TLS-terminating reverse proxy in front of it and publish that.
+#
+# # Where the secrets live
+#
+# In the `conf` volume, written once by the `init` service. The
+# ip_hash_key in particular must never change: it keys the pseudonym in
+# every stored row, and regenerating it silently breaks the crossover
+# join that this product exists to make. install.sh already refuses to
+# rotate a key it finds, so `init` is safe to re-run - it is not safe to
+# delete that volume.
+
+name: crucible-analytic
+
+services:
+  # ---------------------------------------------------------------- data
+  db:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: postgres
+    volumes:
+      - db:/var/lib/postgresql/data
+    # No ports. The database is reachable from the other services on this
+    # network and from nowhere else; a published 5432 is how a analytics
+    # database ends up in somebody's scan results.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- init
+  #
+  # Runs once and exits. It creates the four roles, applies every schema,
+  # applies the grants and the hardening, refuses to finish unless the
+  # privilege matrix verifies, and writes the four configuration files
+  # with generated passwords and a generated ip_hash_key.
+  #
+  # The same release/install.sh a hand-installed server runs. One
+  # installer that everybody exercises beats a second container-shaped
+  # one that nobody notices drifting.
+  init:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["init"]
+    environment:
+      SUPERUSER_DSN: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
+      DB_NAME: analytics
+      # The two things only the operator knows. The site id is
+      # irreversible - every stored row is keyed by it - and the backend
+      # is the customer's own site, which the collector proxies to
+      # without decrypting.
+      CA_SITE_ID: ${SITE_ID:?set SITE_ID in .env}
+      CA_BACKEND_ADDR: ${SITE_BACKEND:?set SITE_BACKEND in .env}
+    volumes:
+      - conf:/etc/crucible-analytic
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ------------------------------------------------------------ services
+  collector:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["collector"]
+    # The one service the internet talks to. 443 on the host, because it
+    # is a TLS proxy standing in front of the customer's own site.
+    ports:
+      - "${COLLECTOR_PORT:-443}:8443"
+    volumes:
+      - conf:/etc/crucible-analytic
+      - state:/var/lib/crucible
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    # No healthcheck, and that is deliberate rather than an omission.
+    #
+    # The collector has no HTTP surface and must not grow one: it is the
+    # process that touches an attacker's bytes, and a listening socket
+    # with no counterpart is a surface nobody asked for. What answers
+    # "is it still writing" is the heartbeat row it writes every minute,
+    # which the panel's health page reads. A container that is up while
+    # every write fails is exactly the failure a liveness probe cannot
+    # see, so a probe here would be reassurance rather than information.
+
+  beacon:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["beacon"]
+    # Published because the snippet in the customer's pages posts to it
+    # from the visitor's browser. Put it behind the same reverse proxy
+    # that terminates TLS for the site.
+    ports:
+      - "${BEACON_PORT:-8081}:8081"
+    volumes:
+      - conf:/etc/crucible-analytic
+      - state:/var/lib/crucible
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8081/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  analytics-api:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["analytics-api"]
+    # Deliberately no ports. See the note at the top of this file.
+    volumes:
+      - conf:/etc/crucible-analytic
+      - state:/var/lib/crucible
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8082/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  panel:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["panel"]
+    # Also no ports. The panel is a login form; it belongs behind a
+    # reverse proxy that terminates TLS, and its session cookie is Secure
+    # by default, so over plain HTTP a browser will not send it back and
+    # signing in appears to do nothing.
+    volumes:
+      - conf:/etc/crucible-analytic
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # panel-cli is the same image with no long-running command, for the
+  # handful of things an operator does by hand: minting the first
+  # developer link, inviting an owner, hashing a developer password.
+  #
+  #   docker compose run --rm panel-cli panel -dev-link -base-url https://…
+  #   docker compose run --rm panel-cli panel -owner-link ahmet@example.com
+  #   docker compose run --rm panel-cli devpass
+  #
+  # A separate service rather than `exec` into the running panel: these
+  # commands are run when something is wrong, which is exactly when the
+  # panel may not be running.
+  panel-cli:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    entrypoint: ["/opt/crucible/entrypoint.sh"]
+    command: ["--help"]
+    volumes:
+      - conf:/etc/crucible-analytic
+    profiles: ["cli"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  # The configuration and every secret in it, including the ip_hash_key.
+  # Losing this volume is not "reinstall and carry on": the pseudonyms in
+  # every stored row stop matching.
+  conf:
+  db:
+  # The bot-data cache. Losing it costs one refresh.
+  state:

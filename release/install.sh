@@ -33,6 +33,16 @@ CONF_DIR="${CONF_DIR:-/etc/crucible-analytic}"
 LOG_DIR="${LOG_DIR:-/var/log/crucible-analytic}"
 STATE_DIR="${STATE_DIR:-/var/lib/crucible-analytic}"
 RUN_AS="${RUN_AS:-crucible}"
+# DB_HOST is the host:port the *services* reach the database at, which is
+# not always the one this script reaches it at.
+#
+# Empty means "leave the example's host alone", which is right on a
+# server: the database is on localhost, and an operator pointing at
+# another machine edits that line themselves. It is wrong in a container,
+# where localhost is the container and the database is a service name -
+# and the check that connects with each freshly written DSN found that
+# out by failing, correctly, before anything started.
+DB_HOST="${DB_HOST:-}"
 DOMAIN=""
 DRY_RUN=0
 # PSQL is the superuser connection used to create roles and apply
@@ -139,6 +149,29 @@ command -v psql >/dev/null || die "psql is not installed"
 case "${DB_NAME}" in
   *[!A-Za-z0-9_]*|"") die "database name ${DB_NAME:-(empty)} is not a bare identifier (letters, digits and _)" ;;
 esac
+
+# GNU sed, checked rather than assumed.
+#
+# This script edits configuration files in place with `sed -i` and with
+# the `0,/re/s||…|` address form, which replaces only the first match.
+# Neither is POSIX. BusyBox sed - what an Alpine container has - accepts
+# the second **silently and does nothing**, so every key this script
+# thinks it wrote stays commented out and the file is left holding the
+# example's placeholder.
+#
+# Measured, in this project's own container image before it carried GNU
+# sed: the install reported "generated an ip_hash_key", reported "wrote
+# the key into collector.toml", reported the two files matching, and had
+# written nothing at all. BSD sed, on macOS, fails differently and just
+# as quietly.
+#
+# So the dependency is named here, once, where the message can say what
+# to install - rather than surviving as four silent no-ops later.
+if ! sed --version 2>/dev/null | head -n1 | grep -q GNU; then
+  die "this script needs GNU sed; the sed on PATH is not it.
+   Alpine: apk add sed.  macOS: brew install gnu-sed, then put gnubin on PATH.
+   Without it the keys and passwords below are written silently nowhere."
+fi
 
 if [ "${DRY_RUN}" -eq 1 ]; then
   say "dry run: nothing will be changed"
@@ -351,6 +384,36 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   write_role_password analytics_reader analytics-api.toml timescale_dsn
   write_role_password panel_user       panel.toml         panel_dsn
 
+  # The database name, which is not a secret and must match --db whatever
+  # happened with the passwords.
+  #
+  # Separate from the block above because the two have different
+  # conditions, and conflating them was wrong: write_role_password only
+  # runs when this script *generated* a password, so an install onto a
+  # machine whose four roles already existed left every DSN pointing at
+  # the example's `analytics` while the schema went into --db. Every
+  # service then started, connected, and found no tables.
+  #
+  # Measured in this project's own container image, installing into
+  # `ca_docker`: four configuration files naming `analytics`.
+  #
+  # Still only in a file this run created - an operator's own edited DSN
+  # is not this script's to rewrite.
+  point_at_database() {
+    file="$1"; key="$2"
+    [ -n "${FRESH_CONF[${file}]:-}" ] || return 0
+    f="${CONF_DIR}/${file}"
+    [ -f "${f}" ] || return 0
+    sed -i -E "s|^([[:space:]]*${key}[[:space:]]*=[[:space:]]*\"postgres://[^\"]*/)[^\"?]*|\1${DB_NAME}|" "${f}"
+    if [ -n "${DB_HOST}" ]; then
+      sed -i -E "s|^([[:space:]]*${key}[[:space:]]*=[[:space:]]*\"postgres://[^@\"]*@)[^/\"]*|\1${DB_HOST}|" "${f}"
+    fi
+  }
+  point_at_database collector.toml     timescale_dsn
+  point_at_database beacon.toml        timescale_dsn
+  point_at_database analytics-api.toml timescale_dsn
+  point_at_database panel.toml         panel_dsn
+
   # And the check that makes the writing worth anything: use what the
   # file now says, as the service will.
   #
@@ -464,8 +527,19 @@ if [ "${DRY_RUN}" -eq 0 ]; then
 
   # Read back from the files, not from the variable: the question is what
   # the two files ended up holding, and only the files can answer it.
-  a="$(digest "$(read_key collector.toml)")"
-  b="$(digest "$(read_key beacon.toml)")"
+  #
+  # Non-empty first, and that is not defensive padding. Two files holding
+  # nothing "agree", so the equality check below passed with both keys
+  # missing and printed the SHA-256 of the empty string as proof - which
+  # is what a silent sed failure looks like from here. A check whose green
+  # state can mean "we wrote nothing" is a check that should not exist.
+  written_collector="$(read_key collector.toml)"
+  written_beacon="$(read_key beacon.toml)"
+  if [ -z "${written_collector}" ] || [ -z "${written_beacon}" ]; then
+    die "the ip_hash_key is missing from $([ -z "${written_collector}" ] && printf 'collector.toml ')$([ -z "${written_beacon}" ] && printf 'beacon.toml')after writing it; nothing was actually edited"
+  fi
+  a="$(digest "${written_collector}")"
+  b="$(digest "${written_beacon}")"
   if [ "${a}" != "${b}" ]; then
     die "the two files still disagree after writing (${a} vs ${b})"
   fi
@@ -512,6 +586,69 @@ if [ "${DRY_RUN}" -eq 0 ]; then
         die "wrote a secret_key into panel.toml and could not read it back"
       fi
       say "   generated the panel secret_key ($(digest "$(read_secret_key)"))"
+    fi
+  fi
+
+  # ---- the read API's token ----
+  #
+  # The third secret that lives in two files, and the one that was still
+  # being copied by hand. The token goes into panel.toml and its SHA-256
+  # into analytics-api.toml, which is the same shape as the ip_hash_key
+  # above - and the same failure when it is done wrong, except louder:
+  # the panel's site pages say the numbers cannot be read, on every page,
+  # from the first day.
+  #
+  # Left unset, the shipped examples pair an empty token with a sha256 of
+  # sixty-four zeros, so a deployment that changed neither had a panel
+  # that could show nothing. An unattended install - a container built
+  # per customer - has nobody to notice.
+  read_api_token() {
+    f="${CONF_DIR}/panel.toml"
+    [ -f "${f}" ] || return 0
+    sed -nE 's|^[[:space:]]*analytics_api_token[[:space:]]*=[[:space:]]*"(.+)"|\1|p' "${f}" | head -n1
+  }
+  read_api_hash() {
+    f="${CONF_DIR}/analytics-api.toml"
+    [ -f "${f}" ] || return 0
+    sed -nE 's|^[[:space:]]*sha256[[:space:]]*=[[:space:]]*"(.+)"|\1|p' "${f}" | head -n1
+  }
+  full_digest() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+
+  if [ -f "${CONF_DIR}/panel.toml" ] && [ -f "${CONF_DIR}/analytics-api.toml" ]; then
+    API_TOKEN="$(read_api_token)"
+    API_HASH="$(read_api_hash)"
+    PLACEHOLDER_HASH="0000000000000000000000000000000000000000000000000000000000000000"
+
+    if [ -n "${API_TOKEN}" ] || { [ -n "${API_HASH}" ] && [ "${API_HASH}" != "${PLACEHOLDER_HASH}" ]; }; then
+      # Something is configured. Checked rather than replaced, for the
+      # same reason the ip_hash_key is read before it is written: the
+      # failure worth catching is a token pasted into one file and
+      # mistyped into the other, and generating a fresh pair would erase
+      # the evidence instead of reporting it.
+      if [ -z "${API_TOKEN}" ]; then
+        say "   the read API has a token hash and the panel has no token; leaving both alone"
+      elif [ "$(full_digest "${API_TOKEN}")" != "${API_HASH}" ]; then
+        printf 'install: the panel'"'"'s API token does not hash to what the read API expects\n' >&2
+        printf '   panel.toml token hashes to  %s\n   analytics-api.toml expects  %s\n' \
+          "$(full_digest "${API_TOKEN}")" "${API_HASH}" >&2
+        die "refusing to finish; the panel would show \"the numbers cannot be read\" on every site page"
+      else
+        say "   reusing the read API token already in place"
+      fi
+    else
+      API_TOKEN="ca-$(newsecret)$(newsecret)"
+      API_HASH="$(full_digest "${API_TOKEN}")"
+      sed -i -E "s|^([[:space:]]*analytics_api_token[[:space:]]*=[[:space:]]*)\".*\"|\1\"${API_TOKEN}\"|" \
+        "${CONF_DIR}/panel.toml"
+      sed -i -E "s|^([[:space:]]*sha256[[:space:]]*=[[:space:]]*)\"${PLACEHOLDER_HASH}\"|\1\"${API_HASH}\"|" \
+        "${CONF_DIR}/analytics-api.toml"
+
+      # Read both back and re-hash. The write is two sed substitutions
+      # into two files and either can match nothing.
+      if [ "$(full_digest "$(read_api_token)")" != "$(read_api_hash)" ]; then
+        die "wrote an API token whose hash does not match what analytics-api.toml now holds"
+      fi
+      say "   generated the read API token ($(digest "${API_TOKEN}"))"
     fi
   fi
 fi

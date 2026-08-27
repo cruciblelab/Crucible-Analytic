@@ -82,6 +82,57 @@ kaynaktan geldiğini söyler**.
 
 ---
 
+## 1.5 İki kurulum yolu var — hangisi?
+
+Bu kılavuzun tamamı **elle kurulumu** anlatıyor: bir VDS, systemd, ters
+vekil, `release/install.sh`. On beş bölüm, ve dürüstçe uzun.
+
+Bir de **konteyner yolu** var, ve müşteri başına bir yığın kuracaksanız
+istediğiniz muhtemelen odur:
+
+```bash
+git clone <depo> && cd crucible-analytic
+docker build -t crucible-analytic:$(git describe --tags --always) .
+
+cd docker
+cp .env.example .env && $EDITOR .env     # site adı, arka uç, parola
+docker compose up -d
+
+# İlk giriş: tek kullanımlık geliştirici bağlantısı
+docker compose run --rm panel-cli panel -dev-link -base-url https://panel.example.com
+```
+
+`init` servisi bu kılavuzun 4., 5. ve 6. bölümlerini bir kez yapıyor:
+dört rol, bütün şemalar, GRANT'ler, sertleştirme, doğrulama, ve
+yapılandırma dosyalarını üretilmiş parolalarla yazma. Aynı
+`release/install.sh` — konteyner için ayrı bir kurulum betiği yok, çünkü
+kimsenin koşmadığı ikinci bir betik zamanla birincisinden ayrılır.
+
+### Konteynerde neyin değiştiğini bilerek yapın
+
+Üç şey elle kurulumdan farklı, ve üçü de bilinçli:
+
+| Ne | Sunucuda | Konteynerde |
+|---|---|---|
+| Kayıtlar | `/var/log/crucible` altında dosya ağacı | stdout — konteyneri çalıştıran şey topluyor |
+| Bağlanma adresi | `127.0.0.1:8082` — dışarıdan erişilemez | `0.0.0.0:8082` — ama porta **yayımlanmıyor** |
+| Sırlar | `/etc/crucible-analytic` dizini | `conf` adlı kalıcı birim |
+
+Ortadaki satır tek gerçek güvenlik değişikliği ve altını çiziyorum:
+konteyner içinde `127.0.0.1` o konteynerin kendisidir, yani panel bir
+sonraki konteynerdeki API'ye ulaşamaz. Loopback bağlamanın yerini
+**compose ağı** alıyor: yalnız collector ve beacon porta yayımlanıyor,
+diğer ikisi yalnız ağın içinden erişilebilir. `docker/compose.yml`
+dosyasına `panel` altına bir `ports:` satırı eklemek, bir giriş formunu
+internete açmak demektir. Bunu bir test kontrol ediyor
+(`release/ports_test.go`).
+
+**`conf` birimini silmeyin.** `ip_hash_key` orada, ve o anahtar saklanmış
+her satırın takma adını üretiyor: değişirse collector ile beacon'ın
+yazdığı iki yarı birbirini bulamaz olur, hata vermeden.
+
+---
+
 ## 2. Ön gereksinimler
 
 | Gereken | Sürüm | Not |

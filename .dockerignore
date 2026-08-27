@@ -1,0 +1,44 @@
+# What must not reach the build context.
+#
+# The same rule release/verify.sh enforces on the release package, for
+# the same reason: this project distributes source code and binaries, not
+# a deployment's collected data. A build context is copied into the
+# daemon whole, and anything in it can end up in a layer - including a
+# layer that a later instruction deletes from, which does not remove it
+# from the image.
+
+# Configuration with real secrets. The .example.toml files are wanted and
+# are not matched by these.
+config.toml
+collector.toml
+beacon.toml
+analytics-api.toml
+panel.toml
+ip_hash_key
+
+# Build output and local state.
+dist/
+/collector
+/beacon
+/analytics-api
+/panel
+/devpass
+*.tar.gz
+
+# A local database, its dumps, and anything a deployment collected.
+*.db
+*.sql.gz
+*.dump
+data/
+logs/
+
+# Version control and editor noise. .git in particular is both large and
+# the thing -buildvcs=false exists to keep out of the binary.
+.git/
+.github/
+.gitignore
+*.swp
+.DS_Store
+
+# Test scaffolding that the image has no use for.
+node_modules/

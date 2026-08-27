@@ -5568,3 +5568,120 @@ Beacon bacağı eklendikten sonra pano artık altı kartın altısında da sayı
 gösteriyor, ve test bunu böyle istiyor: bir kartın hâlâ "ölçüm gelmedi"
 demesi artık başarısızlık. Zayıf hâli ("bir kartta sayı var") dört beacon
 kartı boşken geçiyordu — müşterinin ilk baktığı dört kart.
+
+## Docker: erteleseydik boşa emek olurdu — ve altı şey daha çıktı
+
+Kullanıcının gerekçesi şuydu: dağıtım modeli müşteri başına konteyner,
+ve konteyneri sonraya bırakırsak aradaki fazları yanlış varsayımla
+yazarız. Ölçtüm, haklıydı — ama beklediğim yerlerden değil.
+
+Kontrol ettiklerim: **kayıtlar** sorun değilmiş (`logging.Config`'te boş
+`dir` zaten "yalnız stderr" demek, yani konteyner sözleşmesi bugün de
+destekleniyor). **Ortam değişkeni desteği** hiç yokmuş — bütün
+yapılandırma TOML dosyalarından geliyor, tek istisna tarayıcı testleri.
+**systemd bloğu** zaten `[ -d /etc/systemd/system ]` ile korumalı, yani
+konteynerde hiç çalışmıyor.
+
+Asıl mesele bunların hiçbiri değildi. Konteyner, **kimsenin elle
+düzeltmediği bir kurulum** olduğu için, altı gerçek kusuru ortaya
+çıkardı — ve altısı da konteyner kusuru değil, her yerde kusurdu.
+
+### 1. install.sh GNU sed'e bağımlıymış, ve BusyBox sessizce hiçbir şey yapıyor
+
+```
+# alpine'de:
+sed -i -E "0,/^#[[:space:]]*key[[:space:]]*=.*/s||key = \"NEW\"|" /tmp/t
+# sonuç: dosya değişmedi, çıkış kodu 0
+```
+
+`0,/re/s||…|` adres biçimi GNU'ya özgü. BusyBox kabul edip yok sayıyor.
+Yani init "ip_hash_key üretildi", "anahtarı collector.toml'a yazdım",
+"iki dosyada eşleşiyor" diyor ve **hiçbir şey yazmamış** oluyordu.
+
+### 2. "İki dosyada eşleşiyor" boş dizenin hash'iymiş
+
+Eşitlik kontrolü iki boş değeri karşılaştırıyordu, ve `e3b0c442...` —
+boş dizenin SHA-256'sı — kanıt diye ekrana basılıyordu. Bu projenin
+kuralı: **yeşil hâli "hiçbir şey yazmadık" anlamına gelebilen bir
+kontrol, olmaması gereken bir kontroldür.** Artık boşluk önce
+reddediliyor, ve preflight GNU sed yoksa kurulumu hiç başlatmıyor.
+
+### 3. `ip_hash_key` yanlış TOML tablosuna yazılıyormuş
+
+En sinsisi. `privacy.ip_hash_key` collector'ın okuduğu alan; yorum satırı
+hâlindeki yer tutucu ise `[retention]` başlığının **altındaydı**. TOML'da
+bir başlıktan sonraki her anahtar o tabloya aittir — yani install.sh'ın
+yorumu kaldırması anahtarı `[retention]`'a koyuyordu, her kurulumda.
+
+Maskeli modda kimse fark etmiyor. Hash'li modda servis açılmayı
+reddediyor, elinde içinde gözle görülür bir `ip_hash_key` bulunan bir
+dosyayla. Ve install.sh boyunca "yazdım" ve "eşleşiyor" diyor, çünkü
+anahtarı tablo kavramı olmayan bir regex'le arıyor.
+
+### 4. Panelin `secret_key`'i de aynı şekilde
+
+`[developer_gate]`'in seksen satır altında. Panel açılıyor, anahtarı
+görmüyor, tek satır log basıp devam ediyor — ve giden posta hesabı
+kaydedilemiyor. C7.3'te yazılan bütün mekanizma, hiçbir kurulumda
+çalışmıyormuş.
+
+Bunu yakalayan test artık var: her yorumlu yer tutucuyu tek tek açıp
+servisin **gerçek Config struct'ına** decode ediyor ve
+`MetaData.Undecoded()` boş mu diye bakıyor. Yazdığım anda **üç tane daha**
+buldu — ki testin değerini bundan iyi anlatan bir şey yok.
+
+### 5. install.sh, rolleri önceden var olan bir makinede DSN'in veritabanı adını düzeltmiyormuş
+
+`write_role_password` yalnız parola *ürettiğinde* çalışıyor, ve veritabanı
+adını da o düzeltiyordu. Rolleri zaten olan bir makinede `--db ca_docker`
+ile kurulum, dört dosyada `analytics` yazılı DSN bırakıyordu. Her servis
+açılıyor, bağlanıyor, tablo bulamıyor.
+
+### 6. Okuma API'sinin jetonu hâlâ elle kopyalanıyormuş
+
+İki dosyaya giden üçüncü sır: jeton `panel.toml`'a, SHA-256'sı
+`analytics-api.toml`'a. `ip_hash_key`'in aldığı bütün özeni almamış.
+Örnekler boş jetonla altmış dört sıfırlık bir hash'i eşleştiriyordu, yani
+ikisini de değiştirmeyen bir kurulumda panel hiçbir sayı gösteremiyordu.
+Artık install.sh üretiyor, ikisine de yazıyor, geri okuyup yeniden
+hash'liyor — ve elle yazılmış uyuşmayan bir çifti bulursa kurulumu
+durduruyor.
+
+### Ne kuruldu
+
+Tek imaj, beş giriş noktası (`collector`, `beacon`, `analytics-api`,
+`panel`, `devpass`) artı `init`. Beş ayrı imaj değil: bu ürün müşteri
+başına tek yığın olarak satılıyor ve dört servis aynı şemayı, aynı
+`ip_hash_key`'i paylaşıyor. Sürümleri kayan beş etiketin arızası çökme
+değil — beacon'ın yazdığı takma adı collector'ın bulamaması, yani ürünün
+varlık sebebi olan görünümün sessizce sıfır göstermesi.
+
+Sırlar kalıcı bir birimde, tek seferlik `init` yazıyor. Ve o init aynı
+`release/install.sh`'ı koşuyor: konteyner için ikinci bir kurulum betiği
+yok, çünkü kimsenin koşmadığı ikinci betik zamanla birincisinden ayrılır —
+bu fazın bulduğu altı kusurun tamamı tam olarak bunun kanıtı.
+
+### Konteynerin tersine çevirdiği tek güvenlik kararı
+
+Sunucuda `listen_addr = "127.0.0.1:8082"` kontroldür. Konteynerde
+`127.0.0.1` o konteynerin kendisidir — panel bir sonraki konteynerdeki
+API'ye ulaşamaz, yani servis korunmuş değil, kullanılamaz olur. Bu yüzden
+entrypoint konteyner-içi adrese bağlıyor, ve loopback'in yerini **compose
+ağı** alıyor: yalnız collector ve beacon yayımlanıyor.
+
+Bu, gözden geçirmeye bırakılamayacak kadar tek satırlık bir mesafede
+duruyor, o yüzden `release/ports_test.go` dosyayı okuyup doğruluyor.
+Dosyayı okumak, ayakta bir yığında port taramaktan daha keskin: tarama
+"o an bir şey dinlemiyordu" der, okuma müşterinin gerçekten kurduğu şeyi
+söyler.
+
+### Kanıt
+
+`e2e/docker_test.go`: imajı derliyor, `docker/compose.yml`'ı ayağa
+kaldırıyor, gerçek bir HTTPS isteğini collector konteynerinden geçiriyor,
+bir pageview atıyor, ve panonun **altı kartının altısında da** sayı
+olmasını istiyor. Geçti.
+
+Tarball E2E'siyle aynı soruyu iki farklı kuruluma soruyorlar, ve bu fazın
+öğrettiği tam olarak şu: **iki kurulum aynı soruya aynı cevabı vermiyor,
+ve fark her seferinde ürünün lehine değil.**

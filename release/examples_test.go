@@ -25,9 +25,16 @@ package release
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/cruciblelab/crucible-analytic/internal/api"
+	"github.com/cruciblelab/crucible-analytic/internal/beacon"
+	"github.com/cruciblelab/crucible-analytic/internal/collector"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
 )
 
 // TestEveryExampleConfigParses.
@@ -67,4 +74,123 @@ func TestEveryExampleConfigParses(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEveryCommentedSettingReachesItsField.
+//
+// The bug this exists for is not a typo. `secret_key` is a top-level
+// setting in the panel's config, and its commented placeholder sat
+// eighty lines below `[developer_gate]` - so uncommenting it, which is
+// exactly what release/install.sh does after generating the key, put it
+// inside that table. TOML is right and the file was wrong: every key
+// after a header belongs to that header.
+//
+// What happened then is the shape worth remembering. install.sh
+// generated a key, wrote it, read it back with a regex that does not
+// know what a table is, and reported success. The panel started, did not
+// find a secret_key, logged one line, and carried on - so the mail
+// account could not be saved and nothing anywhere said why. Found by
+// running the panel in a container and reading its first log line.
+//
+// So: uncomment each placeholder, decode into the struct the service
+// actually uses, and require that the key was claimed by a field.
+// BurntSushi's MetaData.Undecoded reports exactly the keys nothing
+// claimed, which is the same question asked directly.
+func TestEveryCommentedSettingReachesItsField(t *testing.T) {
+	root := repoRootFromWD(t)
+	checked := 0
+
+	for _, c := range []struct {
+		file string
+		into func() any
+	}{
+		{"config.example.toml", func() any { return new(collector.Config) }},
+		{"beacon.example.toml", func() any { return new(beacon.Config) }},
+		{"analytics-api.example.toml", func() any { return new(api.Config) }},
+		{"panel.example.toml", func() any { return new(web.Config) }},
+	} {
+		t.Run(c.file, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join(root, c.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(string(body), "\n")
+
+			for i, line := range lines {
+				key, ok := commentedSetting(line)
+				if !ok || insideACommentedBlock(lines, i) {
+					continue
+				}
+				checked++
+
+				edited := append([]string(nil), lines...)
+				edited[i] = strings.TrimPrefix(strings.TrimSpace(line), "#")
+				md, err := toml.Decode(strings.Join(edited, "\n"), c.into())
+				if err != nil {
+					t.Errorf("line %d (%s): uncommenting it makes the file invalid: %v", i+1, key, err)
+					continue
+				}
+				for _, undecoded := range md.Undecoded() {
+					if undecoded.String() == key || strings.HasSuffix(undecoded.String(), "."+key) {
+						t.Errorf("line %d: %s reaches no field when uncommented - TOML reads it as %q, "+
+							"which usually means the placeholder is below a [table] the setting does not belong to",
+							i+1, key, undecoded.String())
+					}
+				}
+			}
+			t.Logf("%d commented settings checked", checked)
+		})
+	}
+	// Across the files, not per file: analytics-api.example.toml's only
+	// commented settings live inside a commented [[tokens]] block and are
+	// correctly skipped, so a per-file floor would fail on a file that is
+	// fine. What has to hold is that the pattern still finds something.
+	if checked < 20 {
+		t.Errorf("only %d commented settings found across the example configs; the pattern has probably stopped matching", checked)
+	}
+}
+
+// commentedSetting reports the key on a `# key = value` line.
+//
+// The uncommented remainder has to be valid TOML on its own, which is
+// what separates a placeholder from prose. These files explain
+// themselves at length, and a sentence like
+//
+//	# level = "debug" is what makes the most common misconfiguration
+//	# visible: with it on, security.log records every header …
+//
+// looks exactly like a setting for the first four words.
+var settingLine = regexp.MustCompile(`^#\s*([A-Za-z_][A-Za-z0-9_]*)\s*=`)
+
+func commentedSetting(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	m := settingLine.FindStringSubmatch(trimmed)
+	if m == nil {
+		return "", false
+	}
+	var probe map[string]any
+	if _, err := toml.Decode(strings.TrimPrefix(trimmed, "#"), &probe); err != nil {
+		return "", false
+	}
+	return m[1], true
+}
+
+// insideACommentedBlock reports whether a commented table header stands
+// between this line and the last real one.
+//
+// The example configs show a second API token as a commented
+// `# [[tokens]]` block. Uncommenting one line of it in isolation puts
+// that key at the top level, where nothing claims it - a failure about
+// the test's own editing rather than about the file.
+func insideACommentedBlock(lines []string, at int) bool {
+	for i := at - 1; i >= 0; i-- {
+		trimmed := strings.TrimSpace(lines[i])
+		if strings.HasPrefix(trimmed, "[") {
+			return false // a real header: this line belongs to it
+		}
+		if strings.HasPrefix(trimmed, "#") && strings.HasPrefix(strings.TrimSpace(strings.TrimPrefix(trimmed, "#")), "[") {
+			return true
+		}
+	}
+	return false
 }

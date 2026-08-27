@@ -767,6 +767,12 @@ with `localStorage.setItem('crucible.disabled', '1')`.
 Requires Go 1.25.0+ — the version in `go.mod`. An older toolchain does
 not fail at some later feature; it refuses the module outright.
 
+**Deploying rather than developing?** There are two routes and this is
+neither: [`KURULUM.md`](KURULUM.md) has the hand install (a VDS, systemd,
+a reverse proxy) in section 4 onward, and the container route in section
+1.5 — one image, five entry points, `docker compose up -d`. The container
+route is the one to take if you are running a stack per customer.
+
 This section brings the pipeline up on one machine for development. For
 a server — roles, GRANTs, secrets, service files, TLS, first sign-in —
 follow [`KURULUM.md`](KURULUM.md) instead, which is written for that and
