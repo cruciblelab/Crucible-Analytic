@@ -2552,55 +2552,161 @@ bulan herkes için ikinci faktörü isteğe bağlı yapardı.
 
 ---
 
-#### C7.3 — E-posta kurulum sihirbazı ⬜
+#### C7.3 — E-posta kurulum sihirbazı ⬜ *(tasarım derinleştirildi, 2026-08-27)*
 
-**Şekil:** her adım *yap → doğrula → sonraki*. Doğrulama gerçek bir
-kontrol; "kaydedildi" değil, "sunucu şunu dedi".
+> İlk taslak konuşmadan çıkmıştı ve kabaydı. Kullanıcı isteği üzerine
+> açıldı; **dört ölçüm** taslakta üç gerçek sorun gösterdi ve bir adımın
+> **yazıldığı hâliyle imkânsız** olduğunu ortaya çıkardı. Aşağısı kararın
+> kendisi.
 
-| Adım | Doğrulama nasıl yapılır |
-|---|---|
-| Gönderen adresi | Alan adı biçim kontrolü |
-| SMTP bağlantısı | Gerçekten bağlan, STARTTLS, AUTH — sunucunun cevabı gösterilir |
-| SPF | `net.LookupTXT`, gönderen IP yetkili mi |
-| DKIM | Test postasının başlığında imza var mı |
-| DMARC | `net.LookupTXT`, kayıt var mı ve politikası ne |
-| Gerçek gönderim | Kurulumu yapanın yazdığı adrese tek posta, sunucunun cevabı raporlanır |
+##### Önce çerçeve: e-posta bu üründe **taşıyıcı değil**
 
-**API anahtarı gerekmiyor, bilerek.** SMTP, müşterinin **zaten sahip
-olduğu** kimlik bilgileriyle çalışır — barındırma sağlayıcısının SMTP'si,
-Workspace, Yandex, ne varsa. Üçüncü taraf e-posta API'si (Resend, SES)
-**yapılmayacak**: kendi sunucusunda barınan, gizlilik odaklı bir ürünün
-müşteri adreslerini başkasının servisinden geçirmesi, üstüne kuruluma
-bir hesap ve fatura eklemesi demek.
+Ölçüm: `internal/` ve `cmd/` altında **sıfır e-posta kodu**; adres
+yalnızca giriş kimliği. Parola sıfırlama C7.2'de kurtarma kodlarıyla,
+davet C7.1'de bağlantıyla çözüldü — **ikisi de çalışıyor.**
 
-**DKIM imzalanmayacak, doğrulanacak.** İmzalamak ya bir kütüphane ya da
-kanonikleştirme kodu ister; her gerçek SMTP sağlayıcısı zaten imzalıyor.
-Yarım bir DKIM, sağlayıcınınkine güvenmekten kötü.
+Yani e-posta, çalışan iki akışa eklenen bir **kolaylık**. Bundan çıkan
+yönetici kural:
+
+> **E-posta hiçbir zaman tek yol değildir.** E-postayı kullanabilen her
+> akış e-postasız da çalışır, ve panel e-postayı tek yol gibi sunmaz.
+> Bunu bir arayüz notu değil, **test edilen bir değişmez** yapıyoruz.
+
+Sebep teslimat: taze bir VDS'ten SPF/DMARC'sız çıkan posta sessizce
+spam'e düşer. Sessizce kaybolan bir parola sıfırlama en kötü hata
+biçimidir — kişi bekler, panel "gönderildi" der.
+
+##### Değişiklik 1: SMTP parolası `panel_settings`'e **yazılamaz**
+
+İlk taslak "her adımın durumu `panel_settings`'e yazılır" diyordu.
+Ölçüm, `release/sql/grants.sql`'den:
+
+```sql
+GRANT SELECT ON panel_settings TO collector, beacon_writer;
+```
+
+Yani parola oraya yazılsa, **internete en yakın duran iki süreç** onu
+okuyabilirdi. Collector müşterinin sitesinin önünde duran vekil.
+
+**Karar:** sırlar için ayrı tablo — `panel_smtp` — ve yetkisi **yalnız
+`panel_user`'a**. Collector ve beacon'a asla. `verify.sql`'e negatif
+iddia ekleniyor: *"collector `panel_smtp`'yi okuyamaz"*. Böylece yalıtım
+varsayım değil, F2'nin doğruladığı matrisin bir satırı olur.
+
+Sihirbazın **durumu** (hangi adım doğrulandı) `panel_settings`'te
+kalabilir — o sır değil.
+
+##### Değişiklik 2: 465 de destekleniyor, yalnız 587 değil
+
+Ölçüm: `smtp.SendMail` içeride `Dial` çağırıyor — düz TCP, yani yalnız
+STARTTLS yolu. **Örtük TLS (465) `tls.Dial` + `smtp.NewClient` ister.**
+İlk taslak "port 587, 25 değil" diyordu ve 465'i hiç anmıyordu; oysa
+Türkiye'deki barındırma sağlayıcılarının çoğu 465 veriyor.
+
+**Karar:** ikisi de. Hangisinin çalıştığı ekranda yazılır.
+
+##### Değişiklik 3: Tanı, gönderimin kendisinden değerli
+
+Ölçüm: `net/smtp` yalnız **PLAIN ve CRAM-MD5** biliyor; XOAUTH2 yok.
+Sonuç: SMTP AUTH'u kapatılmış bir Microsoft 365 kiracısı **hiç
+çalışmaz**, Google Workspace ancak uygulama parolasıyla çalışır.
+
+Bunu desteklemeye çalışmıyoruz — **teşhis ediyoruz.** Sunucu
+`AUTH XOAUTH2` duyurup `PLAIN` duyurmuyorsa panel bunu aynen söyler ve
+ne yapılacağını yazar. "Kimlik doğrulama başarısız" demez.
+
+Aynı şekilde `smtp.PlainAuth` şifresiz bağlantıda parolayı **hiç
+göndermiyor** (`unencrypted connection`). Bu iyi bir davranış ve
+gösterilecek: *"sunucu STARTTLS önermedi, parolanız hiç gönderilmedi."*
+
+**Bu fazın asıl değeri burada:** ürün "e-posta gönderebiliyoruz" değil,
+**"e-posta çalışmıyorsa kuran kişi tek ekranda tam olarak neden
+çalışmadığını görüyor"**.
+
+##### Değişiklik 4: DKIM adımı kaldırıldı — yazıldığı hâliyle imkânsızdı
+
+İlk taslak: *"DKIM — test postasının başlığında imza var mı."*
+
+Panel postayı **gönderiyor**, hiç almıyor. Gönderdiği bir mesajın DKIM
+başlığını okuyamaz; posta kutusu yok. Adım, yazıldığı hâliyle
+yapılamaz.
+
+Alan adının bilinen bir seçicide DKIM kaydı yayımlayıp yayımlamadığına
+bakmak da genel olarak mümkün değil: seçici sağlayıcıya özel ve
+tahmin edilemez.
+
+**Karar:** DKIM adımı yok. Yerine, Gmail/Yahoo kabulünü fiilen belirleyen
+**DMARC** kaydı okunur, SPF bildirilir, ve DKIM'in sağlayıcının işi
+olduğu ve buradan doğrulanamayacağı **açıkça yazılır**. Yapılamayan bir
+kontrolü listede tutmak, yapıldığını sanmaktan kötü.
+
+##### Değişiklik 5: DNS adımları **engellemez**, bildirir
+
+SPF/DMARC kayıtları yayılması zaman alır. Bir dakika önce eklenmiş kaydı
+"başarısız" diye gösteren bir sihirbaz, insanlara doğrulamayı yok saymayı
+öğretir.
+
+**Karar:** yalnız **SMTP bağlantı testi engelleyici** — o deterministik.
+DNS kontrolleri *ne bulunduğunu* söyler ve ilerlemeyi durdurmaz:
+*"bu alan adı için henüz SPF kaydı yok; DNS değişiklikleri bir saati
+bulabilir."*
+
+##### Değişiklik 6: Test postası **yalnız oturum açmış kişiye**
+
+İlk taslak "kurulumu yapanın yazdığı adrese" diyordu. Yazılan adrese
+posta gönderen bir düğme, panel erişimi olan birinin **istediği adrese
+posta göndermesi** demektir — açık röle şekli.
+
+**Karar:** test postası yalnız **oturumu açık hesabın kendi adresine**
+gider, yazılan bir adrese değil. Teslimatı aynı şekilde kanıtlar, ve
+kötüye kullanım yüzeyi tamamen kalkar. Ayrıca hız sınırlı.
+
+##### Değişiklik 7: Kurulumdan sonra bozulduğunda
+
+İlk taslak yalnız kurulum anını kapsıyordu. Parolanın süresi dolduğu gün
+ne olacağı yazılı değildi.
+
+**Karar:** her gönderim sonucu kaydedilir ve panelde **görünür** —
+yalnız loga değil. E-posta taşıyıcı olmadığı için başarısızlık akışı
+durdurmaz, bağlantı yoluna düşer; ama sessizce düşmez.
+
+##### Adımlar, son hâli
+
+| Adım | Doğrulama | Engeller mi |
+|---|---|---|
+| Gönderen adresi | Biçim + alan adı çözülüyor mu | Evet |
+| SMTP bağlantısı | Gerçekten bağlan (587 STARTTLS / 465 örtük), sunucunun duyurduğu AUTH listesi gösterilir | Evet |
+| Kimlik doğrulama | Gerçek AUTH; reddedilirse sunucunun cevabı **ve** teşhis | Evet |
+| Test postası | Oturum açmış kişinin kendi adresine tek posta | Evet |
+| SPF | `net.LookupTXT` — bulunanı bildirir | **Hayır** |
+| DMARC | `net.LookupTXT` — kayıt ve politika | **Hayır** |
+| DKIM | *Yok.* Sağlayıcının işi, buradan doğrulanamaz — yazılı olarak söylenir | — |
+
+##### Değişmeyenler
+
+**API anahtarı gerekmiyor, üçüncü taraf e-posta API'si yok.** Kendi
+sunucusunda barınan, gizlilik odaklı bir ürünün müşteri adreslerini
+başkasının servisinden geçirmesi, üstüne kuruluma bir hesap ve fatura
+eklemesi olurdu.
 
 **Yeni bağımlılık yok** *(ölçüldü)*: `net.LookupTXT` ve `net/smtp`
-stdlib'de.
+stdlib'de. `net/smtp` donmuş bir paket ama ihtiyacımız olan yüzey
+donmuş hâliyle yeterli — eksik olan XOAUTH2 ve onu zaten desteklemiyoruz.
 
-**Bağlantı her zaman ekranda da görünür.** E-posta hiçbir zaman tek yol
-değil. Sebep teslimattır: taze bir VDS'ten SPF/DKIM/DMARC'sız çıkan
-posta spam'e düşer ya da reddedilir, ve 2024'te Gmail/Yahoo bu şartları
-sıkılaştırdı. Sessizce kaybolan bir parola sıfırlama, en kötü hata
-biçimi — kişi bekler, panel "gönderildi" der. **Panel asla yalnız
-"gönderildi" demeyecek**; ne gönderdiğini, kime, ve sunucunun ne
-cevapladığını söyleyecek.
+**İlerleme kaybolmaz.** Doğrulanmış adım durumu `panel_settings`'e
+yazılır; sekmeyi kapatan kaldığı yerden devam eder.
 
-**Port 587**, 25 değil: çoğu VDS 25'i dışarı kapatıyor.
+##### Bitti ölçütü
 
-**İlerleme kaybolmaz.** Her adımın doğrulanmış durumu `panel_settings`'e
-yazılır — sihirbazın zaten kuralı bu ("her adım değiştirdiğini hemen
-işler"). Sekmeyi kapatan kişi kaldığı yerden devam eder.
-
-**Bitti ölçütü:** gerçek bir SMTP sunucusuna karşı, yanlış parolayla
-reddedildiği ve doğrusuyla teslim edildiği görülür; SPF/DMARC
-kontrolleri gerçek DNS'e karşı hem geçen hem kalan bir alan adıyla
-denenir; ve doğrulanmış bir adım, süreç yeniden başlatıldıktan sonra
-hâlâ doğrulanmış görünür.
-
----
+Gerçek bir SMTP sunucusuna karşı: yanlış parolayla **reddedildiği** ve
+doğrusuyla **teslim edildiği** görülür; 587 ve 465 ayrı ayrı denenir;
+STARTTLS önermeyen bir sunucuda parolanın **hiç gönderilmediği**
+gösterilir. SPF/DMARC gerçek DNS'e karşı hem kaydı olan hem olmayan bir
+alan adıyla denenir ve **ikisi de ilerlemeyi durdurmaz**. Doğrulanmış
+adım süreç yeniden başlatıldıktan sonra doğrulanmış kalır. Ve iki
+yapısal test: **`panel_smtp`'yi collector okuyamaz**, ve **e-posta
+yapılandırılmamışken davet ile sıfırlama akışları çalışmaya devam
+eder**.
 
 ### D. Panelin kendisi
 
