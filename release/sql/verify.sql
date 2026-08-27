@@ -83,6 +83,76 @@ UNION ALL SELECT 'none of the four is a superuser',
                    WHERE rolsuper
                      AND rolname IN ('collector','beacon_writer','analytics_reader','panel_user'))
 
+-- The defaults nobody chose, from harden.sql.
+--
+-- Every one of these is something PostgreSQL or TimescaleDB switched on
+-- without being asked, so none of them appears as a missing GRANT in any
+-- privilege listing. They are only visible if something goes looking,
+-- which is what this block is.
+
+-- Telemetry off. TimescaleDB ships with a job that reports to
+-- telemetry.timescale.com every twenty-four hours. No visitor data in
+-- it, and that is beside the point: this product's premise is that a
+-- customer's traffic never leaves their machine, and a daily outbound
+-- connection to a third party contradicts the premise whatever the
+-- payload is.
+UNION ALL SELECT 'timescaledb telemetry is off',
+       current_setting('timescaledb.telemetry_level', true) = 'off'
+
+-- Nobody may connect to this database except the roles that were named.
+--
+-- PostgreSQL grants CONNECT to PUBLIC on every new database. On its own
+-- that looks harmless - a stranger holds no privileges on any table -
+-- and it stops looking harmless next to TimescaleDB's catalog, which is
+-- world-readable by design: a connected stranger can enumerate the
+-- hypertables, the chunks and the time ranges they cover.
+UNION ALL SELECT 'PUBLIC cannot connect to this database',
+       NOT has_database_privilege('public', current_database(), 'CONNECT')
+UNION ALL SELECT 'the four roles still can',
+       has_database_privilege('collector', current_database(), 'CONNECT')
+   AND has_database_privilege('beacon_writer', current_database(), 'CONNECT')
+   AND has_database_privilege('analytics_reader', current_database(), 'CONNECT')
+   AND has_database_privilege('panel_user', current_database(), 'CONNECT')
+
+-- No role may schedule a background job.
+--
+-- Measured before it was closed: panel_user - no rights outside the
+-- panel_* tables, no CREATE anywhere, no superuser anything - called
+-- add_job() and got job id 1000, owner panel_user, on a one-hour
+-- schedule. A job outlives the session, the pool and a restart of the
+-- application that made it. That is persistence, which is the shape of a
+-- back door whatever privileges it carries.
+--
+-- Counted rather than named. The signatures change between TimescaleDB
+-- releases, and a check written against today's would pass tomorrow by
+-- matching nothing.
+UNION ALL SELECT 'no role can schedule a background job',
+       NOT EXISTS (
+         SELECT 1 FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE p.proname IN (
+                 'add_job', 'alter_job', 'delete_job', 'run_job',
+                 'add_retention_policy', 'remove_retention_policy',
+                 'add_compression_policy', 'remove_compression_policy',
+                 'add_continuous_aggregate_policy',
+                 'remove_continuous_aggregate_policy',
+                 'add_reorder_policy', 'remove_reorder_policy')
+           AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+           AND has_function_privilege('public', p.oid, 'EXECUTE'))
+
+-- And that the job table is empty. The REVOKE above stops a new one; it
+-- does nothing about one planted before the hardening was applied, or by
+-- somebody who had the privilege for the ten minutes between install and
+-- this file existing.
+--
+-- TimescaleDB's own internal policies are excluded by owner: they belong
+-- to the installing superuser and are what keeps its job-error history
+-- from growing forever.
+UNION ALL SELECT 'no service role owns a background job',
+       NOT EXISTS (
+         SELECT 1 FROM timescaledb_information.jobs
+         WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user'))
+
 -- And that no service role owns a table.
 --
 -- This is the one that no GRANT reveals and no privilege listing makes

@@ -265,15 +265,40 @@ const (
 	byClickSource breakdownExpr = "click_source"
 )
 
+// valid refuses anything that is not one of the constants above.
+//
+// The unexported type already stops another package constructing a
+// value, but it does nothing about breakdownExpr(userInput) written
+// inside this one - and this expression is interpolated into SQL,
+// because Postgres has no placeholder for an identifier.
+//
+// Added during the H5 audit, which found the same pattern defended two
+// different ways in the same package: countDistinct in store_extra.go
+// has both the closed type and a switch, with a comment calling the
+// switch "belt and braces", while this path had only the type. Two
+// standards for one hazard is how the weaker one survives a review - so
+// the stronger one is now what both use.
+func (e breakdownExpr) valid() error {
+	switch e {
+	case byPath, byTitle, byReferrerHost, byBrowser, byOS, byDevice, byLanguage,
+		byUTMSource, byUTMMedium, byUTMCampaign, byUTMTerm, byUTMContent,
+		byRef, byClickSource:
+		return nil
+	}
+	return fmt.Errorf("api: %q is not a beacon breakdown column", e)
+}
+
 // beaconBreakdown groups the filtered events by one column, busiest
 // first, and returns the total number of distinct groups for paging.
 //
-// expr reaches the SQL through fmt.Sprintf, which is safe here and
-// nowhere else: every call site passes one of the compile-time constants
-// above. A future caller tempted to pass a request-supplied column name
-// must not - that is exactly the injection this closed type exists to
-// prevent.
+// expr reaches the SQL through fmt.Sprintf, because Postgres has no
+// placeholder for an identifier. Two things stand between that and
+// CWE-89: the type, which no other package can construct a value of, and
+// valid() above, which refuses anything this package builds by mistake.
 func (s *Store) beaconBreakdown(ctx context.Context, siteID string, expr breakdownExpr, p beaconParams) ([]BeaconGroupStat, int, error) {
+	if err := expr.valid(); err != nil {
+		return nil, 0, err
+	}
 	total, err := s.beaconCountDistinct(ctx, siteID, expr, p)
 	if err != nil {
 		return nil, 0, err
@@ -302,6 +327,9 @@ func (s *Store) beaconBreakdown(ctx context.Context, siteID string, expr breakdo
 }
 
 func (s *Store) beaconCountDistinct(ctx context.Context, siteID string, expr breakdownExpr, p beaconParams) (int, error) {
+	if err := expr.valid(); err != nil {
+		return 0, err
+	}
 	var total int
 	err := s.pool.QueryRow(ctx, beaconFilterCTE+fmt.Sprintf(`
 		SELECT count(DISTINCT %s) FROM filtered`, expr),

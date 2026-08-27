@@ -238,28 +238,33 @@ func (s *Store) SaveMailAccount(ctx context.Context, key sealed.Key, in MailAcco
 		updatedBy = &by
 	}
 
-	// The password column is written by exactly one of three branches,
-	// chosen here rather than in SQL so the intent is readable: keep,
-	// replace, or clear.
-	passwordSQL := "password_sealed = panel_smtp.password_sealed"
+	// Keep, replace, or clear - decided here and carried into the
+	// statement as a value rather than as SQL.
+	//
+	// The first version built three fragments in Go and concatenated the
+	// chosen one into the query. Nothing user-supplied reached it, so it
+	// was not injectable; it was still string concatenation into SQL in a
+	// package that goes to the trouble of a closed type elsewhere for
+	// exactly this, and the fourth branch somebody adds in a hurry is the
+	// one that interpolates something. A CASE expression says the same
+	// three things in SQL, where a reader can see them next to the column
+	// they write.
 	var sealedPassword string
-	switch {
-	case in.ClearPassword:
-		passwordSQL = "password_sealed = ''"
-	case in.Password != "":
+	if in.Password != "" && !in.ClearPassword {
 		var err error
 		sealedPassword, err = key.Seal(mailPasswordLabel, in.Password)
 		if err != nil {
 			return fmt.Errorf("panel: encrypting the mail password: %w", err)
 		}
-		passwordSQL = "password_sealed = $5"
 	}
 
 	// Saving changes the account, so whatever the last verification said
 	// is now about a different account. Cleared rather than kept: a page
 	// reporting "verified in March" about a server address typed this
 	// morning is worse than one reporting nothing.
-	query := `
+	// One statement, no fragments. Every branch is in the SQL below and
+	// every value is a parameter.
+	const query = `
 		INSERT INTO panel_smtp
 		    (id, host, port, encryption, username, password_sealed,
 		     from_address, from_name, enabled, updated_at, updated_by)
@@ -269,7 +274,14 @@ func (s *Store) SaveMailAccount(ctx context.Context, key sealed.Key, in MailAcco
 		    port = EXCLUDED.port,
 		    encryption = EXCLUDED.encryption,
 		    username = EXCLUDED.username,
-		    ` + passwordSQL + `,
+		    -- Clear when asked, replace when one was typed, keep
+		    -- otherwise. $10 is the clear flag; $5 is the sealed
+		    -- password, empty when none was typed.
+		    password_sealed = CASE
+		        WHEN $10 THEN ''
+		        WHEN $5 <> '' THEN $5
+		        ELSE panel_smtp.password_sealed
+		    END,
 		    from_address = EXCLUDED.from_address,
 		    from_name = EXCLUDED.from_name,
 		    enabled = EXCLUDED.enabled,
@@ -284,7 +296,7 @@ func (s *Store) SaveMailAccount(ctx context.Context, key sealed.Key, in MailAcco
 		strings.TrimSpace(in.Host), in.Port, string(in.Encryption),
 		strings.TrimSpace(in.Username), sealedPassword,
 		strings.TrimSpace(in.FromAddress), strings.TrimSpace(in.FromName),
-		in.Enabled, updatedBy)
+		in.Enabled, updatedBy, in.ClearPassword)
 	if err != nil {
 		return fmt.Errorf("panel: saving the mail account: %w", err)
 	}

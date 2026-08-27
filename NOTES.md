@@ -5119,3 +5119,120 @@ doğru şeyin yapılıp yapılmayacağının bir parçasıdır.**
 
 `-accept` mevcut gerekçelere dokunmuyor ve sıfırdan farklı çıkıyor:
 yazdığı girişin gerekçesi henüz boş, ve dosyanın amacı gerekçelerdir.
+
+## H5 — veritabanı yüzey denetimi: aranmayan yerde bulundu
+
+Soru şuydu: *TimescaleDB'lerde yapay zekâlar arka kapı bırakıyor
+diyorlar, kontrol eder misin.* Genel bir iddia. Kabul de etmedim
+reddetmedim — ölçtüm: gerçek TimescaleDB'ye (16.13 / 2.17.2)
+`install.sh` uygulandı ve her rolün gerçekte nereye ulaşabildiği tek tek
+soruldu.
+
+### Kod tarafı temiz çıktı
+
+Aradığım şeylerin hiçbiri yoktu. SQL'e giden her değer bağlı parametre.
+İki yerde tanımlayıcı enterpolasyonu var — Postgres'te sütun adı için yer
+tutucu yok — ve ikisi de kapalı tip arkasında. Rollerde `SUPERUSER`,
+`CREATEDB`, `CREATEROLE`, `BYPASSRLS`, `REPLICATION` yok. `public`
+şemasında `CREATE` yok. `pg_authid`, `pg_shadow`, `pg_read_file`,
+`COPY TO file` — hepsi reddediliyor. `pg_stat_activity` başka rolün
+sorgu metnini `<insufficient privilege>` gösteriyor.
+
+Chunk'lar da doğru: `beacon_writer`, kendi yazdığı satıra hypertable
+üzerinden ulaşamadığı gibi chunk'a doğrudan giderek de ulaşamıyor — ve
+denetim sırasında **sonradan** oluşturulan chunk da yetkileri doğru
+miras aldı. TimescaleDB'nin en çok endişe edilesi yolu bu ve kapalı.
+
+### Açık, kimsenin vermediği yetkilerdeydi
+
+Üç bulgunun üçü de bir `GRANT` listesinde görünmüyor — çünkü hiçbiri
+`GRANT` ile verilmemiş. Varsayılan olarak açık geliyorlar. Yetki
+matrisiniz kusursuz okunabilir ve bunların hiçbiri orada yazmaz.
+
+**1. Arka plan işi zamanlama.** TimescaleDB `add_job()` üzerindeki
+`EXECUTE`'u `PUBLIC`'e veriyor. Ölçüm: `panel_user` — panel dışında
+hiçbir tablo yetkisi olmayan, hiçbir yerde `CREATE` edemeyen, superuser
+hiçbir şeyi olmayan rol — `add_job('pg_sleep','1 hour')` çağırdı ve iş
+1000'i aldı. Sahibi kendisi, saatlik.
+
+Yetki yükseltmesi değil: iş sahibi olarak çalışır, o rolün psql'de
+yapamayacağını yapamaz. Ama **oturumdan, bağlantı havuzundan ve
+uygulamanın yeniden başlatılmasından sağ çıkar.**
+
+> Bir dakikalığına ele geçirilmiş bir süreç, aylarca çalışan, kimsenin
+> bakmadığı bir yerde duran, servisi yeniden başlatmanın kaldırmadığı bir
+> şey bırakabilir. Taşıdığı yetki ne olursa olsun, arka kapının şekli
+> budur.
+
+**2. Telemetri.** `telemetry_level = basic`, 24 saatte bir
+`telemetry.timescale.com`'a rapor: sürüm, uzantı listesi, işletim
+sistemi, hypertable ve chunk sayıları, satır sayıları. İçinde ziyaretçi
+verisi yok — ve mesele o değil. Bu ürünün önermesi müşterinin trafiğinin
+kendi makinesinden çıkmaması; altındaki veritabanının günlük olarak üçüncü
+tarafa bağlantı açması, yükün içeriği ne olursa olsun o önermeyle
+çelişir.
+
+**3. `PUBLIC` veritabanına bağlanabiliyor.** PostgreSQL her yeni
+veritabanında `CONNECT`'i `PUBLIC`'e verir. Tek başına zararsız görünür —
+bağlanan yabancının hiçbir tabloda yetkisi yok. TimescaleDB'nin kataloğu
+tasarım gereği herkese okunabilir olduğu için zararsız görünmeyi bırakır:
+bağlanan yabancı hypertable'ları, chunk adlarını ve kapsadıkları zaman
+aralıklarını sayabilir. Tek satır yetkisi verilmemiş birine kurulumun
+haritası verilmiş olur.
+
+### Betiğim kendi kuralını kanıtladı
+
+`harden.sql`'in başına şunu yazmıştım: *"çalışan bir REVOKE ile etkili
+olan bir REVOKE farklı olgulardır."*
+
+İlk çalıştırmada döngü `run_job`'da durdu — o bir **procedure**, ve
+`REVOKE ... ON FUNCTION` procedure'ü kabul etmiyor. `DO` bloğu ilk hatada
+durur, yani listedeki sonraki adlar sessizce açık kaldı. Betik başarıyla
+çalıştığını bildirdi. `verify.sql` yakaladı. `ON ROUTINE` ikisini de
+kapsıyor.
+
+### Kodda iki düzeltme
+
+**`SaveMailAccount`'ta SQL birleştirmesi.** Üç sabit değişmezden biri
+seçilip sorguya ekleniyordu. Enjekte edilemezdi — kullanıcı girdisi
+ulaşmıyor — ama aynı depoda başka yerde kapalı tip kullanılan bir tehlike
+için hiçbir koruma yoktu, ve aceleyle eklenen dördüncü dal bir şey
+enterpole eden dal olur. `CASE` ifadesine çevrildi: tek ifade, üç dal
+SQL'de yazdıkları sütunun yanında görünür, her değer parametre.
+
+**Aynı desen iki farklı savunulmuş.** `countDistinct` hem kapalı tip hem
+beyaz liste kullanıyor, üstelik yorumunda beyaz listeye "belt and braces"
+diyor. `beaconBreakdown` yalnız tipe güveniyordu. Bir tehlikeye iki
+standart, zayıf olanın incelemeden geçmesinin yoludur. Güçlü olan ikisine
+de uygulandı — ve elle yazılan listenin sabitlerden kaymayacağını garanti
+eden ayna testi eklendi, çünkü elle yazılan liste kayar.
+
+### Kapatılmayan, raporlanan: bağlantı şifrelemesi
+
+Dört DSN'in hiçbirinde `sslmode` yok. Hepsi `localhost` gösterdiği için
+bugün doğrular. Ama libpq'nun varsayılanı `prefer`'dır: TLS'i dener,
+sunucu sunmuyorsa **sessizce şifresiz devam eder.** DSN'i uzak bir
+veritabanına çeviren kurulum, parolayı ve her analitik satırı ağdan açık
+geçirir — ve yapılandırmada bunu gösteren hiçbir şey olmaz, hata da
+vermez.
+
+Zorunlu kılmadım. Tek makinelik kurulum TLS'siz doğrudur, ve bunu devri
+bloke eden bir kontrol yapmak insanlara kırmızı bir satırı görmezden
+gelmeyi öğretir. Bunun yerine ölçülüyor, DSN dizesinden tahmin edilerek
+değil: `pg_stat_ssl` bağlantının gerçekten şifreli olup olmadığını,
+`inet_server_addr()` sunucunun gerçekten uzak olup olmadığını söylüyor.
+
+Bu kontrolün ilk hâli her loopback bağlantısına "uzak sunucu" diye uyarı
+veriyordu. `inet_server_addr()::text` maskeyi koruyor — `127.0.0.1/32` —
+ve `netip.ParseAddr` bunu çözemiyor. En yaygın kurulumda yanlış alarm:
+yani tam olarak kontrollerin görmezden gelinmesini öğreten şey. `host()`
+ile düzeltildi, ve testi yazan ben olmasam fark edilmezdi çünkü kontrol
+"çalışıyor" görünüyordu.
+
+### Kalan
+
+RLS kullanılmıyor: siteler arası ayrım uygulama kodunda, `site_id` ile.
+`analytics_reader` her sitenin satırını okuyabilir; jetonun hangi siteleri
+görebileceği API'de zorlanıyor. Bu bilinçli bir tasarım ve denetimde
+değişmedi — ama veritabanı seviyesinde bir garanti değil, ve öyleymiş gibi
+sunulmamalı.

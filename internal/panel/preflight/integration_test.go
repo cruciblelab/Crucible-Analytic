@@ -360,3 +360,85 @@ func TestPreflight_MeasuresBothVolumes(t *testing.T) {
 		}
 	}
 }
+
+// TestTheBackgroundJobCheckCatchesAPlantedJob.
+//
+// This is the H5 finding, kept honest. TimescaleDB grants EXECUTE on
+// add_job() to PUBLIC, so before harden.sql any service role could
+// schedule work that outlives the process which scheduled it. Closing
+// the grant is one thing; noticing a job that is already there is
+// another, and an upgrade that reinstalls the extension restores the
+// default grants without saying so.
+//
+// The job is planted with the test's own connection and removed
+// afterwards, so what is measured is the check rather than a fixture.
+func TestTheBackgroundJobCheckCatchesAPlantedJob(t *testing.T) {
+	checker := newTestChecker(t)
+	ctx := context.Background()
+
+	// Clean before, in case a previous run died between planting and
+	// removing - a left-over job would make the "none" case below fail
+	// for a reason that has nothing to do with this run.
+	dropTestJobs(t, checker)
+
+	before := find(t, checker.Run(ctx, Config{}), "db.no_background_jobs")
+	if before.Status != CheckPass {
+		t.Fatalf("with no jobs the check is %s: %s", before.Status, before.Detail)
+	}
+
+	var jobID int
+	err := checker.pool.QueryRow(ctx,
+		`SELECT add_job('pg_sleep', '1 hour')`).Scan(&jobID)
+	if err != nil {
+		// The grant may already be revoked on this database, which is
+		// the state harden.sql leaves - and then there is nothing to
+		// plant. Reported rather than skipped silently: a test that
+		// cannot run is a fact worth printing.
+		t.Skipf("could not plant a job (harden.sql may already be applied here): %v", err)
+	}
+	t.Cleanup(func() { dropTestJobs(t, checker) })
+
+	// The planted job is owned by whoever this test connects as, which
+	// is one of the four service roles - so the check must see it.
+	after := find(t, checker.Run(ctx, Config{}), "db.no_background_jobs")
+	if after.Status != CheckFail {
+		t.Errorf("a planted job left the check at %s: %s", after.Status, after.Detail)
+	}
+	if !strings.Contains(after.Detail, "pg_sleep") {
+		t.Errorf("the check does not name the job it found: %s", after.Detail)
+	}
+	if after.Fix == "" {
+		t.Error("the check reports a planted job without saying how to remove it")
+	}
+
+	dropTestJobs(t, checker)
+	final := find(t, checker.Run(ctx, Config{}), "db.no_background_jobs")
+	if final.Status != CheckPass {
+		t.Errorf("after removing the job the check is still %s: %s", final.Status, final.Detail)
+	}
+}
+
+func dropTestJobs(t *testing.T, c *Checker) {
+	t.Helper()
+	_, _ = c.pool.Exec(context.Background(), `
+		SELECT delete_job(job_id) FROM timescaledb_information.jobs
+		WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user')`)
+}
+
+// The connection this suite uses is to localhost, so the encryption
+// check must pass by the local route rather than by finding TLS.
+//
+// Worth asserting because the two pass for different reasons and only
+// one of them is about encryption. A version of this check that reported
+// "encrypted" for a loopback connection would be telling every
+// single-machine deployment something untrue.
+func TestConnectionEncryptionPassesLocally(t *testing.T) {
+	checker := newTestChecker(t)
+	got := find(t, checker.Run(context.Background(), Config{}), "db.connection_encrypted")
+	if got.Status != CheckPass {
+		t.Fatalf("a loopback connection gave %s: %s", got.Status, got.Detail)
+	}
+	if !strings.Contains(got.Detail, "bu makinede") && !strings.Contains(got.Detail, "TLS") {
+		t.Errorf("the detail explains neither reason: %s", got.Detail)
+	}
+}

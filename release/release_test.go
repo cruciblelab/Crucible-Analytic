@@ -144,7 +144,7 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 		// clone a repository to install it would be handing back the
 		// manual work F2 exists to remove.
 		"release/install.sh", "release/verify.sh",
-		"release/sql/grants.sql", "release/sql/verify.sql",
+		"release/sql/grants.sql", "release/sql/verify.sql", "release/sql/harden.sql",
 	} {
 		if _, err := os.Stat(filepath.Join(stage, want)); err != nil {
 			t.Errorf("the package has no %s", want)

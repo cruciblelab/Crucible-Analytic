@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -191,6 +192,8 @@ func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 		c.checkSettingsGrant(ctx, cfg.Roles),
 		c.checkPanelIsolation(ctx, cfg.Roles),
 		c.checkAPIIsReadOnly(ctx, cfg.Roles),
+		c.checkConnectionEncryption(ctx),
+		c.checkNoBackgroundJobs(ctx),
 		c.checkRetentionPolicies(ctx),
 		c.checkConfiguredRolesExist(ctx, cfg.Roles),
 		checkDeveloperPassword(cfg.DeveloperGate, cfg.GuardedKeys),
@@ -450,6 +453,139 @@ func (c *Checker) checkSettingsGrant(ctx context.Context, roles Roles) CheckResu
 		return result
 	}
 	result.Status, result.Detail = CheckPass, "Servisler panel_settings tablosunu okuyabiliyor."
+	return result
+}
+
+// checkConnectionEncryption asks the database whether this connection is
+// encrypted, and whether it needed to be.
+//
+// Asked of the server rather than read out of the DSN, because the DSN
+// does not answer it. libpq's default sslmode is `prefer`, which tries
+// TLS and *silently continues without it* when the server does not offer
+// it - so a connection string with no sslmode at all produces an
+// encrypted link to one server and a plaintext one to another, with
+// nothing in the configuration to tell them apart and no error either
+// way. pg_stat_ssl is the only place the truth is written down.
+//
+// Loopback and unix sockets pass unencrypted, and that is not laziness:
+// those bytes never reach a network interface. inet_server_addr()
+// returns NULL for a unix socket, which is the strongest form of local
+// there is.
+//
+// Recommended rather than required. A deployment on one machine - which
+// is what KURULUM.md describes and what most installations will be - is
+// correct without TLS, and making this block handover would teach people
+// that a red check is something to ignore.
+func (c *Checker) checkConnectionEncryption(ctx context.Context) CheckResult {
+	result := CheckResult{
+		ID: "db.connection_encrypted", Severity: SeverityRecommended,
+		Label: "Veritabanı bağlantısı şifreli (uzak sunucu için)",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
+	}
+
+	var encrypted bool
+	var serverAddr *string
+	err := c.pool.QueryRow(ctx, `
+		SELECT coalesce((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), false),
+		       -- host() rather than a cast. inet_server_addr() is an
+		       -- inet, and ::text keeps the netmask: "127.0.0.1/32",
+		       -- which no address parser accepts. The first version of
+		       -- this check therefore called every loopback connection
+		       -- remote and warned about it - a false alarm on the most
+		       -- common deployment there is, which is precisely how a
+		       -- check teaches people to ignore checks.
+		       host(inet_server_addr())`).Scan(&encrypted, &serverAddr)
+	if err != nil {
+		result.Status, result.Detail = CheckSkip, "Bağlantı durumu sorgulanamadı: "+err.Error()
+		return result
+	}
+
+	local := serverAddr == nil
+	if !local {
+		addr, parseErr := netip.ParseAddr(*serverAddr)
+		local = parseErr == nil && (addr.IsLoopback() || addr.IsUnspecified())
+	}
+
+	switch {
+	case encrypted:
+		result.Status, result.Detail = CheckPass, "Bağlantı TLS ile şifreli."
+	case local:
+		result.Status = CheckPass
+		result.Detail = "Veritabanı bu makinede; bağlantı ağ arayüzüne hiç çıkmıyor, şifreleme gerekmiyor."
+	default:
+		result.Status = CheckWarn
+		result.Detail = "Veritabanı uzak bir sunucuda (" + *serverAddr + ") ve bağlantı şifresiz. " +
+			"libpq'nun varsayılanı sslmode=prefer'dir: TLS'i dener, sunucu sunmuyorsa " +
+			"sessizce şifresiz devam eder — yani yapılandırmada bunu gösteren hiçbir şey olmaz. " +
+			"Veritabanı parolası ve her analitik satır ağdan açık geçiyor."
+		result.Fix = "DSN'lere sslmode=require ekleyin (sertifikayı da doğrulamak için verify-full), " +
+			"ve sunucuda ssl = on olduğundan emin olun."
+	}
+	return result
+}
+
+// checkNoBackgroundJobs is the audit finding that surprised this project
+// most, kept as a check because closing it once is not the same as it
+// staying closed.
+//
+// TimescaleDB grants EXECUTE on add_job() to PUBLIC. Measured here on a
+// real installation: panel_user - a role with no rights outside the
+// panel_* tables, no CREATE anywhere and no superuser anything - called
+// it and got a job back, owned by itself, on a schedule. A job outlives
+// the session that made it, the connection pool, and a restart of the
+// application. It is not privilege escalation, since it runs as its
+// owner; it is persistence, which is what a back door is regardless of
+// what privileges it carries.
+//
+// harden.sql revokes it. This asks whether one is there anyway - planted
+// before the hardening existed, or by an upgrade that reinstalled the
+// extension and put the default grants back.
+func (c *Checker) checkNoBackgroundJobs(ctx context.Context) CheckResult {
+	result := CheckResult{
+		ID: "db.no_background_jobs", Severity: SeverityRequired,
+		Label: "Hiçbir servis rolünün arka plan işi yok",
+	}
+	if c.pool == nil {
+		return noDatabase(result)
+	}
+
+	var planted []string
+	rows, err := c.pool.Query(ctx, `
+		SELECT job_id::text || ' (' || proc_name || ', ' || owner::text || ')'
+		FROM timescaledb_information.jobs
+		WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user')
+		ORDER BY job_id`)
+	if err != nil {
+		// A database without TimescaleDB has no such view, and that is a
+		// different fact from "we looked and found none".
+		result.Status, result.Detail = CheckSkip, "Arka plan işleri sorgulanamadı: "+err.Error()
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var line string
+		if scanErr := rows.Scan(&line); scanErr != nil {
+			result.Status, result.Detail = CheckSkip, "Arka plan işleri okunamadı: "+scanErr.Error()
+			return result
+		}
+		planted = append(planted, line)
+	}
+	if rows.Err() != nil {
+		result.Status, result.Detail = CheckSkip, "Arka plan işleri okunamadı: "+rows.Err().Error()
+		return result
+	}
+
+	if len(planted) > 0 {
+		result.Status = CheckFail
+		result.Detail = "Bir servis rolüne ait arka plan işi var: " + strings.Join(planted, ", ") +
+			". Bu ürün hiçbir iş zamanlamaz; buradaki bir iş ya yanlışlıkla ya da kasten bırakılmıştır " +
+			"ve süreç yeniden başlatılsa da çalışmaya devam eder."
+		result.Fix = "SELECT delete_job(<job_id>); ve release/sql/harden.sql'i yeniden uygulayın."
+		return result
+	}
+	result.Status, result.Detail = CheckPass, "Servis rollerine ait arka plan işi yok."
 	return result
 }
 

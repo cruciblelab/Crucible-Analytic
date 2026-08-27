@@ -95,6 +95,7 @@ newsecret() {
 say "preflight"
 command -v psql >/dev/null || die "psql is not installed"
 [ -f "${HERE}/sql/grants.sql" ] || die "release/sql/grants.sql is missing; run this from the package"
+[ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
 
 if [ "${DRY_RUN}" -eq 1 ]; then
   say "dry run: nothing will be changed"
@@ -187,6 +188,23 @@ fi
 say "privileges"
 if [ "${DRY_RUN}" -eq 0 ]; then
   psql_db -f "${HERE}/sql/grants.sql"
+fi
+
+# The privileges nobody granted.
+#
+# grants.sql says what each role may do. harden.sql closes what
+# PostgreSQL and TimescaleDB switched on without being asked - telemetry,
+# CONNECT for every role on the cluster, and the ability for any role at
+# all to schedule a background job that outlives the process which made
+# it. None of those shows up as a missing GRANT, so none of them is
+# visible in a privilege listing that reads perfectly.
+#
+# Applied on every run: each statement is idempotent, and an upgrade that
+# reinstalls the extension puts the defaults back.
+say "closing the defaults nobody chose"
+if [ "${DRY_RUN}" -eq 0 ]; then
+  [ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
+  psql_db -v dbname="${DB_NAME}" -f "${HERE}/sql/harden.sql"
 fi
 
 # The half that matters. A grant block that ran without error proves the

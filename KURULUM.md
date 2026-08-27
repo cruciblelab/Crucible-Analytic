@@ -311,6 +311,65 @@ Kalın yazılanlar tesadüf değil, tasarım:
 Bu blok gerçek bir TimescaleDB'ye (16.6 / 2.17.2) uygulanarak
 doğrulandı, çıkan matris yukarıdaki tablodur.
 
+### 4.5 Kimsenin vermediği yetkiler
+
+Yukarıdaki matris `GRANT`'ların ne yaptığını gösteriyor. Bir de
+**hiç `GRANT` edilmediği hâlde açık gelen** üç şey var; hiçbiri bir yetki
+listesinde görünmez, çünkü hiçbiri verilmemiştir. `release/install.sh`
+bunları kapatıyor (`release/sql/harden.sql`), ve `verify.sql` kapandığını
+doğruluyor — elle kuruyorsanız o dosyayı kendiniz uygulayın:
+
+```
+psql "$DSN" -v dbname=analytics -f release/sql/harden.sql
+```
+
+**1. Arka plan işi zamanlama.** TimescaleDB `add_job()` üzerindeki
+`EXECUTE`'u `PUBLIC`'e verir. Bu kurulumda ölçüldü: `panel_user` — panel
+dışında hiçbir tablo yetkisi olmayan rol — bir iş zamanlayabildi. İş,
+sahibi olan rol olarak çalışır, yani yetki yükseltmesi değildir; ama
+oturumdan, bağlantı havuzundan ve **servisin yeniden başlatılmasından**
+sağ çıkar. Bu ürün hiçbir iş zamanlamaz. Sıkıştırma ya da saklama
+politikası istiyorsanız superuser olarak siz uygularsınız.
+
+**2. TimescaleDB telemetrisi.** Varsayılan `basic`; 24 saatte bir
+`telemetry.timescale.com` adresine sürüm, uzantı listesi, işletim
+sistemi, hypertable ve satır sayıları gider. İçinde ziyaretçi verisi
+yoktur. Yine de kapatılıyor: bu ürünün müşteriye verdiği söz trafiğinin
+kendi makinesinden çıkmaması, ve altındaki veritabanının günlük olarak
+dışarı bağlantı açması o sözle çelişir. Açık kalmasını isteyen bir
+kurulum bunu bilerek yapmalı.
+
+**3. Veritabanına `PUBLIC` bağlanabilmesi.** PostgreSQL her yeni
+veritabanında `CONNECT`'i `PUBLIC`'e verir, yani kümedeki **herhangi bir
+rol** — başka bir uygulamanın rolü, eski bir göçten kalan — buraya
+bağlanabilir. Tabloda yetkisi olmaz; ama TimescaleDB'nin kataloğu
+tasarım gereği herkese okunabilir olduğu için hypertable'ları, chunk
+adlarını ve zaman aralıklarını sayabilir.
+
+### 4.6 Uzak veritabanı kullanıyorsanız: `sslmode`
+
+Örnek DSN'lerin hepsi `localhost` gösteriyor ve orada şifreleme
+gerekmez — baytlar ağ arayüzüne hiç çıkmaz.
+
+Veritabanını **başka bir makineye** taşırsanız DSN'lere `sslmode`
+eklemeniz gerekir:
+
+```
+postgres://panel_user:PAROLA@db.example.com:5432/analytics?sslmode=verify-full
+```
+
+Sebebi şu: libpq'nun varsayılanı `prefer`'dır. TLS'i dener ve sunucu
+sunmuyorsa **sessizce şifresiz devam eder.** Hata vermez, yapılandırmada
+iz bırakmaz — veritabanı parolanız ve her analitik satır ağdan açık
+geçer, ve bunu gösteren hiçbir şey olmaz.
+
+`require` şifrelemeyi zorunlu kılar; `verify-full` ayrıca sunucunun
+sertifikasını ve adını doğrular ve tercih edilmesi gereken odur.
+
+Kurulum sihirbazının kontrol adımı bunu sizin yerinize ölçüyor: bağlantının
+gerçekten şifreli olup olmadığını veritabanına sorar, ve sunucu uzaktaysa
+şifresiz bir bağlantıyı uyarı olarak gösterir.
+
 ---
 
 ## 5. Sırlar
