@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
-| **C** Panel HTTP yüzeyi | 🟡 **10/11** | C7.3 (e-posta sihirbazı — tartışma yapıldı, sıra bekliyor) |
+| **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
 | **D** Dashboard | 🟡 **3/8** | D4–D8 (D3'ten yalnız ham dışa aktarma kaldı, karar bekliyor) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -2552,7 +2552,7 @@ bulan herkes için ikinci faktörü isteğe bağlı yapardı.
 
 ---
 
-#### C7.3 — E-posta kurulum sihirbazı ⬜ *(tasarım derinleştirildi, 2026-08-27)*
+#### C7.3 — E-posta kurulum sihirbazı ✅ *(2026-08-27)*
 
 > İlk taslak konuşmadan çıkmıştı ve kabaydı. Kullanıcı isteği üzerine
 > açıldı; **dört ölçüm** taslakta üç gerçek sorun gösterdi ve bir adımın
@@ -2571,6 +2571,13 @@ yönetici kural:
 > **E-posta hiçbir zaman tek yol değildir.** E-postayı kullanabilen her
 > akış e-postasız da çalışır, ve panel e-postayı tek yol gibi sunmaz.
 > Bunu bir arayüz notu değil, **test edilen bir değişmez** yapıyoruz.
+
+> **Yapıldı.** `TestTheInvitationLinkSurvivesEveryMailOutcome` üç durumu
+> da geçiyor — posta hiç tanımlı değil, çalışıyor, ve tanımlı ama sunucu
+> yok — ve üçünde de aynı iddia: bağlantı sayfada. Çalışan durumda
+> ayrıca sahte SMTP sunucusuna iletinin gerçekten ulaştığı sayılıyor,
+> çünkü "gönderildi" yazıp hiçbir şey ulaşmaması bu özelliğin karşı
+> durduğu hatanın ta kendisi.
 
 Sebep teslimat: taze bir VDS'ten SPF/DMARC'sız çıkan posta sessizce
 spam'e düşer. Sessizce kaybolan bir parola sıfırlama en kötü hata

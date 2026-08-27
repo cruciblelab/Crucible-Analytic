@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -143,7 +144,7 @@ func TestTheTestButtonHasARealConversation(t *testing.T) {
 	server, client, store, _ := mailServer(t)
 	ctx := context.Background()
 
-	smtpAddr := startPlainSMTP(t)
+	smtpAddr, _ := startPlainSMTP(t)
 	host, portText, _ := strings.Cut(smtpAddr, ":")
 
 	status, body := saveAccount(t, client, server.URL, url.Values{
@@ -440,8 +441,11 @@ func TestWithoutAKeyThePageExplainsItself(t *testing.T) {
 // needs. No STARTTLS and no AUTH, which makes it the anonymous-relay
 // case - the one shape of unencrypted account this product allows,
 // because there is no password to expose.
-func startPlainSMTP(t *testing.T) string {
+func startPlainSMTP(t *testing.T) (addr string, received func() int) {
 	t.Helper()
+
+	var mu sync.Mutex
+	var count int
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -484,6 +488,9 @@ func startPlainSMTP(t *testing.T) string {
 								break
 							}
 						}
+						mu.Lock()
+						count++
+						mu.Unlock()
 						write("250 accepted")
 					case "QUIT":
 						write("221 bye")
@@ -495,7 +502,11 @@ func startPlainSMTP(t *testing.T) string {
 			}()
 		}
 	}()
-	return ln.Addr().String()
+	return ln.Addr().String(), func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return count
+	}
 }
 
 // closedPort returns a port nothing is listening on: bound to learn the
@@ -513,4 +524,158 @@ func closedPort(t *testing.T) int {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 	return port
+}
+
+// TestTheInvitationLinkSurvivesEveryMailOutcome is the rule the whole
+// design rests on: the link is on the screen either way.
+//
+// Three outcomes, one assertion repeated. Mail not configured, mail
+// configured and working, mail configured and broken - in all three the
+// installer is looking at a link they can copy. C7.1 and C7.2 were built
+// without email precisely so that a send which fails costs nothing, and
+// this is the test that keeps that true when somebody later decides the
+// page would be tidier if it only showed the link "when needed".
+func TestTheInvitationLinkSurvivesEveryMailOutcome(t *testing.T) {
+	tests := []struct {
+		name string
+		// setup arranges the mail account and returns what the page
+		// should say about delivery.
+		setup func(t *testing.T, srv *Server, store *panel.Store) func() int
+		// wantNote is what the page must say about delivery.
+		wantNote string
+		// wantMessages is how many messages must actually have reached
+		// the server. The page saying "sent" while nothing arrived is
+		// the exact failure this whole feature is built against, so the
+		// success case checks the wire rather than the wording.
+		wantMessages int
+	}{
+		{
+			name:     "no mail account at all",
+			setup:    func(*testing.T, *Server, *panel.Store) func() int { return nil },
+			wantNote: "tanımlı değil",
+		},
+		{
+			name: "a working server",
+			setup: func(t *testing.T, srv *Server, store *panel.Store) func() int {
+				addr, received := startPlainSMTP(t)
+				host, portText, _ := strings.Cut(addr, ":")
+				port, err := strconv.Atoi(portText)
+				if err != nil {
+					t.Fatal(err)
+				}
+				saveMailAccountDirect(t, srv, store, host, port)
+				return received
+			},
+			wantNote:     "e-postayla gönderildi",
+			wantMessages: 1,
+		},
+		{
+			name: "a server that is not there",
+			setup: func(t *testing.T, srv *Server, store *panel.Store) func() int {
+				saveMailAccountDirect(t, srv, store, "127.0.0.1", closedPort(t))
+				return nil
+			},
+			wantNote: "gönderilemedi",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, store := setupTestServer(t)
+			ctx := context.Background()
+			const site = "posta-devir-testi"
+			email := "sahip-" + strings.ReplaceAll(tc.name, " ", "-") + "@posta-devir.invalid"
+
+			if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{site}, nil); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				pool, bg := store.Pool(), context.Background()
+				_, _ = pool.Exec(bg, `DELETE FROM panel_smtp`)
+				_, _ = pool.Exec(bg, `DELETE FROM panel_audit_log WHERE actor_label = $1`, email)
+				_, _ = pool.Exec(bg, `DELETE FROM panel_site_members WHERE site_id = $1`, site)
+				_, _ = pool.Exec(bg, `DELETE FROM panel_owner_claims WHERE email = $1`, email)
+				_, _ = pool.Exec(bg, `DELETE FROM panel_users WHERE email = $1`, email)
+			})
+
+			received := tc.setup(t, srv, store)
+
+			server := httptest.NewServer(srv.Handler())
+			defer server.Close()
+
+			dev := newClient(t, server.URL)
+			token, req, err := store.RequestDevAccess(ctx, testReasonPrefix+"posta-devir", 0, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !req.AutoApproved {
+				t.Skip("this database already has accounts, so the developer link needs approval")
+			}
+			resp, err := dev.Get(server.URL + DevAccessPathPrefix + token)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp.Body.Close()
+
+			handover := server.URL + SetupPathPrefix + "devir"
+			status, body := post(t, dev, handover, url.Values{
+				"eposta": {email}, "ad": {"Devir Sahibi"},
+			})
+			if status != http.StatusOK {
+				t.Fatalf("handover answered %d: %q", status, messageOf(body))
+			}
+
+			// The assertion that matters, identical in all three cases.
+			m := claimLinkPattern.FindStringSubmatch(body)
+			if m == nil {
+				t.Fatalf("no invitation link on the page after %q:\n%s", tc.name, body)
+			}
+			if !strings.Contains(m[1], ClaimPathPrefix) {
+				t.Fatalf("the printed link is not an invitation: %q", m[1])
+			}
+
+			// And the page says which of the three happened, so the
+			// installer knows whether to pass it on themselves.
+			if !strings.Contains(body, tc.wantNote) {
+				t.Errorf("the page does not say %q happened:\n%s", tc.wantNote, body)
+			}
+
+			if received != nil {
+				if got := received(); got != tc.wantMessages {
+					t.Errorf("the server received %d messages, want %d; the page said %q",
+						got, tc.wantMessages, tc.wantNote)
+				}
+			}
+		})
+	}
+}
+
+// saveMailAccountDirect stores an anonymous relay account through the
+// store, skipping the page.
+//
+// Through the store rather than through the form because what is under
+// test here is the handover step, and driving the mail page to set it up
+// would make a failure there look like a failure here.
+func saveMailAccountDirect(t *testing.T, srv *Server, store *panel.Store, host string, port int) {
+	t.Helper()
+
+	var raw [sealed.KeySize]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		t.Fatal(err)
+	}
+	key, err := sealed.ParseKey(hex.EncodeToString(raw[:]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.SecretKey = key
+
+	if err := store.SaveMailAccount(context.Background(), key, panel.MailAccountInput{
+		Host:        host,
+		Port:        port,
+		Encryption:  mail.EncryptionSTARTTLS,
+		FromAddress: "panel@ornek.invalid",
+		Enabled:     true,
+	}, 0); err != nil {
+		t.Fatalf("SaveMailAccount: %v", err)
+	}
 }

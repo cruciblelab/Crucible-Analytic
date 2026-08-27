@@ -10,6 +10,16 @@ somebody will close the tab expecting to find it again. */}}
 <p>{{tf "kurulum.devir.baglanti_govde" .Data.ClaimEmail}}</p>
 <p><code class="secret">{{.Data.ClaimURL}}</code></p>
 <p class="uyari" role="note">{{t "kurulum.devir.bir_kez"}}</p>
+{{- /* Under the link, never instead of it. Email here is a second copy
+of something the installer is already looking at: whether it went, did
+not go, or was never configured changes what this paragraph says and
+nothing about the link above. */}}
+{{- with .Data.Delivery}}
+<p class="ipucu">{{.Note}}</p>
+{{- if .Detail}}
+<p class="ipucu">{{.Detail}} {{t "posta.teslim.elden"}}</p>
+{{- end}}
+{{- end}}
 </section>
 {{- end}}
 

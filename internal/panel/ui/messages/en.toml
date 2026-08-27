@@ -853,3 +853,20 @@ once_kaydet = "Save the account first, then test it."
 acilamiyor = "The stored password cannot be opened with this key. Retype the password and save."
 okunamadi = "The sending account could not be read."
 silinemedi = "The sending account could not be deleted."
+
+# Emailing a link to the person it belongs to.
+#
+# "As well" is the operative phrase: the link is on the screen either
+# way. Whether the send worked, failed, or was never configured, the
+# installer is looking at the link and can pass it on. C7.1 and C7.2 were
+# built without email for that reason; this adds a second copy, never the
+# only one.
+[metin.posta.teslim]
+kapali = "Email sending is not configured on this deployment. Copy the link above and pass it on yourself."
+gonderildi = "The link was also emailed to %s. Accepted - which does not mean delivered, so have them check their inbox."
+basarisiz = "The email could not be sent."
+elden = "The link is above; you can pass it on yourself."
+
+[metin.posta.davet]
+konu = "Crucible Analytic — your panel invitation"
+govde = "Hello,\n\nA one-time invitation link has been prepared so you can create your account for your analytics panel."

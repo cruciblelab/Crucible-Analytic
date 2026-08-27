@@ -4966,3 +4966,156 @@ would exercise, and it is tested against a real database - but "a fresh
 machine, from the tarball, by the document" remains untested, and saying
 otherwise would be the kind of unverified claim these two phases spent
 their time removing.
+
+## C7.3 — e-posta, ve net/smtp'nin göndermediğimiz şifresi
+
+Bu fazın çıktısı "panel e-posta gönderebiliyor" değil. Panel zaten
+e-postasız çalışıyordu ve öyle kalması gerekiyordu: davet bir bağlantı
+(C7.1), parola sıfırlama kurtarma kodları (C7.2). Çıktı şu: **e-posta
+çalışmadığında kuran kişi tek ekranda tam olarak neden çalışmadığını
+görüyor.**
+
+Aradaki fark somut. "Kimlik doğrulama başarısız" ile "sağlayıcınız
+2023'te SMTP parolalarını kapattı, uygulama parolası üretmeniz gerekiyor"
+arasındaki mesafe, beş dakikalık bir kurulumla terk edilmiş bir kurulum
+arasındaki mesafedir.
+
+### Kaynağı okumak üç gerçek hata çıkardı
+
+Tasarımı yazarken `net/smtp`'nin kendi kaynağını okudum. Üçü de yazdığım
+kodda vardı, üçü de sessiz.
+
+**PlainAuth şifreyi açık bağlantıda gönderir.** `auth.go`'daki
+`isLocalhost`: sunucu adı `localhost`, `127.0.0.1` ya da `::1` ise
+şifreleme koşulu düşüyor. Savunulabilir bir muafiyet — baytlar makineden
+çıkmıyor — ama görünmez, ve yapılandırma dosyasındaki bir dizeyle
+kararlaştırılıyor, paketlerin nereye gittiğiyle değil. Daha kötüsü:
+`DiagNoTLS`'in "şifre gönderilmedi" iddiasını, insanların en çok yanlış
+kuracağı yerel relay senaryosunda yalana çeviriyordu.
+
+Karar artık `net/smtp`'den önce burada veriliyor: şifre varsa ve bağlantı
+şifresiz ise AUTH komutu hiç yazılmıyor. Muafiyet yok. Kimlik bilgisi
+olmayan hesap (yerel relay) hâlâ çalışıyor, çünkü ortada açığa çıkacak
+bir sır yok.
+
+Bunu kanıtlayan test **kendi kontrol grubuyla** geliyor. Sunucu
+127.0.0.1'de, yani tam olarak kütüphanenin muafiyet uyguladığı adres. Alt
+test aynı sunucuya düz `net/smtp` ile bağlanıyor ve şifrenin açıkta
+gittiğini gösteriyor: `AUTH PLAIN AHBhbmVsAGdpemxp`. Kontrol olmadan
+yeşil sonuç, "bizim kodumuz hiçbir şey yapmıyor ama kütüphane de zaten
+göndermedi" ile ayırt edilemezdi.
+
+**Başarısız TLS el sıkışması "kimlik reddedildi" diyordu.** Sertifika
+doğrulamasını hiçbir yerde kapatmadığımız için kendi imzalı bir posta
+sunucusu buraya düşer — ve o kişiye doğru şifresini tekrar tekrar
+yazdırmak yerine sebebini söylemek gerekir. `DiagTLSFailed` eklendi.
+
+**587'ye implicit TLS ile bağlanmak "ulaşılamıyor" diyordu.** Oysa TCP
+sorunsuz bağlanmıştı; yalnız port yanlıştı. `tls.DialWithDialer` ikisini
+birden yaptığı için hangisinin başarısız olduğunu söyleyemiyor. Artık
+önce TCP, sonra el sıkışma — ve `tls.RecordHeaderError` tipiyle "düz
+metin porta TLS" ayrı bir tanı.
+
+### Sunucunun cevap metni hiç okunmuyor
+
+İlk taslak göndereni alıcıdan ayırmak için sunucunun cevabında "sender"
+ve "recipient" kelimelerini arıyordu. Türk bir sunucu reddini Türkçe
+yazar; cevap o an güvenle yanlış olurdu. Ayrım artık hangi komutu
+yazdığımızdan geliyor (`StageSender` / `StageRecipient` / `StageData`) ve
+TLS tarafında hata **tipinden**. `TestRefusalDiagnosisDoesNotDependOnReplyWording`
+Türkçe cevaplarla bunu sabitliyor.
+
+### Yedi korumayı bozdum, altısı yakalandı
+
+Mutasyon testi: her korumayı tek tek kaldırıp testin kırmızıya döndüğünü
+ölçtüm. Altısı yakalandı. Yedincisi — `FromName`'deki satır sonu
+temizliği — hayatta kaldı. Ölçünce sebebi çıktı: `mail.Address.String`
+adı zaten base64'e çeviriyor, satır sonu dahil. Yani temizlik hiçbir şey
+korumuyordu ama kodda "bu gerekli" diyordu. Silindi. `sanitizeHeader`
+yalnız `Message-ID`'de kaldı — elle kurulan tek başlık orası.
+
+### Kendi yorumumu bir ölçümle çürüttüm
+
+`decodeKey`'in yorumu, base64 bir anahtarın hex sanılabileceğini iddia
+ediyordu. 32 baytın base64'ü daima `=` ile biter ve `=` hex basamağı
+değil — yani imkânsız. On bin rastgele anahtar, sıfır karışma. Yanlış
+iddia sessizce silinmedi, yorumda kayıtlı: **var olmayan bir tehlikeyi
+anlatan yorum, sonraki okuyucuya doğru yorumlara da inanmamayı öğretir.**
+
+### Şifre: hash'lenemeyen tek sır
+
+Bu veritabanındaki her kimlik bilgisi bir özet — parolalar argon2id,
+davetler ve jetonlar ve kurtarma kodları SHA-256 — çünkü hiçbirinin
+aslına ihtiyaç yok. SMTP şifresi her gönderimde karşı sunucuya verilmek
+zorunda, yani geri okunabilir olmak zorunda.
+
+Soru "hash'lensin mi" değil, **"veritabanının bir kopyası ne işe yarar"**.
+Cevap: yapılandırma dosyası olmadan hiçbir şey. `internal/sealed`,
+AES-256-GCM'i `cipher.NewGCMWithRandomNonce` üzerinden kullanıyor — bu
+yapı nonce'u kendi çekiyor ve dışarıdan verileni **panic** ile
+reddediyor. GCM'in sahada bozulduğu yer nonce tekrarı; hiçbir kodun
+nonce'a dokunmaması bunu ulaşılamaz kılıyor.
+
+Neyi korumadığı da paket yorumunda yazılı: panel sürecini ya da dosya
+sistemini ele geçireni durdurmuyor. İkinci cümleyi yazmamak daha rahat
+olurdu. **Fazla geniş ifade edilmiş bir güvenlik özelliği, hiç olmayandan
+kötüdür — çünkü birisi kapsamadığı durumu düşünmeyi bırakır.**
+
+### panel_smtp neden kendi tablosunda
+
+Tek bir GRANT satırı yüzünden. `collector` ve `beacon_writer`,
+`panel_settings` tablosunu okuyabiliyor — yenileme aralığı için doğru,
+posta şifresi için felaket. `verify.sql` artık dört yeni iddia taşıyor,
+üçü olumsuz, ve gerçek TimescaleDB'ye (16.13 / 2.17.2) karşı ölçüldü:
+`collector`'a `panel_smtp` üzerinde `SELECT` verildiğinde kurulum
+reddediyor ve hangi iddianın düştüğünü söylüyor.
+
+Şema ayna testi tabloyu eklediğim anda yakaladı ve ne yapılacağını
+söyledi: `panelTables` listesi, GRANT bloğu, KURULUM.md matrisi.
+
+### Şifrenin tarayıcıya ulaşamaması: dikkat değil, yapı
+
+İki okuma var. `MailAccount` her sayfanın kullandığı şey ve içinde şifre
+alanı **yok** — boş değil, maskeli değil, yok. `MailConfig` düz metne
+giden tek yol. Tek bir struct kusursuz çalışırdı ve canlı SMTP şifresini
+dikkatsiz bir şablon döngüsüne bir adım uzağa koyardı.
+
+Bunu koruyan test kaynaktan alan adlarını okuyor. İlk hâli hiç konmamış
+bir sırrı arıyordu — asla kırmızıya dönemeyecek bir kontrol — ve atıldı.
+`MailAccount`'a `PasswordMasked` eklediğimde yeni hâli adıyla bağırdı.
+
+### İki yönlü ayna, iki paket arasında
+
+`internal/panel/ui` alan bilgisi taşımıyor: elle yazılmış listeyle ölü
+katalog anahtarı arıyor. `internal/panel/web` ikisini de gördüğü için
+gerçek `mail.Diagnosis` sabitlerini kaynaktan okuyup her tanının **her
+dilde** cümlesi ve önerisi olduğunu kontrol ediyor. Yeni bir tanı
+eklediğimde dört satırla bağırdı: iki dil, iki anahtar ailesi.
+
+Bu testin yakaladığı hata en pahalısı: bir tanıya ancak postası zaten
+çalışmayan biri ulaşır, ve o kişi sayfanın boş bir satır gösterdiğini
+görür.
+
+### DNS sorgusu render'dan çıktı
+
+Form çizilirken iki DNS sorgusu, kutuya yazmak isteyen birinin üç
+saniyeye kadar beklemesi demekti — üstelik sayfayı belki yalnız
+göndermeyi kapatmak için açmıştır. Sınama sonucuna taşındı. Ölçüm:
+10.7s → 2.6s.
+
+DKIM denetlenmiyor ve bu sayfada açıkça yazıyor. Panel posta gönderiyor,
+hiç almıyor — gönderdiği bir iletinin başlıklarını okuyamaz. Alan adının
+DKIM kaydı olup olmadığı da sorulamıyor: seçici sağlayıcının belirlediği
+bir değer. **Çalışamayacak bir kontrol, hiç olmayan bir kontrolden
+kötüdür, çünkü birisi ona inanır.**
+
+### sastdiff'e -accept
+
+Tek bir üçlenmiş bulguyu taban çizgisine eklemenin yolu yoktu: ya sha256
+elle hesaplanacaktı ya da `-init` 21 gerekçeyi silecekti. Üçüncü seçenek
+insanların gerçekten yapacağı şey — gosec'in `--exclude-rules`'u, yani bu
+paketin var olma sebebi olan mekanizma. **Doğru şeyi yapmanın zorluğu,
+doğru şeyin yapılıp yapılmayacağının bir parçasıdır.**
+
+`-accept` mevcut gerekçelere dokunmuyor ve sıfırdan farklı çıkıyor:
+yazdığı girişin gerekçesi henüz boş, ve dosyanın amacı gerekçelerdir.

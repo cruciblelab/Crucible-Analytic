@@ -887,3 +887,19 @@ once_kaydet = "Önce hesabı kaydedin, sonra sınayın."
 acilamiyor = "Kayıtlı parola bu anahtarla açılamıyor. Parolayı yeniden yazıp kaydedin."
 okunamadi = "Gönderim hesabı okunamadı."
 silinemedi = "Gönderim hesabı silinemedi."
+
+# Bir bağlantının sahibine e-postayla da iletilmesi.
+#
+# "da" kelimesi önemli: bağlantı her koşulda ekranda. Gönderim çalışsın
+# ya da çalışmasın, kurulumu yapan kişi bağlantıya bakıyor ve kendisi
+# iletebilir. C7.1 ve C7.2'nin e-postasız kurulmasının sebebi buydu;
+# burada eklenen şey ikinci bir kopya, tek kopya değil.
+[metin.posta.teslim]
+kapali = "E-posta gönderimi bu kurulumda tanımlı değil. Bağlantıyı yukarıdan kopyalayıp kendiniz iletin."
+gonderildi = "Bağlantı %s adresine de e-postayla gönderildi. Kabul edildi — teslim edildiği anlamına gelmez, gelen kutusunu kontrol ettirin."
+basarisiz = "E-posta gönderilemedi."
+elden = "Bağlantı yukarıda duruyor; kendiniz iletebilirsiniz."
+
+[metin.posta.davet]
+konu = "Crucible Analytic — panel davetiniz"
+govde = "Merhaba,\n\nAnalitik panelinizin hesabını oluşturmanız için bir davet bağlantısı hazırlandı. Bağlantı tek kullanımlıktır."

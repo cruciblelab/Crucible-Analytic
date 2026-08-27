@@ -139,6 +139,10 @@ type setupPage struct {
 	// only its hash is stored - so the page has to make that plain.
 	ClaimURL   string
 	ClaimEmail string
+	// Delivery is what happened when the panel tried to email the link.
+	// A pointer so a page that never minted one draws nothing, rather
+	// than drawing the zero value as "not configured".
+	Delivery *mailDelivery
 	// CanHandOver is false while a required check is failing. Handing
 	// over a broken deployment makes the customer's first experience an
 	// error page, which is the one first impression worth blocking on.
@@ -822,6 +826,15 @@ func (s *Server) handOver(r *http.Request, lang *ui.Language, access panel.Acces
 	data.ClaimURL = s.absoluteURL(r, ClaimPathPrefix+token)
 	data.ClaimEmail = claim.Email
 	data.Message = lang.T("kurulum.devir.olusturuldu")
+
+	// Emailed as well, if this deployment can. The link above is set
+	// first and unconditionally, which is the whole arrangement: mail is
+	// a second copy of something the installer is already looking at,
+	// and a send that fails changes what the page says beside the link
+	// rather than whether there is one.
+	delivery := s.deliverLink(ctx, lang, claim.Email,
+		"posta.davet.konu", "posta.davet.govde", data.ClaimURL)
+	data.Delivery = &delivery
 }
 
 // absoluteURL builds a link the installer can copy into a message.
