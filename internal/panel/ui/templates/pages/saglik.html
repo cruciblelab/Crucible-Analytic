@@ -1,0 +1,133 @@
+{{define "icerik"}}
+{{- /* Said once, at the top: nothing on this page is a visitor's number.
+Somebody reading a health page is deciding whether to open a terminal,
+and knowing what the page can and cannot see is part of that decision. */}}
+<p class="ipucu">{{t "saglik.giris"}}</p>
+
+<section class="bolum">
+<h2>{{t "saglik.servis.baslik"}}</h2>
+
+{{- if .Data.ServicesError}}
+{{- /* This section failing must not take the others with it, which is
+why the message sits where the rows would have been rather than
+replacing the page. */}}
+<p class="uyari" role="note">{{.Data.ServicesError}}</p>
+{{- else if .Data.NoServices}}
+<p class="ipucu">{{t "saglik.servis.hic"}}</p>
+{{- else}}
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.sutun.servis"}}</th>
+<th scope="col">{{t "saglik.sutun.surum"}}</th>
+<th scope="col">{{t "saglik.sutun.son_haber"}}</th>
+<th scope="col">{{t "saglik.sutun.calisma"}}</th>
+<th scope="col">{{t "saglik.sutun.sayaclar"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Services}}
+<tr class="{{if .Stale}}kaldi{{else}}gecti{{end}}">
+<th scope="row">{{t (printf "saglik.servis.%s" .Name)}}</th>
+<td><code>{{if .Version}}{{.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
+<td>
+  {{$.F.Since .LastBeat}}
+  {{- if .Stale}} <span class="uyari">{{t "saglik.eskimis"}}</span>{{end}}
+</td>
+<td>{{$.F.Duration .Uptime}}</td>
+<td>
+  {{- if .Counters}}
+  <ul class="sayaclar">
+  {{- range .Counters}}
+  <li>{{.Label}}: {{$.F.Number .Value}}</li>
+  {{- end}}
+  </ul>
+  {{- else}}<span class="ipucu">—</span>{{end}}
+</td>
+</tr>
+{{- if .LastError}}
+{{- /* Under its service, not in a column: an error message is a
+sentence and a table cell is not where a sentence is read. It stays
+visible after the service recovers, which is the point - "it worked
+when I looked" is how an intermittent fault survives for months. */}}
+<tr class="ayrinti">
+<td colspan="5">
+  <span class="uyari">{{t "saglik.son_hata"}}</span>
+  <code>{{.LastError}}</code>
+  {{- if not .LastErrorAt.IsZero}} <span class="ipucu">({{$.F.Since .LastErrorAt}})</span>{{end}}
+</td>
+</tr>
+{{- end}}
+{{- end}}
+
+{{- /* The panel itself, which writes no heartbeat: it has no reason to
+tell itself it is alive, and a page reporting three builds with a gap
+where the fourth should be would read as a fault. */}}
+<tr>
+<th scope="row">{{t "saglik.servis.panel_user"}}</th>
+<td><code>{{if .Data.Panel.Version}}{{.Data.Panel.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
+<td colspan="3" class="ipucu">{{t "saglik.panel_kendisi"}}</td>
+</tr>
+</tbody>
+</table>
+<p class="ipucu">{{t "saglik.servis.ipucu"}}</p>
+{{- end}}
+</section>
+
+<section class="bolum">
+<h2>{{t "saglik.depolama.baslik"}}</h2>
+
+{{- if .Data.StorageError}}
+<p class="uyari" role="note">{{.Data.StorageError}}</p>
+{{- else}}
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.sutun.tablo"}}</th>
+<th scope="col">{{t "saglik.sutun.boyut"}}</th>
+<th scope="col">{{t "saglik.sutun.parca"}}</th>
+<th scope="col">{{t "saglik.sutun.saklama"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Storage}}
+<tr class="{{if .Missing}}kaldi{{end}}">
+<th scope="row">{{.Label}} <code class="ipucu">{{.Table}}</code></th>
+<td>
+  {{- if .Missing}}<span class="uyari">{{t "saglik.tablo_yok"}}</span>
+  {{- else}}{{$.F.Bytes .Bytes}}{{end}}
+</td>
+<td>{{if .Hypertable}}{{$.F.Number .Chunks}}{{else}}<span class="ipucu">—</span>{{end}}</td>
+<td>
+  {{- if .Retention}}{{$.F.Duration .Retention}}
+  {{- else if .Hypertable}}<span class="ipucu">{{t "saglik.saklama_yok"}}</span>
+  {{- else}}<span class="ipucu">—</span>{{end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- /* Said explicitly, because the row above shows a size and somebody
+will read it as a row count. The panel cannot count these rows and
+that is the isolation working, not a gap. */}}
+<p class="ipucu">{{t "saglik.depolama.ipucu"}}</p>
+{{- end}}
+</section>
+
+<section class="bolum">
+<h2>{{t "saglik.api.baslik"}}</h2>
+{{- with .Data.API}}
+{{- if not .Configured}}
+<p class="ipucu">{{t "saglik.api.ayarsiz"}}</p>
+{{- else if .Reachable}}
+<p class="basarili">{{t "saglik.api.ulasildi"}} <span class="ipucu">({{$.F.Duration .Took}})</span></p>
+{{- else}}
+<p class="uyari" role="note">{{t "saglik.api.ulasilamadi"}}</p>
+{{- if .Detail}}
+<p class="ipucu"><code>{{.Detail}}</code></p>
+{{- end}}
+<p class="ipucu">{{t "saglik.api.ne_demek"}}</p>
+{{- end}}
+{{- end}}
+</section>
+{{end}}

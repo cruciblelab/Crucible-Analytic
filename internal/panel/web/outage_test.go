@@ -26,6 +26,18 @@ var analyticsCallers = []string{
 	// - report the transport failure as itself. None of them renders a
 	// zero.
 	"technical.go",
+	// The health page, and it is the one caller that touches the API in
+	// order to report on it rather than to draw a number from it.
+	//
+	// What it shows when the fetch fails is the whole point of the
+	// section: "the read API could not be reached", the transport error
+	// underneath it, and a sentence saying which parts of the panel that
+	// does and does not affect. It renders no analytics quantity at all,
+	// so there is no zero for an outage to turn into - and the other two
+	// sections come from the panel's own database and are unaffected,
+	// which is the property TestASectionThatCannotBeFilledDoesNotTakeThePageDown
+	// holds open.
+	"health.go",
 }
 
 // TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI.

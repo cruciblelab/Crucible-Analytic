@@ -184,6 +184,11 @@ type navItem struct {
 	need panel.Capability
 	// site reports whether the URL needs a site to be selected.
 	site bool
+	// health limits the link to somebody entitled to read the health
+	// page: an owner, or a developer. Broader than `decides` by exactly
+	// one principal kind, which is why it is its own field rather than a
+	// reuse.
+	health bool
 	// decides limits the link to somebody entitled to decide developer
 	// access. Not a Capability, because a capability is held against a
 	// site and this is a decision about the machine underneath all of
@@ -207,6 +212,14 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 		// who owns a site", which is exactly the audience here.
 		{id: "posta", url: MailPath, label: lang.T("gezinme.posta"),
 			decides: true},
+		// The health page is the one entry a developer sees too, so it
+		// cannot ride on `decides` - that resolves to "a signed-in
+		// person who owns a site", which a developer principal is not.
+		// The link is drawn for both and requireHealthReader is what
+		// actually decides; a link somebody is refused would be the
+		// smaller mistake, and here nobody is.
+		{id: "saglik", url: HealthPath, label: lang.T("gezinme.saglik"),
+			health: true},
 		{id: "hesap", url: AccountPath, label: lang.T("gezinme.hesap")},
 	}
 
@@ -219,6 +232,9 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 			continue
 		}
 		if c.decides && !decides {
+			continue
+		}
+		if c.health && !decides && access.Principal.Kind != panel.PrincipalDeveloper {
 			continue
 		}
 		items = append(items, ui.NavItem{Label: c.label, URL: c.url, Current: c.id == current})

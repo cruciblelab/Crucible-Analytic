@@ -34,6 +34,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"sync"
 	"time"
 
@@ -69,6 +70,28 @@ const (
 	// CounterErrors is failures since start.
 	CounterErrors = "hata"
 )
+
+// Count converts an unsigned counter into the signed number a row
+// carries, saturating instead of wrapping.
+//
+// Every counter in this product is an atomic.Uint64, because a counter
+// only goes up; the row and its JSON are signed, because that is what
+// JSON numbers and Go's json package are. So there is a conversion, and
+// the choice is where it lives.
+//
+// Here, once, rather than at each of the six call sites - which is not
+// only tidier: a conversion written out six times is six places for
+// somebody to write the seventh without the bound. Saturating rather
+// than asserting the overflow cannot happen: it needs 9.2 quintillion
+// rows and will not, but "a wrong number, silently negative" is a worse
+// failure than "a number stuck at the maximum", and the check costs a
+// comparison on a path that runs once a minute.
+func Count(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
+}
 
 // Beat is one service's row.
 type Beat struct {

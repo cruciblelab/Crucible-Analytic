@@ -1435,6 +1435,60 @@ Codes are stored as SHA-256 digests, like every other high-entropy
 credential here. The account page shows how many are left and warns
 before they run out.
 
+## System health
+
+One read-only page at `/saglik`, for the question that comes before
+opening a terminal: what is broken, and is it broken enough to matter.
+
+An owner sees it, and so does a developer — unlike the mail page, where a
+developer is refused. The difference is what each hands over: configuring
+outgoing mail is close to becoming any user, and a byte count is a byte
+count. It is also the developer's own diagnostic tool.
+
+### Three sections, three independent failures
+
+That is the whole design. A health page whose sections all go dark
+together says nothing at the moment it is read, which is the only moment
+it is read. So:
+
+| Section | Source | What it says when that source is unavailable |
+|---|---|---|
+| Services | `service_heartbeat` in the panel's own database | The table could not be read, and which schema file is missing |
+| Storage | A second query, same database | The table information could not be read |
+| Read API | An authenticated request to the API | It could not be reached, the transport error, and what that does and does not affect |
+
+Nothing on the page is a number about a visitor. Traffic counts live
+behind the read-only API and on the site pages, and putting one here
+would give the panel's role a route to the analytics it is specifically
+not allowed to have.
+
+### Why a heartbeat row rather than another `/healthz`
+
+`/healthz` on the beacon and the API says "this process is up right now",
+which is what a load balancer needs. It cannot say "the last write
+succeeded, at 14:02" — and the failure that costs a customer a week of
+data is a collector that is up, answering, and has failed every write
+since Tuesday.
+
+The collector also has no HTTP server and should not get one: it is the
+process that touches attacker bytes. So each service writes a row instead,
+once a minute, carrying its build, its uptime, its counters and its last
+failure. A service that cannot write the row logs once and carries on —
+monitoring must never be able to break the thing it monitors.
+
+Four services write to one table, so "only your own row" comes from
+row-level security keyed on `current_user` rather than from a `GRANT`,
+which cannot express it. Each service asks the database which role it is
+rather than being told in a config file: that is the value the policy
+compares against, so there is nowhere else for it to come from.
+
+### Sizes, not row counts
+
+The storage section reports disk usage. The panel's role cannot count
+rows in `traffic_snapshots` or `beacon_events` — that is the isolation
+working, not a gap — so the page says which of the two it is showing.
+Row counts come from the read API, on the site pages.
+
 ## Outgoing email
 
 Optional, and it is worth being exact about what "optional" means here:

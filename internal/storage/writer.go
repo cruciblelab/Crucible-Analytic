@@ -70,12 +70,16 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 		}, nil
 	}))
 	if err != nil {
-		w.failed.Add(uint64(len(rows)))
+		w.failed.Add(uint64(len(rows))) // len is never negative
 		return n, fmt.Errorf("storage: copy rows: %w", err)
 	}
-	// n is the row count CopyFrom returns on success, so the error path
-	// above has already returned and it is never negative.
-	w.written.Add(uint64(n))
+	// Guarded rather than asserted. n is the row count CopyFrom returns
+	// on success, so the error path above has already returned and it is
+	// never negative - and a comparison is cheaper than a comment
+	// promising that stays true.
+	if n > 0 {
+		w.written.Add(uint64(n))
+	}
 	return n, nil
 }
 

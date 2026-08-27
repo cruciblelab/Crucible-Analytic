@@ -63,6 +63,7 @@ siteler = "Sites"
 uyeler = "Members"
 erisim = "Access requests"
 posta = "Outgoing email"
+saglik = "System health"
 hesap = "My account"
 atla = "Skip to content"
 panel = "Panel"
@@ -870,3 +871,66 @@ elden = "The link is above; you can pass it on yourself."
 [metin.posta.davet]
 konu = "Crucible Analytic — your panel invitation"
 govde = "Hello,\n\nA one-time invitation link has been prepared so you can create your account for your analytics panel."
+
+# --- System health (B4/B7) ---
+#
+# One rule: every section fails on its own. A health page whose sections
+# all go dark together says nothing at the moment it is needed. Services
+# come from a table, storage from a second query, the read API from an
+# HTTP request - three sources, three independent failures.
+
+[metin.saglik]
+baslik = "System health"
+giris = "No visitor numbers on this page. Process status, disk usage and whether the read API answers - the things to look at before opening a terminal. Traffic numbers are on the site pages."
+eskimis = "not reporting"
+surum_yok = "unstamped"
+son_hata = "Last error:"
+panel_kendisi = "The process serving this page."
+tablo_yok = "table missing"
+saklama_yok = "unlimited"
+
+[metin.saglik.servis]
+baslik = "Services"
+hic = "No service has reported yet. Either they are all running a build from before the heartbeat existed, or none of them is running."
+okunamadi = "The service rows could not be read. The heartbeat table may not have been applied: internal/heartbeat/schema.sql."
+ipucu = "Each service writes its own row every minute. A service that has not reported for three minutes is marked \"not reporting\" - which is not the same as \"down\", and the panel has no way to know the difference."
+collector = "Collector"
+beacon_writer = "Beacon"
+analytics_reader = "Read API"
+panel_user = "Panel"
+
+[metin.saglik.sayac]
+yazilan = "Written"
+dusurulen = "Dropped"
+reddedilen = "Rejected"
+kabul = "Accepted"
+hata = "Errors"
+
+[metin.saglik.depolama]
+baslik = "Storage"
+okunamadi = "The table information could not be read."
+ipucu = "These are disk sizes, not row counts. The panel's role cannot read rows from the analytics tables - that is not a gap, it is the separation the whole system rests on. Row counts come from the read API, on the site pages."
+
+[metin.saglik.tablo]
+traffic_snapshots = "Traffic snapshots"
+beacon_events = "Beacon events"
+ip_asn_ranges = "IP → ASN ranges"
+ip_country_ranges = "IP → country ranges"
+
+[metin.saglik.sutun]
+servis = "Service"
+surum = "Version"
+son_haber = "Last report"
+calisma = "Uptime"
+sayaclar = "Counters"
+tablo = "Table"
+boyut = "Disk"
+parca = "Chunks"
+saklama = "Retention"
+
+[metin.saglik.api]
+baslik = "Read API"
+ayarsiz = "No read API address is configured. The site pages say the numbers are unavailable; the rest of the panel works."
+ulasildi = "Reached and answering."
+ulasilamadi = "The read API could not be reached."
+ne_demek = "The numbers on the site pages come from this API and will look empty right now. The panel itself, its members and its settings are unaffected."

@@ -134,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(MembersPathPrefix+"{site}"+addressListPathSegment+"{liste}", s.addressListHandler)
 	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
 	mux.HandleFunc(MailPath, s.mailHandler)
+	mux.HandleFunc(HealthPath, s.healthHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)
 	mux.HandleFunc(TechnicalDoorPath, s.technicalDoorHandler)

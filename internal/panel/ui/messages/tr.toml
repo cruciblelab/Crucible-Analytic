@@ -89,6 +89,7 @@ siteler = "Siteler"
 uyeler = "Üyeler"
 erisim = "Erişim istekleri"
 posta = "Giden e-posta"
+saglik = "Sistem sağlığı"
 hesap = "Hesabım"
 atla = "İçeriğe atla"
 panel = "Panel"
@@ -903,3 +904,70 @@ elden = "Bağlantı yukarıda duruyor; kendiniz iletebilirsiniz."
 [metin.posta.davet]
 konu = "Crucible Analytic — panel davetiniz"
 govde = "Merhaba,\n\nAnalitik panelinizin hesabını oluşturmanız için bir davet bağlantısı hazırlandı. Bağlantı tek kullanımlıktır."
+
+# --- Sistem sağlığı (B4/B7) ---
+#
+# Bu sayfanın kuralı tek: **her bölüm kendi başına düşer.** Bütün
+# bölümleri aynı anda kararan bir sağlık sayfası, tam ihtiyaç duyulduğu
+# anda hiçbir şey söylemeyen bir sayfadır. O yüzden servisler bir
+# tablodan, depolama ikinci bir sorgudan, okuma API'si bir HTTP
+# isteğinden geliyor — üç kaynak, üç bağımsız arıza.
+#
+# "saglik.sayac.*" ve "saglik.tablo.*" anahtarları çalışma anında
+# birleştiriliyor; iki yönlü ayna testi ikisini de tutuyor.
+
+[metin.saglik]
+baslik = "Sistem sağlığı"
+giris = "Bu sayfada hiçbir ziyaretçi sayısı yok. Süreçlerin durumu, disk kullanımı ve okuma API'sine erişim — yani terminal açmadan önce bakılacak şeyler. Trafik sayıları site sayfalarında."
+eskimis = "haber alınamıyor"
+surum_yok = "damgasız"
+son_hata = "Son hata:"
+panel_kendisi = "Bu sayfayı gösteren süreç."
+tablo_yok = "tablo yok"
+saklama_yok = "sınırsız"
+
+[metin.saglik.servis]
+baslik = "Servisler"
+hic = "Hiçbir servis henüz haber vermedi. Ya hepsi kalp atışından önceki bir yapıyı çalıştırıyor, ya da hiçbiri çalışmıyor."
+okunamadi = "Servis durumları okunamadı. Kalp atışı tablosu uygulanmamış olabilir: internal/heartbeat/schema.sql."
+ipucu = "Her servis dakikada bir kendi satırını yazar. Üç dakikadır haber alınamayan bir servis \"haber alınamıyor\" işaretlenir — bu \"kapalı\" demek değil, panelin bunu bilme yolu yok."
+collector = "Toplayıcı (collector)"
+beacon_writer = "Beacon"
+analytics_reader = "Okuma API'si"
+panel_user = "Panel"
+
+[metin.saglik.sayac]
+yazilan = "Yazılan"
+dusurulen = "Düşürülen"
+reddedilen = "Reddedilen"
+kabul = "Kabul edilen"
+hata = "Hata"
+
+[metin.saglik.depolama]
+baslik = "Depolama"
+okunamadi = "Tablo bilgileri okunamadı."
+ipucu = "Buradaki sayılar disk kullanımıdır, satır sayısı değil. Panelin rolü analitik tabloların satırlarını okuyamaz — bu bir eksiklik değil, sistemin dayandığı ayrımın kendisi. Satır sayıları site sayfalarında, okuma API'si üzerinden gelir."
+
+[metin.saglik.tablo]
+traffic_snapshots = "Trafik anlık görüntüleri"
+beacon_events = "Beacon olayları"
+ip_asn_ranges = "IP → ASN aralıkları"
+ip_country_ranges = "IP → ülke aralıkları"
+
+[metin.saglik.sutun]
+servis = "Servis"
+surum = "Sürüm"
+son_haber = "Son haber"
+calisma = "Çalışma süresi"
+sayaclar = "Sayaçlar"
+tablo = "Tablo"
+boyut = "Disk"
+parca = "Parça"
+saklama = "Saklama"
+
+[metin.saglik.api]
+baslik = "Okuma API'si"
+ayarsiz = "Okuma API'si adresi tanımlı değil. Site sayfaları \"sayılar şu an okunamıyor\" der; panelin geri kalanı çalışır."
+ulasildi = "Ulaşıldı ve cevap alındı."
+ulasilamadi = "Okuma API'sine ulaşılamadı."
+ne_demek = "Site sayfalarındaki sayılar bu API'den gelir; şu anda boş görünecekler. Panelin kendisi, üyeler ve ayarlar etkilenmez."

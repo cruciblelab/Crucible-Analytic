@@ -395,6 +395,27 @@ var (
 	// mailEncryptions mirrors mail.Encryption. The option labels are
 	// looked up from the value when a probe suggests the other port.
 	mailEncryptions = []string{"starttls", "implicit"}
+
+	// healthServiceRoles mirrors the four database roles, which is what
+	// the heartbeat table is keyed by - the label is looked up as
+	// "saglik.servis." + the role, so no walk sees the family.
+	//
+	// The role names rather than friendly ones on purpose: that is the
+	// value the row-level policy checks and therefore the value in the
+	// row. A mapping to prettier keys would be one more thing to drift.
+	healthServiceRoles = []string{
+		"collector", "beacon_writer", "analytics_reader", "panel_user",
+	}
+	// healthCounters mirrors the Counter constants in internal/heartbeat
+	// and healthTables mirrors panel.HealthTables. Both are joined to a
+	// prefix at runtime. internal/panel/web holds the other direction,
+	// against the real constants.
+	healthCounters = []string{
+		"yazilan", "dusurulen", "reddedilen", "kabul", "hata",
+	}
+	healthTables = []string{
+		"traffic_snapshots", "beacon_events", "ip_asn_ranges", "ip_country_ranges",
+	}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -421,6 +442,15 @@ func computedKeys() []string {
 	}
 	for _, e := range mailEncryptions {
 		keys = append(keys, "posta.mod."+e)
+	}
+	for _, role := range healthServiceRoles {
+		keys = append(keys, "saglik.servis."+role)
+	}
+	for _, c := range healthCounters {
+		keys = append(keys, "saglik.sayac."+c)
+	}
+	for _, tbl := range healthTables {
+		keys = append(keys, "saglik.tablo."+tbl)
 	}
 	for _, id := range dashboardCards {
 		keys = append(keys, "pano.kart."+id+".baslik", "pano.kart."+id+".aciklama")

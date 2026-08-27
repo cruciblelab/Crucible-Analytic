@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
-| **B** Gözlemlenebilirlik | ⬜ **0/7** | B1, B2, B3, B4, B5, B6, B7 |
+| **B** Gözlemlenebilirlik | 🟡 **2/7** | B1, B2, B3, B5, B6 |
 | **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
 | **D** Dashboard | 🟡 **3/8** | D4–D8 (D3'ten yalnız ham dışa aktarma kaldı, karar bekliyor) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -305,10 +305,9 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
    paketlemek gerçek kurulum demek — gerçek kurulum da gerçek geri
    bildirim.
 
-**Sonrası:** ~~F2 (kurulum betiği)~~ ✅ → C7.3 (e-posta
-sihirbazı) → B4/B7 (sağlık sayfası ve sürüm kavramı; C7.1'in "sağlık
-sayfasına bağlantı ver" maddesi B4'ü bekliyor, G2'nin sürüm damgası
-B7'yi) → A2/A3 → D4–D8 → B'nin kalanı → E.
+**Sonrası:** ~~F2 (kurulum betiği)~~ ✅ → ~~C7.3 (e-posta
+sihirbazı)~~ ✅ → ~~B4/B7 (sağlık sayfası ve sürüm kavramı)~~ ✅ →
+A2/A3 → D4–D8 → B'nin kalanı → E.
 
 **H'nin kalanı sıraya girmiyor, sıraya paralel gidiyor.** H1 (kalan üç
 ayrıştırıcı), H3 (sır taraması) ve H4 (yapısal değişmezler) hiçbir
@@ -1627,7 +1626,7 @@ herhangi bir operasyon.
 
 ---
 
-#### B4 — Sistem sağlığı sayfası
+#### B4 — Sistem sağlığı sayfası ✅ *(2026-08-27)*
 
 **Ne:** "VDS'e girmeyi azalt" için en yüksek değerli şey onarım değil,
 kimse aramadan neyin bozuk olduğunu bilmek. Salt okunur bir sayfa, kurulum
@@ -1642,6 +1641,57 @@ başına:
 
 **Bunların hepsi bugün zaten içeride ölçülüyor** — sayaçlar var, hiçbiri
 yüzeye çıkmıyor.
+
+> **Bu öncül yarı yanlış çıktı.** Beacon için doğruydu
+> (`accepted`/`rejected`/`dropped`/`written` hepsi vardı); collector'da
+> **hiç sayaç yoktu** ve `storage.Writer`'a eklendi. Daha önemlisi:
+> **collector'dan panele hiçbir kanal yoktu.** Collector'ın HTTP sunucusu
+> yok — olmamalı da, saldırgan baytına dokunan süreç o — ve yazdığı
+> tabloyu panelin rolü okuyamıyor.
+
+##### Yapılan: kanal bir satır (`internal/heartbeat`)
+
+`/healthz` "bu süreç şu an ayakta" der. B4'ün sorduğu ise *"son yazma
+başarılı oldu mu, ne zaman"*. Farklı sorular, ve canlılık ucu ikincisini
+cevaplayamaz. Bir müşteriye bir haftalık veri kaybettiren arıza, ayakta
+olan ve salıdan beri her yazması başarısız olan bir collector'dır.
+
+Her servis dakikada bir kendi satırını yazıyor: sürüm, başlangıç zamanı,
+sayaçlar, son hata. **Hiçbiri ziyaretçiden türetilmiş değil** — adres
+yok, site kimliği yok, yol yok. Panelin rolü bu tabloyu okuyabildiği
+için, buraya trafiği anlatan bir sütun koymak yalıtımın etrafından ikinci
+bir yol açardı, ve hiçbir `GRANT`'ın göstermeyeceği bir yol.
+
+**Dört yazan, tek tablo** — bu şemada `GRANT`'in tüm kuralı ifade
+edemediği tek yer. "Yalnız kendi satırın" `GRANT` ile söylenemez; satır
+düzeyi güvenlik (RLS) söylüyor, `current_user` üzerinden. Projede ilk
+kez, çünkü ilk kez gerekti.
+
+Servis adı yapılandırmadan değil, **bağlantıdan** geliyor: reporter
+veritabanına `current_user`'ı soruyor. RLS'in karşılaştırdığı değer o.
+
+##### Sayfanın tek kuralı: her bölüm kendi başına düşer
+
+Bütün bölümleri aynı anda kararan bir sağlık sayfası, tam ihtiyaç
+duyulduğu anda hiçbir şey söylemez. Üç kaynak, üç bağımsız arıza:
+servisler kalp atışı tablosundan, depolama ikinci bir sorgudan, okuma
+API'si bir HTTP isteğinden.
+
+Depolama bölümü **boyut** gösteriyor, satır sayısı değil — ve bunu
+yazıyor. Panel bu tabloların satırlarını sayamaz; bu bir eksiklik değil,
+sistemin dayandığı ayrımın kendisi. Sayfadaki cümlenin doğru kaldığını
+test `has_table_privilege` ile doğruluyor.
+
+**Kimler görür:** sahip ve geliştirici. Posta sayfasından bilerek farklı:
+orada geliştirici reddediliyor çünkü giden postayı kontrol eden her
+parola sıfırlama bağlantısını alır. Sağlık sayfasını okumak hiçbir şey
+vermiyor — bir yapı numarası, bir bayt sayısı, bir çalışma süresi — ve
+zaten geliştiricinin kendi teşhis aracı.
+
+**Ölçülen kusur:** ilk hâl servis adını `Run` içinde bir kez çözüyor ve
+başarısız olunca dönüyordu. Yani açılışta veritabanı hazır değilse servis
+**ömrü boyunca** izlenmez kalıyordu. systemd bu süreçleri PostgreSQL ile
+paralel başlatır; o pencere istisna değil, normal durum.
 
 ---
 
@@ -1734,7 +1784,7 @@ içeren satırı sızdırmadığını gösteren test.
 
 ---
 
-#### B7 — Sürüm kavramı ⚠️ **hiç yoktu**
+#### B7 — Sürüm kavramı ✅ *(2026-08-27)*
 
 **Ne:** Projede hiçbir yerde sürüm numarası yok. `ApplyPendingMigrations`
 hangi sürümden hangi sürüme gidildiğini bilmiyor; sağlık yoklaması
@@ -1747,6 +1797,16 @@ gerekiyor.
 **Yapılacak:** derleme zamanı `-ldflags` ile gömülen sürüm + commit;
 `crucible version`; sağlık sayfasında ve sağlık yoklaması cevabında
 sürüm; `panel_operations`'ta operasyonun hangi sürümde çalıştığı.
+
+> **Yapıldı, iki fazda.** Gömülü sürüm + commit ve `-version` G2'de
+> (`internal/buildinfo`; damgasızsa Go'nun gömdüğü commit'e düşüyor).
+> Sağlık sayfasında dört sürüm B4'te: üçü kalp atışı satırlarından,
+> dördüncüsü panelin kendisinden — panel kendine canlı olduğunu söylemek
+> için satır yazmıyor, ama sayfa üç yapı ve bir boşluk göstermemeli.
+>
+> **Kalan tek parça:** `panel_operations`'ta operasyonun hangi sürümde
+> çalıştığı. O tablo B2 ve henüz yok; sıraya girmesi gereken yer orası,
+> burası değil.
 
 ---
 

@@ -5236,3 +5236,138 @@ RLS kullanılmıyor: siteler arası ayrım uygulama kodunda, `site_id` ile.
 görebileceği API'de zorlanıyor. Bu bilinçli bir tasarım ve denetimde
 değişmedi — ama veritabanı seviyesinde bir garanti değil, ve öyleymiş gibi
 sunulmamalı.
+
+## B4/B7 — sağlık sayfası, ve collector'dan panele ilk kanal
+
+Fazın öncülü yarı yanlış çıktı. B4 "bunların hepsi bugün zaten içeride
+ölçülüyor, hiçbiri yüzeye çıkmıyor" diyordu. Beacon için doğruydu.
+Collector'da **hiç sayaç yoktu** — ve daha önemlisi, collector'dan panele
+**hiçbir kanal yoktu.**
+
+Collector'ın HTTP sunucusu yok ve olmamalı: saldırgan baytına dokunan
+süreç o, ve üzerinde dinleyen bir soket karşılığı olmayan bir yüzey.
+Yazdığı tabloyu da panelin rolü okuyamıyor — ki bu sistemin güvenlik
+temelinin yarısı. Yani panel, operatörün en basit sorusunu
+cevaplayamıyordu: collector hâlâ yazıyor mu?
+
+### `/healthz` neden yetmiyor
+
+Farklı bir soruyu cevaplıyor. `/healthz` "bu süreç şu an ayakta" der; bir
+yük dengeleyicinin ihtiyacı olan budur. Operatörün ihtiyacı olan ise "son
+yazma başarılı oldu, 14:02'de".
+
+Bir müşteriye bir haftalık veri kaybettiren arıza, **ayakta olan, cevap
+veren ve salıdan beri her yazması başarısız olan** bir collector'dır.
+Canlılık kontrolü bunu göremez.
+
+Kanal bir satır oldu: her servis dakikada bir kendi satırını yazıyor —
+sürüm, başlangıç, sayaçlar, son hata.
+
+### RLS: `GRANT`'in söyleyemediği tek kural
+
+Dört yazan, tek tablo. Bu şemadaki her diğer tablo tam olarak bir yazana
+verilmiş, yani `GRANT` kuralın tamamı. Burada "yalnız kendi satırın"
+`GRANT` ile ifade edilemiyor.
+
+Satır düzeyi güvenlik ediyor, `current_user` üzerinden. Projede ilk kez —
+H5 denetimi RLS'in hiç kullanılmadığını not etmişti; kullanılmamasının
+sebebi ihtiyaç olmamasıydı, ve bu tablo ihtiyacı yarattı.
+
+Olmasaydı: ele geçirilmiş bir beacon, collector'ın satırına "sağlıklı,
+şimdi" yazıp kesintiyi tam da onu göstermek için yapılmış sayfadan
+gizleyebilirdi. Küçük bir delik. Bu projenin alışkanlığı deliğin küçük
+olduğunu savunmak değil.
+
+Servis adı yapılandırmadan gelmiyor, **bağlantıdan** geliyor: reporter
+veritabanına `current_user`'ı soruyor. RLS'in karşılaştırdığı değer o
+olduğu için başka bir kaynak, tek bir olgu için ikinci bir kaynak
+olurdu — ve servisi "yapılandırılmış görünüp hiçbir şey yazmama" durumuna
+sokmanın yolu.
+
+### Testim gerçek bir kusur çıkardı
+
+İlk hâl adı `Run` içinde bir kez çözüyor, başarısız olunca dönüyordu.
+Yani açılışta veritabanı hazır değilse servis **ömrü boyunca** izlenmez
+kalıyordu. systemd bu süreçleri PostgreSQL ile paralel başlatır; o
+pencere istisna değil, normal durum. Artık her atışta yeniden deneniyor.
+
+### Şemadaki yorumum ölçümle çürüdü
+
+"WITH CHECK olmasa servis kendi satırını başkasınınkine çevirebilirdi"
+yazmıştım. Kaldırıp ölçtüm: yeniden adlandırma yine reddedildi —
+`WITH CHECK`'i olmayan bir politika `USING` ifadesini yeni satır için de
+kullanıyor. Yanlış iddia sessizce düzeltilmedi, yorumda kayıtlı.
+
+`WITH CHECK` yine de açık yazılıyor, ama **gerçek** gerekçesiyle:
+`USING` hangi satıra dokunulabileceğini, `WITH CHECK` neye
+dönüşebileceğini söyler. Bugün aynı cevabı veriyorlar. `USING`'i
+genişleten bir düzenleme — bir servisin komşusunun satırını okumasına
+izin vermek gibi — örtük geri düşüş yüzünden yazma iznini de sessizce
+genişletirdi.
+
+Bu, bu oturumda üçüncü kez bir yorumumun var olmayan bir tehlikeyi
+anlatması. Deseni not ediyorum: **bir korumanın gerekçesini yazarken,
+gerekçenin kendisi de ölçülmeli.**
+
+### Sayfanın tek kuralı
+
+**Her bölüm kendi başına düşer.** Bütün bölümleri aynı anda kararan bir
+sağlık sayfası, tam ihtiyaç duyulduğu anda hiçbir şey söylemez — ki
+okunduğu tek an odur.
+
+Üç kaynak, üç bağımsız arıza: servisler kalp atışı tablosundan, depolama
+ikinci bir sorgudan, okuma API'si bir HTTP isteğinden. Doldurulamayan bir
+bölüm, satırların olacağı yerde sebebini yazıyor; sayfayı yanına almıyor.
+
+Bu yüzden depolama doğrudan veritabanından okunuyor, API üzerinden değil.
+Sayfanın söylemesi gereken **ilk** şey "okuma API'sine ulaşılamıyor";
+ikincisi ise o doğruyken hâlâ yararlı olan her şey. Tek kaynak bunu
+yapamaz.
+
+### Boyut gösteriliyor, satır sayısı değil — ve bu yazıyor
+
+Panel `traffic_snapshots`'ın satırlarını sayamıyor. Sayabilseydi yalıtım
+yoktu. Ama **boyutunu** görebiliyor: `pg_total_relation_size` yetki
+istemiyor.
+
+Boyutu satır sayısı gibi sunmak çıkarımı olgu gibi göstermek olurdu, o
+yüzden sayfa ne gösterdiğini ve ne göstermediğini yazıyor. Test o
+cümlenin doğru kaldığını `has_table_privilege` ile doğruluyor — cümle
+okuyucuya verilmiş bir söz.
+
+*(O testin ilk hâli yanlış şeyi ölçüyordu: kendi bağlantısından
+`SELECT count(*)` deniyordu, ve takım `collector` olarak bağlanıyor —
+o rolün `traffic_snapshots` üzerinde meşru `SELECT`'i var. Doğru kodda
+başarısız oldu.)*
+
+### Kimler görür, ve neden posta sayfasından farklı
+
+Sahip ve geliştirici. Posta sayfasında geliştirici reddediliyor, çünkü
+giden posta sunucusunu kontrol eden kişi her parola sıfırlama bağlantısını
+alır — "postayı ayarlayabilir" ile "herhangi bir kullanıcı olabilir"
+arasındaki mesafe çok kısa.
+
+Sağlık sayfasını okumak hiçbir şey vermiyor: bir yapı numarası, bir bayt
+sayısı, bir çalışma süresi. Üstelik geliştiricinin kendi teşhis aracı, ve
+"hiçbir şey göremiyorum" diye başlayan destek çağrısı tam da bu sayfanın
+önlemek için var olduğu çağrı.
+
+### Mevcut bir değişmez yeni dosyamı yakaladı
+
+`TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI`, `health.go`'nun okuma
+API'siyle konuştuğunu görüp listeye girmediğini söyledi — ve doğru soruyu
+sordu: *"getirme başarısız olunca ne gösterdiğine karar ver."*
+
+Karar verilmişti: bölüm ulaşılamadığını, taşıma hatasını ve bunun
+panelin hangi kısımlarını etkileyip etkilemediğini yazıyor. Hiçbir
+analitik nicelik çizmiyor, yani bir kesintinin sıfıra çevirebileceği bir
+sayı yok.
+
+### Yedi gosec bulgusu, taban çizgisine girmeden kapatıldı
+
+Sayaç dönüşümleri (`uint64` → `int64`) yedi G115 üretti. Yedi giriş
+eklemek yerine dönüşüm tek yere alındı ve **doyuran** hâle getirildi:
+9,2 kentilyon satır gerekiyor ve gelmeyecek, ama "sessizce negatif olmuş
+yanlış bir sayı", "en yüksek değerde takılı kalmış bir sayı"dan daha
+kötü bir arıza — ve kontrol dakikada bir çalışan bir yolda bir
+karşılaştırma.

@@ -138,8 +138,8 @@ func main() {
 		Counters: func() map[string]int64 {
 			written, failed := writer.Counters()
 			return map[string]int64{
-				heartbeat.CounterWritten: int64(written),
-				heartbeat.CounterDropped: int64(failed),
+				heartbeat.CounterWritten: heartbeat.Count(written),
+				heartbeat.CounterDropped: heartbeat.Count(failed),
 			}
 		},
 	})
