@@ -767,6 +767,11 @@ with `localStorage.setItem('crucible.disabled', '1')`.
 Requires Go 1.25.0+ — the version in `go.mod`. An older toolchain does
 not fail at some later feature; it refuses the module outright.
 
+**New to the vocabulary?** [`SOZLUK.md`](SOZLUK.md) is a Turkish
+glossary of every technical term this project uses — JA4, hypertable,
+row-level security, crossover, the lot — with what each one means, where
+it appears here, and what breaks without it.
+
 **Deploying rather than developing?** There are two routes and this is
 neither: [`KURULUM.md`](KURULUM.md) has the hand install (a VDS, systemd,
 a reverse proxy) in section 4 onward, and the container route in section

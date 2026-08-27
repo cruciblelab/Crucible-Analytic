@@ -8,6 +8,10 @@ Uydurma yok; bir şey yapılamıyorsa "yapılamıyor" yazıyor.
 
 ---
 
+> **Takıldığınız bir kelime mi var?** [`SOZLUK.md`](SOZLUK.md) bu
+> projede geçen her teknik terimi tek yerde açıklıyor — ne demek, burada
+> nerede geçiyor, ve olmazsa ne kırılır.
+
 ## 0. Önce şunu bilin
 
 **Bu yazılım kendi kendini kurmaz ve bu bilinçli bir karar.** Şema
