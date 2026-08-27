@@ -4545,9 +4545,11 @@ reported.
 
 ### Three things the work turned up that reading would not have
 
-**The baseline has 21 entries, not 18.** The extra three are in the tool
-itself — the scanner scans its own code, which is how an exemption list
-avoids starting. A test now holds that open.
+**The baseline had 21 entries at the end of H2, not 18.** The extra three
+are in the tool itself — the scanner scans its own code, which is how an
+exemption list avoids starting. A test now holds that open. The count
+moves as the product grows; what does not move is that every entry has a
+reason under it.
 
 **gosec reports absolute paths, and the fingerprint includes the path.**
 A baseline written in `/home/user/Crucible-Analytic` matches nothing in

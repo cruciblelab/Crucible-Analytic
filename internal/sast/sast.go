@@ -225,6 +225,57 @@ func BaselineFrom(rep *Report) *Baseline {
 	return b
 }
 
+// Merge adds a report's new findings to an existing baseline, keeping
+// every entry that is already there and the reason written for it. It
+// returns the merged baseline and the entries it added.
+//
+// This exists because triaging one new finding was, until it did, a
+// choice between two bad options: recompute a sha256 by hand and edit
+// JSON, or run -init and destroy every reason in the file. Neither is
+// something a person does correctly at the end of a long day, and the
+// third option they would actually reach for is gosec's own
+// --exclude-rules - the mechanism this whole package exists to avoid.
+// The friction of doing the right thing is part of whether the right
+// thing gets done.
+//
+// Stale entries are left alone. Removing one is a decision that the code
+// it described is really gone, and a scan that silently skipped a
+// package - a build failure, a bad path - looks exactly like a scan that
+// found nothing. Deleting somebody's triage on that evidence is not a
+// thing a merge should do quietly.
+func Merge(base *Baseline, rep *Report) (merged *Baseline, added []Entry) {
+	known := make(map[string]bool, len(base.Entries))
+	for _, e := range base.Entries {
+		known[e.Fingerprint] = true
+	}
+
+	out := &Baseline{Note: base.Note, Entries: append([]Entry(nil), base.Entries...)}
+	for _, i := range rep.Issues {
+		fp := Fingerprint(i)
+		if known[fp] {
+			continue
+		}
+		known[fp] = true
+		e := Entry{
+			Fingerprint: fp,
+			Rule:        i.RuleID,
+			File:        i.File,
+			Severity:    i.Severity,
+			Snippet:     flaggedLine(i),
+		}
+		out.Entries = append(out.Entries, e)
+		added = append(added, e)
+	}
+
+	sort.Slice(out.Entries, func(x, y int) bool {
+		if out.Entries[x].File != out.Entries[y].File {
+			return out.Entries[x].File < out.Entries[y].File
+		}
+		return out.Entries[x].Rule < out.Entries[y].Rule
+	})
+	return out, added
+}
+
 // flaggedLine pulls the line gosec pointed at out of its excerpt, for the
 // human-readable Snippet field.
 func flaggedLine(i Issue) string {

@@ -12,6 +12,16 @@
 // Exits non-zero when the report contains a finding the baseline does not
 // know about, or when the baseline describes a finding that no longer
 // exists.
+//
+// When a new finding is triaged and turns out not to be a defect, -accept
+// adds it to the baseline and leaves every reason already in the file
+// alone:
+//
+//	go run ./internal/sast/cmd/sastdiff -report gosec.json -accept
+//
+// That still exits non-zero, because the entry it just wrote has no
+// reason in it yet. -init is the other thing entirely: it throws the
+// baseline away and starts over, which empties every reason in it.
 package main
 
 import (
@@ -29,16 +39,22 @@ func main() {
 		baselinePath = flag.String("baseline", ".sast-baseline.json", "committed baseline of triaged findings")
 		root         = flag.String("root", "", "repository root to make report paths relative to (default: working directory)")
 		initialise   = flag.Bool("init", false, "write a new baseline from the report, with empty reasons for a person to fill in")
+		accept       = flag.Bool("accept", false, "add the report's new findings to the existing baseline, keeping the reasons already written")
 	)
 	flag.Parse()
 
-	if err := run(*reportPath, *baselinePath, *root, *initialise); err != nil {
+	if *initialise && *accept {
+		fmt.Fprintln(os.Stderr, "sastdiff: -init rewrites the baseline and -accept adds to it; pick one")
+		os.Exit(1)
+	}
+
+	if err := run(*reportPath, *baselinePath, *root, *initialise, *accept); err != nil {
 		fmt.Fprintln(os.Stderr, "sastdiff:", err)
 		os.Exit(1)
 	}
 }
 
-func run(reportPath, baselinePath, root string, initialise bool) error {
+func run(reportPath, baselinePath, root string, initialise, accept bool) error {
 	if root == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -60,7 +76,13 @@ func run(reportPath, baselinePath, root string, initialise bool) error {
 	rep.Relativize(root)
 
 	if initialise {
-		return writeBaseline(baselinePath, sast.BaselineFrom(rep))
+		b := sast.BaselineFrom(rep)
+		if err := writeBaseline(baselinePath, b); err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s with %d entries; every reason is empty and the test suite will refuse it until they are filled in\n",
+			baselinePath, len(b.Entries))
+		return nil
 	}
 
 	bf, err := os.Open(baselinePath)
@@ -72,6 +94,28 @@ func run(reportPath, baselinePath, root string, initialise bool) error {
 	base, err := sast.ParseBaseline(bf)
 	if err != nil {
 		return err
+	}
+
+	if accept {
+		merged, added := sast.Merge(base, rep)
+		if len(added) == 0 {
+			fmt.Println("nothing to add; the baseline already covers every finding in the report")
+			return nil
+		}
+		if err := writeBaseline(baselinePath, merged); err != nil {
+			return err
+		}
+		for _, e := range added {
+			fmt.Printf("added   %s %s\n        %s\n", e.Rule, e.File, e.Snippet)
+		}
+		// Non-zero on purpose. The entries just written have empty
+		// reasons, and the point of the file is the reasons - so this
+		// cannot be chained into a commit until a person has been back
+		// to it. The test suite refuses an empty reason as well; this is
+		// the earlier of the two, at the moment somebody is still
+		// looking at the finding.
+		return fmt.Errorf("%d entry/entries added to %s with no reason yet; write one for each before committing",
+			len(added), baselinePath)
 	}
 
 	res := sast.Compare(rep, base)
@@ -112,9 +156,5 @@ func writeBaseline(path string, b *sast.Baseline) error {
 		return err
 	}
 	body = append(body, '\n')
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		return err
-	}
-	fmt.Printf("wrote %s with %d entries; every reason is empty and the test suite will refuse it until they are filled in\n", path, len(b.Entries))
-	return nil
+	return os.WriteFile(path, body, 0o644)
 }

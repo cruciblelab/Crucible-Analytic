@@ -212,3 +212,97 @@ func TestRelativize_MakesTheBaselinePortable(t *testing.T) {
 		t.Errorf("after Relativize the fingerprints still differ:\n  dev %s\n  ci  %s", got, want)
 	}
 }
+
+// TestMerge_KeepsTheReasonsAlreadyWritten is the whole reason Merge
+// exists. The alternative on offer before it was -init, which rewrites
+// the file and empties every reason - twenty-one paragraphs of triage
+// gone to add one line.
+func TestMerge_KeepsTheReasonsAlreadyWritten(t *testing.T) {
+	triaged := Issue{
+		RuleID: "G115", File: "internal/beacon/writer.go", Line: "40",
+		Code: "40: \tw.written.Add(uint64(n))\n",
+	}
+	base := &Baseline{
+		Note: "keep me",
+		Entries: []Entry{{
+			Fingerprint: Fingerprint(triaged),
+			Rule:        triaged.RuleID,
+			File:        triaged.File,
+			Reason:      "n is the row count CopyFrom returned on success",
+			Snippet:     "w.written.Add(uint64(n))",
+		}},
+	}
+
+	fresh := Issue{
+		RuleID: "G101", File: "internal/mail/diagnose.go", Line: "51",
+		Severity: "HIGH",
+		Code:     "51: \tDiagBadCredentials Diagnosis = \"kimlik_reddedildi\"\n",
+	}
+
+	merged, added := Merge(base, &Report{Issues: []Issue{triaged, fresh}})
+
+	if len(added) != 1 || added[0].Rule != "G101" {
+		t.Fatalf("added = %+v, want the one new G101", added)
+	}
+	if len(merged.Entries) != 2 {
+		t.Fatalf("merged baseline has %d entries, want 2", len(merged.Entries))
+	}
+	if merged.Note != "keep me" {
+		t.Errorf("note = %q, want the existing one", merged.Note)
+	}
+
+	byRule := make(map[string]Entry, len(merged.Entries))
+	for _, e := range merged.Entries {
+		byRule[e.Rule] = e
+	}
+	if got := byRule["G115"].Reason; got != "n is the row count CopyFrom returned on success" {
+		t.Errorf("the existing reason became %q", got)
+	}
+	// The new one arrives empty, so the reason has to be written by a
+	// person rather than invented by the tool. TestBaseline_EveryEntryHasAReason
+	// is what refuses the file until it is.
+	if byRule["G101"].Reason != "" {
+		t.Errorf("the new entry arrived with a reason nobody wrote: %q", byRule["G101"].Reason)
+	}
+	if byRule["G101"].Snippet == "" {
+		t.Error("the new entry has no snippet for a reader to judge")
+	}
+}
+
+// Running Merge twice must not double the file. The obvious way to get
+// this wrong is to key on the report rather than on what is already
+// there, and the result would be a baseline that grows every time
+// somebody runs the command.
+func TestMerge_IsIdempotent(t *testing.T) {
+	issue := Issue{
+		RuleID: "G101", File: "internal/mail/diagnose.go", Line: "51",
+		Code: "51: \tDiagBadCredentials Diagnosis = \"kimlik_reddedildi\"\n",
+	}
+	rep := &Report{Issues: []Issue{issue}}
+
+	once, added := Merge(&Baseline{}, rep)
+	if len(added) != 1 {
+		t.Fatalf("first merge added %d, want 1", len(added))
+	}
+	twice, addedAgain := Merge(once, rep)
+	if len(addedAgain) != 0 {
+		t.Errorf("second merge added %d more, want 0", len(addedAgain))
+	}
+	if len(twice.Entries) != 1 {
+		t.Errorf("baseline has %d entries after merging the same report twice, want 1", len(twice.Entries))
+	}
+}
+
+// A report containing two findings that hash the same must not produce
+// two entries - the second would be a line nothing can ever match, which
+// is the stale-entry problem created at birth.
+func TestMerge_DoesNotDuplicateWithinOneReport(t *testing.T) {
+	issue := Issue{
+		RuleID: "G304", File: "internal/logging/tree.go", Line: "9",
+		Code: "9: \tf, err := os.Open(path)\n",
+	}
+	merged, added := Merge(&Baseline{}, &Report{Issues: []Issue{issue, issue}})
+	if len(added) != 1 || len(merged.Entries) != 1 {
+		t.Errorf("added %d entries for the same finding twice, want 1", len(merged.Entries))
+	}
+}

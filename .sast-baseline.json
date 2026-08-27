@@ -74,14 +74,6 @@
       "snippet": "return byte(v) == b && b&0x0f == 0x0a"
     },
     {
-      "fingerprint": "4d6e90ec4cf4f41d2675eb26",
-      "rule": "G304",
-      "file": "internal/logging/lifecycle.go",
-      "severity": "MEDIUM",
-      "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
-      "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
-    },
-    {
       "fingerprint": "d020082a35a957f24d2196ed",
       "rule": "G304",
       "file": "internal/logging/lifecycle.go",
@@ -90,12 +82,28 @@
       "snippet": "source, err := os.Open(path)"
     },
     {
+      "fingerprint": "4d6e90ec4cf4f41d2675eb26",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
+      "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
+    },
+    {
       "fingerprint": "66f5946d5a67d042e4e0b6f7",
       "rule": "G304",
       "file": "internal/logging/tree.go",
       "severity": "MEDIUM",
       "reason": "Same: <logs.dir>/<service>/<day>/<category>.log, every component either config or a closed set.",
       "snippet": "opened, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, filePerm)"
+    },
+    {
+      "fingerprint": "2b78f0606ee9984803f3a657",
+      "rule": "G101",
+      "file": "internal/mail/diagnose.go",
+      "severity": "HIGH",
+      "reason": "G101 matches on the identifier name, not on the value. DiagBadCredentials is a diagnosis key the panel looks up a Turkish sentence by, and \"kimlik_reddedildi\" is that key - it is never compared against anything, stored, or sent. Renaming the constant to slip past the rule would replace the clearest name in the file with a worse one to please a scanner.",
+      "snippet": "DiagBadCredentials Diagnosis = \"kimlik_reddedildi\""
     },
     {
       "fingerprint": "12737d4a256ea9fdb0e91ae7",
