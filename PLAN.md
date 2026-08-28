@@ -92,6 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **2/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
+| **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 
 ### Bitmiş maddeler
 
@@ -307,7 +308,14 @@ ikinci kez: aşağıdaki H2 maddesi, taramanın hangi fazda işe yaradığı
 
 **Sonrası:** ~~F2 (kurulum betiği)~~ ✅ → ~~C7.3 (e-posta
 sihirbazı)~~ ✅ → ~~B4/B7 (sağlık sayfası ve sürüm kavramı)~~ ✅ →
-A2/A3 → D4–D8 → B'nin kalanı → E.
+~~K1 (uçtan uca kanıt)~~ ✅ → ~~K2 (Docker)~~ ✅ → ~~K3 (sözlük)~~ ✅ →
+**A2/A3 → D4–D8 → B'nin kalanı → E.**
+
+**K grubu bu sıraya sonradan girdi ve girmesi doğruydu.** B4/B7'den
+sonra A2'ye geçilecekti; onun yerine "yazdıklarımız gerçekten çalışıyor
+mu" sorusu soruldu ve **on iki gerçek kusur** çıktı — biri kurulumun
+müşteriye hiç verilememesi. A2'ye geçilseydi, hepsinin üstüne bir kat
+daha atılmış olacaktı. Özellik eklemeyen bir faz, sırayı hak edebilir.
 
 **H'nin kalanı sıraya girmiyor, sıraya paralel gidiyor.** H1 (kalan üç
 ayrıştırıcı), H3 (sır taraması) ve H4 (yapısal değişmezler) hiçbir
@@ -3875,6 +3883,108 @@ yönlendiriyor.
 Bizim tarafımızda: kurulum listesi, destek token'ları, yoklama
 zamanlayıcısı, tek ekranda hepsinin sağlığı. Müşteri sayısı azken elle
 de yoklanabilir; sayı artınca gerekli olur.
+
+---
+
+### K grubu — Kanıt ve dağıtım *(planda yoktu, araya girdi)*
+
+Bu üç faz sıradan çıkarak yapıldı, ve neden yapıldığı kadar **neden
+sıradan çıkarak** yapıldığı da kayda değer.
+
+Yukarıdaki A–H sırası özellik ekliyor. Bu üçü hiç özellik eklemedi;
+**zaten yazılmış olanın çalıştığını** sordu — ve on iki gerçek kusur
+buldu, hepsi de o sırada bir sonraki maddeye geçilseydi üstüne inşa
+edilecek olan zeminde.
+
+#### K1 — Uçtan uca kanıt ✅ *(2026-08-27)*
+
+**Öncül:** depodaki her test bir parçayı ölçüyordu. Entegrasyon
+paketleri bir paketi gerçek veritabanına karşı, `release/` kurulum
+betiğinin ürettiği yetki matrisini. Hiçbiri şunu sormamıştı: *gerçek bir
+istek panoda bir sayıya dönüşüyor mu?*
+
+İki yarı ayrı ayrı geçiyordu, ve **ayrı ayrı geçen iki yarı çalışan bir
+zincir değildir.**
+
+`e2e/e2e_test.go` zinciri koşuyor: tarball'ı derliyor, paketin kendi
+`install.sh`'ıyla temiz bir veritabanına kuruyor, dört süreci
+başlatıyor, gerçek bir HTTPS isteğini collector üzerinden geçiriyor, bir
+pageview atıyor, ve satırı veritabanında, JA4'ü satırda, saklama
+politikasını iş kataloğunda, sayıyı okuma API'sinde, rakamı panonun
+altı kartında arıyor.
+
+**Bulduğu altı kusur** — beşinin kökü tek: geliştirme veritabanını
+`collector` yaratmıştı, yani her tablonun sahibiydi, yani on entegrasyon
+paketi hiçbir kurulumun vermediği yetkiyle koşuyordu.
+
+1. Saklama politikası kurulu hiçbir sistemde çalışmamış (TimescaleDB
+   yetkiye değil sahipliğe bakıyor; site kırpması için gereken `DELETE`
+   de hiç verilmemiş). Üç `SECURITY DEFINER` sarmalayıcıyla çözüldü.
+2. Kurulum sihirbazı doğru kurulmuş **her** sistemde "tablo eksik"
+   diyordu — `information_schema` yetkisiz tabloları gizler. Zorunlu
+   kontrol düşüyor, düşen zorunlu kontrol devir teslimi bloke ediyor:
+   kurulum müşteriye hiç verilemezdi.
+3. `ip_asn_ranges` ve `ip_country_ranges`'e hiç `GRANT` yoktu; ASN ve
+   ülke sütunları her kurulumda kalıcı olarak boştu.
+4. `install.sh`, DSN verildiğinde `--db`'yi yok sayıyordu.
+5. Örnek yapılandırmalarda collector'ın arka ucu ve okuma API'si aynı
+   portta.
+6. `beacon.example.toml` geçerli TOML değildi; beacon hiçbir kurulumda
+   başlamamıştı.
+
+**Kalıcı hâle gelenler:** E2E zinciri, `release/ports_test.go`,
+`release/schemalist_test.go`, `release/examples_test.go`, `--db` testi,
+`verify.sql`'de yedi yeni doğrulama, ve `internal/testdb` — on paket
+artık üretimde koştuğu rolle bağlanıyor.
+
+#### K2 — Docker: tek imaj, beş giriş noktası ✅ *(2026-08-27)*
+
+**Sıraya girme gerekçesi kullanıcının:** dağıtım modeli müşteri başına
+konteyner, ve konteyneri sonraya bırakmak aradaki fazları yanlış
+varsayımla yazmak olurdu — yükseltme yolu, F1 yedekleme, F3 filo, B5
+destek token'ı, dördü de "dağıtım nasıl" sorusunun cevabına göre
+şekilleniyor.
+
+Ölçüldü: üç endişeden ikisi boş çıktı (loglama zaten stdout'a
+düşebiliyor, systemd bloğu zaten korumalı). **Asıl mesele başkaydı** —
+konteyner, kimsenin elle düzeltmediği bir kurulum olduğu için altı kusur
+daha çıkardı, ve altısı da konteyner kusuru değil:
+
+1. `install.sh` GNU sed'e bağımlı; BusyBox sed kullandığı biçimi
+   **sessizce yok sayıyor**, yani "anahtarı yazdım" diyen her satır
+   yalandı.
+2. "`ip_hash_key` iki dosyada eşleşiyor" iki **boş dizenin**
+   karşılaştırması olabiliyordu.
+3. `ip_hash_key`'in yer tutucusu `[retention]` altındaydı; alan ise
+   `privacy.ip_hash_key`.
+4. Panelin `secret_key`'i aynı şekilde `[developer_gate]` altındaydı —
+   **C7.3'te yazılan posta mekanizması hiçbir kurulumda çalışmamış.**
+5. Rolleri önceden var olan bir makinede DSN'in veritabanı adı
+   düzeltilmiyordu.
+6. Okuma API'sinin jetonu hâlâ elle kopyalanıyordu.
+
+3 ve 4'ü yakalamak için yazılan test, yazıldığı anda **üç tane daha**
+buldu.
+
+**Kurulan:** tek imaj + `init`, kalıcı birimde sırlar, `docker/
+compose.yml`, ve `e2e/docker_test.go` — aynı zincir, konteynerden.
+
+**Konteynerin tersine çevirdiği tek güvenlik kararı:** konteynerde
+`127.0.0.1` o konteynerin kendisi, yani loopback bağlama servisi
+korumaz, *kullanılamaz* yapar. Yerini compose ağı alıyor;
+`release/ports_test.go` dosyayı okuyup doğruluyor.
+
+#### K3 — Sözlük ✅ *(2026-08-27)*
+
+`SOZLUK.md`: projede geçen her teknik terim, konuya göre on iki bölümde.
+Her madde üç şey söylüyor — ne demek, bu projede nerede geçiyor, olmazsa
+ne kırılır.
+
+Bir sözlüğün arıza biçimi kırılmak değil **kaymaktır**: paket yeniden
+adlandırılır, maddesi kusursuz okunmaya devam eder. O yüzden
+`release/glossary_test.go` adı geçen paket, tablo, dosya ve
+binary'lerin var olduğunu kontrol ediyor. Metnin *iyi* olup olmadığını
+değil — onu bir test soramaz.
 
 ---
 
