@@ -5834,3 +5834,98 @@ Elle yazılmış bir liste yanlış olduğu için değil, **eksildiği** için
 tehlikeli. Yanlış liste kırmızı olur; eksik liste yeşil kalır ve
 kapsamadığı şey hakkında hiçbir şey söylemez. İki listeye de tek tek
 bakılmıştı; ikisinin **birlikte** neyi kaçırdığına kimse bakmamıştı.
+
+---
+
+## L1 — Veritabanı artık kaçıncı sürümde olduğunu söylüyor
+
+*(2026-08-30)*
+
+Bugüne kadar hiçbir şey bilmiyordu. `internal/panel/migrate.go` ayar
+göçüdür (TOML→DB), şema göçü değil; binary'ler bilerek DDL çalıştırmaz;
+ve açılışta yapılan tek kontrol `Ping`'dir.
+
+### Önce ölçüm, sonra tasarım
+
+Faz yazılmadan önce ölçüldü, çünkü restart'ın gerekli olup olmadığı buna
+bağlıydı. Gerçek TimescaleDB:
+
+| durum | sonuç |
+|---|---|
+| **A** — şema yeni, binary eski | `yazılan=1 hata=nil failed=0` |
+| **B** — binary yeni, şema eski | `Ping geçti, açılış sessiz` · `SQLSTATE 42703` · `written=0 failed=3` · tabloda 3'ün **0**'ı |
+
+Durum A, göçün restart istemediğini kanıtlıyor: eski binary tanımadığı
+sütunu olan tabloya sorunsuz yazıyor. Durum B ise **sessiz** — süreç
+sağlıklı görünerek ayağa kalkıyor ve her satırı kaybediyor.
+
+**Ping, veritabanının cevap verdiğini kanıtlar; şemanın uyduğunu değil.**
+
+### Neden iki değer
+
+İki farklı soru var ve tek alan ikisini birden cevaplayamıyor:
+
+```
+Version      "binary veritabanından yeni mi?"   sıralanabilir olmalı
+Fingerprint  "uygulanan şey gerçekten bu mu?"   yalan söyleyememeli
+```
+
+Tam sayı sıralanabilir ama **yalan söyleyebilir** — biri şemayı değiştirip
+sürümü yükseltmeyi unutur. Özet yalan söyleyemez ama **sıralanamaz** — iki
+farklı özetten hangisinin yeni olduğu anlaşılmaz.
+
+Tam sayıyı dürüst tutan şey iki yönlü ayna testi: şema dosyaları diskten
+okunup yeniden hashleniyor, sabitle uyuşmazsa test düşüyor ve sürümün de
+yükseltilmesini istiyor. Şema değiştirip bu testle karşılaşmamak mümkün
+değil.
+
+Paket **dosya sistemine dokunmuyor.** `FingerprintOf` içeriği argüman
+olarak alıyor, böylece sabit ile yeniden hesaplama gerçekten aynanın iki
+yüzü oluyor. Kendi dosyalarını `init`'te hashleyen bir paket kendisiyle
+sonsuza kadar uyuşur ve hiçbir şey kanıtlamaz.
+
+### Değer neden SQL'de olamazdı
+
+Parmak izi şema dosyalarının hash'i. İçlerinden birine yazılacak bir
+literal, ifade etmesi gereken hash'i değiştirirdi — **hiçbir değer doğru
+olmazdı.** Go sabiti hashlenen şeyin dışında duruyor, ve install.sh oraya
+`panel -schema-version` ile ulaşıyor.
+
+install.sh iki yarısını da **yazmadan önce** doğruluyor. Boş bir parmak
+izi satırı yazar, sağlık sayfası onu çizer, ve hiçbir şemayı tarif etmez —
+bu projenin daha önce bir kez ısırıldığı şekil.
+
+### Üç mutasyonun bana öğrettiği
+
+**Birincisi yöntemsel:** M4'te panele `UPDATE` yetkisi verdim, test
+**geçti**. Sebep: hiçbir Go dosyası değişmediği için Go testi
+önbellekten döndü. **Veritabanı durumu değişiklikleri Go'nun test
+önbelleğine görünmez.** Entegrasyon mutasyonu `-count=1` ister; onsuz
+harness yalan söyler. `-count=1` ile doğru yakalıyor.
+
+**İkincisi gerçek boşluktu.** Testimin her durumda "yanlış olan cümle
+yok" kontrolü tek bir dizeydi ve hep uyarı cümlesini arıyordu. Oysa dört
+durumun üçünde bulunmaması gereken cümle **güven veren** olandı, ve onu
+kimse sormuyordu. Liste yapıldı.
+
+**Üçüncüsü en öğreticisi.** `Matches()`'ı kayıtsız durumda `true`
+döndürecek şekilde bozdum; sağlık sayfası testleri **geçmeye devam
+etti.** Sebep: `healthSchema` kayıtsız durumda erken dönüyor ve
+`Matches()`'ı hiç çağırmıyor. **Sayfa, yüklemin doğru olmasıyla değil,
+akışın oraya uğramamasıyla korunuyordu.**
+
+Yüklem yine de bozuktu, ve onu çağıracak olanlar henüz yazılmamış
+olanlar: L2 ilk yazmadan önce, L3 yükseltmeyi önermeden önce soracak.
+İkisi de kayıtsız bir veritabanı için `true` alacaktı — yani *sessizliği
+mutabakat sayacaktı.*
+
+Durum makinesi bu yüzden kendi biriminde ayrıca test edildi. Kırılan
+branch'a uğramayan bir sayfadan geçen yeşil, güvenilecek yeşil değil.
+
+### Kapsam dışı bırakılan
+
+`applied_by` bugün `install.sh` yazıyor. L3 geldiğinde yükseltme
+uygulayıcısı olacak, ve `GRANT UPDATE` o zaman **bu satırın yanına
+eklenecek**, onu değiştirerek değil. Sahiplik kararı tablo yaratılırken
+verildi; sonradan verilseydi `grants.sql`, `verify.sql` ve `install.sh`
+ikinci kez elden geçerdi.

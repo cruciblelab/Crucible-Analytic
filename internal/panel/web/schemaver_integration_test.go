@@ -56,14 +56,20 @@ func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
 		fingerprint string
 		clear       bool
 		want        string
-		notWant     string
+		// notWant is a list, not one string. Measured why: a mutation
+		// that made an unrecorded database report as a match survived a
+		// single-string version of this test, because the case asserted
+		// only that the *warning* was absent - and it was. The sentence
+		// that must not appear in three of these four states is the
+		// reassuring one, and nothing was asking about it.
+		notWant []string
 	}{
 		{
 			name:        "uyuşuyor",
 			version:     schemaver.Version,
 			fingerprint: schemaver.Fingerprint,
 			want:        "bu yapının beklediğiyle aynı",
-			notWant:     "satırları kaybeder",
+			notWant:     []string{"satırları kaybeder", "geri almış", "kaydedilmeye başlanmadan"},
 		},
 		{
 			// The one that costs data. The sentence has to name the
@@ -74,20 +80,24 @@ func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
 			version:     schemaver.Version - 1,
 			fingerprint: "0000000000000000000000000000000000000000000000000000000000000000",
 			want:        "satırları kaybeder",
-			notWant:     "beklediğiyle aynı",
+			notWant:     []string{"beklediğiyle aynı", "geri almış"},
 		},
 		{
 			name:        "veritabanı ileride",
 			version:     schemaver.Version + 1,
 			fingerprint: "1111111111111111111111111111111111111111111111111111111111111111",
 			want:        "geri almış",
-			notWant:     "satırları kaybeder",
+			notWant:     []string{"beklediğiyle aynı", "satırları kaybeder"},
 		},
 		{
-			name:    "hiç kaydedilmemiş",
-			clear:   true,
-			want:    "kaydedilmeye başlanmadan önce kurulmuş",
-			notWant: "satırları kaybeder",
+			name:  "hiç kaydedilmemiş",
+			clear: true,
+			want:  "kaydedilmeye başlanmadan önce kurulmuş",
+			// "beklediğiyle aynı" first: a database that has never
+			// recorded a version is not a match, and calling it one
+			// sends the reader away from the only screen that could
+			// have told them otherwise.
+			notWant: []string{"beklediğiyle aynı", "satırları kaybeder", "geri almış"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,8 +118,10 @@ func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
 			if !strings.Contains(body, tc.want) {
 				t.Errorf("the page does not say %q", tc.want)
 			}
-			if strings.Contains(body, tc.notWant) {
-				t.Errorf("the page says %q, which belongs to another state", tc.notWant)
+			for _, bad := range tc.notWant {
+				if strings.Contains(body, bad) {
+					t.Errorf("the page says %q, which belongs to another state", bad)
+				}
 			}
 		})
 	}

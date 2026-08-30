@@ -93,7 +93,7 @@ gerekçe değil bahane olur.
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | ⬜ **0/3** | L1, L2, L3 — *ölçüldü, restart gerekmiyor* |
+| **L** Yükseltme yolu | 🟡 **1/3** | L2, L3 — *ölçüldü, restart gerekmiyor* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -4228,7 +4228,7 @@ sürpriz olur**, ve o sürprizin adı "düğme çalışmıyor" olur.
 
 ---
 
-#### L1 — Sürüm görünürlüğü: `schema_version` + Ayarlar → Hakkında
+#### L1 — Sürüm görünürlüğü ✅ **yapıldı** *(2026-08-30)*
 
 Bugün **hiçbir şey veritabanının kaçıncı sürümde olduğunu bilmiyor.**
 `schema_version` diye bir tablo yok; `internal/panel/migrate.go` ayar
@@ -4241,6 +4241,27 @@ sürümü, ve ikisi uyuşuyor mu. Salt okunur, risk yok, ve L2 ile L3'ün ön
 
 **Bitti ölçütü:** şema sürümü veritabanından okunuyor; uyuşmazlık
 ekranda ayırt edilebiliyor; sürümü elle geri alınca ekran bunu söylüyor.
+
+> **Yapıldı.** `internal/schemaver` iki değer tutuyor — sıralanabilir
+> `Version` ve yalan söyleyemeyen `Fingerprint` — çünkü tek alan iki
+> soruyu birden cevaplayamıyor. Tam sayıyı dürüst tutan şey diskten
+> yeniden hashleyen ayna testi.
+>
+> **Evi ayar sayfası değil sağlık sayfası oldu:** orada zaten dört sürüm
+> gösteriliyordu, ve L1'i D4a'ya bağlamak sırayı gereksiz uzatırdı.
+> Kullanıcının istediği "ayarlarda sürüm" ihtiyacı bugün karşılanıyor;
+> ayar sayfası geldiğinde oraya da bağlanır.
+>
+> **Bağ 1 çözüldü:** `panel_user` yalnız `SELECT` aldı; L3'ün
+> uygulayıcısı için `GRANT UPDATE` bu satırın *yanına* eklenecek. Tablo
+> sahipliği yaratılırken kararlaştırıldı, yani `grants.sql`/`verify.sql`/
+> `install.sh` ikinci kez elden geçmeyecek.
+>
+> **Yedi mutasyonun yedisi yakalandı**, ve ikisi test tarafında gerçek
+> boşluk buldu: veritabanı durumu mutasyonları Go test önbelleğine
+> görünmüyor (`-count=1` şart), ve `Matches()` bozukken sağlık sayfası
+> yeşil kalıyordu çünkü `healthSchema` o branch'a hiç uğramıyor. Durum
+> makinesi kendi biriminde ayrıca test edildi.
 
 #### L2 — Yazmadan önce dur: açılışta sütun kontrolü
 
