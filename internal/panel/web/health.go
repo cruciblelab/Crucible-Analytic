@@ -2,7 +2,10 @@ package web
 
 import (
 	"context"
+	"errors"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
@@ -72,6 +75,42 @@ type healthPage struct {
 	// no reason to tell itself it is alive. Shown so the page reports
 	// four builds rather than three and a gap.
 	Panel healthService
+
+	Schema      healthSchema
+	SchemaError string
+}
+
+// healthSchema is what the database says its schema is, next to what
+// this build expects.
+//
+// The pair is the point. A version on its own is a number somebody
+// typed; a version beside the one the running code wants is the answer
+// to "why did the collector stop writing" - which, measured, is a
+// process that starts, passes its ping, and loses every row it is
+// handed. See internal/schemaver.
+type healthSchema struct {
+	// Installed is what the database holds, "-" when nothing is
+	// recorded.
+	Installed string
+	// Expected is what this build was compiled against.
+	Expected string
+
+	// Matches is the only field that should normally be true, and the
+	// three below say what kind of mismatch it is when it is not.
+	Matches bool
+	// Ahead means the binary wants a newer schema than is installed:
+	// the direction that loses rows.
+	Ahead bool
+	// Behind means the database is newer than the binary. Safe - an old
+	// binary writes through an added column without noticing - but it
+	// means somebody rolled a binary back and left the schema.
+	Behind bool
+	// Unrecorded means this database predates schema versioning. Not a
+	// fault, and not a match either.
+	Unrecorded bool
+
+	AppliedBy   string
+	Fingerprint string
 }
 
 // healthService is one service as the page draws it.
@@ -202,12 +241,60 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	// into its own field and none of them returns early - which is the
 	// page's entire reason for existing.
 	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
+	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
 	data.API = s.healthAPI(ctx)
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))
 	page.Data = data
 	s.Renderer.Render(w, r, http.StatusOK, "saglik", page)
+}
+
+// healthSchema asks the database what schema it carries.
+//
+// Its own gatherer with its own error field, like every other section
+// here: this page exists because an operator needs the parts that work
+// even when one part does not, and a schema read that fails must not
+// take the heartbeat table down with it.
+func (s *Server) healthSchema(ctx context.Context, lang *ui.Language) (healthSchema, string) {
+	out := healthSchema{Expected: strconv.Itoa(schemaver.Version)}
+
+	st, err := schemaver.Read(ctx, s.Store.Pool())
+	switch {
+	case errors.Is(err, schemaver.ErrNoTable):
+		// An installation made before schema versioning existed. Said
+		// plainly rather than as an error, because it is not one - it
+		// is what every deployment older than this feature looks like,
+		// and the fix is a line in the release notes, not a repair.
+		out.Unrecorded = true
+		out.Installed = "-"
+		return out, ""
+	case err != nil:
+		s.logger().Error("panel: reading the schema version", "err", err)
+		return out, lang.T("saglik.sema.okunamadi")
+	}
+
+	if !st.Recorded {
+		out.Unrecorded = true
+		out.Installed = "-"
+		return out, ""
+	}
+
+	out.Installed = strconv.Itoa(st.Version)
+	out.AppliedBy = st.AppliedBy
+	out.Fingerprint = st.Fingerprint
+	out.Matches = st.Matches()
+	out.Ahead = st.Ahead()
+	out.Behind = st.Behind()
+
+	// Matched on the fingerprint, reported by the version. A database
+	// whose number agrees and whose fingerprint does not is the case
+	// worth naming: same version, different schema, which is what a
+	// half-applied upgrade leaves behind.
+	if !out.Matches && !out.Ahead && !out.Behind {
+		out.Ahead = true
+	}
+	return out, ""
 }
 
 // healthServices reads the heartbeat table.

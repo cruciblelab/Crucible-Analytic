@@ -254,10 +254,56 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   else
     for f in internal/panel/schema.sql internal/storage/schema.sql \
              internal/beacon/schema.sql internal/asnlookup/schema.sql \
-             internal/heartbeat/schema.sql internal/retention/schema.sql; do
+             internal/heartbeat/schema.sql internal/retention/schema.sql \
+             internal/schemaver/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi
+fi
+
+# -------------------------------------------------- the schema version
+
+# Recorded after the schemas and before anything else, because what the
+# row asserts is "every file above was applied to this database".
+#
+# The values come from a binary, not from the SQL. The fingerprint is a
+# hash *of* the schema files, so a literal inside one of them would
+# change the hash it is supposed to state and no value would ever be
+# correct. The Go constant sits outside what is hashed.
+say "recording the schema version"
+if [ "${DRY_RUN}" -eq 0 ]; then
+  if [ -x "${HERE}/../bin/panel" ]; then
+    schema_stamp="$("${HERE}/../bin/panel" -schema-version)"
+  else
+    schema_stamp="$(cd "${ROOT}" && go run ./cmd/panel -schema-version)"
+  fi
+  read -r SCHEMA_VER SCHEMA_FP <<<"${schema_stamp}"
+
+  # Both halves checked before either is written.
+  #
+  # This project has been bitten once by a hash of nothing: a check whose
+  # green state meant "we wrote nothing" rather than "we wrote the right
+  # thing". An empty fingerprint here would do the same - the row would
+  # exist, the health page would draw it, and it would describe no schema
+  # at all.
+  case "${SCHEMA_VER}" in
+    ''|*[!0-9]*)
+      die "schema version: panel -schema-version gave '${SCHEMA_VER:-}', which is not a number" ;;
+  esac
+  if [ "${#SCHEMA_FP}" -ne 64 ]; then
+    die "schema fingerprint: got ${#SCHEMA_FP} characters, want 64 (a hex SHA-256)"
+  fi
+
+  psql_db -v ver="${SCHEMA_VER}" -v fp="${SCHEMA_FP}" <<'SQL'
+INSERT INTO schema_version (id, version, fingerprint, applied_by)
+VALUES (1, :ver, :'fp', 'install.sh')
+ON CONFLICT (id) DO UPDATE SET
+    version     = EXCLUDED.version,
+    fingerprint = EXCLUDED.fingerprint,
+    applied_at  = now(),
+    applied_by  = EXCLUDED.applied_by;
+SQL
+  say "  schema ${SCHEMA_VER} (${SCHEMA_FP:0:12}...)"
 fi
 
 # ------------------------------------------------------------ privileges

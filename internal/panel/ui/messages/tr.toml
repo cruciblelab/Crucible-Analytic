@@ -926,6 +926,17 @@ panel_kendisi = "Bu sayfayı gösteren süreç."
 tablo_yok = "tablo yok"
 saklama_yok = "sınırsız"
 
+[metin.saglik.sema]
+baslik = "Şema sürümü"
+kurulu = "Veritabanında kurulu"
+beklenen = "Bu yapının beklediği"
+uygulayan = "Uygulayan"
+okunamadi = "Şema sürümü okunamadı."
+uyusuyor = "Veritabanındaki şema, bu yapının beklediğiyle aynı."
+kayitsiz = "Bu veritabanı, şema sürümü kaydedilmeye başlanmadan önce kurulmuş. Eksiklik değil: bir sonraki kurulum betiği çalıştırıldığında kaydedilir."
+geride = "Bu yapı, veritabanındakinden yeni bir şema bekliyor. Toplayıcı ve beacon, kurulu şemada olmayan bir sütuna yazmaya çalışırsa satırları kaybeder — süreç ayakta görünmeye devam eder. Şemayı yükseltmek gerekiyor."
+ileride = "Veritabanındaki şema, bu yapının beklediğinden yeni. Bu güvenli — eski bir yapı, sonradan eklenmiş bir sütunu fark etmeden yazar — ama biri binary'yi geri almış ve şemayı bırakmış demektir."
+
 [metin.saglik.servis]
 baslik = "Servisler"
 hic = "Hiçbir servis henüz haber vermedi. Ya hepsi kalp atışından önceki bir yapıyı çalıştırıyor, ya da hiçbiri çalışmıyor."

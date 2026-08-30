@@ -63,6 +63,24 @@ GRANT USAGE, SELECT ON
 GRANT SELECT, INSERT, UPDATE ON service_heartbeat
   TO collector, beacon_writer, analytics_reader, panel_user;
 
+-- The schema version, readable by the panel and writable by nobody.
+--
+-- SELECT only, and only for the panel, because today the one thing that
+-- reads this is the health page. install.sh writes the row as the
+-- installing superuser; no service role needs to.
+--
+-- L3 will add a writer - the upgrade applier - and it will be a GRANT
+-- added beside this one rather than a change to it. That is why the
+-- table's owner was settled when it was created rather than when it is
+-- first written: an ownership decision made later would have moved this
+-- file, verify.sql and install.sh a second time.
+--
+-- No INSERT or UPDATE for panel_user in particular. The panel showing a
+-- version it could have written itself is not a report, and the whole
+-- point of asking the database is that the answer comes from outside
+-- the process being asked about.
+GRANT SELECT ON schema_version TO panel_user;
+
 -- Live settings. Optional, and strongly recommended: without it the
 -- collector and the beacon read only their own files, and nothing changed
 -- in the panel ever reaches them.

@@ -35,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
@@ -55,6 +56,8 @@ func main() {
 
 	configPath := flag.String("config", "panel.toml", "path to the TOML config file")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
+	schemaVersion := flag.Bool("schema-version", false,
+		"print the schema version and fingerprint this build expects, then exit")
 	devLink := flag.Bool("dev-link", false,
 		"mint a one-time developer access link, print it, and exit")
 	ownerLink := flag.String("owner-link", "",
@@ -76,6 +79,24 @@ func main() {
 	// working installation to answer.
 	if *showVersion {
 		buildinfo.Print(os.Stdout, "panel", version)
+		return
+	}
+
+	// What schema this build was compiled against, for install.sh to
+	// record in the database.
+	//
+	// It has to come from a binary rather than from the SQL, because the
+	// fingerprint is a hash *of* the schema files: a version literal
+	// inside one of them would change the hash that the literal is
+	// supposed to state, and no value would ever be correct. The Go
+	// constant sits outside what is hashed, which is the only place it
+	// can sit.
+	//
+	// Two fields, space-separated, one line, no decoration: this is read
+	// by `read` in a shell script, and a pretty banner would be one more
+	// thing that must never change.
+	if *schemaVersion {
+		fmt.Printf("%d %s\n", schemaver.Version, schemaver.Fingerprint)
 		return
 	}
 

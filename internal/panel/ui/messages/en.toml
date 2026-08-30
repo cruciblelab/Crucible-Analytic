@@ -889,6 +889,17 @@ panel_kendisi = "The process serving this page."
 tablo_yok = "table missing"
 saklama_yok = "unlimited"
 
+[metin.saglik.sema]
+baslik = "Schema version"
+kurulu = "Installed in the database"
+beklenen = "Expected by this build"
+uygulayan = "Applied by"
+okunamadi = "The schema version could not be read."
+uyusuyor = "The schema in the database is the one this build expects."
+kayitsiz = "This database was installed before schema versions were recorded. Not a fault: the next run of the install script records it."
+geride = "This build expects a newer schema than the database has. If the collector or the beacon writes to a column the installed schema does not have, the rows are lost - and the process goes on looking healthy. The schema needs upgrading."
+ileride = "The database schema is newer than this build expects. That is safe - an older build writes through an added column without noticing - but it means somebody rolled a binary back and left the schema where it was."
+
 [metin.saglik.servis]
 baslik = "Services"
 hic = "No service has reported yet. Either they are all running a build from before the heartbeat existed, or none of them is running."

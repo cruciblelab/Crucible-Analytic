@@ -75,6 +75,46 @@ where the fourth should be would read as a fault. */}}
 </section>
 
 <section class="bolum">
+<h2>{{t "saglik.sema.baslik"}}</h2>
+
+{{- if .Data.SchemaError}}
+<p class="uyari">{{.Data.SchemaError}}</p>
+{{- else}}
+<table class="veri">
+<tbody>
+<tr>
+<th scope="row">{{t "saglik.sema.kurulu"}}</th>
+<td><code>{{.Data.Schema.Installed}}</code></td>
+</tr>
+<tr>
+<th scope="row">{{t "saglik.sema.beklenen"}}</th>
+<td><code>{{.Data.Schema.Expected}}</code></td>
+</tr>
+{{- if .Data.Schema.AppliedBy}}
+<tr>
+<th scope="row">{{t "saglik.sema.uygulayan"}}</th>
+<td><code>{{.Data.Schema.AppliedBy}}</code></td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+
+{{- /* One sentence, and which one is the whole point of the section.
+The measured failure this exists for is silent: the process starts,
+passes its ping, and loses every row. */}}
+{{- if .Data.Schema.Matches}}
+<p class="ipucu">{{t "saglik.sema.uyusuyor"}}</p>
+{{- else if .Data.Schema.Unrecorded}}
+<p class="ipucu">{{t "saglik.sema.kayitsiz"}}</p>
+{{- else if .Data.Schema.Ahead}}
+<p class="uyari">{{t "saglik.sema.geride"}}</p>
+{{- else if .Data.Schema.Behind}}
+<p class="ipucu">{{t "saglik.sema.ileride"}}</p>
+{{- end}}
+{{- end}}
+</section>
+
+<section class="bolum">
 <h2>{{t "saglik.depolama.baslik"}}</h2>
 
 {{- if .Data.StorageError}}
