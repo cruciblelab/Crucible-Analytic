@@ -129,6 +129,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(AccountPath, s.accountHandler)
 	mux.HandleFunc(TOTPQRPath, s.totpQRHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+membersPathSuffix, s.membersHandler)
+	mux.HandleFunc(MembersPathPrefix+"{site}"+settingsPathSuffix, s.settingsHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+dashboardPathSuffix, s.dashboardHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+breakdownPathSegment+"{kirilim}", s.detailHandler)
 	mux.HandleFunc(MembersPathPrefix+"{site}"+addressListPathSegment+"{liste}", s.addressListHandler)

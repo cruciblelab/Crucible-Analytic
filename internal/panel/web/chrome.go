@@ -203,6 +203,13 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 		{id: "siteler", url: "/", label: lang.T("gezinme.siteler")},
 		{id: "uyeler", url: memberPath(siteID), label: lang.T("gezinme.uyeler"),
 			need: panel.CapManageMembers, site: true},
+		// No capability, deliberately. A viewer reaches the settings
+		// page and sees every value with a sentence saying why there is
+		// no control - see settingsHandler. Hiding the link would mean
+		// a customer cannot find out what their own deployment is set
+		// to without asking somebody.
+		{id: "ayarlar", url: settingsPath(siteID), label: lang.T("gezinme.ayarlar"),
+			site: true},
 		{id: "erisim", url: DevAccessRequestsPath, label: lang.T("gezinme.erisim"),
 			decides: true},
 		// Same gate as the access page and for a related reason: the

@@ -62,6 +62,7 @@ const (
 var siteScopedRoutes = map[string]func(site string) string{
 	"dashboard": func(site string) string { return MembersPathPrefix + site },
 	"members":   func(site string) string { return MembersPathPrefix + site + membersPathSuffix },
+	"settings":  func(site string) string { return MembersPathPrefix + site + settingsPathSuffix },
 	"breakdown": func(site string) string {
 		return MembersPathPrefix + site + breakdownPathSegment + string(analytics.BreakdownPages)
 	},

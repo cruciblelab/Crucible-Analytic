@@ -84,6 +84,7 @@ other = "%s saniye"
 ad = "Crucible Analytic"
 
 [metin.gezinme]
+ayarlar = "Ayarlar"
 cikis = "Çıkış"
 siteler = "Siteler"
 uyeler = "Üyeler"
@@ -925,6 +926,37 @@ son_hata = "Son hata:"
 panel_kendisi = "Bu sayfayı gösteren süreç."
 tablo_yok = "tablo yok"
 saklama_yok = "sınırsız"
+
+[metin.ayarlar]
+baslik = "Ayarlar"
+bos = "Bu sitede gösterilecek ayar yok."
+kaydet = "Kaydet"
+sifirla = "Varsayılana dön"
+kaydedildi = "Ayar kaydedildi."
+sifirlandi = "Ayar varsayılana döndürüldü."
+acik = "Açık"
+korumali = "parola ister"
+gelistirici = "geliştirici"
+gelistirici_gizli = "Teknik ayarlar geliştirici modunda görünür. Hesap sayfasından açabilirsiniz."
+liste_ipucu = "Virgülle ayırın."
+parola_etiket = "Geliştirici parolası"
+parola_gerekli = "Bu ayar geliştirici parolası ister."
+
+[metin.ayarlar.kaynak]
+varsayilan = "Varsayılan — kimse değiştirmemiş"
+site = "Bu siteye özel olarak ayarlanmış"
+genel = "Kurulum genelinde ayarlanmış"
+
+[metin.ayarlar.hata]
+bilinmeyen = "Böyle bir ayar yok."
+yetki = "Bu ayarı değiştirme yetkiniz yok."
+parola = "Bu ayar geliştirici parolası ister."
+parola_yanlis = "Geliştirici parolası kabul edilmedi."
+bekle = "Çok fazla deneme yapıldı. Biraz bekleyip tekrar deneyin."
+kapi_yok = "Bu kurulumda geliştirici parolası tanımlı değil, bu yüzden bu ayar panelden değiştirilemez — kimse tarafından. Güvenli yön budur."
+aralik = "Değer %d ile %d arasında olmalı."
+secenek = "Değer şunlardan biri olmalı: %s"
+gecersiz = "Değer kabul edilmedi."
 
 [metin.saglik.sema]
 baslik = "Şema sürümü"

@@ -712,6 +712,18 @@ func Lookup(key Key) (Definition, bool) {
 	return def, ok
 }
 
+// DefinitionFor looks up one setting.
+//
+// Exported so the panel's settings page can answer "is this a real key,
+// and what shape is it" without the web package holding a second copy of
+// the registry. The second return is false for a key this build does not
+// know - which is not a validation failure to explain to somebody, but a
+// request that did not come from a page this build rendered.
+func DefinitionFor(key Key) (Definition, bool) {
+	def, ok := registry[key]
+	return def, ok
+}
+
 // AllDefinitions returns every setting, sorted by key, for the panel's
 // settings pages.
 func AllDefinitions() []Definition {

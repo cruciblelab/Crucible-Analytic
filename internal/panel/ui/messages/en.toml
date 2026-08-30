@@ -58,6 +58,7 @@ other = "%s seconds"
 ad = "Crucible Analytic"
 
 [metin.gezinme]
+ayarlar = "Settings"
 cikis = "Sign out"
 siteler = "Sites"
 uyeler = "Members"
@@ -888,6 +889,37 @@ son_hata = "Last error:"
 panel_kendisi = "The process serving this page."
 tablo_yok = "table missing"
 saklama_yok = "unlimited"
+
+[metin.ayarlar]
+baslik = "Settings"
+bos = "No settings to show for this site."
+kaydet = "Save"
+sifirla = "Restore the default"
+kaydedildi = "Setting saved."
+sifirlandi = "Setting restored to its default."
+acik = "On"
+korumali = "asks for a password"
+gelistirici = "developer"
+gelistirici_gizli = "Technical settings appear in developer mode. You can turn it on from your account page."
+liste_ipucu = "Separate with commas."
+parola_etiket = "Developer password"
+parola_gerekli = "This setting asks for the developer password."
+
+[metin.ayarlar.kaynak]
+varsayilan = "Default - nobody has changed it"
+site = "Set for this site"
+genel = "Set across the installation"
+
+[metin.ayarlar.hata]
+bilinmeyen = "There is no such setting."
+yetki = "You may not change this setting."
+parola = "This setting asks for the developer password."
+parola_yanlis = "The developer password was not accepted."
+bekle = "Too many attempts. Wait a little and try again."
+kapi_yok = "This installation has no developer password set, so this setting cannot be changed from the panel by anybody. That is the safe direction."
+aralik = "The value has to be between %d and %d."
+secenek = "The value has to be one of: %s"
+gecersiz = "The value was not accepted."
 
 [metin.saglik.sema]
 baslik = "Schema version"
