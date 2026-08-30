@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +52,14 @@ func NewWriter(ctx context.Context, databaseURL string) (*Writer, error) {
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("storage: ping database: %w", err)
+	}
+	// Ping proved the database answers. It proved nothing about the
+	// shape of this table, and the difference costs rows: measured, a
+	// collector missing one column starts, reports healthy, and drops
+	// every batch it is handed. See internal/schemaver.
+	if err := schemaver.RequireColumns(ctx, pool, tableName, columns); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("storage: %w", err)
 	}
 	return &Writer{pool: pool}, nil
 }

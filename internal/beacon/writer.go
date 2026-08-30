@@ -3,6 +3,7 @@ package beacon
 import (
 	"context"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -104,6 +105,13 @@ func NewWriter(ctx context.Context, databaseURL string, cfg WriterConfig) (*Writ
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("beacon: ping database: %w", err)
+	}
+	// Same reason as the collector's: Ping answers a different question
+	// from the one that decides whether writes land. See
+	// internal/schemaver.
+	if err := schemaver.RequireColumns(ctx, pool, tableName, columns); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("beacon: %w", err)
 	}
 
 	return &Writer{
