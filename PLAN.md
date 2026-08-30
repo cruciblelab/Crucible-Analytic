@@ -93,6 +93,7 @@ gerekçe değil bahane olur.
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
+| **L** Yükseltme yolu | ⬜ **0/3** | L1, L2, L3 — *ölçüldü, restart gerekmiyor* |
 
 ### Bitmiş maddeler
 
@@ -4032,6 +4033,144 @@ adlandırılır, maddesi kusursuz okunmaya devam eder. O yüzden
 `release/glossary_test.go` adı geçen paket, tablo, dosya ve
 binary'lerin var olduğunu kontrol ediyor. Metnin *iyi* olup olmadığını
 değil — onu bir test soramaz.
+
+---
+
+### L. Yükseltme yolu
+
+**Sıraya girme gerekçesi kullanıcının:** *"müşteri yükseltemez,
+güncellemeleri otomatik de yapamayız — o zaman manuel güncelleme
+panelden tek tıkla."* Ve modeli veren analoji yine kullanıcının:
+**Android işletim sistemi.** Ayarlar → Hakkında sürümü gösterir, bir
+düğme güncellemeyi başlatır, ve işi Ayarlar uygulaması değil ayrı ve
+yetkili bir bileşen (`update_engine`) yapar.
+
+Analoji üç yerde tutuyor, üç yerde kırılıyor, ve **kırıldığı yerler
+kısıtları veriyor**:
+
+| tutuyor | kırılıyor |
+|---|---|
+| Sürüm Ayarlar'da görünür | Android veriyi değiştirmez, biz **şemayı** değiştiriyoruz |
+| Tek düğme, terminal yok | Telefon yeniden başlar; **collector müşterinin sitesinin önünde** |
+| Düğmeyi gösteren ≠ işi yapan | Bozulan telefon bir telefon; bozulan VDS **üç müşteri** |
+
+#### Ölçüm: sürüklenme altında ne oluyor *(2026-08-30, gerçek TimescaleDB)*
+
+Faz yazılmadan önce ölçüldü, çünkü restart'ın gerekli olup olmadığı
+buna bağlıydı.
+
+**Durum A — şema yeni, binary eski:**
+
+```
+yazılan=1  hata=<nil>  written=1  failed=0
+```
+
+Eski binary, tanımadığı sütunu olan tabloya sorunsuz yazıyor.
+`CopyFrom` sütunları açıkça adlandırıyor ve her `ADD COLUMN`'un
+varsayılanı var.
+
+**Durum B — binary yeni, şema eski:**
+
+```
+NewWriter başarılı — Ping geçti, açılış SESSİZ
+hata=column "asn_org" does not exist (SQLSTATE 42703)
+written=0  failed=3   tabloda: 3'ün 0'ı
+```
+
+**Bu ölçümün verdiği üç karar:**
+
+1. **Şema göçü restart istemiyor.** Durum A kanıtı. Şema yükseltilirken
+   servisler çalışmaya devam eder, müşterinin sitesi kapanmaz.
+2. **Sıra şema → binary.** Tersi Durum B'dir: süreç sağlıklı görünür,
+   satırlar kaybolur.
+3. **Açılış sessiz, ve olmamalı.** `Ping` veritabanının cevap verdiğini
+   kanıtlar, şemanın uyduğunu değil.
+
+Bundan iş ikiye bölünüyor, ve **güvenli yarısı restart'sız** — L
+grubunun tamamı o yarı. Binary değişimi ve soket devri ayrı, sonra, ve
+belki hiç.
+
+---
+
+#### L1 — Sürüm görünürlüğü: `schema_version` + Ayarlar → Hakkında
+
+Bugün **hiçbir şey veritabanının kaçıncı sürümde olduğunu bilmiyor.**
+`schema_version` diye bir tablo yok; `internal/panel/migrate.go` ayar
+göçü (TOML→DB), şema göçü değil. Bu yüzden hiçbir şey *"bu binary
+buradaki şemadan yenisini istiyor"* diyemez.
+
+Ekran, senin istediğin yer: **Ayarlar → Hakkında.** Binary sürümü, şema
+sürümü, ve ikisi uyuşuyor mu. Salt okunur, risk yok, ve L2 ile L3'ün ön
+şartı.
+
+**Bitti ölçütü:** şema sürümü veritabanından okunuyor; uyuşmazlık
+ekranda ayırt edilebiliyor; sürümü elle geri alınca ekran bunu söylüyor.
+
+#### L2 — Yazmadan önce dur: açılışta sütun kontrolü
+
+Durum B'nin emniyet ağı, **ve müşteri düğmeye hiç basmasa bile
+çalışıyor.** Yazıcının `columns` listesi `pg_attribute` ile
+karşılaştırılır; uyuşmuyorsa süreç **yazmaya başlamadan** yüksek sesle
+ölür.
+
+Sessiz bir süreç artı kaybolan satırlar yerine, açılışta duran bir
+servis. İkincisi onarılabilir bir arıza; birincisi fark edilmeyen bir
+arıza.
+
+**Bitti ölçütü:** eksik sütunla açılış reddediliyor ve hata sütunu
+adıyla söylüyor; fazladan sütunla açılış **kabul ediliyor** (Durum A
+bozulmamalı — yükseltme sırasının doğru olanı odur).
+
+#### L3 — Düğme: istek satırı + yetkili uygulayıcı
+
+Panel DDL çalıştıramaz, ve çalıştıramaması B6/H5'in tesis ettiği şeydir:
+
+```
+grants.sql → panel_user: panel_* tablolarında tam yetki
+             analitik tablolarında hiçbir yetki
+             dosyada tek bir ALTER / CREATE / OWNER yok
+```
+
+O yüzden düğme DDL çalıştırmaz, **istek yazar**:
+
+1. Panel `panel_upgrade_requests`'e bir satır yazar *(panel\_ tablosu,
+   yetkisi zaten var)*
+2. Yetkili bir bileşen o satırı görür, şemayı uygular, sonucu geri yazar
+3. Panel sonucu gösterir
+
+DDL panel sürecinden **hiç** erişilebilir olmuyor. Docker'da bu
+bileşenin yarısı zaten var — `init` konteyneri.
+
+##### Kilit: yetkiyle değil, parolayla
+
+**Varsayılan kilitsiz** — müşteri tek tıkla yükseltir, ek parola yok,
+zaten girerken parolasını yazdı. "İşi bilmeyen normal müşteri de
+yapabilmeli" şartı budur.
+
+**Geliştirici isterse kilitler** — güncellemeye güvenmiyorsa ya da risk
+görüyorsa. Kilit açıkken **yalnız geliştirici parolası** açar.
+
+Yetenekle değil parolayla, çünkü `RoleOwner`'da `CapManageMembers` var
+ve `RoleAdmin`'de `CapUseDeveloperMode` var: **müşteri kendine yetki
+vererek yetenek kazanabilir.** Bakmakla biten şeyler için sorun değil;
+geliştiriciye iş çıkarabilen şeyler için tek koruma parolanın
+yapılandırma dosyasından gelmesidir. *(Bkz. SOZLUK.md §3, "Erişim:
+yetkiyle değil, parolayla".)*
+
+Sihirbaza **girmiyor** — gereksiz uzatma. Geliştirici seçeneklerinde
+durur, sonradan istenirse açılır.
+
+##### İnternete sorulmuyor
+
+Panel "yeni sürüm çıkmış mı" diye hiçbir yere bağlanmaz. Yalnız iki
+yerel sayıyı karşılaştırır: binary sürümü ve şema sürümü. Ölçtüğümüz
+risk zaten tam olarak bu, ve her kurulumun bize bağlanması hem ürünün
+duruşuna aykırı hem de F3 (filo) işi.
+
+**Bitti ölçütü:** kilitsizken müşteri yükseltebiliyor; kilitliyken
+yetkisi ne olursa olsun yükseltemiyor ve yalnız geliştirici parolası
+açıyor; uygulama sırasında hiçbir servis durmuyor *(ölçülecek, iddia
+edilmeyecek)*; başarısız göç geri bildiriliyor ve tekrar denenebiliyor.
 
 ---
 
