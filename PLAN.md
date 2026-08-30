@@ -95,6 +95,94 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ⬜ **0/3** | L1, L2, L3 — *ölçüldü, restart gerekmiyor* |
 
+### Kalan fazların sırası — biri diğerine yük bindirmesin diye
+
+*(2026-08-30. Grup harfleri sıra değil kategori; asıl sıra bağımlılıklardan
+çıkıyor ve harflerle uyuşmuyor. Aşağıdaki bağların hepsi koda bakılarak
+doğrulandı, hatırlanarak değil.)*
+
+#### Ölçülen üç yapısal gerçek
+
+**1. Ayar sayfası hiç yok.** Panelin rotaları sayıldı: hesap, sağlık,
+üyeler, pano, kırılım, adres listesi, geliştirici erişimi, posta, teknik
+kapı, karşılama, sahiplenme, kurulum. **`/ayarlar` yok.** Arka ucu hazır
+(`Store.SettingsView`, `settings_access.go:248`), gösterecek sayfa
+yapılmamış.
+
+Bu tek eksik **A2, B3 ve L3'ü birden bekletiyor** — üçü de kullanıcının
+bir ayar sayfasında yapacağı iş.
+
+**2. Sağlık sayfası zaten sürüm gösteriyor** (`buildinfo.Version`, artı
+kalp atışı satırlarından servis başına). Yani **L1'in evi var** ve ayar
+sayfasını beklemiyor.
+
+**3. E1 planın en büyük yeniden-yazım üreticisi.** Dört binary → bir,
+üç TOML → bir demek; dokunduğu yer: `install.sh`, Docker `entrypoint.sh`
+(beş giriş noktası), dört systemd birimi, örnek yapılandırmalar, üç
+`config.go`, `build.sh`, KURULUM.md, `examples_test.go`,
+`ports_test.go`. **Ne zaman yapılırsa, ondan öncesi bir kez daha
+yazılıyor.**
+
+#### Bağımlılık haritası
+
+```
+D4a ayar sayfası kabuğu  ←— hiçbir şeye bağlı değil
+     ├─→ A2 profil seçici
+     ├─→ B3 39 operasyon
+     └─→ L3 yükseltme düğmesi
+
+B1 panel_logs ──→ B2 panel_operations
+     ▲                   ├─→ B3
+     │                   ├─→ D4b akan operasyon penceresi
+  korelasyon             └─→ L3 (yükseltme bir operasyondur)
+  kimliği satır
+  şeklini belirliyor
+
+A3 yalnız-ülke ──→ A2 profiller ──→ D5 profil/görünüm ayrımı
+
+L1 şema sürümü ──→ L2 açılış kontrolü ──→ L3 düğme
+
+H1 · H3 · E2  ←— bağımsız, araya girebilir
+E1            ←— ayrı karar, herkesi yeniden yazdırır
+```
+
+#### İki gerçek yük bindirme riski
+
+**B1 ile B2 ayrılamaz.** B2'nin korelasyon kimliği B1'in **satır şeklinde**
+taşınmak zorunda. B1 önce ve o sütun olmadan yapılırsa, B2 geldiğinde log
+tablosu ve yazıcısı yeniden yazılır. İkisi tek faz.
+
+**L3'ten önce B2 gelmeli.** Yükseltme, tanımı gereği bir operasyondur —
+"ne oldu, hangi adımda düştü, geri alındı mı". L3 B2'siz yapılırsa
+yükseltme operasyon günlüğünün dışında kalır, ve B2 geldiğinde L3 elden
+geçer.
+
+#### Sıra
+
+| # | iş | neden burada |
+|---|---|---|
+| 1 | **L1** şema sürümü | bağımsız; evi hazır; L2 ve L3'ün ön şartı; az önce ölçtüğümüz riski kapatıyor |
+| 2 | **L2** açılışta sütun kontrolü | L1'in kaynağını kullanır; **müşteri düğmeye hiç basmasa bile** veri kaybını kapatır |
+| 3 | **D4a** ayar sayfası kabuğu | üç fazı birden açan tek iş; arka ucu zaten hazır |
+| 4 | **B1+B2** birlikte | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
+| 5 | **L3** düğme | 3 ve 4'ün üstüne oturuyor; beşinci rol burada geliyor |
+| 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
+| 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
+| 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
+| 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
+| 10 | **E1** | *bilinçli karar ister* — ne zaman yapılırsa öncesi yeniden yazılır |
+
+**A3'süz A2 yalan söyler:** A2'nin "Dengeli" profili "yalnız ülke" diyecek,
+ama `asnlookup` A3 olmadan dört tabloyu da yüklemeye devam edecek. Profil
+tablosunun vaat ettiği ~65-70 MB gerçekleşmez ve panel doğru olmayan bir
+şey gösterir. Bu yüzden A3 önce.
+
+**E1 hakkında:** ertelemenin bedeli her fazda biraz büyüyor, ama K2
+(Docker) E1'in yarısını zaten ödedi — `entrypoint.sh` bugün
+`crucible <servis>` biçiminde dağıtım yapıyor. Kalan yarı üç TOML'un
+birleşmesi, ve orası `install.sh` ile örnek yapılandırmaların tam
+göbeği. Karar bilinçli verilmeli, sürüklenerek değil.
+
 ### Bitmiş maddeler
 
 *(İki numaralandırma ailesi var ve karışıyor: tireli **AI-1/AI-2** §2.5'in
