@@ -437,3 +437,93 @@ CREATE TABLE IF NOT EXISTS panel_smtp (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL
 );
+
+
+-- ====================================================== B2: operasyonlar
+--
+-- panel_logs bu dosyada değil, internal/logsink/schema.sql'de: onu dört
+-- servis de yazıyor, bu tabloyu yalnız panel. Aynı ayrım
+-- internal/heartbeat'te de var, ve sebebi aynı - bir tablonun yazarları
+-- kimse, şeması onların yanında durmalı.
+--
+-- İkisi yine de tek fazda yapıldı, çünkü panel_logs.operation_id bu
+-- tablonun kimliğini taşıyor: korelasyon sütunu olmadan tasarlanmış bir
+-- log tablosu, operasyon günlüğü geldiği gün yeniden yazılırdı.
+
+-- What happened while somebody was changing something.
+--
+-- # Why this is not the audit log
+--
+-- panel_audit_log answers "who did what", and it is the record that has
+-- to survive: short, legally meaningful, kept for a long time. This
+-- answers "what happened while they did it", which is a different
+-- question asked by a different person at a different time - usually the
+-- developer, usually within the hour, usually because a customer said
+-- "bir şeyi ayarlarken hata olmuş".
+--
+-- Two tables rather than more columns on one, because their retentions
+-- differ by more than an order of magnitude and because an audit row
+-- must never be crowded out by diagnostic detail.
+--
+-- # The field that matters most
+--
+-- rolled_back. "Something went wrong while setting it" is only
+-- answerable if a half-applied change is *recorded as half-applied*. A
+-- log that says "failed" without saying whether the change survived
+-- leaves the reader to guess, and the guess is what turns a small
+-- failure into an afternoon.
+CREATE TABLE IF NOT EXISTS panel_operations (
+    -- Text, not a sequence: the id is minted before the operation starts
+    -- so it can be attached to log lines the operation is about to
+    -- produce. A database-assigned id would not exist yet.
+    id TEXT PRIMARY KEY,
+
+    started_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+
+    -- What was attempted, in the audit log's vocabulary, so the two
+    -- records can be read side by side.
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    site_id TEXT NOT NULL DEFAULT '',
+
+    -- Who, in the same shape panel_audit_log records them.
+    actor_kind  TEXT NOT NULL,
+    actor_id    BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+    actor_label TEXT NOT NULL DEFAULT '',
+
+    -- The audit entry this operation belongs to, when there is one.
+    audit_id BIGINT REFERENCES panel_audit_log(id) ON DELETE SET NULL,
+
+    -- Before and after, as JSON, so a value of any shape fits and the
+    -- panel can render "14 → 21" without knowing the setting's type.
+    before_value JSONB,
+    after_value  JSONB,
+
+    -- Each step and how it went, appended as the operation runs.
+    --
+    -- An array rather than a row per step: the steps of one operation
+    -- are read together, always, and never queried across operations.
+    steps JSONB NOT NULL DEFAULT '[]'::jsonb,
+
+    -- How it ended. Empty while it is still running, which is a state
+    -- the panel has to be able to draw - an operation that never
+    -- finished is exactly the interesting case.
+    outcome TEXT NOT NULL DEFAULT '',
+
+    -- The whole error chain, not its last link. wrapStoreError and its
+    -- callers build a chain on purpose and the innermost cause is
+    -- usually the one that names the fix.
+    error_chain TEXT NOT NULL DEFAULT '',
+
+    -- Whether a failed change was undone.
+    --
+    -- Three states, and NULL is one of them: true undone, false left
+    -- standing, NULL not applicable because nothing had been applied
+    -- yet. Collapsing NULL into false would claim a change was left
+    -- standing when none was ever made.
+    rolled_back BOOLEAN
+);
+
+CREATE INDEX IF NOT EXISTS idx_panel_operations_time ON panel_operations (started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_panel_operations_site ON panel_operations (site_id, started_at DESC);

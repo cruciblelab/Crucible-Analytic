@@ -288,6 +288,10 @@ var panelTables = []string{
 	"panel_users", "panel_sessions", "panel_site_members", "panel_audit_log",
 	"panel_api_tokens", "panel_dev_access", "panel_login_attempts", "panel_settings",
 	"panel_owner_claims", "panel_recovery_codes", "panel_smtp",
+	// B2. panel_logs is deliberately absent: it lives in
+	// internal/logsink/schema.sql because four roles write it, and this
+	// list is what internal/panel/schema.sql creates.
+	"panel_operations",
 }
 
 func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {

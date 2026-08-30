@@ -296,7 +296,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     for f in internal/panel/schema.sql internal/storage/schema.sql \
              internal/beacon/schema.sql internal/asnlookup/schema.sql \
              internal/heartbeat/schema.sql internal/retention/schema.sql \
-             internal/schemaver/schema.sql; do
+             internal/logsink/schema.sql internal/schemaver/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi

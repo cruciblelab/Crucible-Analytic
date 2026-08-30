@@ -81,6 +81,36 @@ GRANT SELECT, INSERT, UPDATE ON service_heartbeat
 -- the process being asked about.
 GRANT SELECT ON schema_version TO panel_user;
 
+-- The log table every service writes and only the panel reads.
+--
+-- INSERT for all four, SELECT for the panel. The row-level policy in
+-- internal/panel/schema.sql is what keeps a service to its own rows;
+-- this grant is deliberately broader than the actual permission, exactly
+-- as service_heartbeat's is.
+GRANT INSERT ON panel_logs TO collector, beacon_writer, analytics_reader, panel_user;
+GRANT SELECT ON panel_logs TO panel_user;
+GRANT USAGE, SELECT ON SEQUENCE panel_logs_id_seq
+  TO collector, beacon_writer, analytics_reader, panel_user;
+
+-- DELETE for the panel alone, and it needs its own policy.
+--
+-- The write policy is FOR ALL keyed on current_user, so without this the
+-- panel could delete only rows it wrote itself - and the retention sweep
+-- exists precisely to remove the other three services' rows. Postgres
+-- ORs permissive policies, so this widens DELETE for panel_user without
+-- touching what a service may do.
+--
+-- Deleting log rows is allowed where deleting audit rows is not, and the
+-- difference is the point of having two tables: a log line is
+-- diagnostic and expires by design; an audit entry is the record, and
+-- nothing in this schema may remove one.
+GRANT DELETE ON panel_logs TO panel_user;
+
+-- The operation log, which only the panel writes and reads. The services
+-- do not know operations exist; they emit log lines carrying an id the
+-- panel minted.
+GRANT SELECT, INSERT, UPDATE, DELETE ON panel_operations TO panel_user;
+
 -- Live settings. Optional, and strongly recommended: without it the
 -- collector and the beacon read only their own files, and nothing changed
 -- in the panel ever reaches them.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
@@ -202,15 +203,33 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 		}
 	}
 
+	// The operation record opens before the work, because its id has to
+	// exist in time to be attached to the log lines the work produces.
+	// See internal/panel/operations.go and internal/logsink.
+	//
+	// A failure to open one does not stop the change. The operation log
+	// is diagnostic; refusing a customer's legitimate setting change
+	// because the diagnostics are unavailable would be the tail wagging
+	// the dog.
+	op, opErr := s.Store.BeginOperation(ctx, access, panel.ActionSettingChanged, string(key), site)
+	if opErr != nil {
+		s.logger().Warn("panel: could not open an operation record", "err", opErr, "key", key)
+	}
+	log := s.logger().With(logsink.OperationKey, op.ID(), logsink.SiteKey, site)
+
+	before, _ := s.Store.GetSetting(ctx, key, site)
+
 	var err error
 	var msg string
+	var value any
 	switch r.PostFormValue("islem") {
 	case "sifirla":
+		op.Step("varsayilana dondur", true, "")
 		err = s.Store.ClearSetting(ctx, access, key, site, auth)
 		msg = lang.T("ayarlar.sifirlandi")
 	case "kaydet":
-		var value any
 		value, err = parseSettingValue(def, r)
+		op.Step("degeri ayristir", err == nil, "")
 		if err == nil {
 			err = s.Store.ApplySetting(ctx, access, key, site, value, auth)
 			msg = lang.T("ayarlar.kaydedildi")
@@ -220,12 +239,49 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	}
 
 	if err != nil {
-		s.logger().Warn("panel: settings change refused", "err", err, "key", key, "site", site)
+		op.Step("uygula", false, "")
+		log.Warn("panel: settings change refused", "err", err, "key", key, "site", site)
+		// rolled_back is false rather than nil: ApplySetting writes and
+		// audits in one path and refuses before either, so a failure
+		// here left nothing behind - but "nothing was applied" and
+		// "nothing needed undoing" are the same fact only because that
+		// ordering holds, and saying false records the fact rather than
+		// the assumption.
+		notRolledBack := false
+		_ = op.Finish(ctx, outcomeFor(err), err, &notRolledBack)
+
 		s.renderSettings(w, r, lang, access, settingsPage{
 			Message: settingErrorText(lang, def, err), Failed: true})
 		return
 	}
+
+	op.Step("uygula", true, "")
+	after, _ := s.Store.GetSetting(ctx, key, site)
+	op.Values(ctx, before, after)
+	log.Info("panel: setting changed", "key", key, "site", site)
+	_ = op.Finish(ctx, panel.OutcomeSucceeded, nil, nil)
+
 	s.renderSettings(w, r, lang, access, settingsPage{Message: msg})
+}
+
+// outcomeFor tells a refusal from a fault.
+//
+// Both end the operation without the change being made, and they need
+// different reactions: a refusal is the system working as designed - a
+// missing capability, a wrong password, a value out of bounds - and
+// burying those among genuine faults is how a real one gets missed in a
+// list of them.
+func outcomeFor(err error) panel.Outcome {
+	switch {
+	case errors.Is(err, panel.ErrSettingNotWritable),
+		errors.Is(err, panel.ErrDeveloperPasswordRequired),
+		errors.Is(err, panel.ErrUnknownSetting),
+		errors.Is(err, panel.ErrPreconditionUnmet),
+		errors.Is(err, panel.ErrInvalidSetting):
+		return panel.OutcomeRefused
+	default:
+		return panel.OutcomeFailed
+	}
 }
 
 // authorizeSetting verifies the developer password for one setting.

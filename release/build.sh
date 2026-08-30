@@ -86,10 +86,14 @@ cp internal/heartbeat/schema.sql  "${STAGE}/schema/05-heartbeat.sql"
 # Last, and it has to be: its functions read the two hypertables and its
 # grants name the two service roles, so both must already exist.
 cp internal/retention/schema.sql  "${STAGE}/schema/06-retention.sql"
+# The log table. No dependencies of its own - it references nothing -
+# so its place in the order is arbitrary; here, so the version record
+# stays last.
+cp internal/logsink/schema.sql    "${STAGE}/schema/07-logsink.sql"
 # The version record, last of all, because what it records is "every
 # schema above was applied". A row written before the schemas it
 # describes would be a claim about work that had not happened yet.
-cp internal/schemaver/schema.sql  "${STAGE}/schema/07-schemaver.sql"
+cp internal/schemaver/schema.sql  "${STAGE}/schema/08-schemaver.sql"
 
 echo "== example configuration"
 for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml; do

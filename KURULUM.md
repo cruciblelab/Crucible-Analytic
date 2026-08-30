@@ -324,7 +324,8 @@ FROM (VALUES ('collector'),('beacon_writer'),
              ('analytics_reader'),('panel_user')) r(rolname)
 CROSS JOIN (VALUES ('traffic_snapshots'),('beacon_events'),
                    ('panel_users'),('panel_audit_log'),
-                   ('panel_settings'),('panel_smtp')) t(tbl)
+                   ('panel_settings'),('panel_smtp'),
+                   ('panel_logs'),('panel_operations')) t(tbl)
 ORDER BY 1, 2;
 ```
 
