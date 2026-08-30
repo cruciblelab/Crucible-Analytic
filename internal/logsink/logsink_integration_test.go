@@ -6,51 +6,69 @@
 // dize (NUL, geçersiz UTF-8, 1 MB tek satır) yazıcıyı bozmuyor.* Every
 // case below is something a visitor can put in a URL, a header or a user
 // agent, which is how it reaches a log line in the first place.
+//
+// # Why every pool here comes from testdb
+//
+// The first version of this file opened one pool from CA_SUPERUSER_DSN
+// and wrote every row as `postgres`. All four tests passed and none of
+// them tested anything: PostgreSQL exempts superusers from row-level
+// security outright, and the write policy compares `service` against
+// current_user - so writing as postgres under the name postgres
+// satisfies it by accident. The policies had been measured by hand at a
+// psql prompt and the suite was guarding none of them.
+//
+// That is the failure internal/testdb was written to end, and its
+// package comment lists three real bugs it hid the first time. So: the
+// sink writes as a service role, the panel reads as the panel, and
+// Admin appears only where a test has to remove what it made.
 package logsink
 
 import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
-func sinkPool(t *testing.T, role string) *pgxpool.Pool {
+// newTestSink returns a sink writing as one service role, and the pool
+// the panel reads it back through.
+//
+// Two pools rather than one because that is the shape in production: the
+// collector holds INSERT and nothing else, so a sink that could read its
+// own rows back would be running with authority no deployment gives it.
+func newTestSink(t *testing.T, role string) (*Sink, *pgxpool.Pool) {
 	t.Helper()
-	dsn := os.Getenv("CA_LOGSINK_DSN_" + strings.ToUpper(role))
-	if dsn == "" {
-		dsn = os.Getenv("CA_SUPERUSER_DSN")
-	}
-	if dsn == "" {
-		t.Skip("set CA_SUPERUSER_DSN")
-	}
-	p, err := pgxpool.New(context.Background(), dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.Close)
-	return p
-}
-
-// newTestSink returns a sink writing as `service`, and cleans up after.
-func newTestSink(t *testing.T, service string) (*Sink, *pgxpool.Pool) {
-	t.Helper()
-	pool := sinkPool(t, service)
+	write := testdb.Pool(t, role)
+	read := testdb.Pool(t, testdb.Panel)
 
 	level := &slog.LevelVar{}
 	level.Set(slog.LevelDebug) // so the tests choose what is filtered, not the default
-	s := New(pool, Config{Service: service, Level: level, Buffer: 64})
+	s := New(write, Config{Service: role, Level: level, Buffer: 64})
 	t.Cleanup(func() {
 		s.Close()
-		_, _ = pool.Exec(context.Background(),
-			`DELETE FROM panel_logs WHERE service = $1`, service)
+		clearLines(t, role)
 	})
-	return s, pool
+	return s, read
+}
+
+// clearLines removes one service's rows through the schema's owner.
+//
+// Admin rather than the panel, though the panel holds DELETE: the sweep
+// is itself under test below, and a cleanup that used it would turn a
+// broken policy into rows leaking between tests instead of one red test.
+func clearLines(t *testing.T, service string) {
+	t.Helper()
+	admin := testdb.Admin(t)
+	if _, err := admin.Exec(context.Background(),
+		`DELETE FROM panel_logs WHERE service = $1`, service); err != nil {
+		t.Logf("clearing %s's log lines: %v", service, err)
+	}
 }
 
 // waitForRows blocks until the sink has written n rows or gives up.
@@ -81,7 +99,7 @@ func waitForRows(t *testing.T, s *Sink, n uint64) {
 // forges entries in the record an operator reads to find out what an
 // attacker did.
 func TestAHostileLineIsWrittenAndDoesNotBreakTheWriter(t *testing.T) {
-	s, pool := newTestSink(t, "postgres")
+	s, read := newTestSink(t, testdb.Collector)
 	logger := slog.New(s.Handler())
 
 	cases := map[string]string{
@@ -100,8 +118,8 @@ func TestAHostileLineIsWrittenAndDoesNotBreakTheWriter(t *testing.T) {
 	waitForRows(t, s, uint64(len(cases)))
 
 	// Every row landed, and none of them carries what was sent.
-	rows, err := pool.Query(context.Background(),
-		`SELECT message, attrs::text FROM panel_logs WHERE service = 'postgres'`)
+	rows, err := read.Query(context.Background(),
+		`SELECT message, attrs::text FROM panel_logs WHERE service = $1`, testdb.Collector)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,15 +166,15 @@ func TestAHostileLineIsWrittenAndDoesNotBreakTheWriter(t *testing.T) {
 // producing more log lines than usual, is the service you least want to
 // block. What must not happen is dropping in silence.
 func TestTheSinkDropsRatherThanBlocks(t *testing.T) {
-	pool := sinkPool(t, "postgres")
+	write := testdb.Pool(t, testdb.Collector)
 	level := &slog.LevelVar{}
 	level.Set(slog.LevelDebug)
 
 	// A buffer of one, and nothing draining it fast enough.
-	s := New(pool, Config{Service: "postgres", Level: level, Buffer: 1})
+	s := New(write, Config{Service: testdb.Collector, Level: level, Buffer: 1})
 	t.Cleanup(func() {
 		s.Close()
-		_, _ = pool.Exec(context.Background(), `DELETE FROM panel_logs WHERE service = 'postgres'`)
+		clearLines(t, testdb.Collector)
 	})
 	logger := slog.New(s.Handler())
 
@@ -184,14 +202,15 @@ func TestTheSinkDropsRatherThanBlocks(t *testing.T) {
 // The first of the three things that keep this table small, and the one
 // a caller can undo by accident.
 func TestLinesBelowTheLevelNeverReachTheDatabase(t *testing.T) {
-	pool := sinkPool(t, "postgres")
+	write := testdb.Pool(t, testdb.Collector)
+	read := testdb.Pool(t, testdb.Panel)
 	level := &slog.LevelVar{}
 	level.Set(slog.LevelWarn) // the default this deployment ships with
 
-	s := New(pool, Config{Service: "postgres", Level: level, Buffer: 64})
+	s := New(write, Config{Service: testdb.Collector, Level: level, Buffer: 64})
 	t.Cleanup(func() {
 		s.Close()
-		_, _ = pool.Exec(context.Background(), `DELETE FROM panel_logs WHERE service = 'postgres'`)
+		clearLines(t, testdb.Collector)
 	})
 	logger := slog.New(s.Handler())
 
@@ -201,8 +220,8 @@ func TestLinesBelowTheLevelNeverReachTheDatabase(t *testing.T) {
 	waitForRows(t, s, 1)
 
 	var count int
-	if err := pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM panel_logs WHERE service = 'postgres'`).Scan(&count); err != nil {
+	if err := read.QueryRow(context.Background(),
+		`SELECT count(*) FROM panel_logs WHERE service = $1`, testdb.Collector).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -222,7 +241,7 @@ func TestLinesBelowTheLevelNeverReachTheDatabase(t *testing.T) {
 // attribute blob, the panel's streaming window would have to filter in
 // Go over every line the system produced.
 func TestTheOperationIdAndSiteBecomeColumns(t *testing.T) {
-	s, pool := newTestSink(t, "postgres")
+	s, read := newTestSink(t, testdb.Collector)
 	logger := slog.New(s.Handler())
 
 	logger.Warn("bir operasyonun satırı",
@@ -232,8 +251,8 @@ func TestTheOperationIdAndSiteBecomeColumns(t *testing.T) {
 	waitForRows(t, s, 1)
 
 	var op, site, attrs string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT operation_id, site_id, attrs::text FROM panel_logs WHERE service = 'postgres'`).
+	if err := read.QueryRow(context.Background(),
+		`SELECT operation_id, site_id, attrs::text FROM panel_logs WHERE service = $1`, testdb.Collector).
 		Scan(&op, &site, &attrs); err != nil {
 		t.Fatal(err)
 	}
@@ -250,5 +269,104 @@ func TestTheOperationIdAndSiteBecomeColumns(t *testing.T) {
 	}
 	if !strings.Contains(attrs, "baska") {
 		t.Errorf("an ordinary attribute did not reach attrs: %s", attrs)
+	}
+}
+
+// TestOneServiceCannotWriteALineUnderAnothersName.
+//
+// The one place a forgery pays. An operator reading this table to find
+// out what a compromised beacon did is reading rows the beacon could
+// have written - so the beacon must not be able to sign them
+// `collector`.
+//
+// Written as raw SQL rather than through the sink, deliberately: the
+// sink always stamps its own configured service, so putting it in the
+// way would test the Go struct and not the policy. The threat is a
+// process an attacker already controls, and such a process issues
+// whatever SQL it likes on the connection it holds.
+func TestOneServiceCannotWriteALineUnderAnothersName(t *testing.T) {
+	beacon := testdb.Pool(t, testdb.Beacon)
+	t.Cleanup(func() { clearLines(t, testdb.Collector) })
+
+	_, err := beacon.Exec(context.Background(), `
+		INSERT INTO panel_logs (service, level, message)
+		VALUES ($1, 'WARN', 'toplayıcı adına sahte satır')`, testdb.Collector)
+	if err == nil {
+		t.Fatal("the beacon wrote a line signed `collector`; the record an operator reads to find out what happened can be forged by the thing they are investigating")
+	}
+	if !strings.Contains(err.Error(), "row-level security") {
+		t.Errorf("the write was refused, but not by the policy: %v", err)
+	}
+
+	// And its own name still works - a policy that refused everything
+	// would pass the assertion above while breaking logging outright.
+	if _, err := beacon.Exec(context.Background(), `
+		INSERT INTO panel_logs (service, level, message)
+		VALUES ($1, 'WARN', 'kendi adına gerçek satır')`, testdb.Beacon); err != nil {
+		t.Fatalf("the beacon cannot write its own log line either: %v", err)
+	}
+	clearLines(t, testdb.Beacon)
+}
+
+// TestTheSweepRemovesEveryServicesLinesAndNotOnlyItsOwn.
+//
+// panel_logs_sweep is a second policy on a table that already had a
+// permissive one, which reads like belt and braces until it is measured:
+// with only the write policy in place, a sweep run as panel_user removes
+// its own rows and silently leaves the collector's. That is the shape of
+// a retention job that looks like it works and does not - and the table
+// it fails to trim is the one whose growth is the disk-full failure this
+// package's schema is written around.
+func TestTheSweepRemovesEveryServicesLinesAndNotOnlyItsOwn(t *testing.T) {
+	admin := testdb.Admin(t)
+	panelPool := testdb.Pool(t, testdb.Panel)
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		clearLines(t, testdb.Collector)
+		clearLines(t, testdb.Panel)
+	})
+
+	// One row from a service that cannot delete, one from the sweeper
+	// itself. The sweeper's own row is the control: if it vanishes and
+	// the collector's does not, the delete ran and the policy is what
+	// stopped it.
+	for _, role := range []string{testdb.Collector, testdb.Panel} {
+		if _, err := admin.Exec(ctx, `
+			INSERT INTO panel_logs (service, level, message)
+			VALUES ($1, 'WARN', 'süpürülecek satır')`, role); err != nil {
+			t.Fatalf("seeding a row for %s: %v", role, err)
+		}
+	}
+
+	// Scoped by time rather than by service, which is what the retention
+	// sweep itself does, and which leaves anything written later alone.
+	cutoff := time.Now()
+	tag, err := panelPool.Exec(ctx, `DELETE FROM panel_logs WHERE at <= $1`, cutoff)
+	if err != nil {
+		t.Fatalf("the sweep failed outright: %v", err)
+	}
+
+	var left []string
+	rows, err := panelPool.Query(ctx,
+		`SELECT service FROM panel_logs WHERE at <= $1 ORDER BY service`, cutoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var service string
+		if err := rows.Scan(&service); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, service)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(left) != 0 {
+		t.Errorf("the sweep deleted %d rows and left %v behind; a retention job that trims only its own writer's lines does not bound this table",
+			tag.RowsAffected(), left)
 	}
 }
