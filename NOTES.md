@@ -5929,3 +5929,89 @@ uygulayıcısı olacak, ve `GRANT UPDATE` o zaman **bu satırın yanına
 eklenecek**, onu değiştirerek değil. Sahiplik kararı tablo yaratılırken
 verildi; sonradan verilseydi `grants.sql`, `verify.sql` ve `install.sh`
 ikinci kez elden geçerdi.
+
+---
+
+## CI her push'ta kırmızıydı — ve sebebi üç kez aynı şekildi
+
+*(2026-08-30)*
+
+Kullanıcı bildirdi: *"github habire run failed veriyor her güncellemede."*
+Sebep tek satırdı ve betiğin en sonundaydı:
+
+```
+== systemd units
+install: cannot create regular file
+  '/etc/systemd/system/crucible-analytics-api.service': Permission denied
+```
+
+Üç kusur çıktı, üçü de **kodun sahip olmadığı bir özelliği iddia eden
+bir kontrol ya da yorum**.
+
+### 1. Muhafız yanlış soruyu soruyordu
+
+```sh
+if [ -d /etc/systemd/system ]; then     # "dizin var mı"
+```
+
+Sorulması gereken *"yazabiliyor muyum"*. Dizin her Ubuntu makinesinde
+var — CI runner'ında da. Orada olmayan şey root.
+
+### 2. Betik işin %90'ını yapıp sonra ölüyordu
+
+Dört rol, yedi şema, dört yapılandırma dosyası, üç sır — hepsi
+üretildikten *sonra*. Root olmadan çalıştıran müşteri **yarım kurulmuş
+bir makineyle** ve ne yapacağını söylemeyen bir izin hatasıyla kalıyordu.
+
+Karar artık preflight'ta, hiçbir şey yaratılmadan önce. Aynı gerekçeyle
+şema sürümünü okuyacak binary/Go kontrolü de oraya taşındı — o da kendi
+aşamasında bulunsaydı şemalar çoktan uygulanmış olurdu.
+
+### 3. Test takımının yorumu doğru değildi
+
+`runInstall`'ın yorumu *"buradaki hiçbir şey makinenin systemd'sine ya da
+kullanıcılarına dokunmaz"* diyordu. `LOG_DIR` ile `STATE_DIR`'i
+yönlendirmek iki dizin taşır, başka bir şey yapmaz.
+
+Ölçüldü — bu makinede tam olarak şunlar duruyordu:
+
+```
+/etc/systemd/system/crucible-analytics-api.service
+/etc/systemd/system/crucible-beacon.service
+/etc/systemd/system/crucible-collector.service
+/etc/systemd/system/crucible-panel.service
+uid=996(crucible) gid=995(crucible)
+```
+
+Her koşuda, o yorumun yazmadığını söylediği şeyi yazan bir takım
+tarafından. Geliştirici makinesinde sessizce başarılı oluyor; CI'da
+başarısız oluyor — **fark edilme sebebi buydu.**
+
+İddia artık yorumda değil testte: `TestNoSystemdWritesNoUnitFiles` hem
+birim dosyası sayısının değişmediğini hem de betiğin *atladığını
+söylediğini* kontrol ediyor. Sessizce atlanan adım, koşan adımdan ayırt
+edilemez.
+
+### Bir de israf: her push iki tam koşu
+
+Eşzamanlılık anahtarı `github.ref`'ti, ve o iki olay için iki farklı
+dize: push `refs/heads/x`, pull request `refs/pull/N/merge`. PR açıkken
+her push **iki tam koşu** başlatıyordu, her biri kendi TimescaleDB'sini
+ayağa kaldırarak. `head_ref || ref_name` ikisi için de aynı dize.
+
+### Mutasyon: kusuru talep üzerine geri getirmek
+
+Root kontrolü kaldırıldığında **orijinal CI hatası birebir geri geldi**,
+ve `ca_m3` veritabanı ortada kaldı — tarif edilen yarım kurulmuş
+makinenin kendisi. Bir düzeltmenin gerçekten düzelttiğinin kanıtı, onu
+kaldırdığında arızanın aynı cümleyle dönmesi.
+
+### Kendi hatam, iki kez
+
+Mutasyon harness'ım `git checkout -- <dosya>` ile geri alıyordu. İzlenen
+ama **commit'lenmemiş** bir dosyada bu, mutasyonu değil *düzeltmeyi*
+siliyor. Bir kez `tr.toml`'da oldu, sonra `install.sh`'ta tekrar — ikinci
+seferinde M2 ve M3 sonuçları geçersizdi ve fark etmem birkaç tur sürdü.
+
+Kural: **önce commit, sonra mutasyon.** Temiz bir taban olmadan geri alma
+güvenilir değil.
