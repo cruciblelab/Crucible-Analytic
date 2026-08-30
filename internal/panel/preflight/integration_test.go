@@ -16,6 +16,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"strings"
 	"testing"
@@ -468,20 +469,82 @@ func dropTestJobs(t *testing.T, c *Checker) {
 		WHERE owner::text IN ('collector','beacon_writer','analytics_reader','panel_user')`)
 }
 
-// The connection this suite uses is to localhost, so the encryption
-// check must pass by the local route rather than by finding TLS.
+// The encryption check has three answers and this asserts whichever one
+// the database it is actually pointed at deserves.
 //
-// Worth asserting because the two pass for different reasons and only
-// one of them is about encryption. A version of this check that reported
-// "encrypted" for a loopback connection would be telling every
-// single-machine deployment something untrue.
-func TestConnectionEncryptionPassesLocally(t *testing.T) {
+// The previous version of this test asserted the local one, on the
+// strength of a comment that said "the connection this suite uses is to
+// localhost". That was an assumption, written down and never checked,
+// and it was false in the one place it mattered: on CI the database is a
+// service container on a bridge network, so the check correctly warned
+// and the test correctly failed - for two months, one of two independent
+// reasons the merge gate was red.
+//
+// The lesson is the one this project keeps relearning from the other
+// direction: a test that assumes its environment tests the environment
+// it assumed. So the environment is read, not assumed, and all three
+// routes are covered rather than the one that happened to be true on a
+// laptop.
+//
+// The two passing routes matter separately, because only one of them is
+// about encryption. A check that reported "encrypted" for a loopback
+// connection would be telling every single-machine deployment something
+// untrue.
+func TestConnectionEncryptionMatchesWhereTheDatabaseIs(t *testing.T) {
 	checker := newTestChecker(t)
-	got := find(t, checker.Run(context.Background(), Config{}), "db.connection_encrypted")
-	if got.Status != CheckPass {
-		t.Fatalf("a loopback connection gave %s: %s", got.Status, got.Detail)
+	ctx := context.Background()
+
+	// The same two facts the check reads, read here independently so
+	// this asserts the mapping from facts to verdict rather than
+	// re-deriving the verdict.
+	var encrypted bool
+	var serverAddr *string
+	if err := checker.pool.QueryRow(ctx, `
+		SELECT coalesce((SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()), false),
+		       host(inet_server_addr())`).Scan(&encrypted, &serverAddr); err != nil {
+		t.Fatalf("reading the connection's own state: %v", err)
 	}
-	if !strings.Contains(got.Detail, "bu makinede") && !strings.Contains(got.Detail, "TLS") {
-		t.Errorf("the detail explains neither reason: %s", got.Detail)
+
+	loopback := serverAddr == nil
+	if !loopback {
+		addr, err := netip.ParseAddr(*serverAddr)
+		loopback = err == nil && (addr.IsLoopback() || addr.IsUnspecified())
+	}
+
+	got := find(t, checker.Run(ctx, Config{}), "db.connection_encrypted")
+
+	switch {
+	case encrypted:
+		if got.Status != CheckPass {
+			t.Errorf("a TLS connection gave %s: %s", got.Status, got.Detail)
+		}
+		if !strings.Contains(got.Detail, "TLS") {
+			t.Errorf("the detail does not say the connection is encrypted: %s", got.Detail)
+		}
+
+	case loopback:
+		if got.Status != CheckPass {
+			t.Errorf("a loopback connection gave %s: %s", got.Status, got.Detail)
+		}
+		if !strings.Contains(got.Detail, "bu makinede") {
+			t.Errorf("the detail does not give the local reason: %s", got.Detail)
+		}
+		// And it must not claim encryption, which is the whole point of
+		// keeping the two passes apart.
+		if strings.Contains(got.Detail, "TLS ile şifreli") {
+			t.Errorf("a loopback connection was reported as encrypted: %s", got.Detail)
+		}
+
+	default:
+		// Remote and in the clear. A warning, and it has to name the
+		// address, because "somewhere remote" is not something an
+		// operator can act on.
+		if got.Status != CheckWarn {
+			t.Errorf("an unencrypted remote connection to %s gave %s: %s",
+				*serverAddr, got.Status, got.Detail)
+		}
+		if !strings.Contains(got.Detail, *serverAddr) {
+			t.Errorf("the warning does not name the server address %s: %s", *serverAddr, got.Detail)
+		}
 	}
 }

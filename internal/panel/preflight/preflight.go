@@ -510,6 +510,23 @@ func (c *Checker) checkConnectionEncryption(ctx context.Context) CheckResult {
 		return result
 	}
 
+	result.Status, result.Detail, result.Fix = encryptionVerdict(encrypted, serverAddr)
+	return result
+}
+
+// encryptionVerdict maps the two facts to the three answers.
+//
+// Pulled out of the check because one of its three branches was
+// unreachable on any developer machine: reaching it needs a database on
+// another host, which a laptop with a local PostgreSQL does not have.
+// The branch was therefore only ever exercised on CI - where it was
+// correct, and where the *test* asserting the local branch had been
+// failing for it, unnoticed, as one of two reasons the merge gate was
+// red.
+//
+// A pure function needs neither a remote database nor a laptop's luck,
+// so all three answers are covered on every run.
+func encryptionVerdict(encrypted bool, serverAddr *string) (CheckStatus, string, string) {
 	local := serverAddr == nil
 	if !local {
 		addr, parseErr := netip.ParseAddr(*serverAddr)
@@ -518,20 +535,19 @@ func (c *Checker) checkConnectionEncryption(ctx context.Context) CheckResult {
 
 	switch {
 	case encrypted:
-		result.Status, result.Detail = CheckPass, "Bağlantı TLS ile şifreli."
+		return CheckPass, "Bağlantı TLS ile şifreli.", ""
 	case local:
-		result.Status = CheckPass
-		result.Detail = "Veritabanı bu makinede; bağlantı ağ arayüzüne hiç çıkmıyor, şifreleme gerekmiyor."
+		return CheckPass,
+			"Veritabanı bu makinede; bağlantı ağ arayüzüne hiç çıkmıyor, şifreleme gerekmiyor.", ""
 	default:
-		result.Status = CheckWarn
-		result.Detail = "Veritabanı uzak bir sunucuda (" + *serverAddr + ") ve bağlantı şifresiz. " +
-			"libpq'nun varsayılanı sslmode=prefer'dir: TLS'i dener, sunucu sunmuyorsa " +
-			"sessizce şifresiz devam eder — yani yapılandırmada bunu gösteren hiçbir şey olmaz. " +
-			"Veritabanı parolası ve her analitik satır ağdan açık geçiyor."
-		result.Fix = "DSN'lere sslmode=require ekleyin (sertifikayı da doğrulamak için verify-full), " +
-			"ve sunucuda ssl = on olduğundan emin olun."
+		return CheckWarn,
+			"Veritabanı uzak bir sunucuda (" + *serverAddr + ") ve bağlantı şifresiz. " +
+				"libpq'nun varsayılanı sslmode=prefer'dir: TLS'i dener, sunucu sunmuyorsa " +
+				"sessizce şifresiz devam eder — yani yapılandırmada bunu gösteren hiçbir şey olmaz. " +
+				"Veritabanı parolası ve her analitik satır ağdan açık geçiyor.",
+			"DSN'lere sslmode=require ekleyin (sertifikayı da doğrulamak için verify-full), " +
+				"ve sunucuda ssl = on olduğundan emin olun."
 	}
-	return result
 }
 
 // checkNoBackgroundJobs is the audit finding that surprised this project

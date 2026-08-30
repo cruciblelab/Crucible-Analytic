@@ -16,14 +16,27 @@ on:
 # A second push to the same branch cancels the first: the older run is
 # reporting on code nobody will merge.
 #
-# Keyed on the branch name rather than on github.ref, because those are
-# different strings for the two events that both fire here - a push to
-# `x` is refs/heads/x and a pull request from `x` is refs/pull/N/merge -
-# so with a PR open every push started two full runs, each spinning up
-# its own TimescaleDB. head_ref is set for pull_request and empty for
-# push, which makes this one key for both.
+# Keyed per event, not per branch, and that is a correction of a fix that
+# made things worse.
+#
+# The problem was real: with a PR open, both `push` and `pull_request`
+# fire for the same commit and each started a full run with its own
+# TimescaleDB. The first attempt keyed the group on the branch name so
+# the two would collapse into one - but `cancel-in-progress` does not
+# deduplicate, it *cancels*, so the pull_request run (which starts about
+# two seconds later) killed the push run every time. Measured: three
+# commits in a row whose push run ended `cancelled`.
+#
+# A cancelled run is worse than a duplicate one. It reports nothing, and
+# on the branch it reads as a failure to anybody glancing at it.
+#
+# So the two events get their own groups. Within an event a newer push
+# still cancels an older one, which is what this was for. The duplicate
+# run stays, and it is not waste: `pull_request` builds the merge commit
+# and `push` builds the branch tip, and those differ the moment the base
+# moves.
 concurrency:
-  group: ci-${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

@@ -6094,3 +6094,65 @@ olur — var olan bir tablo hakkında, ve okuyanı zaten uygulanmış bir
 Test o rolü `testdb`'den türetiyor, kendi ortam değişkeninden değil:
 kimse bir değişkeni kurmadığında atlanan test, yanlış sebeple yeşildir.
 Mutasyon artık ölüyor.
+
+---
+
+## CI'ın ikinci kırmızı sebebi, ve benim yaptığım kötüleştirme
+
+*(2026-08-30, aynı gün, birincisinden sonra)*
+
+`install.sh`'ın root varsayımını düzelttikten sonra CI **hâlâ**
+kırmızıydı. Sebep bağımsız bir ikincisiydi ve daha eskiydi:
+
+```
+--- FAIL: TestConnectionEncryptionPassesLocally
+    a loopback connection gave warn: Veritabanı uzak bir sunucuda
+    (172.18.0.2) ve bağlantı şifresiz...
+```
+
+**Kontrol doğruydu, test yanlış varsayıyordu.** Testin yorumu *"bu
+takımın bağlantısı localhost'a"* diyordu — belirtilmiş, hiç kontrol
+edilmemiş bir varsayım. CI'da veritabanı bir Docker servis konteyneri,
+yani `172.18.0.2`. Kontrol doğru uyarıyor, test doğru düşüyordu.
+
+Bu, bugün tekrar tekrar çıkan şeklin ters yönü: **düzeneğin varsaydığı
+ortam, koştuğu ortam değil.**
+
+### Neden fark edilmedi
+
+Üç cevaplı bir kontrolün bir dalı **geliştirici makinesinde
+ulaşılamaz**: başka bir makinedeki veritabanı gerekiyor, ve yerel
+PostgreSQL çalıştıran bir dizüstünde öyle bir şey yok. Yani o dal yalnız
+CI'da koşuyordu — doğru davranıyordu, ve *onu test eden şey* yanlış
+davranıyordu.
+
+Karar saf bir fonksiyona (`encryptionVerdict`) çıkarıldı. Artık yedi
+durum da her makinede test ediliyor: TLS'li uzak, TLS'li yerel, unix
+soketi, loopback, IPv6 loopback, **şifresiz uzak (CI'ın durumu)**, ve
+ayrıştırılamayan adres.
+
+Sonuncusu bilerek: `host()` böyle bir şey vermemeli, ama okunamayan bir
+adres *sessizce yerel* sayılmamalı — açık tarafa düşen yön odur.
+
+### Düzeltmeyi düzeltmek
+
+İlk turda eşzamanlılık anahtarını dal adına çevirmiştim, ki push ve
+pull_request koşuları tek koşuya insin. **Daha kötü oldu.**
+`cancel-in-progress` tekilleştirmez, *iptal eder* — ve pull_request
+koşusu yaklaşık iki saniye sonra başladığı için her seferinde push
+koşusunu öldürdü. Ölçüldü: arka arkaya üç commit'in push koşusu
+`cancelled`.
+
+**İptal edilmiş koşu, mükerrer koşudan kötüdür.** Hiçbir şey raporlamaz,
+ve dala şöyle bir bakan biri için başarısızlık gibi görünür.
+
+İkisi artık kendi gruplarında. Aynı olay içinde yeni push eskisini yine
+iptal ediyor — istenen buydu. Mükerrer koşu kalıyor, ve israf değil:
+`pull_request` birleşme commit'ini, `push` dalın ucunu derliyor, ve taban
+kımıldadığı anda ikisi ayrışıyor.
+
+### Bu turun dersi
+
+Bir kırmızıyı düzeltip yeşili doğrulamamak, düzeltmemekle aynı şey.
+Birinci sebebi kapattım ve "CI düzeldi" demeye hazırdım; ikinci sebep
+oradaydı, ve benim düzeltmem üçüncü bir belirti üretmişti.
