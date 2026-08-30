@@ -35,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
@@ -134,6 +135,14 @@ func main() {
 	// that it is answering, which is what "the panel could not reach the
 
 	// read API" needs a second opinion about.
+
+	// The panel's copy of this service's log lines. The tree on disk stays
+	// the operator's record; this is the subset a customer with no shell
+	// can read, and it writes WARN and above unless the verbose switch is
+	// on.
+	logger, panelLog := logsink.Attach(logger, store.Pool(), logControls)
+	defer panelLog.Close()
+	slog.SetDefault(logger)
 
 	beat := heartbeat.New(heartbeat.Options{
 

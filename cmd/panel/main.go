@@ -26,10 +26,12 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
@@ -105,7 +107,7 @@ func main() {
 		fatal(nil, "config error", err)
 	}
 
-	treeLogger, _, closeLogs, err := logging.Setup("panel", cfg.Logging)
+	treeLogger, logControls, closeLogs, err := logging.Setup("panel", cfg.Logging)
 	if err != nil {
 		fatal(nil, "logging setup failed", err)
 	}
@@ -201,6 +203,25 @@ func main() {
 		}
 		return
 	}
+
+	// The panel's own log lines land in the table the panel can show, so
+	// a customer sees what happened without a shell. Attached after the
+	// one-shot commands above, which exit before reaching here: minting
+	// a link is somebody at a terminal, not a running service, and it
+	// has no use for an asynchronous writer it would immediately close.
+	logger, panelLog := logsink.Attach(logger, store.Pool(), logControls)
+	defer panelLog.Close()
+	slog.SetDefault(logger)
+
+	// Housekeeping. Until this existed the panel had no periodic work at
+	// all, which is why two purge functions written long before it had
+	// never been called from anywhere - see internal/panel/housekeeping.go.
+	//
+	// Hourly, and once at startup so a panel that is restarted often
+	// still sweeps. Nothing waits on it and a failure is logged rather
+	// than fatal: a deployment whose tables cannot be trimmed should
+	// keep serving pages and say so, not refuse to start.
+	go runHousekeeping(ctx, store, logger)
 
 	// The read-only API this panel draws its numbers from. An unset
 	// address yields a nil client, which every page renders as "the
@@ -446,4 +467,52 @@ func migrateSettings(ctx context.Context, store *panel.Store, service, path stri
 	fmt.Println("değer odur. Değişiklikler artık panelden yapılır — dosyayı düzenlemek,")
 	fmt.Println("veritabanında bir satır varken hiçbir şeyi değiştirmez.")
 	return nil
+}
+
+// runHousekeeping sweeps the panel's own tables until the context ends.
+//
+// Hourly rather than daily: the pass is four bounded DELETEs against
+// indexed columns, and an hourly cadence means a long-running panel
+// never accumulates more than an hour of slack, while one restarted
+// nightly behaves identically.
+//
+// A quiet pass says nothing. A log line every hour reporting that
+// nothing was deleted is how a log stops being read, and this table is
+// one a customer now sees.
+func runHousekeeping(ctx context.Context, store *panel.Store, logger *slog.Logger) {
+	const every = time.Hour
+
+	sweep := func() {
+		// Its own timeout. The pass is bounded work, and one that hung
+		// would otherwise hold a connection until the process stopped.
+		passCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+
+		report, err := store.Housekeeping(passCtx)
+		if err != nil {
+			logger.Warn("panel: housekeeping did not finish",
+				"err", err, logging.In(logging.CategoryError))
+			return
+		}
+		if report.Total() > 0 {
+			logger.Info("panel: housekeeping",
+				"login_attempts", report.LoginAttempts,
+				"dev_access", report.DevAccess,
+				"logs", report.Logs,
+				"operations", report.Operations)
+		}
+	}
+
+	sweep()
+
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweep()
+		}
+	}
 }

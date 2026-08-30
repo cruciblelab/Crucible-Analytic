@@ -76,26 +76,78 @@ const maxAttrs = 32
 
 // Config is what a service supplies.
 type Config struct {
-	// Service must be the database role this pool connects as.
+	// Service is the database role this pool connects as. Leave it empty
+	// and the sink asks the database.
 	//
-	// The row-level policy compares it against current_user, so a
-	// mismatch is refused by PostgreSQL rather than written under the
-	// wrong name. Passed explicitly rather than read from the connection
-	// so the value that is written and the value that is checked come
-	// from the same place in the code.
+	// Asking is the better default and it is what the services do. The
+	// row-level policy compares this against current_user, so that is
+	// the value the write is judged by and there is nowhere else for it
+	// to come from - the same reasoning internal/heartbeat records for
+	// the same reason. A config file that disagreed with the connection
+	// would produce a service whose every log line is refused.
 	Service string
-	// Level is shared with internal/logging, so the verbose switch moves
-	// both at once.
-	Level *slog.LevelVar
+	// Level decides what reaches the database.
+	//
+	// A Leveler rather than a *slog.LevelVar so *logging.Controls can be
+	// passed straight in - it already reports the level in force, so the
+	// verbose switch moves the tree and this sink together without
+	// anything having to keep two variables equal. PanelLevel wraps it
+	// with the floor this table needs.
+	Level slog.Leveler
 	// Buffer is how many records may wait. Zero takes the default.
 	Buffer int
 }
 
+// PanelLevel is the level rule for this table, given the service's log
+// controls.
+//
+// Two facts have to hold at once and neither may be dropped:
+//
+//   - WARN and above by default, because a log table becomes the largest
+//     table in the database and that is the disk-full failure arriving by
+//     a second road. The tree keeps the rest; it is cheap and on disk.
+//   - The verbose switch reaches this table too. "Turn on detail,
+//     reproduce it, look" is the one thing a support call actually asks
+//     for, and a customer with no shell can only look here.
+//
+// So: WARN normally, and whatever is in force while a temporary raise is
+// active. The raise expires on its own - see logging.Controls.Apply -
+// which is what stops this from being the way the disk fills.
+//
+// The third case is the one that is easy to miss: an operator who
+// configured the tree *quieter* than WARN must not find this table
+// louder than the tree it is supposed to be a subset of.
+func PanelLevel(c *logging.Controls) slog.Leveler {
+	return panelLevel{c}
+}
+
+type panelLevel struct{ c *logging.Controls }
+
+func (p panelLevel) Level() slog.Level {
+	if p.c == nil {
+		return slog.LevelWarn
+	}
+	inForce, base := p.c.Level(), p.c.Base()
+	if inForce < base {
+		// A temporary raise is in force: somebody asked for detail.
+		return inForce
+	}
+	if base > slog.LevelWarn {
+		// The tree is quieter than WARN, and this is its subset.
+		return base
+	}
+	return slog.LevelWarn
+}
+
 // Sink writes records to panel_logs.
 type Sink struct {
-	pool    *pgxpool.Pool
+	pool  *pgxpool.Pool
+	level slog.Leveler
+
+	// service is read and written only on the writer goroutine, which is
+	// why it needs no lock: resolve happens there, immediately before
+	// the first insert, and nothing else touches it.
 	service string
-	level   *slog.LevelVar
 
 	records chan record
 	done    chan struct{}
@@ -114,6 +166,22 @@ type record struct {
 	attrs     map[string]any
 	siteID    string
 	operation string
+}
+
+// Attach wires a sink alongside a service's tree logger.
+//
+// The one call each service makes. Returns the combined logger and the
+// sink, which the caller closes on shutdown so the buffer drains rather
+// than being dropped on the floor.
+//
+// Called after the pool exists rather than inside logging.Setup, which
+// runs before any service has a database. Nothing is lost by that: a
+// failure earlier than the pool cannot be written to a table reached
+// through the pool, and every startup failure before this point is
+// fatal and goes to stderr and the tree.
+func Attach(tree *slog.Logger, pool *pgxpool.Pool, controls *logging.Controls) (*slog.Logger, *Sink) {
+	sink := New(pool, Config{Level: PanelLevel(controls)})
+	return slog.New(logging.Tee(tree.Handler(), sink.Handler())), sink
 }
 
 // New starts a sink and its writer goroutine.
@@ -169,6 +237,18 @@ func (s *Sink) write(r record) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Resolved here rather than at New, so a database that is not up yet
+	// delays the first log line instead of the service's startup. It is
+	// retried on the next record for the same reason.
+	if s.service == "" {
+		var name string
+		if err := s.pool.QueryRow(ctx, `SELECT current_user`).Scan(&name); err != nil {
+			s.failed.Add(1)
+			return
+		}
+		s.service = name
+	}
+
 	attrs, err := json.Marshal(r.attrs)
 	if err != nil {
 		attrs = []byte(`{}`)
@@ -217,7 +297,16 @@ func (h *handler) WithGroup(name string) slog.Handler {
 	return &clone
 }
 
-func (h *handler) Handle(_ context.Context, r slog.Record) error {
+func (h *handler) Handle(ctx context.Context, r slog.Record) error {
+	// Asked again rather than trusted. slog's own contract lets a Logger
+	// call Handle only after Enabled says yes, but this handler sits
+	// behind a fan-out beside the log tree, and a fan-out's Enabled is
+	// an OR - it means somebody wants the record, not that this sink
+	// does. Cheap, and it makes the level hold however this is composed.
+	if !h.Enabled(ctx, r.Level) {
+		return nil
+	}
+
 	rec := record{
 		at: r.Time,
 		// Level().String() rather than the number: a panel showing "8"

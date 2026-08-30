@@ -26,6 +26,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
@@ -131,6 +132,14 @@ func main() {
 	//
 	// Started in its own goroutine and never waited on. Nothing about
 	// monitoring may delay or stop the thing being monitored.
+	// The panel's copy of this service's log lines. The tree on disk stays
+	// the operator's record; this is the subset a customer with no shell
+	// can read, and it writes WARN and above unless the verbose switch is
+	// on. See internal/logsink.
+	logger, panelLog := logsink.Attach(logger, writer.Pool(), logControls)
+	defer panelLog.Close()
+	slog.SetDefault(logger)
+
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    writer.Pool(),
 		Version: buildinfo.Version(version),

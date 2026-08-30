@@ -128,6 +128,16 @@ func Setup(service string, cfg Config) (*slog.Logger, *Controls, func(), error) 
 	return slog.New(handler), controls, func() { _ = tree.Close() }, nil
 }
 
+// Tee returns a handler that writes each record to both.
+//
+// Exported because the panel log sink (internal/logsink) is the second
+// destination a service's records go to, and it needs the same fan-out
+// the AlsoStderr option has always used. One implementation rather than
+// two: a second copy would be the one that stops matching.
+func Tee(primary, secondary slog.Handler) slog.Handler {
+	return &teeHandler{primary: primary, secondary: secondary}
+}
+
 // teeHandler writes each record to two handlers.
 type teeHandler struct {
 	primary, secondary slog.Handler
@@ -138,10 +148,21 @@ func (t *teeHandler) Enabled(ctx context.Context, l slog.Level) bool {
 }
 
 func (t *teeHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Each child is asked again, because the two can sit at different
+	// levels. Until the panel sink existed both branches shared one
+	// LevelVar and this was always true twice, so the checks cost
+	// nothing then and are load-bearing now: the sink's floor is WARN
+	// while the tree may be at INFO, and Enabled above is an OR - it
+	// says *somebody* wants the record, not that both do.
+	//
 	// The primary's own failures are already handled by falling back, so
 	// neither error should stop the other from being written.
-	_ = t.primary.Handle(ctx, r.Clone())
-	_ = t.secondary.Handle(ctx, r)
+	if t.primary.Enabled(ctx, r.Level) {
+		_ = t.primary.Handle(ctx, r.Clone())
+	}
+	if t.secondary.Enabled(ctx, r.Level) {
+		_ = t.secondary.Handle(ctx, r)
+	}
 	return nil
 }
 
