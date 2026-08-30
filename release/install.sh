@@ -45,6 +45,10 @@ RUN_AS="${RUN_AS:-crucible}"
 DB_HOST="${DB_HOST:-}"
 DOMAIN=""
 DRY_RUN=0
+# WANT_SYSTEMD is decided in preflight rather than at the systemd stage,
+# and --no-systemd forces it off. See the preflight block for why the
+# decision has to happen before the database is touched.
+WANT_SYSTEMD=1
 # PSQL is the superuser connection used to create roles and apply
 # schemas. Overridable so the tests can point it at a database that is
 # not on a unix socket as postgres.
@@ -58,6 +62,7 @@ while [ $# -gt 0 ]; do
     --prefix) PREFIX="$2"; shift 2 ;;
     --conf) CONF_DIR="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --no-systemd) WANT_SYSTEMD=0; shift ;;
     -h|--help)
       sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -137,6 +142,42 @@ newsecret() {
 
 say "preflight"
 command -v psql >/dev/null || die "psql is not installed"
+
+# The schema version is stamped from a binary, so one of the two ways of
+# reading it has to be available. Checked here for the same reason as the
+# systemd rule below: found at its own stage, it stops the install after
+# the schemas are already applied.
+if [ "${DRY_RUN}" -eq 0 ] && [ ! -x "${HERE}/../bin/panel" ] && ! command -v go >/dev/null; then
+  die "the schema version is read from the panel binary, and neither
+    ${HERE}/../bin/panel nor a Go toolchain is here. Install from the
+    release package, or run this from a source tree with Go available."
+fi
+
+# Whether systemd units will be installed - decided here, before the
+# database is touched.
+#
+# The old guard asked `[ -d /etc/systemd/system ]`, which is a different
+# question from the one that matters: the directory exists on any Ubuntu
+# machine, including a CI runner where this script is not root. So the
+# install created four roles, applied seven schemas, wrote four config
+# files and generated three secrets, and *then* died on a permission
+# error - leaving a half-installed machine and a message about systemd
+# that says nothing about what to do.
+#
+# Measured: this is what every CI run had been doing since the systemd
+# stage was added. The merge gate was red on every push and the reason
+# was one line at the very end.
+if [ "${WANT_SYSTEMD}" -eq 1 ]; then
+  if [ ! -d /etc/systemd/system ]; then
+    WANT_SYSTEMD=0
+    say "   no systemd on this machine; units will not be installed"
+  elif [ "$(id -u)" -ne 0 ]; then
+    die "systemd units need root, and this is running as $(id -un).
+    Either run this with sudo, or pass --no-systemd to install the
+    database and configuration without the service units. Stopping now,
+    before anything is created, rather than part-way through."
+  fi
+fi
 [ -f "${HERE}/sql/grants.sql" ] || die "release/sql/grants.sql is missing; run this from the package"
 [ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
 
@@ -702,7 +743,15 @@ fi
 # ----------------------------------------------------------------- units
 
 say "systemd units"
-if [ "${DRY_RUN}" -eq 0 ] && [ -d /etc/systemd/system ]; then
+# Said out loud when nothing is installed. The header printed either way
+# in the first version of this, so a run with --no-systemd looked exactly
+# like a run that wrote four unit files - and "it said systemd units" is
+# the sentence somebody would later use to argue the services were
+# registered.
+if [ "${WANT_SYSTEMD}" -eq 0 ]; then
+  say "   skipped (--no-systemd, or no systemd here); no service units written"
+fi
+if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   for unit in "${HERE}"/systemd/*.service; do
     [ -f "${unit}" ] || continue
     install -m 0644 "${unit}" /etc/systemd/system/

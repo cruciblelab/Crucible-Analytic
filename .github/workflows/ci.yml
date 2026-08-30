@@ -15,8 +15,15 @@ on:
 
 # A second push to the same branch cancels the first: the older run is
 # reporting on code nobody will merge.
+#
+# Keyed on the branch name rather than on github.ref, because those are
+# different strings for the two events that both fire here - a push to
+# `x` is refs/heads/x and a pull request from `x` is refs/pull/N/merge -
+# so with a PR open every push started two full runs, each spinning up
+# its own TimescaleDB. head_ref is set for pull_request and empty for
+# push, which makes this one key for both.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -165,6 +172,14 @@ jobs:
       # ones, because the suites have to connect as each role and
       # scraping four generated secrets out of a script's output would
       # tie the tests to the wording of a message.
+      #
+      # --no-systemd because a runner is not a machine anybody is
+      # deploying to: there is no service to start and the step needs
+      # root it does not have. Without it the install did everything -
+      # roles, schemas, grants, config, secrets - and then died writing
+      # a unit file, so the gate was red on every push for a reason
+      # that had nothing to do with the change being tested. install.sh
+      # now refuses at preflight instead, before anything is created.
       - name: install the database the way a customer does
         env:
           PGPASSWORD: postgres
@@ -173,7 +188,7 @@ jobs:
         run: |
           CONF_DIR="$(mktemp -d)" PREFIX="$(mktemp -d)" \
             LOG_DIR="$(mktemp -d)" STATE_DIR="$(mktemp -d)" \
-            ./release/install.sh
+            ./release/install.sh --no-systemd
           for role in collector beacon_writer analytics_reader panel_user; do
             psql "postgres://postgres:postgres@localhost:5432/analytics" \
               -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ${role} PASSWORD '${role}'"

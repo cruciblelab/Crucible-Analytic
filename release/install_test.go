@@ -41,14 +41,31 @@ func runInstall(t *testing.T, db string, extraEnv ...string) (string, bool) {
 	root := repoRoot(t)
 
 	base := superuserDSN(t)
-	cmd := exec.Command("./release/install.sh")
+
+	// --no-systemd, and it is load-bearing rather than tidy.
+	//
+	// The comment below used to say this suite touches neither systemd
+	// nor the machine's users, and it was false: redirecting LOG_DIR and
+	// STATE_DIR moves two directories and nothing else. Measured on a
+	// machine where this had been running as root - four unit files in
+	// /etc/systemd/system and a `crucible` system account, written every
+	// run by a suite whose comment said it wrote neither.
+	//
+	// On a CI runner the same step fails rather than succeeding, because
+	// there is no root there, which is how it was finally noticed: the
+	// merge gate had been red on every push since the systemd stage was
+	// added, one line from the end of a script that had already created
+	// four roles, seven schemas and three secrets.
+	cmd := exec.Command("./release/install.sh", "--no-systemd")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"SUPERUSER_DSN="+dsnFor(base, db),
 		"DB_NAME="+db,
 		"CONF_DIR="+t.TempDir(),
 		"PREFIX="+t.TempDir(),
-		// Nothing here may touch the machine's systemd or its users.
+		// These move the log tree and the state directory into the
+		// test's own space. What keeps systemd and the service account
+		// untouched is the flag above, not these.
 		"LOG_DIR="+t.TempDir(),
 		"STATE_DIR="+t.TempDir(),
 	)
@@ -449,7 +466,7 @@ func TestInstallCatchesAMismatchedIPKey(t *testing.T) {
 
 	conf := t.TempDir()
 	run := func() (string, bool) {
-		cmd := exec.Command("./release/install.sh")
+		cmd := exec.Command("./release/install.sh", "--no-systemd")
 		cmd.Dir = repoRoot(t)
 		cmd.Env = append(os.Environ(),
 			"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
@@ -510,7 +527,7 @@ func TestInstallDoesNotRotateAKeyAlreadyInUse(t *testing.T) {
 
 	conf := t.TempDir()
 	run := func() (string, bool) {
-		cmd := exec.Command("./release/install.sh")
+		cmd := exec.Command("./release/install.sh", "--no-systemd")
 		cmd.Dir = repoRoot(t)
 		cmd.Env = append(os.Environ(),
 			"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
@@ -595,7 +612,7 @@ func TestInstallGeneratesAUsablePanelSecretKey(t *testing.T) {
 
 	conf := t.TempDir()
 	run := func() (string, bool) {
-		cmd := exec.Command("./release/install.sh")
+		cmd := exec.Command("./release/install.sh", "--no-systemd")
 		cmd.Dir = repoRoot(t)
 		cmd.Env = append(os.Environ(),
 			"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
@@ -980,7 +997,7 @@ func TestInstallHonoursTheDatabaseItWasGiven(t *testing.T) {
 	// everything in the first.
 	base := superuserDSN(t)
 	root := repoRoot(t)
-	cmd := exec.Command("./release/install.sh")
+	cmd := exec.Command("./release/install.sh", "--no-systemd")
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(),
 		"SUPERUSER_DSN="+dsnFor(base, "postgres"),
@@ -1048,4 +1065,55 @@ func TestInstallHonoursTheDatabaseItWasGiven(t *testing.T) {
 	if telemetry != "off" {
 		t.Errorf("telemetry on %s is %q; the hardening was applied to another database", db, telemetry)
 	}
+}
+
+// TestNoSystemdWritesNoUnitFiles.
+//
+// The claim this suite makes about the machine it runs on, checked
+// rather than asserted in a comment.
+//
+// It is here because the comment version of this claim was false for as
+// long as it existed: runInstall redirected LOG_DIR and STATE_DIR and
+// said that meant systemd was untouched, while every run as root wrote
+// four unit files into /etc/systemd/system and created a `crucible`
+// account. Nobody noticed, because on a developer's machine the writes
+// succeed silently and on CI the failure looked like a permissions
+// problem with the runner.
+//
+// So the flag is measured. A test suite that modifies the machine it
+// runs on is one that behaves differently the second time.
+func TestNoSystemdWritesNoUnitFiles(t *testing.T) {
+	const db = "ca_install_nosystemd_test"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	before := unitFiles(t)
+
+	out, ok := runInstall(t, db)
+	if !ok {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	// It has to say so, not just do it. A step that skips in silence is
+	// one nobody can tell from a step that ran.
+	if !strings.Contains(out, "no service units written") {
+		t.Errorf("the install did not report that it skipped systemd:\n%s", out)
+	}
+
+	after := unitFiles(t)
+	if len(after) != len(before) {
+		t.Errorf("unit files changed: %d before, %d after (%v). "+
+			"A test run must not install services on the machine running it",
+			len(before), len(after), after)
+	}
+}
+
+// unitFiles lists the crucible units currently on this machine.
+func unitFiles(t *testing.T) []string {
+	t.Helper()
+	found, err := filepath.Glob("/etc/systemd/system/crucible-*.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
 }
