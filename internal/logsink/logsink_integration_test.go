@@ -186,7 +186,13 @@ func TestTheSinkDropsRatherThanBlocks(t *testing.T) {
 	}
 	elapsed := time.Since(start)
 
-	if elapsed > 2*time.Second {
+	// 500ms, not the 2s this started at. Measured both ways: dropping
+	// takes ~3ms and blocking took 1.88s, so a 2s ceiling sat just above
+	// the failure it was meant to catch - on a faster database a
+	// blocking sink would have slipped under it, leaving only the
+	// dropped counter below to notice. 500ms is still 150x the measured
+	// cost of the correct behaviour.
+	if elapsed > 500*time.Millisecond {
 		t.Errorf("5000 log calls took %s; the sink is waiting on the database", elapsed)
 	}
 
