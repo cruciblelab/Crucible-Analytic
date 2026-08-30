@@ -4092,6 +4092,54 @@ belki hiç.
 
 ---
 
+#### L'nin iç bağları — biri diğerine yük bindirmesin diye
+
+Üç faz sırayla yapılabilir ama **bağımsız değiller**. Dördü de ölçüldü,
+ve ikisi L1'in L3'ün kararlarını önceden vermesini gerektiriyor. Bunlar
+burada duruyor çünkü sonradan keşfedilirlerse L1 yeniden yazılır.
+
+**Bağ 1 — `schema_version`'ı L1 yaratır, L3 yazar.**
+L1 sadece okuyor, ama tabloyu güncelleyecek olan L3'ün uygulayıcısı.
+Tablo L1'de "panelin okuduğu bir tablo" diye tasarlanırsa, L3 geldiğinde
+sahiplik ve `GRANT`'ler değişir — yani `grants.sql`, `verify.sql` ve
+`install.sh` üçü birden ikinci kez elden geçer. **L1, yazma yolunu
+tabloyu yaratırken kararlaştırmak zorunda**, o yolu henüz kimse
+kullanmayacak olsa bile.
+
+**Bağ 2 — L1'in sayısı ile L2'nin kontrolü aynı soruyu iki yoldan
+soruyor.** L1 "şema kaçıncı sürümde?" diye soruyor ve bir sayı alıyor;
+L2 "ihtiyacım olan sütunlar duruyor mu?" diye soruyor ve gerçek yapıya
+bakıyor. **Sayı yalan söyleyebilir** — biri göç etmeden sürümü
+yükseltebilir; sütun kontrolü söyleyemez.
+
+Bu yüzden ikisi iki ayrı doğruluk kaynağı olamaz: **L2'nin kontrolü
+yaptırım, L1'in sayısı etiket**, ve *ikisinin uyuştuğunu doğrulayan bir
+test* olmak zorunda. Yoksa bu projenin defalarca bulduğu arıza biçimi
+geri gelir: sessizce ayrışan iki liste.
+
+**Bağ 3 — DDL'i hangi rol çalıştıracak? Bugün cevap yok.**
+Ölçüldü: şemayı `install.sh` **süperkullanıcıyla** uyguluyor
+(`psql_db -f`, `SUPERUSER_DSN` üzerinden). Dört rolün hiçbirinde DDL
+yetkisi yok, ve `grants.sql`'de tek bir `ALTER`/`CREATE`/`OWNER` geçmiyor.
+
+L3'ün uygulayıcısı ya süperkullanıcı kimlik bilgisini diskte sürekli
+taşıyacak — **kabul edilemez**, çalışan bir servis için süresiz
+süperkullanıcı demek — ya da tabloların sahibi olan **beşinci bir rol**
+gerekecek. İkincisi doğru cevap, ama `install.sh` + `grants.sql` +
+`verify.sql` üçünü birden değiştiriyor, yani **F2 yüzeyi**. L1'de
+kararlaştırılmazsa L3'te keşfedilir ve L1 yeniden yazılır.
+
+**Bağ 4 — tavuk-yumurta: `schema_version`'ı ilk kez kim yaratacak?**
+Göçleri takip eden tablonun kendisi bir göçle yaratılmalı, ama o göçü
+çalıştıracak mekanizma henüz yok. **Yani L'nin kendisi bir kez elle
+kurulmak zorunda:** geliştirici `install.sh`'ı bir kez çalıştırır,
+sonrası panelden yürür.
+
+Bu kaçınılmaz ve kusur değil — ama **yazılı olmazsa ilk müşteride
+sürpriz olur**, ve o sürprizin adı "düğme çalışmıyor" olur.
+
+---
+
 #### L1 — Sürüm görünürlüğü: `schema_version` + Ayarlar → Hakkında
 
 Bugün **hiçbir şey veritabanının kaçıncı sürümde olduğunu bilmiyor.**
@@ -4159,6 +4207,12 @@ yetkiyle değil, parolayla".)*
 
 Sihirbaza **girmiyor** — gereksiz uzatma. Geliştirici seçeneklerinde
 durur, sonradan istenirse açılır.
+
+**Nüans, kullanıcının kendi kuralı:** geliştirici istediği yere parola
+koyabilir, ama **geliştirici seçenekleri sayfasının kendisine
+koyamaz** — o sayfa zaten geliştirici parolasının arkasında, ve kapıya
+ikinci bir kilit takmak döngüsel olur. Kilitlenebilen şey sayfanın
+kendisi değil, **içindeki tek tek işlemler**.
 
 ##### İnternete sorulmuyor
 
@@ -4439,7 +4493,10 @@ Fiziksel kalanlar:
 - **Disk işletim sistemi seviyesinde dolu** — yazma başarısız olduğunda,
   onarımı kaydedecek operasyon günlüğü de yazılamaz
 - TLS sertifika yenilemesi ve dosya sistemiyle ilgili her şey
-- Binary yükseltme
+- **Binary yükseltme** — *(L grubu bu maddeyi böldü: **şema**
+  yükseltmesi L3 ile panelden yapılabilir hâle geliyor ve kesinti
+  istemiyor; listede kalan **binary** değişimi, çünkü çalışan bir
+  sürecin kodu yerinde değiştirilemez)*
 - Yedekten dönme
 - Yukarıdaki sekiz yapılandırma anahtarı: DSN, dinleme adresleri, TLS
   yolları, `site_id`
