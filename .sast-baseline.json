@@ -154,6 +154,22 @@
       "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
     },
     {
+      "fingerprint": "d6c6a65214f34db19b4fcd2d",
+      "rule": "G304",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
+      "snippet": "body, err := os.ReadFile(path)"
+    },
+    {
+      "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
+      "rule": "G304",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
+      "snippet": "f, err = os.Open(path)"
+    },
+    {
       "fingerprint": "fa42d02f0b0211ce9728d1b4",
       "rule": "G304",
       "file": "internal/sast/cmd/sastdiff/main.go",

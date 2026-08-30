@@ -1,0 +1,40 @@
+# Functions that no path reaches, and why each is allowed to stay.
+#
+# Format: <package path>.<func>  # reason
+#
+# One line per entry, and the reason is the point. An unexplained name
+# teaches the next reader that this file is a place to silence things,
+# and then it becomes one.
+#
+# # Why this file exists
+#
+# Two purge functions - PurgeOldLoginAttempts and PurgeOldDevAccess -
+# were written, documented, correct, and called from nowhere. The tables
+# they bounded had been growing without limit since the day they were
+# created, and every test passed the whole time. Operation.LinkAudit was
+# a third: panel_operations.audit_id was null on every row because the
+# audit write returned no id for anyone to pass it.
+#
+# None of them failed. That is the whole problem: code that is never
+# reached cannot fail, so nothing goes red and nobody finds out. A scan
+# is the only thing that asks the question, and a scan nobody runs is
+# the same as no scan - so it runs in CI, against this list.
+#
+# # What to do when the gate goes red
+#
+# Three honest answers, in order of preference:
+#
+#   1. Wire it. If it should be called, the gate has found a bug - that
+#      is what happened to all three above.
+#   2. Delete it. If it is a leftover, it is worse than absent: a reader
+#      who believes in it writes code that assumes it runs.
+#   3. Add it here with the reason. For something genuinely built ahead
+#      of the surface that will use it, name the phase.
+#
+# What is not an answer is adding the name with no reason.
+
+internal/devgate.Authorization.Action                # Getter for the action an authorization was minted for, meant for error text. The messages that would use it are written by the panel, which has the key it asked about already. Kept as part of the type's read surface; delete it if D-group settles without a caller.
+internal/devgate.RequestFrom                         # Builds a gate Request from an HTTP request. The panel names the actions in code rather than reading them from the form - deliberately, since a request that named its own actions would authorize itself - so every caller so far builds the Request directly. Kept as the documented way to do it for the handler that eventually needs the HTTP-shaped form.
+internal/logging.Deadline                            # Duration attribute helper. Its comment used to claim callers it did not have; that is corrected. Available, not established.
+internal/panel.Store.RevokeOwnerClaim                # Withdraws an unaccepted owner invitation, by expiry rather than deletion so the audit trail keeps the fact. The page that offers it is not built; C-group.
+internal/panel.Store.ListUsers                       # Every account, oldest first. The superadmin user-list page is not built; D-group.

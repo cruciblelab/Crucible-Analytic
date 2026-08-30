@@ -132,6 +132,17 @@ type AuditEntry struct {
 // panel_users at read time, so the log still names who acted after that
 // account is renamed or removed.
 func (s *Store) Record(ctx context.Context, e AuditEntry) error {
+	_, err := s.recordReturningID(ctx, e)
+	return err
+}
+
+// recordReturningID is Record, plus the id of the row it wrote.
+//
+// A separate entry point rather than a wider signature on Record: the
+// id is wanted at exactly one call site - the one that ties a settings
+// change to the operation record - and thirty other callers do not need
+// to start ignoring a value.
+func (s *Store) recordReturningID(ctx context.Context, e AuditEntry) (int64, error) {
 	if e.Detail == nil {
 		e.Detail = map[string]any{}
 	}
@@ -151,27 +162,35 @@ func (s *Store) Record(ctx context.Context, e AuditEntry) error {
 		ip = *e.IP
 	}
 
-	_, err = s.pool.Exec(ctx, `
+	var id int64
+	err = s.pool.QueryRow(ctx, `
 		INSERT INTO panel_audit_log
 		  (actor_kind, actor_id, actor_label, action, site_id, target, detail, ip, user_agent)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		string(e.ActorKind), actorID, e.ActorLabel, e.Action, e.SiteID, e.Target, detail, ip, e.UserAgent)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING id`,
+		string(e.ActorKind), actorID, e.ActorLabel, e.Action, e.SiteID, e.Target, detail, ip, e.UserAgent).
+		Scan(&id)
 	if err != nil {
-		return fmt.Errorf("panel: record audit entry: %w", err)
+		return 0, fmt.Errorf("panel: record audit entry: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 // RecordFor is Record with the actor filled in from a principal, which
 // is what almost every call site wants.
 func (s *Store) RecordFor(ctx context.Context, p Principal, e AuditEntry) error {
+	_, err := s.recordForReturningID(ctx, p, e)
+	return err
+}
+
+func (s *Store) recordForReturningID(ctx context.Context, p Principal, e AuditEntry) (int64, error) {
 	e.ActorKind = p.Kind
 	e.ActorLabel = p.Label
 	if p.UserID != 0 {
 		id := p.UserID
 		e.ActorID = &id
 	}
-	return s.Record(ctx, e)
+	return s.recordReturningID(ctx, e)
 }
 
 // AuditFilter narrows a log query.

@@ -629,7 +629,11 @@ func (s *Server) saveRetention(r *http.Request, lang *ui.Language, access panel.
 
 	for _, c := range changes {
 		auth := result.For(panel.GateAction(c.key))
-		if err := s.Store.ApplySetting(r.Context(), access, c.key, c.site, c.value, auth); err != nil {
+		if err := s.Store.ApplySetting(r.Context(), access, c.key, c.site, c.value, auth,
+			// No operation record: the wizard is a run of many settings
+			// at once, and one operation per field would be noise
+			// standing in for the single thing that happened.
+			nil); err != nil {
 			data.Message, data.Failed = s.settingProblem(lang, err), true
 			return
 		}

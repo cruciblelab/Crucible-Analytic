@@ -519,7 +519,7 @@ func TestApplySetting_RecordsTheOldValueAndTheNew(t *testing.T) {
 		Kind: PrincipalUser, Label: "degistiren@example.com", Superadmin: true,
 	}}
 	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", "full",
-		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
+		authorize(t, gate, KeyPrivacyIPStorage), nil); err != nil {
 		t.Fatalf("ApplySetting: %v", err)
 	}
 
@@ -737,7 +737,7 @@ func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
 
 	// Even handed a genuinely valid authorization, minted elsewhere.
 	auth := authorize(t, gate, KeyPrivacyIPStorage)
-	err := store.ApplySetting(ctx, customer, KeyPrivacyIPStorage, "", IPStorageFull, auth)
+	err := store.ApplySetting(ctx, customer, KeyPrivacyIPStorage, "", IPStorageFull, auth, nil)
 	if !errors.Is(err, ErrSettingNotWritable) {
 		t.Fatalf("the customer changed a guarded setting (err = %v)", err)
 	}
@@ -753,7 +753,7 @@ func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
 		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
 		Role:      RoleOwner, Member: true,
 	}
-	if err := store.ApplySetting(ctx, unweighted, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{}); err != nil {
+	if err := store.ApplySetting(ctx, unweighted, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{}, nil); err != nil {
 		t.Errorf("the customer could not change a setting with no legal weight: %v", err)
 	}
 	if got, _ := store.GetIntSetting(ctx, KeyLogArchiveAfterDays, ""); got != 3 {
@@ -761,7 +761,7 @@ func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
 	}
 
 	// And clearing is a change like any other.
-	if err := store.ClearSetting(ctx, customer, KeyPrivacyIPStorage, "", auth); !errors.Is(err, ErrSettingNotWritable) {
+	if err := store.ClearSetting(ctx, customer, KeyPrivacyIPStorage, "", auth, nil); !errors.Is(err, ErrSettingNotWritable) {
 		t.Errorf("the customer reset a guarded setting (err = %v)", err)
 	}
 }
@@ -815,7 +815,7 @@ func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
 	operator := operatorAccess()
 
 	err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageFull,
-		authorize(t, gate, KeyPrivacyIPStorage))
+		authorize(t, gate, KeyPrivacyIPStorage), nil)
 	if !errors.Is(err, ErrPreconditionUnmet) {
 		t.Fatalf("full mode was accepted with no key configured (err = %v)", err)
 	}
@@ -829,7 +829,7 @@ func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
 	// The refusal is about the deployment, not the value: masked is
 	// always available, because its default needs nothing on disk.
 	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageMasked,
-		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
+		authorize(t, gate, KeyPrivacyIPStorage), nil); err != nil {
 		t.Errorf("masked mode was refused: %v", err)
 	}
 
@@ -837,7 +837,7 @@ func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
 	// is a precondition, not a prohibition.
 	store.SetIPTokenKeyConfigured(true)
 	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageFull,
-		authorize(t, gate, KeyPrivacyIPStorage)); err != nil {
+		authorize(t, gate, KeyPrivacyIPStorage), nil); err != nil {
 		t.Errorf("full mode was refused with the key configured: %v", err)
 	}
 }

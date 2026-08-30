@@ -174,8 +174,14 @@ func (t *teeHandler) WithGroup(name string) slog.Handler {
 	return &teeHandler{primary: t.primary.WithGroup(name), secondary: t.secondary.WithGroup(name)}
 }
 
-// Deadline is a convenience for logging how long something took, used by
-// the query and access categories.
+// Deadline is a convenience for logging how long something took.
+//
+// Its comment used to say "used by the query and access categories". It
+// was used by neither, and by nothing else - a deadcode scan is what
+// said so. Kept because it is the right shape for the duration attribute
+// and costs nothing, but described honestly: this is available, not
+// established. A comment naming callers that do not exist teaches a
+// reader to trust the next one less.
 func Deadline(started time.Time) slog.Attr {
 	return slog.Duration("took", time.Since(started))
 }

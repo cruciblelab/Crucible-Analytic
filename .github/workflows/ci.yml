@@ -120,6 +120,32 @@ jobs:
           "$(go env GOPATH)/bin/gosec" -fmt=json -quiet -no-fail -severity=medium -out=gosec.json ./...
           go run ./internal/sast/cmd/sastdiff -report gosec.json
 
+      # Unreachable code, against the committed allowlist.
+      #
+      # Here because the defects it finds are the ones no test can: code
+      # nothing calls never fails, so the suite stays green while a table
+      # grows without limit or a column stays null for months. Three real
+      # ones had done exactly that - two retention sweeps and an audit
+      # link - and all three were found by running this once, by hand,
+      # after the second was noticed by accident.
+      #
+      # -test and -tags=integration so the roots include every test
+      # binary. Without them anything reachable only from an integration
+      # test reads as dead, and an allowlist full of false entries is one
+      # nobody reads.
+      #
+      # Pinned for the same reason gosec is: the analysis gains precision
+      # between releases, and an unpinned tool would move the allowlist
+      # under a gate without anybody choosing to.
+      #
+      # v0.49.0 needs Go >= 1.25.0, which go.mod already asks for, so
+      # setup-go's toolchain satisfies it with no download of its own.
+      - name: unreachable code against the allowlist
+        run: |
+          go install golang.org/x/tools/cmd/deadcode@v0.49.0
+          "$(go env GOPATH)/bin/deadcode" -test -tags=integration ./... > deadcode.txt
+          go run ./internal/sast/cmd/deadcodediff -report deadcode.txt
+
   # No database, no browser, no network. If this is red the rest is noise.
   unit:
     name: unit (-race)

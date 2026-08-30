@@ -1745,6 +1745,13 @@ yazıyordu ve `internal/logging.Controls.Apply` ile zaten çalışıyor;
 süre dolduğunda ağaçla birlikte bu tablo da kısılıyor. Anahtarı panelden
 açan yüzey D4b'de.
 
+**Yeni kapı *(2026-08-30)*: ulaşılmayan kod.** `deadcode` bir kez elle
+koşturulunca üç gerçek kusur çıktı — iki süpürme ve `LinkAudit` — ve
+üçü de hiçbir testin göremeyeceği cinstendi, çünkü ulaşılmayan kod
+başarısız olamaz. `internal/sast/cmd/deadcodediff` gosec'in
+`sastdiff`'iyle aynı şekilde çalışıyor ve CI'da: gerekçeli muafiyet
+listesi, iki yönlü kontrol, gerekçesiz girdi reddediliyor.
+
 **Bu fazda bulunan iki kusur:** testlerin `postgres` olarak bağlanması
 (hiçbir politikayı sınamıyorlardı) ve `errorChain`'in bütün-zincir
 iddiasının korumasız olması. İkisi de NOTES.md'de.
@@ -1956,6 +1963,14 @@ içeren satırı sızdırmadığını gösteren test.
 > doğruydu — hepsini tek bir `for` döngüsü sarıyor — ama on altıncı
 > kırılım o döngünün dışında kaydedildiği gün hiçbir şey uyarmazdı.
 > Yeni test liste tutmuyor: kayıtları kaynaktan okuyup döngüyü açıyor.
+>
+> **Sonradan bulundu *(2026-08-30)*:** aynı hata CSRF testinde de vardı.
+> `TestEveryPostRouteRefusesARequestWithNoToken` elle yazılmış on rota
+> tutuyordu, `acceptPost` çağıran on üç yer vardı — kurtarma formu,
+> posta sayfası ve ayarlar sayfası hiç sorulmuyordu. Artık o test de
+> rotaları kaynaktan türetiyor. Ayrıca `TestEveryRouteIsEitherGuarded‑
+> OrDeliberatelyNot` eklendi: hiç `acceptPost`'a uğramayan bir handler
+> bütün CSRF testlerini *hiçbirinde olmayarak* geçiyordu.
 >
 > **Kalanlar bilinçli olarak dışarıda:** `panel_logs` filtresi **D4b'ye**
 > bağlı — tablo B1'de geldi, ama ertelemenin gerçek sebebi parantez

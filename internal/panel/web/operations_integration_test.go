@@ -32,6 +32,7 @@ type opRow struct {
 	after      *string
 	rolledBack *bool
 	actorLabel string
+	auditID    *int64
 	finished   bool
 }
 
@@ -43,11 +44,11 @@ func lastOperation(t *testing.T, store *panel.Store, target string) opRow {
 	err := store.Pool().QueryRow(context.Background(), `
 		SELECT id, action, target, outcome, error_chain, steps::text,
 		       before_value::text, after_value::text, rolled_back, actor_label,
-		       finished_at::text
+		       audit_id, finished_at::text
 		FROM panel_operations WHERE target = $1
 		ORDER BY started_at DESC LIMIT 1`, target).
 		Scan(&r.id, &r.action, &r.target, &r.outcome, &r.errorChain, &r.steps,
-			&r.before, &r.after, &r.rolledBack, &r.actorLabel, &finishedAt)
+			&r.before, &r.after, &r.rolledBack, &r.actorLabel, &r.auditID, &finishedAt)
 	if err != nil {
 		t.Fatalf("reading the operation for %s: %v", target, err)
 	}
@@ -221,5 +222,55 @@ func TestTheLogLinesCarryTheOperationId(t *testing.T) {
 	second := lastOperation(t, store, string(unguardedKey))
 	if second.id == op.id {
 		t.Error("two operations share an id")
+	}
+}
+
+// TestASuccessfulChangeIsTiedToItsAuditEntry.
+//
+// panel_operations.audit_id had been null on every row since the column
+// was created. Operation.LinkAudit existed, was correct, and could not
+// be called: the audit write returned only an error, so the id it would
+// need did not exist anywhere a caller could reach.
+//
+// Nothing failed. The column was simply always empty, and the only way
+// to notice was to ask who calls LinkAudit - which is what a deadcode
+// scan does, and what no test here had been doing.
+//
+// The two records answer different questions on purpose (see
+// internal/panel/operations.go). This link is what lets somebody holding
+// one find the other: from "a setting was changed at 14:02" to "and here
+// is every step of what happened while it was".
+func TestASuccessfulChangeIsTiedToItsAuditEntry(t *testing.T) {
+	server, client, store := settingsServerAs(t, panel.RoleOwner)
+	cleanOperations(t, store)
+
+	status, body := postSetting(t, client, server.URL, url.Values{
+		"islem":   {"kaydet"},
+		"anahtar": {string(unguardedKey)},
+		"deger":   {"denetim bagi"},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("saving answered %d: %s", status, noticeOf(body))
+	}
+
+	op := lastOperation(t, store, string(unguardedKey))
+	if op.auditID == nil {
+		t.Fatal("audit_id is null on a successful change; the operation record cannot be " +
+			"tied back to the audit entry, which is the whole reason the column is there")
+	}
+
+	// And it points at the right row, not merely at a row.
+	var action, target string
+	if err := store.Pool().QueryRow(context.Background(),
+		`SELECT action, target FROM panel_audit_log WHERE id = $1`, *op.auditID).
+		Scan(&action, &target); err != nil {
+		t.Fatalf("the audit entry %d does not exist: %v", *op.auditID, err)
+	}
+	if target != string(unguardedKey) {
+		t.Errorf("the operation is linked to an audit entry for %q, not %q",
+			target, unguardedKey)
+	}
+	if action != panel.ActionSettingChanged {
+		t.Errorf("the linked audit entry records %q", action)
 	}
 }

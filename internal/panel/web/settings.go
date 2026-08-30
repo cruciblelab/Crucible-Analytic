@@ -225,13 +225,13 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	switch r.PostFormValue("islem") {
 	case "sifirla":
 		op.Step("varsayilana dondur", true, "")
-		err = s.Store.ClearSetting(ctx, access, key, site, auth)
+		err = s.Store.ClearSetting(ctx, access, key, site, auth, op)
 		msg = lang.T("ayarlar.sifirlandi")
 	case "kaydet":
 		value, err = parseSettingValue(def, r)
 		op.Step("degeri ayristir", err == nil, "")
 		if err == nil {
-			err = s.Store.ApplySetting(ctx, access, key, site, value, auth)
+			err = s.Store.ApplySetting(ctx, access, key, site, value, auth, op)
 			msg = lang.T("ayarlar.kaydedildi")
 		}
 	default:

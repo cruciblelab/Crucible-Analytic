@@ -130,11 +130,24 @@ func (s *Store) PurgeOldLogs(ctx context.Context) (int64, error) {
 
 // PurgeOldOperations trims panel_operations.
 //
-// Keyed on started_at rather than finished_at, because an operation that
-// never finished has no finished_at - and an operation that never
-// finished is exactly the kind this table exists to record, so a sweep
-// that skipped them would keep the boring rows forever and lose the
-// interesting ones.
+// Keyed on started_at rather than finished_at, and the reason is a SQL
+// detail that reads the wrong way round until it is measured.
+//
+// An operation that never finished has a null finished_at, and
+// `NULL < now() - interval` is NULL rather than true. So a sweep keyed
+// on finished_at would not delete unfinished operations early - it would
+// never delete them at all. Every operation cut short by a restart or a
+// crash would stay in the table permanently, while the ordinary finished
+// ones were swept on schedule: an unbounded table made entirely of the
+// rows nobody is looking at any more.
+//
+// started_at has no such hole, because every row has one.
+//
+// Measured. The first version of this comment claimed the opposite - that
+// keying on finished_at would "keep the boring rows and lose the
+// interesting ones" - and the test written from it seeded only a *recent*
+// unfinished row, which survives either way. The mutation passed, and
+// the comment was what had been wrong.
 func (s *Store) PurgeOldOperations(ctx context.Context) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM panel_operations WHERE started_at < now() - $1::interval`,

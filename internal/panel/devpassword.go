@@ -124,7 +124,12 @@ func (s *Store) GateAudit() func(context.Context, devgate.Attempt) error {
 // saves a mixed set of settings needs one loop rather than two - and
 // therefore cannot send the guarded ones down the unguarded path by
 // mistake.
-func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string, value any, auth devgate.Authorization) error {
+// op may be nil. When it is not, the audit entry this writes is linked
+// to it - done here rather than by the caller because this is the only
+// place the entry's id exists, and an id passed back up through two
+// signatures to be handed straight down again is a worse shape than a
+// parameter that says what it is for.
+func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string, value any, auth devgate.Authorization, op *Operation) error {
 	def, ok := registry[key]
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
@@ -156,7 +161,7 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 	// change that did not happen. The reverse ordering - record, then
 	// write - would produce an audit trail that is wrong in the
 	// direction nobody checks.
-	return s.RecordFor(ctx, a.Principal, AuditEntry{
+	auditID, err := s.recordForReturningID(ctx, a.Principal, AuditEntry{
 		Action: ActionSettingChanged,
 		SiteID: site,
 		Target: string(key),
@@ -166,6 +171,11 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 			"guarded": def.RequiresDeveloperPassword,
 		},
 	})
+	if err != nil {
+		return err
+	}
+	op.LinkAudit(ctx, auditID)
+	return nil
 }
 
 // ClearSetting removes a stored value so the default applies again, and
@@ -174,7 +184,7 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 // Guarded exactly like a write, because it is one: for
 // campaign.drop_params the default is the empty list, so clearing it
 // means starting to store utm_term again.
-func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string, auth devgate.Authorization) error {
+func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string, auth devgate.Authorization, op *Operation) error {
 	def, ok := registry[key]
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
@@ -196,7 +206,7 @@ func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string
 		return err
 	}
 
-	return s.RecordFor(ctx, a.Principal, AuditEntry{
+	auditID, err := s.recordForReturningID(ctx, a.Principal, AuditEntry{
 		Action: ActionSettingReset,
 		SiteID: site,
 		Target: string(key),
@@ -206,6 +216,11 @@ func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string
 			"guarded": def.RequiresDeveloperPassword,
 		},
 	})
+	if err != nil {
+		return err
+	}
+	op.LinkAudit(ctx, auditID)
+	return nil
 }
 
 func actorIDOf(p Principal) *int64 {

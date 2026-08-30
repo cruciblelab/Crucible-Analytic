@@ -274,7 +274,7 @@ func settingsFormHandler(t *testing.T, store *Store, gate *devgate.Gate, access 
 		}
 
 		if err := store.ApplySetting(r.Context(), access, KeyPrivacyIPStorage, "", value,
-			result.For(GateAction(KeyPrivacyIPStorage))); err != nil {
+			result.For(GateAction(KeyPrivacyIPStorage)), nil); err != nil {
 			render(w, r, fmt.Sprintf("Kaydedilemedi: %v", err))
 			return
 		}

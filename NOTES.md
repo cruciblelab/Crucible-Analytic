@@ -6493,3 +6493,98 @@ başlatmaması; döngünün süpürmeyi çağırmaması; süpürme sınırının
 çevrilmesi; `PanelLevel`'ın WARN tabanının kaldırılması; ayrıntılı
 anahtarın tabloya ulaşmaması; servis adının yanlış çözülmesi (RLS
 reddediyor).
+
+---
+
+## "Yıllarca fark edilmeyebilir" sınıfını sistematik aramak
+
+Ölü kodu iki kez tesadüfen bulmuştum. Aynı sınıfı tarayınca daha çıktı,
+ve tarama artık kapıda.
+
+### Neden bu sınıf özel
+
+**Ulaşılmayan kod başarısız olamaz.** Bir süpürme çağrılmıyorsa hata
+vermez, tablo büyür, takım yeşil kalır. İlk belirti dolu bir disktir.
+Hiçbir test bunu göremez, çünkü test kodun *doğru* olup olmadığını
+sorar; buradaki soru *çalışıp çalışmadığı*.
+
+`deadcode` bir kez elle koşturulunca üç gerçek kusur çıktı — ikisi
+zaten bildiğim süpürmeler, üçüncüsü benim `LinkAudit`'im.
+
+### LinkAudit: çağrılamaz bir metot
+
+`panel_operations.audit_id` oluşturulduğu günden beri her satırda NULL.
+`Operation.LinkAudit` doğru yazılmış ve **çağrılması imkânsız**: denetim
+yazımı yalnızca `error` döndürüyordu, yani ihtiyacı olan id hiçbir
+çağıranın erişebileceği yerde yoktu.
+
+Bu ölü kod değil, B2'de bıraktığım bir eksik. Bağlandı: `Record`'un
+yanına id döndüren bir yol eklendi (otuz çağıranın bir değeri yok
+saymaya başlamaması için ayrı giriş noktası), `ApplySetting`/
+`ClearSetting` operasyonu parametre olarak alıyor ve bağlamayı id'nin
+var olduğu tek yerde yapıyor. Testi de var artık.
+
+### CSRF testi kısaydı, ve kısalık yeşil kalır
+
+`TestEveryPostRouteRefusesARequestWithNoToken` elle yazılmış on rota
+tutuyordu. `acceptPost` çağıran on üç yer vardı: kurtarma formu, posta
+sayfası ve D4a'da benim eklediğim ayarlar sayfası hiç sorulmuyordu.
+
+Yani **unutulan rotayı yakalamak için var olan tek test, üç rotayı
+unutuyordu.** B6'da tam aynısı olmuştu. Artık liste tutmuyor: hangi
+handler'ın `acceptPost` çağırdığını kaynaktan okuyup `server.go`'nun
+kaydettiği desenle eşliyor.
+
+### Ama asıl soru sorulmuyordu
+
+Yukarıdaki test korunan rotaların reddettiğini kanıtlıyor. Göremediği
+şey daha önemli: **hiç `acceptPost`'a uğramayan bir handler.** Öyle bir
+handler bütün CSRF testlerini geçer — hiçbirinde olmayarak.
+
+`TestEveryRouteIsEitherGuardedOrDeliberatelyNot` iki yanı da yazıyor:
+bir yan kaynaktan, öbür yan gerekçeli muafiyet listesi. `devAccessHandler`
+gerçekten korumasız ve bu doğru — tıklanan tek kullanımlık bir bağlantı,
+jetonun kendisi yetki — ama artık bu bilinçli bir kayıt, sessiz bir
+boşluk değil.
+
+`safeMethod` de buradan çıktı: hiç çağrılmayan, "GET'ler muaf" diyen bir
+yardımcı. Var olmayan bir ara katmanın kanıtı gibi okunuyordu, ve buna
+inanan biri yeni bir POST handler'ı yazıp korunduğunu sanabilirdi.
+Silindi, yerine neden olmadığını anlatan bir yorum kondu.
+
+### İki kayıt, birbirini tutması gereken
+
+`web.technicalLists` ile `analytics.addressLists` aynı kümeyi tutmak
+zorunda. `analytics.KnownAddressList` tam da bunu korumak için yazılmış
+("panel bilinmeyen bir segmenti URL'ye ulaşmadan reddedebilsin diye") ve
+hiçbir yerden çağrılmıyordu — sürüklenmeye karşı yazılan muhafızın
+kendisi sürükleniyordu. Ayna testi ikisini bağladı.
+
+### Yanlış yorumlar
+
+İkisi de "var olmayan bir şeyi var diye anlatan" cinsten:
+
+- `PurgeOldOperations`: yorumu `finished_at`'in etkisini **tam tersi**
+  anlatıyordu. Testi düzeltmiştim, kaynağı düzeltmemişim.
+- `logging.Deadline`: "query ve access kategorileri kullanıyor"
+  diyordu. Hiçbir şey kullanmıyor.
+
+**Var olmayan çağıranları sayan bir yorum, okuyana bir sonrakine daha az
+güvenmeyi öğretir.**
+
+### Kapı: gerekçeli muafiyet listesi
+
+Bir kez elle koşturulan tarama, bir sonraki sefere kadar hiçbir şey
+korumaz. `internal/sast/cmd/deadcodediff` gosec'in `sastdiff`'iyle aynı
+şekilde çalışıyor ve CI'da: rapor ile `deadcode_allowlist.txt`
+karşılaştırılıyor.
+
+İki yönlü: açıklanmamış yeni ölü kod kırmızı, **ve** artık ölü olmayan
+bir muafiyet de kırmızı — bayat bir muafiyet, aynı adı taşıyan gelecek
+bir fonksiyonun kimsenin onun hakkında vermediği bir kararı miras
+almasının yoludur. Gerekçesiz girdi de reddediliyor; gerekçe olmadan bu
+dosya bulguları susturma yeri olur.
+
+Kalan beş girdi bilinçli: ileriye dönük yüzeyler (`RevokeOwnerClaim`,
+`ListUsers`) ve tip yüzeyinin parçaları, her biri hangi grubu beklediği
+yazılı.

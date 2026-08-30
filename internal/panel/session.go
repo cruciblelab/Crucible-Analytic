@@ -291,15 +291,19 @@ func (s *Sessions) CheckCSRF(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(want), []byte(got)) == 1
 }
 
-// safeMethod reports whether a method is defined as read-only and
-// therefore needs no CSRF token.
-func safeMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
-		return true
-	}
-	return false
-}
+// There is deliberately no safeMethod helper here.
+//
+// One used to sit at this spot, reporting whether a method needs no CSRF
+// token - the shape a global middleware would want. This panel has no
+// such middleware: each state-changing handler calls acceptPost itself,
+// so the question "is this method safe" is answered by which handler
+// runs, not by inspecting the request.
+//
+// It was removed because it was never called and read as evidence of a
+// gate that does not exist, which is worse than no helper at all: a
+// reader who believed in it could add a POST handler and assume it was
+// covered. What actually holds that line is
+// TestEveryRouteIsEitherGuardedOrDeliberatelyNot in web/.
 
 // PutPendingTOTP stores an unconfirmed second-factor secret.
 func (s *Sessions) PutPendingTOTP(ctx context.Context, secret string) {
