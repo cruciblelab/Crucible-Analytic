@@ -6405,3 +6405,91 @@ artık var — ama ertelemenin gerçek sebebi parantez içindeydi: *log
 sayfası henüz yok*. O sayfa D4b. Filtreyi sınayacak sorgu henüz
 yazılmadı, ve olmayan bir fonksiyonun yalıtımı sınanamaz. PLAN'da
 bağlılık D4b'ye taşındı.
+
+---
+
+## B1'i erken ✅ işaretlemişim — yazıcı fişe takılı değildi
+
+Fazı kapattıktan sonra "okuma yüzeyi yok" diye bıraktığım maddeye
+bakınca çıktı: dört `main.go` da `logging.Setup` ile ağaç logger'ını
+kuruyordu, ve `logsink` `cmd/` içinde **hiç geçmiyordu**.
+
+Yani gerçek bir kurulumda `panel_logs` kalıcı olarak boştu. Tablo,
+grant, satır düzeyi politikaları, altı entegrasyon testi, yazıcı — hepsi
+gerçek ve hepsi doğru, ve hiçbir şey yazmıyor. README'ye "the writers
+are in place and every setting change is recorded" yazmıştım; operasyon
+yarısı doğruydu, log yarısı üretimde hiç ateşlenmiyordu.
+
+**Bitmiş bir faz, çalışan bir sistem değildir.** Bir bileşenin doğru
+olduğunu kanıtlayan bütün testler, o bileşenin *çağrıldığını*
+kanıtlamaz.
+
+### Araştırınca daha büyüğü çıktı
+
+Süpürmeyi nereye koyacağıma bakarken deponun kendi emsallerine baktım:
+
+```
+PurgeOldLoginAttempts (90 gün) — hiçbir yerden çağrılmıyor
+PurgeOldDevAccess     (30 gün) — hiçbir yerden çağrılmıyor
+```
+
+İkisi de yazılmış, belgelenmiş, doğru, ve testler dahil hiçbir yerden
+çağrılmıyor. Sınırladıkları tablolar yazıldıkları günden beri sınırsız
+büyüyor, ve bütün takım bu süre boyunca yeşil.
+
+Sebep tek ve yapısal: **panelin hiç periyodik işi yoktu.** collector ile
+beacon'ın saklama ticker'ı var, o yüzden onlar için yazılan bir
+süpürmenin çağrılacağı bir yer var. Panel için yazılanın yoktu. Üçüncü
+bir süpürme eklemek üçüncü ölü kodu üretecekti — o yüzden önce giriş
+noktası, sonra süpürmeler.
+
+### Bir süpürmenin kusuru dönüş değerinden görünmez
+
+Hiç silmeyen ve her şeyi silen iki süpürme de aynı şeyi döndürür: bir
+satır sayısı ve sorunsuz bir `nil`. Bu yüzden testler sınırın **iki**
+yanına satır ekiyor ve hangisinin sağ kaldığını soruyor; çağrının
+başarılı olduğunu değil.
+
+### Mutasyon turu: on mutasyon, üçü hayatta kaldı
+
+**1. Kendi yapısal testim, korumaya çalıştığı kusurun bir alt katmanına
+kördü.** `TestHousekeepingIsCalledBySomething` main.go'da
+`".Housekeeping("` dizesini arıyordu. `go runHousekeeping(...)`
+satırını sildim — test yeşil kaldı, çünkü o dize `runHousekeeping`'in
+*kendi gövdesinde* de geçiyor. Yani süpürme döngüsü tanımlı, eksiksiz
+ve hiç başlatılmamış bir panelde test geçerdi.
+
+Bu, bu oturumda dördüncü kez aynı şekil: *iddia doğru olan bir şeye
+bakıyordu, yanlış olabilecek şeye değil.* Artık AST'den çağrı zinciri
+yürüyor ve iki halkayı da ayrı ayrı soruyor.
+
+**2. İki koruma aynı özelliği tutuyordu, o yüzden hiçbiri tek başına
+ölçülemiyordu.** `logging.Tee` her çocuğun `Enabled`'ını soruyor, ve
+`logsink.Handle` kendi seviyesini yeniden kontrol ediyor. Birini
+kaldırınca davranış değişmiyor — diğeri hâlâ tutuyor. İkisi de tek tek
+hayatta kaldı, ve bu doğru: korunması gereken şey korumalar değil,
+**bileşim**. İkisini birden kaldıran mutasyon `TestAnInfoLine...`'ı
+düşürüyor.
+
+Bundan çıkan kural: *bir mutasyon hayatta kaldıysa, önce testin mi
+yoksa mutasyonun mu anlamsız olduğunu sor.* Yedekli iki koruma için tek
+tek mutasyon anlamsızdır; ölçülecek şey özelliktir.
+
+**3. Yorumum tersini söylüyordu ve test onu kopyalamıştı.**
+Operasyon süpürmesini `finished_at`'e çevirdim — geçti. Çünkü
+`NULL < now() - interval` **NULL**'dır, `true` değil: yani `finished_at`
+anahtarlı bir süpürme bitmemiş operasyonları erken silmez, **hiç
+silmez**. Yeniden başlatmayla kesilen her operasyon tabloda sonsuza
+kadar kalır.
+
+Testim yalnızca *yeni* bitmemiş satır koyuyordu, o da her iki halde de
+sağ kalıyor. Eksik olan **eski ve bitmemiş** satırdı. Yorumu da testi de
+düzelttim.
+
+### Yakalanan yedi mutasyon
+
+Housekeeping'in bir süpürmeyi çağırmayı bırakması; main'in döngüyü
+başlatmaması; döngünün süpürmeyi çağırmaması; süpürme sınırının ters
+çevrilmesi; `PanelLevel`'ın WARN tabanının kaldırılması; ayrıntılı
+anahtarın tabloya ulaşmaması; servis adının yanlış çözülmesi (RLS
+reddediyor).

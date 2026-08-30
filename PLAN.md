@@ -1749,6 +1749,25 @@ açan yüzey D4b'de.
 (hiçbir politikayı sınamıyorlardı) ve `errorChain`'in bütün-zincir
 iddiasının korumasız olması. İkisi de NOTES.md'de.
 
+**Kapanış düzeltmesi *(2026-08-30, aynı gün)*:** faz erken ✅
+işaretlenmişti. Yazıcı hiçbir binary'ye bağlı değildi — dört `main.go`
+da ağaç logger'ını kuruyor, `logsink` `cmd/` içinde hiç geçmiyordu, ve
+`panel_logs` gerçek bir kurulumda kalıcı olarak boştu. Bitmiş bir faz
+çalışan bir sistem değildir.
+
+Kapatılırken çıkan ikinci şey daha büyüktü: **panelin hiç periyodik işi
+yoktu**, ve bu yüzden çok önce yazılmış iki süpürme
+(`PurgeOldLoginAttempts`, `PurgeOldDevAccess`) hiçbir yerden
+çağrılmıyordu. Sınırladıkları tablolar yazıldıkları günden beri sınırsız
+büyüyormuş.
+
+Şimdi: `logsink.Attach` dört serviste; `internal/panel/housekeeping.go`
+dört süpürmeyi saatlik tek giriş noktasında topluyor; `panel_logs` 14
+gün, `panel_operations` 30 gün. Süpürme `started_at`'e bakıyor —
+`finished_at` olsaydı bitmemiş operasyonlar hiç silinmezdi. Yapısal
+testler hem "her süpürme çağrılıyor mu" hem "döngü main'den
+başlatılıyor mu" sorularını AST'den soruyor.
+
 ---
 
 #### B3 — Onarım operasyonları (39 adet)

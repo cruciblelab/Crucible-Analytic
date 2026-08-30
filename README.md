@@ -1603,10 +1603,28 @@ and the inner one names why the database said no. "Permission denied for
 table X" tells somebody what to fix; "could not save the setting" tells
 them what they already knew.
 
-**Not yet built:** the page that shows any of this. The tables and the
-writers are in place and every setting change is recorded, but reading it
-back today means querying the database. The panel-side log view and the
-streaming window for a running operation are a later phase.
+### Housekeeping
+
+All four tables are bounded, and the panel sweeps them hourly:
+`panel_logs` after 14 days, `panel_operations` after 30, login attempts
+after 90, developer access requests after 30. The audit log is not
+swept — it is the record that has to survive.
+
+These are constants rather than settings. The log tree's retention is
+settable because an operator has a real reason to want a year of security
+logs; nobody has a reason to want a year of the panel's own diagnostic
+chatter, and a settable retention on a table that can hold personal data
+is mostly a way to extend how long that data is kept.
+
+The operation sweep is keyed on when an operation *started*, not when it
+finished, because an operation that never finished has no finish time —
+and in SQL that would mean it is never swept at all, so every operation
+interrupted by a restart would sit there permanently.
+
+**Not yet built:** the page that shows any of this. Every service writes
+its lines and every setting change is recorded, but reading it back today
+means querying the database. The panel-side log view and the streaming
+window for a running operation are a later phase.
 
 ## Outgoing email
 

@@ -104,7 +104,7 @@ func methodsCalledByHousekeeping(t *testing.T) map[string]bool {
 	return called
 }
 
-// TestHousekeepingIsCalledBySomething.
+// TestHousekeepingIsReachableFromMain.
 //
 // The level above: Housekeeping itself could be the next thing written
 // and never wired. It is called from cmd/panel, which this package
@@ -114,14 +114,59 @@ func methodsCalledByHousekeeping(t *testing.T) map[string]bool {
 // casually. It is right here because the defect being guarded is
 // precisely a gap *between* two packages, and a test that stayed inside
 // this one could not see it - which is how the gap lasted this long.
-func TestHousekeepingIsCalledBySomething(t *testing.T) {
-	body, err := os.ReadFile(filepath.Join("..", "..", "cmd", "panel", "main.go"))
+//
+// # Why this walks the calls instead of searching for a string
+//
+// The first version asked whether ".Housekeeping(" appeared anywhere in
+// main.go. Mutating `go runHousekeeping(...)` out of main left it green:
+// the substring was still there, inside runHousekeeping's own body. The
+// test was looking at something that was true rather than at the thing
+// that could be false - so it would have passed on a panel whose sweep
+// loop was defined, complete, and never started.
+//
+// Both links are checked, because either one alone is a sweep that never
+// runs: main must start the loop, and the loop must call the pass.
+func TestHousekeepingIsReachableFromMain(t *testing.T) {
+	path := filepath.Join("..", "..", "cmd", "panel", "main.go")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {
-		t.Fatalf("reading cmd/panel/main.go: %v", err)
+		t.Fatalf("parsing cmd/panel/main.go: %v", err)
 	}
-	if !strings.Contains(string(body), ".Housekeeping(") {
-		t.Error("cmd/panel never calls Housekeeping.\n" +
-			"Every sweep in this file then bounds nothing, which is the state " +
-			"the panel was in before housekeeping.go existed.")
+
+	// funcName -> the names it calls, whether as f() or x.f().
+	calls := map[string]map[string]bool{}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		made := map[string]bool{}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			switch fun := call.Fun.(type) {
+			case *ast.Ident:
+				made[fun.Name] = true
+			case *ast.SelectorExpr:
+				made[fun.Sel.Name] = true
+			}
+			return true
+		})
+		calls[fn.Name.Name] = made
+	}
+
+	// A `go f(...)` statement is a call for this purpose - it is how the
+	// loop is actually started - and ast.Inspect finds the CallExpr
+	// inside it either way.
+	if !calls["main"]["runHousekeeping"] {
+		t.Error("cmd/panel's main never starts runHousekeeping.\n" +
+			"Every sweep in housekeeping.go then bounds nothing, which is the " +
+			"state the panel was in before this file existed.")
+	}
+	if !calls["runHousekeeping"]["Housekeeping"] {
+		t.Error("runHousekeeping never calls Store.Housekeeping, so the loop runs and sweeps nothing")
 	}
 }

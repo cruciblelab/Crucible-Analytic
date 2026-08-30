@@ -128,13 +128,24 @@ func TestTheLogSweepCrossesRoles(t *testing.T) {
 	}
 }
 
-// TestTheOperationSweepKeepsAnUnfinishedOperation.
+// TestTheOperationSweepHandlesUnfinishedOperations.
 //
 // An operation that never finished has a null finished_at, and it is
-// exactly the kind this table exists to record. A sweep keyed on the
-// wrong column would keep every dull completed row and delete the one
-// somebody is asking about.
-func TestTheOperationSweepKeepsAnUnfinishedOperation(t *testing.T) {
+// exactly the kind this table exists to record.
+//
+// The column the sweep keys on decides what happens to those rows, and
+// the failure is the opposite of what it looks like: `NULL < now() -
+// interval` is NULL, never true, so a sweep keyed on finished_at would
+// not delete unfinished operations early - it would never delete them at
+// all. Every operation interrupted by a restart or a crash would sit in
+// the table permanently, which is an unbounded table made out of exactly
+// the rows nobody is looking at any more.
+//
+// So both ends are asserted: a recent unfinished one stays, a stale
+// unfinished one goes. An earlier version of this test seeded only the
+// first, and keying on finished_at passed it - the assertion was on a
+// row that survives either way.
+func TestTheOperationSweepHandlesUnfinishedOperations(t *testing.T) {
 	store, admin := housekeepingStore(t)
 	ctx := context.Background()
 
@@ -157,23 +168,30 @@ func TestTheOperationSweepKeepsAnUnfinishedOperation(t *testing.T) {
 	seed("op-testrecentfinish", recent, true)
 	seed("op-testrecentopenop", recent, false) // never finished, still recent
 	seed("op-teststalefinishd", stale, true)
+	seed("op-teststaleopenopp", stale, false) // never finished, long past
 
 	removed, err := store.PurgeOldOperations(ctx)
 	if err != nil {
 		t.Fatalf("the sweep failed: %v", err)
 	}
-	if removed != 1 {
-		t.Errorf("the sweep removed %d rows, want 1", removed)
+	if removed != 2 {
+		t.Errorf("the sweep removed %d rows, want 2", removed)
 	}
 
 	left := operationIDs(t, admin)
 	if !hasRow(left, "op-testrecentopenop") {
-		t.Error("the unfinished operation was deleted. It has no finished_at, " +
-			"so a sweep keyed on that column treats it as infinitely old - " +
-			"and an operation that never finished is the interesting case")
+		t.Error("a recent unfinished operation was deleted; it is the one somebody is about to ask about")
+	}
+	if !hasRow(left, "op-testrecentfinish") {
+		t.Error("a recent finished operation was deleted; the sweep is not reading the boundary")
 	}
 	if hasRow(left, "op-teststalefinishd") {
 		t.Error("a stale operation survived; the table is not bounded")
+	}
+	if hasRow(left, "op-teststaleopenopp") {
+		t.Error("a stale *unfinished* operation survived. `NULL < now() - interval` is NULL, " +
+			"never true, so a sweep keyed on finished_at never removes these at all - " +
+			"and an interrupted operation is left in the table forever")
 	}
 }
 

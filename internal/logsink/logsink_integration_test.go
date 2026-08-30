@@ -33,6 +33,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -374,5 +375,70 @@ func TestTheSweepRemovesEveryServicesLinesAndNotOnlyItsOwn(t *testing.T) {
 	if len(left) != 0 {
 		t.Errorf("the sweep deleted %d rows and left %v behind; a retention job that trims only its own writer's lines does not bound this table",
 			tag.RowsAffected(), left)
+	}
+}
+
+// TestAnInfoLineReachesTheTreeAndNotTheTable.
+//
+// The composition, not either guard inside it.
+//
+// Until this change the tree and the sink shared one LevelVar, so they
+// were never at different levels and none of this could go wrong. Now
+// the sink floors at WARN while the tree may sit at INFO, and two
+// separate things keep that true: logging.Tee asks each child whether it
+// wants the record, and this package's Handle re-checks its own level.
+//
+// Either one alone is enough, which is why removing just one changes no
+// behaviour and no test can catch it. What must not happen is losing
+// both - so the assertion is on the property they exist for, measured
+// against the real table through the real Attach path. An INFO line in
+// panel_logs is the disk-full failure this package's schema is written
+// around.
+func TestAnInfoLineReachesTheTreeAndNotTheTable(t *testing.T) {
+	write := testdb.Pool(t, testdb.Collector)
+	read := testdb.Pool(t, testdb.Panel)
+	t.Cleanup(func() { clearLines(t, testdb.Collector) })
+
+	// A tree configured at INFO - chattier than the sink's floor, which
+	// is the whole point.
+	tree, controls, closeLogs, err := logging.Setup("test-composition", logging.Config{Level: "info"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(closeLogs)
+
+	logger, sink := Attach(tree, write, controls)
+	t.Cleanup(sink.Close)
+
+	logger.Info("bu ağaca gitmeli, tabloya değil")
+	logger.Warn("bu ikisine de gitmeli")
+	waitForRows(t, sink, 1)
+
+	rows, err := read.Query(context.Background(),
+		`SELECT level, message FROM panel_logs WHERE service = $1`, testdb.Collector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var got []string
+	for rows.Next() {
+		var level, message string
+		if err := rows.Scan(&level, &message); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, level)
+		if level == "INFO" {
+			t.Errorf("an INFO line reached panel_logs: %q. "+
+				"The tree keeps INFO on disk where it is cheap; this table shares "+
+				"a database with the customer's analytics, and a log table that "+
+				"accepts everything becomes the largest one in it", message)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Errorf("%d rows landed (%v), want exactly the WARN", len(got), got)
 	}
 }
