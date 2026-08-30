@@ -502,3 +502,42 @@ func TestTheRightPasswordOnTheRightSettingWorks(t *testing.T) {
 		t.Errorf("the guarded setting did not change: %v", got)
 	}
 }
+
+// TestAPreconditionSaysSoRatherThanBlamingTheValue.
+//
+// privacy.ip_storage=full is refused on a deployment whose config file
+// carries no ip_hash_key. That refusal is correct and has nothing to do
+// with the value being admissible - "full" is one of exactly two the
+// setting accepts.
+//
+// The first version of settingErrorText had no branch for it, so the
+// refusal fell through to the bounds message and the page said
+//
+//	Değer şunlardan biri olmalı: full, masked
+//
+// about a value that is one of them. A message that sends the reader to
+// check the thing that is already correct is worse than a vague one:
+// they look, find nothing wrong, and stop believing the page.
+//
+// Needs an operator and the real password, because the precondition is
+// only reached once the gate has been passed.
+func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
+	server, client, store := settingsServerAsOperator(t)
+	restoreGlobal(t, store, panel.KeyPrivacyIPStorage)
+
+	status, body := postSetting(t, client, server.URL, url.Values{
+		"islem":                {"kaydet"},
+		"anahtar":              {string(panel.KeyPrivacyIPStorage)},
+		"deger":                {"full"},
+		"gelistirici_parolasi": {testDevPassword},
+	})
+	if status == http.StatusOK {
+		t.Fatal("ip_storage=full was accepted with no ip_hash_key configured")
+	}
+	if strings.Contains(body, "şunlardan biri olmalı") {
+		t.Errorf("the refusal blamed the value, which is admissible: %s", noticeOf(body))
+	}
+	if !strings.Contains(body, "gereken yapılandırma henüz yok") {
+		t.Errorf("the refusal does not say what is actually missing: %s", noticeOf(body))
+	}
+}

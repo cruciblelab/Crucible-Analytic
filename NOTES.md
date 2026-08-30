@@ -6156,3 +6156,109 @@ kımıldadığı anda ikisi ayrışıyor.
 Bir kırmızıyı düzeltip yeşili doğrulamamak, düzeltmemekle aynı şey.
 Birinci sebebi kapattım ve "CI düzeldi" demeye hazırdım; ikinci sebep
 oradaydı, ve benim düzeltmem üçüncü bir belirti üretmişti.
+
+---
+
+## D4a — Ayar sayfası: üç fazı bekleten tek eksik
+
+*(2026-08-30)*
+
+Arka ucun tamamı hazırdı ve hiç yüzeye çıkmamıştı:
+
+| var olan | ne yapıyordu |
+|---|---|
+| `SettingsView` | her ayarı değeri, erişim seviyesi, kilit gerekçesi ve kaynağıyla döndürüyor |
+| `ApplySetting` | yetki → önkoşul → kapı → yazma → denetim kaydı, bu sırayla |
+| `SettingAccess` | writable / gated / locked / read_only |
+
+Eksik olan sayfaydı, ve o eksik **A2, B3 ve L3'ü birden** bekletiyordu.
+
+### İki karar
+
+**Sayfayı izleyici de görüyor** — üyeler sayfasının tam tersi, ve
+bilerek. Her satır değeriyle ve kontrol yerine gerekçesiyle çiziliyor.
+Müşterinin kendi kurulumunun neye ayarlı olduğunu öğrenmek için birine
+sorması gerekmesi kabul edilebilir değil. Yazmayı reddeden şey sayfa
+değil, sunucu.
+
+**Bir ayar bir gönderim.** Yirmi ayarı birden kaydeden bir form yirmi
+sonuç bildirmek zorunda kalırdı, ve başarısız olan kimsenin okumadığı
+olurdu.
+
+B6'nın aynası yeni kapıyı **anında** yakaladı ve listeye eklenmesini
+istedi — o test bunun için yazılmıştı. Eklendikten sonra yalıtım
+testleri ilk denemede geçti.
+
+### Test yazarken çıkan üç kusur
+
+**Parola eksikken cevap 200 dönüyordu.** Ayar değişmiyordu ama durum kodu
+"tamam" diyordu. Durum kodu betiğin, ekran okuyucunun ve erişim kaydının
+ilk okuduğu şey; hiçbiri cümleyi okumuyor.
+
+**Doğrulayıcının İngilizce iç mesajı Türkçe panele geçiyordu** —
+`must be between 1 and 3650, got 999999`. Sınır zaten tanımda; mesaj
+artık tanımdan Türkçe kuruluyor, ham Go hatası yalnız loga gidiyor.
+
+**TOML tuzağı yine ısırdı.** Regex ilk `gecersiz` satırını buldu, o da
+giriş hataları tablosundaydı: üç ayar anahtarı yanlış tabloya girdi *ve*
+giriş mesajı ezildi. Bu oturumda ikinci kez, projede en az üçüncü.
+
+### Mutasyon turu: üç kusur daha, biri testin kendisinde
+
+**Kapsam mutasyonu hayatta kalmıştı** çünkü testim `site=""`
+gönderiyordu — boş değer iki halde de doğru siteye düşüyor. Saldırı
+*dolu* bir değer. Yeni testle birlikte mutasyon gerçek bir
+müşteriler-arası yazma gösteriyor:
+
+```
+a form wrote into another site's row: ayar-komsu went '' -> 'komsunun satirina yazildi'
+```
+
+Kod doğruydu; **onu doğrulayan bir şey yoktu.**
+
+**Eylem yönlendirme mutasyonu başka sebeple hayatta kaldı: yorumum
+yanlıştı.** Doğru parolayla yazdığım test *düzeltilmemiş kodda* düştü —
+parola doğru, ayar doğru, fazladan alanlar zaten yok sayılıyor; ortada
+reddedilecek bir şey yok. Ulaşmaya çalıştığı iddia gerçek ama zaten
+kanıtlanmış, ve doğru yerde:
+`TestGuardedSettings_AnAuthorizationForOneSettingDoesNotWriteAnother`.
+`SetGuardedSetting` yetkiyi yazacağı anahtara karşı kontrol ediyor.
+
+**Handler'daki türetme ikinci katman, birinci değil** — yorum düzeltildi,
+test doğru iddiaya çevrildi.
+
+### Olumlu testin ortaya çıkardıkları
+
+Korumalı yol hiç çalışmıyor göründü. Sebep kodda değildi: **korumalı
+ayarlar `Superadmin` istiyor**, ve o bayrak üretimde yalnız *sahibin
+onayladığı* geliştirici bağlantısının kullanılmasıyla geliyor —
+`CreateUser`'ı `true` ile çağıran hiçbir üretim yolu yok. Yani müşterinin
+kendine veremeyeceği tek şey.
+
+Model kullanıcının tarif ettiği gibi çalışıyor: *geliştiriciye iş
+çıkarabilen şey yetkiyle korunamaz.*
+
+İkinci bulgu bendeydi: `settingErrorText` **sınıflandıramadığı her
+hatayı doğrulama hatası gibi gösteriyordu.** `ip_hash_key` olmayan bir
+kurulumda `privacy.ip_storage=full` reddedilince ekran şunu diyordu:
+
+> Değer şunlardan biri olmalı: full, masked
+
+— zaten onlardan biri olan bir değer hakkında. **Okuyanı doğru olan şeyi
+kontrol etmeye gönderen mesaj, belirsiz olandan kötüdür**: bakar, bir şey
+bulamaz, ve sayfaya inanmayı bırakır. `ErrPreconditionUnmet` artık kendi
+cümlesini alıyor, ve onu koruyan bir test var.
+
+### Test kirliliği
+
+Testlerim genel bir ayarı yazıp bırakıyordu, ve **üç paket ötede**
+`TestSettings_DefaultsApplyBeforeAnythingIsStored` düşüyordu. Site
+kapsamlı satırlar sorun değil — testin uydurduğu site kimliğiyle
+anahtarlanıyorlar — ama genel satır her şeyi paylaşıyor. `restoreGlobal`
+ile temizleniyor.
+
+### Bu fazın öğrettiği
+
+Olumlu test olmadan bütün "doğru reddediyor" testleri yeşil kalırdı ve
+özellik hiç çalışmazdı. **Bir şeyin reddettiğini kanıtlamak, çalıştığını
+kanıtlamaz.**

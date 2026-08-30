@@ -87,7 +87,7 @@ gerekçe değil bahane olur.
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **3/7** | B1, B2, B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
-| **D** Dashboard | 🟡 **3/8** | D4–D8 (D3'ten yalnız ham dışa aktarma kaldı, karar bekliyor) |
+| **D** Dashboard | 🟡 **4/8** | D4b, D5–D8 (D4a yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
@@ -3201,7 +3201,7 @@ belli.
 `RequiresDeveloperPassword` taşıyan altı ayarından biri. Eklenecek yeni
 bir kapı yok.*
 
-#### D4 — Ayar sayfaları ve akan operasyon penceresi
+#### D4 — Ayar sayfaları ✅ **D4a yapıldı** *(2026-08-30)* · akan pencere (D4b) B1+B2'yi bekliyor
 
 Her ayar değişimi, o operasyonun kendi log satırlarını akıtan bir pencere
 açar, sonra kapanır. İki düzeltme:
@@ -3217,6 +3217,36 @@ açar, sonra kapanır. İki düzeltme:
   olurdu ve onları dikkatle okuyan ilk teknik müşteri, panelin söylediği
   her şeye güvenmeyi bırakırdı. Caydırıcılık, dürüstlüğün yan etkisi
   olmalı; özellik olursa kazandırdığından fazlasına mal olur.
+
+> **D4a yapıldı.** `/site/{site}/ayarlar`. Arka ucun tamamı hazırdı ve
+> hiç yüzeye çıkmamıştı — `SettingsView`, `ApplySetting`, dört erişim
+> seviyesi ve `devgate` — yani bu faz mekanizma inşası değil, var olanı
+> gösteren sayfaydı. Ve o tek eksik **A2, B3 ve L3'ü birden**
+> bekletiyordu.
+>
+> **İzleyici de görüyor**, üyeler sayfasının tersine: her satır değeriyle
+> ve kontrol yerine gerekçesiyle. Yazmayı reddeden sayfa değil, sunucu —
+> testler kontrolleri tıklamıyor, sayfanın çizmediği formu POST ediyor.
+>
+> B6'nın aynası yeni kapıyı anında yakaladı ve listeye eklettirdi.
+>
+> **Altı kusur çıktı**, üçü sayfa yazılırken (parola eksikken 200 cevabı,
+> İngilizce iç hata mesajının panele sızması, TOML tablo tuzağı) ve üçü
+> mutasyon turunda. Sonuncular arasında bir müşteriler-arası yazma
+> yolunun test edilmemiş olduğu ve `ErrPreconditionUnmet`'in "değer
+> geçersiz" diye gösterilmesi vardı — ikincisi okuyanı zaten doğru olan
+> şeyi kontrol etmeye gönderiyordu.
+>
+> **Bir mutasyon, kodun değil testin yanlış olduğunu gösterdi:** doğru
+> parolayla yazılan yönlendirme testi düzeltilmemiş kodda düştü, çünkü
+> reddedilecek bir şey yoktu. İddia gerçekti ama zaten doğru yerde
+> kanıtlanmıştı (`SetGuardedSetting`), ve handler'daki türetmenin ikinci
+> katman olduğu artık yorumda yazıyor.
+>
+> **Korumalı ayarların `Superadmin` istediği doğrulandı** — o bayrak
+> üretimde yalnız sahibin onayladığı geliştirici bağlantısıyla geliyor,
+> yani müşterinin kendine veremeyeceği tek şey. SOZLUK §3'teki ilke
+> çalışıyor.
 
 #### D5 — Profil, veriyi çıkarır; sayfayı asla
 
