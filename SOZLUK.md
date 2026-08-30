@@ -166,6 +166,51 @@ kapatır.
 
 ## 3. Yetkiler ve roller
 
+### İki kişi: geliştirici ve müşteri
+
+Bu belgede en çok geçen iki kelime, ve hiçbir yerde tanımlı
+olmadıkları için bir kez burada.
+
+**geliştirici** — Bu ürünü **kuran, yöneten, teknik olarak sorumlu
+olan** kişi. Ürünü yazan biz değiliz kastedilen; ürünü bir makineye
+kurup çalışır hâlde tutan kişi. Bugün o kişi biziz. Yarın, ürün açık
+kaynak olduğu için, onu ticari ya da ticari olmayan biçimde kullanan
+herhangi biri. Sunucuda kabuğu olan, `install.sh`'ı çalıştıran,
+sihirbazı yürüten, `devpass` parolasını bilen kişi budur.
+
+**müşteri** — **Geliştiricinin müşterisi.** Site sahibi. Panele girer,
+sayılarına bakar, ayarlarını yönetir. Kabuğu yoktur, olması da
+beklenmez. Ürünün "SSH'siz onarılabilsin" iddiası bu kişi için var.
+
+Bir kurulumda geliştirici ile müşteri **aynı kişi de olabilir** —
+birisi ürünü kendi sitesi için kurmuşsa öyledir. Ayrım rollerde değil,
+**hangi parolayı bildiğinde**: geliştirici parolası yapılandırma
+dosyasından gelir, müşteri parolası veritabanından.
+
+### Erişim: yetkiyle değil, parolayla
+
+**Bu, panelin en kolay yanlış yapılacak kararı, o yüzden açıkça
+yazılıyor.**
+
+Site rolleri (Sahip / Yönetici / İzleyici) müşterinin **kendi
+tarafındaki** ayrımdır, ve müşteri onları kendisi dağıtır — `Sahip`'te
+`CapManageMembers` vardır, yani sahip kendine ya da istediğine
+`Yönetici` verebilir, `Yönetici`'de de `CapUseDeveloperMode` vardır.
+
+Bundan çıkan sonuç: **bir müşteri kendine yetki vererek yetenek
+kazanabilir.** Bakmakla biten şeyler için sorun değil — kimse bir
+grafiğe bakarak başkasına iş çıkarmaz.
+
+Ama **geliştiriciye iş çıkarabilen hiçbir şey yetenekle korunamaz.**
+Müşteri o yeteneği kendine verebilir, ve verdiğini kimse durduramaz;
+durdurmaya çalışmak da yanlış olur, çünkü kurulum müşterinin.
+
+Böyle şeyler **geliştirici parolasının** arkasında durur:
+`developer_gate` (hukuki ağırlığı olan ayarlar), ve aynı gerekçeyle
+kilitlendiğinde şema yükseltmesi. Parola yapılandırma dosyasından
+gelir; veritabanından değil, yetkiden hiç değil. Müşteri kendine
+veremeyeceği tek şey odur.
+
 **collector (rol)** — `traffic_snapshots` üzerinde `SELECT, INSERT`.
 `DELETE` **yok**: trafik yolundaki bir sürecin geçmişi silememesi
 bilinçli.
