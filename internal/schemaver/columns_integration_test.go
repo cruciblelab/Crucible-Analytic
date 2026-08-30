@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -98,5 +99,46 @@ func TestAnAbsentTableIsRefusedClearly(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "apply the schema") {
 		t.Errorf("the error does not tell the reader what to do: %v", err)
+	}
+}
+
+// TestAWriterPointedAtTheWrongRoleIsToldWhichColumnsAreMissing.
+//
+// The mutation that got away, and the case that kills it.
+//
+// Swapping pg_catalog for information_schema passed every other test
+// here, because they all run as a superuser and a superuser sees every
+// column in either catalog. That is this project's oldest lesson
+// repeating itself: a fixture more privileged than production does not
+// test production.
+//
+// Measured, the two catalogs disagree exactly when the connected role
+// holds no grant on the named table:
+//
+//	beacon_writer / traffic_snapshots -> information_schema 0, pg_catalog 14
+//
+// Which is what a config file with the wrong DSN produces. Through
+// pg_catalog the answer is about columns; through information_schema it
+// would be "this table does not exist" about a table that plainly does,
+// sending whoever reads it to re-apply a schema that is already there.
+func TestAWriterPointedAtTheWrongRoleIsToldWhichColumnsAreMissing(t *testing.T) {
+	// beacon_writer, deliberately: it is a real role in every deployment
+	// and it holds no grant at all on traffic_snapshots. Derived from
+	// testdb rather than from an environment variable of its own - a
+	// test that skips when nobody sets a variable is a test that is
+	// green for the wrong reason.
+	pool, err := pgxpool.New(context.Background(), testdb.DSN(testdb.Beacon))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	// traffic_snapshots is there and has these columns; this role simply
+	// cannot see them through information_schema.
+	if err := RequireColumns(context.Background(), pool, "traffic_snapshots",
+		[]string{"time", "site_id"}); err != nil {
+		t.Errorf("the columns were not found through a role with no grant on the table: %v\n"+
+			"That is what information_schema answers here, and it is the wrong sentence: "+
+			"the table exists, the role cannot see it", err)
 	}
 }

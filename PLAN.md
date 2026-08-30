@@ -93,7 +93,7 @@ gerekçe değil bahane olur.
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | 🟡 **1/3** | L2, L3 — *ölçüldü, restart gerekmiyor* |
+| **L** Yükseltme yolu | 🟡 **2/3** | L3 — *ölçüldü, restart gerekmiyor* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -4263,7 +4263,7 @@ ekranda ayırt edilebiliyor; sürümü elle geri alınca ekran bunu söylüyor.
 > yeşil kalıyordu çünkü `healthSchema` o branch'a hiç uğramıyor. Durum
 > makinesi kendi biriminde ayrıca test edildi.
 
-#### L2 — Yazmadan önce dur: açılışta sütun kontrolü
+#### L2 — Yazmadan önce dur ✅ **yapıldı** *(2026-08-30)*
 
 Durum B'nin emniyet ağı, **ve müşteri düğmeye hiç basmasa bile
 çalışıyor.** Yazıcının `columns` listesi `pg_attribute` ile
@@ -4277,6 +4277,19 @@ arıza.
 **Bitti ölçütü:** eksik sütunla açılış reddediliyor ve hata sütunu
 adıyla söylüyor; fazladan sütunla açılış **kabul ediliyor** (Durum A
 bozulmamalı — yükseltme sırasının doğru olanı odur).
+
+> **Yapıldı.** `schemaver.RequireColumns`, iki yazıcının `NewWriter`'ında
+> `Ping`'den hemen sonra. L1'in deneyi birebir tekrarlandı: eksik sütunla
+> açılış reddediliyor ve sütunu adıyla söylüyor; iki fazladan sütunla
+> `yazılan=1 failed=0` — L1'deki Durum A ölçümüyle aynı sayı. Tarball
+> E2E zinciri uçtan uca geçiyor.
+>
+> **Üç mutasyonun üçü yakalanıyor**, ama üçüncüsü ilk turda hayatta
+> kaldı: `pg_catalog` yerine `information_schema` koyunca her test geçti,
+> çünkü testler süperkullanıcı olarak koşuyordu. Bu oturumda üçüncü kez
+> aynı ders. Ölçüm ayrıca yorumun abartılı olduğunu gösterdi — bugünkü
+> çağrı noktalarında iki katalog aynı cevabı veriyor; fark **yanlış rolü
+> gösteren DSN**'de ortaya çıkıyor, ve testi o durumu kuruyor.
 
 #### L3 — Düğme: istek satırı + yetkili uygulayıcı
 

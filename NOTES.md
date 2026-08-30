@@ -6015,3 +6015,82 @@ seferinde M2 ve M3 sonuçları geçersizdi ve fark etmem birkaç tur sürdü.
 
 Kural: **önce commit, sonra mutasyon.** Temiz bir taban olmadan geri alma
 güvenilir değil.
+
+---
+
+## L2 — Sessiz kayıp yerine başlamayan servis
+
+*(2026-08-30)*
+
+L1'de ölçülen sessizlik kapandı. O ölçüm şuydu: bir sütunu eksik olan
+collector ayağa kalkıyor, `Ping`'i geçiyor, sağlıklı görünüyor, ve eline
+verilen her satırı kaybediyor — `written=0 failed=3`, tabloda üçün sıfırı.
+
+**Ping veritabanının cevap verdiğini kanıtlar; cevabın hangi şekilde
+olduğunu değil.** Şekil artık açılışta bir kez doğrudan soruluyor.
+
+Aynı deney, `asn_org` düşürülmüş gerçek bir veritabanında, gerçek
+`storage.NewWriter` ile:
+
+```
+AÇILIŞ REDDEDİLDİ: traffic_snapshots is missing 1 column(s) this build
+writes: asn_org. ... Refusing to start rather than writing rows that
+would be dropped.
+```
+
+Başlamayan bir collector, dakikalar içinde onarılan bir arıza. Başlayıp
+satır düşüren bir collector, sayılar sorulana kadar kimsenin görmediği
+bir arıza — ve o noktada trafik gitmiş olur, kurtarılacak bir şey kalmaz.
+
+### Asimetri ürünün kendisi
+
+Eksik sütun ölümcül, **fazladan sütun değil** — ve asla olmamalı.
+Fazladan sütun, doğru bir yükseltmenin içinden geçtiği durumdur: şema
+önce gider, binary'ler sonra, ve arada çalışan her binary hiç duymadığı
+sütunları olan bir tabloya bakar.
+
+Aynı veritabanına iki fazladan sütun eklendikten sonra:
+
+```
+açılış: kabul edildi
+yazılan=1 hata=<nil>  written=1 failed=0
+```
+
+L1'deki Durum A ölçümüyle birebir aynı sayı. Bunu ölümcül yapmak,
+yükseltmenin **güvenli yarısını kesintiye çevirir** ve veri kaybettiren
+sırayı dayatır.
+
+### Kendi kuralımı yine unuttum
+
+Mutasyon turunda `pg_catalog` yerine `information_schema` koydum ve
+**bütün testler geçti.** Sebep tanıdıktı: testlerim süperkullanıcı
+olarak koşuyor, ve süperkullanıcı iki katalogda da her sütunu görüyor.
+
+Bu projenin en eski dersi: **üretimden daha yetkili bir test düzeneği
+üretimi test etmez.** Bu oturumda üçüncü kez.
+
+Sonra ölçtüm, ve ölçüm yorumumun **abartılı** olduğunu gösterdi:
+
+```
+rol            tablo               information_schema   pg_catalog
+collector      traffic_snapshots                   14           14
+beacon_writer  traffic_snapshots                    0           14
+panel_user     traffic_snapshots                    0           14
+
+collector      traffic_snapshots (kendi)           14
+beacon_writer  beacon_events     (kendi)           30
+```
+
+Yani **bugünkü iki çağrı noktasında fark yok** — her yazıcının kendi
+tablosunda grant'i var. Yorumu buna göre düzelttim; olmayan bir deliği
+uyaran yorum, olan delikleri uyaran yorumlara inanılmamasını öğretir.
+
+Ama farkın gerçekten önemli olduğu bir durum var ve o test edilebilir:
+**yapılandırma dosyasında yanlış rolü gösteren DSN.** `pg_catalog` ile
+cevap sütunlar hakkında olur; `information_schema` ile *"bu tablo yok"*
+olur — var olan bir tablo hakkında, ve okuyanı zaten uygulanmış bir
+şemayı yeniden uygulamaya gönderir.
+
+Test o rolü `testdb`'den türetiyor, kendi ortam değişkeninden değil:
+kimse bir değişkeni kurmadığında atlanan test, yanlış sebeple yeşildir.
+Mutasyon artık ölüyor.
