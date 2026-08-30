@@ -948,6 +948,7 @@ site = "Bu siteye özel olarak ayarlanmış"
 genel = "Kurulum genelinde ayarlanmış"
 
 [metin.ayarlar.hata]
+onkosul = "Bu değer bu kurulumda kullanılamıyor: gereken yapılandırma henüz yok. Ayarın açıklamasında neyin önceden hazır olması gerektiği yazıyor."
 bilinmeyen = "Böyle bir ayar yok."
 yetki = "Bu ayarı değiştirme yetkiniz yok."
 parola = "Bu ayar geliştirici parolası ister."

@@ -911,6 +911,7 @@ site = "Set for this site"
 genel = "Set across the installation"
 
 [metin.ayarlar.hata]
+onkosul = "This value cannot be used on this installation: the configuration it needs is not there yet. The setting's own description says what has to be in place first."
 bilinmeyen = "There is no such setting."
 yetki = "You may not change this setting."
 parola = "This setting asks for the developer password."

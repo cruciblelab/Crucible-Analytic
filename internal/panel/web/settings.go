@@ -180,8 +180,18 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	}
 
 	// The authorization, if this setting needs one. The action name
-	// comes from the definition - never from the request - so a form
-	// cannot name the action it wants to be authorized for.
+	// comes from the definition, never from the request.
+	//
+	// That is the second layer and not the first, which is worth being
+	// exact about: Store.SetGuardedSetting checks the authorization
+	// against the key it is about to write, so an authorization minted
+	// for one setting is refused there even if this handler were wrong
+	// about which action to ask for. See
+	// panel.TestGuardedSettings_AnAuthorizationForOneSettingDoesNotWriteAnother.
+	//
+	// An earlier version of this comment claimed the derivation here was
+	// what prevented it. A test written against that claim failed on
+	// correct code, which is how the overstatement was found.
 	var auth devgate.Authorization
 	if def.RequiresDeveloperPassword {
 		var page settingsPage
@@ -437,6 +447,16 @@ func settingErrorText(lang *ui.Language, def panel.Definition, err error) string
 		return lang.T("ayarlar.hata.yetki")
 	case errors.Is(err, panel.ErrUnknownSetting):
 		return lang.T("ayarlar.hata.bilinmeyen")
+	case errors.Is(err, panel.ErrPreconditionUnmet):
+		// Its own branch, and it was missing. Without it this fell to
+		// the bounds message below, so refusing privacy.ip_storage=full
+		// on a deployment with no ip_hash_key answered "the value has to
+		// be one of: full, masked" - about a value that is one of them.
+		//
+		// A message that sends the reader to check the thing that is
+		// already correct is worse than a vague one: they will look,
+		// find nothing wrong, and stop believing the page.
+		return lang.T("ayarlar.hata.onkosul")
 	}
 
 	// The bound, when there is one. "Geçersiz değer" on its own is the

@@ -51,6 +51,57 @@ func settingsServerAs(t *testing.T, role panel.Role) (*httptest.Server, *http.Cl
 	return server, signedIn(t, server.URL, user.Email), store
 }
 
+// settingsServerAsOperator signs in somebody who may change a guarded
+// setting at all.
+//
+// Superadmin, and that is not a shortcut. Access.operator() reads
+// Principal.Superadmin, and in a running deployment that flag is set by
+// redeeming a developer link the owner approved - never by a row a
+// customer can reach. So this is the test's stand-in for a developer
+// session, and the reason the *owner* tests above cannot exercise the
+// gate: an owner is refused before a password is ever considered.
+//
+// Which is the model the customer described: a thing that makes work for
+// the geliştirici cannot be protected by a capability, because a müşteri
+// can grant themselves capabilities.
+func settingsServerAsOperator(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
+	t.Helper()
+
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+
+	dev := makeUser(t, store, "ayar-operator", true)
+	if err := store.AddMember(context.Background(), settingsSite, dev.ID, panel.RoleOwner, nil); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+	return server, signedIn(t, server.URL, dev.Email), store
+}
+
+// restoreGlobal removes a deployment-wide setting row when the test
+// ends.
+//
+// These tests share one database with every other suite, and a global
+// row outlives the site the test invented. Measured the hard way: a test
+// here wrote logs.retention_days = 21 and
+// panel.TestSettings_DefaultsApplyBeforeAnythingIsStored then failed,
+// three packages away, asserting the default it no longer had.
+//
+// Site-scoped rows need no such care - they are keyed by a site id
+// nothing else uses.
+func restoreGlobal(t *testing.T, store *panel.Store, keys ...panel.Key) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, key := range keys {
+			if _, err := store.Pool().Exec(context.Background(),
+				`DELETE FROM panel_settings WHERE key = $1 AND site_id = ''`, string(key)); err != nil {
+				t.Errorf("restoring %s: %v", key, err)
+			}
+		}
+	})
+}
+
 func settingsURL() string { return MembersPathPrefix + settingsSite + settingsPathSuffix }
 
 // postSetting submits the form the page would have submitted, or the one
@@ -141,6 +192,7 @@ func TestAViewerSeesEverySettingAndCanChangeNone(t *testing.T) {
 // them here, and that is the whole point of the gate.
 func TestAGuardedSettingIsRefusedWithoutTheDeveloperPassword(t *testing.T) {
 	server, client, store := settingsServerAs(t, panel.RoleOwner)
+	restoreGlobal(t, store, panel.KeyPrivacyIPStorage)
 
 	before, err := store.GetSetting(context.Background(), guardedKey, "")
 	if err != nil {
@@ -241,7 +293,8 @@ func TestAnUnknownSettingIsRefusedRatherThanCreated(t *testing.T) {
 // somebody guess them. A message that only says "invalid" is the kind
 // that ends in a support channel.
 func TestAValueOutsideItsBoundsIsRefusedAndSaysWhy(t *testing.T) {
-	server, client, _ := settingsServerAs(t, panel.RoleOwner)
+	server, client, store := settingsServerAs(t, panel.RoleOwner)
+	restoreGlobal(t, store, panel.KeyLogArchiveAfterDays)
 
 	status, body := postSetting(t, client, server.URL, url.Values{
 		"islem": {"kaydet"},
@@ -293,4 +346,159 @@ func firstLines(body string) string {
 		return body[:400] + "..."
 	}
 	return body
+}
+
+// TestTheFormCannotWriteIntoAnotherSitesRow.
+//
+// The cross-tenant one, and the reason the scope is taken from the
+// definition rather than from the request.
+//
+// site.name is per-site, so the write has to land in a row keyed by a
+// site. If that key came from the form, an owner of one site could write
+// a value into another customer's row - on a machine where three
+// customers share one deployment, which is the arrangement B6 exists to
+// protect.
+//
+// The first version of this suite submitted site="" here and learned
+// nothing: an empty value falls back to the right site either way. The
+// attack is a *populated* one.
+func TestTheFormCannotWriteIntoAnotherSitesRow(t *testing.T) {
+	server, client, store := settingsServerAs(t, panel.RoleOwner)
+	ctx := context.Background()
+
+	const neighbour = "ayar-komsu"
+	before, err := store.GetSetting(ctx, unguardedKey, neighbour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, _ := postSetting(t, client, server.URL, url.Values{
+		"islem":   {"kaydet"},
+		"anahtar": {string(unguardedKey)},
+		"deger":   {"komsunun satirina yazildi"},
+		// The field a handler would read if it trusted the form for
+		// scope. It must be inert.
+		"site":    {neighbour},
+		"site_id": {neighbour},
+		"scope":   {"site"},
+	})
+	_ = status // the write may well succeed - against our own site.
+
+	after, err := store.GetSetting(ctx, unguardedKey, neighbour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Errorf("a form wrote into another site's row: %s went %v -> %v", neighbour, before, after)
+	}
+
+	// And it landed where it belongs, so this is testing the routing
+	// rather than a write that simply failed.
+	ours, err := store.GetSetting(ctx, unguardedKey, settingsSite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ours != "komsunun satirina yazildi" {
+		t.Errorf("the value did not reach our own site either: %v", ours)
+	}
+}
+
+// TestExtraFieldsInTheFormAreInert.
+//
+// The handler derives what it is about to do from the definition, never
+// from the request: the gate action, and the scope. This submits fields
+// named the way a request would name them if it could choose either, and
+// requires that the write lands where the *key* says.
+//
+// # What this test used to claim, and why it was wrong
+//
+// It asserted that the same submission must be *refused*, on the theory
+// that a form naming another action could spend an authorization on a
+// setting it was not minted for. Written that way it failed against
+// correct code, which is how the mistake surfaced: the password was
+// right and the key was right, so there was nothing there to refuse -
+// the junk fields are simply ignored.
+//
+// The claim it was reaching for is real, and it is already proven where
+// the lock actually is:
+// panel.TestGuardedSettings_AnAuthorizationForOneSettingDoesNotWriteAnother.
+// Store.SetGuardedSetting checks the authorization against the key it is
+// about to write, so a redirected one is refused there even if a handler
+// were wrong about it. The handler's own derivation is the second layer,
+// not the first, and the comment on saveSetting now says so.
+func TestExtraFieldsInTheFormAreInert(t *testing.T) {
+	server, client, store := settingsServerAsOperator(t)
+	restoreGlobal(t, store, panel.KeyLogRetentionDays, panel.KeyLogArchiveAfterDays)
+	ctx := context.Background()
+
+	otherBefore, err := store.GetSetting(ctx, panel.KeyLogArchiveAfterDays, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := postSetting(t, client, server.URL, url.Values{
+		"islem":                {"kaydet"},
+		"anahtar":              {string(panel.KeyLogRetentionDays)},
+		"deger":                {"21"},
+		"gelistirici_parolasi": {testDevPassword},
+		// Named after a different setting entirely. If any of these
+		// reached the routing, the write would land somewhere else.
+		"eylem":   {panel.GateAction(panel.KeyLogArchiveAfterDays)},
+		"action":  {panel.GateAction(panel.KeyLogArchiveAfterDays)},
+		"actions": {panel.GateAction(panel.KeyLogArchiveAfterDays)},
+		"scope":   {"site"},
+		"site":    {"baska-site"},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("the request was refused: %d %s", status, noticeOf(body))
+	}
+
+	got, err := store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 21 {
+		t.Errorf("the named setting did not change: %v", got)
+	}
+
+	otherAfter, err := store.GetSetting(ctx, panel.KeyLogArchiveAfterDays, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherAfter != otherBefore {
+		t.Errorf("the setting the extra fields named changed too: %v -> %v", otherBefore, otherAfter)
+	}
+}
+
+// TestTheRightPasswordOnTheRightSettingWorks.
+//
+// So the test above means something. A suite where the gate refuses
+// everything proves the gate is shut, not that it is a gate.
+func TestTheRightPasswordOnTheRightSettingWorks(t *testing.T) {
+	server, client, store := settingsServerAsOperator(t)
+	restoreGlobal(t, store, panel.KeyLogRetentionDays)
+	ctx := context.Background()
+
+	// logs.retention_days rather than privacy.ip_storage, and the reason
+	// is measured: ip_storage=full is refused by a precondition unless
+	// the deployment already carries an ip_hash_key, so a test using it
+	// would fail for a reason that has nothing to do with the gate.
+	// This one is guarded and has no precondition.
+	status, body := postSetting(t, client, server.URL, url.Values{
+		"islem":                {"kaydet"},
+		"anahtar":              {string(panel.KeyLogRetentionDays)},
+		"deger":                {"21"},
+		"gelistirici_parolasi": {testDevPassword},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("the right password on the right setting answered %d: %s", status, noticeOf(body))
+	}
+
+	got, err := store.GetSetting(ctx, panel.KeyLogRetentionDays, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 21 {
+		t.Errorf("the guarded setting did not change: %v", got)
+	}
 }
