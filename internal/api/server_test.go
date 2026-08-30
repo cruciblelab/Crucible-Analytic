@@ -212,12 +212,25 @@ func TestServer_TokenCannotReadAnotherSite(t *testing.T) {
 	}
 }
 
+// perSiteRouteSuffixes is the collector-side per-site routes, spelled the
+// way a caller asks for them - {ip} filled in with a real address.
+//
+// A hand list, and it stays one, because the concrete URL is what these
+// tests need and the router only knows the pattern. What keeps it honest
+// is TestTheHandWrittenRouteListsAreStillComplete in isolation_test.go,
+// which reads the router and fails when a registered route is missing
+// from here.
+var perSiteRouteSuffixes = []string{
+	"summary", "timeseries", "top-ips", "countries", "asns",
+	"ja4", "score-distribution", "ips/203.0.113.1", "snapshots",
+}
+
 func TestServer_SiteAuthorizationCoversEveryPerSiteRoute(t *testing.T) {
 	// Every per-site route must enforce the site grant - a route that
 	// forgot the check would leak another customer's data, so this is
 	// asserted per route rather than assumed from one sample.
 	h := newTestServer(t, &fakeStore{})
-	for _, suffix := range []string{"summary", "timeseries", "top-ips", "countries", "asns", "ja4", "score-distribution", "ips/203.0.113.1", "snapshots"} {
+	for _, suffix := range perSiteRouteSuffixes {
 		t.Run(suffix, func(t *testing.T) {
 			w := do(h, http.MethodGet, "/api/v1/sites/site-b/"+suffix, "ahmet-secret")
 			if w.Code != http.StatusForbidden {

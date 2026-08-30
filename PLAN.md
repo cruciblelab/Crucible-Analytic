@@ -85,12 +85,12 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
-| **B** Gözlemlenebilirlik | 🟡 **2/7** | B1, B2, B3, B5, B6 |
+| **B** Gözlemlenebilirlik | 🟡 **3/7** | B1, B2, B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
 | **D** Dashboard | 🟡 **3/8** | D4–D8 (D3'ten yalnız ham dışa aktarma kaldı, karar bekliyor) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **2/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3, H4 |
+| **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 
@@ -1763,7 +1763,7 @@ açabilmek, değerin büyük kısmıdır.
 
 ---
 
-#### B6 — Çok müşterili VDS'te yalıtım ⚠️ **belirtilmişti, planlanmamıştı**
+#### B6 — Çok müşterili VDS'te yalıtım ✅ **yapıldı** (2026-08-30)
 
 **Şart, kullanıcının kendi sözleriyle:** "Tek VDS'te 3 farklı müşteri 3
 farklı web sitesi olabilir ama hepsi ayrı kendi içinde olacak."
@@ -1789,6 +1789,30 @@ yüzeyi denetlenmedi. Denetlenmesi gerekenler:
 **Bitti ölçütü:** her uç için "A sitesinin kullanıcısı B sitesinin
 verisine ulaşamaz" testi; log filtresinin başka müşterinin alan adını
 içeren satırı sızdırmadığını gösteren test.
+
+> **Yapıldı — panel ve API kapıları.** İki dosya:
+> `internal/panel/web/isolation_integration_test.go` (dört test, altı
+> mutasyonla ölçüldü) ve `internal/api/isolation_test.go` (üç test, beş
+> mutasyonla ölçüldü).
+>
+> **Asıl iddia şuna sıkıştırıldı:** *yabancı, var olan bir siteyi var
+> olmayandan ayırt edemez.* Durum değil **gövde eşitliği** isteniyor —
+> tek kelimeyle ayrılan iki 404 hâlâ bir orakldır. Panelde iki handler
+> tam bunun için 404 döndürdüğünü yorumda yazıyordu; hiçbiri kontrol
+> edilmemişti.
+>
+> **API tarafında bir eksik bulundu ve kapatıldı:** router 34 site
+> kapsamlı rota kaydediyor, iki elle yazılmış test listesi bunların
+> 26'sını kapsıyordu. Sekiz rota (`beacon/titles`, `beacon/refs`,
+> `beacon/click-sources` ve beş `utm-*`) hiç sorulmamıştı. Davranışları
+> doğruydu — hepsini tek bir `for` döngüsü sarıyor — ama on altıncı
+> kırılım o döngünün dışında kaydedildiği gün hiçbir şey uyarmazdı.
+> Yeni test liste tutmuyor: kayıtları kaynaktan okuyup döngüyü açıyor.
+>
+> **Kalanlar bilinçli olarak dışarıda:** `panel_logs` filtresi B1'e
+> bağlı (log sayfası henüz yok), hata sayfası/yığın izi kontrolü C
+> grubunda kapandı. `overview`'ın token kapsamıyla kesişimi zaten
+> `TestServer_OverviewScopesToTheTokensSites` ile ölçülüyordu.
 
 ---
 
@@ -3731,7 +3755,7 @@ yakaladığı gerçek veritabanında ölçüldü.
 
 ---
 
-#### H4 — Yapısal güvenlik değişmezleri: "biri unutunca" testi
+#### H4 — Yapısal güvenlik değişmezleri: "biri unutunca" testi ✅ **yapıldı** (2026-08-30)
 
 **Bu fazın gerekçesi bir tahmin değil, bu grubun kurulduğu gün bulunan
 iki deliğin ortak şekli.** İkisi de şuydu: *dört sunucudan üçü doğru
@@ -3758,6 +3782,29 @@ Yazılacak testler, iddiayı yorumda değil derlemede tutan cinsten
 kaldırmak testi kırıyor (bugün elle ölçüldü: test ikilisi paniğe
 ölüyor); ve **listeye girmemiş yeni bir sunucu** testi kırıyor — bu
 sonuncusu asıl olan, çünkü diğer ikisi zaten bugün var.
+
+> **Yapıldı.** `internal/invariants/` — üretim kodu yok, hiçbir yerden
+> import edilmiyor; içinde yalnız kaynak ağacını sözdizimi ağacı üstünden
+> okuyan dört test var. Üç bitti ölçütünün üçü de mutasyonla doğrulandı:
+>
+> ```
+> zaman aşımını kaldır  -> internal/api/server.go:466 builds an
+>                          http.Server with no ReadHeaderTimeout
+> recover'ı kaldır      -> internal/proxy/pipe.go:24 starts a goroutine
+>                          with no recover
+> listeye girmemiş yeni -> TestEveryHTTPServerBoundsItsHeaderRead +
+> sunucu                   TestTheListeningPackagesAreTheOnesOnTheList
+> ```
+>
+> Üçüncüsü ikisini birden kırıyor, ki istenen buydu: yeni sunucu hem
+> kuralı çiğniyor hem de listede yok.
+>
+> **Muafiyet mekanizması gerekçeyi zorunlu tutuyor.** `internal/proxy`'de
+> `ctx.Done()` kapatıcısı meşru bir istisna ve dosyada
+> `// no-recover: <gerekçe>` satırıyla yazılı; çıplak muafiyet kabul
+> edilmiyor. (İlk hali yorumun yalnız altı satırını okuyordu ve yedi
+> satırlık gerekçe kesiliyordu — bitişik yorum bloğunun tamamını
+> okuyacak şekilde düzeltildi.)
 
 ---
 

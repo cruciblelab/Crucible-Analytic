@@ -83,6 +83,13 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // Split out from ListenAndServe so tests can serve on an ephemeral
 // (":0") listener and still learn the bound address.
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	// no-recover: this goroutine waits on a channel and closes a
+	// listener. It never holds a connection and never touches a byte an
+	// attacker sent, so there is nothing here for a recover to contain -
+	// and one that pretended otherwise would be the sort of reassurance
+	// this package's own recover.go warns about. Every other goroutine
+	// in this package does recover; internal/invariants checks that, and
+	// this line is the exemption it requires a reason for.
 	go func() {
 		<-ctx.Done()
 		ln.Close()

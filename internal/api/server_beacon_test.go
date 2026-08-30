@@ -201,6 +201,17 @@ var beaconRoutes = []string{
 	"/api/v1/sites/site-a/beacon/devices",
 	"/api/v1/sites/site-a/beacon/languages",
 	"/api/v1/sites/site-a/beacon/countries",
+	// The eight below were registered by the group loop and named in no
+	// test list for as long as they have existed. They were never wrong -
+	// the loop wraps them - but nothing asked. See isolation_test.go.
+	"/api/v1/sites/site-a/beacon/titles",
+	"/api/v1/sites/site-a/beacon/refs",
+	"/api/v1/sites/site-a/beacon/click-sources",
+	"/api/v1/sites/site-a/beacon/utm-sources",
+	"/api/v1/sites/site-a/beacon/utm-mediums",
+	"/api/v1/sites/site-a/beacon/utm-campaigns",
+	"/api/v1/sites/site-a/beacon/utm-terms",
+	"/api/v1/sites/site-a/beacon/utm-contents",
 	"/api/v1/sites/site-a/beacon/events",
 	"/api/v1/sites/site-a/beacon/raw",
 	"/api/v1/sites/site-a/crossover/summary",

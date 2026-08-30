@@ -5685,3 +5685,152 @@ olmasını istiyor. Geçti.
 Tarball E2E'siyle aynı soruyu iki farklı kuruluma soruyorlar, ve bu fazın
 öğrettiği tam olarak şu: **iki kurulum aynı soruya aynı cevabı vermiyor,
 ve fark her seferinde ürünün lehine değil.**
+
+---
+
+## H4 + B6 — "biri unutunca" ve "üç müşteri, tek makine"
+
+*(2026-08-30)*
+
+İki faz aynı gün yapıldı çünkü aynı şeyin iki yüzü: bir kural N yerde
+tek tek hatırlandığı için doğru, ve N+1'inci yer onu hatırlamadığında
+kimse fark etmiyor.
+
+### H4 — yapısal değişmezler
+
+`internal/invariants/` üretim kodu içermiyor, hiçbir yerden import
+edilmiyor. İçinde yalnız kaynak ağacını okuyup **hiçbir dosyanın kendisi
+hakkında söyleyemeyeceği** şeyleri doğrulayan testler var.
+
+Neden var: aynı öğleden sonra bulunan iki delik aynı şekildeydi.
+
+* `internal/api`, `internal/beacon` ve `internal/panel/web` dört
+  zaman aşımını da kuruyordu. `internal/fullproxy` hiçbirini kurmuyordu.
+* `net/http` üstünde koşan her şey bağlantı başına `recover`'ı bedava
+  alıyordu. `internal/proxy` — `http.Server` kullanmayan tek paket —
+  almıyordu, yani bir bağlantıdaki tek panik collector'ı, onunla birlikte
+  **müşterinin web sitesini** düşürüyordu.
+
+İkisini de bir insan buldu. Bu paket, bir dahakine o insanın orada
+olmasına bel bağlamama denemesi.
+
+Dört test var, hepsi **iki yönlü ayna**: bir taraf kaynağın gerçekte ne
+yaptığı (sözdizimi ağacı yürüyerek okunuyor), öteki taraf yanına gerekçesi
+yazılmış elle tutulan bir liste. Hangi taraf tek başına oynarsa test
+düşüyor ve hangisinin oynadığını söylüyor.
+
+Tek yönlü bir tarama — "bulabildiğim her sunucunun zaman aşımı var" —
+taramanın tanımadığı bir şekilde sunucu kurulduğu gün sessizce geçerdi.
+**Listeyi zorunlu kılan şey, birinin bakmasını zorunlu kılıyor.**
+
+Üç mutasyonla ölçüldü, üçü de yakalandı: zaman aşımını kaldır, `recover`'ı
+kaldır, listeye girmemiş yeni bir sunucu ekle.
+
+`internal/proxy/server.go`'daki `ctx.Done()` kapatıcısı meşru bir istisna,
+ve dosyada `// no-recover: <gerekçe>` satırıyla yazılı. İstisna mekanizması
+gerekçeyi **zorunlu tutuyor** — çıplak bir muafiyet kabul edilmiyor.
+
+### B6 — üç müşteri, tek VDS
+
+Müşterinin kendi cümlesi: *"Tek VDS'te 3 farklı müşteri 3 farklı web
+sitesi olabilir ama hepsi ayrı kendi içinde olacak."*
+
+Bugün bu ayrım **tek bir şeye** dayanıyor: panelin kendi üyelik kontrolü.
+Panelin tuttuğu API jetonu makinedeki her siteyi okuyor; altında bir
+veritabanı sınırı yok ve olması da planlanmıyor. Sınır
+`panel_site_members`. Tek kontrole dayanan bir sınırın **kapı başına bir
+testi** olmalı.
+
+#### Asıl iddia
+
+"Yabancı sayıları okuyamaz" değil — o zaten iki rota için test ediliyordu.
+Keskin olan, ve hiçbir şeyin ölçmediği:
+
+> **Yabancı, var olan bir siteyi var olmayandan ayırt edemez.**
+
+İki handler'da tam olarak bunun için 403 değil 404 döndürdüklerini söyleyen
+yorumlar duruyordu. **Hiçbiri kontrol edilmemişti.** 403, farklı bir gövde,
+farklı bir uzunluk, tek bir kelime — herhangi biri o URL'yi, makinedeki her
+müşteriyi **oradaki herhangi bir hesaptan** sayabilme yoluna çeviriyor;
+birine bir öğleliğine verilmiş deneme hesabı dahil.
+
+`internal/panel/web/isolation_integration_test.go` bunu her site-kapsamlı
+rota için soruyor ve **durum değil gövde eşitliği** istiyor. Tek kelimeyle
+ayrılan iki 404 hâlâ bir orakldır.
+
+Altı mutasyonla ölçüldü, altısı da yakalandı. Üçü kayda değer:
+
+| mutasyon | yakalayan |
+|---|---|
+| red 403 olsun | durum kontrolü |
+| var olana 403, olmayana 404 | durum + eşitlik + gövde |
+| **ikisi de 404, gövde bir kelime farklı** | **yalnız gövde eşitliği** |
+
+Üçüncüsü, gövde karşılaştırmasının neden orada olduğunun cevabı.
+
+#### API tarafı: sekiz rota hiç sorulmamış
+
+Aynı soruyu API'ye sorunca çıkan şey plandan büyüktü. `siteHandler`
+sarmalayıcısı doğru; risk hiç sarmalayıcıda değildi. Riski taşıyan şey,
+bu sınırı test eden iki listenin de **elle yazılmış** olmasıydı:
+
+```
+server.go + server_beacon.go 34 site-kapsamlı rota kaydediyor
+server_test.go'nun listesi         9
+server_beacon_test.go'nun listesi 17
+                                  --
+hiç sorulmamış:                    8
+```
+
+Sekizi — `beacon/titles`, `beacon/refs`, `beacon/click-sources` ve beş
+`utm-*` — bugün **doğru davranıyor**. Mesele bu. Doğrular çünkü onları tek
+bir `for` döngüsü sarıyor; on altıncı kırılım o döngünün dışında
+kaydedildiği gün, ya da biri özel bir durum için döngüden çıkarıldığı gün,
+takımdaki hiçbir şey tek kelime etmezdi.
+
+`internal/api/isolation_test.go` bu yüzden liste tutmuyor: kayıtları
+kaynaktan okuyor, on beşini üreten döngüyü açıyor, ve **hepsini deniyor.**
+Okuyamadığı bir şekilde kaydedilmiş rota sessizce atlanmıyor, testi
+düşürüyor — korunmaya çalışılan hata zaten "kimsenin bakmadığı rota".
+
+#### Kendi testimdeki delik
+
+İlk taslak `s.siteHandler(...)` **sarmalayan** kayıtları arıyordu. Bu,
+dosyanın kaldırmak için yazıldığı kusurun ta kendisiydi: sarmalayıcısız
+kaydedilmiş rota tam olarak aranan hatadır, ve sarmalayıcıya bakmak o
+rotayı taramaya görünmez yapıyordu.
+
+Mutasyon testi bunu ortaya çıkardı. Tarama artık **desene** bakıyor — bu
+URL bir site kimliği taşıyor, peki başkasının kimliğiyle ne yapıyor? —
+ve bu soru kaydın sarmalayıcısını hatırlayıp hatırlamadığından bağımsız
+cevaplanabiliyor.
+
+Düzeltilmiş halin mutasyonu:
+
+```
+--- FAIL: TestEveryPerSiteRouteRefusesAnotherSitesToken/beacon/click-sources
+    reading another customer's site -> 200, want 403.
+    This route reached a handler without the token's grant being checked
+```
+
+**200.** Gerçek bir müşteriler-arası okuma, adıyla söylenmiş.
+
+#### API neden 403, panel neden 404
+
+İkisi farklı ve fark bilerek: jeton sahibi kendi yapılandırmasını okuyan
+bir işletmeci, anonim bir tarayıcı değil. Ona "jetonun bunu kapsamıyor"
+demek, yanlış yapılandırılmış bir jetonu eksik bir site gibi göstermekten
+iyidir.
+
+Ama bu savunma yalnız 403 **site var olsa da olmasa da aynı** kaldığı
+sürece geçerli. Değişseydi, uç nokta panelin olmamak için özen gösterdiği
+sayma orakline dönerdi — üstelik geçerli jeton tutan her müşteriye açık.
+`TestARefusedRouteSaysNothingAboutWhetherTheSiteExists` bunu 34 rotanın
+hepsi için soruyor.
+
+### Bu fazın öğrettiği
+
+Elle yazılmış bir liste yanlış olduğu için değil, **eksildiği** için
+tehlikeli. Yanlış liste kırmızı olur; eksik liste yeşil kalır ve
+kapsamadığı şey hakkında hiçbir şey söylemez. İki listeye de tek tek
+bakılmıştı; ikisinin **birlikte** neyi kaçırdığına kimse bakmamıştı.
