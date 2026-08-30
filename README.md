@@ -1517,6 +1517,97 @@ rows in `traffic_snapshots` or `beacon_events` — that is the isolation
 working, not a gap — so the page says which of the two it is showing.
 Row counts come from the read API, on the site pages.
 
+## What the system records about itself
+
+Two tables, and they answer different questions. Keeping them apart is
+what stops diagnostic detail from crowding out the record that has to
+survive.
+
+| Table | Question | Kept |
+|---|---|---|
+| `panel_audit_log` | who did what | a long time; nothing in this schema may delete a row |
+| `panel_operations` | what happened while they did it | short; usually read within the hour |
+| `panel_logs` | what the services logged | short; WARN and above by default |
+
+### Log lines a customer can read
+
+The log tree on disk (`<dir>/<service>/<day>/<category>.log`) stays the
+operator's record and is the better one in every way that matters to an
+operator: complete, cheap, and readable with `grep` on a machine somebody
+is already logged into. It is also unreachable to a customer, who has no
+shell and is not going to get one.
+
+`panel_logs` is the subset the panel can show them, and it is allowed to
+lose lines the tree keeps. That is deliberate, and it is the whole shape
+of the thing:
+
+**The database is never in the request path.** The proxy touches attacker
+bytes and forwards them to the customer's own website. A log write that
+waited on PostgreSQL would put a database round-trip between a visitor and
+the site they are visiting, so a database that got slow would become a
+website that got slow.
+
+So: a buffered channel, one background writer, and lines dropped when the
+buffer is full. Dropping is correct, because the alternative is worse in
+exactly the situation that matters — a service under load, producing more
+log lines than usual, is the service you least want to block. Measured
+with a buffer of one and 5000 records: 2.7 ms. The same code made to wait
+took 1.88 seconds.
+
+What must not happen is dropping *silently*. Dropped lines are counted and
+the count is reported like every other counter, so "the panel's log is
+missing an hour" is a question with an answer.
+
+A log table also becomes the largest table in the database if nothing
+stops it, which is the disk-full failure arriving by a second road. Three
+things bound it: only WARN and above is kept by default; the per-site
+verbose switch that raises it to DEBUG expires on its own; and it has its
+own retention, far shorter than the analytics tables'.
+
+Four services write to this table, and, as with the heartbeat, "only under
+your own name" comes from row-level security keyed on `current_user`
+rather than from a `GRANT`. A compromised beacon must not be able to write
+lines signed `collector` — forging entries in the record an operator reads
+to find out what an attacker did is the one place a forgery pays.
+
+### The operation record
+
+Every setting change opens an operation before the work starts, and the
+id it gets is attached to every log line the work produces. That ordering
+is the point: an id assigned by the database would not exist until the
+first write, by which time the interesting lines have gone out without it.
+
+A record carries the actor, the audit entry it belongs to, the value
+before and after, each step and how it went, and — on a failure — the
+whole error chain and whether anything was left behind.
+
+That last field is the one the table exists for. "Something went wrong
+while I was setting it" is only answerable if a half-applied change is
+recorded *as* half-applied, so it has three states rather than two:
+
+- `true` — applied, then undone
+- `false` — applied, still standing
+- `null` — nothing had been applied, so there was nothing to undo
+
+Collapsing `null` into `false` would claim a change was left behind when
+none was ever made.
+
+The outcome is three-valued for the same kind of reason. A refusal — a
+missing capability, a wrong password, a value out of bounds — is the
+system working as designed, and burying refusals among genuine faults is
+how a real one gets missed in a list of them.
+
+The error chain is stored whole rather than as its last link, because the
+links say different things: the outer one names what the panel was doing
+and the inner one names why the database said no. "Permission denied for
+table X" tells somebody what to fix; "could not save the setting" tells
+them what they already knew.
+
+**Not yet built:** the page that shows any of this. The tables and the
+writers are in place and every setting change is recorded, but reading it
+back today means querying the database. The panel-side log view and the
+streaming window for a running operation are a later phase.
+
 ## Outgoing email
 
 Optional, and it is worth being exact about what "optional" means here:

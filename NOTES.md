@@ -6262,3 +6262,146 @@ ile temizleniyor.
 Olumlu test olmadan bütün "doğru reddediyor" testleri yeşil kalırdı ve
 özellik hiç çalışmazdı. **Bir şeyin reddettiğini kanıtlamak, çalıştığını
 kanıtlamaz.**
+
+---
+
+## B1+B2 — Bir sütun iki fazı birleştirdiği zaman
+
+B1 (`panel_logs`) ile B2 (`panel_operations`) planda ayrı iki fazdı.
+Ayrı yapılamazlar, ve sebebi tek bir sütun: `panel_logs.operation_id`
+içindeki değer `panel_operations.id`'dir.
+
+Sırayla denemenin iki hâli de kötü:
+
+- Önce B1: sütun kimsenin dolduramadığı boş bir söz olur, ve boş bir
+  sütun "henüz kullanılmıyor" ile "yanlış dolduruluyor" arasında ayrım
+  yapmaz.
+- Önce B2: kimliğin bağlanacağı satır yoktur, yani kimliğin işe yarayıp
+  yaramadığı ancak B1 geldiğinde anlaşılır — hata bulunduğunda B2 çoktan
+  "bitmiş" sayılmıştır.
+
+Bir sütun iki tablonun arasındaysa, o iki tablo tek bir fazdır.
+
+### Veritabanı asla istek yolunda değil
+
+`internal/proxy` saldırgan baytlarına dokunup müşterinin kendi sitesine
+iletiyor. PostgreSQL'i bekleyen bir kayıt yazımı ziyaretçiyle site
+arasına bir veritabanı gidiş-dönüşü koyardı, ve **yavaşlayan veritabanı
+yavaşlayan web sitesi** olurdu.
+
+Bu yüzden tamponlu kanal, tek yazıcı goroutine, ve tampon dolunca
+düşürme. Düşürmek doğru davranış: alternatifi tam da önemli olan anda
+daha kötü — yük altındaki servis, en çok satır üreten ve en az
+bloklanması gereken servistir.
+
+Olmaması gereken şey *sessizce* düşürmek. Düşen sayılıyor, ve sağlık
+sayfası sayacı okuyor: "panelin kaydında bir saat eksik" cevabı olan bir
+soru.
+
+Ölçüldü: tampon 1, 5000 satır, **2.7 ms**. Aynı kod bloklamaya
+çevrildiğinde **1.88 saniye**.
+
+### rolled_back üç durumlu, ve bu fazın asıl alanı
+
+Planın kendi vurgusu: *son alan en önemlisi. "Bir şeyi ayarlarken hata
+olmuş" ancak yarım uygulanmış bir değişiklik yarım uygulanmış olarak
+kaydedilirse cevaplanabilir.*
+
+- `true` — uygulandı, sonra geri alındı
+- `false` — uygulandı, olduğu gibi duruyor
+- `NULL` — hiçbir şey uygulanmamıştı, geri alınacak bir şey yoktu
+
+`NULL`'u `false`'a çökertmek, hiç yapılmamış bir değişikliğin geride
+bırakıldığını iddia etmek olurdu — bu tablonun cevaplamak için var
+olduğu tek sorunun yanlış cevabı.
+
+Sonuç da üç değerli, aynı sebeple: `refused` bir arıza değil, sistemin
+tasarlandığı gibi çalışması. Reddedilmeleri arızaların arasına gömmek,
+gerçek bir arızanın uzun bir listede gözden kaçma yoludur.
+
+### İşlem kimliği neden Go'da üretiliyor
+
+Bütün amaç kimliği işlemin *birazdan üreteceği* satırlara iliştirmek.
+Veritabanının atadığı bir kimlik ilk yazmaya kadar var olmaz, ve o zamana
+kadar ilginç satırlar kimliksiz çıkmıştır.
+
+Rastgele, sıralı değil: kimlik müşterinin görebildiği bir satıra ulaşıyor
+ve bir sayaç kurulumun şimdiye kadar kaç işlem çalıştırdığını söylerdi.
+Küçük bir sızıntı, ama yalnızca benzersiz olması gereken bir değer için
+kabul etmenin hiçbir sebebi yok.
+
+### Elle ölçüm kapı değildir
+
+Satır düzeyi politikalarını psql isteminde elle ölçtüm, çalıştıklarını
+gördüm, ve teste bağlamadan geçtim sandım. Testler `CA_SUPERUSER_DSN`'den
+tek havuz açıp bütün satırları `postgres` adına yazıyordu — ve
+**PostgreSQL süper kullanıcıyı satır düzeyi güvenlikten tamamen muaf
+tutuyor**. Üstelik yazma politikası `service`'i `current_user` ile
+karşılaştırdığı için, postgres adına postgres olarak yazmak politikayı
+kazara sağlıyordu.
+
+Dört test de yeşildi ve hiçbiri bir politikayı sınamıyordu.
+
+`internal/testdb` tam olarak bunu bitirmek için yazılmıştı; paket yorumu
+ilk seferinde gizlediği üç gerçek hatayı sayıyor. Kuralı yine unuttum ve
+kendi paketimde yeniden kurdum. **Üretimden daha yetkili bir test
+düzeneği üretimi sınamıyor** — bu oturumda dördüncü kez.
+
+Şimdi iki havuz: collector yazıyor, panel okuyor. Üretimdeki şekli bu —
+collector yalnızca INSERT tutuyor, kendi satırlarını geri okuyabilen bir
+sink hiçbir kurulumun vermediği yetkiyle çalışıyor olurdu.
+
+### Süpürme politikası ölçülerek taşıyıcı çıktı
+
+`panel_logs_sweep`, zaten izin veren bir politikası olan tabloya ikinci
+bir politika — okununca fazlalık gibi duruyor. Ölçüldüğünde değil: o
+politika olmadan `panel_user`'ın `DELETE`'i **1 satır** sildi (kendi
+satırını) ve collector'ınkini bıraktı.
+
+İzin veren politikalar OR'lanıyor, ama `FOR ALL` yazma politikası çapraz
+rol `DELETE`'e izin vermiyor — kendi `FOR DELETE` politikasını
+gerektiriyor. Bu, çalışıyor gibi görünüp çalışmayan bir saklama işinin
+şekli, ve budayamadığı tablo büyümesi disk dolma hatası olan tablo.
+
+### Mutasyon turu: dokuz mutasyon, biri hayatta kaldı
+
+Hayatta kalan: `errorChain`'in bütün gövdesini `return err.Error()` ile
+değiştirmek bütün testleri yeşil bıraktı.
+
+`operations.go`'nun yorumu bunun bilinçli bir karar olduğunu söylüyor —
+"zincir son halkası olarak değil bütün olarak saklanıyor, çünkü en içteki
+sebep çözümü adlandıran halkadır" — ve hiçbir şey onu korumuyordu.
+Koruyor sandığım entegrasyon testi zincirin `"3650"` içerdiğine
+bakıyordu, ve **en dıştaki halka onu zaten taşıyordu**: iddia tek
+halkalık bir zincirde de geçiyordu.
+
+Bu, bu oturumda tekrar eden bir şeklin bir başka örneği: *iddia doğru
+olan bir şeye bakıyordu, ama yanlış olabilecek şeye değil.*
+
+Yeni test deponun kendi `wrapStoreError`'ıyla kuruluyor ki üretimdeki
+sarma şekli değişince test de değişsin. Sayılan şey **satır sayısı**:
+iki halka iki satır demek, ve `Contains` iddiaları tek satırda da geçer
+çünkü `fmt.Errorf`'un `%w`'si sebebin metnini dış hatanın içinde bırakır.
+
+### Neredeyse boş bir eşik
+
+Sink'i bloklamaya çevirmek `TestTheSinkDropsRatherThanBlocks`'u düşürdü —
+ama kararı veren `dropped == 0` iddiasıydı. Zamanlama iddiası 2 saniyeydi
+ve bloklama 1.88 saniye sürdü.
+
+Yani tavan, yakalaması gereken hatanın **hemen üstünde** duruyordu. Daha
+hızlı bir veritabanında altından geçerdi ve geriye tek iddia kalırdı.
+500 ms'ye çekildi: doğru davranışın ölçülen maliyeti 2.7 ms, hâlâ 150 kat
+pay var.
+
+**Geçen bir mutasyon testi, dar farkla geçen bir mutasyon testiyle aynı
+şey değil.** Mutasyonun kırmızıya döndüğünü görmek yetmiyor; hangi
+iddianın döndürdüğüne ve ne kadar payla döndürdüğüne bakmak gerekiyor.
+
+### B6'nın ertelenmiş maddesi hâlâ ertelenmiş, ama başka yere
+
+B6 `panel_logs` filtresi testini "B1'e bağlı" diye bırakmıştı. Tablo
+artık var — ama ertelemenin gerçek sebebi parantez içindeydi: *log
+sayfası henüz yok*. O sayfa D4b. Filtreyi sınayacak sorgu henüz
+yazılmadı, ve olmayan bir fonksiyonun yalıtımı sınanamaz. PLAN'da
+bağlılık D4b'ye taşındı.

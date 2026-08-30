@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
-| **B** Gözlemlenebilirlik | 🟡 **3/7** | B1, B2, B3, B5 |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
 | **D** Dashboard | 🟡 **4/8** | D4b, D5–D8 (D4a yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -148,9 +148,11 @@ E1            ←— ayrı karar, herkesi yeniden yazdırır
 
 #### İki gerçek yük bindirme riski
 
-**B1 ile B2 ayrılamaz.** B2'nin korelasyon kimliği B1'in **satır şeklinde**
-taşınmak zorunda. B1 önce ve o sütun olmadan yapılırsa, B2 geldiğinde log
-tablosu ve yazıcısı yeniden yazılır. İkisi tek faz.
+**B1 ile B2 ayrılamaz.** *(2026-08-30: tek faz olarak yapıldı ve tahmin
+doğruydu — `panel_logs.operation_id` içindeki değer
+`panel_operations.id`'dir.)* B2'nin korelasyon kimliği B1'in **satır
+şeklinde** taşınmak zorunda. B1 önce ve o sütun olmadan yapılırsa, B2
+geldiğinde log tablosu ve yazıcısı yeniden yazılır.
 
 **L3'ten önce B2 gelmeli.** Yükseltme, tanımı gereği bir operasyondur —
 "ne oldu, hangi adımda düştü, geri alındı mı". L3 B2'siz yapılırsa
@@ -161,11 +163,11 @@ geçer.
 
 | # | iş | neden burada |
 |---|---|---|
-| 1 | **L1** şema sürümü | bağımsız; evi hazır; L2 ve L3'ün ön şartı; az önce ölçtüğümüz riski kapatıyor |
-| 2 | **L2** açılışta sütun kontrolü | L1'in kaynağını kullanır; **müşteri düğmeye hiç basmasa bile** veri kaybını kapatır |
-| 3 | **D4a** ayar sayfası kabuğu | üç fazı birden açan tek iş; arka ucu zaten hazır |
-| 4 | **B1+B2** birlikte | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
-| 5 | **L3** düğme | 3 ve 4'ün üstüne oturuyor; beşinci rol burada geliyor |
+| 1 | ~~**L1** şema sürümü~~ ✅ | bağımsız; evi hazır; L2 ve L3'ün ön şartı; az önce ölçtüğümüz riski kapatıyor |
+| 2 | ~~**L2** açılışta sütun kontrolü~~ ✅ | L1'in kaynağını kullanır; **müşteri düğmeye hiç basmasa bile** veri kaybını kapatır |
+| 3 | ~~**D4a** ayar sayfası kabuğu~~ ✅ | üç fazı birden açan tek iş; arka ucu zaten hazır |
+| 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
+| 5 | **L3** düğme ← **sıradaki** | 3 ve 4'ün üstüne oturuyor; beşinci rol burada geliyor |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -1666,7 +1668,7 @@ testini taşıyor, `go test -race ./...` ve entegrasyon paketi temiz,
 
 ### B. Gözlemlenebilirlik — SSH'i gereksiz kılan şey
 
-#### B1 — `panel_logs`
+#### B1 — `panel_logs` ✅ *(2026-08-30, B2 ile birlikte)*
 
 **Ne:** Dört servis de `log/slog` kullanıyor. İkinci bir handler
 `panel_logs` tablosuna yazar ki panel SSH'siz gösterebilsin.
@@ -1690,7 +1692,7 @@ yazıcıyı bozmuyor; ayrıntılı anahtar süresi dolunca kendi kapanıyor.
 
 ---
 
-#### B2 — `panel_operations` — operasyon günlüğü
+#### B2 — `panel_operations` — operasyon günlüğü ✅ *(2026-08-30, B1 ile birlikte)*
 
 **Ne:** Denetim kaydı "kim ne yaptı"yı cevaplar. Bir arızayı teşhis etmek
 "onlar yaparken ne oldu"yu gerektirir — farklı ve çok daha ayrıntılı bir
@@ -1708,6 +1710,44 @@ kayıt, o yüzden kendi kısa saklama süresi olan ikinci bir tablo.
 Son alan en önemlisi. "Bir şeyi ayarlarken hata olmuş" ancak yarım
 uygulanmış bir değişiklik *yarım uygulanmış olarak kaydedilirse*
 cevaplanabilir.
+
+**Neden B1 ile tek faz:** `panel_logs.operation_id` içindeki değer
+`panel_operations.id`'dir. Ayrı yapılsalardı ya sütun kimsenin
+dolduramadığı boş bir söz olurdu, ya da kimliğin bağlanacağı satır
+olmazdı — ve ikinci hâlde kimliğin işe yarayıp yaramadığı B1 gelene
+kadar anlaşılmazdı. Bir sütun iki tablonun arasındaysa, o iki tablo tek
+bir fazdır.
+
+**Ne yapıldı:**
+
+- `internal/logsink` — tamponlu kanal, tek yazıcı goroutine, tampon
+  dolunca düşürme ve sayma. Veritabanı asla istek yolunda değil.
+  Ölçüldü: tampon 1, 5000 satır, 2.7 ms; aynı kod bloklamaya
+  çevrildiğinde 1.88 saniye.
+- `internal/panel/operations.go` — `BeginOperation` / `Step` / `Values`
+  / `LinkAudit` / `Finish`. Üç değerli sonuç (`succeeded` / `failed` /
+  `refused`) ve üç durumlu `rolled_back` (`NULL` = hiçbir şey
+  uygulanmamıştı). Kimlik Go'da üretiliyor ve rastgele.
+- Ayar değişimi uçtan uca bağlandı: işlem kaydı işten *önce* açılıyor,
+  çünkü kimliğin işin üreteceği satırlara iliştirilecek zamanı olmalı.
+- Şema bölündü: `panel_logs` → `internal/logsink/schema.sql`,
+  `panel_operations` → `internal/panel/schema.sql`. Bir tablonun şeması
+  onu yazanların yanında durur (`internal/heartbeat` emsali).
+
+**Bitti ölçütü karşılandı:** düşmanca dize dört şekilde denendi (NUL,
+geçersiz UTF-8, 1 MB tek satır, satır bölme) — hepsi yazıldı, hiçbiri
+gönderildiği gibi saklanmadı; seviye tabanı ölçüldü; satır düzeyi
+politikaları dört rolle uçtan uca ölçüldü ve teste bağlandı.
+
+**Ayrıntılı anahtarın kendi kendine sönmesi** B1'in bitti ölçütünde
+yazıyordu ve `internal/logging.Controls.Apply` ile zaten çalışıyor;
+`logsink` seviyesini onunla *paylaşıyor* (aynı `*slog.LevelVar`), yani
+süre dolduğunda ağaçla birlikte bu tablo da kısılıyor. Anahtarı panelden
+açan yüzey D4b'de.
+
+**Bu fazda bulunan iki kusur:** testlerin `postgres` olarak bağlanması
+(hiçbir politikayı sınamıyorlardı) ve `errorChain`'in bütün-zincir
+iddiasının korumasız olması. İkisi de NOTES.md'de.
 
 ---
 
@@ -1898,9 +1938,11 @@ içeren satırı sızdırmadığını gösteren test.
 > kırılım o döngünün dışında kaydedildiği gün hiçbir şey uyarmazdı.
 > Yeni test liste tutmuyor: kayıtları kaynaktan okuyup döngüyü açıyor.
 >
-> **Kalanlar bilinçli olarak dışarıda:** `panel_logs` filtresi B1'e
-> bağlı (log sayfası henüz yok), hata sayfası/yığın izi kontrolü C
-> grubunda kapandı. `overview`'ın token kapsamıyla kesişimi zaten
+> **Kalanlar bilinçli olarak dışarıda:** `panel_logs` filtresi **D4b'ye**
+> bağlı — tablo B1'de geldi, ama ertelemenin gerçek sebebi parantez
+> içindeydi (*log sayfası henüz yok*), ve o sayfa D4b'dir. Filtreyi
+> yapacak sorgu yazılmadan, olmayan bir fonksiyonun yalıtımı sınanamaz.
+> Hata sayfası/yığın izi kontrolü C grubunda kapandı. `overview`'ın token kapsamıyla kesişimi zaten
 > `TestServer_OverviewScopesToTheTokensSites` ile ölçülüyordu.
 
 ---
