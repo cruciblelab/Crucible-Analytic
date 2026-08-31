@@ -98,9 +98,22 @@ From `PLAN.md`'s permanent rules, and they are not negotiable:
   changing that.
 - A test fixture more privileged than production.
 
+## Releases
+
+`VERSIONING.md` has the scheme and, more usefully, when a version is cut:
+**on a completed phase, not on a commit**. `CHANGELOG.md` is the record,
+and every entry has to answer the question a release note is actually
+read for - whether the person installing it has to do anything.
+
+Two numbers, and conflating them is the easy mistake: the build version
+(`v0.9.0+L3`) is what people say out loud, and the schema version
+(`internal/schemaver.Version`, an integer) is what the upgrade machinery
+in L1-L3 acts on. They move independently.
+
 ## Documents
 
-`PLAN.md`, `NOTES.md`, `SOZLUK.md` and `KURULUM.md` are Turkish;
+`PLAN.md`, `NOTES.md`, `SOZLUK.md`, `KURULUM.md`, `VERSIONING.md` and
+`CHANGELOG.md` are Turkish;
 `README.md`, the code and its comments are English. Several tests in
 `internal/docs` check that the Turkish files are not corrupted and that
 every document reference resolves, so a link to a file that does not

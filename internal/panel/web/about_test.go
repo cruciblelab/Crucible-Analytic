@@ -189,3 +189,42 @@ func repoPath(url string) string {
 	}
 	return strings.Join(parts[len(parts)-2:], "/")
 }
+
+// TestNobodyIsBothAContributorAndThanked.
+//
+// The two lists make different claims - one says "their work is in this,
+// under an agreement", the other says "we wanted to name them". A name in
+// both draws twice and asserts both, and the likeliest way it happens is
+// somebody being promoted from one list without being removed from the
+// other.
+func TestNobodyIsBothAContributorAndThanked(t *testing.T) {
+	credited := map[string]bool{}
+	for _, c := range contributors {
+		credited[c.Name] = true
+	}
+	for _, c := range thanks {
+		if credited[c.Name] {
+			t.Errorf("%q is in both contributors and thanks. Those are different "+
+				"claims: one is covered by CLA-SIGNATURES.md and the other is not, "+
+				"and the page would say both", c.Name)
+		}
+	}
+}
+
+// TestNobodyIsThankedWithoutAReason.
+//
+// A name with no role renders as a bare word in a list under a heading,
+// which tells a reader nothing about why it is there - and a credits
+// block that cannot say why somebody is in it invites the reading that
+// names get added casually.
+func TestNobodyIsThankedWithoutAReason(t *testing.T) {
+	for _, c := range thanks {
+		if strings.TrimSpace(c.Name) == "" {
+			t.Error("a thanks entry has no name")
+		}
+		if c.RoleKey == "" {
+			t.Errorf("%q is thanked with no role key, so the page draws a bare name",
+				c.Name)
+		}
+	}
+}

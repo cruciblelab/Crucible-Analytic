@@ -95,7 +95,12 @@ func TestDocuments_TurkishIsNotCorrupted(t *testing.T) {
 // than corrupts cannot pass silently.
 func TestDocuments_TurkishFilesActuallyContainTurkish(t *testing.T) {
 	files := markdownFiles(t)
-	for _, name := range []string{"KURULUM.md", "PLAN.md"} {
+	// VERSIONING.md and CHANGELOG.md joined the list when they were
+	// written. They are Turkish, they are read by operators, and a
+	// release note whose "ş" has become "Å" is a release note somebody
+	// stops trusting at exactly the moment they are deciding whether to
+	// upgrade.
+	for _, name := range []string{"KURULUM.md", "PLAN.md", "VERSIONING.md", "CHANGELOG.md"} {
 		body, ok := files[name]
 		if !ok {
 			t.Errorf("%s is missing", name)

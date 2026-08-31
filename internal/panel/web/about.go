@@ -77,6 +77,28 @@ var contributors = []contributor{
 	{Name: "Claude", RoleKey: "ayarlar.hakkinda.rol.asistan", Mark: "marka-claude.svg"},
 }
 
+// thanks are the people the project wants to name who are not
+// contributors in the sense CLA.md means.
+//
+// A separate list, and the separation is the point rather than a
+// nicety. "Contributor" in this repository is a word with paperwork
+// behind it: CLA-SIGNATURES.md records who agreed that their work may
+// be in the software, and TestEveryContributorHasSignedTheCLA holds the
+// panel's credits to that record.
+//
+// Naming somebody as a contributor who has not signed would mean either
+// a red test or a signature written on their behalf, and the second is
+// inventing a legal record. Thanking somebody requires no agreement from
+// anybody, which is exactly why it is the honest place for a name that
+// belongs on the page for another reason.
+//
+// If one of these people does contribute code, they sign like anybody
+// else and move up one list.
+var thanks = []contributor{
+	{Name: "Mehmet Can", RoleKey: "ayarlar.hakkinda.rol.tesekkur"},
+	{Name: "Ali Hüseyin", RoleKey: "ayarlar.hakkinda.rol.tesekkur"},
+}
+
 // aboutRow is one contributor, ready to draw.
 type aboutRow struct {
 	Name string
@@ -98,6 +120,9 @@ type aboutSection struct {
 	Repository   string
 	Licence      string
 	Contributors []aboutRow
+	// Thanks is drawn under its own heading. Empty is a real state and
+	// the template omits the heading rather than drawing an empty list.
+	Thanks []aboutRow
 }
 
 // aboutFor builds the section.
@@ -108,12 +133,20 @@ func (s *Server) aboutFor(lang *ui.Language) aboutSection {
 		Repository: RepositoryURL,
 		Licence:    LicenceName,
 	}
-	for _, c := range contributors {
+	out.Contributors = s.rowsFor(lang, contributors)
+	out.Thanks = s.rowsFor(lang, thanks)
+	return out
+}
+
+// rowsFor turns one list into drawable rows.
+func (s *Server) rowsFor(lang *ui.Language, list []contributor) []aboutRow {
+	var out []aboutRow
+	for _, c := range list {
 		row := aboutRow{Name: c.Name, Role: lang.T(c.RoleKey)}
 		if assets := s.Renderer.Assets(); c.Mark != "" && assets != nil {
 			row.MarkURL = assets.URL(c.Mark)
 		}
-		out.Contributors = append(out.Contributors, row)
+		out = append(out, row)
 	}
 	return out
 }

@@ -2183,6 +2183,23 @@ open questions it would need to resolve. The `RateStore` interface and
 scoring package are shaped to make these additive later, not to pre-build
 them now.
 
+## Releases and versioning
+
+`v0.9.0+L3`: semantic version, with the phase it shipped in carried as
+SemVer build metadata (which is ignored for ordering, deliberately - the
+phase is a label, not a rank). `VERSIONING.md` has the scheme and the two
+forms it rejects; `CHANGELOG.md` is the record.
+
+**Versions are cut on completed phases, not on commits.** 130 commits
+would make 130 versions, and a version is a promise about something
+people install rather than a line in a history.
+
+**0.9 rather than 1.0, and that is a statement about the API.** 1.0.0
+promises not to break; the read-only JSON API on this page is a public
+contract and several phases are still open. 1.0.0 comes when the plan's
+phase table is complete - which is also, deliberately, where the licence
+changes.
+
 ## Licence
 
 Apache-2.0. See `LICENSE` for the terms and `NOTICE` for the attribution
