@@ -6858,3 +6858,83 @@ dedi — belge hakkında haklıydım, desen hakkında değil.
 Ve aynı desen `version_test.go`'da kullanılıyor, yani `+D4c` etiketli
 bir yapı "var olmayan bir fazı gösteriyor" diye reddedilirdi. **İkinci
 bir kopya yazmamanın karşılığı: tek düzeltme iki yeri birden düzeltti.**
+
+---
+
+## Üretilen bir parola nereye gider — ve biri hiçbir yere gitmiyordu
+
+Kullanıcı sordu: *"rastgele parola dedin, bu kullanıcıya bildiriliyor
+değil mi? Yapılan hatalardan biri parola üretilir, ayarlanır, ama
+kullanıcıya gösterilmez — kaydetme fırsatı verilmez."*
+
+Tasarım aslında doğruydu ve gerekçesi yazılıydı: parolalar basılmıyor,
+çünkü yapılandırma dosyalarına yazılıyorlar ve terminaldeki bir parola
+scrollback'teki bir paroladır. Operatörün ezberlemesi gerekmiyor —
+bunlar servis kimlikleri, insan kimlikleri değil.
+
+**Ama bir istisna var ve o istisna bozuktu.** Betik, kendisinin
+yazmadığı bir yapılandırma dosyasının üstüne asla yazmaz (o dosya
+çalışan bir parola ya da yeniden üretilemeyecek bir site kimliği
+tutuyor olabilir). O durumda parolayı *insanın* yerleştirmesi gerekir,
+yani gösterilmesi şart.
+
+O yol dört rol için çalışıyordu. Beşinci için çalışmıyordu.
+
+### Ölçüm
+
+Temiz bir küme kuruldu (5433, hiçbir rol yok), operatörün elle bıraktığı
+gibi bir `upgrader.toml` konuldu, kurulum koşturuldu:
+
+```
+schema_admin rolü oluşturuldu, parolası üretildi
+upgrader.toml'a yazılmadı   ← doğru, betik onu yazmamıştı
+ekrana basılmadı            ← kusur
+kurulum "başarılı" dedi
+son mesaj: "The four database passwords were generated and written
+            into the configuration files"
+```
+
+Sonra `pg_hba.conf` `scram-sha-256`'ya çevrilip gerçek bir kurulum gibi
+denendi:
+
+```
+panel, kendi dosyasındaki parolayla:      bağlandı
+yükseltici, upgrader.toml'daki DSN ile:   FATAL: password authentication failed
+```
+
+Parola yalnızca veritabanının içinde, hash olarak vardı. Geri getirilemez.
+
+### `trust` tuzağı — ilk denemem boşa gitti
+
+İlk bağlantı denemem `change-me` parolasıyla **başarılı** oldu, çünkü
+küme `-A trust` ile kurulmuştu. Betiğin kendi yorumu bu tuzağı zaten
+anlatıyor ("pg_hba `trust` diyor, psql her parolayla bağlanır"), ve ben
+tam da ona düştüm. `scram`'a çevirmeden ölçüm hiçbir şey söylemiyordu.
+
+**Kimlik doğrulamayı sınayan bir ölçüm, önce kimlik doğrulamanın açık
+olduğunu doğrulamalı.**
+
+### Kök sebep: aynı eşleme dört yerde
+
+Rol → dosya → DSN anahtarı eşlemesi dört ayrı yerde yazılıydı: yaz,
+veritabanına yönlendir, kontrol et, ve *insana bildir*. L3 beşinci rolü
+üçüne ekledi, dördüncüsüne eklemedi — ve geride kalan, bir parolayı
+insana söyleyen taraftı.
+
+Tek bir `ROLE_CREDENTIAL` tablosu oldu, dördü de onu geziyor. Ve
+`TestEveryRoleTheInstallerCreatesCanBeReported` betiğin iki yarısını
+karşılaştırıyor: yarattığı roller ile hesabını verebildiği roller. İki
+mutasyonla ölçüldü.
+
+### Mesajlar da yalan söylüyordu
+
+"The four database passwords" — beş üretiliyordu, ve cümle *her üretilen
+parolanın yazıldığını* iddia ediyordu, bir tanesinin yazılmadığı bir
+koşuda. Sayı artık sayılıyor (`${#ROLE_PW[@]}`), yazılmıyor.
+
+**Bir mesajdaki sayı bir iddiadır, ve kimsenin yeniden hesaplamadığı bir
+iddia güven verici yönde bayatlar.**
+
+Elle yerleştirme mesajı da güçlendirildi: bunların gösterildiği tek an
+olduğu, başka hiçbir yerde bulunmadıkları, ve terminal kapanmadan
+kopyalanmaları gerektiği artık açıkça yazıyor.

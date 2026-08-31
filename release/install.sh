@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs Crucible Analytic: database, four roles, privileges, secrets,
+# Installs Crucible Analytic: database, five roles, privileges, secrets,
 # configuration files and systemd units.
 #
 # KURULUM.md describes seventeen sections of manual work, and it is honest
@@ -255,12 +255,41 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   psql_db -c "CREATE EXTENSION IF NOT EXISTS timescaledb"
 fi
 
+# ROLE_CREDENTIAL says, once, where each role's password lives: the
+# configuration file that carries it and the key inside that file.
+#
+# One table because it was four lists - written, pointed at the database,
+# checked, and reported to a person - and the fourth fell behind. L3
+# added schema_admin to three of them and not to the one that tells an
+# operator a password they now have to place by hand.
+#
+# What that produced, measured on a clean cluster with an upgrader.toml
+# the script had not written:
+#
+#   * the role was created with a generated password
+#   * the password was not written into the file, correctly, because the
+#     script never overwrites a file it did not create
+#   * the password was not printed, because this list did not name it
+#   * the run reported success and said "the four database passwords
+#     were generated and written into the configuration files"
+#
+# The password existed only inside the database. The upgrader could
+# never connect, and nothing in the output said so. See
+# TestEveryRoleTheInstallerCreatesCanBeReported.
+ROLE_CREDENTIAL=(
+  "collector        collector.toml     timescale_dsn"
+  "beacon_writer    beacon.toml        timescale_dsn"
+  "analytics_reader analytics-api.toml timescale_dsn"
+  "panel_user       panel.toml         panel_dsn"
+  "schema_admin     upgrader.toml      schema_admin_dsn"
+)
+
 # ---------------------------------------------------------------- roles
 
-say "four roles"
+say "five roles"
 #
 # Each role checked and created on its own, not "if none exist, create
-# all four".
+# all five".
 #
 # PostgreSQL roles are cluster-wide rather than per-database, so a
 # machine that already runs something with a role called `collector` -
@@ -496,11 +525,10 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     sed -i -E "s|^([[:space:]]*${key}[[:space:]]*=[[:space:]]*\"postgres://${role}:)[^@]*(@[^/\"]*/)[^\"]*(\")|\1${ROLE_PW[${role}]}\2${DB_NAME}\3|" "${f}"
     say "   wrote ${role}'s password into ${file}"
   }
-  write_role_password collector        collector.toml     timescale_dsn
-  write_role_password beacon_writer    beacon.toml        timescale_dsn
-  write_role_password analytics_reader analytics-api.toml timescale_dsn
-  write_role_password panel_user       panel.toml         panel_dsn
-  write_role_password schema_admin    upgrader.toml      schema_admin_dsn
+  for entry in "${ROLE_CREDENTIAL[@]}"; do
+    set -- ${entry}
+    write_role_password "$1" "$2" "$3"
+  done
 
   # The database name, which is not a secret and must match --db whatever
   # happened with the passwords.
@@ -527,11 +555,10 @@ if [ "${DRY_RUN}" -eq 0 ]; then
       sed -i -E "s|^([[:space:]]*${key}[[:space:]]*=[[:space:]]*\"postgres://[^@\"]*@)[^/\"]*|\1${DB_HOST}|" "${f}"
     fi
   }
-  point_at_database collector.toml     timescale_dsn
-  point_at_database beacon.toml        timescale_dsn
-  point_at_database analytics-api.toml timescale_dsn
-  point_at_database panel.toml         panel_dsn
-  point_at_database upgrader.toml      schema_admin_dsn
+  for entry in "${ROLE_CREDENTIAL[@]}"; do
+    set -- ${entry}
+    point_at_database "$2" "$3"
+  done
 
   # And the check that makes the writing worth anything: use what the
   # file now says, as the service will.
@@ -565,11 +592,10 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     [ "${where}" = "${role}@${DB_NAME}" ] \
       || die "${file}'s ${key} reaches ${where:-nothing}, not ${role}@${DB_NAME}"
   }
-  check_role_dsn collector        collector.toml     timescale_dsn
-  check_role_dsn beacon_writer    beacon.toml        timescale_dsn
-  check_role_dsn analytics_reader analytics-api.toml timescale_dsn
-  check_role_dsn panel_user       panel.toml         panel_dsn
-  check_role_dsn schema_admin    upgrader.toml      schema_admin_dsn
+  for entry in "${ROLE_CREDENTIAL[@]}"; do
+    set -- ${entry}
+    check_role_dsn "$1" "$2" "$3"
+  done
 
   # ---- the IP token key ----
   #
@@ -900,14 +926,10 @@ say "done"
 # overwrite a file it did not create.
 declare -a NEEDS_HAND=()
 if [ "${DRY_RUN}" -eq 0 ] && [ "${#ROLE_PW[@]}" -gt 0 ]; then
-  for role in collector beacon_writer analytics_reader panel_user; do
+  for entry in "${ROLE_CREDENTIAL[@]}"; do
+    set -- ${entry}
+    role="$1"; file="$2"
     [ -n "${ROLE_PW[${role}]:-}" ] || continue
-    case "${role}" in
-      collector)        file=collector.toml ;;
-      beacon_writer)    file=beacon.toml ;;
-      analytics_reader) file=analytics-api.toml ;;
-      panel_user)       file=panel.toml ;;
-    esac
     [ -n "${FRESH_CONF[${file}]:-}" ] || NEEDS_HAND+=("${role} ${file}")
   done
 fi
@@ -920,8 +942,13 @@ here - so this script did not touch them. It never overwrites a file it
 did not write, because that file may hold a working password, a site id
 that cannot be regenerated, or both.
 
-Put each password into the DSN in the file beside it, and start nothing
-before you have. Shown once; only the hash is kept.
+**This is the only time these passwords are shown.** They exist nowhere
+else: not in a file, not in a log, and not recoverably in the database,
+which stores only a hash. Copy them somewhere before you close this
+terminal.
+
+Put each into the DSN in the file named beside it, and start nothing
+before you have.
 
 SECRETS
   for entry in "${NEEDS_HAND[@]}"; do
@@ -930,15 +957,24 @@ SECRETS
   done
   echo
 elif [ "${#ROLE_PW[@]}" -gt 0 ]; then
-  cat <<'SECRETS'
+  # The count is counted, not written out.
+  #
+  # This paragraph said "the four database passwords" while five roles
+  # were being created, and the sentence was wrong in the way that
+  # matters: it asserted every generated password had been written, on a
+  # run where one had not been. A number in a message is a claim, and a
+  # claim nobody recomputes is a claim that goes stale in the direction
+  # of reassurance.
+  cat <<SECRETS
 
-The four database passwords were generated and written into the
-configuration files. Each file was read back and checked: it carries the
-password this run generated, and its DSN reaches that role in this
+The ${#ROLE_PW[@]} database password(s) generated by this run were written into
+the configuration files. Each file was read back and checked: it carries
+the password this run generated, and its DSN reaches that role in this
 database.
 
 They are not printed. They are in the files, which are mode 0640, and a
-password on a terminal is a password in a scrollback.
+password on a terminal is a password in a scrollback. Read one out of
+its file if you ever need it.
 
 SECRETS
 fi
