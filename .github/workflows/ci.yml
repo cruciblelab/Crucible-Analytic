@@ -151,7 +151,21 @@ jobs:
     name: unit (-race)
     runs-on: ubuntu-latest
     steps:
+      # Full history, not the default shallow clone.
+      #
+      # internal/docs compares git's commit authors against
+      # CLA-SIGNATURES.md, and a depth-1 checkout has one commit - so the
+      # check saw one author, decided two of the exempted names had no
+      # commits, and failed. It was red on every push for weeks for a
+      # reason that had nothing to do with any change being tested.
+      #
+      # The test now detects a shallow clone and skips rather than
+      # failing, which is the correct behaviour for a machine that cannot
+      # answer the question. This line is what stops that skip from being
+      # the only outcome anyone ever sees.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -228,7 +242,16 @@ jobs:
           CONF_DIR="$(mktemp -d)" PREFIX="$(mktemp -d)" \
             LOG_DIR="$(mktemp -d)" STATE_DIR="$(mktemp -d)" \
             ./release/install.sh --no-systemd
-          for role in collector beacon_writer analytics_reader panel_user; do
+          # Five roles, and the fifth is the one this line forgot for a
+          # whole phase. L3 added schema_admin; install.sh gives it a
+          # generated password like the others, and internal/testdb
+          # connects with the convention "password is the role name", so
+          # every applier and upgrade test failed SASL auth on a list
+          # that had simply stopped being complete.
+          #
+          # TestTheWorkflowKnowsEveryRole compares this line against
+          # internal/testdb's constants, so a sixth role cannot repeat it.
+          for role in collector beacon_writer analytics_reader panel_user schema_admin; do
             psql "postgres://postgres:postgres@localhost:5432/analytics" \
               -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ${role} PASSWORD '${role}'"
           done

@@ -74,12 +74,18 @@ What CI runs, and what a pull request has to pass:
 gofmt -l .
 go build ./... && go vet ./...
 go test -count=1 -race ./...
-go test -count=1 -tags integration ./...
+CA_BROWSER_TEST=1 go test -tags integration -race -count=1 ./...
 for tag in loadtest network release e2e docker; do go vet -tags "$tag" ./...; done
 go test -tags release -count=1 ./release/
-gosec  ... | go run ./internal/sast/cmd/sastdiff  -report gosec.json
+gosec    ... | go run ./internal/sast/cmd/sastdiff    -report gosec.json
 deadcode ... | go run ./internal/sast/cmd/deadcodediff -report deadcode.txt
 ```
+
+**Copy the integration line exactly.** It used to be written here without
+`-race` and without the browser flag, while CI ran both — so a change
+could be gated locally against a weaker command than the one that
+decides, and "the gate is green" meant two different things depending on
+who said it.
 
 The last two compare against committed baselines rather than failing on
 every finding. Both have their own file explaining what to do when they

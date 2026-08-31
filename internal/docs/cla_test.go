@@ -84,6 +84,28 @@ func TestEveryCommitAuthorHasSignedTheCLA(t *testing.T) {
 		t.Skip("git is not on PATH; this test reads the commit history")
 	}
 
+	// A shallow clone cannot answer this, and saying so is not the same
+	// as passing.
+	//
+	// actions/checkout@v4 fetches depth 1 by default, so CI saw a single
+	// commit: one author, one body, and two of the exempted assistant
+	// names therefore "had no commits". The stale-exemption half fired
+	// and the gate was red on every push for weeks - reporting a finding
+	// about the repository that was actually a fact about the checkout.
+	//
+	// This project has met that shape before and wrote it down: a test
+	// that assumes its environment tests the environment it assumed. The
+	// workflow now fetches full history so the check really runs; this
+	// is what stops a contributor with a shallow clone meeting a
+	// mystery.
+	if out, err := exec.Command("git", "-C", root, "rev-parse",
+		"--is-shallow-repository").Output(); err == nil &&
+		strings.TrimSpace(string(out)) == "true" {
+		t.Skip("this is a shallow clone, so the commit history is incomplete and " +
+			"any answer here would be about the checkout rather than the repository. " +
+			"Fetch full history (git fetch --unshallow) to run this check")
+	}
+
 	// Two queries rather than one. The first version asked for
 	// "%an%n%b" and then guessed which lines were names, which meant
 	// every prose line of every commit body was read as an author - the
