@@ -6588,3 +6588,64 @@ dosya bulguları susturma yeri olur.
 Kalan beş girdi bilinçli: ileriye dönük yüzeyler (`RevokeOwnerClaim`,
 `ListUsers`) ve tip yüzeyinin parçaları, her biri hangi grubu beklediği
 yazılı.
+
+---
+
+## Muhattap bir marka değil, bir kişi — ve 124 commit'in yazarı
+
+Belgelerde üç yerde "somebody and somebody" arasında olması gereken bir
+ilişki vardı ve üçünde de bir tarafta kimse yoktu:
+
+- `SECURITY.md` açık bulanı "CrucibleLAB'a doğrudan yazın" diyordu; adres
+  yoktu.
+- `CLA.md` §1 lisansı "Crucible Analytic ve sahibi CrucibleLAB"a
+  veriyordu. **Tüzel kişi olmayan bir markaya verilen lisans kimseye
+  verilmiştir.** Sözleşmenin tek varlık sebebi hibenin *tutması*.
+- `NOTICE`, Apache 4(d) gereği her yeniden dağıtımla seyahat eden dosya,
+  atfı yapılacak kişiyi adlandırmıyordu.
+
+Üçü de artık **Fırat Coşkun \<kettipcimm@gmail.com\>** diyor.
+
+### Kişi adlandırmanın açtığı delik: devir
+
+Sözleşmeyi bir kişiye bağlamak, sözleşmenin açık tutmak için var olduğu
+kararı kapatma riski taşıyor: sahibi bir şirket kurduğu gün, lisanslar
+şirkette değil kişide kalır. Bunun için §8 (Assignment) eklendi —
+sözleşme ve §2/§3 hibeleri, projenin mülkiyetiyle birlikte devredilebilir.
+
+**Bir belgeye kişi adı yazmak, o belgede devir maddesi olmasını
+gerektirir.** Aksi hâlde belge, engellemek için yazıldığı sonucu kendisi
+üretir.
+
+### Commit yazarlığı: 124 evet, 1 hayır
+
+Bütün geliştirme commit'leri `Claude <noreply@anthropic.com>` yazarıyla
+duruyordu. Hepsi GitHub hesabının noreply adresiyle yeniden yazıldı:
+`Fırat Coşkun <166753316+cruciblelab@users.noreply.github.com>`. Gerçek
+e-posta 125 commit'in içinde kalıcı olarak halka açık olmuyor, GitHub
+commit'leri hesaba bağlayıp katkı grafiğinde sayıyor.
+
+**Kök commit (`Initial commit`) kasten dokunulmadı.** Zaten aynı GitHub
+hesabına ait ve `main` ile paylaşılan **tek** ata. Onu da yeniden yazmak
+hash'ini değiştirir, dal ile `main`'in ortak atası kalmaz ve iki dal
+karşılaştırılamaz hâle gelir. Bir tabloyu düzeltmek için ortak atayı
+yakmak yanlış taraftan bakmaktır; `CLA-SIGNATURES.md` yerine iki satır
+taşıyor ve neden taşıdığını yazıyor.
+
+`Co-Authored-By` fragmanları **korundu**. Doğrular, `internal/docs/cla_test.go`
+onlara dayanıyor ve dürüstlükleri `aiAssistantReason`'da gerekçelendirilmiş
+durumda. Değişen sadece yazar/committer kimliği.
+
+### Sonuç: bir yerel kopyası olan herkes sıfırlamalı
+
+Geçmiş yeniden yazıldığı için 124 commit'in hash'i değişti. Bu dalın bir
+kopyasını tutan biri `git pull` ile iki tarihi birleştirmeye çalışır ve
+her commit'i iki kere görür. Doğrusu:
+
+```
+git fetch origin claude/analytics-collector-mvp-7kec32
+git reset --hard origin/claude/analytics-collector-mvp-7kec32
+```
+
+Şu an bu dalın başka bir kopyası olmadığı için maliyeti sıfır — ve
+maliyetin sıfır olduğu an, bu işi yapmanın tek doğru anı.

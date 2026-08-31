@@ -9,8 +9,15 @@ what is still open.
 ## Reporting a vulnerability
 
 Open a GitHub issue for anything already public. For anything else,
-contact CrucibleLAB directly rather than filing publicly, and give us a
-reasonable window to ship a fix before disclosing.
+email **Fırat Coşkun <kettipcimm@gmail.com>** rather than filing
+publicly, and give us a reasonable window to ship a fix before
+disclosing.
+
+That is a person's address rather than a `security@` alias, and it is
+deliberate. This project is one maintainer; an alias would forward to the
+same inbox while suggesting a rota that does not exist, and a reporter
+who is told to write to a team is entitled to expect one. The person
+responsible for this software is named above and is who answers.
 
 ## Design, in one page
 

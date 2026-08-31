@@ -1,5 +1,9 @@
 # Contributing
 
+Maintained by **Fırat Coşkun** (kettipcimm@gmail.com), who is who to ask
+when something below is unclear or looks wrong. Security reports go to
+the same address and not to a public issue — `SECURITY.md` says why.
+
 ## Before anything else: the licence agreement
 
 Contributions require agreeing to `CLA.md`. Read it — particularly the

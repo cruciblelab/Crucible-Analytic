@@ -46,7 +46,15 @@ mailing lists, source code control systems and issue tracking systems,
 excluding communication that is conspicuously marked or otherwise
 designated in writing by You as "Not a Contribution".
 
-**"Project"** means Crucible Analytic and its owner, CrucibleLAB.
+**"Project"** means Crucible Analytic and its owner, CrucibleLAB, which
+is the project name used by **Fırat Coşkun** (kettipcimm@gmail.com).
+
+There is no company behind that name today, so the licences below are
+granted to that person. This is written out rather than left implied
+because a licence granted to a brand that is not a legal entity is
+granted to nobody, and the whole purpose of this agreement is that the
+grant actually holds. Section 8 covers what happens if a company is
+later formed.
 
 ### 2. Grant of copyright licence
 
@@ -110,6 +118,20 @@ of any kind.
 You agree to notify the Project if You become aware of any fact or
 circumstance that would make any of the representations in section 4
 inaccurate.
+
+### 8. Assignment
+
+The Project may assign this agreement, and the licences granted in
+sections 2 and 3, together with the ownership of Crucible Analytic — to
+a company formed to hold the project, or to a successor in ownership.
+Your rights under this agreement are unaffected, and no further
+signature is asked of You.
+
+This clause is here because section 1 names a person. Without it, the
+one decision this agreement exists to keep open — that the project can
+later be offered under different terms, by whatever entity then owns it
+— would be blocked the day the owner incorporated, which is the exact
+outcome the agreement was written to avoid.
 
 ---
 

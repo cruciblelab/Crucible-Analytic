@@ -2125,6 +2125,13 @@ Apache-2.0. See `LICENSE` for the terms and `NOTICE` for the attribution
 that has to travel with a redistribution; `THIRD-PARTY.md` covers what
 else is inside a build and under what terms.
 
+**The copyright holder, and the person responsible for this software, is
+Fırat Coşkun (kettipcimm@gmail.com), working under the project name
+CrucibleLAB.** Named rather than left as a brand because three of the
+things on this page — the licence grant, the contributor agreement, and
+the security contact — are between somebody and somebody, and a brand
+that is not a registered company is not a party to anything.
+
 **Contributions are under a contributor licence agreement** — see
 `CONTRIBUTING.md` and `CLA.md`. The reason is stated in the agreement
 itself rather than buried: this project is Apache-2.0 today and may in
