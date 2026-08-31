@@ -78,6 +78,9 @@ type healthPage struct {
 
 	Schema      healthSchema
 	SchemaError string
+
+	Upgrade      upgradeSection
+	UpgradeError string
 }
 
 // healthSchema is what the database says its schema is, next to what
@@ -198,11 +201,43 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		s.renderHealth(w, r, lang, p)
+		s.renderHealth(w, r, lang, p, upgradeSection{}, "")
+	case http.MethodPost:
+		// The upgrade button. The page was read-only until L3, which is
+		// why healthHandler used to sit in the deliberately-unguarded
+		// list in limits_integration_test.go - and why it has to move
+		// out of it now.
+		if !s.acceptPost(w, r, lang) {
+			return
+		}
+		access := s.healthAccess(r.Context(), p)
+		section, sectionErr := s.upgradePost(w, r, lang, access)
+		s.renderHealth(w, r, lang, p, section, sectionErr)
 	default:
-		w.Header().Set("Allow", "GET, HEAD")
+		w.Header().Set("Allow", "GET, HEAD, POST")
 		s.Renderer.ErrorIn(w, r, http.StatusMethodNotAllowed, lang)
 	}
+}
+
+// healthAccess is what this principal may do, for the upgrade section.
+//
+// The page's own entry check (requireHealthReader) answers "may you read
+// this", which is a different question from "may you press that" - and
+// conflating them is how a read-only page grows a button somebody was
+// never meant to have.
+func (s *Server) healthAccess(ctx context.Context, p panel.Principal) panel.Access {
+	access := panel.Access{Principal: p}
+	if p.Superadmin || p.Kind == panel.PrincipalDeveloper {
+		return access
+	}
+	// An owner of any site is the customer this deployment belongs to.
+	// The schema is deployment-wide, so there is no per-site answer to
+	// give here.
+	if s.ownsAnySite(ctx, p) {
+		access.Role = panel.RoleOwner
+		access.Member = true
+	}
+	return access
 }
 
 // requireHealthReader resolves somebody entitled to read the page.
@@ -226,7 +261,8 @@ func (s *Server) requireHealthReader(w http.ResponseWriter, r *http.Request) (pa
 	return panel.Principal{}, false
 }
 
-func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.Language, p panel.Principal) {
+func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+	p panel.Principal, section upgradeSection, sectionErr string) {
 	ctx := r.Context()
 	now := time.Now()
 
@@ -244,6 +280,15 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
 	data.API = s.healthAPI(ctx)
+
+	// Read fresh on a GET; on a POST the handler has already built it,
+	// because the answer it carries is about the press that just
+	// happened rather than about the state before it.
+	if r.Method == http.MethodPost {
+		data.Upgrade, data.UpgradeError = section, sectionErr
+	} else {
+		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(r, lang, s.healthAccess(ctx, p))
+	}
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))
 	page.Data = data

@@ -970,6 +970,26 @@ kayitsiz = "Bu veritabanı, şema sürümü kaydedilmeye başlanmadan önce kuru
 geride = "Bu yapı, veritabanındakinden yeni bir şema bekliyor. Toplayıcı ve beacon, kurulu şemada olmayan bir sütuna yazmaya çalışırsa satırları kaybeder — süreç ayakta görünmeye devam eder. Şemayı yükseltmek gerekiyor."
 ileride = "Veritabanındaki şema, bu yapının beklediğinden yeni. Bu güvenli — eski bir yapı, sonradan eklenmiş bir sütunu fark etmeden yazar — ama biri binary'yi geri almış ve şemayı bırakmış demektir."
 
+[metin.saglik.yukselt]
+baslik = "Şema yükseltmesi"
+aciklama = "Bu yapı, veritabanındakinden yeni bir şema bekliyor. Yükseltme sırasında hiçbir servis durmaz."
+dugme = "Şemayı yükselt"
+parola = "Geliştirici parolası"
+parola_ipucu = "Bu kurulumda yükseltme geliştirici parolasına kilitlenmiş."
+istendi = "Yükseltme istendi. Uygulayıcı birkaç dakika içinde başlayacak; bu sayfayı yenileyerek sonucu görebilirsiniz."
+kilitli = "Yükseltme geliştirici parolasına kilitli. Parolayı yazarak başlatabilirsiniz."
+gerekmiyor = "Veritabanı zaten bu yapının beklediği şemada. Yapacak bir şey yok."
+zaten = "Bir yükseltme zaten sırada ya da çalışıyor. Sonucunu aşağıda görebilirsiniz."
+yetkisiz = "Bu hesabın yükseltme başlatma yetkisi yok."
+hata = "Yükseltme istenemedi. Ayrıntı işlem kaydında."
+okunamadi = "Yükseltme durumu okunamadı."
+durum_bekliyor = "Sırada"
+durum_calisiyor = "Uygulanıyor"
+durum_basarili = "Tamamlandı"
+durum_basarisiz = "Başarısız"
+hata_zinciri = "Hata"
+son_istek = "Son istek"
+
 [metin.saglik.servis]
 baslik = "Servisler"
 hic = "Hiçbir servis henüz haber vermedi. Ya hepsi kalp atışından önceki bir yapıyı çalıştırıyor, ya da hiçbiri çalışmıyor."

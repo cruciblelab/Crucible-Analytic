@@ -933,6 +933,26 @@ kayitsiz = "This database was installed before schema versions were recorded. No
 geride = "This build expects a newer schema than the database has. If the collector or the beacon writes to a column the installed schema does not have, the rows are lost - and the process goes on looking healthy. The schema needs upgrading."
 ileride = "The database schema is newer than this build expects. That is safe - an older build writes through an added column without noticing - but it means somebody rolled a binary back and left the schema where it was."
 
+[metin.saglik.yukselt]
+baslik = "Schema upgrade"
+aciklama = "This build expects a newer schema than the database carries. No service stops while it is applied."
+dugme = "Upgrade the schema"
+parola = "Developer password"
+parola_ipucu = "Upgrades on this deployment are locked to the developer password."
+istendi = "The upgrade was requested. The applier will start within a few minutes; refresh this page to see the result."
+kilitli = "Upgrades are locked to the developer password. Enter it to start one."
+gerekmiyor = "The database already carries the schema this build expects. Nothing to do."
+zaten = "An upgrade is already queued or running. Its result is below."
+yetkisiz = "This account may not start an upgrade."
+hata = "The upgrade could not be requested. The detail is in the operation record."
+okunamadi = "The upgrade status could not be read."
+durum_bekliyor = "Queued"
+durum_calisiyor = "Applying"
+durum_basarili = "Done"
+durum_basarisiz = "Failed"
+hata_zinciri = "Error"
+son_istek = "Last request"
+
 [metin.saglik.servis]
 baslik = "Services"
 hic = "No service has reported yet. Either they are all running a build from before the heartbeat existed, or none of them is running."

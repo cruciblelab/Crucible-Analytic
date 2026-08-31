@@ -114,6 +114,68 @@ passes its ping, and loses every row. */}}
 {{- end}}
 </section>
 
+{{- /* The upgrade button, beside the two numbers it acts on.
+
+Drawn only when there is something to say: the schema does not match, or
+a request is still in flight. A permanent "everything is fine" panel is
+one people learn to scroll past, and this page is read precisely when
+somebody suspects it is not. */}}
+{{- if .Data.UpgradeError}}
+<section class="bolum">
+<h2>{{t "saglik.yukselt.baslik"}}</h2>
+<p class="uyari">{{.Data.UpgradeError}}</p>
+</section>
+{{- else if .Data.Upgrade.Show}}
+<section class="bolum">
+<h2>{{t "saglik.yukselt.baslik"}}</h2>
+
+{{- if .Data.Upgrade.Notice}}
+<p class="{{if .Data.Upgrade.Failed}}uyari{{else}}ipucu{{end}}" role="status">{{.Data.Upgrade.Notice}}</p>
+{{- end}}
+
+{{- if .Data.Upgrade.Latest}}
+<table class="veri">
+<tbody>
+<tr>
+<th scope="row">{{t "saglik.yukselt.son_istek"}}</th>
+<td>
+{{- if eq .Data.Upgrade.Latest.State "pending"}}{{t "saglik.yukselt.durum_bekliyor"}}
+{{- else if eq .Data.Upgrade.Latest.State "running"}}{{t "saglik.yukselt.durum_calisiyor"}}
+{{- else if eq .Data.Upgrade.Latest.State "succeeded"}}{{t "saglik.yukselt.durum_basarili"}}
+{{- else}}{{t "saglik.yukselt.durum_basarisiz"}}{{end}}
+{{- if .Data.Upgrade.Latest.Actor.Label}} — <code>{{.Data.Upgrade.Latest.Actor.Label}}</code>{{end}}
+</td>
+</tr>
+{{- if .Data.Upgrade.Latest.ErrorChain}}
+<tr>
+<th scope="row">{{t "saglik.yukselt.hata_zinciri"}}</th>
+<td><pre class="hata-zinciri">{{.Data.Upgrade.Latest.ErrorChain}}</pre></td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- end}}
+
+{{- if .Data.Upgrade.Needed}}
+<p class="ipucu">{{t "saglik.yukselt.aciklama"}}</p>
+
+{{- if or .Data.Upgrade.Allowed .Data.Upgrade.AskingForPassword}}
+<!-- action="" posts back to this page, the convention every other
+     form here uses: the button acts on what is drawn above it. -->
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+{{- if .Data.Upgrade.AskingForPassword}}
+<p class="ipucu">{{t "saglik.yukselt.parola_ipucu"}}</p>
+<label for="yukselt-parola">{{t "saglik.yukselt.parola"}}</label>
+<input type="password" id="yukselt-parola" name="gelistirici_parolasi" autocomplete="off" required>
+{{- end}}
+<button type="submit">{{t "saglik.yukselt.dugme"}}</button>
+</form>
+{{- end}}
+{{- end}}
+</section>
+{{- end}}
+
 <section class="bolum">
 <h2>{{t "saglik.depolama.baslik"}}</h2>
 
