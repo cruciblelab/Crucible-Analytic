@@ -208,19 +208,38 @@ func TestLockNotices_SayWhyAndWhatToDoNext(t *testing.T) {
 }
 
 // The registry, audited against the rule rather than against itself:
-// only settings with legal or ethical weight may withhold a control from
-// a customer. Anything else in developer mode is theirs to change.
+// a control may be withheld from a customer for exactly two reasons, and
+// anything else in developer mode is theirs to change.
 //
-// Written as an explicit list because the check that matters is human -
-// somebody has to have decided that each of these six really does
-// decide what personal data is kept. A test that derived the list from
-// the flag would only be asserting that the code equals itself.
+// Written as explicit lists because the check that matters is human -
+// somebody has to have decided that each entry really belongs. A test
+// that derived the lists from the flags would only be asserting that the
+// code equals itself.
 //
-// It was seven. analytics.retention_days left the registry entirely
-// rather than losing its flag: how long visit records are kept is now a
-// config-file value, because the developer password made it a locked
-// door in a room the customer was still standing in.
+// It was seven in the first group. analytics.retention_days left the
+// registry entirely rather than losing its flag: how long visit records
+// are kept is now a config-file value, because the developer password
+// made it a locked door in a room the customer was still standing in.
+//
+// # Why there are two groups and not one
+//
+// This test began with only the first, and L3 is what showed the list
+// was incomplete rather than the setting wrong. upgrade.locked carries
+// no personal data at all - it decides who may start a schema migration
+// - so under a single "legal weight" rule it had to be either
+// mis-labelled or wrongly withheld, and it is neither.
+//
+// The second reason was already written down before this test met it,
+// in SOZLUK.md §3 and in the L3 phase: *access to anything that can make
+// work for the developer is by password, not by capability.* RoleOwner
+// holds CapManageMembers and RoleAdmin holds CapUseDeveloperMode, so a
+// customer can grant themselves any capability they like. That is fine
+// for things that end in looking. For things that end in somebody's
+// phone ringing at night, the only guard that holds is a password that
+// comes from a file the panel cannot write.
 func TestRegistry_OnlyLegallyWeightedSettingsAreWithheld(t *testing.T) {
+	// Reason one: changing it changes what personal data this deployment
+	// keeps.
 	weighted := map[Key]bool{
 		KeyPrivacyIPStorage:          true, // whether whole addresses are stored
 		KeyLogRetentionDays:          true, // access logs contain addresses
@@ -228,6 +247,15 @@ func TestRegistry_OnlyLegallyWeightedSettingsAreWithheld(t *testing.T) {
 		KeyCampaignDropParams:        true, // utm_term can carry real search text
 		KeyCampaignExtraParams:       true, // stores fields we do not control
 		KeyCampaignStoreClickID:      true, // a per-click permanent identifier
+	}
+
+	// Reason two: it decides who may do something that can make work for
+	// the developer, so a capability cannot guard it.
+	developersOwn := map[Key]bool{
+		KeyUpgradeLocked: true, // who may start a schema migration
+	}
+	for key := range developersOwn {
+		weighted[key] = true
 	}
 
 	customer := Access{Principal: Principal{Kind: PrincipalUser}, Role: RoleOwner, Member: true}

@@ -23,7 +23,7 @@ func queuePools(t *testing.T) (panelPool, adminPool *pgxpool.Pool) {
 	t.Helper()
 	panelPool = testdb.Pool(t, testdb.Panel)
 	adminPool = testdb.Pool(t, testdb.SchemaAdmin)
-	lockUpgradeQueue(t, adminPool)
+	testdb.Lock(t, adminPool, testdb.UpgradeQueueLock)
 
 	clean := func() {
 		if _, err := testdb.Admin(t).Exec(context.Background(),

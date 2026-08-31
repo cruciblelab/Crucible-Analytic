@@ -92,6 +92,19 @@ const (
 	KeyLogArchiveAfterDays Key = "logs.archive_after_days"
 	// KeyLogLevel is the minimum level written.
 	KeyLogLevel Key = "logs.level"
+	// KeyUpgradeLocked holds the upgrade button behind the developer
+	// password.
+	//
+	// Off by default, and that is the decision rather than an oversight:
+	// the customer is meant to be able to press it without knowing
+	// anything, because "işi bilmeyen normal müşteri de yapabilmeli" is
+	// the requirement. A developer who does not want that - a support
+	// contract, a deployment they are responsible for - turns this on.
+	//
+	// Changing it needs the password, for the obvious reason: a lock a
+	// customer can unlock is not one.
+	KeyUpgradeLocked Key = "upgrade.locked"
+
 	// KeyLogVerboseUntil is when a temporary raise to debug expires.
 	// Stored as an RFC3339 timestamp, empty when not raised.
 	//
@@ -581,6 +594,23 @@ var registry = map[Key]Definition{
 		RequiresDeveloperPassword: true,
 		GateReason: "\"Kim girdi, ne zaman\" kaydı budur. Kısaltmak, bir olay " +
 			"soruşturulurken cevabın artık var olmaması anlamına gelir.",
+	},
+	KeyUpgradeLocked: {
+		Key: KeyUpgradeLocked, Scope: ScopeGlobal, Kind: KindBool,
+		Default: false,
+		Label:   "Yükseltmeyi geliştirici parolasına kilitle",
+		Help: "Kapalıyken müşteri şema yükseltmesini tek tıkla başlatabilir. " +
+			"Açıkken yalnız geliştirici parolası başlatabilir; yetki verilmesi yetmez.",
+		Developer: true,
+
+		// The lock needs the password to move, in both directions. A
+		// customer who could unlock it would be a customer for whom the
+		// lock does not exist, and one who could lock it could shut the
+		// developer's own button - so the two directions are the same
+		// decision and get the same guard.
+		RequiresDeveloperPassword: true,
+		GateReason: "Bu kilit, yükseltmeyi kimin başlatabileceğini belirler. " +
+			"Yetkiyle korunamaz: müşteri kendine yetki verebilir, parolayı veremez.",
 	},
 	KeyLogArchiveAfterDays: {
 		Key: KeyLogArchiveAfterDays, Scope: ScopeGlobal, Kind: KindInt,
@@ -1075,6 +1105,24 @@ func (s *Store) GetIntSetting(ctx context.Context, key Key, site string) (int, e
 		return 0, err
 	}
 	return toInt(value)
+}
+
+// GetBoolSetting is the typed accessor for bool settings.
+//
+// A wrong type is an error rather than a false: a caller reading a
+// setting that is not a bool has a bug, and answering "no" would hide
+// it behind a plausible-looking default - which for a lock means
+// answering "unlocked" to a question it could not read.
+func (s *Store) GetBoolSetting(ctx context.Context, key Key, site string) (bool, error) {
+	value, err := s.GetSetting(ctx, key, site)
+	if err != nil {
+		return false, err
+	}
+	b, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("panel: %s is not a bool setting", key)
+	}
+	return b, nil
 }
 
 // GetStringSetting is the typed accessor for enum and string settings.

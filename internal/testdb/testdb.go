@@ -141,3 +141,62 @@ func CleanSite(t *testing.T, admin *pgxpool.Pool, sites ...string) {
 	wipe()
 	t.Cleanup(wipe)
 }
+
+// UpgradeQueueLock serialises the suites that share panel_upgrade_requests.
+//
+// internal/upgrade, internal/applier and internal/panel all write to that
+// table, and `go test ./...` runs packages in parallel. Naming each
+// suite's rows would not be enough: what they collide on is global by
+// construction. idx_upgrade_one_in_flight permits exactly one
+// pending-or-running row in the whole table, so a request inserted by any
+// suite makes another's Ask fail with ErrAlreadyInFlight, and a Claim from
+// either can take a row it did not write.
+//
+// That is the index doing its job. The suites take turns instead.
+//
+// Measured rather than predicted: running the packages together failed
+// with "no request is waiting" inside a test that had just inserted one,
+// while each passed alone.
+//
+// The number is arbitrary but must be the same everywhere; it is written
+// out in hex so a stray copy is recognisable.
+const UpgradeQueueLock = 0x75706772616465FF // "upgrade"
+
+// Lock holds a Postgres advisory lock until the test ends.
+//
+// Here rather than duplicated per package, which is where it started.
+// internal/panel and internal/panel/web already carry a copy each of an
+// older helper of this shape, with a comment explaining that they had no
+// shared test package between them - and a test whose only job is to
+// assert that the two copies' constants still agree. This package is that
+// shared place; a third copy would have meant a third constant to keep in
+// step.
+//
+// The connection is pinned with Acquire rather than borrowed per query.
+// Advisory locks belong to a session, and a pool hands out whichever
+// connection is free - so locking on one connection and unlocking on
+// another silently leaks the lock and deadlocks the next run.
+func Lock(t *testing.T, pool *pgxpool.Pool, key int64) {
+	t.Helper()
+	ctx := context.Background()
+
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquiring a connection for the suite lock: %v", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
+		conn.Release()
+		t.Fatalf("taking the suite lock: %v", err)
+	}
+	t.Cleanup(func() {
+		// Unlock before release, on the same connection. Releasing first
+		// would return a connection that still holds the lock to the
+		// pool, where it would be handed to somebody else still holding
+		// it.
+		if _, err := conn.Exec(context.Background(),
+			`SELECT pg_advisory_unlock($1)`, key); err != nil {
+			t.Logf("releasing the suite lock: %v", err)
+		}
+		conn.Release()
+	})
+}

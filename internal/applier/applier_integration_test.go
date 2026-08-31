@@ -22,7 +22,7 @@ func applierAndPanel(t *testing.T) (*Applier, *pgxpool.Pool) {
 	t.Helper()
 	adminPool := testdb.Pool(t, testdb.SchemaAdmin)
 	panelPool := testdb.Pool(t, testdb.Panel)
-	lockUpgradeQueue(t, adminPool)
+	testdb.Lock(t, adminPool, testdb.UpgradeQueueLock)
 
 	clean := func() {
 		if _, err := testdb.Admin(t).Exec(context.Background(),

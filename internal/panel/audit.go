@@ -98,6 +98,12 @@ const (
 	// fact, and a year later the difference is exactly what somebody
 	// wants to know about a value nobody remembers setting.
 	ActionSettingMigrated = "setting.migrated"
+	// ActionUpgradeRequested marks somebody pressing the upgrade button.
+	//
+	// The request row records what happened to the migration; this
+	// records that a person asked for one, which is the half that has to
+	// survive after the request row is swept.
+	ActionUpgradeRequested = "upgrade.requested"
 
 	// Developer password attempts, on the settings that carry legal
 	// weight. Both outcomes, because a record of failures alone cannot
