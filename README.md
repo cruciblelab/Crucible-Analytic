@@ -1517,6 +1517,70 @@ rows in `traffic_snapshots` or `beacon_events` — that is the isolation
 working, not a gap — so the page says which of the two it is showing.
 Row counts come from the read API, on the site pages.
 
+### The upgrade button, and the sixth binary behind it
+
+The page shows two numbers L1 put there: the schema version the database
+carries, and the one this build expects. When they differ there is a
+button, and pressing it does not run any DDL.
+
+It writes a row. `panel_upgrade_requests` is a queue of one, and the
+split in its row-level security is the design:
+
+```
+panel_user     INSERT and SELECT. It asks, and it reads the answer.
+schema_admin   SELECT and UPDATE. It answers, and it cannot ask.
+```
+
+**The panel holds no privilege that can change the shape of the
+database**, and that is not an oversight to be worked around by the
+upgrade feature — it is the thing the upgrade feature had to be designed
+not to break. `release/sql/grants.sql` contains no `ALTER`, no `CREATE`
+and no `OWNER` for any of the four service roles. A panel that migrated
+its own database would have to undo all of it.
+
+So a sixth binary, `cmd/upgrader`, running as its own system account
+against its own configuration file — the only one in the deployment
+carrying a DSN that can run DDL, and one the panel's account cannot read.
+systemd runs it from a timer every thirty seconds, it looks once, and it
+exits: a machine at rest holds no process with DDL rights on an open
+connection, and a crash mid-migration is a unit that failed rather than a
+service in an unknown state.
+
+It refuses a request whose fingerprint is not the schema it carries. A
+deployment can end up with a new panel and an old upgrader — somebody
+upgrades packages one at a time — and refusing is recoverable in one
+command where applying the wrong schema is not.
+
+**Pressing it while the site is serving traffic is safe, and that is
+measured rather than claimed.** `internal/applier`'s
+`TestNoServiceStopsWhileTheSchemaIsApplied` runs all four services' real
+query patterns, as their real roles, while the real applier applies the
+real schema, and times every query:
+
+| | |
+|---|---|
+| The upgrade itself | 35–86 ms |
+| Worst query during it | 2.3–9.9 ms |
+| Worst query at rest | 5.0–83.5 ms |
+
+The worst query during an upgrade is *faster* than the worst query when
+nothing is happening. The reason is in the schema files rather than in
+the applier — every `CREATE` is `IF NOT EXISTS`, so a re-apply finds its
+work already done and takes no heavy lock. That property belongs to the
+SQL, which is exactly why it needs a test: the next schema file is one
+`ALTER TABLE` away from ending it, and the test holds a 2-second absolute
+ceiling plus a comparison against the same machine's own idle worst case.
+
+Both halves were mutation-tested with a real `ACCESS EXCLUSIVE` lock held
+for one second and for three. Only the probes touching the locked table
+stalled, which is what tells you the measurement is real rather than a
+uniform slowdown.
+
+The lock that governs the button is a setting and lives in settings; the
+action lives beside the fact it changes. The division is the honest one:
+policy is configuration, and an operator who wants the button off sets
+`upgrade_locked`, which is itself behind the developer password.
+
 ## What the system records about itself
 
 Two tables, and they answer different questions. Keeping them apart is

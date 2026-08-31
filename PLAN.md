@@ -93,7 +93,7 @@ gerekçe değil bahane olur.
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | 🟡 **2/3** | L3 — *kuyruk ve uygulayıcı yapıldı; kilit, düğme ve ölçüm kaldı* |
+| **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ⬜ **0/3** | M1 kütüphane, M2 çekim kaydı, M3 yenile düğmesi |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
@@ -168,8 +168,8 @@ geçer.
 | 2 | ~~**L2** açılışta sütun kontrolü~~ ✅ | L1'in kaynağını kullanır; **müşteri düğmeye hiç basmasa bile** veri kaybını kapatır |
 | 3 | ~~**D4a** ayar sayfası kabuğu~~ ✅ | üç fazı birden açan tek iş; arka ucu zaten hazır |
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
-| 5 | **L3** düğme ← **sıradaki** | 3 ve 4'ün üstüne oturuyor; beşinci rol burada geliyor |
-| 5.5 | **D4c** ayarlar kabuğu | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
+| 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
+| 5.5 | **D4c** ayarlar kabuğu ← **sıradaki** | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
 | 5.6 | **M1 → M2 → M3**, **C8** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
@@ -4400,7 +4400,7 @@ bozulmamalı — yükseltme sırasının doğru olanı odur).
 > çağrı noktalarında iki katalog aynı cevabı veriyor; fark **yanlış rolü
 > gösteren DSN**'de ortaya çıkıyor, ve testi o durumu kuruyor.
 
-#### L3 — Düğme: istek satırı + yetkili uygulayıcı
+#### L3 — Düğme: istek satırı + yetkili uygulayıcı ✅ **yapıldı** *(2026-08-31)*
 
 Panel DDL çalıştıramaz, ve çalıştıramaması B6/H5'in tesis ettiği şeydir:
 
@@ -4456,6 +4456,36 @@ duruşuna aykırı hem de F3 (filo) işi.
 yetkisi ne olursa olsun yükseltemiyor ve yalnız geliştirici parolası
 açıyor; uygulama sırasında hiçbir servis durmuyor *(ölçülecek, iddia
 edilmeyecek)*; başarısız göç geri bildiriliyor ve tekrar denenebiliyor.
+
+##### Nasıl bitti
+
+Yetkili bileşen `cmd/upgrader` oldu — altıncı binary, kendi sistem
+hesabıyla, kendi yapılandırma dosyasıyla. systemd'de bir zamanlayıcının
+koşturduğu tek atışlık birim: makine boştayken DDL yetkili açık bağlantı
+tutan bir süreç yok, ve göç ortasında bir çökme "durumu bilinmeyen
+servis" değil "düşmüş birim" oluyor.
+
+`upgrader.toml` dağıtımdaki DDL koşabilen tek DSN'i taşıdığı için ikinci
+bir hesap gerekti (`crucible-upgrader`): panel `crucible` olarak koşuyor
+ve aynı hesap olsaydı, okuması bile yasak olan veritabanını yeniden yazan
+kimliği okuyabilirdi.
+
+**"Hiçbir servis durmuyor" ölçüldü.** Dört servis kendi rolüyle kendi
+sorgusunu döngüde koşarken gerçek uygulayıcı gerçek şemayı uyguladı;
+pencere içindeki en kötü sorgu 2.3–9.9ms, boştaki en kötü 5.0–83.5ms.
+Yükseltme sırasında en kötü sorgu, hiçbir şey olmazken görülenden hızlı.
+Sebep şema dosyalarında: her `CREATE` `IF NOT EXISTS`, yani yeniden
+uygulama ağır kilit almıyor. Özellik SQL'e ait olduğu için teste
+bağlandı — bir sonraki şema dosyası bir `ALTER` uzaklıkta.
+
+İki eşik: 2sn mutlak tavan, artı aynı makinenin boş hâlinin 4 katı ve
+250ms. İkisi de gerçek `ACCESS EXCLUSIVE` kilidiyle mutasyonla ölçüldü.
+
+Yol üstünde ayrı bir kusur çıktı ve ayrı işlendi: `install.sh`
+yapılandırma dosyalarını, kurduğu birimlerin koştuğu hesabın
+okuyamayacağı izinlerle bırakıyordu — yani ürettiği kurulumda hiçbir
+servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
+aşamaya hiç girilmemişti.
 
 ---
 

@@ -589,44 +589,96 @@ geri düşüş katmanı.
 
 ## 7. Servisleri çalıştırma
 
-Depoda systemd unit dosyası **yok**. Aşağıdaki şablon çalışan bir
-örnektir; deponun parçası değildir, yani kendi ihtiyacınıza göre
-düzenlemeniz beklenir.
+**Birim dosyaları depoda var** — `release/systemd/` altında, ve
+`release/install.sh` bunları `/etc/systemd/system/` içine kurar. Bu
+bölüm uzun süre "depoda systemd unit dosyası yok" diyordu; G2 fazından
+beri doğru değildi ve düzeltildi. Var olmayan bir eksiği anlatan bir
+belge, okuyana gerçek eksikler hakkındakilere de inanmamayı öğretir.
 
-```ini
-# /etc/systemd/system/crucible-panel.service
-[Unit]
-Description=Crucible Analytic paneli
-After=network.target postgresql.service
+Kurulan altı dosya:
 
-[Service]
-Type=simple
-User=crucible
-Group=crucible
-ExecStart=/opt/crucible/bin/panel -config /etc/crucible/panel.toml
-Restart=on-failure
-RestartSec=5s
+| Dosya | Ne |
+|---|---|
+| `crucible-collector.service` | Siteyi önleyen TLS vekili |
+| `crucible-beacon.service` | Sayfa snippet'inin POST ettiği uç |
+| `crucible-analytics-api.service` | Salt okunur JSON API |
+| `crucible-panel.service` | Müşterinin paneli |
+| `crucible-upgrader.service` | Şema yükseltmesini uygulayan altıncı binary |
+| `crucible-upgrader.timer` | Yukarıdakini çalıştıran şey |
 
-# Sertleştirme
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/log/crucible /var/lib/crucible
+Dördü uzun ömürlü servis; `install.sh` bunları kurar ama **başlatmaz**:
 
-[Install]
-WantedBy=multi-user.target
+```bash
+systemctl enable --now crucible-collector crucible-beacon \
+                       crucible-analytics-api crucible-panel
 ```
 
-Diğer dördü için aynı şablon; yalnız `Description`, `ExecStart` ve
-`-config` değişir.
+### Yükseltici: servisi değil, zamanlayıcıyı etkinleştirin
 
-**Collector'ın farkı:** 443'ü dinleyecekse ya `CAP_NET_BIND_SERVICE`
-verin ya da yüksek bir porta bağlayıp önüne vekil koyun.
-
-```ini
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+```bash
+systemctl enable --now crucible-upgrader.timer
 ```
+
+`crucible-upgrader.service`'in `[Install]` bölümü **yok**, bilerek. Onu
+tek başına etkinleştirmek açılışta bir kez koşturur ve bir daha asla —
+yani paneldeki yükseltme düğmesi "istendi" der, satırı yazar, ve o satırı
+kimse okumaz. Düğmenin çalışması zamanlayıcıya bağlı.
+
+Zamanlayıcı açılıştan 2 dakika sonra ve her 30 saniyede bir bakar.
+Otuz saniye, birinin düğmeye yeni bastığı ve bir sayfaya baktığı için;
+bakma işi hemen hemen her seferinde hiçbir şey bulmayan tek bir indeks
+aramasıdır.
+
+Ne yaptığını görmek için:
+
+```bash
+systemctl list-timers crucible-upgrader.timer
+journalctl -u crucible-upgrader -n 50
+```
+
+### Yükselticinin kendi hesabı var — ve bu bir tercih değil
+
+`install.sh` iki sistem hesabı açar: dört servis için `crucible`,
+yükseltici için `crucible-upgrader`.
+
+Sebebi tek bir dosya: `upgrader.toml`, bu dağıtımda **DDL koşabilen tek
+DSN'i** taşır (`schema_admin` rolü, tabloların sahibi). Panel `crucible`
+olarak koşuyor. Yükseltici de `crucible` olsaydı, `upgrader.toml`'un
+`crucible` tarafından okunabilmesi gerekirdi — ve panel, okuması bile
+yasak olan veritabanını yeniden yazan kimlik bilgisini okuyabilirdi. Beş
+ayrı veritabanı rolünün satın aldığı her şey tek bir dosya izniyle geri
+alınmış olurdu.
+
+Elle kurduysanız aynısını yapın:
+
+```bash
+useradd --system --no-create-home --shell /usr/sbin/nologin crucible-upgrader
+chgrp crucible-upgrader /etc/crucible-analytic/upgrader.toml
+chmod 0640              /etc/crucible-analytic/upgrader.toml
+```
+
+### Yapılandırmayı servisler okuyabiliyor mu
+
+`install.sh` bunu kendisi ayarlar; elle kuruyorsanız atlanan adım
+budur ve atlandığında **hiçbir servis başlamaz**:
+
+```bash
+chgrp crucible /etc/crucible-analytic /etc/crucible-analytic/*.toml
+chmod 0751     /etc/crucible-analytic
+chmod 0640     /etc/crucible-analytic/*.toml
+```
+
+Sahip `root` kalır, hesap yalnız okuma alır. Servis yapılandırmasını
+okur, asla yeniden yazmaz: panelini ele geçiren biri `panel.toml`'u
+düzenleyebilseydi bir sonraki yeniden başlatmayı kendi seçtiği
+veritabanına yönlendirebilirdi.
+
+Dizin `0751` — son hane, `crucible-upgrader`'ın `crucible` grubunda
+olmadan kendi dosyasına ulaşabilmesi için. `r`siz `x`, "adını biliyorsan
+açabilirsin" demektir, "etrafa bakabilirsin" değil.
+
+**Collector'ın farkı:** 443'ü dinlediği için `CAP_NET_BIND_SERVICE` ile
+gelen tek birim odur; diğer beşi hiçbir yetenek istemez.
 
 ### Log dizini
 

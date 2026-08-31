@@ -2,6 +2,14 @@
   "note": "Triaged gosec findings. Every entry needs a reason - see internal/sast. Regenerate with: go run ./internal/sast/cmd/sastdiff -init",
   "entries": [
     {
+      "fingerprint": "b060cf81d79b472f574506c1",
+      "rule": "G304",
+      "file": "internal/applier/config.go",
+      "severity": "MEDIUM",
+      "reason": "The upgrader's own config path, from its -config flag - the systemd unit passes /etc/crucible-analytic/upgrader.toml and nothing derives it from a request; the upgrader has no HTTP surface at all. Worth saying that this is the deployment's most sensitive file, holding the only DSN that can run DDL: what protects it is not this line but its mode, 0640 owned by crucible-upgrader, which the panel's account cannot read. TestOnlyTheUpgraderCanReadTheDDLCredential measures both halves.",
+      "snippet": "body, err := os.ReadFile(path)"
+    },
+    {
       "fingerprint": "d86bd2b8b02d562ff7cc74b8",
       "rule": "G115",
       "file": "internal/argon2id/argon2id.go",
@@ -154,20 +162,20 @@
       "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "d6c6a65214f34db19b4fcd2d",
-      "rule": "G304",
-      "file": "internal/sast/cmd/deadcodediff/main.go",
-      "severity": "MEDIUM",
-      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
-      "snippet": "body, err := os.ReadFile(path)"
-    },
-    {
       "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
       "rule": "G304",
       "file": "internal/sast/cmd/deadcodediff/main.go",
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
       "snippet": "f, err = os.Open(path)"
+    },
+    {
+      "fingerprint": "d6c6a65214f34db19b4fcd2d",
+      "rule": "G304",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
+      "snippet": "body, err := os.ReadFile(path)"
     },
     {
       "fingerprint": "fa42d02f0b0211ce9728d1b4",

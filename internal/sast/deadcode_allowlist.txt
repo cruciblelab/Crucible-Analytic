@@ -34,7 +34,6 @@
 # What is not an answer is adding the name with no reason.
 
 internal/devgate.Authorization.Action                # Getter for the action an authorization was minted for, meant for error text. The messages that would use it are written by the panel, which has the key it asked about already. Kept as part of the type's read surface; delete it if D-group settles without a caller.
-internal/devgate.RequestFrom                         # Builds a gate Request from an HTTP request. The panel names the actions in code rather than reading them from the form - deliberately, since a request that named its own actions would authorize itself - so every caller so far builds the Request directly. Kept as the documented way to do it for the handler that eventually needs the HTTP-shaped form.
 internal/logging.Deadline                            # Duration attribute helper. Its comment used to claim callers it did not have; that is corrected. Available, not established.
 internal/panel.Store.RevokeOwnerClaim                # Withdraws an unaccepted owner invitation, by expiry rather than deletion so the audit trail keeps the fact. The page that offers it is not built; C-group.
 internal/panel.Store.ListUsers                       # Every account, oldest first. The superadmin user-list page is not built; D-group.

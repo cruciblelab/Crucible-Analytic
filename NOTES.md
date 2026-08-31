@@ -6649,3 +6649,137 @@ git reset --hard origin/claude/analytics-collector-mvp-7kec32
 
 Şu an bu dalın başka bir kopyası olmadığı için maliyeti sıfır — ve
 maliyetin sıfır olduğu an, bu işi yapmanın tek doğru anı.
+
+---
+
+## L3 kalanı — ve kurulumun hiç koşulmamış aşaması
+
+Yükseltme düğmesi ile uygulayıcı L3'ün başında yazılmıştı. Eksik olan,
+uygulayıcıyı bir makinede *çalıştıran* şeydi: systemd birimi, zamanlayıcı,
+`upgrader.toml`, Docker giriş noktası, ve PLAN'ın iddia edilmesini
+yasakladığı ölçüm.
+
+### Önce başka bir şey çıktı: install.sh çalışmayan bir kurulum üretiyordu
+
+`upgrader.toml`'un izinlerine karar vermek için diğer dördününkine baktım
+ve şunu ölçtüm — paneli, `install.sh`'in yazdığı yapılandırma ile
+`crucible` olarak başlatarak:
+
+```
+panel: config error: stat /etc/crucible-analytic/panel.toml: permission denied
+```
+
+Betik `crucible` hesabını açıyor, o hesap olarak koşan dört birim kuruyor,
+ve yapılandırma dizinini `root:root 0750` bırakıyordu. Hesap dizine
+giremiyordu bile. **Betiğin ürettiği kurulumda hiçbir servis
+başlamıyordu.**
+
+Neden yıllarca durabilirdi, ve bu kısmı asıl kayda değer olan:
+`install_test.go`'daki her test `--no-systemd` geçiyor. `runInstall`'ın
+yorumu o bayrağa "load-bearing" diyor ve haklı — bir test takımı koştuğu
+makineye servis kurmamalı. Fark edilmeyen, bayrağın *neyi* taşıdığıydı.
+Arkasındaki dal hesabı açan ve birimleri kuran daldı, ve bu depoda ona
+hiçbir şey girmemişti.
+
+**Test edilemeyen tek yer, bozuk olan tek yerdi.** Ve neden test
+edilemiyordu: `PREFIX`, `CONF_DIR`, `LOG_DIR`, `STATE_DIR` hepsi
+yönlendirilebiliyordu; birimlerin gittiği yer yönlendirilemiyordu. Ailenin
+eksik üyesi `SYSTEMD_DIR` eklendi ve kapı açıldı.
+
+### İki hesap, ve `0751`'in son hanesi
+
+`upgrader.toml`, dağıtımdaki DDL koşabilen tek DSN'i taşıyor. Panel
+`crucible` olarak koşuyor. Aynı hesap olsaydı panel, okuması bile yasak
+olan veritabanını yeniden yazan kimliği okuyabilirdi.
+
+İkinci hesap: `crucible-upgrader`. Ama o zaman dizinin kendisi sorun
+oluyor — `0750 root:crucible` ise ikinci hesap içeri giremez. `0751`:
+`r`siz `x`, "adını biliyorsan açabilirsin"dir. Alternatif, yükselticiyi
+`crucible` grubuna koymaktı; bir geçiş sorununu çözmek için ona dört
+servis yapılandırmasının tamamına okuma hakkı vermek olurdu.
+
+### Ölçüm: hiçbir servis durmuyor
+
+Bu, düğmenin dayandığı iddia. Müşteri sitesi trafik alırken basıyor ve
+kendisine örtük olarak "bunu şimdi yapmak güvenli" deniyor.
+
+Süreçler hakkında bir soru değil — dördü yeniden başlamıyor, yeniden
+bağlanmıyor, olup biteni fark bile etmiyor. Soru **kilit**: `ALTER TABLE`
+ACCESS EXCLUSIVE alır ve o tablonun her okuyucusunu ve yazıcısını
+bekletir, ve bekleyen bir kilit isteği arkasına geleni de bekletir.
+
+Dört servis kendi rolüyle kendi sorgusunu döngüde koşarken gerçek
+uygulayıcı gerçek şemayı uyguladı:
+
+```
+yükseltmenin kendisi     35ms, 35ms, 86ms
+pencere içinde en kötü   2.3ms .. 9.9ms
+boştayken en kötü        5.0ms .. 83.5ms
+```
+
+Yükseltme sırasındaki en kötü sorgu, hiçbir şey olmazken görülenden
+*hızlı*. Sebep uygulayıcıda değil, şema dosyalarında: her `CREATE`
+`IF NOT EXISTS`, yani yeniden uygulama işini yapılmış buluyor.
+
+**Özellik SQL'e ait, koda değil — testin gerekçesi tam da bu.** Bir
+sonraki şema dosyası bir `ALTER` uzaklıkta ve o gün kimse bu ölçümü
+hatırlamayacak.
+
+### Testin kendi ilk hatası: adındaki büyüklüğü ölçmemek
+
+İlk sürüm tek bir koşan maksimum tutuyor ve onu yükseltmenin maliyeti
+diye raporluyordu. İlk koşusu şunu dedi:
+
+```
+the upgrade took 141ms ... worst 346ms
+```
+
+Sebep olduğu iddia edilen şeyden büyük bir sayı. Çoğu havuz ısınmasıydı,
+DDL başlamadan önce.
+
+**Adındaki büyüklüğü ölçmeyen bir test, sayısız bir testten kötüdür;
+çünkü sayı alıntılanır.** Her sorgunun başlangıç/bitişi kaydedilip
+pencereyle *örtüşme*ye göre ayrıldı — kapsanmaya göre değil: DDL'den önce
+başlayıp sürerken devam eden sorgu, kilidin engellediği tam da odur, ve
+kapsama testi en kötü örneği "kapsam dışı" diye atardı.
+
+### Eşik seçimi: mutlak tavan yetmiyor
+
+2 saniyelik mutlak tavan CI'ın soğuk önbelleği için gerekli ama gevşek —
+hızlı bir makinede bir şey dört kat yavaşlayıp yine de geçebilir. İkinci
+eşik koşuyu kendisiyle karşılaştırıyor: aynı makinedeki boş hâlin 4
+katından **ve** 250ms'den kötüyse kırmızı. İkisi birden, çünkü tek başına
+oran kullanılamaz (2ms tabanda 9ms zaten 4.5 kat) ve tek başına taban
+zaten mutlak tavanın küçüğüdür.
+
+Mutasyon şemaya 1sn ve 3sn ACCESS EXCLUSIVE tutan `DO` bloğu ekleyerek
+yapıldı. 1sn karşılaştırmalı yarıyı, 3sn mutlak tavanı kırmızıya çevirdi —
+yani duyarlı yarı gerçekten çalışıyor. Ve **yalnız kilitlenen tabloya
+dokunan problar durdu**; beacon ile panel probları etkilenmedi. Ölçümün
+tek tip bir yavaşlama değil, gerçek olduğunun kanıtı bu.
+
+### Yan bulgu: iki paket aynı satırı yazıyordu
+
+Tam entegrasyon takımı kırmızı, tek başına yeşil. `schema_version` tüm
+veritabanı için tek satır; `internal/panel/web` onu dört duruma sokup
+sağlık sayfasının ne dediğini kontrol ediyor, `internal/applier` uygulayıp
+üstüne yazıyor.
+
+Yarış yeni değildi. Uygulayıcının takımı hep sürüm kaydediyordu; pencere
+birkaç milisaniyeyken görünmedi. **1,5 saniyelik yük onu olası olmaktan
+çıkarıp kesin yaptı — bulunmasının tek sebebi bu.** `testdb.SchemaVersionLock`
+eklendi, iki taraf da alıyor, kilit sırası yazılı (aynı çifti ters sırada
+alan iki takım kilitlenir ve kilitlenmiş bir test takımı hata gibi değil
+donmuş makine gibi görünür).
+
+### Bir de yanlışlıkla geçen bir kontrol
+
+`TestEveryUnitCarriesTheHardening` her birimde `User=crucible` arıyordu —
+`strings.Contains` ile. `User=crucible-upgrader` bunu sağlıyor. Yani
+dizindeki *kasten farklı hesapla koşan tek birim*, hepsinin aynı hesapla
+koştuğunu doğrulamak için yazılmış bir kontrolden geçecekti.
+
+`key=value` satırının alt dizgi testi, kimsenin sormadığı bir soruyu
+cevaplar. Direktif artık ayrıştırılıyor, ve beklentiler iki yönlü bir
+haritada gerekçeleriyle duruyor: listede olmayan birim de kırmızı, dosyası
+olmayan liste girdisi de.
