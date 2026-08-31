@@ -562,14 +562,25 @@ func TestTheAboutBlockIsOnThePageForEveryone(t *testing.T) {
 		t.Fatalf("a viewer got %d from the settings page", status)
 	}
 
-	for _, want := range []struct{ text, why string }{
+	// The team names are built from their own list and drawn under their
+	// own heading, so a template edit can drop that whole block while
+	// every check above still passes. Read from the list rather than
+	// written out again here: a second copy of the names is a second
+	// place to forget one.
+	wants := []struct{ text, why string }{
 		{"Hakkında", "the section heading"},
+		{"Ekip", "the team heading"},
 		{RepositoryURL, "where the source is"},
 		{LicenceName, "the licence the deployment runs under"},
 		{"CrucibleLAB", "the project"},
 		{"Fırat Coşkun", "the developer"},
 		{"Claude", "the assistant"},
-	} {
+	}
+	for _, c := range team {
+		wants = append(wants, struct{ text, why string }{c.Name, "on the team list"})
+	}
+
+	for _, want := range wants {
 		if !strings.Contains(body, want.text) {
 			t.Errorf("the settings page does not carry %q (%s)", want.text, want.why)
 		}

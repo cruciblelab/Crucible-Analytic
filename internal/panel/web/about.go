@@ -77,26 +77,35 @@ var contributors = []contributor{
 	{Name: "Claude", RoleKey: "ayarlar.hakkinda.rol.asistan", Mark: "marka-claude.svg"},
 }
 
-// thanks are the people the project wants to name who are not
-// contributors in the sense CLA.md means.
+// team are people in CrucibleLAB who have not signed the agreement.
 //
-// A separate list, and the separation is the point rather than a
-// nicety. "Contributor" in this repository is a word with paperwork
-// behind it: CLA-SIGNATURES.md records who agreed that their work may
-// be in the software, and TestEveryContributorHasSignedTheCLA holds the
-// panel's credits to that record.
+// A separate list from contributors, and the separation is the point
+// rather than a nicety. "Contributor" in this repository is a word with
+// paperwork behind it: CLA-SIGNATURES.md records who agreed that their
+// work may be in the software, and TestEveryContributorHasSignedTheCLA
+// holds the panel's credits to that record.
+//
+// # Being on the team is not having signed
+//
+// The two are easy to conflate and the conflation is expensive in one
+// specific direction. CLA.md exists to keep the licensing decision
+// possible; the day code from an unsigned person merges, that decision
+// needs their written permission, and a small team is exactly where
+// nobody thinks to ask because everyone already knows each other.
 //
 // Naming somebody as a contributor who has not signed would mean either
 // a red test or a signature written on their behalf, and the second is
-// inventing a legal record. Thanking somebody requires no agreement from
-// anybody, which is exactly why it is the honest place for a name that
-// belongs on the page for another reason.
+// inventing a legal record - which is worse than a missing one, because
+// a missing one is discovered while people are still reachable.
 //
-// If one of these people does contribute code, they sign like anybody
-// else and move up one list.
-var thanks = []contributor{
-	{Name: "Mehmet Can", RoleKey: "ayarlar.hakkinda.rol.tesekkur"},
-	{Name: "Ali Hüseyin", RoleKey: "ayarlar.hakkinda.rol.tesekkur"},
+// The guard is already in place and does not depend on this file:
+// internal/docs/cla_test.go compares git's commit authors against
+// CLA-SIGNATURES.md, so the first commit either of these people makes
+// turns that test red until they have signed. That is the test working,
+// not a nuisance - and when they sign, they move up one list.
+var team = []contributor{
+	{Name: "Mehmet Can", RoleKey: "ayarlar.hakkinda.rol.ekip"},
+	{Name: "Ali Hüseyin", RoleKey: "ayarlar.hakkinda.rol.ekip"},
 }
 
 // aboutRow is one contributor, ready to draw.
@@ -120,9 +129,9 @@ type aboutSection struct {
 	Repository   string
 	Licence      string
 	Contributors []aboutRow
-	// Thanks is drawn under its own heading. Empty is a real state and
+	// Team is drawn under its own heading. Empty is a real state and
 	// the template omits the heading rather than drawing an empty list.
-	Thanks []aboutRow
+	Team []aboutRow
 }
 
 // aboutFor builds the section.
@@ -134,7 +143,7 @@ func (s *Server) aboutFor(lang *ui.Language) aboutSection {
 		Licence:    LicenceName,
 	}
 	out.Contributors = s.rowsFor(lang, contributors)
-	out.Thanks = s.rowsFor(lang, thanks)
+	out.Team = s.rowsFor(lang, team)
 	return out
 }
 

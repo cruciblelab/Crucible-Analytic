@@ -148,13 +148,14 @@ it is compiled in rather than stored, and why every viewer sees it. */}}
 {{- end}}
 </ul>
 
-{{- /* Thanks, under its own heading and only when there is somebody in
-it. A separate list because "contributor" here is a word with paperwork
-behind it - see the thanks var in about.go. */}}
-{{- if .Thanks}}
-<h3>{{t "ayarlar.hakkinda.tesekkur_baslik"}}</h3>
+{{- /* The team, under its own heading and only when there is somebody
+in it. A separate list from the contributors because "contributor" here
+is a word with paperwork behind it, and being on the team is not the
+same as having signed - see the team var in about.go. */}}
+{{- if .Team}}
+<h3>{{t "ayarlar.hakkinda.ekip_baslik"}}</h3>
 <ul class="katkida">
-{{- range .Thanks}}
+{{- range .Team}}
   <li>
     <span class="katkida-ad">{{.Name}}</span>
     <span class="katkida-rol">{{.Role}}</span>
