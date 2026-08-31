@@ -1,5 +1,5 @@
 #!/bin/sh
-# The image's five entry points, plus the one-time install.
+# The image's six entry points, plus the one-time install.
 #
 # `docker run … collector` starts the collector with the config the init
 # step wrote. `docker run … init` is that init step. Anything else is
@@ -15,7 +15,7 @@ CONF_DIR="${CA_CONF_DIR:-/etc/crucible-analytic}"
 
 usage() {
     cat >&2 <<'USAGE'
-crucible-analytic — one image, five entry points.
+crucible-analytic — one image, six entry points.
 
   init             create the roles, apply the schemas and the grants,
                    write the configuration files, once. Needs
@@ -24,6 +24,9 @@ crucible-analytic — one image, five entry points.
   beacon           the endpoint the page snippet posts to
   analytics-api    the read-only HTTP API
   panel            the customer's web interface
+  upgrader         applies a schema upgrade the panel has asked for.
+                   Polls; there is no systemd timer in a container, so
+                   this one runs as a long-lived service like the rest.
   devpass          hash a developer password, or generate an ip_hash_key
 
 Anything else is run as a command, so `psql "$DSN"` works too.
@@ -108,7 +111,7 @@ do_init() {
     #
     # logging.Config treats an empty dir as "stderr only", so this is a
     # supported setting rather than a container-only code path.
-    for f in collector.toml beacon.toml analytics-api.toml panel.toml; do
+    for f in collector.toml beacon.toml analytics-api.toml panel.toml upgrader.toml; do
         [ -f "${CONF_DIR}/${f}" ] || continue
         sed -i -E 's|^dir = "/var/log/crucible"$|dir = ""|' "${CONF_DIR}/${f}"
     done
@@ -174,6 +177,15 @@ case "${command}" in
     beacon)         run_service beacon         "${CONF_DIR}/beacon.toml" "$@" ;;
     analytics-api)  run_service analytics-api  "${CONF_DIR}/analytics-api.toml" "$@" ;;
     panel)          run_service panel          "${CONF_DIR}/panel.toml" "$@" ;;
+    # No -once here, and that is the difference from a server.
+    #
+    # On a machine with systemd the upgrader is a one-shot run by a
+    # timer, so nothing holds a DDL connection open between upgrades. A
+    # container has no timer, and the alternative - a restart-always
+    # container that exits every thirty seconds - is a crash loop as far
+    # as every orchestrator's health reporting is concerned. So here it
+    # polls in-process, on interval_seconds.
+    upgrader)       run_service upgrader       "${CONF_DIR}/upgrader.toml" "$@" ;;
     devpass)        exec devpass "$@" ;;
     -h|--help|help) usage ;;
     *)              exec "${command}" "$@" ;;

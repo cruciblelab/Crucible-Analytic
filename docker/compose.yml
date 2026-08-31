@@ -163,6 +163,31 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # The sixth binary: applies a schema upgrade the panel has asked for.
+  #
+  # Without it the upgrade button on the health page writes its request
+  # row, the page says "requested", and nothing ever reads it. A stack
+  # that ships the panel and not this has a button that reports success
+  # and does nothing - so it is a service here rather than an optional
+  # profile.
+  #
+  # Its configuration file is the only one carrying a DSN that can run
+  # DDL. On a server that is protected by a second account and a file
+  # mode; here it is not, because every process in this stack already
+  # runs as root inside its own container and a mode would be theatre.
+  # What separates them is the container boundary: this is the only
+  # service whose image is started with `upgrader`, and the DSN is unread
+  # by any other.
+  upgrader:
+    image: ${CA_IMAGE:-crucible-analytic:dev}
+    command: ["upgrader"]
+    volumes:
+      - conf:/etc/crucible-analytic
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # panel-cli is the same image with no long-running command, for the
   # handful of things an operator does by hand: minting the first
   # developer link, inviting an owner, hashing a developer password.

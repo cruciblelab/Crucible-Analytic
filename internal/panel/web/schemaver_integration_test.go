@@ -50,6 +50,16 @@ func clearSchemaRow(t *testing.T) {
 
 // TestTheHealthPageReportsTheSchemaVersion covers the four states.
 func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
+	// schema_version is one row for the whole database, and this test
+	// spends its time putting it into states and asking what the page
+	// says. internal/applier's suite applies the schema and records a
+	// version, which overwrites it from another process.
+	//
+	// Without this, that is a race: this test passed alone and failed in
+	// the full suite, reporting a page in "another state" - which it was,
+	// just not one this test had set.
+	testdb.Lock(t, testdb.Admin(t), testdb.SchemaVersionLock)
+
 	for _, tc := range []struct {
 		name        string
 		version     int

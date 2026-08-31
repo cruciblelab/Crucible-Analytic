@@ -1,0 +1,54 @@
+# Config for the schema upgrader (cmd/upgrader). Copy to upgrader.toml,
+# or point -config at it directly.
+#
+# This is the sixth binary and the only one allowed to change the shape of
+# the database. The panel writes a row saying it wants an upgrade; this
+# reads that row, applies the schema and writes back what happened. See
+# cmd/upgrader/main.go for why it is separate at all.
+#
+# # This file is not like the other five
+#
+# It carries the only DSN in the deployment that can run DDL, so it is the
+# only configuration file the services' own account must not be able to
+# read. install.sh gives it to a second account - crucible-upgrader - at
+# mode 0640, and the panel's account is not in that group. If you install
+# by hand, do the same; a `chmod 644` here hands the panel's process the
+# ability to rewrite its own database.
+
+# Required. Must name schema_admin, the fifth role, which owns the tables.
+#
+# Not one of the four service roles, and the difference is the whole
+# design: release/sql/grants.sql contains no ALTER, no CREATE and no OWNER
+# for collector, beacon_writer, analytics_reader or panel_user. An
+# upgrader pointed at panel_user would connect happily and then fail on
+# the first ALTER, half way through a migration.
+#
+# install.sh creates the role and writes its password in here.
+schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
+
+# How often to look for a waiting request, in seconds. Default 30.
+#
+# Only used when the process runs as a daemon - the Docker entry point, or
+# `upgrader` with no flags. Under systemd it is the timer that decides,
+# and this is ignored: the unit runs with -once and exits. Changing the
+# systemd cadence means editing crucible-upgrader.timer, not this line.
+#
+# Thirty seconds because somebody just pressed a button and is watching a
+# page. The query is one indexed lookup that finds nothing almost every
+# time.
+# interval_seconds = 30
+
+# Logging. The defaults send everything to stderr, which is what a
+# systemd timer unit wants: `journalctl -u crucible-upgrader` is where an
+# operator looks, and a one-shot process that writes its own log file
+# leaves an operator two places to look instead of one.
+#
+# The lines a *customer* needs do not depend on this. They go to the panel
+# through the log sink, which is a database table rather than a file - an
+# upgrade is the one operation somebody watches a page for.
+#
+# Set dir to write files as well; the four services default to
+# /var/log/crucible-analytic.
+[logging]
+# dir = ""
+# level = "info"

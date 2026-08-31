@@ -32,6 +32,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/cruciblelab/crucible-analytic/internal/api"
+	"github.com/cruciblelab/crucible-analytic/internal/applier"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/collector"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
@@ -52,8 +53,9 @@ func TestEveryExampleConfigParses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(matches) < 4 {
-		t.Fatalf("found %d example configs at the repository root, and this project has four services - is the glob right?", len(matches))
+	if len(matches) < 5 {
+		t.Fatalf("found %d example configs at the repository root, and this project has "+
+			"five configured binaries - is the glob right?", len(matches))
 	}
 
 	for _, path := range matches {
@@ -100,7 +102,7 @@ func TestEveryCommentedSettingReachesItsField(t *testing.T) {
 	root := repoRootFromWD(t)
 	checked := 0
 
-	for _, c := range []struct {
+	cases := []struct {
 		file string
 		into func() any
 	}{
@@ -108,7 +110,40 @@ func TestEveryCommentedSettingReachesItsField(t *testing.T) {
 		{"beacon.example.toml", func() any { return new(beacon.Config) }},
 		{"analytics-api.example.toml", func() any { return new(api.Config) }},
 		{"panel.example.toml", func() any { return new(web.Config) }},
-	} {
+		{"upgrader.example.toml", func() any { return new(applier.Config) }},
+	}
+
+	// The list above is a hand list, and a hand list of files is a list
+	// somebody forgets. So the tree is asked too: an example config with
+	// no entry here is not merely unchecked, it is unchecked *silently*,
+	// which is how a file gets shipped with a commented setting that
+	// reaches no field.
+	//
+	// The sibling test globs and needs no list because it only parses.
+	// This one has to know which struct each file is for, so the list
+	// cannot be removed - only made unable to fall behind.
+	listed := map[string]bool{}
+	for _, c := range cases {
+		listed[c.file] = true
+	}
+	onDisk, err := filepath.Glob(filepath.Join(root, "*.example.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range onDisk {
+		if name := filepath.Base(path); !listed[name] {
+			t.Errorf("%s is shipped and this test does not know which config struct "+
+				"it belongs to, so nothing checks that its commented settings reach "+
+				"a field. Add it below.", name)
+		}
+	}
+	for name := range listed {
+		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
+			t.Errorf("this test lists %s, which is not at the repository root", name)
+		}
+	}
+
+	for _, c := range cases {
 		t.Run(c.file, func(t *testing.T) {
 			body, err := os.ReadFile(filepath.Join(root, c.file))
 			if err != nil {

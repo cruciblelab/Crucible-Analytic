@@ -33,6 +33,16 @@ CONF_DIR="${CONF_DIR:-/etc/crucible-analytic}"
 LOG_DIR="${LOG_DIR:-/var/log/crucible-analytic}"
 STATE_DIR="${STATE_DIR:-/var/lib/crucible-analytic}"
 RUN_AS="${RUN_AS:-crucible}"
+# RUN_AS_UPGRADER is the sixth binary's own account, and it is separate
+# from RUN_AS on purpose.
+#
+# upgrader.toml carries the only DSN in this deployment that can run DDL.
+# The four services run as ${RUN_AS}; the panel is one of them. If the
+# upgrader ran as ${RUN_AS} too, then upgrader.toml would have to be
+# readable by ${RUN_AS}, and the panel could read the credential that
+# rewrites its own database - undoing with one file permission the whole
+# reason there are five database roles.
+RUN_AS_UPGRADER="${RUN_AS_UPGRADER:-crucible-upgrader}"
 # SYSTEMD_DIR is where the unit files go.
 #
 # The last member of the PREFIX / CONF_DIR / LOG_DIR / STATE_DIR family,
@@ -445,6 +455,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   copy_example beacon.example.toml        beacon.toml
   copy_example analytics-api.example.toml analytics-api.toml
   copy_example panel.example.toml         panel.toml
+  copy_example upgrader.example.toml      upgrader.toml
 
   # ---- the four database passwords ----
   #
@@ -489,6 +500,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   write_role_password beacon_writer    beacon.toml        timescale_dsn
   write_role_password analytics_reader analytics-api.toml timescale_dsn
   write_role_password panel_user       panel.toml         panel_dsn
+  write_role_password schema_admin    upgrader.toml      schema_admin_dsn
 
   # The database name, which is not a secret and must match --db whatever
   # happened with the passwords.
@@ -519,6 +531,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   point_at_database beacon.toml        timescale_dsn
   point_at_database analytics-api.toml timescale_dsn
   point_at_database panel.toml         panel_dsn
+  point_at_database upgrader.toml      schema_admin_dsn
 
   # And the check that makes the writing worth anything: use what the
   # file now says, as the service will.
@@ -556,6 +569,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   check_role_dsn beacon_writer    beacon.toml        timescale_dsn
   check_role_dsn analytics_reader analytics-api.toml timescale_dsn
   check_role_dsn panel_user       panel.toml         panel_dsn
+  check_role_dsn schema_admin    upgrader.toml      schema_admin_dsn
 
   # ---- the IP token key ----
   #
@@ -776,6 +790,7 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
     install -m 0644 "${unit}" "${SYSTEMD_DIR}/"
   done
   id -u "${RUN_AS}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS}"
+  id -u "${RUN_AS_UPGRADER}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS_UPGRADER}"
   mkdir -p "${LOG_DIR}" "${STATE_DIR}"
   chown "${RUN_AS}:${RUN_AS}" "${LOG_DIR}" "${STATE_DIR}"
 
@@ -805,7 +820,21 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   # owner and the account gets read access, which is the whole of what a
   # service needs.
   chgrp "${RUN_AS}" "${CONF_DIR}"
-  chmod 0750 "${CONF_DIR}"
+  # 0751, and the last digit is the one worth explaining.
+  #
+  # Two accounts have to reach files in here: ${RUN_AS} for the four
+  # services, and ${RUN_AS_UPGRADER} for upgrader.toml. They are
+  # deliberately in no group together - that is the point of the second
+  # account - so the upgrader reaches its file through the "other" bit.
+  #
+  # x without r is "you may open a file in here if you already know its
+  # name", not "you may look around": the upgrader can open
+  # upgrader.toml and cannot list the directory, and the file modes below
+  # are what actually decide who reads what. The alternative was putting
+  # the upgrader in the ${RUN_AS} group, which would have handed it read
+  # access to all four service configurations to solve a traversal
+  # problem.
+  chmod 0751 "${CONF_DIR}"
   for f in collector.toml beacon.toml analytics-api.toml panel.toml; do
     [ -f "${CONF_DIR}/${f}" ] || continue
     chgrp "${RUN_AS}" "${CONF_DIR}/${f}"
@@ -817,6 +846,24 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   # exists so that a re-run of this script can find the key it already
   # generated rather than rotating it and orphaning every stored
   # pseudonym. It stays root-only.
+
+  # And upgrader.toml is deliberately not in it either, for the opposite
+  # reason: it goes to the *other* account.
+  #
+  # This is the file that must not be readable by ${RUN_AS}. It carries
+  # the DSN for schema_admin, which owns every table; a panel that could
+  # read it could connect as the role that rewrites the database the
+  # panel is forbidden to even SELECT from.
+  #
+  # ${CONF_DIR} is now group ${RUN_AS} and mode 0750, so ${RUN_AS} can
+  # list the directory and see that this file exists. That is fine and
+  # it is not an oversight: the *name* is in KURULUM.md, in the example
+  # configuration and in this script. What must not leak is the
+  # contents, and 0640 root:${RUN_AS_UPGRADER} is what withholds it.
+  if [ -f "${CONF_DIR}/upgrader.toml" ]; then
+    chgrp "${RUN_AS_UPGRADER}" "${CONF_DIR}/upgrader.toml"
+    chmod 0640 "${CONF_DIR}/upgrader.toml"
+  fi
 
   # Only when the units really went to systemd. Told to reload a
   # directory it does not manage, systemctl succeeds and does nothing,

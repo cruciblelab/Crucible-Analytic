@@ -59,7 +59,7 @@ COPY . .
 # is exactly why release/build.sh passes it in too.
 ARG VERSION=unknown
 RUN set -eux; \
-    for b in collector beacon analytics-api panel devpass; do \
+    for b in collector beacon analytics-api panel devpass upgrader; do \
         CGO_ENABLED=0 go build \
             -trimpath -buildvcs=false \
             -ldflags "-s -w -X main.version=${VERSION}" \
@@ -139,6 +139,7 @@ COPY config.example.toml            /opt/crucible/ornek-yapilandirma/config.exam
 COPY beacon.example.toml            /opt/crucible/ornek-yapilandirma/beacon.example.toml
 COPY analytics-api.example.toml     /opt/crucible/ornek-yapilandirma/analytics-api.example.toml
 COPY panel.example.toml             /opt/crucible/ornek-yapilandirma/panel.example.toml
+COPY upgrader.example.toml          /opt/crucible/ornek-yapilandirma/upgrader.example.toml
 
 COPY release/install.sh release/verify.sh /opt/crucible/release/
 COPY release/sql/                         /opt/crucible/release/sql/

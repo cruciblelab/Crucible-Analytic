@@ -24,7 +24,7 @@
 // container is where they showed up, because a container is an
 // installation nobody has quietly fixed by hand.
 //
-// Its own tag: it builds an image and starts five containers, which is
+// Its own tag: it builds an image and starts six containers, which is
 // minutes and a docker daemon. Not in the merge gate.
 package e2e
 

@@ -1159,9 +1159,11 @@ func TestTheServicesCanReadWhatInstallWrote(t *testing.T) {
 	}
 
 	const runAs = "crucible"
-	_, existed := exec.Command("id", "-u", runAs).Output()
-	if existed != nil {
-		t.Cleanup(func() { _ = exec.Command("userdel", runAs).Run() })
+	const runAsUpgrader = "crucible-upgrader"
+	for _, account := range []string{runAs, runAsUpgrader} {
+		if _, err := exec.Command("id", "-u", account).Output(); err != nil {
+			t.Cleanup(func() { _ = exec.Command("userdel", account).Run() })
+		}
 	}
 
 	demoteServiceSuperusers(t)
@@ -1236,5 +1238,98 @@ func TestTheServicesCanReadWhatInstallWrote(t *testing.T) {
 		"echo x >> "+panelToml).Run(); err == nil {
 		t.Errorf("%s can write panel.toml. A compromised panel could point its own "+
 			"next restart at a database of its choosing", runAs)
+	}
+}
+
+// TestOnlyTheUpgraderCanReadTheDDLCredential.
+//
+// upgrader.toml carries schema_admin's DSN - the one connection in the
+// deployment that can ALTER a table. The panel runs as `crucible` and its
+// own database role holds no privilege on the analytics tables at all,
+// which is the isolation B6 and H5 established and that the whole design
+// rests on. A file mode is enough to undo it: a panel that could read
+// upgrader.toml could connect as the role that owns every table.
+//
+// So both halves are measured, against the file install.sh actually
+// wrote, as the accounts it actually created.
+//
+// Split from the test above rather than added to it because the two ask
+// opposite questions - "can this account read this file" and "can this
+// account not" - and a single test that mixed them would report a
+// permission that is too narrow and one that is too wide with the same
+// sentence.
+func TestOnlyTheUpgraderCanReadTheDDLCredential(t *testing.T) {
+	const db = "ca_install_ddlperms_test"
+
+	if os.Geteuid() != 0 {
+		t.Skip("the systemd stage needs root (it creates system accounts)")
+	}
+	for _, tool := range []string{"useradd", "su"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not on PATH; this test runs as the service accounts", tool)
+		}
+	}
+
+	const runAs = "crucible"
+	const runAsUpgrader = "crucible-upgrader"
+	for _, account := range []string{runAs, runAsUpgrader} {
+		if _, err := exec.Command("id", "-u", account).Output(); err != nil {
+			t.Cleanup(func() { _ = exec.Command("userdel", account).Run() })
+		}
+	}
+
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	confDir := t.TempDir()
+	for dir := confDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o711); err != nil {
+			t.Fatalf("opening the temp chain: %v", err)
+		}
+	}
+
+	cmd := exec.Command("./release/install.sh")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+		"DB_NAME="+db,
+		"CONF_DIR="+confDir,
+		"SYSTEMD_DIR="+t.TempDir(),
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	upgraderToml := filepath.Join(confDir, "upgrader.toml")
+	if _, err := os.Stat(upgraderToml); err != nil {
+		t.Fatalf("install.sh wrote no upgrader.toml, so there is nothing to protect "+
+			"and nothing here is measured: %v", err)
+	}
+
+	// It has to contain the credential, or the check below is a check on
+	// an empty file.
+	body, err := os.ReadFile(upgraderToml)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "postgres://schema_admin:") {
+		t.Fatalf("upgrader.toml carries no schema_admin DSN; this test would then be "+
+			"asserting that nobody can read a file with no secret in it:\n%s", body)
+	}
+
+	if err := exec.Command("su", "-s", "/bin/sh", runAsUpgrader, "-c",
+		"cat "+upgraderToml+" >/dev/null").Run(); err != nil {
+		t.Errorf("%s cannot read upgrader.toml, so the upgrader will not start: %v",
+			runAsUpgrader, err)
+	}
+
+	if err := exec.Command("su", "-s", "/bin/sh", runAs, "-c",
+		"cat "+upgraderToml+" >/dev/null").Run(); err == nil {
+		t.Errorf("%s can read upgrader.toml. That account runs the panel, and the file "+
+			"holds schema_admin's DSN - the panel could connect as the role that owns "+
+			"every table it is forbidden to read", runAs)
 	}
 }

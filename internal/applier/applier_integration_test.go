@@ -23,6 +23,10 @@ func applierAndPanel(t *testing.T) (*Applier, *pgxpool.Pool) {
 	adminPool := testdb.Pool(t, testdb.SchemaAdmin)
 	panelPool := testdb.Pool(t, testdb.Panel)
 	testdb.Lock(t, adminPool, testdb.UpgradeQueueLock)
+	// And the version row, which applying writes and which another
+	// package's suite sets to four different states of its own. Second,
+	// always - see testdb.SchemaVersionLock on why the order is fixed.
+	testdb.Lock(t, adminPool, testdb.SchemaVersionLock)
 
 	clean := func() {
 		if _, err := testdb.Admin(t).Exec(context.Background(),

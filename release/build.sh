@@ -68,7 +68,7 @@ echo "== binaries"
 # exported copy of the same commit produced five different checksums,
 # while -trimpath was doing its job in both. The release version comes
 # from -X above, which needs no repository.
-for b in collector beacon analytics-api panel devpass; do
+for b in collector beacon analytics-api panel devpass upgrader; do
   CGO_ENABLED=0 GOOS="${GOOS_}" GOARCH="${GOARCH_}" \
     go build -trimpath -buildvcs=false -ldflags "-s -w -X main.version=${VERSION}" \
       -o "${STAGE}/bin/${b}" "./cmd/${b}"
@@ -100,12 +100,17 @@ cp internal/upgrade/schema.sql    "${STAGE}/schema/08-upgrade.sql"
 cp internal/schemaver/schema.sql  "${STAGE}/schema/09-schemaver.sql"
 
 echo "== example configuration"
-for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml; do
+for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml \
+         upgrader.example.toml; do
   cp "${f}" "${STAGE}/ornek-yapilandirma/"
 done
 
 echo "== systemd units"
-cp release/systemd/*.service "${STAGE}/systemd/"
+# Timers as well as services. crucible-upgrader.service has no [Install]
+# section by design - the timer is what starts it - so a package carrying
+# the service alone installs an upgrader that never runs, and says nothing
+# about it.
+cp release/systemd/*.service release/systemd/*.timer "${STAGE}/systemd/"
 
 echo "== install and verify scripts"
 # The package carries its own installer and its own verifier. A release

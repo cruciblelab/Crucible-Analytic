@@ -130,6 +130,7 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 
 	for _, want := range []string{
 		"bin/collector", "bin/beacon", "bin/analytics-api", "bin/panel", "bin/devpass",
+		"bin/upgrader",
 		"schema/01-panel.sql", "schema/02-storage.sql",
 		"schema/03-beacon.sql", "schema/04-asnlookup.sql",
 		"schema/05-heartbeat.sql", "schema/06-retention.sql",
@@ -137,10 +138,16 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 		"schema/09-schemaver.sql",
 		"systemd/crucible-collector.service", "systemd/crucible-beacon.service",
 		"systemd/crucible-analytics-api.service", "systemd/crucible-panel.service",
+		"systemd/crucible-upgrader.service",
+		// The timer, and it is the half that matters: the service above
+		// has no [Install] section, so a package carrying the service
+		// without the timer installs an upgrader that never runs.
+		"systemd/crucible-upgrader.timer",
 		"ornek-yapilandirma/config.example.toml",
 		"ornek-yapilandirma/beacon.example.toml",
 		"ornek-yapilandirma/analytics-api.example.toml",
 		"ornek-yapilandirma/panel.example.toml",
+		"ornek-yapilandirma/upgrader.example.toml",
 		"LICENSE", "NOTICE", "THIRD-PARTY.md", "KURULUM.md", "README.md",
 		"SHA256SUMS",
 		// The installer and its SQL. A package that told the operator to
@@ -293,12 +300,18 @@ func TestTheUnitsAreValidAccordingToSystemd(t *testing.T) {
 		t.Skip("systemd-analyze is not on this machine")
 	}
 
-	units, err := filepath.Glob(filepath.Join(repoRoot(t), "release", "systemd", "*.service"))
+	// Timers as well as services. A timer is a unit file with its own
+	// directive set, systemd is just as willing to accept a wrong one
+	// silently, and crucible-upgrader.timer is the only thing that ever
+	// starts the upgrader - a typo in it is an upgrade button that
+	// reports success and never runs.
+	units, err := filepath.Glob(filepath.Join(repoRoot(t), "release", "systemd", "*"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(units) != 4 {
-		t.Fatalf("found %d units, want 4 (collector, beacon, analytics-api, panel)", len(units))
+	if len(units) != len(unitExpectations) {
+		t.Fatalf("found %d unit files, and unitExpectations lists %d",
+			len(units), len(unitExpectations))
 	}
 
 	for _, unit := range units {
@@ -360,7 +373,62 @@ func TestOnlyTheCollectorMayBindPrivilegedPorts(t *testing.T) {
 	}
 }
 
-// TestEveryUnitCarriesTheHardening. Written once and copied three times,
+// unitExpectations is the half of the unit checks that is allowed to
+// differ, with the reason each difference exists.
+//
+// The other half reads the directory. A unit file nobody listed here
+// fails, and an entry naming a file that is gone fails - the same
+// two-way shape as the CSRF exemptions and the deadcode allowlist,
+// because a one-way list is how a new unit arrives carrying whatever it
+// was copied from.
+var unitExpectations = map[string]struct {
+	// user is the account the unit runs as, matched exactly.
+	//
+	// Exactly, and that is not fussiness. This was
+	// `strings.Contains(body, "User=crucible")`, which
+	// "User=crucible-upgrader" satisfies - so the one unit in this
+	// directory that deliberately runs as a *different* account would
+	// have passed a check written to confirm they all run as the same
+	// one. A substring test of a key=value line answers a question
+	// nobody asked.
+	user string
+
+	// writes is true when the unit needs a writable path under
+	// ProtectSystem=strict, with why.
+	writes bool
+	why    string
+}{
+	"crucible-collector.service": {user: "crucible", writes: true,
+		why: "long-running; writes its log tree"},
+	"crucible-beacon.service": {user: "crucible", writes: true,
+		why: "long-running; writes its log tree"},
+	"crucible-analytics-api.service": {user: "crucible", writes: true,
+		why: "long-running; writes its log tree"},
+	"crucible-panel.service": {user: "crucible", writes: true,
+		why: "long-running; writes its log tree"},
+
+	"crucible-upgrader.service": {
+		// Its own account because upgrader.toml carries the only DSN in
+		// the deployment that can run DDL, and `crucible` is the panel.
+		// A panel that could read that file could rewrite its own
+		// database.
+		user: "crucible-upgrader",
+		// Nothing writable, on purpose: it runs for a second at a time
+		// and logs to the journal, so the whole filesystem stays
+		// read-only for it.
+		writes: false,
+		why:    "one-shot; logs to the journal and writes only to the database over TCP",
+	},
+
+	// A timer has no [Service] section at all, so none of the directives
+	// below apply to it. It is listed because the directory listing is
+	// checked against this map, and a timer silently outside every check
+	// is how the file that decides whether the upgrader ever runs stops
+	// being looked at.
+	"crucible-upgrader.timer": {},
+}
+
+// TestEveryUnitCarriesTheHardening. Written once and copied four times,
 // which is exactly when one line goes missing from one file.
 func TestEveryUnitCarriesTheHardening(t *testing.T) {
 	required := []string{
@@ -372,26 +440,91 @@ func TestEveryUnitCarriesTheHardening(t *testing.T) {
 		"RestrictSUIDSGID=true",
 		"LockPersonality=true",
 		"SystemCallFilter=@system-service",
-		// ProtectSystem=strict makes everything read-only, so a service
-		// that writes has to name where. A unit with neither would fail
-		// at its first log line, on a customer's machine.
-		"ReadWritePaths=",
-		"User=crucible",
 	}
 
-	units, err := filepath.Glob(filepath.Join(repoRoot(t), "release", "systemd", "*.service"))
+	units, err := filepath.Glob(filepath.Join(repoRoot(t), "release", "systemd", "*"))
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	seen := map[string]bool{}
 	for _, unit := range units {
+		name := filepath.Base(unit)
+		seen[name] = true
+
+		want, listed := unitExpectations[name]
+		if !listed {
+			t.Errorf("%s is in release/systemd and not in unitExpectations. "+
+				"Add it with the account it runs as and whether it needs a "+
+				"writable path - a unit that no check knows about is a unit "+
+				"carrying whatever it was copied from", name)
+			continue
+		}
+		if strings.HasSuffix(name, ".timer") {
+			continue // no [Service] section; see the map's last entry
+		}
+
 		body, err := os.ReadFile(unit)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, line := range required {
 			if !strings.Contains(string(body), line) {
-				t.Errorf("%s is missing %s", filepath.Base(unit), line)
+				t.Errorf("%s is missing %s", name, line)
 			}
 		}
+
+		if got, _ := directive(string(body), "User"); got != want.user {
+			t.Errorf("%s runs as %q, and unitExpectations says %q", name, got, want.user)
+		}
+
+		// ProtectSystem=strict makes everything read-only, so a unit that
+		// writes has to name where. One with neither would fail at its
+		// first log line, on a customer's machine - and one that names a
+		// path it does not need has widened itself for no reason.
+		//
+		// Presence, not value: `ReadWritePaths=` with nothing after it is
+		// legal systemd and means "reset the list", so a value test would
+		// read a unit that had had its writable paths deliberately
+		// cleared as a unit that never named any.
+		_, hasRW := directive(string(body), "ReadWritePaths")
+		if hasRW != want.writes {
+			t.Errorf("%s %s ReadWritePaths, and unitExpectations says it %s (%s)",
+				name,
+				map[bool]string{true: "has", false: "has no"}[hasRW],
+				map[bool]string{true: "should", false: "should not"}[want.writes],
+				want.why)
+		}
 	}
+
+	for name := range unitExpectations {
+		if !seen[name] {
+			t.Errorf("unitExpectations lists %s, which is not in release/systemd. "+
+				"A stale entry is how the next unit of that name inherits a "+
+				"decision nobody made about it", name)
+		}
+	}
+}
+
+// directive returns the value of key= in a unit file, and whether the
+// key was there at all.
+//
+// Written because the check above used strings.Contains and a prefix
+// matched. Reads whole lines and compares the key exactly, so
+// "User=crucible-upgrader" is not an answer to "User=crucible".
+//
+// The second return separates "not set" from "set to nothing", which are
+// different states in systemd and were the same one here.
+func directive(body, key string) (string, bool) {
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		k, v, found := strings.Cut(line, "=")
+		if found && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v), true
+		}
+	}
+	return "", false
 }

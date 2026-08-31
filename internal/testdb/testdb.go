@@ -162,6 +162,37 @@ func CleanSite(t *testing.T, admin *pgxpool.Pool, sites ...string) {
 // out in hex so a stray copy is recognisable.
 const UpgradeQueueLock = 0x75706772616465FF // "upgrade"
 
+// SchemaVersionLock serialises the suites that write the schema_version
+// row.
+//
+// A second lock rather than a wider use of the first, because they cover
+// different things and one of them is not about the queue at all.
+// schema_version is a single row - id = 1, by a CHECK constraint - which
+// says what shape the database is in. internal/panel/web sets it to four
+// different states to check what the health page says about each;
+// internal/applier applies the schema and records the result, which
+// overwrites it.
+//
+// Measured, and it took a while to see because the failure named neither
+// package: the health page test reported "the page says beklediğiyle
+// aynı, which belongs to another state", passed when run alone, and
+// failed when the whole suite ran. The applier had rewritten the row
+// underneath it, from another process, mid-assertion.
+//
+// The race predates the test that exposed it - the applier's own suite
+// has always recorded a version - and stayed invisible while the window
+// was a few milliseconds wide. A test that ran a second and a half of
+// concurrent load made it certain instead of unlikely, which is the only
+// reason it was found.
+//
+// # Ordering
+//
+// internal/applier takes UpgradeQueueLock first and then this one.
+// Anything that needs both must do the same: two suites taking the same
+// pair in opposite orders deadlock, and a deadlocked test suite looks
+// like a hung machine rather than like a bug.
+const SchemaVersionLock = 0x736368656D617601 // "schema" + 1
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.

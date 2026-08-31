@@ -1,0 +1,38 @@
+# Crucible Analytic: what actually runs the schema upgrader.
+#
+# Enable this, not the service:
+#
+#   systemctl enable --now crucible-upgrader.timer
+[Unit]
+Description=Look for a schema upgrade the panel has asked for
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+
+[Timer]
+Unit=crucible-upgrader.service
+
+# Two minutes after boot, then every thirty seconds.
+#
+# Thirty because somebody has just pressed a button and is watching a
+# page: a minute of a page saying "requested" and nothing else is a page
+# people reload. The run itself is one indexed lookup that finds nothing
+# almost every time, so the cost of asking often is close to nothing.
+#
+# Two minutes at boot rather than immediately: the database may still be
+# coming up, and a first run that fails on a refused connection is a
+# failed unit an operator has to look at for no reason.
+OnBootSec=2min
+OnUnitActiveSec=30s
+
+# Load-bearing, not decoration.
+#
+# systemd's default AccuracySec is one minute, and it is a *window*, not a
+# delay: a 30s timer with the default may fire anywhere in the following
+# minute, so the line above would describe a cadence the machine does not
+# keep. Left out, this file would be the kind of documented setting that
+# looks right, is accepted, and quietly does something else - which is the
+# same defect these units already carried once, when the rate limiting sat
+# in the wrong section and did nothing.
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

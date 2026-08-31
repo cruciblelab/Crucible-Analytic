@@ -1,0 +1,74 @@
+# Crucible Analytic: schema upgrader.
+#
+# Started by crucible-upgrader.timer, not by multi-user.target - hence no
+# [Install] section. `systemctl enable --now crucible-upgrader.timer` is
+# what turns this on; enabling the service itself would run it once at
+# boot and never again.
+[Unit]
+Description=Crucible Analytic schema upgrader
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+# One pass, then exit. Nothing to serve and nothing to keep warm, so a
+# machine at rest holds no process with DDL rights on an open connection.
+Type=oneshot
+ExecStart=/opt/crucible-analytic/bin/upgrader -config /etc/crucible-analytic/upgrader.toml -once
+
+# Its own account, and this is the point of the whole arrangement rather
+# than tidiness. upgrader.toml carries the only DSN in the deployment that
+# can run DDL. The four services run as `crucible`; if this ran as
+# `crucible` too, then the panel - which is `crucible` - could read the
+# credential that rewrites its own database, and the separation the five
+# roles buy would be undone by a file permission.
+User=crucible-upgrader
+Group=crucible-upgrader
+
+# Deliberately absent: Restart=.
+#
+# The other four units restart forever because a serving process that is
+# down is an outage. This is a timer job: a failed run must stay failed
+# and visible in `systemctl status`, and the next tick tries again thirty
+# seconds later anyway. Restarting it would turn one recorded failure into
+# a loop nobody reads.
+#
+# Also absent: StartLimitBurst/StartLimitIntervalSec. They bound a restart
+# loop, and there is no restart here to bound. A directive copied from a
+# neighbouring unit because the neighbour has it is how a file stops
+# meaning what it says.
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# No ReadWritePaths, unlike the other four, and it is a decision.
+#
+# They name /var/log/crucible-analytic because they run for months and an
+# operator has to be able to read yesterday's errors. This runs for a
+# second at a time and its natural home is the journal:
+# `journalctl -u crucible-upgrader` is one place to look instead of two.
+# The lines a *customer* needs do not go to either - they go to the panel
+# through the log sink, which is a database table.
+#
+# So ProtectSystem=strict leaves the whole filesystem read-only for this
+# unit, which is exactly right for a process whose only writes are to a
+# database over TCP.
+
+CapabilityBoundingSet=
