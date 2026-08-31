@@ -175,8 +175,47 @@ func TestEveryPackagedBinaryReportsItsVersion(t *testing.T) {
 	const version = "v0.0.0-stamp"
 	stage := build(t, repoRoot(t), t.TempDir(), version)
 
-	for _, name := range []string{"collector", "beacon", "analytics-api", "panel", "devpass"} {
-		out, err := exec.Command(filepath.Join(stage, "bin", name), "-version").Output()
+	// Read from the package rather than listed here, and the difference
+	// is not cosmetic. The hand list said five, the sixth binary arrived
+	// with L3, and nothing noticed that `upgrader -version` printed a
+	// bare version string while the other five named themselves - which
+	// is precisely the defect the comment above says this test exists
+	// for, reintroduced under a list that had stopped being complete.
+	//
+	// A one-way list of things to check is a list that stops covering
+	// what ships. What ships is in bin/.
+	packaged, err := filepath.Glob(filepath.Join(stage, "bin", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packaged) < 6 {
+		t.Fatalf("the package holds %d binaries; this project builds six, so either "+
+			"build.sh dropped some or this test is looking in the wrong place",
+			len(packaged))
+	}
+
+	// And every cmd/ is one of them. A new command that build.sh was
+	// never told about is not merely unchecked here, it is absent from
+	// the release - and the first person to find out is whoever installs
+	// the package expecting it.
+	commands, err := filepath.Glob(filepath.Join(repoRoot(t), "cmd", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shipped := map[string]bool{}
+	for _, p := range packaged {
+		shipped[filepath.Base(p)] = true
+	}
+	for _, c := range commands {
+		if name := filepath.Base(c); !shipped[name] {
+			t.Errorf("cmd/%s is not in the release package; release/build.sh has a "+
+				"hand-written list of binaries and this one is not on it", name)
+		}
+	}
+
+	for _, path := range packaged {
+		name := filepath.Base(path)
+		out, err := exec.Command(path, "-version").Output()
 		if err != nil {
 			t.Errorf("%s -version: %v", name, err)
 			continue
@@ -187,7 +226,7 @@ func TestEveryPackagedBinaryReportsItsVersion(t *testing.T) {
 		}
 		if !strings.Contains(got, name) {
 			t.Errorf("%s -version = %q, want it to name itself - support asks which process, "+
-				"and five identical lines answer nothing", name, got)
+				"and six identical lines answer nothing", name, got)
 		}
 	}
 }

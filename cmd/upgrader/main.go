@@ -63,7 +63,12 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println(buildinfo.Version(version))
+		// buildinfo.Print, like the other five. This printed a bare
+		// version string until it was measured against them: support's
+		// first question is which process, and a line that answers only
+		// "which build" is the defect G2 fixed for four binaries and
+		// this one reintroduced as a sixth.
+		buildinfo.Print(os.Stdout, "upgrader", version)
 		return
 	}
 	if *schemaVersion {
