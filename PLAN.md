@@ -86,14 +86,15 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | ✅ **11/11** | — |
+| **C** Panel HTTP yüzeyi | 🟡 **11/12** | C8 geliştirici erişim politikası |
 | **D** Dashboard | 🟡 **4/8** | D4b, D5–D8 (D4a yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | 🟡 **2/3** | L3 — *ölçüldü, restart gerekmiyor* |
+| **L** Yükseltme yolu | 🟡 **2/3** | L3 — *kuyruk ve uygulayıcı yapıldı; kilit, düğme ve ölçüm kaldı* |
+| **M** Veri kaynakları | ⬜ **0/3** | M1 kütüphane, M2 çekim kaydı, M3 yenile düğmesi |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -168,6 +169,8 @@ geçer.
 | 3 | ~~**D4a** ayar sayfası kabuğu~~ ✅ | üç fazı birden açan tek iş; arka ucu zaten hazır |
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | **L3** düğme ← **sıradaki** | 3 ve 4'ün üstüne oturuyor; beşinci rol burada geliyor |
+| 5.5 | **D4c** ayarlar kabuğu | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
+| 5.6 | **M1 → M2 → M3**, **C8** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4553,6 +4556,162 @@ log okumak demek.
 alternatifi değil, aynı işin iki yarısı. Ağaç kaynaktır ve süreç
 veritabanına ulaşamadığında bile yazar; tablo panelin gösterdiğidir.
 B1 yazılırken ağaçtan beslenecek.
+
+---
+
+### M. Veri kaynakları ve müşterinin kendi yenilemesi
+
+*(2026-08-31'de eklendi. Kullanıcının isteği: "ASN/IP şeyleri için birden
+fazla kaynak ekleyelim, nelerde neyi kullanacağını seçsin", "müşteri
+panelden kendisi de yenileyebilsin", "orada logu gözükür — başarısız
+kaynak var mı, ne kadar veri çekti, boyutu ne oldu".)*
+
+#### Ölçülen başlangıç noktası
+
+| | bugün |
+|---|---|
+| Sağlayıcı | **bir**, koda gömülü dört URL (hepsi aynı proje) |
+| Kaçış kapısı | `local_csv_path` — kapalı ağ / ayna senaryosu |
+| Yenileme | yalnız zamanlayıcı, **elle tetikleme yok** |
+| Çekim kaydı | **yok** — hangi kaynak düştü, kaç satır, kaç bayt: hiçbiri kayıtlı değil |
+
+#### Karar: kaynak kütüphanesi kodda, panel seçer
+
+Panele serbest URL kutusu **konmayacak**, ve gerekçe tercih değil ölçüm:
+
+**1. Kaynak URL değil, URL + ayrıştırıcıdır.** `internal/asnlookup/parse.go`
+tek bir projenin tam üç sütunlu şekline yazılmış, gerçek indirilmiş
+veriye karşı doğrulanarak. Panele konacak bir URL kutusu ancak *zaten
+desteklenen biçimdeki* bir şeyi gösterebilir; yeni bir sağlayıcı yeni
+ayrıştırıcı, o da yeni sürüm demektir. Yani kutu "yeni kaynak ekleme"
+işini yapamaz — yapabileceğini sanmak yanıltıcıdır.
+
+**2. Yapabileceği tek şeyin karşılığı zaten var.** "Aynı biçim, başka
+sunucu" ayna demektir, ve o senaryo bugün `local_csv_path` ile
+karşılanıyor.
+
+**3. Dolayısıyla bedeli var, karşılığı yok.** Kutu, ya imkânsız olan ya
+da zaten mevcut olan için bütün SSRF yüzeyini açardı — B3'ün kalıcı
+yasak listesindeki *"parametresi ... bağlanılacak bir alan adı olan
+herhangi bir operasyon"* maddesinin tarif ettiği durum.
+
+**Tek doğruluk kaynağı kuralı:** ayarların enum seçenekleri kütüphaneden
+`init()`'te üretilir. Kaynak eklemek tek yerde olur ve panel
+kendiliğinden görür; ikinci bir liste yok, dolayısıyla sürüklenecek
+ikinci liste de yok.
+
+---
+
+#### M1 — Kaynak kütüphanesi ve "neyi nereden"
+
+**Ne:** `internal/asnlookup/sources.go`'da bir kayıt: kimlik, etiket, ne
+sağladığı (ülke / ASN / ikisi), URL'ler, hangi ayrıştırıcı, lisans, ve
+"bunu neden seçersin" notu. Üç yeni ayar — `sources.country`,
+`sources.asn`, `sources.fallback_order` — seçenekleri kütüphaneden.
+
+`local_csv_path` kütüphaneye birinci sınıf bir giriş olarak taşınır, yani
+ayna senaryosu ayarlarda görünür hâle gelir.
+
+**Dürüst uyarı:** bugün sağlayıcı bir tane. "Neyi nereden seç" ancak
+seçilecek şey varsa anlamlı, o yüzden fazın gerçek işinin bir kısmı
+kodda birkaç sağlayıcı daha eklemek. Aynı biçimi paylaşanlar mevcut
+ayrıştırıcıyı kullanır; farklı biçim yeni ayrıştırıcı ister. **Hangi
+sağlayıcıların gönderileceği — lisans, güncellik, kapsam — fazı yaparken
+ölçülecek ayrı bir soru.** Şimdi isim saymak, doğrulanmamış bir iddiayı
+plana yazmak olurdu.
+
+**Bitti ölçütü:** hiç dokunmayan kurulum bugünküyle birebir aynı
+davranıyor; seçim değiştirildiğinde bir sonraki yenileme yeni kaynaktan
+çekiyor; kütüphaneye eklenen bir kaynak panelde ek bir değişiklik
+olmadan görünüyor *(mutasyonla ölçülecek: kütüphaneye giriş ekle, panel
+testinin onu gördüğünü doğrula)*.
+
+---
+
+#### M2 — Çekim kaydı
+
+**Ne:** her yenileme denemesi bir satır: kaynak, başlangıç ve bitiş,
+kaç satır ayrıştırıldı, kaç bayt indirildi, sonuç, ve başarısızlıkta tam
+hata zinciri.
+
+Kullanıcının istediği şey birebir bu: *"başarısız olan kaynak var mı, ne
+kadar veri çekti, boyutu ne oldu"*.
+
+**Şekli `panel_operations`'ın aynısı** — bir çekim, tanımı gereği bir
+operasyondur — ama **çeken collector, panel değil**, yani rol ayrımı
+farklı: collector yazar, panel okur. B1+B2'nin kurduğu bölünmenin aynısı,
+ve aynı sebeple: yazan ile okuyan aynı rol olursa, kaydın kendisi
+uydurulabilir hâle gelir.
+
+**Tuzak, ve şimdiden yazılı olsun:** bu tablo da bir log tablosudur,
+yani A4'ün disk sorunu üçüncü bir yoldan gelir. Kendi saklama süresi
+olacak ve `internal/panel/housekeeping.go`'ya bağlanacak — o dosyanın var
+olma sebebi tam olarak "yazılıp çağrılmayan süpürme".
+
+**Bitti ölçütü:** başarısız bir çekim satırı hangi kaynağın düştüğünü ve
+neden düştüğünü söylüyor; başarılı çekim satır ve bayt sayısı taşıyor;
+tablo süpürülüyor ve süpürme çağrılıyor.
+
+---
+
+#### M3 — Elle yenileme düğmesi
+
+**Ne:** müşteri panelden "şimdi yenile" diyebiliyor.
+
+**L3'ün deseninin aynısı, ve bedava geliyor:** panel istek satırı yazar,
+yetkisi olan bileşen — burada collector, çünkü çeken o — bir sonraki
+turunda görür ve yapar. Panel dışarı hiçbir bağlantı açmaz.
+
+**Bağlılık:** M2'den sonra. Düğme sonucu göstermeden yarım kalır, ve
+sonucu gösterecek kayıt M2'de geliyor.
+
+**Bitti ölçütü:** düğme kilitsiz varsayılanla müşteride çalışıyor; iki
+kez basmak iki çekim başlatmıyor; sonuç ekranda görünüyor.
+
+---
+
+#### C8 — Geliştirici erişim politikası, müşterinin elinde
+
+*(C grubuna ait ama burada duruyor çünkü aynı konuşmada karara bağlandı.)*
+
+**Bugün:** politika örtük ve sabit — sahip yokken otomatik onay ("sorulacak
+kimse yok"), sahip varken sahip onayı. Müşteri değiştiremiyor.
+
+**Olacak:** müşteri seçer — *onay bekle* (varsayılan) / *doğrudan reddet*
+/ *geçici olarak açık*. Ayrı bir sekmede, ayarların içinde.
+
+**Neden müşterinin, kuralımıza rağmen:** "geliştiriciye iş çıkarabilen
+şeyler parolanın arkasında" kuralı, müşterinin *kendine yetki verip iş
+çıkarmasını* engellemek için. Burası tersi: müşteri kendini koruyor. Ve
+gerçek bir kilitleme değil — kabuğu olan geliştirici zaten girer, kapanan
+yalnız panel yolu.
+
+**Şart:** karar denetim kaydına *ve* bağlantı sayfasına yazılır. "Neden
+giremiyorum" sorusunun cevabı ekranda durmalı; yoksa kapatılmış bir
+politika, kimsenin bağlantı kuramadığı bir arıza gibi görünür.
+
+---
+
+#### D4c — Ayarlar kabuğu: kategoriler ve açılır bölümler
+
+**Ne:** bugün 27 ayar tek düz liste. Kategori kategori, açıldıkça açılan
+bir yapı — kullanıcının tarifiyle "Android ayarları gibi".
+
+**Neden sadece güzellik değil:** kullanıcının asıl amacı *"paneli
+gereksiz doldurmamak için ayarlara atalım"*. Üst seviye sayfaları
+ayarlara taşımak, ancak ayarlar o kalabalığı taşıyabildiğinde mantıklı
+olur. Yani bu, kendisinden sonraki her şeyin ön şartı: M1'in üç ayarı,
+C8'in sekmesi ve L3'ün düğmesi hep aynı sayfaya biniyor.
+
+**Sıradaki ile bağı:** M1, C8 ve L3'ün yüzeyleri bu kabuğun içine
+oturuyor. Kabuk önce gelmezse üçü de düz listeye eklenir ve sonra taşınır.
+
+**Bitti ölçütü:** varsayılan görünüm kısa — açılmamış kategoriler; bir
+kategori açıldığında içindekiler erişime göre filtreli; hiçbir ayar
+kaybolmuyor *(kaynaktan türetilen bir test: kayıttaki her tanım bir
+kategoriye ait, ve kategorisiz tanım kırmızı)*.
+
+---
 
 ---
 
