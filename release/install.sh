@@ -33,6 +33,17 @@ CONF_DIR="${CONF_DIR:-/etc/crucible-analytic}"
 LOG_DIR="${LOG_DIR:-/var/log/crucible-analytic}"
 STATE_DIR="${STATE_DIR:-/var/lib/crucible-analytic}"
 RUN_AS="${RUN_AS:-crucible}"
+# SYSTEMD_DIR is where the unit files go.
+#
+# The last member of the PREFIX / CONF_DIR / LOG_DIR / STATE_DIR family,
+# and it was missing. Every other path this script writes to could be
+# redirected, which is what lets it run into a container image, a chroot
+# or a scratch directory - and the one place it could not was the one
+# place nothing could therefore test, so the whole systemd stage went
+# unexercised. install_test.go's own comment recorded that its
+# --no-systemd was "load-bearing"; what it was bearing was the absence of
+# this variable.
+SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 # DB_HOST is the host:port the *services* reach the database at, which is
 # not always the one this script reaches it at.
 #
@@ -168,7 +179,7 @@ fi
 # stage was added. The merge gate was red on every push and the reason
 # was one line at the very end.
 if [ "${WANT_SYSTEMD}" -eq 1 ]; then
-  if [ ! -d /etc/systemd/system ]; then
+  if [ ! -d "${SYSTEMD_DIR}" ]; then
     WANT_SYSTEMD=0
     say "   no systemd on this machine; units will not be installed"
   elif [ "$(id -u)" -ne 0 ]; then
@@ -760,14 +771,59 @@ if [ "${WANT_SYSTEMD}" -eq 0 ]; then
   say "   skipped (--no-systemd, or no systemd here); no service units written"
 fi
 if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
-  for unit in "${HERE}"/systemd/*.service; do
+  for unit in "${HERE}"/systemd/*.service "${HERE}"/systemd/*.timer; do
     [ -f "${unit}" ] || continue
-    install -m 0644 "${unit}" /etc/systemd/system/
+    install -m 0644 "${unit}" "${SYSTEMD_DIR}/"
   done
   id -u "${RUN_AS}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS}"
   mkdir -p "${LOG_DIR}" "${STATE_DIR}"
   chown "${RUN_AS}:${RUN_AS}" "${LOG_DIR}" "${STATE_DIR}"
-  systemctl daemon-reload 2>/dev/null || true
+
+  # And the configuration those units are about to read.
+  #
+  # Missing until it was measured, and the effect was total: this script
+  # created the `crucible` account, installed four units that run as it,
+  # and left ${CONF_DIR} mode 0750 owned by root:root with four 0640
+  # root:root files inside. The account could not so much as enter the
+  # directory. Every one of the four services this script had just
+  # finished configuring failed at startup with "permission denied" on
+  # its own configuration file.
+  #
+  # Measured by starting the panel as the crucible user against the
+  # configuration this script wrote:
+  #
+  #   panel: config error: stat /etc/crucible-analytic/panel.toml:
+  #   permission denied
+  #
+  # It survived because the only test of this script passes
+  # --no-systemd, so nothing had ever run the stage the defect was in.
+  # See TestTheServicesCanReadWhatInstallWrote.
+  #
+  # Group, not owner. The service reads its configuration and must never
+  # rewrite it: a compromised panel that could edit panel.toml could
+  # point the next restart at a database of its choosing. root stays the
+  # owner and the account gets read access, which is the whole of what a
+  # service needs.
+  chgrp "${RUN_AS}" "${CONF_DIR}"
+  chmod 0750 "${CONF_DIR}"
+  for f in collector.toml beacon.toml analytics-api.toml panel.toml; do
+    [ -f "${CONF_DIR}/${f}" ] || continue
+    chgrp "${RUN_AS}" "${CONF_DIR}/${f}"
+    chmod 0640 "${CONF_DIR}/${f}"
+  done
+
+  # ip_hash_key is deliberately not in that list. No service reads it -
+  # the key lives inside collector.toml and beacon.toml, and this file
+  # exists so that a re-run of this script can find the key it already
+  # generated rather than rotating it and orphaning every stored
+  # pseudonym. It stays root-only.
+
+  # Only when the units really went to systemd. Told to reload a
+  # directory it does not manage, systemctl succeeds and does nothing,
+  # which would read here as a reload that happened.
+  if [ "${SYSTEMD_DIR}" = "/etc/systemd/system" ]; then
+    systemctl daemon-reload 2>/dev/null || true
+  fi
 fi
 
 # ------------------------------------------------------------------- TLS

@@ -1117,3 +1117,124 @@ func unitFiles(t *testing.T) []string {
 	}
 	return found
 }
+
+// TestTheServicesCanReadWhatInstallWrote.
+//
+// The stage nothing had ever run.
+//
+// Every other test in this file passes --no-systemd, and the comment on
+// runInstall calls that flag "load-bearing" - correctly, because a test
+// suite must not install services on the machine running it. What went
+// unnoticed is what the flag was carrying: the branch behind it creates
+// the service account and installs the units, and *nothing else in this
+// repository ever entered it*.
+//
+// What was in there: install.sh created the `crucible` account, installed
+// four units that run as it, and left the configuration directory mode
+// 0750 owned by root:root with four 0640 root:root files inside. The
+// account could not enter the directory, let alone read a file. Every one
+// of the four services failed at startup on its own configuration file.
+//
+// A whole installation that does not start, produced by the script whose
+// job is to produce one that does. It survived a phase specifically about
+// the release package because the tests all took the door that led round
+// it.
+//
+// So this one goes through the door. It needs root, and it says what it
+// touches rather than moving quietly: the units go to a scratch
+// SYSTEMD_DIR, and the account is removed afterwards if this test was
+// what created it.
+func TestTheServicesCanReadWhatInstallWrote(t *testing.T) {
+	const db = "ca_install_perms_test"
+
+	if os.Geteuid() != 0 {
+		// Not a failure. The systemd stage needs root by design and says
+		// so; a machine without it can still run every other test here.
+		t.Skip("the systemd stage needs root (it creates a system account)")
+	}
+	for _, tool := range []string{"useradd", "su"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not on PATH; this test runs as the service account", tool)
+		}
+	}
+
+	const runAs = "crucible"
+	_, existed := exec.Command("id", "-u", runAs).Output()
+	if existed != nil {
+		t.Cleanup(func() { _ = exec.Command("userdel", runAs).Run() })
+	}
+
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	confDir := t.TempDir()
+	systemdDir := t.TempDir()
+
+	// t.TempDir() builds a chain of 0700 directories owned by whoever
+	// runs the test, so the service account cannot traverse it - and that
+	// would fail this test for a reason install.sh had nothing to do
+	// with. The chain is the harness's artifact; what is under test is
+	// what install.sh does to confDir itself and to the files in it.
+	for dir := confDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o711); err != nil {
+			t.Fatalf("opening the temp chain: %v", err)
+		}
+	}
+
+	root := repoRoot(t)
+	cmd := exec.Command("./release/install.sh") // no --no-systemd: that is the point
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+		"DB_NAME="+db,
+		"CONF_DIR="+confDir,
+		"SYSTEMD_DIR="+systemdDir,
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	// It really did take the branch. Without this the test could pass by
+	// having skipped the stage it exists to cover - the exact failure
+	// being fixed, one level up.
+	units, err := filepath.Glob(filepath.Join(systemdDir, "crucible-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(units) == 0 {
+		t.Fatal("no units were installed, so the systemd stage did not run and " +
+			"this test proved nothing")
+	}
+
+	// The question, asked the way the machine asks it.
+	for _, name := range []string{
+		"collector.toml", "beacon.toml", "analytics-api.toml", "panel.toml",
+	} {
+		path := filepath.Join(confDir, name)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("%s was not written: %v", name, err)
+			continue
+		}
+		out, err := exec.Command("su", "-s", "/bin/sh", runAs, "-c",
+			"cat "+path+" >/dev/null").CombinedOutput()
+		if err != nil {
+			t.Errorf("%s cannot read %s, so the service that reads it will not start.\n%s",
+				runAs, name, strings.TrimSpace(string(out)))
+		}
+	}
+
+	// And the half that is not about starting: a service reads its
+	// configuration and must never rewrite it. root owning the file and
+	// the account getting the group bit is what makes both true at once,
+	// so both are asserted - a chown to the account would pass the check
+	// above and quietly lose this one.
+	panelToml := filepath.Join(confDir, "panel.toml")
+	if err := exec.Command("su", "-s", "/bin/sh", runAs, "-c",
+		"echo x >> "+panelToml).Run(); err == nil {
+		t.Errorf("%s can write panel.toml. A compromised panel could point its own "+
+			"next restart at a database of its choosing", runAs)
+	}
+}
