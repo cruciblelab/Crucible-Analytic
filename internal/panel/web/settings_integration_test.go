@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
 const (
@@ -539,5 +540,76 @@ func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
 	}
 	if !strings.Contains(body, "gereken yapılandırma henüz yok") {
 		t.Errorf("the refusal does not say what is actually missing: %s", noticeOf(body))
+	}
+}
+
+// TestTheAboutBlockIsOnThePageForEveryone.
+//
+// The credits and the licence are drawn for a viewer, which is the
+// weakest role there is - and that is the assertion, not an incidental
+// detail. A credits block that only the owner can see is not a credit,
+// and the licence a deployment runs under is not something a person
+// should have to hold a capability to read.
+//
+// Rendered, not built. aboutFor returning the right struct proves
+// nothing about whether the template draws it: this project has shipped
+// a correct value that no page displayed before.
+func TestTheAboutBlockIsOnThePageForEveryone(t *testing.T) {
+	server, client, _ := settingsServerAs(t, panel.RoleViewer)
+
+	status, body := get(t, client, server.URL+settingsURL())
+	if status != http.StatusOK {
+		t.Fatalf("a viewer got %d from the settings page", status)
+	}
+
+	for _, want := range []struct{ text, why string }{
+		{"Hakkında", "the section heading"},
+		{RepositoryURL, "where the source is"},
+		{LicenceName, "the licence the deployment runs under"},
+		{"CrucibleLAB", "the project"},
+		{"Fırat Coşkun", "the developer"},
+		{"Claude", "the assistant"},
+	} {
+		if !strings.Contains(body, want.text) {
+			t.Errorf("the settings page does not carry %q (%s)", want.text, want.why)
+		}
+	}
+
+	// Each badge resolves to an asset the panel serves. A src that
+	// 404s is invisible on the page and would never fail anything else.
+	for _, c := range contributors {
+		if c.Mark == "" {
+			continue
+		}
+		if !strings.Contains(body, ".svg") {
+			t.Fatalf("no badge was drawn at all; %s's mark cannot have rendered", c.Name)
+		}
+	}
+
+	// And the marks are actually fetchable, as the browser will fetch
+	// them. The Content-Security-Policy on this page is
+	// "img-src 'self'", so a badge served from anywhere else would be
+	// refused silently in a real browser and pass every check above.
+	assets, err := ui.LoadAssets()
+	if err != nil {
+		t.Fatalf("loading the embedded assets: %v", err)
+	}
+	for _, c := range contributors {
+		if c.Mark == "" {
+			continue
+		}
+		markURL := assets.URL(c.Mark)
+		if markURL == "" {
+			t.Errorf("%s's mark %q is not an embedded asset", c.Name, c.Mark)
+			continue
+		}
+		if !strings.HasPrefix(markURL, "/") {
+			t.Errorf("%s's mark resolves to %q, which is not same-origin; the page's "+
+				"img-src is 'self' and a browser would refuse it", c.Name, markURL)
+		}
+		status, _ := get(t, client, server.URL+markURL)
+		if status != http.StatusOK {
+			t.Errorf("fetching %s's mark at %s returned %d", c.Name, markURL, status)
+		}
 	}
 }

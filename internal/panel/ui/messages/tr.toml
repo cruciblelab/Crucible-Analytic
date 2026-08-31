@@ -1035,3 +1035,20 @@ ayarsiz = "Okuma API'si adresi tanımlı değil. Site sayfaları \"sayılar şu 
 ulasildi = "Ulaşıldı ve cevap alındı."
 ulasilamadi = "Okuma API'sine ulaşılamadı."
 ne_demek = "Site sayfalarındaki sayılar bu API'den gelir; şu anda boş görünecekler. Panelin kendisi, üyeler ve ayarlar etkilenmez."
+
+[metin.ayarlar.hakkinda]
+baslik = "Hakkında"
+surum = "Sürüm"
+kaynak_kodu = "Kaynak kodu"
+lisans = "Lisans"
+katkida = "Katkıda bulunanlar"
+# Apache-2.0 §4(d): NOTICE dosyasındaki atıf, yazılımı yeniden dağıtan
+# herkesle birlikte seyahat eder. Burada da durmasının sebebi, kurulumu
+# çalıştıran kişinin bunu kimseye sormadan okuyabilmesi.
+lisans_notu = "Apache-2.0. Servis olarak çalıştırmak yeniden dağıtım değildir ve hiçbir şey gerektirmez; kaynağı yeniden dağıtan, NOTICE dosyasındaki atfı da taşımak zorundadır."
+marka_notu = "Claude, Anthropic'in ürünü. Adı burada atıf olarak geçiyor; logosu kullanılmıyor, çünkü bir telif lisansı marka hakkı vermez ve bir sağlayıcının logosu o sağlayıcının ürünü onayladığı anlamına gelir."
+
+[metin.ayarlar.hakkinda.rol]
+proje = "Proje"
+gelistirici = "Geliştirici"
+asistan = "Yapay zekâ asistanı"

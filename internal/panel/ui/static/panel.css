@@ -963,3 +963,39 @@ code.secret {
   color: var(--metin-soluk);
   font-size: 0.8125rem;
 }
+
+/* ---- About: credits and licence, at the foot of the settings page ---- */
+
+.hakkinda-kimlik {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1rem;
+}
+.hakkinda-kimlik dt { font-weight: 600; }
+.hakkinda-kimlik dd { margin: 0; overflow-wrap: anywhere; }
+
+.katkida {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.katkida li {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+/* Sized here as well as on the element. The width/height attributes stop
+   the row jumping while the badge loads; this is what keeps it right if
+   the reader has scaled their text up. */
+.katkida .marka {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.45rem;
+  flex: 0 0 auto;
+}
+.katkida-ad { font-weight: 600; }
+.katkida-rol { color: var(--metin-soluk); font-size: 0.9em; }

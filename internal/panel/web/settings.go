@@ -96,6 +96,10 @@ type settingsPage struct {
 	// AskingFor is the key whose developer-password prompt is open.
 	AskingFor string
 
+	// About is the credits and licence block. Built even for a viewer:
+	// see about.go on why it is not gated.
+	About aboutSection
+
 	Message string
 	Failed  bool
 }
@@ -412,6 +416,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, lang *ui
 		}
 		data.Rows = append(data.Rows, settingRowFor(v))
 	}
+	data.About = s.aboutFor(lang)
 	page := s.page(r, lang, access, "ayarlar", lang.T("ayarlar.baslik"))
 	page.Site = ui.SiteView{ID: access.SiteID, Name: access.SiteID}
 	page.Data = data

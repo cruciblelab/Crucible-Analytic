@@ -998,3 +998,17 @@ ayarsiz = "No read API address is configured. The site pages say the numbers are
 ulasildi = "Reached and answering."
 ulasilamadi = "The read API could not be reached."
 ne_demek = "The numbers on the site pages come from this API and will look empty right now. The panel itself, its members and its settings are unaffected."
+
+[metin.ayarlar.hakkinda]
+baslik = "About"
+surum = "Version"
+kaynak_kodu = "Source code"
+lisans = "Licence"
+katkida = "Contributors"
+lisans_notu = "Apache-2.0. Running it as a service is not redistribution and requires nothing; anyone redistributing the source must carry the attribution in NOTICE."
+marka_notu = "Claude is a product of Anthropic. The name appears here as attribution; the logo is not used, because a copyright licence grants no trademark rights and a vendor's logo reads as that vendor endorsing the product."
+
+[metin.ayarlar.hakkinda.rol]
+proje = "Project"
+gelistirici = "Developer"
+asistan = "AI assistant"

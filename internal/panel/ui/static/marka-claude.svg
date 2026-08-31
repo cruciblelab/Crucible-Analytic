@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Claude">
+  <!-- A plain letterform, deliberately NOT Anthropic's logo.
+       See internal/panel/web/about.go's claudeMarkReason for why:
+       Apache-2.0 section 6 grants no trademark rights, this project's
+       own THIRD-PARTY.md makes the same point about CrucibleLAB's mark,
+       and a vendor's logo on a product page reads as that vendor
+       endorsing the product.
+
+       Slate rather than anything warm, so it cannot be mistaken for the
+       real mark by somebody who half-remembers it. -->
+  <rect width="64" height="64" rx="14" fill="#5c5c57"/>
+  <text x="32" y="33" fill="#ffffff"
+        font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+        font-size="26" font-weight="600"
+        text-anchor="middle" dominant-baseline="central">C</text>
+</svg>

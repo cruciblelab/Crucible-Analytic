@@ -109,4 +109,46 @@ that does nothing is how a panel loses the benefit of the doubt. */}}
 {{- if not .Data.ShowDeveloper}}
 <p class="ipucu">{{t "ayarlar.gelistirici_gizli"}}</p>
 {{- end}}
+
+{{- /* About. Facts about the build, not settings - see about.go for why
+it is compiled in rather than stored, and why every viewer sees it. */}}
+{{- with .Data.About}}
+<section class="ayar hakkinda">
+<h2>{{t "ayarlar.hakkinda.baslik"}}</h2>
+
+<dl class="hakkinda-kimlik">
+  <dt>{{t "ayarlar.hakkinda.surum"}}</dt>
+  <dd><code>{{.Product}} {{.Version}}</code></dd>
+
+  <dt>{{t "ayarlar.hakkinda.kaynak_kodu"}}</dt>
+  {{- /* rel="noreferrer" as well as noopener: the panel's URLs carry a
+  site id, and handing it to another origin as a Referer is a leak
+  nobody chose. */}}
+  <dd><a href="{{.Repository}}" rel="noopener noreferrer" target="_blank">{{.Repository}}</a></dd>
+
+  <dt>{{t "ayarlar.hakkinda.lisans"}}</dt>
+  <dd>{{.Licence}}</dd>
+</dl>
+
+<p class="ipucu">{{t "ayarlar.hakkinda.lisans_notu"}}</p>
+
+<h3>{{t "ayarlar.hakkinda.katkida"}}</h3>
+<ul class="katkida">
+{{- range .Contributors}}
+  <li>
+    {{- if .MarkURL}}
+    {{- /* alt="" and aria-hidden: the name is right there in text, and a
+    screen reader announcing it twice is worse than not announcing the
+    badge at all. */}}
+    <img class="marka" src="{{.MarkURL}}" alt="" aria-hidden="true" width="32" height="32">
+    {{- end}}
+    <span class="katkida-ad">{{.Name}}</span>
+    <span class="katkida-rol">{{.Role}}</span>
+  </li>
+{{- end}}
+</ul>
+
+<p class="ipucu">{{t "ayarlar.hakkinda.marka_notu"}}</p>
+</section>
+{{- end}}
 {{end}}

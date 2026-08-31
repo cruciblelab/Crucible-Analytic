@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CrucibleLAB">
+  <!-- The project owner's own mark, redrawn as vector so it costs a few
+       hundred bytes in the binary rather than a raster's tens of
+       kilobytes, and stays sharp at any size.
+
+       The orange is eyeballed from the supplied artwork. If there is an
+       exact brand hex, this is the one place to change it. -->
+  <rect width="64" height="64" rx="14" fill="#c04a16"/>
+  <path d="M44.9 17.2A21 21 0 1 0 44.9 46.8"
+        fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+  <g stroke="#ffffff" stroke-width="1.9" fill="none">
+    <ellipse cx="36" cy="32" rx="11.5" ry="4.4"/>
+    <ellipse cx="36" cy="32" rx="11.5" ry="4.4" transform="rotate(60 36 32)"/>
+    <ellipse cx="36" cy="32" rx="11.5" ry="4.4" transform="rotate(120 36 32)"/>
+  </g>
+  <circle cx="36" cy="32" r="2.7" fill="#ffffff"/>
+</svg>
