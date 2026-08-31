@@ -41,8 +41,16 @@ import (
 // happens to be called Claude would be silently exempted, and silent is
 // the whole failure mode being guarded. One line per model, rarely, is
 // the cheaper side of that trade.
+//
+// # Why bare "Claude" is not here
+//
+// It was, and it is a small demonstration that the stale half of this
+// test is not decoration. 124 commits were authored as "Claude
+// <noreply@anthropic.com>" before the history was rewritten to attribute
+// them to the owner. The moment they were, the entry stopped describing
+// anybody - and this test said so on the next run rather than leaving a
+// name exempted for a reason that had expired.
 var exemptAuthors = map[string]string{
-	"Claude": aiAssistantReason,
 	// The names the Co-Authored-By trailers carry, which vary by the
 	// model a session ran on.
 	"Claude Opus 5":   aiAssistantReason,
