@@ -4715,6 +4715,53 @@ kategoriye ait, ve kategorisiz tanım kırmızı)*.
 
 ---
 
+### Ertelenmiş kararlar
+
+Karar verilmedi ve **şimdi verilmeyecek** — burada duruyorlar ki
+kaybolmasınlar, gündeme girmesinler diye değil.
+
+#### Konumlanma: "analitik" mi, "trafiğinin ne kadarı gerçek" mi
+
+*(2026-08-31'de konuşuldu, bilerek ertelendi.)*
+
+Aynı teknik iş iki farklı ürün olarak anlatılabilir:
+
+- **Self-hosted analitik** — rakipler Plausible, Matomo, Fathom. Kalabalık
+  pazar, zayıf farklılaşma.
+- **Trafik kalitesi / bot ayrımı** — JA4 parmak izi, ASN kesişimi, sessiz
+  IP'ler, JS-bot listeleri. Farklı alıcı, farklı fiyat.
+
+D3 zaten ikincisinin altyapısını kurdu. Ama **odağı kaydırmak bir ürün
+kararıdır ve ürün bitmeden verilmemeli** — kullanıcının kendi sözleriyle:
+*"iyice tamamlandıktan sonraya bırakalım, şimdi düşünmeyelim."*
+
+Buraya yazılmasının tek sebebi, o gün geldiğinde sıfırdan
+hatırlanmaması. Plandaki hiçbir fazın sırasını ya da kapsamını
+değiştirmiyor.
+
+#### Lisans modeli
+
+Aynı konuşmada: Apache-2.0 mı kalır, yoksa kaynağı görünür + ticari
+lisans (BSL tarzı) mı olur. Karar verilmedi.
+
+**Geri dönülemez olan tek şey yayınlamaktır**, o yüzden karar
+verilene kadar sürüm etiketi atılmıyor. Bunun dışında teknik iş iki
+modelde de birebir aynı, yani karar geciktirmenin bedeli yok.
+
+Bugün yapılan tek şey **geri dönülemez olanı önlemek**: `CLA.md`.
+Dışarıdan gelen ilk katkı Apache-2.0 altında kabul edildiği an, o kişinin
+kodu izni olmadan yeniden lisanslanamaz — yani seçenek o gün kapanır.
+Sözleşme bugün bedava, sonra imkânsız.
+
+*`CLA.md` Apache ICLA v2.0'dan uyarlandı ve **avukat incelemesinden
+geçmedi**. Ticari yola gerçekten girilirse metin bir hukukçuya
+okutulmalı; şu anki hâli seçeneği açık tutmaya yeter, dayanak olmaya
+değil.*
+
+---
+
+---
+
 ## 3. Kalıcı güvenlik kuralları
 
 Bunlar madde değil, her maddeye uygulanan kısıtlar. **AI-1'deki

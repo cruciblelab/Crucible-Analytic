@@ -2125,6 +2125,15 @@ Apache-2.0. See `LICENSE` for the terms and `NOTICE` for the attribution
 that has to travel with a redistribution; `THIRD-PARTY.md` covers what
 else is inside a build and under what terms.
 
+**Contributions are under a contributor licence agreement** — see
+`CONTRIBUTING.md` and `CLA.md`. The reason is stated in the agreement
+itself rather than buried: this project is Apache-2.0 today and may in
+future be offered under different terms, and without the agreement that
+decision would need every past contributor's written permission, which
+in practice means it could never be made. Anyone who would rather their
+work could never appear in a version offered commercially should not
+sign, and that is a legitimate position.
+
 **Running it as a service is allowed**, including as a paid one, and
 including by a competitor. There is no clause preventing that, and its
 absence is a decision: the people this is built for are the agencies and
