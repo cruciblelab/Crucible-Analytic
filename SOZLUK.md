@@ -62,6 +62,23 @@ temelinin yarısı.
 argon2id hash'ine çevirir, ya da rastgele bir `ip_hash_key` üretir.
 Panel formu olsaydı, panel kendini sınırlayan parolayı değiştirebilirdi.
 
+**upgrader** — Altıncı binary, ve kurulumda **DDL çalıştırabilen tek
+şey**. Panel şema göçü yapamaz — `grants.sql`'de hiçbir servis rolü için
+`ALTER`, `CREATE` veya `OWNER` yok, ve bu B6 ile H5'in bilerek kurduğu
+şey. O yüzden panel `panel_upgrade_requests`'e bir istek satırı yazar,
+upgrader o satırı görüp şemayı uygular ve sonucu geri yazar.
+
+Sormak ve cevaplamak ayrı yetkiler: panel `INSERT`+`SELECT` tutar,
+upgrader `SELECT`+`UPDATE`. Hiçbiri ikisini birden tutmaz, yani ele
+geçirilmiş bir panel yükseltme *isteyebilir* ama bir yükseltmenin
+sonucunu **uyduramaz**.
+
+systemd zamanlayıcısı çalıştırır, tek geçiş yapar ve çıkar — dinlenen
+bir makinede DDL yetkili açık bir bağlantı kalmaz. Kendi yapılandırma
+dosyasını okur, ve o dosya kurulumdaki tek DDL yetkili DSN'i taşır.
+Taşıdığı şemanın parmak izi isteğinkiyle uyuşmazsa **reddeder**: eski
+bir upgrader, yeni bir panelin istediği göçü uygulamaz.
+
 **snippet** — Müşterinin sayfasına eklenen küçük JavaScript. Beacon'a
 olay POST eder. `beacon -snippet <url> <site>` komutu üretir.
 
@@ -516,7 +533,8 @@ veritabanına sorularak doğrulanması. Üçüncüsü olmadan ilk ikisi
 `release/systemd/*.service` birimleri.
 
 **Docker imajı** — Tek imaj, beş giriş noktası (`collector`, `beacon`,
-`analytics-api`, `panel`, `devpass`) artı `init`. Beş ayrı imaj değil:
+`analytics-api`, `panel`, `devpass`, `upgrader`) artı `init`. Ayrı
+imajlar değil:
 dört servis aynı şemayı ve aynı `ip_hash_key`'i paylaşıyor, sürümleri
 kayan beş etiketin arızası çökme değil — sessizce boş bir kesişim
 görünümü.

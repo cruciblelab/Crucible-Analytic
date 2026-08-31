@@ -133,6 +133,78 @@ BEGIN
   END LOOP;
 END $$;
 
+-- The functions too, and this was found by measurement rather than
+-- foresight: moving only the tables left the applier unable to re-apply
+-- internal/retention/schema.sql, which does CREATE OR REPLACE FUNCTION
+-- and therefore needs to own what it is replacing. The failure appeared
+-- half way through a migration - after six files had been applied - so
+-- it is exactly the shape this queue exists to record honestly.
+--
+-- These four are SECURITY DEFINER and run as their owner, which this
+-- changes from the superuser to schema_admin.
+--
+-- The first version of this comment claimed that was harmless, because
+-- schema_admin now owns the hypertables. It was wrong, and the retention
+-- suite said so within the minute: owning the hypertable is not the only
+-- thing the wrappers need. They call TimescaleDB's own
+-- add_retention_policy and remove_retention_policy, and a definer that
+-- is not a superuser needs EXECUTE on those - which is the block below,
+-- and which is the same error internal/retention/schema.sql already
+-- documents happening to the collector.
+--
+-- Left here as written because it is the useful kind of mistake: a
+-- comment asserting a measurement that had not been taken, corrected by
+-- taking it.
+-- ALTER ROUTINE rather than ALTER FUNCTION, and extension members
+-- excluded. Both were found by running it: TimescaleDB installs
+-- procedures as well as functions into public, and ALTER FUNCTION
+-- refuses a procedure - so the first version of this block stopped part
+-- way through, having moved some objects and not others.
+--
+-- The extension's own objects must not move in any case. They belong to
+-- the extension, ALTER EXTENSION is what manages them, and changing
+-- their owner underneath it is a way to make a future TimescaleDB
+-- upgrade fail for reasons nobody will connect to this file.
+-- EXECUTE on the two TimescaleDB entry points the wrappers call.
+--
+-- Guarded, because a deployment without TimescaleDB has neither function
+-- and must not fail its install over a policy it cannot use anyway -
+-- the same guard internal/retention/schema.sql uses for its own grants.
+-- The signature is looked up rather than written down. TimescaleDB has
+-- added parameters to add_retention_policy across releases - the
+-- installed one here takes seven - and a hardcoded signature would make
+-- this file fail on some versions and silently grant nothing on others.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname IN ('add_retention_policy', 'remove_retention_policy')
+  LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO schema_admin', f.sig);
+  END LOOP;
+END $$;
+
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_depend d
+        WHERE d.objid = p.oid
+          AND d.classid = 'pg_proc'::regclass
+          AND d.deptype = 'e')
+  LOOP
+    EXECUTE format('ALTER ROUTINE %s OWNER TO schema_admin', f.sig);
+  END LOOP;
+END $$;
+
 -- The log table every service writes and only the panel reads.
 --
 -- INSERT for all four, SELECT for the panel. The row-level policy in
