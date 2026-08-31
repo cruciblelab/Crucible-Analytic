@@ -569,7 +569,7 @@ func TestTheAboutBlockIsOnThePageForEveryone(t *testing.T) {
 	// place to forget one.
 	wants := []struct{ text, why string }{
 		{"Hakkında", "the section heading"},
-		{"Ekip", "the team heading"},
+		{"ekip üyelerine teşekkürler", "the team heading"},
 		{RepositoryURL, "where the source is"},
 		{LicenceName, "the licence the deployment runs under"},
 		{"CrucibleLAB", "the project"},
