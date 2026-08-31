@@ -90,10 +90,14 @@ cp internal/retention/schema.sql  "${STAGE}/schema/06-retention.sql"
 # so its place in the order is arbitrary; here, so the version record
 # stays last.
 cp internal/logsink/schema.sql    "${STAGE}/schema/07-logsink.sql"
+# The upgrade queue. Its policies name schema_admin, so that role has to
+# exist by now - install.sh creates all five roles before it applies any
+# schema, which is the ordering this depends on.
+cp internal/upgrade/schema.sql    "${STAGE}/schema/08-upgrade.sql"
 # The version record, last of all, because what it records is "every
 # schema above was applied". A row written before the schemas it
 # describes would be a claim about work that had not happened yet.
-cp internal/schemaver/schema.sql  "${STAGE}/schema/08-schemaver.sql"
+cp internal/schemaver/schema.sql  "${STAGE}/schema/09-schemaver.sql"
 
 echo "== example configuration"
 for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml; do

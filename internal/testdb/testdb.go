@@ -61,6 +61,13 @@ const (
 	// Panel is the panel's. Every panel_* table, and no access at all to
 	// either analytics table - the isolation the product rests on.
 	Panel = "panel_user"
+	// SchemaAdmin is L3's applier: the one role in this deployment that
+	// may run DDL. It owns the tables, so it can ALTER them, and holds
+	// nothing outside this database - no CREATE ROLE, no other schema.
+	//
+	// The fifth role exists so that no running service has to carry a
+	// superuser DSN on disk for its whole life.
+	SchemaAdmin = "schema_admin"
 )
 
 // DSN is where role connects.

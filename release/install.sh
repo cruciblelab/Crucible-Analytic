@@ -254,7 +254,7 @@ say "four roles"
 # read and must not invalidate.
 declare -A ROLE_PW=()
 if [ "${DRY_RUN}" -eq 0 ]; then
-  for role in collector beacon_writer analytics_reader panel_user; do
+  for role in collector beacon_writer analytics_reader panel_user schema_admin; do
     if [ -n "$(psql_db -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${role}'")" ]; then
       say "   ${role} already exists, keeping its password"
       continue
@@ -275,13 +275,20 @@ CREATE ROLE ${role} LOGIN PASSWORD :'pw';
 SQL
   done
 
-  # Connect and schema usage for all four, whether they were made now or
+  # Connect and schema usage for all five, whether they were made now or
   # were already here: an existing role from somewhere else has no reason
   # to already hold these.
   psql_db -c "GRANT CONNECT ON DATABASE ${DB_NAME}
-      TO collector, beacon_writer, analytics_reader, panel_user"
+      TO collector, beacon_writer, analytics_reader, panel_user, schema_admin"
   psql_db -c "GRANT USAGE ON SCHEMA public
-      TO collector, beacon_writer, analytics_reader, panel_user"
+      TO collector, beacon_writer, analytics_reader, panel_user, schema_admin"
+
+  # CREATE on the schema, to schema_admin alone.
+  #
+  # It is the one role that may add a table, which is what an upgrade
+  # does. The other four are deliberately unable to: a service that can
+  # create objects can create one the next migration then collides with.
+  psql_db -c "GRANT CREATE ON SCHEMA public TO schema_admin"
 fi
 
 # --------------------------------------------------------------- schemas
@@ -296,7 +303,8 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     for f in internal/panel/schema.sql internal/storage/schema.sql \
              internal/beacon/schema.sql internal/asnlookup/schema.sql \
              internal/heartbeat/schema.sql internal/retention/schema.sql \
-             internal/logsink/schema.sql internal/schemaver/schema.sql; do
+             internal/logsink/schema.sql internal/upgrade/schema.sql \
+             internal/schemaver/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi

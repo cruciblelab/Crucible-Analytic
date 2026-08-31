@@ -81,6 +81,58 @@ GRANT SELECT, INSERT, UPDATE ON service_heartbeat
 -- the process being asked about.
 GRANT SELECT ON schema_version TO panel_user;
 
+-- The applier writes it. L1 decided this line's neighbour when it
+-- created the table, precisely so that grants.sql would not have to be
+-- reopened here - see PLAN.md, "L'nin iç bağları", Bağ 1.
+GRANT SELECT, INSERT, UPDATE ON schema_version TO schema_admin;
+
+-- ---------------------------------------------------- the upgrade queue
+--
+-- Asking and answering are different privileges held by different roles,
+-- and that split is the whole security argument for the button:
+--
+--   panel_user    INSERT, SELECT     asks, and reads the answer
+--   schema_admin  SELECT, UPDATE     answers, and cannot ask
+--
+-- Neither holds both. A compromised panel process can request an upgrade
+-- - which is a button any signed-in customer can press anyway - and
+-- cannot fabricate the result of one, so a row saying "succeeded" is
+-- always something the applier wrote.
+GRANT SELECT, INSERT, DELETE ON panel_upgrade_requests TO panel_user;
+GRANT USAGE, SELECT ON SEQUENCE panel_upgrade_requests_id_seq TO panel_user;
+GRANT SELECT, UPDATE ON panel_upgrade_requests TO schema_admin;
+
+-- ------------------------------------------------------ table ownership
+--
+-- Every table is owned by schema_admin, because ALTER TABLE requires
+-- ownership and applying a migration is mostly ALTER TABLE.
+--
+-- This is the fifth role's whole reason for existing. The alternative is
+-- a running service holding a superuser DSN on disk for its entire life,
+-- which is worse in every direction: a superuser can create roles, read
+-- every other database on the cluster, and install extensions, and none
+-- of that is revocable without taking the account away entirely.
+--
+-- schema_admin can do none of those. It is bounded to this schema, and
+-- it is a LOGIN role that can be locked.
+--
+-- Measured before it was adopted: the four SECURITY DEFINER retention
+-- wrappers are owned by the superuser and run as their owner, so moving
+-- table ownership does not disturb them. internal/retention's suite was
+-- run against the moved ownership and passes.
+--
+-- An owner bypasses row-level security, so schema_admin sees every row
+-- in every table. That is inherent to being able to migrate them, and it
+-- is why nothing but the applier is given this DSN.
+DO $$
+DECLARE t text;
+BEGIN
+  FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I OWNER TO schema_admin', t);
+  END LOOP;
+END $$;
+
 -- The log table every service writes and only the panel reads.
 --
 -- INSERT for all four, SELECT for the panel. The row-level policy in
