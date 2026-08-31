@@ -30,7 +30,19 @@ var parentHeadings = map[string]bool{"A5": true, "C7": true}
 // Hardcoding today's last letter is what caused it, so it is not
 // repeated: [A-Z] needs no edit when group I arrives.
 var (
-	phaseHeading = regexp.MustCompile(`^#### ([A-Z]I?[0-9]+(?:\.[0-9]+)?) — (.*)$`)
+	// The trailing [a-z]? is not decoration. This project names split
+	// phases D4a, D4b, D4c, and without it the pattern matched "D4" and
+	// then demanded the em dash immediately - so every lettered phase
+	// was invisible to the check whose whole job is keeping the summary
+	// table honest. D4c shipped with its own heading and the table went
+	// on saying eight phases.
+	//
+	// Found by the table check itself, which refused a count that was
+	// right about the document and wrong about this pattern. The same
+	// expression is what version_test.go compares a release's phase code
+	// against, so the blind spot also meant a build tagged +D4c would
+	// have been rejected as naming a phase that does not exist.
+	phaseHeading = regexp.MustCompile(`^#### ([A-Z]I?[0-9]+(?:\.[0-9]+)?[a-z]?) — (.*)$`)
 	groupRow     = regexp.MustCompile(`^\| \*\*([A-Z]I?)\*\* [^|]*\| [^*]*\*\*([0-9]+)/([0-9]+)\*\*`)
 	groupOf      = regexp.MustCompile(`^([A-Z]I?)`)
 )

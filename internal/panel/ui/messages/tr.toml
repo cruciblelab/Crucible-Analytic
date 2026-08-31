@@ -1054,3 +1054,12 @@ proje = "Proje"
 gelistirici = "Geliştirici"
 asistan = "Yapay zekâ asistanı"
 ekip = "Ekip üyesi"
+
+[metin.ayarlar.kategori]
+gorunum = "Görünüm"
+toplama = "Toplama"
+bot = "Bot ve trafik politikası"
+gizlilik = "Gizlilik ve saklama"
+sinirlar = "Sınırlar ve yük"
+tanilama = "Tanılama"
+bakim = "Bakım"

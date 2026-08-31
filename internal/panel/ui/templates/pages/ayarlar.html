@@ -4,11 +4,23 @@
 See saveSetting: a form that saved twenty settings would have to report
 twenty outcomes, and the one that failed is the one nobody reads. */}}
 
-{{- if not .Data.Rows}}
+{{- if not .Data.Sections}}
 <p class="ipucu">{{t "ayarlar.bos"}}</p>
 {{- end}}
 
-{{- range .Data.Rows}}
+{{- /* One <details> per category, and native rather than scripted.
+The Content-Security-Policy has neither unsafe-inline nor unsafe-eval,
+so an accordion built from a click handler would need a bundled script
+and an exception; <details>/<summary> needs neither, and arrives with
+keyboard and screen-reader behaviour nobody has to re-implement.
+
+Collapsed by default. The one that opens is the one holding the setting
+this render is about - see settingSection.Open. */}}
+{{- range .Data.Sections}}
+<details class="ayar-katagori"{{if .Open}} open{{end}}>
+<summary>{{.Label}} <span class="sayi">{{len .Rows}}</span></summary>
+
+{{- range .Rows}}
 <section class="ayar">
 <h2>{{.Label}}</h2>
 {{- if .Help}}<p class="ipucu">{{.Help}}</p>{{end}}
@@ -104,6 +116,8 @@ that does nothing is how a panel loses the benefit of the doubt. */}}
 {{- end}}
 {{- end}}
 </section>
+{{- end}}
+</details>
 {{- end}}
 
 {{- if not .Data.ShowDeveloper}}

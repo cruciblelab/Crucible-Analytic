@@ -1014,3 +1014,12 @@ proje = "Project"
 gelistirici = "Developer"
 asistan = "AI assistant"
 ekip = "Team member"
+
+[metin.ayarlar.kategori]
+gorunum = "Appearance"
+toplama = "Collection"
+bot = "Bot and traffic policy"
+gizlilik = "Privacy and retention"
+sinirlar = "Limits and load"
+tanilama = "Diagnostics"
+bakim = "Maintenance"

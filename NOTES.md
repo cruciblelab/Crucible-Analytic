@@ -6783,3 +6783,78 @@ koştuğunu doğrulamak için yazılmış bir kontrolden geçecekti.
 cevaplar. Direktif artık ayrıştırılıyor, ve beklentiler iki yönlü bir
 haritada gerekçeleriyle duruyor: listede olmayan birim de kırmızı, dosyası
 olmayan liste girdisi de.
+
+---
+
+## D4c — 28 ayar yedi bölüme, ve testin bulduğu iki şey
+
+Ayar sayfası tek düz listeydi. Artık `<details>/<summary>` ile yedi
+kategori: görünüm 4, toplama 2, bot 4, gizlilik 7, sınırlar 8,
+tanılama 2, bakım 1.
+
+Native, betik değil. CSP'de ne `unsafe-inline` var ne `unsafe-eval`;
+tıklama işleyicisiyle kurulan bir akordeon paketlenmiş bir betik ve bir
+istisna isterdi. `<details>` ikisini de istemiyor ve klavye + ekran
+okuyucu davranışıyla geliyor.
+
+### Kapalı gelmenin güvenli olmasını sağlayan şey
+
+Fazın asıl riski çirkin bir sayfa değil: **hiçbir bölümün çizmediği bir
+ayar.** O ayar hata vermez, log yazmaz, eksik görünmez — müşteri onun
+olmadığı sonucuna varır.
+
+Ve ikinci yarısı: reddedilen kaydın bulunduğu bölüm açık geliyor.
+Olmasaydı, reddedilen bir kayıt sayfanın tepesine kırmızı bir bant
+çizip sebebini kapalı bir başlığın arkasında bırakırdı.
+
+**İkinci yarı olmadan birinci yarı, özellik kılığında bir gerileme.**
+
+Bunu yapan `Focus` alanı, daha önce üç yerde yazılıp hiçbir yerde
+okunmayan bir alandı. `go vet` böyle bir alanı görmez; ölü kod kapısı da
+struct alanlarını saymıyor.
+
+### Testin bulduğu iki şey
+
+**1. Sekiz limit ayarı hiç kategorisizdi.** `limitDefinitions` onları
+üretiyor (collector ve beacon için dörder tane), ben kaydı elle
+tarayınca yalnız 20 literal tanımı gördüm. Kategorisiz tanım testi
+sekizini de saydı. **Elle sayılan bir liste, üretilmiş olanı görmez.**
+
+**2. Üç kampanya ayarı gizlilik ayarıymış.** Geliştirici parolasının
+arkasındalar — bu projede hukuki ağırlığın işareti bu. Kendi
+`GateReason`'ları söylüyor: *"ham tıklama kimliği ... reklam ağının
+kayıtlarıyla eşleştirilebilen kalıcı bir tanımlayıcıya dönüşür."*
+
+Ben onları "Kampanya" diye ayrı bir kategoriye koymuştum, çünkü adları
+öyle. Test itiraz etti ve haklıydı: **bir ayar, adına göre değil,
+sakladığı şeye göre bir bölüme aittir.** Kampanya kategorisi kaldırıldı,
+üçü de gizliliğe taşındı.
+
+Muafiyet listesine yazıp susturmak seçenek değildi — o liste bulguları
+susturma yeri değil, ve `KeyUpgradeLocked` orada duruyor çünkü gerçekten
+veri saklamıyla ilgisi yok, gerekçesi yazılı.
+
+### Bir mutasyon boşa gitti ve bunu fark etmek gerekti
+
+Üç mutasyondan üçüncüsü — hata yolundan `Focus`'u çıkarmak — "geçti"
+dedi. Aradığım metin `Focus:   string(key)` (üç boşluk, gofmt
+hizalaması), dosyadaki `Focus: string(key)` (tek boşluk). Değişiklik
+hiç uygulanmamıştı.
+
+**Mutasyonun uygulandığını doğrulamayan bir mutasyon testi, testin
+kendisi kadar boştur.** Tekrar edildi, bu sefer `assert old in s` ile,
+ve gerçekten kırmızıya döndü.
+
+### Yan bulgu: faz kodlarının bir kısmı hiç sayılmıyormuş
+
+`plan_test.go`'nun `phaseHeading` deseni `^#### ([A-Z]I?[0-9]+...) — `
+diyordu. `D4c` bu desene uymaz — "D4"ü eşler, sonra hemen em dash
+bekler, "c" araya girer. Yani **harfle biten her faz kodu, tablonun
+dürüstlüğünü koruyan kontrole görünmezdi.**
+
+Bunu bulan şey kontrolün kendisi oldu: D grubunu 5/9 yaptım, test 4/8
+dedi — belge hakkında haklıydım, desen hakkında değil.
+
+Ve aynı desen `version_test.go`'da kullanılıyor, yani `+D4c` etiketli
+bir yapı "var olmayan bir fazı gösteriyor" diye reddedilirdi. **İkinci
+bir kopya yazmamanın karşılığı: tek düzeltme iki yeri birden düzeltti.**

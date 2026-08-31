@@ -424,6 +424,14 @@ type Definition struct {
 	// and the answer has to come from somebody with access to the
 	// server rather than to the panel.
 	RequiresDeveloperPassword bool
+	// Category is the section this setting appears under.
+	//
+	// Required. The zero value is not a category, and
+	// TestEverySettingIsInACategory refuses it: before D4c the page was
+	// one flat list, so a new definition needed no group and got shown
+	// regardless. Now a definition with no category would be drawn
+	// under no heading - which is to say, not drawn.
+	Category Category
 	// GateReason is why this particular setting is guarded, in Turkish.
 	//
 	// Per setting rather than one blanket sentence, because "this needs
@@ -434,6 +442,64 @@ type Definition struct {
 	GateReason string
 }
 
+// Category groups settings on the page.
+//
+// A closed type rather than a string, and the reason is the one D4c was
+// written for: the page is about to stop being one list, and a setting
+// whose group is a free-form string can be given a group that does not
+// exist - which renders as nothing at all. A typo would hide a setting
+// rather than misplace it, and a hidden setting is the failure this
+// whole phase is trying not to introduce.
+type Category string
+
+const (
+	// CatGorunum is what the customer sees, and it is first because it
+	// is what somebody opening this page most often came for.
+	CatGorunum Category = "gorunum"
+	// CatToplama is what gets collected at all.
+	CatToplama Category = "toplama"
+	// CatBot is the bot and traffic policy.
+	CatBot Category = "bot"
+	// CatGizlilik holds the settings with legal weight: what is stored
+	// about a visitor, and for how long. Grouped together deliberately -
+	// they are the ones somebody has to find and account for when a
+	// customer or a regulator asks, and answering "where is that
+	// configured" by naming four sections is not an answer.
+	//
+	// The three campaign settings are in here rather than in a section
+	// of their own, and that placement was a correction rather than a
+	// choice. They read as marketing configuration; their own
+	// GateReason says otherwise - "ham tıklama kimliği ... reklam ağının
+	// kayıtlarıyla eşleştirilebilen kalıcı bir tanımlayıcıya dönüşür".
+	// TestTheLegallyWeightySettingsAreTogether is what said so, and it
+	// said it before the page was ever drawn.
+	//
+	// A setting belongs here because of what it stores, not because of
+	// what it is called.
+	CatGizlilik Category = "gizlilik"
+	// CatSinirlar is admission control: how much each service accepts
+	// before it sheds load.
+	CatSinirlar Category = "sinirlar"
+	// CatTanilama is diagnostics: what gets logged, how loudly.
+	CatTanilama Category = "tanilama"
+	// CatBakim is maintenance.
+	CatBakim Category = "bakim"
+)
+
+// CategoryOrder is the order the page draws them in.
+//
+// A slice, because Go map iteration is deliberately random and a
+// settings page whose sections move between reloads is one nobody can
+// build a habit on. The order is by how often somebody wants each, not
+// alphabetical.
+//
+// It is also the closed set: TestEverySettingIsInACategory checks both
+// directions against it, so a category constant that is never used and a
+// setting pointing at a category that is not here both fail.
+var CategoryOrder = []Category{
+	CatGorunum, CatToplama, CatBot, CatGizlilik, CatSinirlar, CatTanilama, CatBakim,
+}
+
 // registry is every setting this system has. Adding one is a code change
 // that goes through review, which is the same rule the panel's repair
 // operations follow and for the same reason: a running system should not
@@ -441,22 +507,25 @@ type Definition struct {
 var registry = map[Key]Definition{
 	KeySiteName: {
 		Key: KeySiteName, Scope: ScopeSite, Kind: KindString,
-		Default: "",
-		Label:   "Sitenin adı",
-		Help:    "Panelde görünen ad. Site kimliğini değiştirmez — snippet olduğu gibi kalır.",
+		Category: CatGorunum,
+		Default:  "",
+		Label:    "Sitenin adı",
+		Help:     "Panelde görünen ad. Site kimliğini değiştirmez — snippet olduğu gibi kalır.",
 	},
 	KeyVisibleCards: {
 		Key: KeyVisibleCards, Scope: ScopeSite, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Gösterilecek kartlar",
+		Category: CatGorunum,
+		Default:  []string{},
+		Label:    "Gösterilecek kartlar",
 		Help: "Bu sitenin panosunda hangi özet kartlarının görüneceği. Boş " +
 			"bırakılırsa varsayılan altısı gösterilir — boş, \"hiçbiri\" demek " +
 			"değil. Kapalı bir kartın verisi analitik servisinden hiç istenmez.",
 	},
 	KeyVisibleBreakdowns: {
 		Key: KeyVisibleBreakdowns, Scope: ScopeSite, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Gösterilecek kırılımlar",
+		Category: CatGorunum,
+		Default:  []string{},
+		Label:    "Gösterilecek kırılımlar",
 		Help: "Kartların altındaki hangi kırılım tablolarının görüneceği: sayfalar, " +
 			"kaynaklar, kampanyalar, cihazlar, ülkeler, olaylar. Boş bırakılırsa " +
 			"hepsi gösterilir. Kapalı bir kırılımın sorgusu hiç atılmaz, yani " +
@@ -464,13 +533,15 @@ var registry = map[Key]Definition{
 	},
 	KeyPanelTimezone: {
 		Key: KeyPanelTimezone, Scope: ScopeGlobal, Kind: KindString,
-		Default: "",
-		Label:   "Saat dilimi",
-		Help:    "Paneldeki her tarih ve saat bu dilimde gösterilir. Boş bırakılırsa yapılandırma dosyasındaki değer geçerli olur.",
-		Check:   checkTimezone,
+		Category: CatGorunum,
+		Default:  "",
+		Label:    "Saat dilimi",
+		Help:     "Paneldeki her tarih ve saat bu dilimde gösterilir. Boş bırakılırsa yapılandırma dosyasındaki değer geçerli olur.",
+		Check:    checkTimezone,
 	},
 	KeyBeaconSites: {
 		Key: KeyBeaconSites, Scope: ScopeGlobal, Kind: KindStringList,
+		Category:  CatToplama,
 		Default:   []string{},
 		Label:     "Kabul edilen siteler",
 		Help:      "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
@@ -479,8 +550,9 @@ var registry = map[Key]Definition{
 	},
 	KeyBlockedCountries: {
 		Key: KeyBlockedCountries, Scope: ScopeGlobal, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Engellenen ülkeler",
+		Category: CatBot,
+		Default:  []string{},
+		Label:    "Engellenen ülkeler",
 		Help: "Buradaki ülkelerden gelen bağlantılar reddedilir. İki harfli ülke kodu, " +
 			"satır başına bir tane (TR, DE, CN). Değişiklik anında geçerli olur — " +
 			"yeniden başlatma gerekmez. Ülkesi belirlenemeyen bir adres bu listeyle " +
@@ -491,8 +563,9 @@ var registry = map[Key]Definition{
 	},
 	KeyBlockedASNs: {
 		Key: KeyBlockedASNs, Scope: ScopeGlobal, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Engellenen ağlar (ASN)",
+		Category: CatBot,
+		Default:  []string{},
+		Label:    "Engellenen ağlar (ASN)",
 		Help: "Buradaki otonom sistem numaralarından gelen bağlantılar reddedilir. " +
 			"Yalnız rakam, satır başına bir tane. Değişiklik anında geçerli olur.",
 		Developer: true,
@@ -501,8 +574,9 @@ var registry = map[Key]Definition{
 	},
 	KeyKnownBotASNs: {
 		Key: KeyKnownBotASNs, Scope: ScopeGlobal, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Bot olarak işaretlenen ağlar (ASN)",
+		Category: CatBot,
+		Default:  []string{},
+		Label:    "Bot olarak işaretlenen ağlar (ASN)",
 		Help: "Bu ağlardan gelen trafiğin bot puanına ekleme yapılır — engellenmez, " +
 			"işaretlenir. Engellenen ağlar listesinden ayrıdır: engellenen bir ağ " +
 			"zaten puanlamaya hiç ulaşmaz. Yalnız \"ASN puanlamaya uygulansın\" " +
@@ -513,8 +587,9 @@ var registry = map[Key]Definition{
 	},
 	KeyApplyASNToScoring: {
 		Key: KeyApplyASNToScoring, Scope: ScopeGlobal, Kind: KindBool,
-		Default: false,
-		Label:   "ASN puanlamaya uygulansın",
+		Category: CatBot,
+		Default:  false,
+		Label:    "ASN puanlamaya uygulansın",
 		Help: "Kapalıyken yukarıdaki bot ağı listesi hiç kullanılmaz. Varsayılan kapalı: " +
 			"kimsenin seçmediği bir eklenti, tablodaki her puanı kimsenin " +
 			"gösteremeyeceği bir sebeple değiştirirdi.",
@@ -523,8 +598,9 @@ var registry = map[Key]Definition{
 	},
 	KeyTrustedProxies: {
 		Key: KeyTrustedProxies, Scope: ScopeGlobal, Kind: KindStringList,
-		Default: []string{},
-		Label:   "Güvenilen vekil ağları",
+		Category: CatToplama,
+		Default:  []string{},
+		Label:    "Güvenilen vekil ağları",
 		Help: "Cloudflare gibi bir vekilin arkasındaysanız onun ağlarını buraya yazın; " +
 			"yalnız bu ağlardan gelen ilettiği adrese inanılır. Liste boşken vekil " +
 			"arkasındaki her ziyaretçi aynı adres görünür ve panelinizdeki neredeyse " +
@@ -536,6 +612,7 @@ var registry = map[Key]Definition{
 	},
 	KeyCampaignDropParams: {
 		Key: KeyCampaignDropParams, Scope: ScopeGlobal, Kind: KindStringList,
+		Category:  CatGizlilik,
 		Default:   []string{},
 		Label:     "Saklanmayacak kampanya parametreleri",
 		Help:      "Örneğin utm_term. Hukuki bir karar gerektirdiği için sürüm değil, ayar.",
@@ -549,6 +626,7 @@ var registry = map[Key]Definition{
 	},
 	KeyCampaignExtraParams: {
 		Key: KeyCampaignExtraParams, Scope: ScopeGlobal, Kind: KindStringList,
+		Category:  CatGizlilik,
 		Default:   []string{},
 		Label:     "Ek olarak saklanacak parametreler",
 		Help:      "Sitenin kendi parametreleri. Büyük/küçük harfe duyarlı eşleşir.",
@@ -562,6 +640,7 @@ var registry = map[Key]Definition{
 	},
 	KeyCampaignStoreClickID: {
 		Key: KeyCampaignStoreClickID, Scope: ScopeGlobal, Kind: KindBool,
+		Category:  CatGizlilik,
 		Default:   false,
 		Label:     "Ham reklam tıklama kimliğini sakla",
 		Help:      "Kapalıyken yalnızca hangi reklam ağı olduğu saklanır. Her tıklamada benzersiz olduğu için varsayılan kapalı.",
@@ -574,7 +653,8 @@ var registry = map[Key]Definition{
 	},
 	KeyLogRetentionDays: {
 		Key: KeyLogRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
-		Default: 14, Min: 1, Max: 3650,
+		Category: CatGizlilik,
+		Default:  14, Min: 1, Max: 3650,
 		Label:     "Günlük kaydı saklama süresi (gün)",
 		Help:      "Sıradan kayıtlar (erişim, alım, uygulama) bu süre sonunda silinir.",
 		Developer: true,
@@ -586,7 +666,8 @@ var registry = map[Key]Definition{
 	},
 	KeyLogImportantRetentionDays: {
 		Key: KeyLogImportantRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
-		Default: 365, Min: 1, Max: 3650,
+		Category: CatGizlilik,
+		Default:  365, Min: 1, Max: 3650,
 		Label:     "Önemli kayıtları saklama süresi (gün)",
 		Help:      "Güvenlik, kimlik doğrulama ve denetim kayıtları. Bunlar bir yıl sonra sorulanlardır.",
 		Developer: true,
@@ -597,8 +678,9 @@ var registry = map[Key]Definition{
 	},
 	KeyUpgradeLocked: {
 		Key: KeyUpgradeLocked, Scope: ScopeGlobal, Kind: KindBool,
-		Default: false,
-		Label:   "Yükseltmeyi geliştirici parolasına kilitle",
+		Category: CatBakim,
+		Default:  false,
+		Label:    "Yükseltmeyi geliştirici parolasına kilitle",
 		Help: "Kapalıyken müşteri şema yükseltmesini tek tıkla başlatabilir. " +
 			"Açıkken yalnız geliştirici parolası başlatabilir; yetki verilmesi yetmez.",
 		Developer: true,
@@ -614,14 +696,16 @@ var registry = map[Key]Definition{
 	},
 	KeyLogArchiveAfterDays: {
 		Key: KeyLogArchiveAfterDays, Scope: ScopeGlobal, Kind: KindInt,
-		Default: 7, Min: 1, Max: 3650,
+		Category: CatGizlilik,
+		Default:  7, Min: 1, Max: 3650,
 		Label:     "Kaç gün sonra arşivlensin",
 		Help:      "Bu süreden eski günler sıkıştırılır. Okunabilir kalır, yaklaşık onda bir yer kaplar.",
 		Developer: true,
 	},
 	KeyLogLevel: {
 		Key: KeyLogLevel, Scope: ScopeGlobal, Kind: KindEnum,
-		Default: "info", Enum: []string{"debug", "info", "warn", "error"},
+		Category: CatTanilama,
+		Default:  "info", Enum: []string{"debug", "info", "warn", "error"},
 		Label: "Kayıt ayrıntı düzeyi",
 		Help: "debug, en sık karşılaşılan yanlış yapılandırmayı görünür kılar; çok ayrıntılıdır. " +
 			"Değişiklik bir sonraki kayıt satırında geçerli olur.",
@@ -634,8 +718,9 @@ var registry = map[Key]Definition{
 	},
 	KeyLogVerboseUntil: {
 		Key: KeyLogVerboseUntil, Scope: ScopeGlobal, Kind: KindString,
-		Default: "",
-		Label:   "Ayrıntılı kayıt bitiş zamanı",
+		Category: CatTanilama,
+		Default:  "",
+		Label:    "Ayrıntılı kayıt bitiş zamanı",
 		Help: "Geçici olarak debug'a çıkarır ve kendiliğinden söner. " +
 			"Değişiklik bir sonraki kayıt satırında geçerli olur.",
 		Developer: true,
@@ -646,7 +731,8 @@ var registry = map[Key]Definition{
 	},
 	KeyPrivacyIPStorage: {
 		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,
-		Default: IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked},
+		Category: CatGizlilik,
+		Default:  IPStorageMasked, Enum: []string{IPStorageFull, IPStorageMasked},
 		Label: "IP adresi saklama biçimi",
 		Help: "Ham IP adresi hiçbir modda saklanmaz. masked (varsayılan): yalnız ağ " +
 			"saklanır (IPv4 /24, IPv6 /64), anahtar gerekmez. full: aynı maskeli ağ " +
@@ -678,7 +764,8 @@ func limitDefinitions(service string, concurrent, perSecond, policy, queue Key) 
 	return []Definition{
 		{
 			Key: concurrent, Scope: ScopeGlobal, Kind: KindInt,
-			Default: 0, Min: 0, Max: 100000,
+			Category: CatSinirlar,
+			Default:  0, Min: 0, Max: 100000,
 			Label: service + " — eşzamanlı istek sınırı",
 			Help: "Aynı anda işlenen bağlantı/istek sayısının üst sınırı. 0 sınırsız " +
 				"demektir ve yapılandırma dosyasındaki değere düşer.",
@@ -686,7 +773,8 @@ func limitDefinitions(service string, concurrent, perSecond, policy, queue Key) 
 		},
 		{
 			Key: perSecond, Scope: ScopeGlobal, Kind: KindInt,
-			Default: 0, Min: 0, Max: 1000000,
+			Category: CatSinirlar,
+			Default:  0, Min: 0, Max: 1000000,
 			Label: service + " — saniyedeki istek sınırı",
 			Help: "Saniyede işlenen istek sayısının üst sınırı. 0 sınırsız demektir ve " +
 				"yapılandırma dosyasındaki değere düşer.",
@@ -694,9 +782,10 @@ func limitDefinitions(service string, concurrent, perSecond, policy, queue Key) 
 		},
 		{
 			Key: policy, Scope: ScopeGlobal, Kind: KindEnum,
-			Default: "",
-			Enum:    []string{"", OverloadFailOpen, OverloadFailClosed, OverloadThrottle},
-			Label:   service + " — sınır aşıldığında",
+			Category: CatSinirlar,
+			Default:  "",
+			Enum:     []string{"", OverloadFailOpen, OverloadFailClosed, OverloadThrottle},
+			Label:    service + " — sınır aşıldığında",
 			Help: "fail_open: trafiği geçirmeye devam eder, yalnız kaydı atlar — " +
 				"sitenizi asla durdurmaz, varsayılan budur. fail_closed: fazlasını " +
 				"reddeder, yani ziyaretçi siteye ulaşamaz. throttle: kuyruğa alır. " +
@@ -705,7 +794,8 @@ func limitDefinitions(service string, concurrent, perSecond, policy, queue Key) 
 		},
 		{
 			Key: queue, Scope: ScopeGlobal, Kind: KindInt,
-			Default: 0, Min: 0, Max: 10000,
+			Category: CatSinirlar,
+			Default:  0, Min: 0, Max: 10000,
 			Label: service + " — kuyruk boyutu",
 			Help: "Yalnız throttle politikasında kullanılır. Kuyruk dolduğunda fazlası " +
 				"beklemeden reddedilir.",

@@ -87,7 +87,7 @@ gerekçe değil bahane olur.
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | 🟡 **11/12** | C8 geliştirici erişim politikası |
-| **D** Dashboard | 🟡 **4/8** | D4b, D5–D8 (D4a yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
+| **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
@@ -169,8 +169,8 @@ geçer.
 | 3 | ~~**D4a** ayar sayfası kabuğu~~ ✅ | üç fazı birden açan tek iş; arka ucu zaten hazır |
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
-| 5.5 | **D4c** ayarlar kabuğu ← **sıradaki** | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
-| 5.6 | **M1 → M2 → M3**, **C8** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
+| 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
+| 5.6 | **M1 → M2 → M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4722,9 +4722,10 @@ politika, kimsenin bağlantı kuramadığı bir arıza gibi görünür.
 
 ---
 
-#### D4c — Ayarlar kabuğu: kategoriler ve açılır bölümler
+#### D4c — Ayarlar kabuğu: kategoriler ve açılır bölümler ✅ **yapıldı** *(2026-08-31)*
 
-**Ne:** bugün 27 ayar tek düz liste. Kategori kategori, açıldıkça açılan
+**Ne:** 28 ayar tek düz listeydi. *(Plan uzun süre 27 dedi; sayı elle
+yazılmıştı ve limit ailesi üretildiği için hiç sayılmamıştı.)* Kategori kategori, açıldıkça açılan
 bir yapı — kullanıcının tarifiyle "Android ayarları gibi".
 
 **Neden sadece güzellik değil:** kullanıcının asıl amacı *"paneli
@@ -4740,6 +4741,41 @@ oturuyor. Kabuk önce gelmezse üçü de düz listeye eklenir ve sonra taşını
 kategori açıldığında içindekiler erişime göre filtreli; hiçbir ayar
 kaybolmuyor *(kaynaktan türetilen bir test: kayıttaki her tanım bir
 kategoriye ait, ve kategorisiz tanım kırmızı)*.
+
+##### Nasıl bitti
+
+Yedi kategori, 28 ayar: görünüm 4, toplama 2, bot 4, gizlilik 7,
+sınırlar 8, tanılama 2, bakım 1.
+
+Akordeon `<details>/<summary>` — betik değil. CSP'de ne unsafe-inline
+var ne unsafe-eval, yani tıklama işleyicisiyle kurulan bir akordeon
+paketlenmiş bir betik ve bir istisna isterdi; native olan ikisini de
+istemiyor ve klavye + ekran okuyucu davranışıyla geliyor.
+
+**Kapalı gelmenin güvenli olmasını sağlayan şey ikinci yarısı:**
+reddedilen kaydın bulunduğu bölüm açık geliyor. Olmasaydı, reddedilen
+bir kayıt sayfanın tepesinde kırmızı bir bant çizip sebebini kapalı bir
+başlığın arkasında bırakırdı — müşteriye "bir şey ters gitti" denip
+ters giden şey gösterilmemiş olurdu. Bunu `Focus` alanı yapıyor; daha
+önce üç yerde yazılıp hiçbir yerde okunmayan bir alandı.
+
+**Testin bulduğu iki şey:**
+
+1. Sekiz limit ayarı hiç kategorisizdi — `limitDefinitions` üretiyor,
+   ben elle taradığımda görmemiştim. Kategorisiz tanım testi yakaladı.
+2. Üç kampanya ayarı geliştirici parolasının arkasında, yani bu projenin
+   işaretlemesine göre **hukuki ağırlık taşıyor**. Kendi
+   `GateReason`'ları söylüyor: *"ham tıklama kimliği ... reklam ağının
+   kayıtlarıyla eşleştirilebilen kalıcı bir tanımlayıcıya dönüşür."*
+   Ayrı bir "Kampanya" kategorisine koymuştum; gizliliğe taşındı ve
+   kampanya kategorisi kaldırıldı. **Bir ayar, adına göre değil,
+   sakladığı şeye göre bir bölüme aittir.**
+
+Üç mutasyonla ölçüldü: kategoriyi sıradan düşür (o bölümün ayarları
+kayboluyor), bütün bölümleri açık yap, hata yolundan `Focus`'u çıkar.
+Üçüncüsü ilk denemede boşa gitti — aradığım metin dosyadakiyle
+eşleşmemişti, yani mutasyon hiç uygulanmamıştı ve "geçti" boş bir
+geçtiydi. Tekrar edildi, bu sefer uygulandığı doğrulanarak.
 
 ---
 
@@ -4774,9 +4810,12 @@ değiştirmiyor.
 Aynı konuşmada: Apache-2.0 mı kalır, yoksa kaynağı görünür + ticari
 lisans (BSL tarzı) mı olur. Karar verilmedi.
 
-**Geri dönülemez olan tek şey yayınlamaktır**, o yüzden karar
-verilene kadar sürüm etiketi atılmıyor. Bunun dışında teknik iş iki
-modelde de birebir aynı, yani karar geciktirmenin bedeli yok.
+**Geri dönülemez olan tek şey yayınlamaktır.** Bu satır uzun süre
+"karar verilene kadar sürüm etiketi atılmıyor" diyordu; artık doğru
+değil ve düzeltildi. Karar 2026-08-31'de verildi ve `VERSIONING.md`'de
+duruyor: **0.x Apache-2.0, 1.0.0 ticari.** Yani etiket atmanın önü
+açık, ve atılan her 0.x etiketi Apache-2.0 altında kalıcı — çatallanma
+tabanı bilerek kabul edilmiş bir maliyet.
 
 Bugün yapılan tek şey **geri dönülemez olanı önlemek**: `CLA.md`.
 Dışarıdan gelen ilk katkı Apache-2.0 altında kabul edildiği an, o kişinin

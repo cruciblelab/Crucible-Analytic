@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 
@@ -622,5 +623,143 @@ func TestTheAboutBlockIsOnThePageForEveryone(t *testing.T) {
 		if status != http.StatusOK {
 			t.Errorf("fetching %s's mark at %s returned %d", c.Name, markURL, status)
 		}
+	}
+}
+
+// TestNoSettingIsLostInTheRegrouping.
+//
+// D4c's actual risk, stated as a test.
+//
+// The page was one flat list and is now seven collapsible sections. The
+// dangerous outcome is not an ugly page: it is a setting that no section
+// draws, because that setting does not error, does not log, and does not
+// look missing - the customer simply concludes it is not there.
+//
+// Asked against the rendered page rather than against the struct. The
+// grouping code can be right while the template drops a branch, and this
+// project has shipped a correct value no page displayed before.
+func TestNoSettingIsLostInTheRegrouping(t *testing.T) {
+	// The operator, so developer settings are in scope too - a viewer
+	// would legitimately see fewer, and this test is about the ones that
+	// should be drawn going missing, not about the filter working.
+	server, client, _ := settingsServerAsOperator(t)
+
+	status, body := get(t, client, server.URL+settingsURL())
+	if status != http.StatusOK {
+		t.Fatalf("the settings page returned %d", status)
+	}
+
+	// What *should* be drawn for this viewer, not everything.
+	//
+	// The first version of this compared against the whole registry and
+	// failed on seven settings - correctly, in the sense that they were
+	// absent, and wrongly, because they are Developer settings and
+	// developer mode is off. The page was right and the test was
+	// asserting something nobody had claimed.
+	//
+	// Both halves are checked now, which is stronger than the version
+	// that passed would have been: the ones that must be there, and the
+	// ones whose absence is the filter working rather than a section
+	// being dropped.
+	defs := panel.AllDefinitions()
+	if len(defs) == 0 {
+		t.Fatal("the registry reports no settings; this test would pass by looking " +
+			"for nothing")
+	}
+
+	drawn := func(def panel.Definition) bool {
+		// The key is on every editable row as a hidden form field - the
+		// one string that is exactly this setting. A read-only row has
+		// no form, so its label is the fallback.
+		return strings.Contains(body, `value="`+string(def.Key)+`"`) ||
+			strings.Contains(body, def.Label)
+	}
+
+	var missing, leaked []string
+	var checked int
+	for _, def := range defs {
+		if def.Developer {
+			if drawn(def) {
+				leaked = append(leaked, string(def.Key))
+			}
+			continue
+		}
+		checked++
+		if !drawn(def) {
+			missing = append(missing, string(def.Key))
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(leaked)
+
+	if checked == 0 {
+		t.Fatal("every definition is a developer setting, so the half of this test " +
+			"that matters checked nothing")
+	}
+
+	for _, key := range missing {
+		t.Errorf("%s is in the registry, is not a developer setting, and is not drawn "+
+			"anywhere on the page.\n"+
+			"Before D4c the page was one list and everything was shown; now a setting "+
+			"whose category is wrong, or whose section the template skips, is silently "+
+			"absent - and absent is indistinguishable from never having existed", key)
+	}
+	for _, key := range leaked {
+		t.Errorf("%s is a developer setting and is drawn with developer mode off. "+
+			"Grouping away is what that flag is for", key)
+	}
+}
+
+// TestTheSectionsArriveClosedExceptTheOneThatFailed.
+//
+// Two halves of one requirement, and the second is why the first is safe.
+//
+// Collapsed by default is the whole point of D4c: the plan's done
+// criterion is "varsayılan görünüm kısa". But a refused save renders a
+// red banner at the top of the page, and if every section is closed the
+// customer is told something went wrong and shown nothing that could
+// have gone wrong. So the section holding the refused setting opens.
+//
+// Without the second half, the first is a regression dressed as a
+// feature.
+func TestTheSectionsArriveClosedExceptTheOneThatFailed(t *testing.T) {
+	server, client, _ := settingsServerAsOperator(t)
+
+	status, body := get(t, client, server.URL+settingsURL())
+	if status != http.StatusOK {
+		t.Fatalf("the settings page returned %d", status)
+	}
+	if !strings.Contains(body, "<details") {
+		t.Fatal("the page draws no <details>, so it is still one flat list and " +
+			"neither half of this test means anything")
+	}
+	if strings.Contains(body, "<details class=\"ayar-katagori\" open") {
+		t.Error("a section arrives open on a plain GET. The default view is meant to " +
+			"be short; a page that opens everything is the flat list with extra markup")
+	}
+
+	// Now refuse a save, and require the section that holds it to be
+	// open.
+	//
+	// A non-developer setting, deliberately. The first version used a
+	// retention day count, which is a developer setting - so with
+	// developer mode off it had no row, no section, and nothing to
+	// open. The test failed and the page was right.
+	//
+	// A timezone that is not a timezone is refused by the definition's
+	// own Check, with no gate and no capability question in the way.
+	status, body = postSetting(t, client, server.URL, url.Values{
+		"islem":   {"kaydet"},
+		"anahtar": {string(panel.KeyPanelTimezone)},
+		"deger":   {"Avrupa/İstanbul"},
+	})
+	if status == http.StatusOK {
+		t.Fatal("the out-of-bounds value was accepted, so there is no refusal to " +
+			"render and this test proves nothing")
+	}
+	if !strings.Contains(body, "<details class=\"ayar-katagori\" open") {
+		t.Error("the save was refused and every section is still closed. The customer " +
+			"sees a red banner and no row: the cause of the error is behind a heading " +
+			"they have not opened and have no reason to suspect")
 	}
 }

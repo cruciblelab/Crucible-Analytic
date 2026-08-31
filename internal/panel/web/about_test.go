@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
@@ -225,6 +226,38 @@ func TestNobodyOnTheTeamListIsWithoutARole(t *testing.T) {
 		if c.RoleKey == "" {
 			t.Errorf("%q is on the team list with no role key, so the page draws a bare name",
 				c.Name)
+		}
+	}
+}
+
+// TestEveryCategoryHasALabel.
+//
+// The page walks panel.CategoryOrder and looks each one up here. A
+// category with no entry draws a section headed by an empty string -
+// visible, unexplained, and pointing at nothing a reader can act on.
+//
+// Both directions, because a stale entry is the other half: a label kept
+// after its category went is text the catalogue still carries and no
+// page can reach, which is exactly what internal/panel/ui's dead-catalog
+// check exists to stop accumulating.
+func TestEveryCategoryHasALabel(t *testing.T) {
+	if len(panel.CategoryOrder) == 0 {
+		t.Fatal("CategoryOrder is empty; this test would pass by checking nothing")
+	}
+	for _, cat := range panel.CategoryOrder {
+		if categoryLabelKey[cat] == "" {
+			t.Errorf("category %q has no label key, so its section would be headed by "+
+				"an empty string", cat)
+		}
+	}
+	known := map[panel.Category]bool{}
+	for _, cat := range panel.CategoryOrder {
+		known[cat] = true
+	}
+	for cat := range categoryLabelKey {
+		if !known[cat] {
+			t.Errorf("categoryLabelKey has %q, which is not in CategoryOrder; the page "+
+				"can never reach it and its catalogue text is unreachable too", cat)
 		}
 	}
 }

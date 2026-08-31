@@ -999,3 +999,31 @@ code.secret {
 }
 .katkida-ad { font-weight: 600; }
 .katkida-rol { color: var(--metin-soluk); font-size: 0.9em; }
+
+/* ---- Settings: one collapsible section per category (D4c) ---- */
+
+.ayar-katagori {
+  border: 1px solid var(--kart-kenar);
+  border-radius: 0.5rem;
+  margin: 0 0 0.6rem;
+  background: var(--kart);
+}
+.ayar-katagori > summary {
+  cursor: pointer;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  /* The marker is the browser's own triangle. Replacing it would mean
+     an ::after with content, which is more CSS for a control every
+     browser already draws and every screen reader already announces. */
+  list-style-position: inside;
+}
+.ayar-katagori > summary:hover { background: var(--vurgu-zemin); }
+.ayar-katagori[open] > summary { border-bottom: 1px solid var(--kart-kenar); }
+/* The count, so somebody can tell an empty-looking section from a full
+   one without opening it. */
+.ayar-katagori > summary .sayi {
+  font-weight: 400;
+  color: var(--metin-soluk);
+  font-size: 0.9em;
+}
+.ayar-katagori > .ayar { padding-left: 1rem; padding-right: 1rem; }

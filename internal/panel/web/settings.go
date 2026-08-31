@@ -81,10 +81,47 @@ type settingChoice struct {
 	Selected bool
 }
 
+// categoryLabelKey maps a category to its catalogue key.
+//
+// Written out rather than composed as "ayarlar.kategori." + category,
+// which is what this was first. Two things break with the concatenated
+// form and both are quiet: internal/panel/ui's dead-catalog check scans
+// the source for literal keys and cannot see a composed one, so it
+// reported all seven labels as unused text nobody draws; and a category
+// whose label was never written would render its raw key on the page,
+// at a customer, rather than failing here.
+//
+// TestEveryCategoryHasALabel checks both directions against
+// panel.CategoryOrder.
+var categoryLabelKey = map[panel.Category]string{
+	panel.CatGorunum:  "ayarlar.kategori.gorunum",
+	panel.CatToplama:  "ayarlar.kategori.toplama",
+	panel.CatBot:      "ayarlar.kategori.bot",
+	panel.CatGizlilik: "ayarlar.kategori.gizlilik",
+	panel.CatSinirlar: "ayarlar.kategori.sinirlar",
+	panel.CatTanilama: "ayarlar.kategori.tanilama",
+	panel.CatBakim:    "ayarlar.kategori.bakim",
+}
+
+// settingSection is one category on the page.
+type settingSection struct {
+	Label string
+	Rows  []settingRow
+	// Open decides whether the section is expanded on arrival.
+	//
+	// Almost always false - a page whose sections are all open is the
+	// flat list D4c replaced. It is true for the one section holding the
+	// setting this render is about, and that exception is the whole
+	// reason collapsing is safe: without it, a refused save draws a red
+	// banner at the top of the page and hides the row that caused it, so
+	// the customer is told something went wrong and shown nothing.
+	Open bool
+}
+
 // settingsPage is Data for the settings template.
 type settingsPage struct {
-	SiteID string
-	Rows   []settingRow
+	SiteID   string
+	Sections []settingSection
 	// ShowDeveloper mirrors the viewer's own developer-mode preference.
 	// Grouping, not permission: the server refuses a write on the
 	// principal's access, never on this.
@@ -93,8 +130,13 @@ type settingsPage struct {
 	// which case the guarded settings cannot be changed by anybody and
 	// the page says so rather than offering a prompt that cannot pass.
 	GateConfigured bool
-	// AskingFor is the key whose developer-password prompt is open.
-	AskingFor string
+	// Focus is the key this render is about: the one whose save was
+	// refused, or whose developer-password prompt is open.
+	//
+	// It was AskingFor, written in three places and read in none - a
+	// field that recorded a fact nothing used. Sections gave it a job:
+	// it decides which one arrives expanded.
+	Focus string
 
 	// About is the credits and licence block. Built even for a viewer:
 	// see about.go on why it is not gated.
@@ -254,8 +296,14 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 		notRolledBack := false
 		_ = op.Finish(ctx, outcomeFor(err), err, &notRolledBack)
 
+		// Focus, and it is load-bearing now rather than informational.
+		// The sections arrive collapsed, so a refusal that did not name
+		// its key would render as a red banner over seven closed
+		// headings - the customer told that something failed and shown
+		// nothing that could have.
 		s.renderSettings(w, r, lang, access, settingsPage{
-			Message: settingErrorText(lang, def, err), Failed: true})
+			Message: settingErrorText(lang, def, err), Failed: true,
+			Focus: string(key)})
 		return
 	}
 
@@ -300,7 +348,7 @@ func (s *Server) authorizeSetting(ctx context.Context, r *http.Request, lang *ui
 		// that is the safe direction rather than an oversight. Said
 		// plainly instead of showing a prompt that cannot succeed.
 		return devgate.Authorization{},
-			settingsPage{Message: lang.T("ayarlar.hata.kapi_yok"), Failed: true, AskingFor: string(key)}, false
+			settingsPage{Message: lang.T("ayarlar.hata.kapi_yok"), Failed: true, Focus: string(key)}, false
 	}
 
 	password := r.PostFormValue("gelistirici_parolasi")
@@ -315,9 +363,9 @@ func (s *Server) authorizeSetting(ctx context.Context, r *http.Request, lang *ui
 		// status is what a script, a screen reader and an access log
 		// all read first, and none of them reads the sentence.
 		return devgate.Authorization{}, settingsPage{
-			Message:   lang.T("ayarlar.parola_gerekli"),
-			Failed:    true,
-			AskingFor: string(key),
+			Message: lang.T("ayarlar.parola_gerekli"),
+			Failed:  true,
+			Focus:   string(key),
 		}, false
 	}
 
@@ -337,9 +385,9 @@ func (s *Server) authorizeSetting(ctx context.Context, r *http.Request, lang *ui
 	})
 	if !result.OK() {
 		return devgate.Authorization{}, settingsPage{
-			Message:   gateRefusalText(lang, result),
-			Failed:    true,
-			AskingFor: string(key),
+			Message: gateRefusalText(lang, result),
+			Failed:  true,
+			Focus:   string(key),
 		}, false
 	}
 	return result.For(action), settingsPage{}, true
@@ -407,6 +455,10 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, lang *ui
 	data.ShowDeveloper = access.ShowsTechnical()
 	data.GateConfigured = s.Gate != nil && s.Gate.Configured()
 
+	// Grouped, in CategoryOrder. A map would be one line shorter and
+	// would reorder the page between reloads, because Go randomises map
+	// iteration on purpose.
+	byCategory := map[panel.Category][]settingRow{}
 	for _, v := range views {
 		// Developer settings are grouped away, not withheld. The server
 		// refuses a write on access, never on this flag - see the
@@ -414,7 +466,30 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, lang *ui
 		if v.Definition.Developer && !data.ShowDeveloper {
 			continue
 		}
-		data.Rows = append(data.Rows, settingRowFor(v))
+		byCategory[v.Definition.Category] = append(
+			byCategory[v.Definition.Category], settingRowFor(v))
+	}
+	for _, cat := range panel.CategoryOrder {
+		rows := byCategory[cat]
+		if len(rows) == 0 {
+			// Not drawn. A heading that opens onto nothing reads as a
+			// broken panel, and this happens for a real reason rather
+			// than a mistake: a category whose settings are all
+			// developer-only is empty for a customer with developer
+			// mode off.
+			continue
+		}
+		section := settingSection{
+			Label: lang.T(categoryLabelKey[cat]),
+			Rows:  rows,
+		}
+		for _, row := range rows {
+			if data.Focus != "" && row.Key == data.Focus {
+				section.Open = true
+				break
+			}
+		}
+		data.Sections = append(data.Sections, section)
 	}
 	data.About = s.aboutFor(lang)
 	page := s.page(r, lang, access, "ayarlar", lang.T("ayarlar.baslik"))
