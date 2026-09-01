@@ -9,6 +9,34 @@ yapacağım".
 
 ---
 
+## v0.13.1 — 2026-09-01
+
+Tek bir düzeltme, ve kuran kişiyi ilgilendirmiyor: kapıdaki bir eşik,
+ölçüldüğü makineye aitmiş.
+
+**Şema sürümü: 5** — değişmedi. **Kuran kişinin yapması gereken: yok.**
+
+*(Faz kodu yok; gerekçesi `VERSIONING.md`'de — bir düzeltme hiçbir fazı
+tamamlamıyor.)*
+
+### Ne düzeldi
+
+"Uygulama sırasında hiçbir servis durmuyor" ölçümünün duyarlı yarısı,
+sabit 250 ms'lik bir tabana dayanıyordu. O sayı, yükseltmenin 35–86 ms
+sürdüğü bir makinede seçilmişti. Yükseltmenin 461 ms sürdüğü bir koşuda
+yazıcılar 393 ms bekliyor — ve bu bekleyiş **pencerenin içinde**, yani
+bir şema dosyasının ShareLock'unun arkasında sıraya girmekten ibaret,
+zaten bilinen ve kabul edilen davranış.
+
+Taban artık `max(250 ms, yükseltmenin süresi)`: bir sorgu, yükseltmenin
+sürdüğünden uzun süre yükseltme yüzünden beklemiş olamaz. Mutlak 2
+saniyelik tavan yerinde.
+
+Bu yalnız geliştirme hattını ilgilendiriyor — ürünün davranışı
+değişmedi.
+
+---
+
 ## v0.13.0+M3 — 2026-09-01
 
 Elle yenileme düğmesi: *Sağlık* sayfasında "şimdi yenile", ve altında son

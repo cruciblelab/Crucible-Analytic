@@ -7495,3 +7495,81 @@ başladığı ve kaçırdığı yer de tam orası.
 **`Run` bir servisin sahip olduğu tek giriş noktası. Ona ulaşmayan bir
 görev, kaç test doğrudan çağırırsa çağırsın, hiçbir kurulumun yapmadığı
 bir görevdir.**
+
+---
+
+## Kararsız kapı: eşik ölçüldüğü makineye aitmiş
+
+*(2026-09-01)*
+
+`afd58ad` main'de yeşil, dalda kırmızı — aynı commit. Kırmızı olan
+`TestNoServiceStopsWhileTheSchemaIsApplied`, ve **0,7 milisaniyeyle**:
+
+```
+api read waited 250.732758ms during the upgrade
+against 41.663715ms at rest — 4x worse, and over 250ms.
+```
+
+O koşudaki bütün sondalar boştaki hâllerinin 5–8 katıydı, ve yükseltmenin
+kendisi **639 ms** sürmüştü — geliştirme makinesinde 47 ms. Yani makine
+on üç kat yavaştı. Hiçbir servis durmamıştı.
+
+### Ama asıl bulgu CI'da değildi
+
+Eşiği değiştirmeden önce kendi makinemde ısıtma sonrası üç ölçüm aldım.
+İkincisi şuydu:
+
+```
+yükseltme 461 ms
+collector insert   boşta 8,5 ms   sırasında 393 ms   → 46x
+beacon insert      boşta 8,8 ms   sırasında 393 ms   → 45x
+panel write        boşta 8,9 ms   sırasında 371 ms   → 42x
+```
+
+**Eski kural bunu da kırardı.** Yani sorun "CI yavaş" değildi; eşik
+kendi geliştirme makinemde de yanlıştı, sadece o koşu denk gelmemişti.
+
+Ve bu sayılarda yanlış olan bir şey yok: v0.11.1'de ölçtüğümüz gibi
+`CREATE INDEX IF NOT EXISTS` **işi atlıyor, kilidi değil** — ShareLock
+dosyanın sonuna kadar tutuluyor. Şema dosyası koşarken gelen bir yazıcı,
+o dosyanın kalanı kadar bekler. 393 ms, 461 ms'lik pencerenin %85'i.
+
+### Doğru sınır pencerenin kendisi
+
+Bir sorgu, **yükseltmenin sürdüğünden uzun süre** yükseltme yüzünden
+beklemiş olamaz. Pencerenin içindeki bir bekleyiş, bir şema dosyası
+uygulamanın zaten kabul edilmiş bedeli; üstündeki bir bekleyiş başka bir
+şeyi bekliyordur.
+
+Taban artık `max(250ms, yükseltme süresi)`. Mutlak tavan (2 sn) yerinde
+duruyor ve iş bölümü net:
+
+| kontrol | neyi ayırt eder |
+|---|---|
+| 2 sn tavan | müşterinin fark ettiği bir durma — sebebi ikinci soru |
+| pencere tabanı | "yükseltmenin arkasında sıraya girdi" ile "başka bir şey bekledi" |
+| 4× oran | küçük mutlak sayıların rapor edilmemesi |
+
+**Bedeli açıkça yazıldı:** yükseltmeyi ~400 ms yapan ve bir sorguyu o
+kadar bekleten hafif bir gerileme artık tabanın *üstünde* değil
+*üzerinde* durur. O bant öbür taraftan kapalı —
+`TestTheUpgradeYieldsToTrafficRatherThanTheOtherWayRound` çekişmeyi
+kurgulayıp mekanizmayı doğruluyor, zamanlamalardan çıkarım yapmıyor.
+
+### Ve kural artık sayılarla sınanabiliyor
+
+Karar `judgeStall`'a çıkarıldı, ve `TestTheStallRuleAgreesWithWhatWas
+Measured` onu **gerçekten gözlenmiş** sayılara karşı koşuyor: geliştirme
+makinesinin sıradan koşusu, 46 katlık sıraya girme koşusu, 0,7 ms ile
+düşen CI koşusu, artı kurgulanmış bir gerileme ve iki sınır durumu.
+
+Eskiden kural ölçümün içinde gömülü bir `switch`'ti — yani ne diyeceğini
+öğrenmenin tek yolu o koşuyu üretmekti, ve önemli olan koşular bir
+geliştirme makinesinde üretilemiyor.
+
+**Kimsenin bir koşuyu şanslıca yakalamadan sınayamadığı bir eşik, kırmızı
+bir yapıya bakan kişi tarafından ayarlanan bir eşiktir.**
+
+Mutasyonlar: eski sabit tabana dön → iki gerçek gözlem kırmızı; tabanı
+hepten kaldır → üç durum kırmızı; duyarlı yarıyı kaldır → iki durum
+kırmızı.

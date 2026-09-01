@@ -112,10 +112,85 @@ const worstAcceptableStall = 2 * time.Second
 // smaller number. Together they say: it got several times worse than this
 // same machine manages at rest, *and* it got slow enough for a person to
 // notice.
+//
+// # The floor is a minimum, not the whole floor - measured
+//
+// 250ms was chosen against a development machine where the upgrade took
+// 35-86ms. On a CI runner it takes 639ms, and every probe scales with
+// it: worst-at-rest went from ~6ms to ~42ms and worst-during from ~13ms
+// to 54-251ms. One run failed by 0.7ms - api read waited 250.73ms - while
+// the same commit passed on the same workflow minutes earlier.
+//
+// Nothing had stopped. What the numbers say is a machine roughly
+// thirteen times slower, and ordinary queueing behind a schema file that
+// holds a ShareLock for its whole duration (see the header: IF NOT
+// EXISTS skips the work, not the lock). The stall was 39% of the upgrade
+// window; on the development machine the same figure is 28%.
+//
+// So the floor also scales with the window: a query cannot have been
+// blocked *by the upgrade* for longer than the upgrade lasted, and a
+// wait comfortably inside the window is the queueing this design already
+// accepts. effectiveFloor is that rule.
+//
+// # What this costs, said plainly
+//
+// Sensitivity in one narrow band: a mild regression that makes the
+// upgrade itself take, say, 400ms and blocks a query for about as long
+// would now sit at the floor rather than over it. That band is covered
+// from the other side by TestTheUpgradeYieldsToTrafficRatherThanTheOther
+// WayRound, which constructs the contention deliberately and asserts the
+// mechanism - the applier gives way inside deadlock_timeout and the
+// traffic commits - rather than inferring it from timings on whatever
+// machine happens to be running.
 const (
 	comparedToRest        = 4
 	worthComplainingAbout = 250 * time.Millisecond
 )
+
+// effectiveFloor is how slow a query has to get before this complains.
+//
+// The larger of the absolute minimum and the upgrade window, for the
+// reason above: below the window, a wait is bounded by the thing that
+// caused it and is the accepted cost of applying a schema file; above
+// it, the query was waiting for something else.
+func effectiveFloor(upgradeTook time.Duration) time.Duration {
+	if upgradeTook > worthComplainingAbout {
+		return upgradeTook
+	}
+	return worthComplainingAbout
+}
+
+// stallVerdict is what one probe's numbers mean.
+type stallVerdict int
+
+const (
+	stallFine stallVerdict = iota
+	// stallOverCeiling is a wait a customer notices, whatever caused it.
+	stallOverCeiling
+	// stallDisproportionate is under the ceiling but longer than the
+	// upgrade that supposedly caused it, and several times this machine's
+	// own at-rest worst.
+	stallDisproportionate
+)
+
+// judgeStall is the rule, extracted so it can be tested against numbers
+// rather than only against whatever the machine did today.
+//
+// The switch used to live inline, which meant the only way to know what
+// it would say about a given run was to produce that run - and the runs
+// that matter are the ones a laptop does not reproduce. The measurements
+// in TestTheStallRuleAgreesWithWhatWasMeasured are real observations,
+// including the two that made this rule what it is.
+func judgeStall(during, baseline, upgradeTook time.Duration) stallVerdict {
+	switch {
+	case during > worstAcceptableStall:
+		return stallOverCeiling
+	case during > effectiveFloor(upgradeTook) && during > comparedToRest*baseline:
+		return stallDisproportionate
+	default:
+		return stallFine
+	}
+}
 
 // minimumQueriesOverall is the floor that stops this test passing while
 // measuring nothing.
@@ -445,8 +520,8 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"their site is serving traffic", l.name, r.firstErr)
 		}
 
-		switch {
-		case during > worstAcceptableStall:
+		switch judgeStall(during, baseline, upgradeTook) {
+		case stallOverCeiling:
 			t.Errorf("%s waited %v for a single query while the schema was applied, "+
 				"and the ceiling is %v. At rest the same query's worst was %v.\n"+
 				"Something in the schema files now takes a heavy lock on a table with "+
@@ -454,13 +529,14 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"IF NOT EXISTS. A customer watching their dashboard sees that as the "+
 				"dashboard stopping", l.name, during, worstAcceptableStall, baseline)
 
-		case during > worthComplainingAbout && during > comparedToRest*baseline:
+		case stallDisproportionate:
 			t.Errorf("%s waited %v during the upgrade against %v at rest on this same "+
-				"machine - %dx worse, and over %v.\n"+
+				"machine - %dx worse, and longer than the upgrade itself took (%v).\n"+
 				"Under the absolute ceiling, so this is the sensitive half: on a fast "+
 				"machine a real lock regression can cost far less than %v and still be "+
-				"an outage a customer sees",
-				l.name, during, baseline, comparedToRest, worthComplainingAbout,
+				"an outage a customer sees. A wait longer than the whole upgrade is "+
+				"not queueing behind it",
+				l.name, during, baseline, comparedToRest, effectiveFloor(upgradeTook),
 				worstAcceptableStall)
 		}
 	}

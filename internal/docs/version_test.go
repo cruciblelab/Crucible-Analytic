@@ -199,6 +199,15 @@ func readDoc(t *testing.T, name string) string {
 // This does not catch that exact mistake - no test reads prose - but it
 // catches its whole family, which is a release record and a set of refs
 // drifting apart while both look complete on their own.
+//
+// The message below names three causes because the first version named
+// one, and the one it named was the wrong one the first time this test
+// went red for real. v0.13.0+M3 was tagged and pushed from a different
+// clone; this one had the five older tags and had never fetched the new
+// one, so the check was right that the tag was missing *here* and its
+// advice - cut it - would have created a second tag object for a version
+// that already had one. The zero-tag skip above cannot cover this: a
+// clone that is merely behind still has tags, just not all of them.
 func TestEveryReleaseNoteHasATagAndEveryTagHasANote(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH; this test compares the changelog against the tags")
@@ -243,10 +252,12 @@ func TestEveryReleaseNoteHasATagAndEveryTagHasANote(t *testing.T) {
 	// order fail the gate.
 	for _, version := range noted[1:] {
 		if !tags[version] {
-			t.Errorf("CHANGELOG.md has a note for %s and no tag of that name exists.\n"+
-				"It reads as released and cannot be checked out. Either cut the tag "+
-				"(VERSIONING.md has the command) or the note is describing something "+
-				"that was never a version", version)
+			t.Errorf("CHANGELOG.md has a note for %s and this clone has no tag of that "+
+				"name.\nIt reads as released and cannot be checked out. Three different "+
+				"things look like this here: the tag was never cut (VERSIONING.md has "+
+				"the command), it was cut in another clone and this one has not fetched "+
+				"it yet (git fetch --tags), or the note is describing something that was "+
+				"never a version", version)
 		}
 	}
 
