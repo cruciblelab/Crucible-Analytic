@@ -63,10 +63,6 @@ const (
 	// example placeholders stay. Setting known passwords here covers
 	// both cases without the test depending on the wording of a message.
 	rolePassword = "e2e-role-password"
-	// flushWait is how long to wait for the collector to write. Its
-	// interval is ten seconds; three times that is the difference
-	// between a slow flush and a broken one.
-	flushWait = 30 * time.Second
 )
 
 func superuserDSN(t *testing.T) string {
@@ -256,9 +252,9 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// The weaker "some card has a number" version passed while all four
 	// beacon cards read "the snippet is not installed", which is what a
 	// customer sees first and was the half this test did not cover.
-	for _, line := range cardLines(page) {
-		if strings.HasSuffix(line, "(empty)") {
-			t.Errorf("a dashboard card has nothing in it: %s", line)
+	for _, c := range cards(page) {
+		if !c.filled {
+			t.Errorf("a dashboard card has nothing in it: %s = %s", c.title, c.value)
 		}
 	}
 	if !hasANumber(page) {
@@ -596,20 +592,8 @@ func panelDashboard(t *testing.T, pkg, panelAddr string) string {
 	if !strings.Contains(landed, SetupPathPrefix) {
 		t.Fatalf("redeeming the developer link landed on %s, not the wizard; the session was not created", landed)
 	}
-
-	_, status, body := getPage(t, client, "http://"+panelAddr+"/site/"+site)
-	if status != http.StatusOK {
-		t.Fatalf("the dashboard for %s answered %d:\n%s", site, status, body)
-	}
-	return body
+	return dashboard(t, client, panelAddr, site)
 }
-
-// cardLines pulls each card's heading and what stands under it.
-//
-// Crude on purpose: it reads the rendered page rather than importing
-// the panel's types, because this test drives the built binary and a
-// diagnosis that came from the same structs the page is built from
-// would agree with the page about a mistake they share.
 
 // ---------------------------------------------------------------- utils
 

@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **4/6** | N3 gecelik yeşil, N6 /var/lib bölünmesi |
+| **N** Kurulumun ikinci yolu | 🟡 **5/7** | N3 gecelik yeşil, N6 /var/lib bölünmesi |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4049,6 +4049,9 @@ bir yerde geçerli olmayan şeyleri iddia etti.
 | **N2** | `LOG_DIR` hiçbir yapılandırmaya yazılmıyor | N1'in kökü; ayrı, çünkü N1 onsuz da düzelir |
 | **N3** | Gecelik hattın yeşile ulaşması | N1+N2'nin kanıtı; ölçülmeden bitmiş sayılmaz |
 | **N4** | Kapıdaki iddiaların denetimi | üç kırmızının ortak sebebi; en sona, çünkü ötekiler onu besliyor |
+| **N5** | Konteynerin şema listesi altıda kalmıştı | gecelik #4; listenin kısalığı, yanlışlığı değil |
+| **N6** | `/var/lib` bölünmesi + yanlış teşhis koyan mesaj | N1'in aynısı bir dizin ötede |
+| **N7** | Konteyner sınaması panoyu tek seferde okuyordu | gecelik #5; ikinci kardeş, birincinin öğrendiğini devralmadı |
 
 ---
 
@@ -4117,6 +4120,25 @@ görülmeden bitmiş sayılmaz.
 
 **Bitti ölçütü:** `nightly` üst üste iki koşuda yeşil, ve ikisi de
 gerçekten koştu — atlanmadı.
+
+**Koşuların defteri** — her kırmızının *arkasında başka bir kusur*
+çıkması, bu fazın ayrı tutulmasının gerekçesiydi; defter onu gösteriyor:
+
+| koşu | sonuç | arkasından çıkan |
+|---|---|---|
+| #1–#2 | kırmızı | `--no-systemd` verilmiyordu |
+| #3 | kırmızı | N1 — panel günlük dizinini açamıyor |
+| #4 | kırmızı | N5 — imajın şema listesi altıda kalmış |
+| #5 | 7 işten 6'sı yeşil | N7 — konteyner sınaması panoyu tek okuyor |
+
+**#5'te ilk kez ölçülen şey:** *"tarball'dan ve imajdan"* işinin
+**tarball yarısı hatta yeşil geçti.** Kalan tek kırmızı imaj yarısıydı,
+ve o da üründe değil testteydi. Yani N1, N2 ve N5 hatta doğrulandı —
+yerelde değil.
+
+**Neden hâlâ kapalı değil:** ölçüt "üst üste iki yeşil koşu" diyor ve
+hâlâ sıfır tane var. Ölçütü kanıta uydurmak, bu grubun bütün gün karşı
+çıktığı hareketin ta kendisi olurdu. N7 hatta gidince #6 karar verir.
 
 ---
 
@@ -4189,6 +4211,75 @@ kardeşi ya da genelleştirilmiş hâli; ve **hata mesajı düzelmiş** —
 yazamadığında "hiç çekilmedi" demeyen bir collector. İkincisi kod
 düzeltmesinden ayrı ve ondan önemli: yanlış teşhis koyan bir mesaj,
 kusuru kullanıcının eline verir.
+
+---
+
+#### N7 — Konteyner sınaması panoyu tek seferde okuyordu ✅ **yapıldı** *(2026-09-01)*
+
+**Ne:** Gecelik #5'te konteyner yarısı kırmızı geldi. Şema artık
+uygulanıyordu — N5 tuttu — ve bu tamamen başka bir kusurdu:
+
+    docker_test.go:95: card: Ziyaretçi = 1 (value)
+    docker_test.go:95: card: Sayfa görüntüleme = 1 (value)
+    docker_test.go:95: card: Oturum = 1 (value)
+    docker_test.go:95: card: Hemen çıkma = %100 (value)
+    docker_test.go:95: card: İnsan trafiği = Bu site için henüz hiç
+                             bağlantı kaydı yok… (empty)
+    docker_test.go:95: card: Bot trafiği   = … (empty)
+    docker_test.go:101: 2 dashboard cards have nothing in them
+
+**Yığın çalışıyordu.** Collector isteği vekillemiş, kökenin gövdesini
+döndürmüştü — testin kendi iddiası bunu daha önce geçmişti. Kırmızının
+sebebi ürün değil, **panoyu bir kez okuyan bir test**.
+
+**Kök:** panoyu iki ayrı süreç besliyor, ve saatleri farklı.
+
+| kart | yazan | aralık |
+|---|---|---|
+| Ziyaretçi, Sayfa görüntüleme, Oturum, Hemen çıkma | beacon | 2 sn (ya da 500 satır) |
+| İnsan trafiği, Bot trafiği | collector | **10 sn**, süreç açılışında başlayan bir ticker |
+
+Yani istek ile satır arasında **sıfır ile bir aralık arası** bir gecikme
+var, ve hiçbir yerde bir arıza yok. Tek okuma, bu aralığın neresine
+düştüğünü soran bir yazı-tura.
+
+**Ölçüldü, tahmin edilmedi.** Aynı makinede, panel oturumu isteğin
+*önüne* alınarak, 250 ms'de bir yoklandı:
+
+    +30 ms    altı kart boş
+    +1.38 sn  iki kart boş     ← beacon'ın dördü doldu
+    +9.39 sn  hiçbiri boş değil ← collector'ün ikisi doldu
+
+Yarım saat önce aynı probun tek okuması **+5.38 sn**'de her kartı dolu
+bulmuştu. Yazı-turanın iki yüzü, tek makinede, aynı kodla.
+
+**Neden tarball yarısı hiç düşmedi:** o süperkullanıcı bağlantısı tutuyor
+ve paneli açmadan önce `traffic_snapshots`'ta satırı bekliyor
+(`flushWait`, 30 sn). Konteyner yolunda öyle bir bağlantı yok — compose
+dosyası bilerek hiçbir veritabanı portu yayımlamıyor — yani izleyebildiği
+tek şey sayfanın kendisi, ve onu tam bir kez okuyordu.
+
+**Bu, N grubunun kendi cümlesinin üçüncü örneği:** ikinci yazılan kardeş,
+birincinin pahalıya öğrendiğini devralmadı. `install()`'daki
+`--no-systemd` yorumu aynı yarayı bir fonksiyon ötede taşıyor.
+
+**Düzeltme — tespit değil, imkânsızlaştırma:**
+
+1. `flushWait` `e2e_test.go`'dan `shared_test.go`'ya taşındı: ikinci
+   kardeşin bakacağı yere.
+2. Kart durumu artık `card{title, value, filled}` — iki suit de kendi
+   `strings.HasSuffix(line, "(empty)")` kopyasını taşıyordu; **kimsenin
+   farklı yazamayacağı bir bool** onu bitirdi.
+3. Panoyu okumanın tek yolu `shared_test.go`'daki `dashboard()`, ve o
+   kartlar dolana kadar yokluyor. `panelSession()` ile okuma ayrıldı,
+   çünkü tek kullanımlık bağlantıyı defalarca basmak olmaz.
+4. `TestOneWayToReadADashboard`: `e2e/` içinde `"/site/"` yazan tek dosya
+   `shared_test.go` olabilir. Liste değil, kaynaktan türetme — üçüncü bir
+   dağıtım yolu ekleyen kişi, bu kusuru tarih olarak bilen kişi değildir.
+
+**Bitti ölçütü:** konteyner suiti gerçek bir docker daemon'ında geçiyor;
+bekleme yükte taşıyıcı olduğu mutasyonla gösterildi; ve gerçekten boş bir
+panoda hâlâ kırmızı veriyor — yani bekleme, iddiayı köreltmedi.
 
 ---
 

@@ -33,6 +33,23 @@ import (
 	"time"
 )
 
+// flushWait is how long either suite waits for something the collector
+// writes.
+//
+// Its interval is ten seconds - storage.flush_interval_seconds - and
+// three times that is the difference between a slow flush and a broken
+// one.
+//
+// Derived from a configured interval rather than from this machine,
+// which is the whole of why it is safe on a slower one: a build agent
+// would have to make a ten-second ticker take thirty before this
+// produced a false red. See internal/invariants/thresholds_test.go for
+// the rule and for the three red builds that wrote it.
+//
+// Here rather than in e2e_test.go, where it began. The container suite
+// was written second, needed exactly this number, and did not have it.
+const flushWait = 30 * time.Second
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	wd, err := os.Getwd()
@@ -196,17 +213,141 @@ func hasANumber(page string) bool {
 	return regexp.MustCompile(`(?s)class="[^"]*deger[^"]*"[^>]*>[^<]*[0-9]`).MatchString(page)
 }
 
-func cardLines(page string) []string {
-	var out []string
+// card is one figure on the dashboard, and whether it has one.
+//
+// Read off the rendered page rather than by importing the panel's own
+// types, and crude on purpose: these suites drive the built binary, and
+// a diagnosis that came from the same structs the page is built from
+// would agree with the page about a mistake they share.
+//
+// A field rather than a suffix on a string. Both suites used to ask
+// `strings.HasSuffix(line, "(empty)")` for themselves, which is two
+// copies of a decision that has to be one - and two copies is how the
+// suites came to disagree about whether an empty card was worth waiting
+// for. A bool nobody can spell differently ends that.
+type card struct {
+	title  string
+	value  string
+	filled bool
+}
+
+func cards(page string) []card {
+	var out []card
 	for _, m := range cardRE.FindAllStringSubmatch(page, -1) {
-		state := "value"
-		if m[2] == "kart-bos" {
-			state = "empty"
-		}
-		out = append(out, fmt.Sprintf("%s = %s (%s)",
-			strings.TrimSpace(m[1]), strings.TrimSpace(m[3]), state))
+		out = append(out, card{
+			title:  strings.TrimSpace(m[1]),
+			value:  strings.TrimSpace(m[3]),
+			filled: m[2] != "kart-bos",
+		})
 	}
 	return out
+}
+
+// cardLines renders the cards for a log line.
+func cardLines(page string) []string {
+	var out []string
+	for _, c := range cards(page) {
+		state := "value"
+		if !c.filled {
+			state = "empty"
+		}
+		out = append(out, fmt.Sprintf("%s = %s (%s)", c.title, c.value, state))
+	}
+	return out
+}
+
+func emptyCards(page string) int {
+	n := 0
+	for _, c := range cards(page) {
+		if !c.filled {
+			n++
+		}
+	}
+	return n
+}
+
+// dashboard reads a site's dashboard, waiting for the cards to fill.
+//
+// The only way either suite fetches that page -
+// internal/invariants/e2ecards_test.go keeps it the only one - so the
+// wait below cannot be present on one deployment path and missing on the
+// other, which is exactly what happened.
+//
+// # Why a poll, and not a read
+//
+// The dashboard is fed by two processes with different clocks. The
+// beacon writes every two seconds or every five hundred rows, whichever
+// comes first, so its four cards are filled almost as soon as the
+// pageview is accepted. The collector summarises its rate store on a
+// ticker - storage.flush_interval_seconds, ten by default - started when
+// the process started, so its two cards appear at the next tick:
+// anywhere from immediately to a full interval after the request, with
+// nothing wrong anywhere.
+//
+// A single read therefore asks a question whose answer is a coin toss
+// weighted by how fast this machine starts containers.
+//
+// It came due on the nightly of 2026-09-01. Four cards carried numbers
+// and the two traffic cards read "Bu site için henüz hiç bağlantı kaydı
+// yok. Trafik toplayıcı bu sitenin önünde çalışmıyor olabilir." - the
+// stack was working, the collector had proxied the request and returned
+// the origin's body, and the page was simply read before the tick.
+//
+// Measured afterwards on a machine where it passes, by moving the panel
+// session ahead of the request so the polling could start beside it
+// rather than five seconds after it:
+//
+//	+30ms    six cards empty
+//	+1.38s   two cards empty   <- the beacon's four, at its 2s interval
+//	+9.39s   none empty        <- the collector's two, at its 10s tick
+//
+// Both faces of the toss on one machine, half an hour apart: an earlier
+// run of the same probe read the page once at +5.38s and found every
+// card filled. Nothing differed but where the request fell in the
+// ticker's cycle.
+//
+// # Why the tarball suite needs this too, even though it never failed
+//
+// It waits on the row itself before it opens the panel: it has a
+// superuser connection and can ask the database whether
+// traffic_snapshots has anything in it. The container path cannot - the
+// shipped compose file publishes no database port, deliberately - so the
+// rendered page is the only thing it can watch.
+//
+// That difference is the reason one suite waited and the other did not,
+// and it is not a reason for the *check* to exist twice. It lives here,
+// both call it, and a third deployment path gets it without having to
+// rediscover it. That rediscovery is what this whole group is about:
+// e2e_test.go's install() carries the same scar one function over, where
+// the flag the gate had from the start was missing from the path written
+// later.
+func dashboard(t *testing.T, client *http.Client, panelAddr, siteID string) string {
+	t.Helper()
+	url := "http://" + panelAddr + "/site/" + siteID
+
+	read := func() string {
+		_, status, body := getPage(t, client, url)
+		if status != http.StatusOK {
+			t.Fatalf("the dashboard for %s answered %d:\n%s", siteID, status, body)
+		}
+		return body
+	}
+
+	deadline := time.Now().Add(flushWait)
+	page := read()
+	for emptyCards(page) > 0 {
+		if time.Now().After(deadline) {
+			// Returned rather than failed here. What an empty card is
+			// depends on the suite - the container path has six and the
+			// tarball path checks a figure as well - and a helper that
+			// decided it would be making the caller's judgement with less
+			// context than the caller has.
+			return page
+		}
+		time.Sleep(500 * time.Millisecond)
+		page = read()
+	}
+	return page
 }
 
 // lastLine is build.sh's final line with its "== " marker removed.

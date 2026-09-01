@@ -8186,3 +8186,124 @@ yazılı; aranması gereken bir şey olmaktan çıktı.
 
 **"Doğrulayamıyorum" ile "doğrulamayı denemedim" arasındaki fark, bir
 ortam değişkeni kadarmış.**
+
+---
+
+## N7 — Yığın çalışıyordu, test panoyu bir kez okuyordu
+
+Gecelik #5'te konteyner yarısı kırmızı geldi, ve bu sefer şema değildi —
+N5 tutmuştu. Altı panodan dördü sayı taşıyordu, ikisi boştu:
+
+    İnsan trafiği = Bu site için henüz hiç bağlantı kaydı yok…  (empty)
+    Bot trafiği   = …                                          (empty)
+
+Collector isteği vekillemiş, kökenin gövdesini döndürmüştü; testin kendi
+iddiası bunu üç satır önce geçmişti. Yani **ürün çalışıyordu.**
+
+### Panoyu iki farklı saat besliyor
+
+| kart | yazan | aralık |
+|---|---|---|
+| Ziyaretçi, Sayfa görüntüleme, Oturum, Hemen çıkma | beacon | 2 sn |
+| İnsan trafiği, Bot trafiği | collector | **10 sn** |
+
+Beacon 2 saniyede bir (ya da 500 satırda) yazıyor; collector hız
+deposunu süreç açılışında başlayan bir ticker'la özetliyor. Yani istek
+ile satır arasında **sıfır ile bir aralık arası** gecikme var ve hiçbir
+yerde arıza yok. Tek okuma, bu aralığın neresine düştüğünü soran bir
+yazı-tura — ve yazıyı da turayı da gördüm.
+
+### Ölçtüm, çünkü aritmetik tahmindi
+
+CI kütüğündeki zaman damgalarından "yarım saniyeyle kaçırmış" diye bir
+hesap çıkarabiliyordum. Çıkarabilmek, doğru olması değil. Panel oturumunu
+isteğin *önüne* alan bir prob yazdım, 250 ms'de bir yokladım:
+
+    +30 ms    altı kart boş
+    +1.38 sn  iki kart boş      ← beacon'ın dördü
+    +9.39 sn  hiçbiri boş değil ← collector'ün ikisi
+
+Yarım saat önce aynı probun tek okuması **+5.38 sn**'de her kartı dolu
+bulmuştu. **Tek makine, tek kod, iki sonuç.** Aradaki fark yalnızca
+isteğin ticker döngüsünün neresine düştüğü.
+
+Bu, N4'te kataloglanan sınıfın bir üyesi, ama bir eşik değil — eşik bile
+yoktu. Bekleme yoktu.
+
+### Neden tarball yarısı hiç düşmedi
+
+Çünkü o, paneli açmadan önce satırın kendisini bekliyor: süperkullanıcı
+bağlantısı var, `traffic_snapshots`'a `flushWait` (30 sn) boyunca soruyor.
+Konteyner yolunda öyle bir bağlantı **yok ve olmamalı** — compose dosyası
+bilerek hiçbir veritabanı portu yayımlamıyor. İzleyebildiği tek şey
+sayfanın kendisi, ve onu tam bir kez okuyordu.
+
+**İki kardeşten sonra yazılanı, birincinin pahalıya öğrendiğini
+devralmamış.** Bu, aynı dosyada bir fonksiyon ötede zaten yazılı:
+`install()`'ın `--no-systemd` yorumu, kapının ilk günden taşıdığı bayrağın
+sonradan yazılan yolda eksik olduğunu anlatıyor. Aynı yara, üçüncü kez.
+
+### Tespit değil, imkânsızlaştırma
+
+Önce `TestOneWayToReadADashboard`'ı "boş kart kontrolü tek dosyada
+olsun" diye yazacaktım. Sonra fark ettim ki bu, **bir tür sorununu bir
+testle kovalamak**: iki suit de kendi `strings.HasSuffix(line,
+"(empty)")` kopyasını taşıyordu, çünkü `cardLines` string döndürüyordu.
+Alan yaptım:
+
+    type card struct { title, value string; filled bool }
+
+Kimsenin farklı yazamayacağı bir bool, farklı yazılabilen bir soneki
+kovalayan bir testten iyidir. Test yine de kaldı, ama artık başka bir şeyi
+koruyor: **`e2e/` içinde `"/site/"` yazan tek dosya `shared_test.go`
+olabilir.** Yani üçüncü bir dağıtım yolu, panoyu bekleyen tek yoldan
+geçmek zorunda. Liste değil, kaynaktan türetme — çünkü listeye adı
+ekleyecek kişi, bu kusuru tarih olarak bilmeyen kişidir.
+
+### İki mutasyon, ikisi de gerekliydi
+
+**M1** — `docker_test.go`'ya doğrudan bir `getPage(…"/site/"…)` koydum.
+Ayna kırmızı verdi ve dosyayı adıyla söyledi. Mutasyonun uygulandığını
+`grep` ile ayrıca doğruladım; bu oturumda bir kez, uygulanmamış bir
+mutasyonun "geçti" demesine kanmıştım.
+
+**M2** — asıl soru buydu: *bekleme, iddiayı köreltti mi?* Vekillenen
+isteği tamamen kaldırdım, yani hiçbir trafik satırı oluşamaz. Otuz saniye
+bekleyip yine kırmızı vermeliydi.
+
+Bir beklemeyi test etmenin doğru yolu, beklemeyi kısaltmak değil —
+`flushWait = 0` bu kusurda kırmızı **veya** yeşil verirdi, çünkü sonucu
+yine yazı-tura belirlerdi. **Sonucu rastgele olan bir mutasyon, mutasyon
+değildir.** Beklenen şeyi ortadan kaldırmak gerekiyordu, beklemeyi değil.
+
+### Kendi düzeltmemin götürdüğü şey
+
+M2'nin tam kütüğüne bakınca yan etkiyi gördüm: pano okuması artık bir
+yoklama, altmışa kadar istek, ve panel her birini kaydediyor. Başarısız
+koşuda basılan `docker compose logs --tail 60` dökümünde **panelin sağ
+kalan altmış satırının altmışı da bu testin kendi trafiğiydi.** Panelin
+açılışta söylediği her şey dışarı itilmişti.
+
+Collector'ün satırları kurtulmuştu, çünkü `--tail` servis başına
+çalışıyor — yani sandığım kadar kötü değildi, ama panelinki gerçekten
+gitmişti. `--tail 200`. Döküm yalnız kırmızıda basılıyor, yani büyük
+sayının bedeli tam da ayrıntının istendiği anda ödeniyor.
+
+**Bir yoklama, gürültüsünü teşhisin üstüne yazar.** Düzeltmenin kendisi
+doğruydu; ölçmeseydim, ilk gerçek arızada elimde altmış satır kendi
+GET'im olacaktı.
+
+### Doğrulama
+
+| ne | sonuç |
+|---|---|
+| `-tags docker` (düzeltmeyle) | ✅ altı kartın altısı da sayı taşıyor, İnsan trafiği = 1 |
+| `-tags docker` + M2 (istek yok) | ✅ **kırmızı**, "2 dashboard cards have nothing in them after waiting 30s" |
+| `-tags e2e` (gerçek TimescaleDB) | ✅ satır → API → pano, JA4 dâhil |
+| `go test -race ./...` | ✅ temiz |
+| `TestOneWayToReadADashboard` + M1 | ✅ kırmızı, dosyayı adıyla söyledi |
+
+M2 kırmızısı CI'daki belirtinin birebir aynısı — aynı iki kart, aynı
+Türkçe cümle — ama artık otuz saniye bekledikten sonra, ve mesaj bunu
+söylüyor. Gecelikteki kırmızının eksik olan yarısı tam olarak buydu:
+"boş" diyordu, "ne kadar bekledikten sonra boş" demiyordu.

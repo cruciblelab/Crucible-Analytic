@@ -80,25 +80,23 @@ func TestTheStackWorksFromItsOwnComposeFile(t *testing.T) {
 	sendPageview(t, fmt.Sprintf("127.0.0.1:%d", beaconPort), dockerSite)
 
 	// ---- the panel draws both halves ----
-	//
-	// Read from inside the compose network, because the panel is not
-	// published to the host - which is the property the next assertion
-	// is about, and the reason this cannot be a plain HTTP client.
-	page := dashboard(t, stack, fmt.Sprintf("127.0.0.1:%d", panelPort))
+	panelAddr := fmt.Sprintf("127.0.0.1:%d", panelPort)
+	client := panelSession(t, stack, panelAddr)
+	page := dashboard(t, client, panelAddr, dockerSite)
+
 	for _, want := range []string{"Ziyaretçi", "İnsan trafiği"} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the dashboard does not mention %q", want)
 		}
 	}
-	empty := 0
 	for _, line := range cardLines(page) {
 		t.Log("card: " + line)
-		if strings.HasSuffix(line, "(empty)") {
-			empty++
-		}
 	}
-	if empty > 0 {
-		t.Errorf("%d dashboard cards have nothing in them", empty)
+	if empty := emptyCards(page); empty > 0 {
+		t.Errorf("%d dashboard cards have nothing in them after waiting %s.\n"+
+			"The collector flushes every ten seconds, so a card that is still "+
+			"empty here is not a slow tick - it is a row that never arrived",
+			empty, flushWait)
 	}
 
 	// The boundary the compose file claims - that the panel and the read
@@ -242,19 +240,34 @@ func composeUp(t *testing.T, root, envFile string, panelPort int) stack {
 		if !t.Failed() {
 			return
 		}
-		out, _ := s.command("logs", "--tail", "60").CombinedOutput()
+		// Deep enough that the poll cannot bury what went wrong.
+		//
+		// --tail is per service, so the collector's handful of lines were
+		// never at risk. The panel's were: reading the dashboard is now a
+		// poll, up to sixty requests, and the panel logs every one of
+		// them. Measured on a deliberately broken run at --tail 60 - all
+		// sixty of the panel's surviving lines were this test's own
+		// traffic, and everything it had said at startup was gone.
+		//
+		// Only ever printed on a failure, so the cost of the larger
+		// number is paid exactly when the detail is wanted.
+		out, _ := s.command("logs", "--tail", "200").CombinedOutput()
 		t.Logf("--- compose logs ---\n%s", out)
 	})
 	return s
 }
 
-// dashboard redeems a developer link and returns the site page.
+// panelSession redeems a developer link and returns a signed-in client.
 //
 // Through a normal HTTP client with a cookie jar, against the panel port
 // this test publishes. The link itself is minted the way an installer
 // does it - `panel -dev-link` in a one-off container on the compose
 // network, reading the same configuration volume the running panel does.
-func dashboard(t *testing.T, s stack, panelAddr string) string {
+//
+// Signing in and reading the dashboard are separate steps because
+// reading it is a poll: it happens several times, and minting a
+// one-time link several times would be minting several links.
+func panelSession(t *testing.T, s stack, panelAddr string) *http.Client {
 	t.Helper()
 
 	// Plain HTTP means the session cookie has to stop being Secure,
@@ -277,15 +290,10 @@ func dashboard(t *testing.T, s stack, panelAddr string) string {
 	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
 
 	landed, _, _ := getPage(t, client, link)
-	if !strings.Contains(landed, "/kurulum/") {
+	if !strings.Contains(landed, SetupPathPrefix) {
 		t.Fatalf("redeeming the developer link landed on %s, not the wizard", landed)
 	}
-
-	_, status, body := getPage(t, client, "http://"+panelAddr+"/site/"+dockerSite)
-	if status != http.StatusOK {
-		t.Fatalf("the dashboard answered %d", status)
-	}
-	return body
+	return client
 }
 
 // run executes a command in a one-off container and returns its stdout.
