@@ -535,6 +535,28 @@ func loadBotData(cfg *collector.Config, logger *slog.Logger) (scoring.KnownBots,
 		logger.Info("bot data not configured; the known-bot signal is off",
 			"how", "set bot_data.path and run: collector -update-bot-data")
 	case !set.Fetched():
+		// Two different situations wear the same face here, and telling
+		// them apart is the whole point of asking.
+		//
+		// "Never fetched" is ordinary: a new deployment, one command
+		// away from fixed. "Cannot be written here" is a
+		// misconfiguration that the same command will not fix, and that
+		// silently leaves the known-bot signal off forever - the
+		// operator runs the update, it fails, and the next restart says
+		// "never fetched" again.
+		//
+		// The measured case is a systemd install whose unit has
+		// ProtectSystem=strict with the state directory spelled one way
+		// and bot_data.path spelled the other. Nothing about the
+		// directory looks wrong; the mount underneath it is read-only.
+		if err := botdata.Writable(cfg.BotData.Path); err != nil {
+			logger.Warn("bot data cannot be written to this path; the known-bot signal is off "+
+				"and running the update will not turn it on",
+				"path", cfg.BotData.Path, "err", err,
+				"how", "point bot_data.path somewhere this service may write, "+
+					"or give it write access there (systemd: ReadWritePaths)")
+			break
+		}
 		logger.Info("bot data has never been fetched; the known-bot signal is off",
 			"path", cfg.BotData.Path,
 			"how", "run: collector -config <file> -update-bot-data")

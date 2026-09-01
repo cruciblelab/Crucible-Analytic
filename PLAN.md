@@ -4212,6 +4212,29 @@ yazamadığında "hiç çekilmedi" demeyen bir collector. İkincisi kod
 düzeltmesinden ayrı ve ondan önemli: yanlış teşhis koyan bir mesaj,
 kusuru kullanıcının eline verir.
 
+##### N6a — mesaj ✅ **yapıldı** *(2026-09-01)*
+
+İkinci yarı önce bitti, çünkü hiçbir yola dokunmuyor — yani gecelik
+koşarken güvenle yapılabilirdi.
+
+`botdata.Writable`, `Save`'in yaptığını yazmadan yapıyor: `MkdirAll`,
+sonra aynı dizinde bir geçici dosya, sonra silmek. **Yoklama, çünkü izin
+kontrolü bu kusuru göremez** — `ProtectSystem=strict` mount'u salt-okunur
+yapıyor, dizinin kipi hâlâ 0755 ve sahibi hâlâ bu kullanıcı. Yazmayı
+denemekten kısa her kontrol "yazılır" diyor.
+
+`Save`'in yanında duruyor, ilk iki adımını paylaşarak;
+`TestWritableAgreesWithSave` ikisini birbirine bağlıyor — altı düzenleme,
+her birinde ikisi de başarılı ya da ikisi de başarısız. Yanlış cevap
+cevapsızlıktan kötü: Writable iyimserse eski yanlış teşhis geri geliyor,
+kötümserse çalışan bir kuruluma "bozuksun" diyor.
+
+Collector artık ikisini ayırıyor — biri INFO ve komutu söylüyor, öteki
+WARN ve **komutu söylemiyor**, çünkü orada o komut çalışmayacak.
+
+**Kalan:** `/var/lib` yol ailesi. Gecelik yeşile ulaştığına göre artık
+`docker/compose.yml`'ın bağlama yollarına dokunmanın önü açık.
+
 ---
 
 #### N7 — Konteyner sınaması panoyu tek seferde okuyordu ✅ **yapıldı** *(2026-09-01)*

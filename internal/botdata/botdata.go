@@ -342,6 +342,45 @@ func mergeTypes(existing []string, botType string) []string {
 	return append(existing, botType)
 }
 
+// Writable reports whether Save could write to path, by doing what Save
+// does short of writing.
+//
+// # Why a probe and not a permission check
+//
+// The failure this exists to name is systemd's ProtectSystem=strict,
+// which turns a mount read-only underneath a directory whose mode still
+// says 0755 and whose owner is still this very user. Every check short
+// of attempting the write agrees the write will succeed. So it is
+// attempted, and the temporary file removed again.
+//
+// The directory rather than the file, which is not a shortcut but what
+// Save's rename actually needs: replacing a file takes write permission
+// on its directory, not on the file.
+//
+// # Why it lives here
+//
+// Beside Save, sharing its first two steps. A copy of them in cmd/
+// would be answering a question about a mechanism it does not own, and
+// would go on answering it confidently after that mechanism changed.
+// TestWritableAgreesWithSave holds the two together.
+func Writable(path string) error {
+	if path == "" {
+		return errors.New("botdata: no path to save to")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("botdata: create %s: %w", dir, err)
+	}
+	probe, err := os.CreateTemp(dir, ".botdata-probe-*")
+	if err != nil {
+		return fmt.Errorf("botdata: temp file in %s: %w", dir, err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	_ = os.Remove(name)
+	return nil
+}
+
 // Save writes a set to path.
 //
 // Written to a temporary file in the same directory and renamed, so a

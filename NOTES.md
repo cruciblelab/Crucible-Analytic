@@ -8307,3 +8307,70 @@ M2 kırmızısı CI'daki belirtinin birebir aynısı — aynı iki kart, aynı
 Türkçe cümle — ama artık otuz saniye bekledikten sonra, ve mesaj bunu
 söylüyor. Gecelikteki kırmızının eksik olan yarısı tam olarak buydu:
 "boş" diyordu, "ne kadar bekledikten sonra boş" demiyordu.
+
+---
+
+## N6a — Doğru olan ama yanlış teşhis koyan bir mesaj
+
+Collector, bot verisi yokken şunu yazıyordu:
+
+    "bot data has never been fetched; the known-bot signal is off"
+    path=/var/lib/crucible/known_bots.json
+    how=run: collector -config <file> -update-bot-data
+
+Cümlenin dosya hakkındaki kısmı doğru. **Sebep hakkındaki kısmı yanlış**,
+ve asıl zararı veren o: systemd biriminde `ProtectSystem=strict` var ve
+`ReadWritePaths` yolu öteki yazımla listeliyor, yani o dosya oraya
+yazılamıyor. Müşteri önerilen komutu koşturuyor, komut düşüyor, sonraki
+açılışta yine "hiç çekilmedi" yazıyor — ve bilinen-bot sinyali sessizce
+kapalı kalıyor.
+
+**Yoklama, çünkü izin kontrolü bu kusuru göremez.** Dizinin kipi 0755,
+sahibi bu kullanıcı, her şey yolunda görünüyor; salt-okunur olan
+altındaki mount. `stat`, `unix.Access`, sahiplik — hepsi "yazılır" diyor.
+Yazmayı denemekten kısa hiçbir kontrol doğru cevabı veremiyor.
+
+    func Writable(path string) error   // MkdirAll, CreateTemp, Remove
+
+Dosyayı değil dizini yokluyor, ve bu kestirme değil `Save`'in gerçekten
+ihtiyaç duyduğu şey: bir dosyayı rename ile değiştirmek dizinde yazma
+izni ister, dosyanın kendisinde değil.
+
+### Nereye koyduğum, neden orası
+
+`cmd/collector` içinde `Save`'in adımlarının bir kopyası olabilirdi.
+Olmadı: **sahip olmadığı bir mekanizma hakkında soru cevaplayan kod, o
+mekanizma değiştikten sonra da kendinden emin cevap vermeye devam eder.**
+`Save`'in yanına, ilk iki adımını paylaşarak koydum, ve
+`TestWritableAgreesWithSave` ikisini birbirine bağladı: altı düzenleme,
+her birinde ikisi de başarılı ya da ikisi de başarısız.
+
+Testin şekli "Writable şu durumlarda hayır demeli" değil, **"ikisi
+anlaşmalı"** — çünkü yanlış cevap cevapsızlıktan kötü. İyimser bir
+Writable eski yanlış teşhisi geri getirir; kötümser olanı çalışan bir
+kuruluma "yazamıyorsun, komut da yardım etmez" der. İki yönde de kırmızı.
+
+### Testimin ilk hâli yanlış şeyi ölçüyordu
+
+İlk fikstürüm "ebeveyn bir dosya olsun"du — root'ta da çalışsın diye.
+Test kırmızı verdi ve haklıydı: o düzenlemede `os.ReadFile` ENOTDIR
+veriyor, ENOENT değil, yani `Load` hata döndürüyor ve akış benim yeni
+dalıma **hiç gelmiyor**. Bir dal önce duruyor.
+
+Gerçek durum tam olarak şu: dosya yok (ENOENT), dizin yazılamaz. Bunu
+root'ta üretmenin yolu yok — root her kipi yürüyor. Yani o vaka root'ta
+atlanmak zorunda, ve **kendi varlık sebebini atlayan bir test, koşmayan
+bir korumadır.** `nobody` olarak koşturdum; ikisi de geçti. CI zaten
+ayrıcalıksız koşuyor, orada her koşuda görülecek.
+
+### Mutasyonlar
+
+| ne | sonuç |
+|---|---|
+| Writable her zaman `nil` | ✅ üç yazılamaz vaka "said yes and Save then failed" |
+| Writable `MkdirAll`'ı atlar | ✅ "henüz olmayan dizin" vakası "said no and Save succeeded" |
+| Writable geçici dosyayı bırakır | ✅ "left [.botdata-probe-…] behind" |
+| Yeni dal tamamen kaldırılır | ✅ eski satır kelimesi kelimesine geri geldi |
+
+Sonuncusu en anlamlısı: mutasyon, gecelik kütüğündeki cümlenin aynısını
+üretti — yazılamayan bir yolda, çalışmayacak komutu öneren INFO satırı.
