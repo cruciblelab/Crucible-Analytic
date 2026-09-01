@@ -165,15 +165,29 @@ CREATE POLICY range_refresh_sweep ON ip_range_refresh_requests
 -- DO blocks because this file is applied both to installed databases
 -- whose roles exist and to development ones where they may not, and a
 -- GRANT to a role that does not exist aborts the whole file.
+--
+-- Each grant also asks whether it is needed, for the reason written out
+-- at the same place in internal/asnlookup/schema.sql: GRANT rewrites the
+-- ACL tuple even when it changes nothing in it, and two appliers doing
+-- that at once collide with "tuple concurrently updated". Per privilege
+-- rather than per list, because the comma form of has_table_privilege
+-- means "any of these" and would call a half-granted role satisfied.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user')
+       AND NOT (has_table_privilege('panel_user', 'ip_range_refresh_requests', 'SELECT')
+            AND has_table_privilege('panel_user', 'ip_range_refresh_requests', 'INSERT')
+            AND has_table_privilege('panel_user', 'ip_range_refresh_requests', 'DELETE')) THEN
         GRANT SELECT, INSERT, DELETE ON ip_range_refresh_requests TO panel_user;
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector')
+       AND NOT (has_table_privilege('collector', 'ip_range_refresh_requests', 'SELECT')
+            AND has_table_privilege('collector', 'ip_range_refresh_requests', 'UPDATE')) THEN
         GRANT SELECT, UPDATE ON ip_range_refresh_requests TO collector;
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer')
+       AND NOT (has_table_privilege('beacon_writer', 'ip_range_refresh_requests', 'SELECT')
+            AND has_table_privilege('beacon_writer', 'ip_range_refresh_requests', 'UPDATE')) THEN
         GRANT SELECT, UPDATE ON ip_range_refresh_requests TO beacon_writer;
     END IF;
 END

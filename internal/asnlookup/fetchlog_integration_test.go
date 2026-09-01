@@ -459,6 +459,13 @@ func TestTheUpgradePathAloneLeavesTheFetchLogWritable(t *testing.T) {
 	// the revoke below fails with "permission denied", which reads as a
 	// broken grant rather than as two suites overlapping.
 	testdb.Lock(t, admin, testdb.FetchLogLock)
+	// And the schema lock, because the two Execs below apply a schema
+	// file - which is what the applier does, in another package, at the
+	// same time. Without this the two collide in the catalogue rather
+	// than on any row: measured here as "tuple concurrently updated",
+	// reported as a failure of a grant that was never wrong. Second,
+	// always: see testdb.SchemaApplyLock on why the order is fixed.
+	testdb.Lock(t, admin, testdb.SchemaApplyLock)
 
 	roles := []string{"collector", "beacon_writer", "panel_user"}
 	for _, role := range roles {

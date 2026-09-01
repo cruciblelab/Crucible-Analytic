@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/dblock"
 	"github.com/cruciblelab/crucible-analytic/internal/schemafiles"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/upgrade"
@@ -237,6 +238,33 @@ func (a *Applier) apply(ctx context.Context) (*int, error) {
 	if _, err := conn.Exec(ctx, `SET lock_timeout = '`+lockTimeout+`'`); err != nil {
 		return &reached, fmt.Errorf("setting lock_timeout: %w", err)
 	}
+
+	// One applier inside the schema at a time. See dblock.SchemaApply for
+	// what two of them cost each other, and why the answer is a lock
+	// rather than making each statement collision-free.
+	//
+	// After the lock_timeout above, deliberately. A second applier waits
+	// here - which is the point, since an apply takes about 25ms and
+	// waiting for it is cheaper than requeuing - but it waits for 250ms
+	// and no longer, and then fails with 55P03. That is already the path
+	// that puts the request back in the queue for the next tick. Waiting
+	// without a bound would hold a claim while doing nothing, which is
+	// how the stale claim that allows two appliers gets created in the
+	// first place.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, int64(dblock.SchemaApply)); err != nil {
+		return &reached, fmt.Errorf("taking the schema lock: %w", err)
+	}
+	defer func() {
+		if _, err := conn.Exec(context.WithoutCancel(ctx),
+			`SELECT pg_advisory_unlock($1)`, int64(dblock.SchemaApply)); err != nil {
+			// Session-scoped, so a connection that keeps the lock keeps it
+			// until it closes - and the next applier would meet a lock
+			// nobody holds on purpose. Dropping the connection releases it.
+			a.logger().Warn("upgrade: could not release the schema lock; dropping the connection",
+				"err", err)
+			conn.Conn().Close(context.WithoutCancel(ctx))
+		}
+	}()
 
 	for _, f := range schemafiles.InOrder {
 		if _, err := conn.Exec(ctx, f.SQL); err != nil {

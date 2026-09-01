@@ -44,6 +44,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/dblock"
 )
 
 // DSN is where role connects.
@@ -206,6 +208,29 @@ const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
 // Nothing takes this together with the others today. If something ever
 // does, take them in the order they are declared here.
 const RefreshQueueLock = 0x726566726573680A // "refresh"
+
+// SchemaApplyLock serialises anything that applies a schema file.
+//
+// Unlike the four above, this one is not a test fixture. The applier
+// takes it in production for the reason written out in
+// internal/dblock, and this is the same key so that a suite applying a
+// file by hand cannot land in the middle of an applier doing the same -
+// which is not a tidiness problem: it produced
+// "tuple concurrently updated" and "deadlock detected" in a plain
+// `go test -tags integration ./...`, on the second run, in a package
+// that had nothing to do with either.
+//
+// Re-exported rather than redeclared so there is one number. A second
+// copy of a lock key is a lock that does not lock, and it would look
+// correct in both places.
+//
+// # Ordering
+//
+// Take this one last. internal/asnlookup's upgrade-path test holds
+// FetchLogLock and then this; anything needing both must use that order,
+// since two suites taking one pair in opposite orders deadlock and a
+// deadlocked suite looks like a hung machine rather than like a bug.
+const SchemaApplyLock = dblock.SchemaApply
 
 // Lock holds a Postgres advisory lock until the test ends.
 //

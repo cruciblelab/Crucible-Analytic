@@ -9,6 +9,64 @@ yapacağım".
 
 ---
 
+## v0.13.2 — 2026-09-01
+
+Aynı anda çalışan iki yükseltici birbirini eziyordu. Şema dosyalarının
+metni değişti; veritabanının şekli değişmedi.
+
+**Şema sürümü: 6** *(5'ten yükseldi)*. **Kuran kişinin yapması gereken:
+panelden yükseltme düğmesine basmak.** Acele değil: hiçbir sütun, hiçbir
+yetki, hiçbir tablo değişmedi — eski şemayla çalışan bir kurulum
+çalışmaya devam eder, panel yalnız "yükseltme var" der.
+
+*(Faz kodu yok; gerekçesi `VERSIONING.md`'de — bir düzeltme hiçbir fazı
+tamamlamıyor.)*
+
+### Ne düzeldi
+
+Bir şema dosyasını üst üste uygulamak güvenliydi; **aynı anda** uygulamak
+değildi, ve bu ikisinin ayrı şeyler olduğu hiç ölçülmemişti. Kilitsiz üç
+oturum bütün dosyaları on ikişer kez uygularken 360 denemenin 17'si
+düştü: `tuple concurrently updated` (XX000) ve `deadlock detected`
+(40P01). İkisi de kimsenin yeniden denemediği hatalar.
+
+İki ayrı sebep çıktı:
+
+- **Değişmeyen bir GRANT da yazıyor.** `GRANT`, hedefin ACL satırını
+  içeriği değişmese de yeniden yazıyor. Üç oturum aynı, zaten verilmiş
+  yetkiyi 300'er kez verdiğinde 900 denemenin 93'ü çakıştı. Artık her
+  GRANT önce `has_table_privilege` / `has_function_privilege` ile
+  gerekli olup olmadığını soruyor — yetki başına ayrı ayrı, çünkü virgüllü
+  biçim "bunlardan herhangi biri" demek ve yarım yetkili bir rolü tam
+  sayardı.
+- **`CREATE OR REPLACE FUNCTION` ve `DROP POLICY` + `CREATE POLICY`**
+  ifade ifade koşullu hâle getirilemiyor. İkincisini "politika zaten
+  varsa atla" diye sarmak, ileride değişen her politikanın sessizce hiç
+  uygulanmaması demek olurdu — düzeltilenden daha kötü bir hata. Bunun
+  için yükseltici artık bütün uygulama boyunca tek bir danışma kilidi
+  tutuyor (`internal/dblock`).
+
+Kilidin ne yaptığı ölçüldü, ve beklenen şey değildi. Yükseltici zaten 250
+ms'lik `lock_timeout` ile çalıştığı için XX000'e hiç varmıyordu; kilit
+kaldırılmış hâlde beş koşuda tek bir çakışma çıkmadı. Kilit, **boşuna
+sıraya dönmeyi** engelliyor:
+
+| | uygulandı | yol verdi |
+|---|---|---|
+| kilitle | 24 | 0 |
+| kilitsiz | 8 | 16 |
+
+Kilitsiz hâlde işin üçte ikisi kuyruğa geri dönüyor — her biri, müşterinin
+yükseltmesinin ekranda görünmeyen bir sebeple bir tur daha beklemesi.
+
+Aynı anahtar `internal/testdb.SchemaApplyLock` olarak testlere de açıldı:
+şema dosyasını elle uygulayan bir paketin `lock_timeout`'u yok, ve
+yukarıdaki çakışmalara gerçekten varıyor. Düz bir
+`go test -tags integration ./...` ikinci koşusunda tam olarak bundan
+kırmızıya döndü — hiç yanlış olmamış bir GRANT'i suçlayarak.
+
+---
+
 ## v0.13.1 — 2026-09-01
 
 Tek bir düzeltme, ve kuran kişiyi ilgilendirmiyor: kapıdaki bir eşik,

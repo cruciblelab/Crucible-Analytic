@@ -81,14 +81,14 @@ import (
 //
 // It starts at 1 rather than 0 because 0 is what an unset integer column
 // reads as, and "never recorded" and "version zero" must not look alike.
-const Version = 5
+const Version = 6
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "a98efd87f96e2eaf57d9258361c743b1b7db884727a7f31d34369878c9b9ee1d"
+const Fingerprint = "11a4a3ff0c6b7ef19309ee5077dbbb5eda9b72a3876c40da46722a98d728ca78"
 
 // FingerprintOf hashes a set of schema files.
 //

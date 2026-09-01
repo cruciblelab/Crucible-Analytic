@@ -154,26 +154,50 @@ CREATE INDEX IF NOT EXISTS idx_ip_range_fetches_started ON ip_range_fetches (sta
 -- deployment that has never refreshed.
 --
 -- So the grants travel with the table. grants.sql still lists them,
--- because it is the one place that answers "what may this role do" - and
--- a grant issued twice is idempotent.
+-- because it is the one place that answers "what may this role do".
 --
 -- DO blocks for the same reason internal/retention/schema.sql uses them:
 -- this file is applied both to installed databases whose roles exist and
 -- to development ones where they may not, and a GRANT to a role that
 -- does not exist aborts the whole file.
+--
+-- # Why each grant asks first whether it is needed
+--
+-- This used to say "a grant issued twice is idempotent", which is true
+-- of the result and false of the write. GRANT rewrites the target's ACL
+-- tuple whether or not it changes anything in it, and two sessions
+-- rewriting one catalogue tuple do not queue - the loser gets
+--
+--     ERROR:  tuple concurrently updated (SQLSTATE XX000)
+--
+-- Measured with three sessions issuing this same already-held grant 300
+-- times each: 93 of 900 failed. That reaches an operator as an upgrade
+-- that failed with no visible connection to the button they pressed,
+-- and it is why applying the schema twice at once was not safe.
+--
+-- has_table_privilege once per privilege rather than once per list: the
+-- comma form answers "any of these", so a role holding SELECT alone
+-- would look satisfied and never be given INSERT.
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector')
+       AND NOT (has_table_privilege('collector', 'ip_range_fetches', 'SELECT')
+            AND has_table_privilege('collector', 'ip_range_fetches', 'INSERT')
+            AND has_table_privilege('collector', 'ip_range_fetches', 'DELETE')) THEN
         GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO collector;
     END IF;
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer')
+       AND NOT (has_table_privilege('beacon_writer', 'ip_range_fetches', 'SELECT')
+            AND has_table_privilege('beacon_writer', 'ip_range_fetches', 'INSERT')
+            AND has_table_privilege('beacon_writer', 'ip_range_fetches', 'DELETE')) THEN
         GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO beacon_writer;
     END IF;
     -- Read only, and no UPDATE for anybody: a fetch row is finished the
     -- moment it is written, so the authority to change one afterwards
     -- would only ever be the authority to make a failure look like a
     -- success.
-    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user') THEN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user')
+       AND NOT has_table_privilege('panel_user', 'ip_range_fetches', 'SELECT') THEN
         GRANT SELECT ON ip_range_fetches TO panel_user;
     END IF;
 END

@@ -235,17 +235,37 @@ REVOKE ALL ON FUNCTION ca_check_retention_caller(text, integer) FROM PUBLIC;
 -- DO blocks because this schema is applied to databases whose roles
 -- exist and to development databases where they may not, and a GRANT to
 -- a role that does not exist aborts the file.
+--
+-- Each grant also asks whether it is needed, for the reason written out
+-- at the same place in internal/asnlookup/schema.sql: GRANT rewrites the
+-- target's ACL tuple even when it changes nothing in it, and two
+-- appliers doing that at once collide with "tuple concurrently updated".
+-- These are functions rather than tables, so the question is
+-- has_function_privilege and the identity is the signature - two
+-- functions here differ only in their arguments.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
-        GRANT EXECUTE ON FUNCTION ca_set_retention(text, integer) TO collector;
-        GRANT EXECUTE ON FUNCTION ca_trim_site_rows(text, text, integer) TO collector;
-        GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO collector;
+        IF NOT has_function_privilege('collector', 'ca_set_retention(text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_set_retention(text, integer) TO collector;
+        END IF;
+        IF NOT has_function_privilege('collector', 'ca_trim_site_rows(text, text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_trim_site_rows(text, text, integer) TO collector;
+        END IF;
+        IF NOT has_function_privilege('collector', 'ca_count_site_rows(text, text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO collector;
+        END IF;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer') THEN
-        GRANT EXECUTE ON FUNCTION ca_set_retention(text, integer) TO beacon_writer;
-        GRANT EXECUTE ON FUNCTION ca_trim_site_rows(text, text, integer) TO beacon_writer;
-        GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO beacon_writer;
+        IF NOT has_function_privilege('beacon_writer', 'ca_set_retention(text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_set_retention(text, integer) TO beacon_writer;
+        END IF;
+        IF NOT has_function_privilege('beacon_writer', 'ca_trim_site_rows(text, text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_trim_site_rows(text, text, integer) TO beacon_writer;
+        END IF;
+        IF NOT has_function_privilege('beacon_writer', 'ca_count_site_rows(text, text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO beacon_writer;
+        END IF;
     END IF;
 END
 $$;

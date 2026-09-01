@@ -7573,3 +7573,133 @@ bir yapıya bakan kişi tarafından ayarlanan bir eşiktir.**
 Mutasyonlar: eski sabit tabana dön → iki gerçek gözlem kırmızı; tabanı
 hepten kaldır → üç durum kırmızı; duyarlı yarıyı kaldır → iki durum
 kırmızı.
+
+---
+
+## İki yükseltici aynı anda: ve ölçtüğünü sanan iki test
+
+`go test -tags integration ./...` ikinci koşusunda kırmızıya döndü.
+Düşen test `TestTheUpgradePathAloneLeavesTheFetchLogWritable`, hata
+`applying the schema the way the upgrader does: ERROR: tuple concurrently
+updated (SQLSTATE XX000)`.
+
+Bu, CI'ın "aynı veritabanına karşı ikinci koşu" adımının var olma
+sebebi: ilk koşuda görünmeyen, yalnız zaten kurulmuş bir şemaya ikinci
+kez dokunulunca çıkan bir kusur.
+
+### Ölçüm, tahmin değil
+
+Şüpheli belliydi: M2'de yeni tablonun yetkilerini şema dosyasının içine,
+rol korumalı bir `DO` bloğuna taşımıştım. Ama bu oturumda bir kez zaten
+**mekanizmayı yanlış açıklamıştım** ("IF NOT EXISTS ağır kilit almaz" —
+ölçüldü, yanlış), o yüzden bu sefer önce ölçtüm: üç eşzamanlı oturum,
+her biri aynı, **zaten verilmiş** yetkiyi 300 kez veriyor.
+
+    900 denemenin 93'ü:  ERROR: tuple concurrently updated
+
+Yani: **hiçbir şeyi değiştirmeyen bir `GRANT` de yazıyor.** `GRANT`
+hedefin ACL satırını içeriği aynı kalsa da yeniden yazıyor, ve tek bir
+katalog satırını aynı anda yeniden yazan iki oturum sıraya girmiyor —
+kaybeden XX000 alıyor.
+
+Dosyadaki yorum bunun tam tersini söylüyordu: *"a grant issued twice is
+idempotent"*. Sonucu doğru, yazması yanlış. Bu oturumun ikinci kez
+karşılaştığı şekil: **sayılar doğru, açıklama yanlış — ve tehlikeli olan
+yarısı açıklama.**
+
+### Kusur benim sandığımdan genişti
+
+Testi yazdım (üç uygulayıcı, bütün dosyalar, on ikişer tur) ve
+öngörmediğim bir şey buldu:
+
+    internal/retention/schema.sql     tuple concurrently updated (XX000)
+    internal/asnlookup/schema.sql     tuple concurrently updated (XX000)
+    internal/upgrade/schema.sql       deadlock detected          (40P01)
+    internal/rangerefresh/schema.sql  deadlock detected          (40P01)
+
+360'ta 17. Ve `internal/logsink` ile `internal/upgrade` hiç `GRANT`
+içermiyor — yani ikinci, ayrı bir sebep vardı: `CREATE OR REPLACE
+FUNCTION` gövde değişmese de `pg_proc` satırını yeniden yazıyor, ve her
+dosyadaki `DROP POLICY IF EXISTS` + `CREATE POLICY` çifti her uygulamada
+bütün politikaları yeniden yazıyor.
+
+**Yedi şema dosyasından üçünde `GRANT` vardı; kusur yedisinin dördünde.**
+Yalnız kendi eklediğim dosyayı düzeltmek, bu oturumun yedi kez
+karşılaştığı hatanın tam kendisi olurdu: *bir liste yanlış olduğunda
+tehlikeli değildir; kısa olduğunda tehlikelidir.*
+
+### Politika çifti koşullu hâle getirilemez
+
+`GRANT` için çözüm doğrudan: önce `has_table_privilege` /
+`has_function_privilege` ile sor, gerekmiyorsa yazma. Yetki başına ayrı
+ayrı sormak zorunda — virgüllü biçim "bunlardan **herhangi biri**"
+demek, ve yalnız `SELECT` tutan bir rol tam sayılıp `INSERT`'ü hiç
+almazdı.
+
+`DROP POLICY` + `CREATE POLICY` için aynı numara **yapılamaz**. "Politika
+zaten varsa atla" demek, ileride değişen her politikanın kurulu bir
+veritabanına sessizce hiç ulaşmaması demek — düzeltilenden daha kötü bir
+hata. Şema uygulamak doğası gereği tek yazarlık bir iş; o yüzden
+uygulayıcı artık bütün uygulama boyunca tek bir danışma kilidi tutuyor.
+
+### Ölçtüğünü sanan iki test
+
+Buradan sonrası, testin kendisinin iki kez yalan söylemesi.
+
+**Birincisi**, testin izolasyon için `SchemaApplyLock`'u kendisinin
+tutmasıydı — yani ölçmeye çalıştığı kilidi. Üç uygulayıcının üçü de
+teste yol verdi: "0 applied, 8 gave way". Tertemiz bir sonuç, ve tek
+kanıtladığı şey testin kendini bloke edebildiği.
+
+**İkincisi daha sinsiydi.** Test `RunOnce`'ı sürüyordu — dağıtımın
+çağırdığı şeyi, ki doğru görünür. Yeşil geçti. Sonra kilidi kasten
+bozdum: **yine yeşil geçti.** Sebep kuyruk: aynı anda tek bir istek
+uçuşta olabildiği için yalnız bir uygulayıcı hak talep ediyor, diğer
+ikisine "yapacak bir şey yok" deniyor — üçü şemanın içinde hiç
+buluşmuyor. Test "8 applied, 0 gave way" diyordu ve **ikinci sayı bütün
+cevaptı**, gözümün önünde duruyordu.
+
+İki uygulayıcı ancak kuyruğun koruyamadığı yerde çakışıyor: bir hak
+talebi on beş dakikada bayatlıyor ve başkası devralıyor, yani ölü değil
+*yavaş* olan uygulayıcı hâlâ `apply` içinde. Bunu kuyruk üzerinden
+üretmek on beş dakikalık bir test demek. O yüzden test artık doğrudan
+`apply`'ı çağırıyor.
+
+### Kilit sandığım şeyi yapmıyormuş
+
+Ve düzeltilmiş test kilidi kaldırınca **hâlâ** kırmızıya dönmedi. Beş
+koşu, tek bir XX000 yok.
+
+Sebep: uygulayıcı zaten 250 ms'lik `lock_timeout` ile çalışıyor. Sıradan
+tablo kilitlerinde erkenden yol verdiği için kataloğa çakışacak kadar
+derine hiç inmiyor. **XX000'i engelleyen şey yeni kilit değil, zaten
+orada olan `lock_timeout`'muş** — ilk 17/360 ölçümünü ham `Exec` ile,
+yani `lock_timeout`suz yapmıştım.
+
+Kilit başka bir şey yapıyor, ve o da gerçek:
+
+    kilitle    24 uygulandı,  0 yol verdi
+    kilitsiz    8 uygulandı, 16 yol verdi
+
+İşin üçte ikisi boşuna kuyruğa dönüyordu. Kilit çakışmayı değil,
+**anlamsız yeniden denemeyi** engelliyor: 25 ms süren bir uygulamayı
+beklemek, isteği bir tur daha kuyrukta tutmaktan ucuz.
+
+Test artık bunu ölçüyor (`busy > appliers` → kırmızı), ve mutasyon iki
+yönde de doğrulandı. Ayrıca "hiç çakışma olmadı" durumu artık ayrı bir
+kırmızı: en fazla kaç uygulayıcının aynı anda içeride olduğu sayılıyor,
+ikiden azsa koşu hiçbir şey ölçmemiştir.
+
+`dblock`'un yorumu bu ayrımı yazıyor — çünkü "kilit XX000'i engelliyor"
+demek, doğru sayılarla yanlış bir mekanizma yazmak olurdu ve bu oturum
+onun ne kadar pahalı olduğunu iki kez gösterdi.
+
+### Kalan
+
+Testler, elle şema uygulayan paketler için aynı anahtarı
+`testdb.SchemaApplyLock` olarak alıyor — çünkü onların `lock_timeout`'u
+yok ve gerçekten XX000'e varıyorlar. Kırmızıya dönen koşunun sebebi tam
+olarak buydu.
+
+**Bir kurulumun iki ayrı yoldan aynı duruma varabildiği her yerde, iki
+yol da ölçülmeli** — bu oturumda ikinci kez.
