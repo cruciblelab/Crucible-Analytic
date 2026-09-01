@@ -7948,3 +7948,42 @@ Kendi yazdığım aynalar bu fazda bana iki kez "hayır" dedi:
    çevrildi.
 
 **Bir ayna, onu yazan kişiye de "hayır" diyebiliyorsa aynadır.**
+
+---
+
+## Aynı test, üçüncü kez: iddia ettiğim çıkarımın kendisi yanlıştı
+
+`ddb7eae` dalda geçti, `main`'de düştü — **aynı commit.** Sebep:
+*1 of 24 applications timed out on a table.*
+
+İddiam şuydu: "Bir uygulayıcı trafiğe ancak şemanın içindeyken rastlar,
+o yüzden tablo beklemesi iki uygulayıcının orada birlikte olduğu
+anlamına gelir — ve bu her makinede geçerli."
+
+**Çıkarımın kendisi yanlış.** Tabloyu bekleten trafik başka bir
+uygulayıcı olmak zorunda değil: `go test ./...` paketleri paralel
+koşturuyor ve `internal/panel`, `internal/logsink`, `internal/storage`
+şema dosyalarının kilitlediği tablolara yazıyor. CI yükü altında bir
+bekleme 250 ms'yi aştı. Yirmi dörtte bir.
+
+Bu testte üçüncü kez aynı hataya düştüm, ve her seferinde şekil aynıydı:
+**kendi makinemin sağladığı bir şeyi genel bir değişmez sandım.**
+
+| sürüm | iddia | nasıl çöktü |
+|---|---|---|
+| 1 | "üçten fazlası yol veremez" | oran → eşik → makine. CI'da 17/7. |
+| 2 | "hiç kimse tabloyu bekleyemez" | çıkarım yanlış: trafik başka paketlerden de gelir |
+| 3 | yalnız XX000 / 40P01 | — |
+
+Kalan tek iddia, engellemeye çalıştığı bozulmanın **kendisi**: iki
+uygulayıcı bir katalog satırını birlikte yeniden yazdığında çıkan
+`tuple concurrently updated` ve `deadlock detected`. Bunlar hızdan
+bağımsız, ve kilidi tamamen kaldıran mutasyon üç koşunun üçünde de
+üretti.
+
+İki sayaç hâlâ raporlanıyor ama **yargılanmıyor**. Kayıt satırındaki bir
+sayı bedava ve arızaya bakan kişiye koşunun neye benzediğini anlatıyor;
+aynı sayı bir `if` içindeyken tek bir makineden ayarlanamayan bir eşik.
+
+**Bir sayıyı raporlamak ile ona göre karar vermek arasındaki fark, bu
+oturumda üç kırmızı yapıya mal oldu.**

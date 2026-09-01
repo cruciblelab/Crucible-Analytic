@@ -205,28 +205,33 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 			"raced.\nThis run would pass with no schema lock at all", mostAtOnce)
 	}
 
-	// The assertion, and it counts kinds rather than quantities.
+	// What this test does *not* assert, after being wrong about it twice.
 	//
-	// An applier that waited for the schema lock waited for another
-	// applier: the design working, and how many do so depends entirely on
-	// how fast the machine is. An applier that waited for a *table* waited
-	// for traffic - and it can only meet traffic inside the schema, which
-	// is where it is not supposed to be while another applier is there.
+	// The assertion is the one above: the errors in `bad`. XX000 and
+	// 40P01 happen only when two appliers rewrite one catalogue row
+	// together, so they are proof of the thing this exists to prevent,
+	// and they are proof at any speed. Removing the schema lock produces
+	// them - measured, "tuple concurrently updated" three times over.
 	//
-	// The first version of this asserted on the quantity instead - "no
-	// more than three may give way" - which passed on the machine it was
-	// written on and failed on CI at seven with nothing wrong. That is the
-	// v0.13.1 mistake, a threshold belonging to the machine that measured
-	// it, made again in the test written to replace it. See
-	// ErrSchemaLockBusy.
-	if waitedForTable > 0 {
-		t.Errorf("%d of %d applications timed out on a table rather than on the "+
-			"schema lock (%d waited for the lock, %d applied).\n"+
-			"An applier meets traffic only while it is inside the schema, so a "+
-			"table wait here means two of them were in there together - which is "+
-			"what the schema lock exists to prevent. See internal/dblock",
-			waitedForTable, appliers*rounds, waitedForSchemaLock, applied)
-	}
+	// Two weaker things looked like assertions and were not:
+	//
+	//   - "no more than three may give way" - a ratio, so a threshold, so
+	//     a number belonging to the machine that measured it. Passed here
+	//     at 24/0 and failed on CI at 17/7 with nothing wrong.
+	//   - "nobody may wait on a table" - defended as machine-independent
+	//     on the reasoning that an applier meets traffic only inside the
+	//     schema, so a table wait means two were in there together. The
+	//     reasoning is wrong, and the run that showed it had the same
+	//     commit passing on one branch and failing on the other: the
+	//     traffic is not other appliers. `go test ./...` runs packages in
+	//     parallel and internal/panel, internal/logsink and internal/
+	//     storage all write to tables these schema files lock. Under CI
+	//     load one such wait went past 250ms. One of twenty-four.
+	//
+	// So both counts are reported and neither is judged. A number in a
+	// log line costs nothing and tells whoever reads a failure what the
+	// run looked like; the same number in an `if` is a threshold nobody
+	// can calibrate from one machine.
 
 	t.Logf("%d applied, %d waited for the schema lock, %d waited for a table, "+
 		"%d inside at once at the most",
