@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **2/4** | N3 gecelik yeşil, N4 eşik denetimi |
+| **N** Kurulumun ikinci yolu | 🟡 **3/4** | N3 gecelik yeşil |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -172,7 +172,7 @@ geçer.
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
 | 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
-| 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
+| 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ ~~**N4**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4120,7 +4120,7 @@ gerçekten koştu — atlanmadı.
 
 ---
 
-#### N4 — Kapıdaki iddiaların denetimi ⬜
+#### N4 — Kapıdaki iddiaların denetimi ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** Bir oturumda üç kırmızı yapı, hepsi aynı sebeple: bir test, kendi
 makinesinde doğru olan bir şeyi her makinede doğru sandı.
@@ -4141,6 +4141,37 @@ onlardan önce yapmak, denetlenecek listeyi eksik bilmek olurdu.
 **Bitti ölçütü:** kapıdaki her eşiğin yanında nereden geldiği yazılı; ve
 "bu eşik daha yavaş bir makinede de geçerli mi" sorusuna yazılı bir cevap
 veremeyen eşik ya cinse çevrilmiş ya kaldırılmış.
+
+##### Nasıl bitti
+
+Elle okumak yerine makineyle çıkarıldı: bir `t.Error`/`t.Fatal` dalını
+koruyan her karşılaştırma AST'den toplandı. **122 karar eşiği**, ve
+bunların **13'ü zamana dayalı** — geri kalanı sayım (`len < 5`), yani
+her makinede aynı.
+
+On üçün on ikisi sağlam çıktı, ve üç ayrı sebeple:
+
+- **göreli** — aynı koşudan başka bir ölçümle karşılaştırılıyor
+  (`elapsed >= 2*delay`), yani iki taraf birlikte ölçekleniyor
+- **kendine referanslı** — testin fonksiyona verdiği sınırla
+  karşılaştırılıyor (sniff'in tabanı, ona verilen deadline)
+- **büyüklük mertebesi ölçülmüş** — devgate'te doğru ~mikrosaniye /
+  yanlış ~700 ms, eşik 200 ms; logsink'te doğru 3 ms / yanlış 1,88 s,
+  eşik 500 ms
+
+Düşen tek sınıf benim yazdıklarımdı, ve ortak özellikleri şu: **marjları
+1'in altındaydı** — yasakladıkları sayıyı doğru davranış zaten
+üretiyordu.
+
+**Kural:** *bir zaman kararı, izin verdiği davranışla yakaladığı arıza
+arasında ölçülmüş bir büyüklük mertebesi varsa güvenlidir. Eşiği iki
+makul **doğru** değerin arasına düşen bir karar, eşik değil donanım
+tahminidir.*
+
+`TestEveryTimingVerdictIsAccountedFor` bunu iki yönlü ayna olarak
+tutuyor: türetilen taraf kaynaktan okunuyor, elle taraf her dosya için
+neden güvenli olduğunu yazıyor, ve biri diğeri olmadan kımıldarsa
+kırmızı. Üç mutasyonla sınandı.
 
 ---
 

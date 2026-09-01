@@ -8060,3 +8060,66 @@ Mutasyon: paneli eski yola geri al → iki yazım, kırmızı.
 **Bir kurulumun iki ayrı yoldan aynı duruma varabildiği her yerde, iki yol
 da ölçülmeli** — bu oturumda dördüncü kez, ve bu sefer iki yol da
 kusurluydu.
+
+---
+
+## N4 — 122 karar eşiği, 13'ü zamana dayalı, 12'si sağlam
+
+Bir günde üç kırmızı yapı, hepsi aynı şekilde: bir test, kendi
+makinesinde doğru olan bir şeyi her makinede doğru sandı. N4 bunu tek tek
+okumak yerine **makineyle çıkardı**.
+
+Tarama basit: AST'den, bir `t.Error`/`t.Fatal` dalını koruyan her
+karşılaştırma. **122 karar eşiği** çıktı. Bunların çoğu sayım —
+`len(rows) < 5` her makinede aynı cevabı verir. Zamana dayalı olan
+**13** tane.
+
+### On ikisi neden sağlam
+
+Üç ayrı sebeple, ve üçü de "eşiği doğru seçmek"ten farklı:
+
+**Göreli.** `elapsed >= 2*delay` — aynı koşudan başka bir ölçümle
+karşılaştırılıyor, iki taraf birlikte ölçekleniyor. Makine iki kat
+yavaşlarsa ikisi de iki kat büyüyor.
+
+**Kendine referanslı.** `sniff`'in tabanı, testin fonksiyona *verdiği*
+deadline. Yani soru "100 ms'den uzun sürdü mü" değil, "verdiğim sınıra
+uydu mu".
+
+**Ölçülmüş büyüklük mertebesi.** `devgate`: doğru davranış erken dönüş,
+mikrosaniyeler; yanlış davranış on beş gerçek argon2, saniyenin büyük
+kısmı; eşik 200 ms — arada üç mertebe var. `logsink`: doğru 3 ms, yanlış
+1,88 s, eşik 500 ms. İkincisinin yorumu ayrıca şunu yazıyor: eşik bir
+zamanlar 2 s'ymiş, yani **yakalaması gereken arızanın üstünde** —
+daha hızlı bir veritabanında bloklayan sink altından geçerdi.
+
+### Düşen tek sınıf benimkilerdi
+
+Ortak özellikleri: **marjları 1'in altındaydı.**
+
+| eşik | yasakladığı | doğru davranışın ürettiği |
+|---|---|---|
+| duyarlı yarının tabanı 250 ms | 393 ms bekleme | 393 ms |
+| "üçten fazlası yol veremez" | 7 | 7 |
+| "hiç kimse tabloyu bekleyemez" | 1 | 1 |
+
+Yani üçü de, doğru davranışın gerçekten ürettiği bir sayıyı yasaklıyordu.
+Bu bir eşik değil, donanım tahmini.
+
+**Kural:** *bir zaman kararı, izin verdiği davranışla yakaladığı arıza
+arasında ölçülmüş bir büyüklük mertebesi varsa güvenlidir.* O boşluk
+varsa eşik boşluğun herhangi bir yerinde durabilir ve makinenin on kat
+yavaşlaması gerekir. Boşluk yoksa eşik, onu ölçen makineye aittir.
+
+### Ayna, satır değil dosya sayıyor
+
+`TestEveryTimingVerdictIsAccountedFor` türetilen tarafı kaynaktan
+okuyor, elle taraf her dosya için **neden güvenli olduğunu** yazıyor.
+Satır numarası değil dosya, bilerek: satır numarası bir testin hiçbir
+sebep olmadan değişen tek özelliği, ve her paragraf eklendiğinde
+güncellenmesi gereken bir ayna, insanların okumadan güncellemeyi
+öğrendiği bir aynadır.
+
+Üç mutasyon: girdiyi listeden sil (dosya var, gerekçe yok → kırmızı),
+olmayan bir dosyayı listeye ekle (gerekçe var, dosya yok → kırmızı),
+açıklanmamış bir dosyaya yeni zaman eşiği ekle (→ kırmızı).
