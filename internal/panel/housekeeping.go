@@ -56,6 +56,17 @@ const (
 	// which answers the question that has to survive, is untouched by
 	// any of this.
 	operationRetention = 30 * 24 * time.Hour
+
+	// rangeRefreshRetention is how long a finished refresh request is
+	// kept.
+	//
+	// Thirty days, matching operationRetention, because it is the same
+	// kind of record read by the same person for the same reason: "I
+	// pressed refresh and something looked wrong". The audit log keeps
+	// the fact that somebody asked, and ip_range_fetches keeps what the
+	// refresh actually did for ninety days - so nothing that has to
+	// survive depends on this one.
+	rangeRefreshRetention = 30 * 24 * time.Hour
 )
 
 // Report is what one housekeeping pass removed.
@@ -68,11 +79,18 @@ type Report struct {
 	DevAccess     int64
 	Logs          int64
 	Operations    int64
+	// RangeRefreshRequests is the M3 queue. Swept here rather than by
+	// the fetcher that answers it - unlike ip_range_fetches, which the
+	// fetcher owns - because this table's rows exist whether or not
+	// anything is fetching: a deployment with asn_lookup off can still
+	// accumulate button presses, and the component that would sweep them
+	// is the one that is not running.
+	RangeRefreshRequests int64
 }
 
 // Total is how many rows the pass removed.
 func (r Report) Total() int64 {
-	return r.LoginAttempts + r.DevAccess + r.Logs + r.Operations
+	return r.LoginAttempts + r.DevAccess + r.Logs + r.Operations + r.RangeRefreshRequests
 }
 
 // Housekeeping runs every sweep and reports what went.
@@ -99,6 +117,8 @@ func (s *Store) Housekeeping(ctx context.Context) (Report, error) {
 	rep.Logs, err = s.PurgeOldLogs(ctx)
 	note(err)
 	rep.Operations, err = s.PurgeOldOperations(ctx)
+	note(err)
+	rep.RangeRefreshRequests, err = s.PurgeOldRangeRefreshRequests(ctx)
 	note(err)
 
 	return rep, firstErr

@@ -187,6 +187,26 @@ const SchemaVersionLock = 0x736368656D617601 // "schema" + 1
 // suite looks like a hung machine rather than like a bug.
 const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
 
+// RefreshQueueLock serialises the suites that share
+// ip_range_refresh_requests.
+//
+// A fourth lock, and this table needs one more than the others: a
+// partial unique index permits exactly one pending-or-running row in the
+// whole table, so a request inserted by any suite makes another's Ask
+// fail with ErrAlreadyInFlight, and a Claim from either can take a row
+// it did not write. Naming each suite's rows would not help - what they
+// collide on is global by construction.
+//
+// The same shape as UpgradeQueueLock, for the same index, one table
+// over. Four packages touch this one: internal/rangerefresh,
+// internal/asnlookup, internal/panel and internal/panel/web.
+//
+// # Ordering
+//
+// Nothing takes this together with the others today. If something ever
+// does, take them in the order they are declared here.
+const RefreshQueueLock = 0x726566726573680A // "refresh"
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.

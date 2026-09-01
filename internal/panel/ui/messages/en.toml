@@ -954,6 +954,27 @@ hata_zinciri = "Error"
 son_deneme = "Last attempt"
 son_istek = "Last request"
 
+[metin.saglik.kaynak]
+baslik = "IP datasets"
+okunamadi = "The dataset status could not be read."
+hic = "No fetch has been recorded yet."
+dugme = "Refresh now"
+istendi = "Refresh requested. The fetching service will pick it up on its next poll - within thirty seconds."
+zaten = "A refresh is already queued or running. Wait for it to finish."
+yetkisiz = "Requesting this needs permission to change settings."
+hata = "The refresh could not be requested. The detail is in the operation record."
+cevapsiz = "The request was written and no service took it. That means asn_lookup is off, or the fetching service is not running - the request expires by itself in a few minutes."
+suruyor = "A refresh is running."
+tamam = "OK"
+dustu = "Failed"
+
+[metin.saglik.kaynak.sutun]
+kume = "Dataset"
+zaman = "When"
+satir = "Rows"
+boyut = "Size"
+sonuc = "Outcome"
+
 [metin.saglik.servis]
 baslik = "Services"
 hic = "No service has reported yet. Either they are all running a build from before the heartbeat existed, or none of them is running."

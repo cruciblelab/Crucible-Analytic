@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/ipsources"
+	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -60,6 +61,15 @@ func countryFiles(t *testing.T, dir string, src ipsources.Source) {
 	t.Helper()
 	write(t, filepath.Join(dir, src.IPv4File), "1.0.0.0,1.0.0.255,AU\n192.0.2.0,192.0.2.255,US\n")
 	write(t, filepath.Join(dir, src.IPv6File), "2001:db8::,2001:db8::ffff,JP\n")
+}
+
+// asnFiles writes a usable pair of ASN CSVs for src into dir.
+func asnFiles(t *testing.T, dir string, src ipsources.Source) {
+	t.Helper()
+	write(t, filepath.Join(dir, src.IPv4File),
+		"1.0.0.0,1.0.0.255,13335,\"Cloudflare, Inc.\"\n")
+	write(t, filepath.Join(dir, src.IPv6File),
+		"2001:db8::,2001:db8::ffff,15169,Google LLC\n")
 }
 
 func write(t *testing.T, path, body string) {
@@ -515,5 +525,230 @@ func TestTheUpgradePathAloneLeavesTheFetchLogWritable(t *testing.T) {
 	// a table are just as able to travel with too many.
 	if _, err := panelPool.Exec(ctx, `UPDATE ip_range_fetches SET outcome = 'succeeded'`); err == nil {
 		t.Error("after the upgrade path alone, the panel could update the fetch log")
+	}
+}
+
+// --- M3: the button's other half ---
+
+// TestARequestMakesTheFetcherRefreshAndReportBack.
+//
+// The whole point of the queue, end to end and against the real table:
+// the panel's row goes in, the fetcher claims it, the refresh runs, the
+// files land in the fetch log, and the row comes back saying so.
+//
+// Nothing here is a stand-in. The request is written through the panel's
+// own role - it is the only one that may - and answered by a resolver
+// running the same answerRequests the service runs.
+func TestARequestMakesTheFetcherRefreshAndReportBack(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	src, _ := ipsources.ByID(ipsources.DefaultCountry)
+	countryFiles(t, dir, src)
+
+	// Every file this refresh will ask for, not just the country pair:
+	// refresh() fetches both datasets, and a directory holding half of
+	// them produces a half-failed refresh - which is a different test
+	// (the one below) rather than this one.
+	asnSrc, _ := ipsources.ByID(ipsources.DefaultASN)
+	asnFiles(t, dir, asnSrc)
+
+	r := fetchLogResolver(t, dir)
+	testdb.Lock(t, testdb.Admin(t), testdb.RefreshQueueLock)
+	clearQueue(t)
+
+	panelPool := testdb.Pool(t, testdb.Panel)
+	req, err := rangerefresh.Ask(ctx, panelPool,
+		rangerefresh.Actor{Kind: "user", Label: "musteri@example.invalid"}, "op-m3")
+	if err != nil {
+		t.Fatalf("the panel could not ask: %v", err)
+	}
+
+	r.answerRequests(ctx)
+
+	// The refresh happened: the fetch log has this run's rows.
+	rows := fetchRows(t, r.pool)
+	if len(rows) == 0 {
+		t.Fatal("the request was claimed and nothing was fetched, so the button " +
+			"writes a row and does nothing")
+	}
+
+	// And the request says so, read back through the panel's role.
+	latest, err := rangerefresh.Latest(ctx, panelPool)
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if latest.ID != req.ID {
+		t.Fatalf("latest is %d, asked %d", latest.ID, req.ID)
+	}
+	if latest.State != rangerefresh.StateSucceeded {
+		t.Errorf("the request is %q after a refresh that worked (error: %q)",
+			latest.State, latest.ErrorChain)
+	}
+	// The summary and the detail are the same facts, so the counts add up
+	// to the rows. Asserted as a sum rather than as "ok equals rows",
+	// which is what this test said first and was wrong about: the
+	// directory held only the country pair, so two files succeeded and
+	// two failed, and the test called the correct answer a bug.
+	if latest.FilesOK+latest.FilesFailed != len(rows) {
+		t.Errorf("the request says %d ok and %d failed, and the fetch log has %d rows.\n"+
+			"A summary computed separately from the detail is a second answer to "+
+			"one question", latest.FilesOK, latest.FilesFailed, len(rows))
+	}
+	if latest.FilesFailed != 0 {
+		t.Errorf("%d files failed against a directory holding all of them: %d ok",
+			latest.FilesFailed, latest.FilesOK)
+	}
+	if latest.ClaimedBy == "" {
+		t.Error("the row does not say which host answered, so a two-host " +
+			"deployment cannot tell")
+	}
+	if latest.FinishedAt == nil {
+		t.Error("the request was never closed")
+	}
+}
+
+// TestARefreshThatFetchedNothingIsReportedAsFailed.
+//
+// The distinction the state carries. A refresh where one address family
+// failed is a refresh that happened - the other family is current, and
+// calling that failed would send somebody looking for a fault that is
+// half a fault. A refresh where nothing at all arrived is a different
+// thing and has to read differently.
+func TestARefreshThatFetchedNothingIsReportedAsFailed(t *testing.T) {
+	ctx := context.Background()
+	// An empty directory: every file is missing.
+	r := fetchLogResolver(t, t.TempDir())
+	testdb.Lock(t, testdb.Admin(t), testdb.RefreshQueueLock)
+	clearQueue(t)
+
+	panelPool := testdb.Pool(t, testdb.Panel)
+	if _, err := rangerefresh.Ask(ctx, panelPool,
+		rangerefresh.Actor{Kind: "user", Label: "musteri@example.invalid"}, "op-m3-fail"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+
+	r.answerRequests(ctx)
+
+	latest, err := rangerefresh.Latest(ctx, panelPool)
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if latest.State != rangerefresh.StateFailed {
+		t.Errorf("a refresh in which no file arrived is %q, want failed", latest.State)
+	}
+	if latest.FilesOK != 0 || latest.FilesFailed == 0 {
+		t.Errorf("counts are ok=%d failed=%d; want nothing succeeded and something failed",
+			latest.FilesOK, latest.FilesFailed)
+	}
+	if latest.ErrorChain == "" {
+		t.Error("the failed request says nothing about where to look. The per-file " +
+			"reasons are in the fetch log and the row has to point at them")
+	}
+}
+
+// TestAnEmptyQueueCostsOnePollAndNothingElse.
+//
+// What almost every poll does. Worth asserting because the alternative -
+// a poll that refreshes when there is nothing to do - would download 124
+// MB every thirty seconds from a third party who publishes it for free.
+func TestAnEmptyQueueCostsOnePollAndNothingElse(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	src, _ := ipsources.ByID(ipsources.DefaultCountry)
+	countryFiles(t, dir, src)
+
+	r := fetchLogResolver(t, dir)
+	testdb.Lock(t, testdb.Admin(t), testdb.RefreshQueueLock)
+	clearQueue(t)
+
+	r.answerRequests(ctx)
+
+	if rows := fetchRows(t, r.pool); len(rows) != 0 {
+		t.Errorf("an empty queue produced %d fetch rows. A poll that refreshes "+
+			"when nobody asked is a download every thirty seconds, aimed at "+
+			"people who publish the data for nothing", len(rows))
+	}
+}
+
+// clearQueue empties the refresh queue around a test.
+func clearQueue(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		if _, err := testdb.Admin(t).Exec(context.Background(),
+			`DELETE FROM ip_range_refresh_requests`); err != nil {
+			t.Logf("cleanup: clearing the refresh queue: %v", err)
+		}
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
+// TestRunItselfAnswersAWaitingRequest.
+//
+// Every other test here calls answerRequests directly, and that is the
+// gap this one closes: emptying Run's request-poll case left all of them
+// green while the button silently stopped working. Measured, by doing
+// exactly that.
+//
+// So this one starts the real entry point - the function cmd/collector
+// calls and nothing else - and asserts the request was answered. Nothing
+// is stubbed and no interval is shortened: Run polls once before its
+// first tick, which is why it can be measured in a test at all and also
+// why a customer who presses the button and then restarts the service
+// does not wait out a poll for no reason.
+func TestRunItselfAnswersAWaitingRequest(t *testing.T) {
+	dir := t.TempDir()
+	src, _ := ipsources.ByID(ipsources.DefaultCountry)
+	countryFiles(t, dir, src)
+	asnSrc, _ := ipsources.ByID(ipsources.DefaultASN)
+	asnFiles(t, dir, asnSrc)
+
+	r := fetchLogResolver(t, dir)
+	testdb.Lock(t, testdb.Admin(t), testdb.RefreshQueueLock)
+	clearQueue(t)
+
+	panelPool := testdb.Pool(t, testdb.Panel)
+	if _, err := rangerefresh.Ask(context.Background(), panelPool,
+		rangerefresh.Actor{Kind: "user", Label: "musteri@example.invalid"}, "op-run"); err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+
+	// A refresh interval far longer than this test, so the only thing
+	// that can answer the request is the startup poll rather than a tick.
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx, time.Hour)
+	}()
+
+	// Run performs its work before entering the loop, so the request is
+	// answered by the time it is waiting on its tickers. Polled rather
+	// than slept on a fixed duration: a fixed sleep is either flaky on a
+	// loaded machine or slow on every run.
+	deadline := time.Now().Add(30 * time.Second)
+	var latest *rangerefresh.Request
+	for time.Now().Before(deadline) {
+		var err error
+		latest, err = rangerefresh.Latest(context.Background(), panelPool)
+		if err != nil {
+			t.Fatalf("Latest: %v", err)
+		}
+		if latest != nil && !latest.InFlight() {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	if latest == nil || latest.InFlight() {
+		t.Fatalf("Run did not answer a waiting request within 30s (state %v).\n"+
+			"Run is the only entry point a service has: a request it does not "+
+			"pick up is a button that does nothing, however many tests call "+
+			"answerRequests directly", latest)
+	}
+	if latest.State != rangerefresh.StateSucceeded {
+		t.Errorf("Run answered the request as %q (error: %q)", latest.State, latest.ErrorChain)
 	}
 }

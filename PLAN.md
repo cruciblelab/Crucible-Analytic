@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
-| **M** Veri kaynakları | 🟡 **2/3** | M3 yenile düğmesi *(M1 kütüphane, M2 çekim kaydı yapıldı)* |
+| **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -170,7 +170,7 @@ geçer.
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
-| 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ → **M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
+| 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ → **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4853,7 +4853,7 @@ tutuyor, isim eşleştirerek değil. Kendi ilk hâli de bir ders oldu:
 
 ---
 
-#### M3 — Elle yenileme düğmesi
+#### M3 — Elle yenileme düğmesi ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** müşteri panelden "şimdi yenile" diyebiliyor.
 
@@ -4866,6 +4866,57 @@ sonucu gösterecek kayıt M2'de geliyor.
 
 **Bitti ölçütü:** düğme kilitsiz varsayılanla müşteride çalışıyor; iki
 kez basmak iki çekim başlatmıyor; sonuç ekranda görünüyor.
+
+##### Nasıl bitti
+
+`internal/rangerefresh`, `internal/upgrade`'in aynısı bir tablo ötede —
+fonksiyon adlarına kadar, çünkü sebepsiz farklı davranan iki kuyruk
+öğrenilecek iki şey demek. Panel yazar (`INSERT`, `SELECT`, `DELETE`),
+çeken servis cevaplar (`SELECT`, `UPDATE`); ikisi de her ikisini tutmaz.
+
+**Kilit yok, geliştirici parolası yok, ve bu bilinçli bir fark.** Kural
+şu: *geliştiriciye iş çıkarabilen* şeyler parolanın arkasında, çünkü
+müşteri kendine her yetkiyi verebilir. Bu hiç kimseye iş çıkarmıyor —
+müşterinin kendi sunucusuna, kendi hattından, iki kamuya açık dosyayı
+yeniden indiriyor. Yetki (ayar değiştirebilme) tek kapı. Fazın "kilitsiz
+varsayılanla çalışıyor" ölçütü böylece doğrudan sağlanıyor, ve nedeni
+kodda yazılı ki ileride biri "tutarsızlık" diye kapatmasın.
+
+Bir de **soğuma süresi** düşünüldü ve konmadı: tek-uçuş indeksi zaten
+"aynı anda bir yenileme" diyor, ki fazın istediği bu; üstüne bir asgari
+aralık, kimsenin ölçmediği bir maliyeti sınırlayan ölçülmemiş bir sayı
+olurdu.
+
+##### L3'ten gerçekten ayrılan tek yer: kimse dinlemiyor olabilir
+
+Upgrader paketle birlikte kurulur. Resolver ise yalnız `asn_lookup`
+açıksa vardır — **ve varsayılan kapalı**. Yani "kimse almadı" burada bir
+arıza değil, çoğu kurulumun olağan hâli; ve tek-uçuş indeksi olduğu gibi
+bırakılsaydı ilk basış düğmeyi sonsuza kadar öldürürdü.
+
+`ExpireStale` cevabı: dört yoklama süresinden eski **pending** satırlar
+siliniyor, ve bunu panel yapıyor — çünkü kimsenin almadığı bir satır
+söz konusuysa hâlâ çalışan taraf odur. `running` satırlara dokunulmuyor:
+onları tutan bir servis hâlâ 124 MB indiriyor olabilir, ve boşalan yuva
+ikinci bir yenilemeyi birincinin üstüne başlatır.
+
+Sayfa da bunu bir cümleyle söylüyor. Kımıldamayan bir satır, sebebi
+yazılmazsa "panel bozuk" diye okunur.
+
+##### Testin yakaladığı boşluk: `Run`'ı boşaltmak hiçbir şeyi kırmıyordu
+
+Mutasyonla ölçüldü: `Run`'ın istek yoklama dalı boşaltıldı ve **bütün
+depo yeşil kaldı** — çünkü her test `answerRequests`'i doğrudan
+çağırıyordu. Düğme sessizce çalışmayı bırakır, hiçbir şey söylemezdi.
+
+İki şey eklendi. `Run` artık ilk tikten önce bir kez de yokluyor — hem
+doğru davranış (düğmeye basıp servisi yeniden başlatan biri boşuna otuz
+saniye beklemesin) hem de gerçek giriş noktasını test edilebilir kılan
+şey: `TestRunItselfAnswersAWaitingRequest` `Run`'ı çalıştırıp isteğin
+cevaplandığını görüyor. Ve `TestRunReachesEveryPeriodicDuty`,
+`PurgeOld*` türetmesinin yanına gerekçeli bir *görev* listesi koyuyor:
+`Run` bir göreve ulaşamıyorsa, kaç test onu doğrudan çağırırsa çağırsın,
+o görevi hiçbir kurulum yapmıyor demektir.
 
 ---
 

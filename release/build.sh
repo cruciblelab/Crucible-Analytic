@@ -94,10 +94,14 @@ cp internal/logsink/schema.sql    "${STAGE}/schema/07-logsink.sql"
 # exist by now - install.sh creates all five roles before it applies any
 # schema, which is the ordering this depends on.
 cp internal/upgrade/schema.sql    "${STAGE}/schema/08-upgrade.sql"
+# The range-refresh queue. Its policies name collector and beacon_writer,
+# and its comments point at ip_range_fetches - so it comes after the
+# asnlookup schema that creates that table.
+cp internal/rangerefresh/schema.sql "${STAGE}/schema/09-rangerefresh.sql"
 # The version record, last of all, because what it records is "every
 # schema above was applied". A row written before the schemas it
 # describes would be a claim about work that had not happened yet.
-cp internal/schemaver/schema.sql  "${STAGE}/schema/09-schemaver.sql"
+cp internal/schemaver/schema.sql  "${STAGE}/schema/10-schemaver.sql"
 
 echo "== example configuration"
 for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml \

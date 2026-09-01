@@ -351,6 +351,24 @@ karşılığı yok.
 "coğrafya verim güncel mi" sorusunun cevabı yalnız sunucunun kendi
 günlüğünde kalır — kabuğu olmayan müşterinin bakamayacağı tek yerde.
 
+**yenileme kuyruğu (refresh queue)** (`internal/rangerefresh`,
+`ip_range_refresh_requests`) — *Sağlık* sayfasındaki "şimdi yenile"
+düğmesinin arkasındaki tablo. Panel bir satır yazar; çeken servis otuz
+saniyede bir bakar, alır, yenilemeyi yapar, sonucu geri yazar. Panel
+dışarı bağlantı açmaz — açsaydı, müşterinin tarayıcısının ulaştığı
+sürecin içinde bir SSRF yüzeyi olurdu.
+
+`internal/upgrade` ile aynı desen, bir tablo ötede. Tek gerçek fark:
+upgrader hep kuruludur, resolver ise yalnız `asn_lookup` açıksa vardır ve
+o varsayılan kapalıdır — yani "kimse almadı" burada olağan hâl. Bu yüzden
+alınmamış istekler birkaç dakika sonra düşer; yoksa ilk basış, o
+kurulumun kabul ettiği son basış olurdu.
+
+Geliştirici parolası **istemez**, ve bu L3'ten bilinçli bir fark: kural
+"geliştiriciye iş çıkarabilen şeyler parolanın arkasında", bu ise
+müşterinin kendi sunucusuna kendi hattından iki kamuya açık dosyayı
+yeniden indiriyor.
+
 **sessiz adres (silent address)** — Collector'ın gördüğü ama beacon'ın
 hiç görmediği adres. Yani JavaScript çalıştırmamış: ya bot, ya JS kapalı
 bir tarayıcı. **JavaScript tabanlı hiçbir analitik aracın göremediği

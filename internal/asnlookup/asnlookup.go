@@ -198,9 +198,28 @@ func (r *Resolver) Resolve(ip netip.Addr) Result {
 func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 	r.refresh(ctx)
 	r.sweep(ctx)
+	// And once before the first tick, for the same reason the refresh
+	// above is immediate: a service that has just started and finds a
+	// request waiting should answer it now rather than in thirty
+	// seconds. A customer who pressed the button and then restarted the
+	// collector - which is what somebody does when they think nothing is
+	// happening - would otherwise wait out the poll for no reason.
+	r.answerRequests(ctx)
 
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
+
+	// A second, much shorter ticker for the button (M3).
+	//
+	// Separate rather than one fast ticker doing both: a refresh
+	// downloads about 124 MB from a third party, and running it every
+	// thirty seconds to notice a button press would be a denial of
+	// service aimed at people who publish the data for free. Polling an
+	// indexed table costs nothing worth measuring. internal/asnlookup's
+	// onrequest.go says the rest.
+	requests := time.NewTicker(requestPollInterval)
+	defer requests.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -208,6 +227,8 @@ func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 		case <-ticker.C:
 			r.refresh(ctx)
 			r.sweep(ctx)
+		case <-requests.C:
+			r.answerRequests(ctx)
 		}
 	}
 }

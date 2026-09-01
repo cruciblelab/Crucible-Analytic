@@ -54,6 +54,18 @@ import (
 // HealthPath is the system health page.
 const HealthPath = "/saglik"
 
+// The two buttons this page carries, named in the form rather than
+// inferred from which fields arrived.
+//
+// A handler that guesses what the client meant is a handler that can be
+// made to guess wrong, and this page's two actions have different
+// entitlements behind them: one is entitlement-only, the other can be
+// locked to the developer password.
+const (
+	eylemYukselt      = "yukselt"
+	eylemKaynakYenile = "kaynak_yenile"
+)
+
 // healthPage is Data for the template.
 type healthPage struct {
 	// Services is one row per service that has ever written a heartbeat.
@@ -81,6 +93,13 @@ type healthPage struct {
 
 	Upgrade      upgradeSection
 	UpgradeError string
+
+	// The M3 refresh button and, beneath it, the M2 fetch log. Its own
+	// section with its own error field, like every other part of this
+	// page: an unreadable fetch log must not take the storage figures
+	// down with it.
+	RangeRefresh      rangeRefreshSection
+	RangeRefreshError string
 }
 
 // healthSchema is what the database says its schema is, next to what
@@ -201,7 +220,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		s.renderHealth(w, r, lang, p, upgradeSection{}, "")
+		s.renderHealth(w, r, lang, p, pressed{})
 	case http.MethodPost:
 		// The upgrade button. The page was read-only until L3, which is
 		// why healthHandler used to sit in the deliberately-unguarded
@@ -211,8 +230,23 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		access := s.healthAccess(r.Context(), p)
-		section, sectionErr := s.upgradePost(w, r, lang, access)
-		s.renderHealth(w, r, lang, p, section, sectionErr)
+		// Two buttons on one page now, so the form says which. Dispatched
+		// on an explicit value rather than on which field happens to be
+		// present: a handler that guesses what the client meant is a
+		// handler that can be made to guess wrong.
+		var posted pressed
+		switch r.FormValue("eylem") {
+		case eylemKaynakYenile:
+			section, sectionErr := s.rangeRefreshPost(w, r, lang, access)
+			posted.refresh, posted.refreshErr = &section, sectionErr
+		case eylemYukselt:
+			section, sectionErr := s.upgradePost(w, r, lang, access)
+			posted.upgrade, posted.upgradeErr = &section, sectionErr
+		default:
+			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
+			return
+		}
+		s.renderHealth(w, r, lang, p, posted)
 	default:
 		w.Header().Set("Allow", "GET, HEAD, POST")
 		s.Renderer.ErrorIn(w, r, http.StatusMethodNotAllowed, lang)
@@ -261,8 +295,21 @@ func (s *Server) requireHealthReader(w http.ResponseWriter, r *http.Request) (pa
 	return panel.Principal{}, false
 }
 
+// pressed is what a POST has already decided, so the render below does
+// not read it a second time.
+//
+// A struct of pointers rather than a second render function: this file
+// already warns that a handler with two render sites grows a third, and
+// a page with two buttons would have made it three today.
+type pressed struct {
+	upgrade    *upgradeSection
+	upgradeErr string
+	refresh    *rangeRefreshSection
+	refreshErr string
+}
+
 func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.Language,
-	p panel.Principal, section upgradeSection, sectionErr string) {
+	p panel.Principal, posted pressed) {
 	ctx := r.Context()
 	now := time.Now()
 
@@ -281,13 +328,24 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
 	data.API = s.healthAPI(ctx)
 
-	// Read fresh on a GET; on a POST the handler has already built it,
-	// because the answer it carries is about the press that just
-	// happened rather than about the state before it.
-	if r.Method == http.MethodPost {
-		data.Upgrade, data.UpgradeError = section, sectionErr
+	// Read fresh unless the press just built it, because the answer a
+	// pressed section carries is about the press rather than about the
+	// state before it.
+	//
+	// Per section, not per request: pressing refresh must still show the
+	// current upgrade state, and the version before this one rebuilt only
+	// the section that was pressed while leaving the other one empty -
+	// which drew a page with half of it missing.
+	access := s.healthAccess(ctx, p)
+	if posted.upgrade != nil {
+		data.Upgrade, data.UpgradeError = *posted.upgrade, posted.upgradeErr
 	} else {
-		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(r, lang, s.healthAccess(ctx, p))
+		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(r, lang, access)
+	}
+	if posted.refresh != nil {
+		data.RangeRefresh, data.RangeRefreshError = *posted.refresh, posted.refreshErr
+	} else {
+		data.RangeRefresh, data.RangeRefreshError = s.rangeRefreshStatusFor(r, lang, access)
 	}
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))

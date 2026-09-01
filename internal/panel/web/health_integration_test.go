@@ -13,12 +13,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -258,5 +260,116 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 	}
 	if status, _ := get(t, dev, server.URL+HealthPath); status != http.StatusOK {
 		t.Errorf("a developer got %d from the health page, want 200 - this is their diagnostic tool", status)
+	}
+}
+
+// --- M3: the refresh button on the page ---
+
+// TestTheRefreshButtonWorksFromThePage.
+//
+// M3's done criterion end to end, through the page a customer actually
+// uses: the section draws, the button posts, the request lands, and the
+// answer comes back on the page rather than in a log.
+//
+// A signed-in owner with no developer password, which is the default
+// this phase promises works.
+func TestTheRefreshButtonWorksFromThePage(t *testing.T) {
+	server, client, store := healthServer(t)
+	ctx := context.Background()
+	admin := testdb.Admin(t)
+	testdb.Lock(t, admin, testdb.RefreshQueueLock)
+	testdb.Lock(t, admin, testdb.FetchLogLock)
+
+	clear := func() {
+		for _, table := range []string{"ip_range_refresh_requests", "ip_range_fetches"} {
+			if _, err := admin.Exec(context.Background(), `DELETE FROM `+table); err != nil {
+				t.Logf("cleanup: clearing %s: %v", table, err)
+			}
+		}
+	}
+	clear()
+	t.Cleanup(clear)
+
+	// A deployment that has fetched at least once, so the section is
+	// drawn at all: a page that showed this panel on an installation with
+	// asn_lookup off would be a permanent notice about a feature nobody
+	// turned on.
+	if _, err := admin.Exec(ctx, `
+		INSERT INTO ip_range_fetches
+		  (started_at, finished_at, source_id, kind, family, origin,
+		   outcome, rows_parsed, bytes_read, error_chain)
+		VALUES (now() - interval '2 days', now() - interval '2 days', 'user-country',
+		        'country', 'ipv4', 'download', 'failed', 0, 0, 'HTTP 404')`); err != nil {
+		t.Fatalf("seeding a fetch: %v", err)
+	}
+
+	status, body := get(t, client, server.URL+HealthPath)
+	if status != http.StatusOK {
+		t.Fatalf("the health page answered %d", status)
+	}
+	if !strings.Contains(body, shown("IP veri kümeleri")) {
+		t.Fatal("the health page does not draw the dataset section, so the button " +
+			"and the fetch log are both invisible")
+	}
+	if !strings.Contains(body, "user-country") {
+		t.Error("the section does not name the dataset whose fetch failed; the " +
+			"result M3 has to put on screen is which one broke")
+	}
+	if !strings.Contains(body, `value="kaynak_yenile"`) {
+		t.Fatal("the page draws no refresh button for an owner, so the default " +
+			"this phase promises does not work")
+	}
+
+	resp, after := postNoFollow(t, client, server.URL+HealthPath, url.Values{
+		"csrf_token": {csrfFrom(t, body)},
+		"eylem":      {"kaynak_yenile"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the button answered %d", resp.StatusCode)
+	}
+	if !strings.Contains(after, shown("Yenileme istendi")) {
+		t.Error("the page does not confirm the press, so somebody presses again")
+	}
+
+	req, err := rangerefresh.Latest(ctx, store.Pool())
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if req == nil {
+		t.Fatal("the button was pressed and no request was written")
+	}
+	if req.State != rangerefresh.StatePending {
+		t.Errorf("the request is %q, want pending", req.State)
+	}
+
+	// And pressing again says so rather than queueing a second refresh.
+	resp2, again := postNoFollow(t, client, server.URL+HealthPath, url.Values{
+		"csrf_token": {csrfFrom(t, after)},
+		"eylem":      {"kaynak_yenile"},
+	})
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("the second press answered %d", resp2.StatusCode)
+	}
+	if !strings.Contains(again, shown("zaten sırada")) {
+		t.Error("the second press does not say one is already going; a page that " +
+			"answers identically teaches people to keep pressing")
+	}
+}
+
+// TestAnUnknownActionIsRefused.
+//
+// The page carries two buttons now, and the handler dispatches on a
+// named action rather than on which field happens to be present. A
+// handler that guessed would be one that can be made to guess wrong.
+func TestAnUnknownActionIsRefused(t *testing.T) {
+	server, client, _ := healthServer(t)
+
+	_, body := get(t, client, server.URL+HealthPath)
+	resp, _ := postNoFollow(t, client, server.URL+HealthPath, url.Values{
+		"csrf_token": {csrfFrom(t, body)},
+		"eylem":      {"bir-sey-uydur"},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("an unnamed action answered %d, want 400", resp.StatusCode)
 	}
 }

@@ -7416,3 +7416,82 @@ veriyor.
 **Bir kurulumun iki farklı yoldan ulaşabildiği her durum için, iki yolun
 da ölçülmesi gerekir.** Biri kurulumda koşuyor diye test ediliyorsa,
 diğeri hiç koşulmamış demektir.
+
+---
+
+## M3 — Düğme, ve `Run`'ı boşaltmanın hiçbir şeyi kırmaması
+
+*(2026-09-01)*
+
+Plan "L3'ün deseninin aynısı, bedava geliyor" diyordu. Deseni gerçekten
+aynı; bedava olmayan iki şey çıktı.
+
+### L3'ten ayrılan tek gerçek yer: cevaplayan taraf olmayabilir
+
+Upgrader paketle birlikte kurulur, hep oradadır. Resolver ise yalnız
+`asn_lookup` açıksa vardır — **ve varsayılan kapalı.**
+
+Yani L3'te "kimse almadı" bir kaza; burada çoğu kurulumun olağan hâli. Ve
+tek-uçuş indeksi olduğu gibi kopyalansaydı sonucu şu olurdu: müşteri
+düğmeye basar, satır yazılır, kimse almaz, ve indeks o günden sonra her
+isteği reddeder. **İlk basış, o kurulumun kabul ettiği son basış olurdu.**
+
+`ExpireStale` bu yüzden var, ve `DELETE` bu yüzden panelin: kimsenin
+almadığı bir satır söz konusuysa hâlâ çalışan taraf odur.
+
+`running` satırlara dokunulmuyor. Onları tutan servis hâlâ 124 MB
+indiriyor olabilir, ve boşalan yuva ikinci bir yenilemeyi birincinin
+üstüne başlatır — silmenin "temizlik" gibi görünüp iki eşzamanlı indirme
+ürettiği yer tam burası.
+
+### Parola yok, ve gerekçesi yazıldı
+
+L3'ün düğmesinde kilit + geliştirici parolası var. Burada ikisi de yok, ve
+bunu yazmadan bırakmak ileride birinin "tutarsızlık" diye kapatacağı bir
+boşluk olurdu.
+
+Kural şu: *geliştiriciye iş çıkarabilen* şeyler parolanın arkasında,
+çünkü müşteri kendine her yetkiyi verebilir — `RoleOwner` üye yönetebilir,
+yani kendini yönetici yapabilir. Yetki müşteriyi değil personelini
+sınırlar.
+
+Bu hiç kimseye iş çıkarmıyor: müşterinin kendi sunucusuna, kendi
+hattından, iki kamuya açık dosyayı yeniden indiriyor. Parola koymak,
+"parola önemsiz şeyler için de sorulur" diye öğretmek olurdu.
+
+### Ve asıl bulgu: `Run`'ı boşaltmak hiçbir testi kırmıyordu
+
+Fazın kodu bitmişti, testler yeşildi. Mutasyon olarak `Run`'ın istek
+yoklama dalını boşalttım:
+
+```go
+case <-requests.C:
+    // mutation: the poll does nothing
+```
+
+**Bütün depo yeşil kaldı.** Kuyruk testleri geçti, panel testleri geçti,
+uçtan uca test geçti — çünkü hepsi `answerRequests`'i *doğrudan*
+çağırıyordu. Düğme sessizce çalışmayı bırakır, hiçbir şey söylemezdi.
+
+Bu, "yazılıp çağrılmayan süpürme"nin bir üst katı: **etkisi olmayan bir
+yoklama.** Ve M2'de tam bu sınıf için yazdığım test onu kaçırdı, çünkü
+yalnız `PurgeOld*` adlı metotları arıyordu.
+
+İki şey eklendi:
+
+**1. `Run` ilk tikten önce bir kez de yokluyor.** Hem doğru davranış —
+düğmeye basıp sonra servisi yeniden başlatan biri (ki bir şey olmadığını
+düşünen herkes onu yapar) boşuna otuz saniye beklemesin — hem de gerçek
+giriş noktasını ölçülebilir kılan şey. `TestRunItselfAnswersAWaitingRequest`
+artık `Run`'ı çalıştırıp isteğin cevaplandığını görüyor; hiçbir aralık
+kısaltılmıyor, hiçbir şey taklit edilmiyor.
+
+**2. `TestRunReachesEveryPeriodicDuty`**, `PurgeOld*` türetmesinin yanına
+gerekçeli bir *görev* listesi koyuyor: her girdi, o görev koşmazsa neyin
+durduğunu yazıyor. Liste elle, ve bu bilinçli — süpürmelerin ad şekli var,
+diğer görevlerin yok, ve alternatif hiçbirini adlandırmamaktı; bu testin
+başladığı ve kaçırdığı yer de tam orası.
+
+**`Run` bir servisin sahip olduğu tek giriş noktası. Ona ulaşmayan bir
+görev, kaç test doğrudan çağırırsa çağırsın, hiçbir kurulumun yapmadığı
+bir görevdir.**

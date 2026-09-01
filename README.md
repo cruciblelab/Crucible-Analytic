@@ -245,6 +245,16 @@ what they read, so a half-delivered dataset looks exactly like a small
 one, and only the count says otherwise. Rows are kept 90 days and the
 fetching service trims them on the same ticker that refreshes.
 
+**And a refresh can be asked for.** The panel's health page carries a
+"refresh now" button and, beneath it, the last attempt at each dataset
+file. The panel opens no outbound connection to do it - it writes a row
+and whichever service is fetching picks it up within thirty seconds, the
+same arrangement the schema-upgrade button uses and for the same reason.
+Pressing twice does not start two fetches. On a deployment with
+`asn_lookup` off nothing is polling, so the request expires by itself
+after a few minutes and the page says why rather than showing a row that
+never moves.
+
 `Result.ASN` and `Result.ASNName` are real now, not placeholders - both
 datasets are fetched, parsed, and queried independently, the same way
 `Result.Country` always has been.

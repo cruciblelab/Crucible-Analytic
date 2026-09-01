@@ -172,6 +172,7 @@ somebody suspects it is not. */}}
      form here uses: the button acts on what is drawn above it. -->
 <form method="post" action="" class="dar">
 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="yukselt">
 {{- if .Data.Upgrade.AskingForPassword}}
 <p class="ipucu">{{t "saglik.yukselt.parola_ipucu"}}</p>
 <label for="yukselt-parola">{{t "saglik.yukselt.parola"}}</label>
@@ -180,6 +181,76 @@ somebody suspects it is not. */}}
 <button type="submit">{{t "saglik.yukselt.dugme"}}</button>
 </form>
 {{- end}}
+{{- end}}
+</section>
+{{- end}}
+
+{{- if .Data.RangeRefreshError}}
+<section class="bolum">
+<h2>{{t "saglik.kaynak.baslik"}}</h2>
+<p class="uyari" role="note">{{.Data.RangeRefreshError}}</p>
+</section>
+{{- else if .Data.RangeRefresh.Show}}
+<section class="bolum">
+<h2>{{t "saglik.kaynak.baslik"}}</h2>
+
+{{- if .Data.RangeRefresh.Notice}}
+<p class="{{if .Data.RangeRefresh.Failed}}uyari{{else}}ipucu{{end}}" role="status">{{.Data.RangeRefresh.Notice}}</p>
+{{- end}}
+
+{{/* The unanswered case gets its own sentence rather than a spinner.
+     asn_lookup is off by default, so a request nobody claims is the
+     ordinary outcome of pressing this on a deployment that is not
+     fetching - and "waiting" with no explanation is how somebody
+     concludes the panel is broken. */}}
+{{- if .Data.RangeRefresh.Unanswered}}
+<p class="uyari" role="note">{{t "saglik.kaynak.cevapsiz"}}</p>
+{{- else if .Data.RangeRefresh.Latest}}
+{{- if .Data.RangeRefresh.Latest.InFlight}}
+<p class="ipucu" role="status">{{t "saglik.kaynak.suruyor"}}</p>
+{{- end}}
+{{- end}}
+
+{{- if .Data.RangeRefresh.Files}}
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.kaynak.sutun.kume"}}</th>
+<th scope="col">{{t "saglik.kaynak.sutun.zaman"}}</th>
+<th scope="col">{{t "saglik.kaynak.sutun.satir"}}</th>
+<th scope="col">{{t "saglik.kaynak.sutun.boyut"}}</th>
+<th scope="col">{{t "saglik.kaynak.sutun.sonuc"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.RangeRefresh.Files}}
+<tr>
+<th scope="row"><code>{{.SourceID}}</code> / {{.Family}}</th>
+<td>{{$.F.Since .StartedAt}}</td>
+<td>{{$.F.Number .RowsParsed}}</td>
+<td>{{$.F.Bytes .BytesRead}}</td>
+<td>
+{{- if .Failed}}<span class="uyari">{{t "saglik.kaynak.dustu"}}</span>
+{{- else}}{{t "saglik.kaynak.tamam"}}{{end}}</td>
+</tr>
+{{- if .ErrorChain}}
+<tr>
+<td colspan="5"><pre class="hata-zinciri">{{.ErrorChain}}</pre></td>
+</tr>
+{{- end}}
+{{- end}}
+</tbody>
+</table>
+{{- else}}
+<p class="ipucu">{{t "saglik.kaynak.hic"}}</p>
+{{- end}}
+
+{{- if .Data.RangeRefresh.Allowed}}
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="kaynak_yenile">
+<button type="submit">{{t "saglik.kaynak.dugme"}}</button>
+</form>
 {{- end}}
 </section>
 {{- end}}

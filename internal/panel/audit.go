@@ -105,6 +105,15 @@ const (
 	// survive after the request row is swept.
 	ActionUpgradeRequested = "upgrade.requested"
 
+	// ActionRangeRefreshRequested marks somebody pressing "refresh the
+	// IP datasets now".
+	//
+	// Recorded for the same reason as the line above: the request row is
+	// swept, and the fact that a person asked has to outlive it. It also
+	// answers the question a repeated press raises - whether one person
+	// pressed six times or six people pressed once.
+	ActionRangeRefreshRequested = "rangerefresh.requested"
+
 	// Developer password attempts, on the settings that carry legal
 	// weight. Both outcomes, because a record of failures alone cannot
 	// show that the successful attempt at 03:00 followed an hour of

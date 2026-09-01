@@ -991,6 +991,27 @@ hata_zinciri = "Hata"
 son_deneme = "Son deneme"
 son_istek = "Son istek"
 
+[metin.saglik.kaynak]
+baslik = "IP veri kümeleri"
+okunamadi = "Veri kümesi durumu okunamadı."
+hic = "Henüz hiçbir çekim kaydedilmedi."
+dugme = "Şimdi yenile"
+istendi = "Yenileme istendi. Çeken servis bir sonraki yoklamada alacak — otuz saniye içinde."
+zaten = "Bir yenileme zaten sırada ya da sürüyor. Bitmesini bekleyin."
+yetkisiz = "Bunu isteyebilmek için ayarları değiştirme yetkiniz olmalı."
+hata = "Yenileme istenemedi. Ayrıntı işlem kaydında."
+cevapsiz = "İstek yazıldı ama hiçbir servis almadı. Bu, asn_lookup'ın kapalı olduğu ya da çeken servisin çalışmadığı anlamına gelir — istek birkaç dakika sonra kendiliğinden düşer."
+suruyor = "Yenileme sürüyor."
+tamam = "Tamam"
+dustu = "Düştü"
+
+[metin.saglik.kaynak.sutun]
+kume = "Veri kümesi"
+zaman = "Ne zaman"
+satir = "Satır"
+boyut = "Boyut"
+sonuc = "Sonuç"
+
 [metin.saglik.servis]
 baslik = "Servisler"
 hic = "Hiçbir servis henüz haber vermedi. Ya hepsi kalp atışından önceki bir yapıyı çalıştırıyor, ya da hiçbiri çalışmıyor."

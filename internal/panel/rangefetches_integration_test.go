@@ -4,9 +4,11 @@ package panel
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -202,5 +204,271 @@ func TestTheReaderIsQuietOnAnEmptyLog(t *testing.T) {
 	if last == nil {
 		t.Error("returned a nil slice rather than an empty one; a template ranging " +
 			"over it should not have to know the difference")
+	}
+}
+
+// --- M3: the button's rules ---
+
+// refreshStore is fetchLogStore plus the queue's lock and cleanup.
+func refreshStore(t *testing.T) *Store {
+	t.Helper()
+	store := fetchLogStore(t)
+	testdb.Lock(t, testdb.Admin(t), testdb.RefreshQueueLock)
+	clear := func() {
+		if _, err := testdb.Admin(t).Exec(context.Background(),
+			`DELETE FROM ip_range_refresh_requests`); err != nil {
+			t.Logf("cleanup: clearing the refresh queue: %v", err)
+		}
+	}
+	clear()
+	t.Cleanup(clear)
+	return store
+}
+
+// mayManageSettings is a customer who can change settings, which is the
+// whole entitlement this button asks for.
+func mayManageSettings() Access {
+	return Access{
+		Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "sahip@example.invalid"},
+		Role:      RoleOwner,
+		Member:    true,
+	}
+}
+
+// mayOnlyLook is a viewer.
+func mayOnlyLook() Access {
+	return Access{
+		Principal: Principal{Kind: PrincipalUser, UserID: 2, Label: "izleyici@example.invalid"},
+		Role:      RoleViewer,
+		Member:    true,
+	}
+}
+
+// TestTheRefreshButtonNeedsNoDeveloperPassword.
+//
+// M3's "works for the customer with the default" criterion, and the
+// place the difference from L3 is asserted rather than only explained.
+//
+// The rule this project follows is that anything which can make work for
+// the developer sits behind the developer password, because a customer
+// can grant themselves any capability. Pressing this makes work for
+// nobody: it re-downloads two public datasets onto the customer's own
+// server. So entitlement is the whole gate, and a test that passes only
+// when a password is supplied would be the wrong test.
+func TestTheRefreshButtonNeedsNoDeveloperPassword(t *testing.T) {
+	store := refreshStore(t)
+
+	req, err := store.RequestRangeRefresh(context.Background(), mayManageSettings(), "op-m3")
+	if err != nil {
+		t.Fatalf("a customer who may change settings could not ask for a refresh: %v.\n"+
+			"The default has to work for somebody who does not know the developer "+
+			"password, because most customers never will", err)
+	}
+	if req.State != "pending" {
+		t.Errorf("the request is %q, want pending", req.State)
+	}
+	if req.Actor.Label != "sahip@example.invalid" {
+		t.Errorf("the row does not name who asked: %+v", req.Actor)
+	}
+}
+
+// TestAViewerCannotAskForARefresh.
+//
+// Entitlement is the gate, so it has to actually be one.
+func TestAViewerCannotAskForARefresh(t *testing.T) {
+	store := refreshStore(t)
+
+	_, err := store.RequestRangeRefresh(context.Background(), mayOnlyLook(), "op-viewer")
+	if !errors.Is(err, ErrSettingNotWritable) {
+		t.Fatalf("a viewer's request returned %v, want ErrSettingNotWritable", err)
+	}
+
+	// And nothing was written: a refusal that still queues a row would
+	// hold the in-flight slot against the person who is allowed.
+	latest, err := rangerefresh.Latest(context.Background(), store.Pool())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != nil {
+		t.Errorf("a refused request left a row behind: %+v", latest)
+	}
+}
+
+// TestPressingTwiceIsRefusedWithItsOwnAnswer.
+//
+// M3's second criterion at the store, where the page reads it. Refused
+// rather than silently ignored, and with an error the page can turn into
+// "one is already going" rather than "that failed".
+func TestPressingTwiceIsRefusedWithItsOwnAnswer(t *testing.T) {
+	store := refreshStore(t)
+	ctx := context.Background()
+
+	if _, err := store.RequestRangeRefresh(ctx, mayManageSettings(), "op-one"); err != nil {
+		t.Fatalf("the first press failed: %v", err)
+	}
+	_, err := store.RequestRangeRefresh(ctx, mayManageSettings(), "op-two")
+	if !IsRangeRefreshBusy(err) {
+		t.Fatalf("the second press returned %v, want the busy refusal", err)
+	}
+}
+
+// TestAJammedQueueUnjamsItself.
+//
+// The failure mode this whole expiry exists for, played out: asn_lookup
+// is off, so nothing claims the request, and without the expiry the
+// in-flight index would make the first press the last one this
+// deployment ever accepts.
+func TestAJammedQueueUnjamsItself(t *testing.T) {
+	store := refreshStore(t)
+	ctx := context.Background()
+	admin := testdb.Admin(t)
+
+	first, err := store.RequestRangeRefresh(ctx, mayManageSettings(), "op-jam")
+	if err != nil {
+		t.Fatalf("the first press failed: %v", err)
+	}
+
+	// Nobody claimed it, and time passed.
+	if _, err := admin.Exec(ctx, `
+		UPDATE ip_range_refresh_requests SET requested_at = now() - interval '1 hour'
+		WHERE id = $1`, first.ID); err != nil {
+		t.Fatalf("ageing the request: %v", err)
+	}
+
+	second, err := store.RequestRangeRefresh(ctx, mayManageSettings(), "op-again")
+	if err != nil {
+		t.Fatalf("the button stayed jammed after nothing claimed the first press: %v.\n"+
+			"asn_lookup is off by default, so this is the ordinary state of most "+
+			"deployments rather than an edge case", err)
+	}
+	if second.ID == first.ID {
+		t.Error("the second press returned the first request rather than a new one")
+	}
+}
+
+// TestTheStatusSaysNothingIsFetching.
+//
+// The sentence a customer needs when they press the button on a
+// deployment with asn_lookup off. Without it the page shows a request
+// that never moves, and the honest reading of that is "the panel is
+// broken".
+func TestTheStatusSaysNothingIsFetching(t *testing.T) {
+	store := refreshStore(t)
+	ctx := context.Background()
+
+	status, err := store.RangeRefreshStatus(ctx, mayManageSettings())
+	if err != nil {
+		t.Fatalf("RangeRefreshStatus: %v", err)
+	}
+	if !status.NothingIsFetching {
+		t.Error("with an empty fetch log the status does not report that nothing " +
+			"is fetching, so the page cannot explain an unanswered request")
+	}
+	if !status.Allowed {
+		t.Error("a customer who may change settings is reported as not allowed")
+	}
+	if status.Unanswered() {
+		t.Error("with no request at all the status reports one as unanswered")
+	}
+
+	req, err := store.RequestRangeRefresh(ctx, mayManageSettings(), "op-status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fresh: not yet unanswered, because a fetcher may be about to take it.
+	status, err = store.RangeRefreshStatus(ctx, mayManageSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Unanswered() {
+		t.Error("a request written a moment ago is already called unanswered; a " +
+			"fetcher polls every thirty seconds and has not had its turn")
+	}
+
+	if _, err := testdb.Admin(t).Exec(ctx, `
+		UPDATE ip_range_refresh_requests SET requested_at = now() - interval '1 hour'
+		WHERE id = $1`, req.ID); err != nil {
+		t.Fatal(err)
+	}
+	status, err = store.RangeRefreshStatus(ctx, mayManageSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !status.Unanswered() {
+		t.Error("an hour-old pending request is not reported as unanswered, so the " +
+			"page shows a spinner where a sentence belongs")
+	}
+}
+
+// TestTheQueueIsSweptByHousekeeping.
+//
+// The plan's standing warning, applied to this table too: a sweep with
+// no caller is the failure that stays green.
+//
+// Swept by the panel here rather than by the fetcher - the opposite of
+// ip_range_fetches - and the reason is in Report: these rows accumulate
+// on deployments where nothing is fetching, which is exactly where the
+// fetcher is not running to sweep them.
+func TestTheQueueIsSweptByHousekeeping(t *testing.T) {
+	store := refreshStore(t)
+	ctx := context.Background()
+	admin := testdb.Admin(t)
+
+	seed := func(state string, age time.Duration) {
+		if _, err := admin.Exec(ctx, `
+			INSERT INTO ip_range_refresh_requests
+			  (requested_at, actor_kind, actor_label, state, finished_at)
+			VALUES (now() - $1::interval, 'user', 'eski@example.invalid', $2, now())`,
+			seconds(age), state); err != nil {
+			t.Fatalf("seeding a %s row aged %v: %v", state, age, err)
+		}
+	}
+	seed("succeeded", rangeRefreshRetention+24*time.Hour)
+	seed("failed", rangeRefreshRetention+24*time.Hour)
+	seed("succeeded", time.Hour)
+
+	rep, err := store.Housekeeping(ctx)
+	if err != nil {
+		t.Fatalf("Housekeeping: %v", err)
+	}
+	if rep.RangeRefreshRequests != 2 {
+		t.Errorf("housekeeping removed %d refresh requests, want the two past %v",
+			rep.RangeRefreshRequests, rangeRefreshRetention)
+	}
+
+	var left int
+	if err := admin.QueryRow(ctx,
+		`SELECT count(*) FROM ip_range_refresh_requests`).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 1 {
+		t.Errorf("%d rows left, want the one inside retention", left)
+	}
+}
+
+// TestTheSweepLeavesAnInFlightRequestAlone.
+//
+// A pending row is waiting for a fetcher and a running one is being
+// worked on. Deleting either frees the in-flight slot underneath
+// whoever holds it, so a second refresh could start on top of the first.
+func TestTheSweepLeavesAnInFlightRequestAlone(t *testing.T) {
+	store := refreshStore(t)
+	ctx := context.Background()
+
+	if _, err := testdb.Admin(t).Exec(ctx, `
+		INSERT INTO ip_range_refresh_requests
+		  (requested_at, actor_kind, actor_label, state)
+		VALUES (now() - interval '400 days', 'user', 'cok@eski.invalid', 'running')`); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := store.PurgeOldRangeRefreshRequests(ctx)
+	if err != nil {
+		t.Fatalf("PurgeOldRangeRefreshRequests: %v", err)
+	}
+	if removed != 0 {
+		t.Error("the sweep removed a running request. The fetcher holding it may " +
+			"still be downloading, and the freed slot lets a second refresh start " +
+			"on top of the first")
 	}
 }

@@ -38,6 +38,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
@@ -70,6 +71,10 @@ var InOrder = []File{
 	{"internal/retention/schema.sql", retention.SchemaSQL},
 	{"internal/logsink/schema.sql", logsink.SchemaSQL},
 	{"internal/upgrade/schema.sql", upgrade.SchemaSQL},
+	// The refresh queue, after asnlookup: its comments point at
+	// ip_range_fetches and a reader applying these in order should meet
+	// the table before the queue that fills it.
+	{"internal/rangerefresh/schema.sql", rangerefresh.SchemaSQL},
 	// Last of all: what this records is "everything above was applied".
 	{"internal/schemaver/schema.sql", schemaver.SchemaSQL},
 }

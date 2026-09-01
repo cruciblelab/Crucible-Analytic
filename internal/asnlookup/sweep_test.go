@@ -28,30 +28,65 @@ import (
 // What the plan was actually protecting is not the file, it is the
 // property, and the property is checked here instead.
 
-// TestEverySweepIsReachableFromRun.
+// periodicDuties are the things Run exists to do, with what stops if it
+// stops doing each.
+//
+// The half that can be wrong on purpose, so every entry carries why -
+// the same rule internal/invariants' listeningPackages and the CLA
+// exemptions follow. Adding a line here is the moment somebody reads
+// what a duty owes the deployment.
+//
+// # Why a list at all, when PurgeOld* is derived
+//
+// Sweeps have a name shape, so they can be found. The other duties do
+// not, and the alternative to naming them is naming nothing - which is
+// where this test started and what it missed: emptying Run's
+// request-poll case left every test in this repository green while the
+// M3 button silently stopped working. Measured, by doing exactly that.
+var periodicDuties = map[string]string{
+	"refresh": "the range tables go stale, and every lookup keeps answering " +
+		"from whatever was loaded at startup",
+	"sweep": "ip_range_fetches grows without bound; the first symptom is a full disk",
+	"answerRequests": "the panel's refresh button writes a row nobody reads, so it " +
+		"queues a request, shows it waiting, and expires it a few minutes later",
+}
+
+// TestRunReachesEveryPeriodicDuty.
 //
 // Both halves read from the source, so neither can be quietly satisfied:
-// adding a PurgeOld* method fails this until Run reaches it, and
-// deleting the call from Run fails it until the method goes too.
+// adding a PurgeOld* method fails this until Run reaches it, deleting a
+// call from Run fails it until the duty goes too, and a duty named here
+// that no longer exists fails it as a stale entry.
 //
-// Reachability rather than a direct call, because the call is one hop
+// Reachability rather than a direct call, because some calls are one hop
 // away on purpose - Run calls sweep, sweep calls PurgeOldFetches - and a
-// test that demanded a direct call would be a test that dictates the
-// shape of the code rather than its behaviour.
-func TestEverySweepIsReachableFromRun(t *testing.T) {
+// test that demanded a direct call would dictate the shape of the code
+// rather than its behaviour.
+func TestRunReachesEveryPeriodicDuty(t *testing.T) {
 	calls, methods := packageCallGraph(t)
 
-	var sweeps []string
+	// The derived half: anything shaped like a sweep.
+	duties := map[string]string{}
 	for name := range methods {
 		if strings.HasPrefix(name, "PurgeOld") {
-			sweeps = append(sweeps, name)
+			duties[name] = "a sweep with no caller does not bound its table: the rows " +
+				"accumulate, every test stays green, and the first symptom is a full disk"
 		}
 	}
-	sort.Strings(sweeps)
-	if len(sweeps) == 0 {
-		t.Fatal("no PurgeOld* method found on *Resolver; this test would pass by " +
-			"checking nothing, which is how it would look on the day somebody " +
-			"renamed the sweep")
+	if len(duties) == 0 {
+		t.Fatal("no PurgeOld* method found on *Resolver; the derived half of this " +
+			"test would check nothing, which is how it would look on the day " +
+			"somebody renamed the sweep")
+	}
+
+	// And the named half.
+	for name, why := range periodicDuties {
+		if !methods[name] {
+			t.Errorf("periodicDuties names (*Resolver).%s and no such method exists. "+
+				"A stale entry is a duty this test believes is covered and is not", name)
+			continue
+		}
+		duties[name] = why
 	}
 
 	reached := reachableFrom("Run", calls)
@@ -61,12 +96,19 @@ func TestEverySweepIsReachableFromRun(t *testing.T) {
 			"against an empty set")
 	}
 
-	for _, sweep := range sweeps {
-		if !reached[sweep] {
+	var names []string
+	for name := range duties {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		if !reached[name] {
 			t.Errorf("(*Resolver).%s is defined and Run never reaches it.\n"+
-				"A sweep with no caller does not bound its table: the rows "+
-				"accumulate, every test stays green, and the first symptom is a "+
-				"full disk. PLAN.md's M2 says this in advance.", sweep)
+				"What stops when it does not run: %s.\n"+
+				"Run is the only entry point a service has, so a duty it does not "+
+				"reach is a duty no deployment performs - however many tests call "+
+				"it directly.", name, duties[name])
 		}
 	}
 }

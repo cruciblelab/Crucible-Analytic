@@ -327,3 +327,19 @@ GRANT SELECT, INSERT, TRUNCATE ON ip_asn_ranges, ip_country_ranges
 -- a success.
 GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO collector, beacon_writer;
 GRANT SELECT ON ip_range_fetches TO panel_user;
+
+-- The refresh queue (M3): the panel asks, whoever fetches answers.
+--
+-- The same split panel_upgrade_requests makes, one table over. Neither
+-- side holds both rights, so a compromised panel can ask for a refresh -
+-- a button any entitled customer can press anyway - and cannot write
+-- "succeeded" on a refresh that never happened.
+--
+-- DELETE is the panel's and not the fetchers', which is not symmetry
+-- being broken for convenience. asn_lookup is off by default, so on most
+-- deployments nothing is polling this table at all; the panel is the
+-- side still running when a request goes unclaimed, and the in-flight
+-- index would otherwise turn one press into a permanently dead button.
+-- internal/rangerefresh.ExpireStale is what uses it.
+GRANT SELECT, INSERT, DELETE ON ip_range_refresh_requests TO panel_user;
+GRANT SELECT, UPDATE ON ip_range_refresh_requests TO collector, beacon_writer;

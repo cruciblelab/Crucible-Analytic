@@ -9,6 +9,48 @@ yapacağım".
 
 ---
 
+## v0.13.0+M3 — 2026-09-01
+
+Elle yenileme düğmesi: *Sağlık* sayfasında "şimdi yenile", ve altında son
+çekimlerin sonucu.
+
+**Şema sürümü: 5** *(4'ten yükseldi)*. **Kuran kişinin yapması gereken:
+yükseltmeyi uygulayın** — panelde *Sağlık → Yükselt* düğmesi, ya da
+`install.sh`'ı yeniden koşturun. Uygulamazsanız hiçbir şey durmaz; yalnız
+yenileme düğmesi çalışmaz.
+
+### Ne var
+
+**Panel dışarı hiçbir bağlantı açmıyor, ve açmayacak.** Düğme bir satır
+yazıyor; çeken servis (collector ya da beacon, hangisinde `asn_lookup`
+açıksa) otuz saniyede bir bakıyor, alıyor, zaten yapmayı bildiği
+yenilemeyi yapıyor ve sonucu geri yazıyor. L3'ün deseninin aynısı, bir
+tablo ötede — sebebi de aynı: müşterinin tarayıcısının ulaştığı sürecin
+dışarı istek atması, tam olarak atmaması gereken yerde bir SSRF yüzeyi
+olurdu.
+
+**İki kez basmak iki çekim başlatmıyor.** Kısmi tekil indeks, uygulama
+mantığı değil: engellenmek istenen şey iki isteğin *aynı anda* "hiçbir
+şey koşmuyor" diye karar vermesi, ve önce bakıp sonra yazan bir kontrol
+bunu hiç engellemez.
+
+**Sonuç ekranda.** Düğmenin altında her veri kümesi dosyasının son
+denemesi: ne zaman, kaç satır, kaç bayt, tamam mı düştü mü, ve düştüyse
+hata zinciri. M2'nin kaydı, nihayet bir sayfada.
+
+**Geliştirici parolası istemiyor, ve bu bilinçli.** Kuralımız "geliştiriciye
+iş çıkarabilen şeyler parolanın arkasında" — bu hiç kimseye iş
+çıkarmıyor: müşterinin kendi sunucusuna, kendi hattından, iki kamuya açık
+dosyayı yeniden indiriyor. Ayarları değiştirebilen basabilir.
+
+**"Kimse dinlemiyorsa" durumu bir cümleyle söyleniyor.** `asn_lookup`
+varsayılan olarak kapalı, yani çoğu kurulumda bu kuyruğu yoklayan hiçbir
+şey yok. İstek birkaç dakika sonra kendiliğinden düşüyor ve sayfa bunun
+sebebini yazıyor — yoksa hiç kımıldamayan bir satır, panelin bozuk
+olduğu anlamına gelirdi.
+
+---
+
 ## v0.12.0+M2 — 2026-09-01
 
 Çekim kaydı: hangi veri kümesi ne zaman çekildi, kaç satır, kaç bayt, ve
