@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **4/5** | N3 gecelik yeşil, N5 /var/lib bölünmesi |
+| **N** Kurulumun ikinci yolu | 🟡 **4/6** | N3 gecelik yeşil, N6 /var/lib bölünmesi |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4148,6 +4148,47 @@ yokluğudur, ve dışarıdan ikisi aynı görünür.**
 `TestTheImageCarriesEverySchemaFile` iki yönlü ayna: Dockerfile'ın
 `COPY` satırları bir tarafta, `schemafiles.InOrder` öbür tarafta, sıra
 dâhil. Üç mutasyonla sınandı.
+
+---
+
+#### N6 — `/var/lib` bölünmesi: bot verisi hiçbir systemd kurulumunda yazılamıyor ⬜
+
+**Ne:** N1'in düzelttiği kusurun birebir aynısı, bir dizin ötede.
+
+| yol | nerede |
+|---|---|
+| `/var/lib/crucible-analytic` | `install.sh`'ın `STATE_DIR` varsayılanı, `crucible-collector.service`'in `ReadWritePaths`'i |
+| `/var/lib/crucible` | **`config.example.toml:219`, açık satır**, `Dockerfile`, `docker/compose.yml` (üç kez), `KURULUM.md`, iki yorumlu örnek |
+
+`config.example.toml` şunu diyor:
+
+    path = "/var/lib/crucible/known_bots.json"
+
+Birim ise `ProtectSystem=strict` ve `ReadWritePaths=/var/log/crucible-analytic
+/var/lib/crucible-analytic`. Yani systemd kurulumunda collector o dosyayı
+**yazamaz.**
+
+**Neden N1'den daha sinsi:** panel ölüyordu, bu ölmüyor. Bot verisi bir
+önbellek, o yüzden collector uyarı yazıp devam ediyor:
+
+    "bot data has never been fetched; the known-bot signal is off"
+    path=/var/lib/crucible/known_bots.json
+
+Ve o cümle **yanlış bir şey söylüyor**: "hiç çekilmedi" diyor, oysa
+doğrusu "çekemiyorum, oraya yazamam". Müşteri `-update-bot-data`'yı
+koşturur, yine çekilmemiş görünür, ve bilinen-bot sinyali sessizce kapalı
+kalır. **D3'ün bir yarısı, her systemd kurulumunda kapalı.**
+
+**Neden hemen yapılmadı:** N5 düzeltmesi hattayken ikinci bir yeniden
+adlandırmaya girmek, bugün üç kez ödenen bedelin aynısı olurdu — ve
+`docker/compose.yml`'ın bağlama yolları da değişiyor, yani gecelik
+sonucunu beklemek gerekiyor.
+
+**Bitti ölçütü:** `/var/lib` için de tek aile; `TestOneLogDirectoryFamily`
+kardeşi ya da genelleştirilmiş hâli; ve **hata mesajı düzelmiş** —
+yazamadığında "hiç çekilmedi" demeyen bir collector. İkincisi kod
+düzeltmesinden ayrı ve ondan önemli: yanlış teşhis koyan bir mesaj,
+kusuru kullanıcının eline verir.
 
 ---
 
