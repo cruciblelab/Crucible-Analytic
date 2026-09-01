@@ -252,6 +252,20 @@ func (s *Server) renderSetupNeeded(w http.ResponseWriter, r *http.Request, lang 
 		s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
 		return
 	}
+	// C8: the deployment's standing answer, on the page a refused
+	// developer actually lands on.
+	//
+	// Drawn for every visitor to this page and not only for a refusal,
+	// and that is what makes it safe. The rule above - every failure is
+	// the same page, because distinguishing them would confirm to
+	// somebody guessing that a token had once been real - still holds:
+	// this sentence describes the *deployment*, not the token, so an
+	// unknown token and an expired one and a denied one all read
+	// identically. What changes is that "why can't I get in" now has an
+	// answer, which was C8's other half. A policy that refuses silently
+	// looks exactly like a deployment nobody can reach.
+	policy := s.Store.DevAccessPolicyFor(r.Context())
+
 	s.Renderer.Render(w, r, status, "kurulum_gerekli", &ui.Page{
 		L:       lang,
 		Title:   lang.T("kurulum.gerekli.baslik"),
@@ -260,9 +274,11 @@ func (s *Server) renderSetupNeeded(w http.ResponseWriter, r *http.Request, lang 
 		Data: struct {
 			FirstRun bool
 			Command  string
+			Policy   string
 		}{
 			FirstRun: users == 0,
 			Command:  "panel -config " + s.ConfigPath + " -dev-link",
+			Policy:   lang.T(devAccessPolicyMessage[policy.Mode]),
 		},
 	})
 }
@@ -858,4 +874,20 @@ func (s *Server) absoluteURL(r *http.Request, path string) string {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host + path
+}
+
+// devAccessPolicyMessage maps a resolved policy to the sentence shown on
+// the refusal page.
+//
+// A map of literal keys rather than "politika_" + mode, which is what
+// this was first. The catalogue check reads the source for the keys it
+// uses, so a key assembled at runtime is invisible to it - it reported
+// all three as dead and would have said nothing at all had one of them
+// been missing from the messages file. The composed version also renders
+// an empty paragraph for any mode nobody wrote a sentence for, which is
+// the failure the whole page exists to avoid.
+var devAccessPolicyMessage = map[string]string{
+	panel.DevAccessAsk:  "kurulum.gerekli.politika_ask",
+	panel.DevAccessDeny: "kurulum.gerekli.politika_deny",
+	panel.DevAccessOpen: "kurulum.gerekli.politika_open",
 }

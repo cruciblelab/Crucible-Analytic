@@ -7874,3 +7874,77 @@ kaldırıldı. Sonuç, kilidin engellediği asıl bozulma:
 **Bir mutasyonun kırmızı vermesi, doğru şeyi bozduğunu kanıtlamaz.** Bu
 oturumda ölçtüğünü sanan dördüncü şey bu oldu — ve bu sefer sanan bendim,
 test değil.
+
+---
+
+## C8 — Kuralın tersine işlediği tek yer, ve iki gerilim
+
+Geliştirici erişim politikası artık müşterinin: *onay bekle*, *doğrudan
+reddet*, ya da bir bitiş zamanına kadar *geçici olarak açık*.
+
+### Kural neden burada ters çalışıyor
+
+Projenin kuralı: **geliştiriciye iş çıkarabilen her şey geliştirici
+parolasının arkasında.** Sebebi, müşterinin kendine yetki verip
+başkasına iş çıkarmasını engellemek.
+
+Bu ayar tam tersi yönde: müşteri kendini koruyor. Parolanın arkasına
+koymak, korumayı korunacak kişinin elinden almak olurdu — ve
+ulaşamadığın bir koruma koruma değildir. Kuralı çiğnemiyor, kuralın
+gerekçesini uyguluyor.
+
+Bir şeyi de açıkça yazdım: **bu gerçek bir kilit değil.** Sunucuya kabuk
+erişimi olan biri zaten içeride. Kilit sandığı şey kilit olmayan bir
+müşteri, kilit olduğunu sandığı için başka bir önlem almaz — o yüzden
+ayarın kendi açıklaması bunu söylüyor.
+
+### Birinci gerilim: "sebebi ekranda yazsın" ile numaralandırma
+
+C8 diyor ki *"neden giremiyorum" sorusunun cevabı ekranda durmalı*. Ama
+o sayfanın yazılı bir kuralı vardı, ve haklı: **her başarısızlık aynı
+sayfayı gösterir** — bilinmeyen, süresi dolmuş, kullanılmış, reddedilmiş
+— çünkü ayırmak, tahmin eden birine jetonunun bir zamanlar gerçek
+olduğunu doğrulardı.
+
+İki şart çelişiyor gibi duruyor. Çözüm ayrımın nerede olduğunu görmekten
+geçiyordu: **politika jetonun değil kurulumun özelliği.** Cümle her
+ziyaretçiye, geçerli geçersiz ayrımı yapmadan yazılıyor. Bilinmeyen bir
+jetonla reddedilmiş bir jeton hâlâ birebir aynı sayfayı görüyor; değişen
+tek şey, sayfanın artık *kurulumun* ne yaptığını söylemesi.
+
+### İkinci gerilim: `auto_approved` bayrağını yeniden kullanma tuzağı
+
+`open` politikası isteği onaylıyor. En kolay yol, var olan
+`auto_approved` bayrağını kullanmaktı. **Sessizce bozulurdu:** o bayrak
+"sahip yokken verildi" demek ve `RedeemDevAccess` bir hesap var olur
+olmaz o satırları öldürüyor. Yani politika onayı, sahibinin bilerek evet
+dediği tek durumda, doğduğu anda ölü bir bağlantı üretecekti.
+
+Testi bunun üstüne yazdım (`req.AutoApproved` yanlış olmalı **ve**
+bağlantı gerçekten kullanılabilmeli), ve mutasyon doğruladı: bayrağı
+yeniden kullanan sürüm kırmızıya dönüyor.
+
+### Ölçtüğünü sanan beşinci şey — bu sefer yine bendim
+
+"Ask'e dönerken pencere temizleniyor" testi, temizlemeyi hiç
+çalıştırmıyordu: çağrıda pencereyi zaten boş geçiyordum, yani temizleyen
+kod hiç koşmadan test yeşil geliyordu. Mutasyon (`if false`) yakaladı.
+Düzeltilmiş hâli formun gerçekte yaptığını yapıyor — açılır menü "ask"e
+geçiyor, kutu geçen haftaki zaman damgasını hâlâ taşıyor.
+
+### İki aynanın yakaladığı iki hata
+
+Kendi yazdığım aynalar bu fazda bana iki kez "hayır" dedi:
+
+1. **`Live: true`** koymuştum. M1'de kurduğum ayna reddetti: `Live`, bir
+   *servisin* `internal/settings` üzerinden yeniden başlatmadan okuduğu
+   ayar demek. Bunu okuyan panel, servis değil. Bayrak müşteriye
+   collector ve beacon hakkında bu ayarla ilgisi olmayan bir söz
+   veriyordu.
+2. **Mesaj anahtarını çalışma anında birleştirmiştim**
+   (`"politika_" + mode`). Ölü-katalog testi üçünü de kullanılmamış
+   saydı — ve asıl mesele şu: eksik bir çeviri de aynı sebeple
+   yakalanamazdı, sayfa boş bir paragraf çizerdi. Kapalı bir eşlemeye
+   çevrildi.
+
+**Bir ayna, onu yazan kişiye de "hayır" diyebiliyorsa aynadır.**

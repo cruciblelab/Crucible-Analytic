@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | 🟡 **11/12** | C8 geliştirici erişim politikası |
+| **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
 | **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -170,8 +170,8 @@ geçer.
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
-| 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ → **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
-| 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
+| 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
+| 6 | **A3 → A2 → D5** ← **sıradaki** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
@@ -822,15 +822,29 @@ kapandı.
 
 ---
 
-#### A5 — Ayarları TOML'dan veritabanına taşı ⚠️ **en kritik madde**
+#### A5 — Ayarları TOML'dan veritabanına taşı ✅ **yapıldı** *(A5.1 + A5.2)*
 
 **Ne:** Operasyonel anahtarları yapılandırma dosyasından `panel_settings`
 tablosuna taşımak.
 
-**Neden kritik:** Aşağıdaki 39 operasyonun tamamı, "çalışırken
-değiştirilebilir ayar" varsayar. Bugün bu doğru değil. A5 yapılmazsa
-onarım kataloğu bir kâğıt parçası olarak kalır ve gerçek prosedür hâlâ
-`ssh` + `vim` + `systemctl restart` olur.
+**Neden kritikti:** Aşağıdaki 39 operasyonun tamamı, "çalışırken
+değiştirilebilir ayar" varsayar. A5 yapılmasaydı onarım kataloğu bir
+kâğıt parçası olarak kalır ve gerçek prosedür hâlâ `ssh` + `vim` +
+`systemctl restart` olurdu.
+
+**Bitti ölçütü değişti, ve bunun kaydı burada durmalı.** Bu madde
+"`collector.example.toml` sekiz anahtara inmiş" diyordu; inmedi, bugün 27
+anahtar var. Ölçütü A5.2 bilerek daralttı — kalan alanlar okununca ikiye
+ayrıldılar, bir kısmını çalışan süreç değiştiremiyor, ve ikisini aynı
+listeye koymak müşteriye değiştiremeyeceği bir ayarı değiştirebilirmiş
+gibi göstermek olurdu. Taşınan dört anahtar "kolay olan" değil "destek
+çağrısının gerçekten istediği" ölçütüyle seçildi.
+
+Üst başlık uzun süre ✅ almadan ⚠️ **en kritik madde** olarak durdu, yani
+**plan bitmiş bir işi bitmemiş gösterdi** — ve bu, bir risk taramasında
+gerçekten yanlış cevap verdi. Bir maddenin kapsamı daralırsa, daralma
+maddenin kendisine yazılmalı; alt maddede kalırsa üst başlık yalan
+söylemeye devam eder.
 
 **Dosyada kalan (8 anahtar):**
 
@@ -4920,7 +4934,7 @@ o görevi hiçbir kurulum yapmıyor demektir.
 
 ---
 
-#### C8 — Geliştirici erişim politikası, müşterinin elinde
+#### C8 — Geliştirici erişim politikası, müşterinin elinde ✅ **yapıldı** *(2026-09-01)*
 
 *(C grubuna ait ama burada duruyor çünkü aynı konuşmada karara bağlandı.)*
 

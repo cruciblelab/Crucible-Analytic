@@ -653,6 +653,29 @@ verdiği kilit. Üretimde kullanılan anahtarlar burada durur;
 `internal/testdb`'dekiler yalnız test paketlerini birbirinden ayırır ve
 hiçbir dağıtımda görünmez.
 
+**geliştirici erişim politikası** (`access.developer`) — Geliştirici
+panele girmek istediğinde ne olacağı: *onay bekle* (varsayılan),
+*doğrudan reddet*, ya da bir bitiş zamanına kadar *geçici olarak açık*.
+Süresi geçen bir pencere reddetmeye değil **sormaya** düşüyor — diğer
+türlüsü müşteriyi kendi geliştiricisinden, ona en çok ihtiyaç duyduğu
+anda ayırırdı.
+
+Geliştirici parolası **istemez**, ve bu projenin kuralına aykırı değil
+tersidir: parola kuralı, müşterinin kendine yetki verip geliştiriciye iş
+çıkarmasını engellemek için. Burada müşteri kendini koruyor, ve
+ulaşamadığı bir koruma koruma değildir.
+
+**Gerçek bir kilit de değil.** Sunucuya kabuk erişimi olan biri zaten
+içeride; kapanan yalnız panelin kapısı. Ayarın kendi açıklaması bunu
+yazıyor, çünkü kilit sandığı şey kilit olmayan bir müşteri, kilit
+olduğunu sandığı için başka bir önlem almaz.
+
+Karar hem denetim kaydına hem de reddedilen geliştiricinin gördüğü
+sayfaya yazılır. O sayfa politikayı **her ziyaretçiye** yazar, bağlantısı
+geçerli olsun olmasın: cümle jetonu değil kurulumu anlattığı için
+bilinmeyen bir jetonla süresi dolmuş bir jeton aynı sayfayı görür, yani
+sayfa kimseye jetonunun bir zamanlar gerçek olduğunu doğrulamaz.
+
 **şema kilidi** (`dblock.SchemaApply`) — Bir uygulama boyunca tutulur:
 şemanın içinde aynı anda tek uygulayıcı. `lock_timeout`'tan *sonra*
 alınır, yani ikinci uygulayıcı 250 ms bekler ve alamazsa 55P03 ile zaten

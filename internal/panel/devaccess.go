@@ -118,19 +118,57 @@ func (s *Store) RequestDevAccess(ctx context.Context, reason string, requestTTL,
 	}
 	token := base64.RawURLEncoding.EncodeToString(raw)
 
+	// The owner's standing answer, read before the write. C8: a
+	// deployment can refuse or admit without anybody being at the
+	// keyboard.
+	//
+	// Read separately rather than folded into the INSERT below, unlike
+	// the bootstrap test. That test races account creation and has to be
+	// atomic with the write; this one races nothing - a policy changed in
+	// the same millisecond is a policy the owner set for the next
+	// request, and either answer is defensible.
+	policy := s.DevAccessPolicyFor(ctx)
+
 	var req DevAccessRequest
 	// The "is anyone here yet" test is a subquery inside the INSERT
 	// rather than a separate SELECT, so an account being created at the
 	// same moment cannot land between the check and the write.
+	//
+	// Bootstrap still wins over the policy, and it has to: before an
+	// account exists there is nobody the policy could belong to, and a
+	// default of "ask" would leave the installer holding a request with
+	// no one to answer it.
+	//
+	// An open policy approves without setting auto_approved, which is
+	// not a detail. That column means "granted because nobody owned this
+	// yet", and RedeemDevAccess kills such a row the moment an account
+	// exists - so reusing it here would mint a link that is dead on
+	// arrival, in the one case where the owner deliberately said yes.
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO panel_dev_access
-		  (sha256, reason, request_expires_at, session_ttl_seconds, approved_at, auto_approved)
+		  (sha256, reason, request_expires_at, session_ttl_seconds,
+		   approved_at, auto_approved, approved_label, denied_at)
 		SELECT $1, $2, now() + $3::interval, $4,
-		       CASE WHEN NOT EXISTS (SELECT 1 FROM panel_users) THEN now() END,
-		       NOT EXISTS (SELECT 1 FROM panel_users)
-		RETURNING id, reason, requested_at, request_expires_at, session_ttl_seconds, approved_at, auto_approved`,
+		       CASE
+		         WHEN NOT EXISTS (SELECT 1 FROM panel_users) THEN now()
+		         WHEN $5 = 'open' THEN now()
+		       END,
+		       NOT EXISTS (SELECT 1 FROM panel_users),
+		       CASE
+		         WHEN EXISTS (SELECT 1 FROM panel_users) AND $5 = 'open'
+		         THEN $6
+		         ELSE ''
+		       END,
+		       CASE
+		         WHEN EXISTS (SELECT 1 FROM panel_users) AND $5 = 'deny'
+		         THEN now()
+		       END
+		RETURNING id, reason, requested_at, request_expires_at, session_ttl_seconds,
+		          approved_at, auto_approved, denied_at`,
 		hashToken(token), reason, seconds(requestTTL), int(sessionTTL.Seconds()),
-	).Scan(&req.ID, &req.Reason, &req.RequestedAt, &req.RequestExpiresAt, &req.SessionTTL, &req.ApprovedAt, &req.AutoApproved)
+		policy.Mode, devAccessPolicyLabel,
+	).Scan(&req.ID, &req.Reason, &req.RequestedAt, &req.RequestExpiresAt, &req.SessionTTL,
+		&req.ApprovedAt, &req.AutoApproved, &req.DeniedAt)
 	if err != nil {
 		return "", DevAccessRequest{}, fmt.Errorf("panel: store developer access request: %w", err)
 	}
@@ -154,6 +192,11 @@ func (s *Store) RequestDevAccess(ctx context.Context, reason string, requestTTL,
 			"reason":        req.Reason,
 			"expires_at":    req.RequestExpiresAt,
 			"auto_approved": req.AutoApproved,
+			// What the deployment's standing answer did to this request,
+			// recorded beside the request itself. Otherwise a reader a
+			// year later sees a request that was denied within the same
+			// second and no reason anywhere for it.
+			"policy": policy.Mode,
 		},
 	}
 	if err := s.Record(ctx, entry); err != nil {
@@ -468,3 +511,12 @@ func hashToken(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
 }
+
+// devAccessPolicyLabel is what approved_label says when the policy let
+// somebody in rather than a person did.
+//
+// A fixed marker rather than an owner's name, because no owner was
+// asked. The page that lists past requests draws this, and writing a
+// name there would put a person's consent on a decision they were not
+// present for.
+const devAccessPolicyLabel = "erişim politikası: açık"

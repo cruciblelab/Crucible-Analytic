@@ -32,6 +32,15 @@ const (
 	// nobody consented to it - there was nobody to ask - and that
 	// difference should be visible forever afterwards.
 	ActionDevAccessBootstrap = "dev_access.bootstrap"
+	// ActionDevAccessPolicySet records the owner deciding what happens
+	// to future requests, as opposed to deciding one of them.
+	//
+	// Its own action because it is the only entry in this group written
+	// by somebody who is not answering a particular request - and
+	// because "why was I refused in March" is a question the individual
+	// refusals cannot answer on their own. A policy nobody can see the
+	// history of is a policy the owner cannot be held to, or defended by.
+	ActionDevAccessPolicySet = "dev_access.policy_set"
 
 	ActionPasswordChanged  = "account.password_changed"
 	ActionTOTPEnabled      = "account.totp_enabled"

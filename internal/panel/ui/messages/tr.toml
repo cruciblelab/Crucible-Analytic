@@ -180,6 +180,9 @@ ilk = "Bu kurulumda henüz hiç hesap yok. Giriş yapılacak bir yer olmadığı
 baglanti = "Bu bölüme yalnızca tek kullanımlık bir geliştirici bağlantısıyla girilebilir."
 komut = "Sunucuda şu komutu çalıştırın; ekrana bir bağlantı yazacak:"
 tek_kullanim = "Bağlantı tek kullanımlıktır, süre sınırlıdır, ve kullanıldığı adres kayda geçer. Hesap oluşturulduğu anda bu bağlantıların otomatik onayı sona erer — sonrasında sahibin onayı gerekir."
+politika_ask = "Bu kurulumun geliştirici erişim politikası: onay bekle. Bağlantı istendiğinde sahibinin onaylaması gerekir."
+politika_deny = "Bu kurulumun geliştirici erişim politikası: doğrudan reddet. Sahibi panelden bu ayarı değiştirene kadar hiçbir geliştirici bağlantısı kabul edilmeyecek — bağlantınızın geçerli olup olmadığından bağımsız olarak."
+politika_open = "Bu kurulumun geliştirici erişim politikası şu an: geçici olarak açık."
 
 [metin.kurulum.siteler]
 bos = "En az bir site kimliği gerekiyor."
@@ -1085,3 +1088,4 @@ gizlilik = "Gizlilik ve saklama"
 sinirlar = "Sınırlar ve yük"
 tanilama = "Tanılama"
 bakim = "Bakım"
+erisim = "Erişim"

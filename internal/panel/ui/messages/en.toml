@@ -153,6 +153,9 @@ ilk = "This deployment has no accounts yet. There is nowhere to sign in, so the 
 baglanti = "This section is reachable only through a one-time developer link."
 komut = "Run this on the server; it prints a link:"
 tek_kullanim = "The link works once, expires, and the address it was used from is recorded. The moment an account exists these links stop being approved automatically - after that the owner has to approve them."
+politika_ask = "This deployment's developer access policy: wait for approval. When a link is requested, the owner has to approve it."
+politika_deny = "This deployment's developer access policy: refuse outright. No developer link will be accepted until the owner changes this setting in the panel - regardless of whether your link was valid."
+politika_open = "This deployment's developer access policy is currently: temporarily open."
 
 [metin.kurulum.siteler]
 bos = "At least one site id is required."
@@ -1045,3 +1048,4 @@ gizlilik = "Privacy and retention"
 sinirlar = "Limits and load"
 tanilama = "Diagnostics"
 bakim = "Maintenance"
+erisim = "Access"

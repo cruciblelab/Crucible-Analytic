@@ -117,6 +117,45 @@ const (
 	// Self-expiring rather than a plain toggle: verbose logging left on
 	// because somebody forgot is the way the disk fills.
 	KeyLogVerboseUntil Key = "logs.verbose_until"
+
+	// KeyDevAccessPolicy is what happens when the developer asks to come
+	// in: wait for the owner, refuse outright, or let them in.
+	//
+	// The customer's to set, which is the opposite of this project's
+	// usual rule. "Anything that can make work for the developer sits
+	// behind the developer password" exists so a customer cannot grant
+	// themselves authority and then bill somebody for the consequences.
+	// This is the other direction entirely: the customer is protecting
+	// themselves, and a protection they cannot reach is not one.
+	//
+	// It is also not a real lock, and saying so plainly matters more
+	// than the setting does. A developer with a shell on the machine is
+	// already inside; what closes here is the panel's door, not the
+	// server's.
+	KeyDevAccessPolicy Key = "access.developer"
+
+	// KeyDevAccessOpenUntil is when an "open" policy stops being open.
+	// An RFC3339 timestamp, empty when not open.
+	//
+	// The same shape as KeyLogVerboseUntil and for the same reason, one
+	// notch more serious: a door propped open because somebody meant to
+	// close it after the call is the failure this whole phase is about.
+	// An expired or missing timestamp falls back to asking the owner
+	// rather than to refusing - the safe direction here is the one that
+	// still lets a decision be made, not the one that locks everybody
+	// out of their own deployment.
+	KeyDevAccessOpenUntil Key = "access.developer_open_until"
+)
+
+// The developer access policies, as stored.
+const (
+	// DevAccessAsk holds the request until the owner decides. The
+	// default, and what the deployment did before this was settable.
+	DevAccessAsk = "ask"
+	// DevAccessDeny refuses on arrival, with the reason on the page.
+	DevAccessDeny = "deny"
+	// DevAccessOpen approves on arrival, until KeyDevAccessOpenUntil.
+	DevAccessOpen = "open"
 )
 
 // The settings a running service applies without a restart.
@@ -490,6 +529,11 @@ const (
 	CatTanilama Category = "tanilama"
 	// CatBakim is maintenance.
 	CatBakim Category = "bakim"
+	// CatErisim is who may reach this deployment's panel, and on whose
+	// say-so. One setting today - the developer access policy - and it
+	// is here rather than under maintenance because a customer looking
+	// for "can somebody else get in" is not looking for housekeeping.
+	CatErisim Category = "erisim"
 )
 
 // CategoryOrder is the order the page draws them in.
@@ -504,6 +548,7 @@ const (
 // setting pointing at a category that is not here both fail.
 var CategoryOrder = []Category{
 	CatGorunum, CatToplama, CatBot, CatGizlilik, CatSinirlar, CatTanilama, CatBakim,
+	CatErisim,
 }
 
 // registry is every setting this system has. Adding one is a code change
@@ -734,6 +779,49 @@ var registry = map[Key]Definition{
 		// absent from the test that binds the two lists together, so
 		// nothing looked at it at all.
 		Live: true,
+	},
+	KeyDevAccessPolicy: {
+		Key: KeyDevAccessPolicy, Scope: ScopeGlobal, Kind: KindEnum,
+		Category: CatErisim,
+		Default:  DevAccessAsk,
+		Enum:     []string{DevAccessAsk, DevAccessDeny, DevAccessOpen},
+		Label:    "Geliştirici erişimi",
+		Help: "Geliştirici panele girmek istediğinde ne olacağı. " +
+			"ask (varsayılan): istek sizin onayınızı bekler. " +
+			"deny: istek geldiği anda reddedilir ve sebebi geliştiricinin " +
+			"ekranında yazar. open: onay sorulmadan kabul edilir, ama yalnız " +
+			"aşağıdaki bitiş zamanına kadar — zaman geçince kendiliğinden " +
+			"ask'e döner. " +
+			"Bunun gerçek bir kilit olmadığını bilerek söylüyoruz: sunucuya " +
+			"kabuk erişimi olan biri zaten içeride, burada kapanan yalnız " +
+			"panelin kapısı.",
+		// Not RequiresDeveloperPassword, and that is the phase's whole
+		// point rather than an omission. The password rule protects the
+		// developer from work the customer gives themselves authority to
+		// create; this setting runs the other way, and a protection its
+		// owner cannot reach is not a protection.
+		//
+		// Not Live either, which reads wrong at first and is not: the
+		// change does take effect on the very next request. Live means
+		// something narrower - that a *service* re-reads the value
+		// through internal/settings without a restart - and this is read
+		// by the panel, on the request that needs it, which is neither.
+		// Marking it Live was the first version and the mirror test in
+		// settings_integration_test.go refused it, correctly: the flag
+		// promises the customer something about collector and beacon
+		// that has nothing to do with this setting.
+	},
+	KeyDevAccessOpenUntil: {
+		Key: KeyDevAccessOpenUntil, Scope: ScopeGlobal, Kind: KindString,
+		Category: CatErisim,
+		Default:  "",
+		Label:    "Geliştirici erişimi açık kalma bitişi",
+		Help: "Yalnız yukarısı open iken anlamlı. RFC3339 zaman damgası; boş " +
+			"bırakılırsa ya da zamanı geçmişse politika ask gibi davranır. " +
+			"Kalıcı olarak açık bırakılamamasının sebebi bu: destek çağrısı " +
+			"bitince kapatmayı unutmak, bu ayarın var olma sebebinin kendisi.",
+		Check: checkOpenUntil,
+		// Not Live, for the reason written out above.
 	},
 	KeyPrivacyIPStorage: {
 		Key: KeyPrivacyIPStorage, Scope: ScopeGlobal, Kind: KindEnum,
@@ -1447,6 +1535,32 @@ func checkTimezone(value any) error {
 	}
 	if _, err := time.LoadLocation(name); err != nil {
 		return fmt.Errorf("%q is not a timezone this machine knows (try Europe/Istanbul)", name)
+	}
+	return nil
+}
+
+// checkOpenUntil accepts an empty string or an RFC3339 timestamp.
+//
+// Validated on the way in rather than shrugged at on the way out, which
+// is this file's rule and matters more here than usual: an unparseable
+// timestamp has to mean *something* at read time, and both answers are
+// bad. Treat it as "open" and a typo props the door open; treat it as
+// expired and the customer who typed it believes a door is open that is
+// not. Refusing it at the moment it is typed is the only reading that
+// leaves nobody misinformed.
+//
+// KeyLogVerboseUntil has no such check and should - it is the same
+// shape with the same failure. Left alone deliberately: this phase does
+// not touch logging, and a fix smuggled in beside an unrelated one is
+// how a change nobody reviewed reaches a release.
+func checkOpenUntil(value any) error {
+	text, _ := value.(string)
+	if text == "" {
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, text); err != nil {
+		return fmt.Errorf("%q bir RFC3339 zaman damgası değil "+
+			"(örnek: 2026-09-01T18:30:00+03:00)", text)
 	}
 	return nil
 }

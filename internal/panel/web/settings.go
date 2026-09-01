@@ -101,6 +101,7 @@ var categoryLabelKey = map[panel.Category]string{
 	panel.CatSinirlar: "ayarlar.kategori.sinirlar",
 	panel.CatTanilama: "ayarlar.kategori.tanilama",
 	panel.CatBakim:    "ayarlar.kategori.bakim",
+	panel.CatErisim:   "ayarlar.kategori.erisim",
 }
 
 // settingSection is one category on the page.

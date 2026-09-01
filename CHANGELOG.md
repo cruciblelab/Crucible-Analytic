@@ -9,6 +9,55 @@ yapacağım".
 
 ---
 
+## v0.14.0+C8 — 2026-09-01
+
+Geliştirici erişimi artık sizin kararınız: *onay bekle* (varsayılan),
+*doğrudan reddet*, ya da *geçici olarak açık*.
+
+**Şema sürümü: 6** — değişmedi. **Kuran kişinin yapması gereken: yok.**
+Hiçbir şey değiştirmezseniz sistem bugüne kadarki gibi davranır —
+varsayılan zaten "onay bekle".
+
+### Ne var
+
+**Ayarlar → Erişim.** Yeni bir bölüm, tek ayarla. Geliştirici panele
+girmek istediğinde ne olacağını siz seçiyorsunuz:
+
+| seçenek | ne olur |
+|---|---|
+| `ask` (varsayılan) | İstek sizin onayınızı bekler. Bugünkü davranış. |
+| `deny` | İstek geldiği anda reddedilir, sebebi geliştiricinin ekranında yazar. |
+| `open` | Onay sorulmadan kabul edilir — **yalnız** verdiğiniz bitiş zamanına kadar. |
+
+**`open` kalıcı olamıyor, ve bu kasıtlı.** Bitiş zamanı boşsa ya da
+geçmişse politika kendiliğinden `ask`'e döner. Destek çağrısı bitince
+kapatmayı unutmak, bu ayarın var olma sebebinin kendisi.
+
+**Süresi geçen pencere reddetmeye değil sormaya düşüyor.** Diğer türlüsü
+sizi kendi geliştiricinizden, ona en çok ihtiyaç duyduğunuz anda ayırırdı
+— ve siz bunu hiç istememiştiniz.
+
+**Geliştirici parolası istemiyor.** Kuralımız "geliştiriciye iş
+çıkarabilen şeyler parolanın arkasında"; burası tersi, siz kendinizi
+koruyorsunuz. Ulaşamadığınız bir koruma koruma değildir.
+
+**Gerçek bir kilit olmadığını açıkça söylüyoruz.** Sunucuya kabuk
+erişimi olan biri zaten içeride; burada kapanan yalnız panelin kapısı.
+Ayarın kendi açıklaması da bunu yazıyor.
+
+**Karar iki yere yazılıyor.** Denetim kaydına (kim, ne zaman, hangi
+politika, hangi bitiş zamanı) *ve* reddedilen geliştiricinin gördüğü
+sayfaya. İkincisi olmasaydı kapatılmış bir politika, kimsenin bağlantı
+kuramadığı bir arıza gibi görünürdü.
+
+O sayfa politikayı **her ziyaretçiye** yazıyor, bağlantısı geçerli olsun
+olmasın. Bilerek: cümle jetonu değil kurulumu anlatıyor, yani bilinmeyen
+bir jetonla süresi dolmuş bir jeton hâlâ birebir aynı sayfayı görüyor.
+Aksi hâlde sayfa, tahmin eden birine jetonunun bir zamanlar gerçek
+olduğunu doğrulardı.
+
+---
+
 ## v0.13.2 — 2026-09-01
 
 Aynı anda çalışan iki yükseltici birbirini eziyordu. Şema dosyalarının
