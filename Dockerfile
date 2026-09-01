@@ -134,6 +134,10 @@ COPY internal/beacon/schema.sql     /opt/crucible/schema/03-beacon.sql
 COPY internal/asnlookup/schema.sql  /opt/crucible/schema/04-asnlookup.sql
 COPY internal/heartbeat/schema.sql  /opt/crucible/schema/05-heartbeat.sql
 COPY internal/retention/schema.sql  /opt/crucible/schema/06-retention.sql
+COPY internal/logsink/schema.sql    /opt/crucible/schema/07-logsink.sql
+COPY internal/upgrade/schema.sql    /opt/crucible/schema/08-upgrade.sql
+COPY internal/rangerefresh/schema.sql /opt/crucible/schema/09-rangerefresh.sql
+COPY internal/schemaver/schema.sql  /opt/crucible/schema/10-schemaver.sql
 
 COPY config.example.toml            /opt/crucible/ornek-yapilandirma/config.example.toml
 COPY beacon.example.toml            /opt/crucible/ornek-yapilandirma/beacon.example.toml

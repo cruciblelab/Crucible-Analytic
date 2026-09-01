@@ -81,6 +81,36 @@ gosec    ... | go run ./internal/sast/cmd/sastdiff    -report gosec.json
 deadcode ... | go run ./internal/sast/cmd/deadcodediff -report deadcode.txt
 ```
 
+## The nightly, run by hand
+
+The gate does not include these; the nightly does, and the nightly is
+the only thing that runs them. Two defects hid behind that for months -
+see PLAN's N group - so they are written down here rather than left to
+whoever thinks to look at the workflow file.
+
+```
+export CA_SUPERUSER_DSN="postgres://postgres@localhost:5432/postgres"
+go test -tags e2e    -count=1 -timeout 20m ./e2e/   # the tarball install
+go test -tags docker -count=1 -timeout 30m ./e2e/   # the image and compose
+```
+
+**Behind a TLS-terminating proxy**, the image build needs the network's
+CA or `apk` cannot reach Alpine's repositories:
+
+```
+export CA_BUILD_EXTRA_CA=/path/to/ca-bundle.crt
+```
+
+The Dockerfile takes it as an optional build secret and the test passes
+`--network host` alongside it. Without the variable nothing is passed
+and the build behaves as it always did, so this costs nothing on a
+machine that does not need it.
+
+**Both of these run install.sh for real**, as whatever user you are. That
+is the point: two of the three defects the N group found were invisible
+to anybody running as root, and one of them was invisible to anybody
+whose machine had already created the directory by hand.
+
 **Copy the integration line exactly.** It used to be written here without
 `-race` and without the browser flag, while CI ran both — so a change
 could be gated locally against a weaker command than the one that

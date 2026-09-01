@@ -9,6 +9,47 @@ yapacağım".
 
 ---
 
+## v0.14.2 — 2026-09-01
+
+Konteyner kurulumları dört tablo eksik geliyordu. Docker kullanmıyorsanız
+bu sürüm sizi ilgilendirmiyor.
+
+**Şema sürümü: 6** — değişmedi. **Kuran kişinin yapması gereken:**
+Docker'daysanız **imajı yenileyin** (`docker compose pull` ya da yeniden
+`build`) ve yığını yeniden başlatın. Tarball ya da `install.sh` ile
+kurduysanız **yapacak bir şey yok.**
+
+### Ne düzeldi
+
+`Dockerfile` şema dosyalarını tek tek `COPY` ediyor — yani
+`internal/schemafiles`'daki listenin elle yazılmış bir kopyasını
+taşıyor. Kopya **altıda kalmıştı**, şema ona çıkmıştı.
+
+Eksik dördü:
+
+| tablo | ne yapar |
+|---|---|
+| `panel_logs` | panelin okuyabildiği kayıt sinki |
+| `panel_upgrade_requests` | yükseltme düğmesinin kuyruğu |
+| `ip_range_refresh_requests` | "şimdi yenile" düğmesinin kuyruğu |
+| `schema_version` | veritabanının hangi şekilde olduğu |
+
+Yüzeye çıkışı: init konteyneri 3 ile çıkıyor ve
+`relation "schema_version" does not exist` diyor — `install.sh`'ın son
+adımı, kimsenin yaratmadığı bir tabloya. Yani yığın hiç ayağa
+kalkmıyordu.
+
+**Neden bu kadar uzun sürdü:** bu dosyalar yalnız gecelik hatta
+koşuyor, ve gecelik kendi ilk işinde takılıyordu — `e2e`, `install.sh`'ı
+`--no-systemd` olmadan çağırıyordu ve betik haklı olarak reddediyordu.
+Yani bunu bildirecek olan hat, boşluk açılmadan önce başka bir sebeple
+düşüyordu. Hiç koşmayan bir koruma, zayıf bir koruma değil; korumanın
+yokluğu.
+
+Liste artık `internal/schemafiles` ile aynada tutuluyor, sıra dâhil.
+
+---
+
 ## v0.14.1 — 2026-09-01
 
 Panel, hiçbir kurulumda kendi günlük dizinini açamıyormuş. Açılışta

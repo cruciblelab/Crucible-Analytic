@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **3/4** | N3 gecelik yeşil |
+| **N** Kurulumun ikinci yolu | 🟡 **4/5** | N3 gecelik yeşil, N5 /var/lib bölünmesi |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4105,7 +4105,7 @@ yazılmıyorsa öbürleri de sorgusuz sayılmamalı.**
 
 ---
 
-#### N3 — Gecelik hattın yeşile ulaşması ⬜
+#### N3 — Gecelik hattın yeşile ulaşması 🟡 **yerelde yeşil, hatta bekleniyor**
 
 **Ne:** `nightly` hattı bugüne kadar hiç yeşil koşmadı. İlk kusuru
 (`--no-systemd` verilmemesi) düzeltildi ve arkasından N1 çıktı; N1'in
@@ -4117,6 +4117,37 @@ görülmeden bitmiş sayılmaz.
 
 **Bitti ölçütü:** `nightly` üst üste iki koşuda yeşil, ve ikisi de
 gerçekten koştu — atlanmadı.
+
+---
+
+#### N5 — Konteynerin şema listesi kısaydı ✅ **yapıldı** *(2026-09-01)*
+
+**Ne:** Dockerfile şema dosyalarını tek tek `COPY` ediyor, yani
+`internal/schemafiles`'daki listenin elle yazılmış bir kopyasını
+taşıyor. Kopya **altıda kalmıştı**, şema ona çıkmıştı.
+
+Eksik dördü: `panel_logs`, `panel_upgrade_requests`,
+`ip_range_refresh_requests`, `schema_version` — kayıt sinki, yükseltme
+kuyruğu, yenileme kuyruğu, ve veritabanının hangi şekilde olduğunu
+söyleyen satır. **Her konteyner kurulumu, her biri eklendiği günden beri
+bunlarsız.**
+
+Yüzeye çıkışı: init konteyneri 3 ile çıkıyor,
+`ERROR: relation "schema_version" does not exist` — `install.sh`'ın son
+adımı, kimsenin yaratmadığı bir tabloya.
+
+**Neden görünmedi:** iki koruma aynı anda bozuktu ve dıştaki içtekini
+sakladı. Bu dosyalar yalnız `docker` etiketiyle koşuyor, o da yalnız
+gecelikte — ve gecelik kendi ilk işini geçemiyordu, çünkü `e2e`
+`install.sh`'ı `--no-systemd` olmadan çağırıyordu. Yani bunu bildirecek
+hat, boşluk açılmadan önce başka bir sebeple çoktan düşüyordu.
+
+**Hiç koşmayan bir koruma, zayıf bir koruma değildir; korumanın
+yokluğudur, ve dışarıdan ikisi aynı görünür.**
+
+`TestTheImageCarriesEverySchemaFile` iki yönlü ayna: Dockerfile'ın
+`COPY` satırları bir tarafta, `schemafiles.InOrder` öbür tarafta, sıra
+dâhil. Üç mutasyonla sınandı.
 
 ---
 

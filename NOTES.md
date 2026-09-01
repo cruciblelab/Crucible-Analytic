@@ -8123,3 +8123,66 @@ güncellenmesi gereken bir ayna, insanların okumadan güncellemeyi
 Üç mutasyon: girdiyi listeden sil (dosya var, gerekçe yok → kırmızı),
 olmayan bir dosyayı listeye ekle (gerekçe var, dosya yok → kırmızı),
 açıklanmamış bir dosyaya yeni zaman eşiği ekle (→ kırmızı).
+
+---
+
+## N5 — Konteynerin şema listesi altıda kalmıştı, ve iki bozuk koruma üst üste bindi
+
+Gecelik, tarball yarısı düzelince Docker yarısını gösterdi:
+
+    init-1 | == recording the schema version
+    init-1 | ERROR:  relation "schema_version" does not exist
+    Container ca-e2e-init-1  service "init" didn't complete successfully: exit 3
+
+`Dockerfile` şema dosyalarını tek tek `COPY` ediyor — `schemafiles.InOrder`'ın
+elle yazılmış bir kopyası. **Dokuzuncu kez aynı kalıp**, ve bu sefer en
+pahalısı: kopya altıda kalmış, şema ona çıkmıştı. Eksik dördü kayıt
+sinki, yükseltme kuyruğu, yenileme kuyruğu ve şema sürümü satırı — yani
+her konteyner kurulumu, her biri eklendiği günden beri onlarsız, ve
+yığın hiç ayağa kalkmıyor.
+
+### Önce kendi yanlış teşhisimi düzeltmem gerekti
+
+Bir önceki turda "Docker'ı ben kırdım, `STATE_DIR`'i yeniden
+adlandırdım" demiştim. **Yanlıştı.** Gecelik #3'ün log'unda da aynı
+`schema_version` hatası vardı ve `mkdir`/izin hatası hiç yoktu — yani
+kırık zaten oradaydı, ben kendi değişikliğimi gördüğüm kırmızıya
+ölçmeden yapıştırdım.
+
+Tam olarak bu oturumda dört kez uyardığım şey. Kırmızı bir yapıya bakan
+kişi, en son ne yaptığını hatırlar ve sebebi orada arar; **son
+değişiklik, en görünür şüphelidir, en muhtemel değil.**
+
+(`STATE_DIR` düzeltmesi yine de doğruydu — imajın yaratmadığı bir yolu
+göstermek her hâlükârda yanlış — ama testi kıran o değildi ve ben o
+dedim.)
+
+### İki koruma aynı anda bozuktu, ve dıştaki içtekini sakladı
+
+Bu dosyalar yalnız `docker` etiketiyle koşuyor, o da yalnız gecelikte.
+Gecelik ise kendi ilk işini geçemiyordu, çünkü `e2e`, `install.sh`'ı
+`--no-systemd` olmadan çağırıyordu.
+
+Yani boşluğu bildirecek hat, boşluk açılmadan **önce** başka bir sebeple
+düşüyordu. Sonuç: L1–L3, M3 ve kayıt sinki eklendi, hiçbiri imaja
+girmedi, ve hiçbir şey ses çıkarmadı.
+
+**Hiç koşmayan bir koruma, zayıf bir koruma değildir; korumanın
+yokluğudur — ve dışarıdan ikisi aynı görünür.**
+
+### Doğrulama: bu konteynerde yapılabiliyormuş
+
+İlk denememde imaj yapımı `apk add`'de düştü ve "burada doğrulayamam"
+dedim. Doğruydu ama eksikti: Dockerfile TLS kesen bir vekil için zaten
+hazırlıklı (`extra_ca` derleme sırrı), ve testin kendi yardımcısı
+`CA_BUILD_EXTRA_CA` görürse hem sırrı hem `--network host`'u geçiriyor.
+
+    CA_BUILD_EXTRA_CA=/root/.ccr/ca-bundle.crt \
+      go test -tags docker -count=1 -timeout 30m ./e2e/
+
+İkisi de yerelde yeşil — imajdaki on şema dosyası sayıldı, compose
+yığını ayağa kalktı, istek panele ulaştı. Bu yol artık `CONTRIBUTING.md`'de
+yazılı; aranması gereken bir şey olmaktan çıktı.
+
+**"Doğrulayamıyorum" ile "doğrulamayı denemedim" arasındaki fark, bir
+ortam değişkeni kadarmış.**
