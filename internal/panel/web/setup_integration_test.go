@@ -102,6 +102,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 	}
 	t.Cleanup(store.Close)
 	lockPanelDatabase(t, store.Pool())
+	clearLoopbackThrottle(t, store)
 
 	hash, err := argon2id.Hash(testDevPassword)
 	if err != nil {
@@ -692,5 +693,52 @@ func TestListenAndServeDrainsOnCancel(t *testing.T) {
 		}
 	case <-time.After(shutdownGrace + 5*time.Second):
 		t.Fatal("the server did not stop after its context was cancelled")
+	}
+}
+
+// clearLoopbackThrottle empties the failed-login counter for the address
+// every test in this package appears to come from.
+//
+// # The failure it removes, and why it only shows up sometimes
+//
+// The login throttle counts failures per address over a window. Every
+// test here talks to an httptest server over loopback, so all of them
+// share one address and one counter - and a test that needs a refusal to
+// answer 401 gets 429 instead once enough earlier tests have failed a
+// login on purpose.
+//
+// It went unnoticed because a fresh database has room. CI runs the
+// integration suite twice against the same database precisely to find
+// this shape, and it did:
+//
+//	a wrong code answered 401 and an unknown address 429;
+//	the difference is an oracle
+//
+// which reads as a security finding and is a test-isolation defect. A
+// test whose result depends on how many tests ran before it is not
+// measuring the thing in its name.
+//
+// # The missing half of a fix that is already here
+//
+// clearAttempts in setupTestServer was written for this same symptom and
+// clears by *email*. CheckLoginThrottle blocks on either counter, and the
+// address one is the half nothing was clearing - so the fix held until
+// enough tests shared the address, which is a slower version of the same
+// bug rather than its absence. Both halves now.
+//
+// # Why loopback only, and why this table is safe to clear here
+//
+// internal/panel's own throttle tests use 198.51.100.1, a documentation
+// address, and run in a different process at the same time. Deleting
+// every row would break them from here; deleting loopback's cannot,
+// because nothing else uses it.
+func clearLoopbackThrottle(t *testing.T, store *panel.Store) {
+	t.Helper()
+	if _, err := store.Pool().Exec(context.Background(),
+		`DELETE FROM panel_login_attempts WHERE ip <<= '127.0.0.0/8' OR ip = '::1'`); err != nil {
+		t.Fatalf("clearing the loopback throttle: %v.\n"+
+			"Without this every test here inherits the failed logins of the ones "+
+			"before it, and the first symptom is a refusal answering 429 where the "+
+			"test expects 401", err)
 	}
 }

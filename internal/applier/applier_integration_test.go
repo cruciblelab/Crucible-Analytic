@@ -9,8 +9,10 @@ package applier
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
@@ -65,6 +67,43 @@ func TestNothingWaitingIsNotAFailure(t *testing.T) {
 	}
 }
 
+// applyOnce runs the applier and retries while it reports ErrBusy.
+//
+// The production timer does exactly this, every 30 seconds. A test that
+// gave up on the first busy table would be asserting something the
+// deployment does not do - and it would be asserting it against a
+// database under load no deployment sees, because `go test ./...` runs
+// this suite beside internal/panel and internal/panel/web, both of which
+// write these tables continuously for half a minute.
+//
+// Bounded rather than endless: a lock that is never free is a real
+// finding, and a test that waits for ever reports it as a hung machine.
+func applyOnce(t *testing.T, a *Applier) *upgrade.Request {
+	t.Helper()
+	ctx := context.Background()
+
+	deadline := time.Now().Add(30 * time.Second)
+	for attempt := 1; ; attempt++ {
+		req, err := a.RunOnce(ctx)
+		if !errors.Is(err, ErrBusy) {
+			if err != nil {
+				t.Fatalf("the upgrade failed on attempt %d: %v", attempt, err)
+			}
+			return req
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the tables stayed busy for 30s across %d attempts (%v).\n"+
+				"The applier gives way on purpose, but something holding these "+
+				"locks continuously is worth looking at rather than waiting out",
+				attempt, err)
+		}
+		// Nothing to re-ask for: Requeue put the row back to pending, so
+		// the next Claim takes the same request.
+		t.Logf("attempt %d: busy, retrying", attempt)
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // TestARequestIsAppliedAndRecorded.
 //
 // The positive path, and the one a test suite full of refusals would
@@ -75,10 +114,7 @@ func TestARequestIsAppliedAndRecorded(t *testing.T) {
 
 	req := askFor(t, panelPool, schemaver.Fingerprint)
 
-	done, err := a.RunOnce(ctx)
-	if err != nil {
-		t.Fatalf("the upgrade failed: %v", err)
-	}
+	done := applyOnce(t, a)
 	if done.ID != req.ID {
 		t.Errorf("applied request %d, asked for %d", done.ID, req.ID)
 	}
@@ -127,20 +163,16 @@ func TestARequestIsAppliedAndRecorded(t *testing.T) {
 // backup", which is not something a customer with no shell can do.
 func TestApplyingTwiceIsSafe(t *testing.T) {
 	a, panelPool := applierAndPanel(t)
-	ctx := context.Background()
 
 	askFor(t, panelPool, schemaver.Fingerprint)
-	if _, err := a.RunOnce(ctx); err != nil {
-		t.Fatalf("the first pass failed: %v", err)
-	}
+	applyOnce(t, a)
 
+	// The claim: the same schema, applied again, over a database that
+	// already has it. A schema that cannot be applied twice cannot be
+	// retried after a partial failure, and retrying is the only recovery
+	// a customer with no shell has.
 	askFor(t, panelPool, schemaver.Fingerprint)
-	if _, err := a.RunOnce(ctx); err != nil {
-		t.Fatalf("the second pass failed: %v.\n"+
-			"A schema that cannot be applied twice cannot be retried after a "+
-			"partial failure, and retrying is the only recovery a customer with "+
-			"no shell has.", err)
-	}
+	applyOnce(t, a)
 }
 
 // TestAnApplierRefusesASchemaItDoesNotCarry.

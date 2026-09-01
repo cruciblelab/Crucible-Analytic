@@ -220,6 +220,34 @@ func Finish(ctx context.Context, pool *pgxpool.Pool, id int64, state State,
 	return nil
 }
 
+// Requeue puts a claimed request back into the queue, with a note saying
+// why it did not run this time.
+//
+// The difference from Finish(StateFailed) is the difference between "it
+// did not work" and "not now", and conflating them costs a customer a
+// button press for a condition that clears by itself. The applier gives
+// way to traffic on purpose - see applier.lockTimeout - so a busy table
+// is an ordinary outcome of an ordinary run, not a fault.
+//
+// The note goes in error_chain because that is the column the health
+// page already reads. The page labels it by state, so a pending row's
+// note reads as the last attempt rather than as a failure - a wait
+// presented as an error is how a working system gets restarted at three
+// in the morning.
+func Requeue(ctx context.Context, pool *pgxpool.Pool, id int64, note string) error {
+	tag, err := pool.Exec(ctx, `
+		UPDATE panel_upgrade_requests
+		SET state = 'pending', claimed_at = NULL, claimed_by = '', error_chain = $2
+		WHERE id = $1 AND state = 'running'`, id, note)
+	if err != nil {
+		return fmt.Errorf("upgrade: requeue %d: %w", id, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("upgrade: requeue %d: the request is no longer claimed", id)
+	}
+	return nil
+}
+
 // ReleaseStaleClaims puts back requests an applier took and never
 // finished.
 //

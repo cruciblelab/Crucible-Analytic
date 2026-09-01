@@ -61,6 +61,25 @@ varsayılan sığ klonu CLA testine deponun değil klonun bir olgusunu
 rapor ettiriyordu. İkisi de kapatıldı. **Kuran kişiyi ilgilendirmez** —
 yalnız geliştirme hattı.
 
+**Yükseltme, çalışan bir yazmayı öldürebiliyordu.** Şema dosyası tek bir
+işlem olarak koştuğu için aldığı her kilidi dosya bitene kadar tutuyor;
+`panel_operations`'a yazan bir panel isteği aynı iki tabloyu ters sırada
+kilitliyor, ve PostgreSQL çevrimi birini öldürerek çözüyor — kurban
+müşterinin yazması olabiliyordu. Uygulayıcı artık `lock_timeout = 250ms`
+ile koşuyor: `deadlock_timeout`'un (1 sn) altında kaldığı için çevrimi her
+zaman **yükseltme** geri çekilerek kırıyor, trafik değil.
+
+Bunun ikinci yarısı: kilit zaman aşımı artık **başarısızlık değil**.
+İstek sıraya geri konuyor, sebep satıra yazılıyor, sonraki tik tekrar
+deniyor. **Kuran kişinin yapması gereken: yok.** Daha önce böyle bir an
+"Yükseltme başarısız" diye görünüyordu ve düğmeye tekrar basmak
+gerekiyordu; artık "Sırada" görünüyor ve son denemenin sebebi yanında
+yazıyor.
+
+*(Yanlış olan yalnız davranış değildi: `IF NOT EXISTS`'in "ağır kilit
+almaz" diye yazılı açıklaması da yanlıştı. Ölçüldü — işi atlıyor, kilidi
+değil. Ayrıntısı `NOTES.md`'de.)*
+
 ---
 
 ## v0.10.0+D4c — 2026-08-31

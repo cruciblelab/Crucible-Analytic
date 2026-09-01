@@ -4474,12 +4474,38 @@ kimliği okuyabilirdi.
 sorgusunu döngüde koşarken gerçek uygulayıcı gerçek şemayı uyguladı;
 pencere içindeki en kötü sorgu 2.3–9.9ms, boştaki en kötü 5.0–83.5ms.
 Yükseltme sırasında en kötü sorgu, hiçbir şey olmazken görülenden hızlı.
-Sebep şema dosyalarında: her `CREATE` `IF NOT EXISTS`, yani yeniden
-uygulama ağır kilit almıyor. Özellik SQL'e ait olduğu için teste
-bağlandı — bir sonraki şema dosyası bir `ALTER` uzaklıkta.
 
 İki eşik: 2sn mutlak tavan, artı aynı makinenin boş hâlinin 4 katı ve
 250ms. İkisi de gerçek `ACCESS EXCLUSIVE` kilidiyle mutasyonla ölçüldü.
+
+**Ama açıklaması yanlıştı, ve bir ay sonra bedeli çıktı.** *(2026-09-01)*
+Burada ve testin başında yazan şey şuydu: "her `CREATE` `IF NOT EXISTS`,
+yani yeniden uygulama ağır kilit almıyor". Sayılar doğruydu, mekanizma
+değildi — ölçüldü: `CREATE INDEX IF NOT EXISTS` **işi atlıyor, kilidi
+değil**; `ShareLock` varlık kontrolünden önce alınıyor ve dosyanın sonuna
+kadar tutuluyor.
+
+Yanlış mekanizmanın gizlediği şey bir kilit çevrimi: `panel_operations`'a
+yazan bir panel isteği, yabancı anahtarı yüzünden aynı iki tabloyu ters
+sırada kilitliyor, ve PostgreSQL çevrimi **birini öldürerek** çözüyor —
+kurban müşterinin yazması olabiliyordu. CI'da haftalardır kırmızı olan
+"panel read 1.02 sn bekledi" satırı tam olarak buydu: 1 sn,
+`deadlock_timeout`'un varsayılanı.
+
+Uygulayıcı artık kendi bağlantısında `lock_timeout = 250ms` ile koşuyor —
+`deadlock_timeout`'un altında, yani hiçbir dedektör koşmadan çevrimi
+yükseltmenin geri çekilmesi kırıyor. Ve kilit zaman aşımı artık
+başarısızlık değil: istek sıraya geri konuyor (`upgrade.Requeue`), sağlık
+sayfası "Sırada" diyor ve sebebi *Son deneme* başlığıyla gösteriyor —
+`pending` bir satırın notuna "Hata" demek, çalışan bir sistemin gece üçte
+yeniden başlatılma sebebidir.
+
+Beşinci bir yük sondası eklendi ve kusuru bulan o oldu: dördü de ya okuma
+ya tek tablo yazması olduğu için ancak sıraya girebiliyorlardı. Yabancı
+anahtarı olan bir yazma, bekleyişi değil çevrimi ölçüyor. Ayrıca
+`TestTheUpgradeYieldsToTrafficRatherThanTheOtherWayRound`: çekişme
+kurgulanıyor, uygulayıcının 1 sn'nin altında (ölçüm: 261–264 ms) yol
+verdiği ve panelin işleminin commit ettiği doğrulanıyor.
 
 Yol üstünde ayrı bir kusur çıktı ve ayrı işlendi: `install.sh`
 yapılandırma dosyalarını, kurduğu birimlerin koştuğu hesabın

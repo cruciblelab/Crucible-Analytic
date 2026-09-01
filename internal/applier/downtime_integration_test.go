@@ -35,6 +35,8 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -44,6 +46,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
+	"github.com/cruciblelab/crucible-analytic/internal/upgrade"
 )
 
 // What the measurement says, on the development database, over three
@@ -55,14 +58,35 @@ import (
 //
 // The headline is the last two lines together: during the upgrade the
 // worst query was *faster* than the worst query when nothing was
-// happening. The DDL is invisible to the four services, and the reason is
-// in the schema files rather than in the applier - every CREATE is
-// IF NOT EXISTS, so a re-apply finds its work already done and takes no
-// heavy lock. The property belongs to the SQL, which is why it needs a
-// test: the next schema file is one ALTER away from ending it.
+// happening.
 //
 // The numbers above were measured before the thresholds below were
 // chosen, and are the reason they are what they are.
+//
+// # The explanation that went with them was wrong
+//
+// This comment used to continue: "every CREATE is IF NOT EXISTS, so a
+// re-apply finds its work already done and takes no heavy lock". The
+// numbers were right and the mechanism was not, which is the more
+// dangerous half - a wrong mechanism makes a whole class of failure look
+// impossible. Measured directly:
+//
+//	CREATE INDEX IF NOT EXISTS lockprobe_id_idx ON lockprobe (id);
+//	NOTICE: relation "lockprobe_id_idx" already exists, skipping
+//	SELECT mode FROM pg_locks WHERE relation = 'lockprobe'::regclass ...
+//	  -> ShareLock, granted
+//
+// It skips the *work*, not the *lock*. The ShareLock is taken before the
+// existence check and held to the end of the transaction - and a schema
+// file is one implicit transaction - so a re-apply does block every
+// writer of every indexed table for as long as its file runs. That it
+// costs milliseconds is a fact about how fast the files are, not a fact
+// about locking.
+//
+// What the wrong mechanism hid: two parties taking the same tables in
+// opposite orders can deadlock, and PostgreSQL then kills one of them.
+// applier.lockTimeout is the answer, and the "panel write" probe below
+// is what found it.
 
 // worstAcceptableStall is the absolute ceiling.
 //
@@ -114,6 +138,16 @@ const (
 // one. Zero overlapping queries means that goroutine stopped running.
 const minimumQueriesOverall = 100
 
+// baselinePeriod is how long the load runs before the upgrade starts.
+//
+// Named rather than written at the call site because the paced probe's
+// floor is derived from it: a probe that pauses cannot reach
+// minimumQueriesOverall and must not be asked to, but "it ran at all" is
+// still worth asserting. baselinePeriod/pause is what it should manage,
+// and a quarter of that is the floor - loose enough for a loaded runner,
+// far above the zero that means the goroutine never started.
+const baselinePeriod = 1500 * time.Millisecond
+
 // TestNoServiceStopsWhileTheSchemaIsApplied.
 func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 	a, panelPool := applierAndPanel(t)
@@ -130,7 +164,11 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 	load := []struct {
 		name string
 		role string
-		run  func(context.Context, *pgxpool.Pool) error
+		// pause between this probe's queries. Zero for the four that
+		// model a firehose, because that is what they are: a collector
+		// and a beacon really do write continuously.
+		pause time.Duration
+		run   func(context.Context, *pgxpool.Pool) error
 	}{
 		{
 			name: "collector insert",
@@ -176,7 +214,60 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				return p.QueryRow(ctx, `SELECT count(*) FROM panel_users`).Scan(&n)
 			},
 		},
+		{
+			// The probe that found the defect, and the reason it is a
+			// write with a foreign key rather than another read.
+			//
+			// Four reading-or-single-table probes can only ever queue
+			// behind the applier: they take one lock, wait, and proceed.
+			// They measure how long a wait is and cannot see the failure
+			// that matters more, which is a wait that never ends because
+			// the two parties hold what the other wants.
+			//
+			// panel_operations references panel_users, so this statement
+			// locks the two tables in the opposite order to the panel
+			// schema file - which is a real cycle, and PostgreSQL resolved
+			// it by killing one of them:
+			//
+			//	Process A waits for RowShareLock on panel_users; blocked by B.
+			//	Process B waits for ShareLock on panel_operations; blocked by A.
+			//
+			// Copied from that run's log. Without applier.lockTimeout the
+			// victim can be this probe, which is a customer's operation
+			// failing during an upgrade they were told was safe to start.
+			name: "panel write",
+			role: testdb.Panel,
+			// Paced, and this one number is a finding rather than a knob.
+			//
+			// Without a pause this probe never lets go of
+			// panel_operations, so the applier's 250ms lock_timeout
+			// expires every time and the upgrade can never land at all -
+			// measured: three runs out of three, "canceling statement due
+			// to lock timeout" on internal/panel/schema.sql.
+			//
+			// That is the honest behaviour rather than a defect, and it is
+			// what an operator seeing repeated lock timeouts should read
+			// it as: something is writing that table continuously and the
+			// schema change needs a quieter moment. But it is not traffic.
+			// A panel writes an operation row per human action; 50/s is
+			// already far above any real deployment, and it leaves the
+			// 250ms windows the applier needs.
+			pause: 20 * time.Millisecond,
+			run: func(ctx context.Context, p *pgxpool.Pool) error {
+				_, err := p.Exec(ctx, `
+					INSERT INTO panel_operations (id, action, target, outcome, actor_kind)
+					VALUES ($1, 'test', 'downtime-probe', 'succeeded', 'test')`,
+					"op-downtime-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+				return err
+			},
+		},
 	}
+	t.Cleanup(func() {
+		if _, err := testdb.Admin(t).Exec(context.Background(),
+			`DELETE FROM panel_operations WHERE target = 'downtime-probe'`); err != nil {
+			t.Logf("cleanup: clearing the probe's operations: %v", err)
+		}
+	})
 
 	// Opened before the load starts, so a pool that cannot connect fails
 	// this test as a setup problem rather than as an availability one.
@@ -234,6 +325,9 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 					results[i].firstErr = fmt.Errorf("after %d queries: %w",
 						len(results[i].samples), err)
 				}
+				if l.pause > 0 {
+					time.Sleep(l.pause)
+				}
 			}
 		}(i)
 	}
@@ -250,14 +344,36 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 	for started.Load() < int32(len(load)) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(baselinePeriod)
 
 	// The real thing: a real request, applied by the real applier, over
 	// every schema file this binary carries.
+	//
+	// Retried on ErrBusy exactly as the production timer does. The
+	// applier gives way to traffic on purpose, and `go test ./...` runs
+	// this suite beside two others that write these tables continuously -
+	// more contention than any deployment sees. The window measured is
+	// the attempt that actually applied, so a busy attempt does not
+	// contribute a stall to a measurement of an upgrade that did not
+	// happen.
 	askFor(t, panelPool, schemaver.Fingerprint)
-	upgradeBegan := time.Now()
-	req, err := a.RunOnce(ctx)
-	upgradeEnded := time.Now()
+	var (
+		req                        *upgrade.Request
+		err                        error
+		upgradeBegan, upgradeEnded time.Time
+	)
+	for deadline := time.Now().Add(30 * time.Second); ; {
+		upgradeBegan = time.Now()
+		req, err = a.RunOnce(ctx)
+		upgradeEnded = time.Now()
+		if !errors.Is(err, ErrBusy) {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	upgradeTook := upgradeEnded.Sub(upgradeBegan)
 
 	close(stop)
@@ -303,10 +419,14 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 		t.Logf("%-16s %5d queries (%d during) | worst during %v | worst at rest %v",
 			l.name, len(r.samples), duringCount, during, baseline)
 
-		if len(r.samples) < minimumQueriesOverall {
+		floor := minimumQueriesOverall
+		if l.pause > 0 {
+			floor = int(baselinePeriod/l.pause) / 4
+		}
+		if len(r.samples) < floor {
 			t.Errorf("%s ran %d queries in total, which is too few to have measured "+
 				"anything - this test would report an undisturbed service without "+
-				"ever having asked one", l.name, len(r.samples))
+				"ever having asked one (floor %d)", l.name, len(r.samples), floor)
 			continue
 		}
 		if duringCount == 0 {
@@ -343,5 +463,113 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				l.name, during, baseline, comparedToRest, worthComplainingAbout,
 				worstAcceptableStall)
 		}
+	}
+}
+
+// TestTheUpgradeYieldsToTrafficRatherThanTheOtherWayRound.
+//
+// The measurement above is probabilistic: it runs real load against a
+// real apply and reports what happened. This one is not. It constructs
+// the contention deliberately and asserts the outcome, because "the
+// traffic wins" is the promise the upgrade button makes and a promise
+// kept by luck is not kept.
+//
+// A panel transaction holds panel_operations. The applier then tries to
+// apply, which needs ShareLock on that table. Exactly one of the two can
+// proceed, and which one is the whole question.
+func TestTheUpgradeYieldsToTrafficRatherThanTheOtherWayRound(t *testing.T) {
+	a, panelPool := applierAndPanel(t)
+	ctx := context.Background()
+
+	// The customer's write, in flight and uncommitted - a panel request
+	// that has done its insert and is still assembling the audit row.
+	tx, err := panelPool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("beginning the panel's transaction: %v", err)
+	}
+	defer tx.Rollback(context.Background())
+
+	id := "op-yield-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO panel_operations (id, action, target, outcome, actor_kind)
+		VALUES ($1, 'test', 'yield-probe', 'succeeded', 'test')`, id); err != nil {
+		t.Fatalf("the panel's insert failed before the applier had even started: %v", err)
+	}
+
+	askFor(t, panelPool, schemaver.Fingerprint)
+
+	began := time.Now()
+	_, err = a.RunOnce(ctx)
+	waited := time.Since(began)
+
+	// The applier has to fail here, and that is the passing case.
+	if err == nil {
+		t.Fatal("the applier applied the schema while a panel transaction held " +
+			"panel_operations, which means it either did not need the lock (has the " +
+			"schema stopped indexing that table?) or waited for it. Waiting is the " +
+			"failure this test exists for: a statement queued for a table lock puts " +
+			"every later request behind it")
+	}
+	if !strings.Contains(err.Error(), "lock timeout") {
+		t.Fatalf("the applier failed for the wrong reason: %v.\n"+
+			"Expected a lock timeout, which is the applier giving way. Any other "+
+			"error means this test measured something else", err)
+	}
+
+	// Under deadlock_timeout, which is the point rather than a detail: a
+	// wait that reaches it lets the detector pick a victim, and the
+	// victim can be the customer.
+	const deadlockDetection = time.Second
+	if waited >= deadlockDetection {
+		t.Errorf("the applier waited %v before giving up, and PostgreSQL starts "+
+			"looking for deadlocks at %v (deadlock_timeout).\n"+
+			"Under that threshold the cycle is always broken by the upgrade "+
+			"yielding; over it, the database chooses, and it can choose the "+
+			"customer's write", waited, deadlockDetection)
+	}
+
+	// And the traffic is untouched: not rolled back, not cancelled,
+	// still able to commit.
+	if _, err := tx.Exec(ctx, `
+		UPDATE panel_operations SET outcome = 'succeeded' WHERE id = $1`, id); err != nil {
+		t.Fatalf("the panel's transaction could not continue after the applier gave "+
+			"up: %v.\nThis is the outcome the whole arrangement exists to prevent - "+
+			"a customer's operation killed by an upgrade they were told was safe "+
+			"to start", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("the panel's transaction could not commit: %v", err)
+	}
+
+	t.Logf("the applier gave up after %v; the panel's transaction committed", waited)
+
+	// And the request is waiting again rather than marked failed.
+	//
+	// The difference a customer sees: a queued request needs nothing from
+	// them, a failed one needs the button pressed again. Reporting "not
+	// now" as "it broke" is the kind of message that gets a working
+	// system restarted at three in the morning.
+	if !errors.Is(err, ErrBusy) {
+		t.Errorf("the applier returned %v rather than ErrBusy, so a caller cannot "+
+			"tell a busy table from a real failure", err)
+	}
+	latest, latestErr := upgrade.Latest(context.Background(), panelPool)
+	if latestErr != nil {
+		t.Fatalf("reading the request back: %v", latestErr)
+	}
+	if latest.State != upgrade.StatePending {
+		t.Errorf("the request is %q after the applier gave way, want %q.\n"+
+			"A busy table is not a failed upgrade: the next tick applies it, and "+
+			"telling the customer it failed asks them to press a button for a "+
+			"condition that clears by itself", latest.State, upgrade.StatePending)
+	}
+	if latest.ErrorChain == "" {
+		t.Error("the requeued request carries no note, so the health page shows a " +
+			"request that is queued and no reason it has not run")
+	}
+
+	if _, err := testdb.Admin(t).Exec(context.Background(),
+		`DELETE FROM panel_operations WHERE target = 'yield-probe'`); err != nil {
+		t.Logf("cleanup: %v", err)
 	}
 }

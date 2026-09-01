@@ -7113,3 +7113,128 @@ rakamsız. `e2e` etiketi `e` diye yakalandı, e2e işi hiçbir dosyanın
 taşımadığı bir etiketi koşuyor göründü, ve e2e takımı koşulmuyor
 göründü. Yani düzenli ifade, testin tam olarak yakalamak için var olduğu
 hatayı yaptı, ve test onu yakaladı.
+
+---
+
+## CI'ın haftalardır kırmızı olan yarısı gerçek bir üretim kusuruydu
+
+*(2026-09-01)*
+
+M1 gönderildikten sonra iş akışı geçmişine bakıldı: `cea19ec` **main'de
+başarılı, dalda başarısız** — aynı commit. Başarısız olan adım, entegrasyon
+takımının *ikinci* koşusu, yani aynı veritabanına karşı tekrar.
+
+İki hata vardı ve ikisi de aynı ana denk geliyordu:
+
+```
+--- FAIL: TestNoServiceStopsWhileTheSchemaIsApplied
+    panel read waited 1.020331078s during the upgrade against 17.299366ms at rest
+
+--- FAIL: TestTheCollectorsLimitsAreNotTheBeacons
+    storing collector.limits.max_concurrent: ERROR: deadlock detected (SQLSTATE 40P01)
+```
+
+**1,0203 saniye** — `deadlock_timeout`'un varsayılanı 1 saniye. Yavaş bir
+sorgu değil, kilit döngüsünün çözülmesini bekleyen bir sorgu.
+
+### Yerelde üretildi, ve sunucu günlüğü tam çevrimi yazdı
+
+```
+Process 8143 waits for RowShareLock on relation 68294; blocked by process 8142.
+Process 8142 waits for ShareLock on relation 213724; blocked by process 8143.
+Process 8143: INSERT INTO panel_operations (...)
+Process 8142: -- Schema for the management panel...
+```
+
+`68294 = panel_users`, `213724 = panel_operations`. Yani:
+
+- Panelin yazması `panel_operations`'a yazıyor ve yabancı anahtarı için
+  `panel_users`'ı kilitliyor.
+- Uygulayıcı, panel şema dosyasının içinde, `panel_operations` için
+  `ShareLock` istiyor — ve `panel_users`'ı çoktan tutuyor.
+
+Ters sırada iki taraf. PostgreSQL çevrimi birini öldürerek çözüyor, ve
+kurbanı seçen o. **Kurban müşterinin yazması olabilir** — oysa yükseltme
+düğmesi ona "siteniz trafik alırken basmak güvenli" demişti.
+
+### Yazılı olan açıklama yanlıştı, ve tehlikeli olan yarısı buydu
+
+`downtime_integration_test.go`'nun başındaki yorum şöyle diyordu:
+
+> her CREATE, IF NOT EXISTS olduğu için yeniden uygulama işini yapılmış
+> bulur ve **ağır bir kilit almaz**.
+
+Sayılar doğruydu (yükseltme sırasındaki en kötü sorgu 2,3–9,9 ms).
+Mekanizma yanlıştı. Doğrudan ölçüldü:
+
+```
+CREATE INDEX IF NOT EXISTS lockprobe_id_idx ON lockprobe (id);
+NOTICE:  relation "lockprobe_id_idx" already exists, skipping
+SELECT mode FROM pg_locks WHERE relation = 'lockprobe'::regclass ...
+ ShareLock | t
+```
+
+**İşi atlıyor, kilidi değil.** ShareLock varlık kontrolünden *önce*
+alınıyor ve işlemin sonuna kadar tutuluyor — bir şema dosyası da tek bir
+örtük işlem. Yani yeniden uygulama, dosyası koştuğu sürece indeksli her
+tablonun her yazıcısını gerçekten bloke ediyor. Milisaniye sürmesi
+dosyaların hızlı olmasıyla ilgili bir olgu, kilitlemeyle ilgili değil.
+
+**Yanlış bir mekanizma, koca bir hata sınıfını imkânsız gösterir.** Sayılar
+doğruyken yanlış olan açıklama, yanlış sayıdan daha tehlikeli.
+
+### Düzeltme: yükseltme yol verir, trafik vermez
+
+`lock_timeout = 250ms`, uygulayıcının kendi bağlantısında. Seçim
+`deadlock_timeout`'a (1 s) göre yapıldı: PostgreSQL kilit döngüsü aramaya
+ancak bir süreç o kadar bekledikten sonra başlar. Uygulayıcının beklemesi
+onun altında kalırsa **hiçbir dedektör koşmaz**, çevrimi yükseltmenin geri
+çekilmesi kırar, ve seçilecek bir kurban olmaz. Trafik her zaman kazanır.
+
+Bedeli açık: kilidini alamayan bir yükseltme başarısız olur. Ama sabırla
+bekleyen bir uygulayıcı, tam da önlemek için var olduğu kesintinin
+kendisidir — ACCESS EXCLUSIVE için sıraya giren bir ifade, arkasına gelen
+her şeyi de bloke eder.
+
+### İkinci kusur, birincisini düzeltirken çıktı
+
+Kilit zaman aşımı isteği **`failed`** olarak kaydediyordu. Yani müşteri,
+kendiliğinden geçen bir durum için düğmeye tekrar basacaktı.
+`upgrade.Requeue` eklendi: satır `pending`'e döner, sebep satıra yazılır,
+sonraki tik tekrar dener. `applier.ErrBusy` çağıranın ikisini ayırt
+etmesini sağlıyor.
+
+Ve sağlık sayfası: aynı sütun iki farklı şey taşıyor. `failed` satırında
+birinin okuması gereken bir hata, `pending` satırında "tablo meşguldü, yol
+verdim". İkincisine **"Hata"** demek, çalışan bir sistemin gece üçte
+yeniden başlatılma sebebidir. Başlık artık duruma göre: *Hata* / *Son
+deneme*.
+
+### Ölçümler
+
+| | |
+|---|---|
+| Uygulayıcı yol verdi | **261–264 ms** (1 s eşiğinin altında) |
+| Panelin işlemi | commit etti, dokunulmadı |
+| İstek durumu | `pending`, notu satırda |
+| Dört paket birlikte, 7 koşu | temiz — öncesinde 6'da 3 |
+| Entegrasyon, aynı veritabanına iki kez | temiz |
+
+Mutasyonlar: `lock_timeout`'u 5 s yap → eşik testi kırmızı ("5,01 s
+bekledi, PostgreSQL 1 s'de aramaya başlıyor"). Requeue dalını kapat →
+"istek 'failed', 'pending' olmalı".
+
+### Üçüncüsü: testin kendi yalıtımı
+
+`TestRecovery_AWrongCodeAndAnUnknownAddressAnswerIdentically` "yanlış kod
+401, bilinmeyen adres 429 — aradaki fark bir kâhin" diyordu. Bir güvenlik
+bulgusu gibi okunuyor; aslında test yalıtımı kusuru: giriş kısıtlaması hem
+e-postaya hem **adrese** göre sayıyor, bu paketteki her test aynı loopback
+adresinden konuşuyor, ve o sayaç birikiyor.
+
+Aynı belirti için yazılmış bir temizlik zaten vardı — ve **yalnız e-postaya
+göre** temizliyordu. Kısıtlama ikisinden biri dolduğunda engelliyor, yani
+düzeltme yavaşlatılmış bir hatadan ibaretti. İki yarı da temizleniyor artık.
+
+**Sonucu kendisinden önce kaç testin koştuğuna bağlı olan bir test,
+adındaki şeyi ölçmüyordur.**

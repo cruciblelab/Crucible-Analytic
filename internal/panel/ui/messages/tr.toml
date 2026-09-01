@@ -988,6 +988,7 @@ durum_calisiyor = "Uygulanıyor"
 durum_basarili = "Tamamlandı"
 durum_basarisiz = "Başarısız"
 hata_zinciri = "Hata"
+son_deneme = "Son deneme"
 son_istek = "Son istek"
 
 [metin.saglik.servis]

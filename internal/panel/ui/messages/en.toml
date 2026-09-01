@@ -951,6 +951,7 @@ durum_calisiyor = "Applying"
 durum_basarili = "Done"
 durum_basarisiz = "Failed"
 hata_zinciri = "Error"
+son_deneme = "Last attempt"
 son_istek = "Last request"
 
 [metin.saglik.servis]

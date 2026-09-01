@@ -148,7 +148,15 @@ somebody suspects it is not. */}}
 </tr>
 {{- if .Data.Upgrade.Latest.ErrorChain}}
 <tr>
-<th scope="row">{{t "saglik.yukselt.hata_zinciri"}}</th>
+{{/* Labelled by state, because this column carries two different
+     things. On a failed request it is an error somebody has to read.
+     On a queued one it is the applier saying a table was busy and it
+     gave way - an ordinary outcome that will clear by itself, and
+     calling that "Error" is how a working system gets restarted at
+     three in the morning. */}}
+<th scope="row">
+{{- if eq .Data.Upgrade.Latest.State "pending"}}{{t "saglik.yukselt.son_deneme"}}
+{{- else}}{{t "saglik.yukselt.hata_zinciri"}}{{end}}</th>
 <td><pre class="hata-zinciri">{{.Data.Upgrade.Latest.ErrorChain}}</pre></td>
 </tr>
 {{- end}}
