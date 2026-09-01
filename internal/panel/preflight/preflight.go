@@ -1011,7 +1011,7 @@ func checkLogDir(dir string) CheckResult {
 	if dir == "" {
 		result.Status = CheckSkip
 		result.Detail = "Günlük dizini yapılandırılmamış; kayıtlar yalnızca stderr'e gidiyor."
-		result.Fix = `beacon.toml → [logging] dir = "/var/log/crucible"`
+		result.Fix = `beacon.toml → [logging] dir = "/var/log/crucible-analytic"`
 		return result
 	}
 
@@ -1236,7 +1236,7 @@ func ManualSteps() []ManualStep {
 		{
 			ID: "logs.dir", Label: "Günlük dizini ve izinleri",
 			Why:       "Panel, kendi yazacağı dizini oluşturamaz - henüz çalışmıyor olabilir.",
-			Command:   "mkdir -p /var/log/crucible && chown crucible: /var/log/crucible && chmod 700 /var/log/crucible",
+			Command:   "mkdir -p /var/log/crucible-analytic && chown crucible: /var/log/crucible-analytic && chmod 700 /var/log/crucible-analytic",
 			CheckedBy: "logs.writable",
 		},
 		{

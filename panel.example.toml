@@ -149,5 +149,5 @@ password_hash = ""
 
 
 [logging]
-dir = "/var/log/crucible"
+dir = "/var/log/crucible-analytic"
 level = "info"

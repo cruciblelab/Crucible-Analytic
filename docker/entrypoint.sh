@@ -97,7 +97,7 @@ do_init() {
 
     SUPERUSER_DSN="${SUPERUSER_DSN}" DB_NAME="${DB_NAME}" DB_HOST="${db_host}" \
         CONF_DIR="${CONF_DIR}" PREFIX=/opt/crucible \
-        LOG_DIR=/var/log/crucible STATE_DIR=/var/lib/crucible \
+        LOG_DIR=/var/log/crucible-analytic STATE_DIR=/var/lib/crucible-analytic \
         /opt/crucible/release/install.sh
 
     # 1. Logs to stdout.
@@ -113,7 +113,13 @@ do_init() {
     # supported setting rather than a container-only code path.
     for f in collector.toml beacon.toml analytics-api.toml panel.toml upgrader.toml; do
         [ -f "${CONF_DIR}/${f}" ] || continue
-        sed -i -E 's|^dir = "/var/log/crucible"$|dir = ""|' "${CONF_DIR}/${f}"
+        # Any directory, not one spelled-out path. The first version
+        # matched one spelled-out path, so the day that default
+        # moved the substitution would have stopped matching and every
+        # container's panel would have gone back to trying to write a
+        # tree it cannot create - silently, because a sed that matches
+        # nothing succeeds.
+        sed -i -E 's|^([[:space:]]*)dir = "/var/log/[^"]*"$|\1dir = ""|' "${CONF_DIR}/${f}"
     done
 
     # 2. Listen on the container's own address, not its loopback.

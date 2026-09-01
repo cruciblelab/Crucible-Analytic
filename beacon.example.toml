@@ -185,7 +185,7 @@ enabled = false
 [logging]
 # Empty (or omitted) writes to stderr only, which is what running the
 # binary by hand wants. Set it to enable the tree.
-# dir = "/var/log/crucible"
+# dir = "/var/log/crucible-analytic"
 # level = "info"          # debug, info, warn, error
 # retention_days = 14     # day-directories kept; negative disables pruning
 # max_file_mb = 64        # rotates a category file once it exceeds this

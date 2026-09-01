@@ -9,6 +9,47 @@ yapacağım".
 
 ---
 
+## v0.14.1 — 2026-09-01
+
+Panel, hiçbir kurulumda kendi günlük dizinini açamıyormuş. Açılışta
+ölüyordu; diğer üç servis çalışıyordu.
+
+**Şema sürümü: 6** — değişmedi. **Kuran kişinin yapması gereken:
+`install.sh`'ı yeniden koşturun** *(zaten kurulu bir sistemde)*. Ya da
+elle: `panel.toml` içindeki `[logging] dir` satırını
+`/var/log/crucible-analytic` yapın.
+
+### Ne düzeldi
+
+Depoda iki yol ailesi yan yana yaşıyordu. `install.sh` ve **beş systemd
+biriminin hepsi** `/var/log/crucible-analytic` diyordu; `panel.toml`
+`/var/log/crucible` diyordu.
+
+Panel, örneği yorumsuz `dir` taşıyan tek servis — yani açılışta günlük
+ağacı açmayı deneyen tek servis, ve açamayan tek servis:
+
+    panel: logging setup failed: mkdir /var/log/crucible: permission denied
+
+**systemd ile de düşerdi**, başka sebeple: `ProtectSystem=strict` bütün
+dosya sistemini salt-okunur yapıyor ve birim yalnız öteki yazımı yazılabilir
+kılıyor. Yani bu bir `--no-systemd` sorunu değil, bir isim sorunuydu.
+
+Ayrıca **`LOG_DIR` kabul ediliyor ama hiçbir yapılandırmaya
+yazılmıyordu** — onu veren biri, hiçbir servisin açmadığı bir dizin
+yaratıyordu. Artık yazılıyor, ve dizin systemd'li systemd'siz iki yolda da
+yaratılıyor.
+
+**Yanlış yol talimatlarda da vardı:** `KURULUM.md` ve panelin kendi ön
+kontrolü — kopyalanmak üzere hazırlanmış bir komutun içinde — aynı
+yanlış dizini söylüyordu. Kodu düzeltip belgeyi bırakmak, kusuru
+kullanıcının eline vermek olurdu.
+
+Dosyaların her biri kendi içinde tutarlıydı; tutarsız olan kümeydi. Bir
+kabuk betiği, beş birim dosyası, beş TOML örneği ve bir kılavuz arasında
+okuyan hiçbir araç yok — o yüzden artık bir test okuyor.
+
+---
+
 ## v0.14.0+C8 — 2026-09-01
 
 Geliştirici erişimi artık sizin kararınız: *onay bekle* (varsayılan),

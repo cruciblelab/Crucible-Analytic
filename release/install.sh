@@ -486,6 +486,48 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   copy_example panel.example.toml         panel.toml
   copy_example upgrader.example.toml      upgrader.toml
 
+  # ---- where the services write their logs ----
+  #
+  # LOG_DIR used to be accepted, used for one mkdir, and written into no
+  # configuration at all - so setting it created a directory nothing
+  # opened, while every service went on using whatever its example file
+  # said. That is how two path families came to live in one repository:
+  # the installer and all five systemd units said
+  # /var/log/crucible-analytic, and panel.example.toml said the same name
+  # without the suffix.
+  #
+  # Measured, and it is not a cosmetic difference. The panel is the only
+  # service whose example ships an *uncommented* dir, so it is the only
+  # one that tries to open a tree at startup - and logging.Setup returns
+  # an error rather than falling back, which the nightly reported as
+  #
+  #     panel: logging setup failed: mkdir <the other spelling>: permission denied
+  #
+  # with the other three services up and the panel absent. The systemd
+  # path fails the same way for a different reason: ProtectSystem=strict
+  # plus ReadWritePaths=/var/log/crucible-analytic makes every other
+  # directory read-only, so the panel could not have written there
+  # either.
+  #
+  # Rewritten rather than left to the example, because the example cannot
+  # know what LOG_DIR this installation chose. Only where the key already
+  # exists: a service whose example ships no dir logs to stderr by design,
+  # and adding one here would turn a deliberate default into a surprise.
+  # Created on both paths, unlike before. The mkdir used to sit inside
+  # the systemd branch, so --no-systemd produced configurations naming a
+  # directory the installation had never made - which is the half of this
+  # the nightly actually tripped over, running as a user who could not
+  # create it either.
+  if [ "${DRY_RUN}" -eq 0 ]; then
+    mkdir -p "${LOG_DIR}" "${STATE_DIR}"
+  fi
+
+  for file in collector.toml beacon.toml analytics-api.toml panel.toml upgrader.toml; do
+    f="${CONF_DIR}/${file}"
+    [ -f "${f}" ] || continue
+    sed -i -E "s|^([[:space:]]*)dir[[:space:]]*=[[:space:]]*\"[^\"]*\"|\1dir = \"${LOG_DIR}\"|" "${f}"
+  done
+
   # ---- the four database passwords ----
   #
   # The script generated these a hundred lines ago and used to print
@@ -817,7 +859,6 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   done
   id -u "${RUN_AS}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS}"
   id -u "${RUN_AS_UPGRADER}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS_UPGRADER}"
-  mkdir -p "${LOG_DIR}" "${STATE_DIR}"
   chown "${RUN_AS}:${RUN_AS}" "${LOG_DIR}" "${STATE_DIR}"
 
   # And the configuration those units are about to read.

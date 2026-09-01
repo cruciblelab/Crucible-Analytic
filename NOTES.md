@@ -7987,3 +7987,76 @@ aynı sayı bir `if` içindeyken tek bir makineden ayarlanamayan bir eşik.
 
 **Bir sayıyı raporlamak ile ona göre karar vermek arasındaki fark, bu
 oturumda üç kırmızı yapıya mal oldu.**
+
+---
+
+## N1+N2 — Panel hiçbir kurulumda günlüğünü açamıyormuş
+
+Gecelik hat, ilk gerçek koşusunda aylardır saklanan bir kusur buldu:
+
+    panel: logging setup failed: mkdir /var/log/crucible: permission denied
+
+Dört servisten üçü açılıyordu, panel açılmıyordu. Yani kurulum "bitti"
+diyor ve müşteri panelsiz kalıyordu.
+
+### Kusur `--no-systemd`'ye özgü değildi
+
+İlk okumada "systemd'siz kurulum dizini yaratmıyor" sandım. Daha derine
+bakınca ondan büyük çıktı: depoda **iki yol ailesi** yan yana yaşıyordu.
+
+| yol | nerede |
+|---|---|
+| `/var/log/crucible-analytic` | `install.sh`'ın `LOG_DIR` varsayılanı, **beş systemd biriminin hepsi** |
+| `/var/log/crucible` | `panel.example.toml` (**açık satır**), beacon (yorumlu), `KURULUM.md`, preflight'ın kullanıcıya kopyalattığı komut |
+
+Panel, örneği **yorumsuz** `dir` taşıyan tek servis — yani açılışta ağaç
+açmayı deneyen tek servis, ve açamayan tek servis. `logging.Setup` hata
+döndürüyor, stderr'e düşmüyor, o yüzden etki tam.
+
+**systemd yolu da aynı şekilde düşerdi**, başka bir sebeple:
+`ProtectSystem=strict` bütün dosya sistemini salt-okunur yapıyor ve
+`ReadWritePaths` yalnız öteki yazımı içeriyor. Yani bu hiç
+`--no-systemd` meselesi değildi; bir isim meselesiydi.
+
+Docker yolunun çalışmasının sebebi de kaza: `entrypoint.sh` panelin o
+satırını `dir = ""` yapıyordu — kusurun kendisine yazılmış bir baypas,
+depoda öylece duruyordu.
+
+### Talimatlar da yanlıştı, ve o yarısı kod düzeltmesinden sağ çıkardı
+
+`KURULUM.md` operatöre bir dizin yaratmasını söylüyordu, panelin kendi
+ön kontrolü de aynı yanlış dizini — **kopyalanmak üzere hazırlanmış bir
+komutun içinde.** Kodu düzeltip belgeyi bırakmak, kusuru kullanıcının
+eline vermek olurdu.
+
+### Planın kendi tahmini yanlış çıktı
+
+N1 ile N2'yi "ayrı kapanabilir" diye ayırmıştım. Ölçünce ayrılmadılar:
+panelin satırını yorumlamak `logging.Setup`'ın `Dir == ""` dalına düşmek,
+yani B grubunun kurduğu bütün günlük ağacını sessizce kapatmak demek.
+**Düzeltme gibi görünen şey özellik kaybıydı.**
+
+Geriye tek düzeltme kaldı: betik günlük dizinini yapılandırmalara yazsın
+ve iki dalda da yaratsın. `LOG_DIR` zaten kabul ediliyordu ve hiçbir yere
+yazılmıyordu — yani onu verenler, hiçbir servisin açmadığı bir dizin
+yaratıyorlardı.
+
+### Bunu hiçbir şey söyleyemezdi
+
+Dosyaların **her biri kendi içinde tutarlıydı.** Tutarsız olan kümeydi, ve
+bir kabuk betiği, beş birim dosyası, beş TOML örneği ve bir Markdown
+kılavuzu arasında okuyan ne derleyici ne linter ne şema denetimi var.
+
+`TestOneLogDirectoryFamily` tam bunu soruyor, ve elle liste tutmadan:
+**bu depo günlük dizinine ne diyorsa, her yerde onu diyor.** Depoyu
+yürüyor, `/var/log/crucible*` biçimindeki her yazımı topluyor, birden
+fazlaysa kırmızı. Altıncı bir servisin birim dosyası da yazıldığı gün
+kapsama giriyor.
+
+Ölçüldü: kök olmayan bir kullanıcı `--no-systemd` ile `LOG_DIR` vererek
+kurdu, kurulum tamamlandı, ve `panel.toml` verilen dizini gösteriyor.
+Mutasyon: paneli eski yola geri al → iki yazım, kırmızı.
+
+**Bir kurulumun iki ayrı yoldan aynı duruma varabildiği her yerde, iki yol
+da ölçülmeli** — bu oturumda dördüncü kez, ve bu sefer iki yol da
+kusurluydu.

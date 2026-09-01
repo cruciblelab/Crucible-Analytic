@@ -118,7 +118,7 @@ kimsenin koşmadığı ikinci bir betik zamanla birincisinden ayrılır.
 
 | Ne | Sunucuda | Konteynerde |
 |---|---|---|
-| Kayıtlar | `/var/log/crucible` altında dosya ağacı | stdout — konteyneri çalıştıran şey topluyor |
+| Kayıtlar | `/var/log/crucible-analytic` altında dosya ağacı | stdout — konteyneri çalıştıran şey topluyor |
 | Bağlanma adresi | `127.0.0.1:8082` — dışarıdan erişilemez | `0.0.0.0:8082` — ama porta **yayımlanmıyor** |
 | Sırlar | `/etc/crucible-analytic` dizini | `conf` adlı kalıcı birim |
 
@@ -683,9 +683,9 @@ gelen tek birim odur; diğer beşi hiçbir yetenek istemez.
 ### Log dizini
 
 ```bash
-mkdir -p /var/log/crucible
-chown crucible: /var/log/crucible
-chmod 700 /var/log/crucible
+mkdir -p /var/log/crucible-analytic
+chown crucible: /var/log/crucible-analytic
+chmod 700 /var/log/crucible-analytic
 ```
 
 **700 gerçekten gerekli.** Log satırları adres ve tarayıcı bilgisi

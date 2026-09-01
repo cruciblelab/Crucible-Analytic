@@ -15,7 +15,7 @@ import (
 // A hand-run demonstration against whatever is actually deployed, so the
 // output can be read rather than inferred from assertions.
 //
-//	CRUCIBLE_PREFLIGHT_DEMO=/var/log/crucible go test -tags integration \
+//	CRUCIBLE_PREFLIGHT_DEMO=/var/log/crucible-analytic go test -tags integration \
 //	    ./internal/panel/preflight/ -run TestPreflightDemo -v
 func TestPreflightDemo(t *testing.T) {
 	logDir := os.Getenv("CRUCIBLE_PREFLIGHT_DEMO")

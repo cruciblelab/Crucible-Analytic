@@ -465,12 +465,20 @@ func TestTheUpgradePathAloneLeavesTheFetchLogWritable(t *testing.T) {
 	// than on any row: measured here as "tuple concurrently updated",
 	// reported as a failure of a grant that was never wrong. Second,
 	// always: see testdb.SchemaApplyLock on why the order is fixed.
-	testdb.Lock(t, admin, testdb.SchemaApplyLock)
-	// And the race lock, last: internal/applier measures what appliers
-	// do to each other and cannot hold SchemaApplyLock while doing it,
-	// so this is what keeps that test and this one apart. See
+	// The race lock first, then the schema lock. That order is load
+	// bearing: internal/applier's concurrency test holds the race lock
+	// while its appliers take the schema lock themselves, so a suite that
+	// took the schema lock first would sit on the key those appliers need
+	// while waiting for the test that holds the race lock. Measured, on
+	// CI, as "0 applied, 24 waited for the schema lock". See
 	// testdb.SchemaRaceLock.
 	testdb.Lock(t, admin, testdb.SchemaRaceLock)
+	// And the schema lock, because the two Execs below apply a schema
+	// file - which is what the applier does, in another package, at the
+	// same time. Without this the two collide in the catalogue rather
+	// than on any row: measured here as "tuple concurrently updated",
+	// reported as a failure of a grant that was never wrong.
+	testdb.Lock(t, admin, testdb.SchemaApplyLock)
 
 	roles := []string{"collector", "beacon_writer", "panel_user"}
 	for _, role := range roles {

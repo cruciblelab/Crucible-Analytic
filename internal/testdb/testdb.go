@@ -258,8 +258,17 @@ const SchemaApplyLock = dblock.SchemaApply
 //
 // # Ordering
 //
-// After SchemaApplyLock, where both are taken. internal/asnlookup takes
-// FetchLogLock, then SchemaApplyLock, then this.
+// **Before** SchemaApplyLock, and that order is the whole of what makes
+// the pair work. Taken the other way round - which is how it was first
+// written, and how it reached CI - internal/asnlookup grabs
+// SchemaApplyLock and then blocks on this one, so it is *holding* the
+// key the racers need while it waits for the test that has it. Every
+// one of the racers then times out: measured as "0 applied, 24 waited
+// for the schema lock", on a run whose only fault was the order these
+// two comments described.
+//
+// So: this one outermost. internal/asnlookup takes FetchLogLock, then
+// this, then SchemaApplyLock.
 const SchemaRaceLock = 0x736368656D617263 // "schemarc"
 
 // Lock holds a Postgres advisory lock until the test ends.

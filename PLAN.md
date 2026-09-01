@@ -92,6 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
+| **N** Kurulumun ikinci yolu | 🟡 **2/4** | N3 gecelik yeşil, N4 eşik denetimi |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -171,7 +172,8 @@ geçer.
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
 | 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
-| 6 | **A3 → A2 → D5** ← **sıradaki** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
+| 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
+| 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
@@ -4028,6 +4030,117 @@ gibi şeylerin hepsi **niyet** gerektirir. Bugünkü oran da bunu söylüyor
 — araç 28 şey işaret etti, birini doğru işaret etti, ve o birini de
 *insan* gerçek olduğuna karar verdiği için düzelttik. Araçlar
 okumadığın yeri tarar; okuduğun yeri anlamaz.
+
+---
+
+### N grubu — Kurulumun ikinci yolu, ve kapının kendisi *(planda yoktu)*
+
+Bu grup bir günün bulgularından çıktı, ve ikisi de aynı cümlenin iki
+yüzü: **bir kurulumun iki ayrı yoldan aynı duruma varabildiği her yerde,
+iki yol da ölçülmeli.**
+
+Gecelik hat ilk gerçek koşusunda aylardır saklanan bir kusur buldu; ve
+kapının kendisi, aynı testin üç ayrı sürümünde, kendi makinemden başka
+bir yerde geçerli olmayan şeyleri iddia etti.
+
+| faz | ne | neden burada |
+|---|---|---|
+| **N1** | `--no-systemd` kurulumunda panel açılmıyor | müşteriye ulaşan tek gerçek kusur; gecelik buldu |
+| **N2** | `LOG_DIR` hiçbir yapılandırmaya yazılmıyor | N1'in kökü; ayrı, çünkü N1 onsuz da düzelir |
+| **N3** | Gecelik hattın yeşile ulaşması | N1+N2'nin kanıtı; ölçülmeden bitmiş sayılmaz |
+| **N4** | Kapıdaki iddiaların denetimi | üç kırmızının ortak sebebi; en sona, çünkü ötekiler onu besliyor |
+
+---
+
+#### N1 — `--no-systemd` kurulumunda panel açılmıyor ✅ **yapıldı** *(2026-09-01)*
+
+**Ne:** `release/install.sh --no-systemd` ile kurulan bir sistemde panel
+açılışta ölüyor:
+
+    panel: logging setup failed: mkdir /var/log/crucible: permission denied
+
+Diğer üç servis açılıyor. Yani kurulum "başarılı" diyor ve müşteri
+panelsiz kalıyor.
+
+**Kökü iki parça:**
+
+1. `panel.example.toml`'da `[logging] dir` satırı **açık**; beacon,
+   collector ve analytics-api'de aynı satır yorumlu. Panel gömülü bir
+   yola yazmaya çalışıyor, ötekiler stdout'a düşüyor.
+2. `mkdir -p "${LOG_DIR}"` yalnız `WANT_SYSTEMD=1` dalında. `--no-systemd`
+   ile hiçbir günlük dizini yaratılmıyor.
+
+**Kim etkileniyor:** systemd'siz makineler, Docker yolu, ve `--no-systemd`
+belgelenmiş bir seçenek olduğu için onu bilerek seçen herkes.
+
+**Bitti ölçütü:** kök olmayan bir kullanıcı `--no-systemd` ile kurduğunda
+dört servis de açılıyor; ve bunu ölçen bir test — kurulumu gerçekten
+koşturan, çıktısını okuyan değil.
+
+---
+
+#### N2 — `LOG_DIR` kabul ediliyor ama hiçbir yere yazılmıyor ✅ **yapıldı** *(2026-09-01)*
+
+**Ne:** `install.sh` `LOG_DIR` değişkenini alıyor, onunla bir dizin
+yaratıyor (o da yalnız systemd dalında), ve **hiçbir yapılandırma
+dosyasına yazmıyor**. Yani `LOG_DIR=/srv/log` diyen biri, hiçbir servisin
+kullanmadığı bir dizin yaratıyor.
+
+**Neden N1'den ayrı sanılmıştı, ve neden ayrılmadı:** plan "N1, panelin
+satırını ötekilerle aynı hâle getirerek de kapanır" diyordu. Ölçünce
+kapanmadı. Panelin satırını yorumlamak, `logging.Setup`'ın `Dir == ""`
+dalına düşmek demek — yani B grubunun kurduğu bütün günlük ağacını
+(saklama, arşivleme, kategoriler) sessizce kapatmak. Düzeltme değil,
+özellik kaybı olurdu.
+
+Geriye tek bir düzeltme kaldı: **betik günlük dizinini yapılandırmalara
+yazsın, ve iki dalda da yaratsın.** İkisi tek commit'te bitti; ayrı
+tutmak, bitmiş bir işi iki satırda göstermek olurdu.
+
+**Bitti ölçütü:** `LOG_DIR` verilen bir kurulumda dört yapılandırmanın
+dördü de o dizini gösteriyor; verilmeyen bir kurulumda dördü de bugünkü
+varsayılanda kalıyor. `PREFIX` / `CONF_DIR` / `STATE_DIR` ailesinin geri
+kalanının da aynı soruyu geçtiği ayrıca ölçülüyor — **bir tanesi
+yazılmıyorsa öbürleri de sorgusuz sayılmamalı.**
+
+---
+
+#### N3 — Gecelik hattın yeşile ulaşması ⬜
+
+**Ne:** `nightly` hattı bugüne kadar hiç yeşil koşmadı. İlk kusuru
+(`--no-systemd` verilmemesi) düzeltildi ve arkasından N1 çıktı; N1'in
+arkasında ne olduğu bilinmiyor.
+
+**Neden ayrı bir faz:** N1 ve N2 düzeldiğinde gecelik yeşile döner
+**varsayımı** tam olarak bu grubun karşı çıktığı şey. Yeşil bir koşu
+görülmeden bitmiş sayılmaz.
+
+**Bitti ölçütü:** `nightly` üst üste iki koşuda yeşil, ve ikisi de
+gerçekten koştu — atlanmadı.
+
+---
+
+#### N4 — Kapıdaki iddiaların denetimi ⬜
+
+**Ne:** Bir oturumda üç kırmızı yapı, hepsi aynı sebeple: bir test, kendi
+makinesinde doğru olan bir şeyi her makinede doğru sandı.
+
+    v0.13.1  "duyarlı yarının tabanı 250 ms"        → yükseltme 461 ms sürdü
+    yarış #1 "üçten fazlası yol veremez"            → CI'da 17/7
+    yarış #2 "hiç kimse tabloyu bekleyemez"         → trafik başka paketlerden de gelir
+    yarış #3 kilit sırası SchemaApply → SchemaRace  → CI'da 0 applied, 24 bekledi
+
+**Ne yapılacak:** kapıdaki her sayısal eşiği tek tek okuyup üç soruyu
+sormak — bu sayı nereden geldi, hangi makinede ölçüldü, ve daha yavaş bir
+makinede ne olur. Sayı bir *oran* ya da bir *süre* ise, ölçüt cinse
+çevrilebiliyor mu.
+
+**Neden en sonda:** N1–N3, bu grubun kendi kanıtını üretiyor. Denetimi
+onlardan önce yapmak, denetlenecek listeyi eksik bilmek olurdu.
+
+**Bitti ölçütü:** kapıdaki her eşiğin yanında nereden geldiği yazılı; ve
+"bu eşik daha yavaş bir makinede de geçerli mi" sorusuna yazılı bir cevap
+veremeyen eşik ya cinse çevrilmiş ya kaldırılmış.
 
 ---
 
