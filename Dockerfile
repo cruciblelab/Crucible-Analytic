@@ -159,8 +159,20 @@ RUN chmod 0755 /opt/crucible/entrypoint.sh /opt/crucible/release/install.sh \
 #
 # /var/lib/crucible holds the downloaded bot-data file, which is a cache:
 # losing it costs one refresh. Not a volume, deliberately.
-RUN mkdir -p /etc/crucible-analytic /var/lib/crucible \
- && chown -R crucible:crucible /etc/crucible-analytic /var/lib/crucible \
+#
+# /var/log/crucible-analytic exists because install.sh creates LOG_DIR on
+# every path now, and inside the image it runs as `crucible`, who cannot
+# create a directory under /var/log. The entrypoint then blanks the dir
+# in every configuration - a container logs to stdout - so nothing is
+# written here; what the directory buys is an install that does not stop
+# at its own mkdir.
+#
+# Its name follows the installer and the systemd units rather than the
+# /var/lib spelling above. Two spellings for the log directory is exactly
+# the defect this came from - see TestOneLogDirectoryFamily - and the
+# /var/lib pair is the same shape still open, one directory over.
+RUN mkdir -p /etc/crucible-analytic /var/lib/crucible /var/log/crucible-analytic \
+ && chown -R crucible:crucible /etc/crucible-analytic /var/lib/crucible /var/log/crucible-analytic \
  && chmod 0750 /etc/crucible-analytic
 
 ENV PATH="/opt/crucible/bin:${PATH}" \
