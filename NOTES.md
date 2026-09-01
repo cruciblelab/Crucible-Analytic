@@ -7264,3 +7264,155 @@ kırmızıya çevirmesi olmaz.
 
 İki yönlü de mutasyonla ölçüldü: bir etiketi sil → "notu var, etiketi
 yok"; karşılığı olmayan bir etiket ekle → "etiketli, günlük sessiz".
+
+---
+
+## M2 — Çekim kaydı: planın kendi içinde çelişen iki cümlesi
+
+*(2026-09-01)*
+
+Faz basit görünüyordu: her yenileme bir satır yazsın. İki şey çıktı — biri
+planın metninde, biri yazarken yaptığım bir ölçümde.
+
+### Dosya başına, yenileme başına değil
+
+Plan "her yenileme denemesi bir satır" diyordu. Kod öyle çalışmıyor: bir
+yenileme, bir veri kümesinin IPv4 ve IPv6 dosyalarını **ayrı** çekiyor,
+bunlar ayrı düşüyor, ve `storeCountry` düşen ailenin eski tablosunu
+koruyup çalışanı değiştiriyor.
+
+Yenileme başına tek satır, "IPv6 güncel, IPv4 bir aylık" durumunu tek bir
+`outcome` değerine sıkıştırmak zorunda kalırdı — ve o değerin dürüst bir
+karşılığı yok. Ne `succeeded` doğru, ne `failed`.
+
+Dosya başına yazınca yedek sıralaması da bedavaya geldi: seçilen kaynak
+düşüp sıradaki çalıştığında **ikisi de** kayıtta, sırasıyla. "Neden verim
+iptoasn'dan geliyor" sorusunun cevabı fazladan hiçbir alan eklemeden
+ortaya çıktı.
+
+**Bir kaydın tanesi, kaydettiği şeyin gerçekten ayrı düşebildiği en küçük
+parça olmalı.**
+
+### Bayt sayısı: başlık değil, gerçekten okunan
+
+`Content-Length` sunucunun *göndereceğini söylediği* şeydir. İlgi çekici
+başarısızlık, daha azını gönderdiğidir.
+
+Ve bu ürün için sessiz: iki ayrıştırıcı da bozuk bir satırda **durup
+okuduğunu saklıyor**. Yani yarıda kesilmiş bir dosya hatasız ayrışıyor,
+tabloya yazılıyor, ve geriye internetin yarısı eksik bir aralık tablosu
+kalıyor. Hiçbir hata, hiçbir uyarı. Tek fark bayt sayısında.
+
+O yüzden sayaç gövdenin üstüne sarılıyor, ve testi "> 0" değil **dosyanın
+gerçek boyutu** ile karşılaştırıyor. Sıfırdan farklı olan bir sayı,
+kimsenin kontrol edemeyeceği bir sayıdır.
+
+### Planın iki cümlesi aynı anda tutulamıyordu
+
+> "collector yazar, panel okur"
+>
+> "kendi saklama süresi olacak ve `internal/panel/housekeeping.go`'ya
+> bağlanacak"
+
+Süpürme `DELETE` ister. Panelin yazmadığı bir tabloda `DELETE`
+yetkisinin başka hiçbir kullanımı yok, yani ikinci cümle birincisini
+bozuyor.
+
+Yazan süpürüyor. Zamanlayıcısı zaten koşan bileşen o; tablo yalnız o
+koşarken büyüyor; kapatılmış bir collector'dan artakalan satırlar haftada
+bir avuç. Alternatif, panel yetkisiz silebilsin diye tek bir `DELETE`
+için `SECURITY DEFINER` fonksiyon eklemekti — byte'larla ölçülen bir
+kazanç için gerçek bir yüzey.
+
+**Planın asıl koruduğu şey dosya değildi, özellikti**: "yazılıp
+çağrılmayan süpürme". `TestEverySweepIsReachableFromRun` paketin çağrı
+grafiğini kaynaktan çıkarıp `Run` → `sweep` → `PurgeOldFetches`
+ulaşılabilirliğini arıyor. Doğrudan çağrı değil **ulaşılabilirlik**,
+çünkü ara adım bilinçli; doğrudan çağrı isteyen bir test, davranışı değil
+kodun şeklini dayatır.
+
+### Yolda çıkan kusur: kimsenin kontrol etmediği üç yetki
+
+Yeni tabloya `GRANT USAGE ON SEQUENCE ip_range_fetches_id_seq` yazarken
+gerekip gerekmediğini ölçtüm. Gerekmiyordu:
+
+```
+CREATE TABLE idprobe (id BIGINT GENERATED ALWAYS AS IDENTITY ..., note TEXT);
+REVOKE ALL ON idprobe FROM collector;  GRANT INSERT ON idprobe TO collector;
+-- collector olarak:
+INSERT INTO idprobe (note) VALUES ('...');   ->  INSERT 0 1
+```
+
+PostgreSQL identity sekansını sütununun parçası sayıyor. Gerçek tabloda
+da doğrulandı: `panel_upgrade_requests_id_seq` üzerindeki bütün yetkiler
+geri alındıktan sonra `panel_user` satır ekledi ve **id 740** aldı.
+
+Depoda aynı şekilde gereksiz **iki** tane daha vardı. Yani ben üçüncüsünü
+ekliyordum.
+
+`BIGSERIAL` sekansları farklı ve yetkilerine gerçekten ihtiyaç duyuyor —
+ve iki tür `grants.sql` içinde **birbirinin aynısı görünüyor**. Ayıran tek
+şey sütun bildirimi, ki o başka bir dosyada.
+
+### Ve dosyadan silmek, veritabanından silmiyor
+
+Bu, kaçırılması en kolay yarısıydı. `grants.sql` her kurulumda yeniden
+koşuyor — ama olmayan bir satır yeniden *verilmiyor* sadece; verilmiş
+olan duruyor. "O yetkiyi kaldırdık" cümlesi depo için doğru, her kurulum
+için yanlış olurdu.
+
+Açık `REVOKE` eklendi. Testin ilk koşusu bunu kendisi gösterdi: dosyadan
+sildikten *sonra* koştu ve on yetkiyi hâlâ orada buldu.
+
+### Testin kendi ilk hâli de eksikti
+
+`information_schema.usage_privileges` yalnız `USAGE` bildiriyor. İlk
+sorgu beş satır buldu; `aclexplode` ile bakınca **on** çıktı — her birinin
+`SELECT` yarısı görünmüyordu.
+
+**Bir yüzey denetimi, denetlediği yüzeyin tamamını göremiyorsa, bulduğu
+şey kadar bulmadığı şeyle de yanıltır.**
+
+### Ve asıl kusur: düğmeyle yükselten kurulum, kimsenin yazamadığı bir tablo alıyor
+
+Yetkileri `grants.sql`'e yazdıktan sonra bir soru kaldı: **bir kurulum bu
+şemaya iki yoldan ulaşıyor, ve ikisi aynı işi yapmıyor.**
+
+```
+install.sh          şema dosyaları, sonra release/sql/grants.sql
+yükseltme düğmesi   şema dosyaları, ve başka hiçbir şey
+```
+
+`internal/schemafiles.InOrder` tam olarak `schema.sql` dosyalarının
+listesi; yetkiler orada değil.
+
+Bu projedeki her tablo yükseltme düzeneğinden **önce** var. Yani L1–L3
+yazıldığından beri kimse yeni bir tablo eklememişti — ve bu ilki.
+Ölçüldü:
+
+```
+psql -U collector -c "INSERT INTO ip_range_fetches ..."
+ERROR:  permission denied for table ip_range_fetches
+```
+
+Ve arızanın şekli bu projenin klasiği: `recordFetch` bir uyarı yazıp
+geçiyor, yenileme devam ediyor, coğrafya çalışıyor, çekim kaydı sonsuza
+kadar boş kalıyor — **hiç yenilenmemiş bir kurulumdan ayırt edilemez
+biçimde**. Yani fazın getirdiği tek şey, düğmeyle yükselten her müşteride
+sessizce çalışmıyor olacaktı.
+
+Çözüm deponun kendi kalıbı: yetkiler tablonun şema dosyasında, rol var mı
+diye bakan bir `DO` bloğunun içinde — `internal/retention/schema.sql`
+tam olarak bunu yapıyor. `grants.sql` yine listeliyor, çünkü "bu rol ne
+yapabilir" sorusunun cevabı orada; iki kez verilen bir yetki
+etkisizdir.
+
+`TestTheUpgradePathAloneLeavesTheFetchLogWritable` düğme yolunu birebir
+oynuyor: bütün yetkileri geri al, şema dosyasını **uygulayıcının kendi
+rolüyle** uygula, sonra her servise işini yaptır. Mutasyonla ölçüldü —
+`DO` bloğunu sil, test kusurun ilk hâlini kelimesi kelimesine geri
+veriyor.
+
+**Bir kurulumun iki farklı yoldan ulaşabildiği her durum için, iki yolun
+da ölçülmesi gerekir.** Biri kurulumda koşuyor diye test ediliyorsa,
+diğeri hiç koşulmamış demektir.

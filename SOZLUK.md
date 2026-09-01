@@ -340,6 +340,17 @@ sunucu) karşılığı zaten `asn_lookup.local_csv_path`.
 sırayla denenecekler. Yanlış türdekiler atlanır: ülke yenilemesi bir ASN
 veri kümesine düşmez.
 
+**çekim kaydı (fetch log)** (`ip_range_fetches`) — Her veri kümesi çekimi
+bir satır: hangi kaynak, hangi adres ailesi, ne zaman başladı ve bitti,
+kaç satır ayrıştırıldı, kaç bayt okundu, ve başarısızsa tam hata zinciri.
+Yenileme başına değil **dosya başına**, çünkü IPv4 ile IPv6 ayrı düşüyor
+ve "biri güncel, öteki bir aylık" durumunun tek bir sonuçta dürüst bir
+karşılığı yok.
+
+Çeken servis yazar, panel yalnız okur, kimse `UPDATE` edemez. Yoksa
+"coğrafya verim güncel mi" sorusunun cevabı yalnız sunucunun kendi
+günlüğünde kalır — kabuğu olmayan müşterinin bakamayacağı tek yerde.
+
 **sessiz adres (silent address)** — Collector'ın gördüğü ama beacon'ın
 hiç görmediği adres. Yani JavaScript çalıştırmamış: ya bot, ya JS kapalı
 bir tarayıcı. **JavaScript tabanlı hiçbir analitik aracın göremediği

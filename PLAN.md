@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
-| **M** Veri kaynakları | 🟡 **1/3** | M2 çekim kaydı, M3 yenile düğmesi *(M1 kütüphane yapıldı)* |
+| **M** Veri kaynakları | 🟡 **2/3** | M3 yenile düğmesi *(M1 kütüphane, M2 çekim kaydı yapıldı)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -170,7 +170,7 @@ geçer.
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
-| 5.6 | ~~**M1** kaynak kütüphanesi~~ ✅ → **M2 → M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
+| 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ → **M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4753,7 +4753,7 @@ akışı dosyalarından.
 
 ---
 
-#### M2 — Çekim kaydı
+#### M2 — Çekim kaydı ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** her yenileme denemesi bir satır: kaynak, başlangıç ve bitiş,
 kaç satır ayrıştırıldı, kaç bayt indirildi, sonuç, ve başarısızlıkta tam
@@ -4776,6 +4776,80 @@ olma sebebi tam olarak "yazılıp çağrılmayan süpürme".
 **Bitti ölçütü:** başarısız bir çekim satırı hangi kaynağın düştüğünü ve
 neden düştüğünü söylüyor; başarılı çekim satır ve bayt sayısı taşıyor;
 tablo süpürülüyor ve süpürme çağrılıyor.
+
+##### Nasıl bitti
+
+`ip_range_fetches`, ve **dosya başına bir satır** — yenileme başına değil.
+Sebep tercih değil kodun zaten yaptığı şey: bir yenileme IPv4 ve IPv6
+dosyalarını ayrı çekiyor, bunlar ayrı düşüyor, ve `storeCountry` düşen
+ailenin eski tablosunu koruyup çalışanı değiştiriyor. Yenileme başına tek
+satır, "IPv6 güncel, IPv4 bir aylık" durumunu tek bir sonuca sıkıştırmak
+zorunda kalırdı — ve onun dürüst bir değeri yok. Yedek sıralaması da
+bedavaya çıktı: seçilen düşüp sıradaki çalıştığında ikisi de kayıtta.
+
+**Bayt sayısı `Content-Length`'ten değil, gerçekten okunandan.** Bir
+başlık sunucunun *göndereceğini söylediği* şeydir, ve ilgi çekici
+başarısızlık daha azını gönderdiğidir. Kesilmiş bir dosya hatasız
+ayrışıyor — iki ayrıştırıcı da bozuk satırda durup okuduğunu saklıyor —
+yani yarısının hiç gelmediğinin tek kanıtı sayaç.
+
+**Şema 4.** Yeni tablo parmak izini değiştirdi; sürüm elle 4'e çıkarıldı
+ve `CHANGELOG.md` kuran kişiye yükseltmeyi uygulamasını söylüyor.
+Uygulanmazsa hiçbir şey durmuyor, yalnız bu fazın getirdiği şey
+çalışmıyor ve her yenilemede günlüğe uyarı düşüyor.
+
+##### Planın kendi içinde çelişen iki cümlesi
+
+Faz hem *"collector yazar, panel okur"* diyordu hem de *"kendi saklama
+süresi `internal/panel/housekeeping.go`'ya bağlanacak"*. **İkisi birden
+tutulamıyor:** süpürme `DELETE` ister, ve panelin yazmadığı bir tabloda
+`DELETE` yetkisinin başka hiçbir kullanımı yok.
+
+Yazan süpürüyor. Zamanlayıcısı zaten koşan bileşen o, tablo yalnız o
+koşarken büyüyor, ve kapatılmış bir collector'dan artakalan satırlar
+haftada bir avuç — sınırsız bir tablo değil. Alternatif, panel yetkisiz
+silebilsin diye tek bir `DELETE` için `SECURITY DEFINER` fonksiyon
+eklemekti: byte'larla ölçülen bir kazanç için gerçek bir yüzey.
+
+Planın asıl koruduğu şey dosya değil özellikti — *"yazılıp çağrılmayan
+süpürme"* — ve o özellik burada da korunuyor:
+`TestEverySweepIsReachableFromRun` paketin çağrı grafiğini kaynaktan
+çıkarıp `Run`'dan `PurgeOldFetches`'e ulaşılabilirliği arıyor. Mutasyonla
+ölçüldü: çağrıyı sil, test "PurgeOldFetches tanımlı ve Run ona hiç
+ulaşmıyor" diyor.
+
+##### Yolda çıkan kusur: kimsenin kontrol etmediği üç yetki
+
+Yeni tabloya `GRANT USAGE ON SEQUENCE ... _id_seq` yazarken, gerekip
+gerekmediği ölçüldü — ve gerekmiyordu. Sütun
+`GENERATED ALWAYS AS IDENTITY`, ve PostgreSQL identity sekansını
+sütununun parçası sayıyor: tabloya `INSERT` tek başına yetiyor. Depoda
+zaten aynı şekilde gereksiz iki tane vardı (`panel_upgrade_requests`,
+`panel_logs`). Ölçüm: sekans üzerindeki bütün yetkiler geri alındıktan
+sonra `panel_user` satır ekledi ve `id 740` aldı.
+
+**Ve dosyadan `GRANT`'ı silmek, kurulu veritabanından silmiyor.** Bu
+dosya her kurulumda yeniden koşuyor, ama olmayan bir satır yeniden
+verilmiyor sadece — verilmiş olan duruyor. O yüzden açık `REVOKE` de
+eklendi.
+
+**Ve asıl kusur bunun yanında çıktı:** bir kurulum bu şemaya iki yoldan
+ulaşıyor — `install.sh` şemaları *ve* `grants.sql`'i uyguluyor, yükseltme
+düğmesi yalnız şemaları (`schemafiles.InOrder` tam olarak `schema.sql`
+listesi). Bu projedeki her tablo L1–L3'ten önce var olduğu için hiç
+ortaya çıkmamıştı; bu ilk yeni tablo. Ölçüldü:
+`ERROR: permission denied for table ip_range_fetches`. Arıza sessiz —
+uyarı düşer, yenileme devam eder, çekim kaydı sonsuza kadar boş kalır ve
+hiç yenilenmemiş bir kurulumdan ayırt edilemez. Yetkiler artık tablonun
+şema dosyasında, `internal/retention/schema.sql`'in `DO` blok kalıbıyla;
+`TestTheUpgradePathAloneLeavesTheFetchLogWritable` düğme yolunu birebir
+oynuyor.
+
+`TestNoIdentitySequenceIsGranted` sekans kusurunu kataloğa sorarak
+tutuyor, isim eşleştirerek değil. Kendi ilk hâli de bir ders oldu:
+`information_schema.usage_privileges` yalnız `USAGE` bildiriyor, yani
+`SELECT` yarıları görünmüyordu — beşini gördü, onunun beşini kaçırdı.
+`aclexplode` ile onu da görüyor.
 
 ---
 

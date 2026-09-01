@@ -9,6 +9,69 @@ yapacağım".
 
 ---
 
+## v0.12.0+M2 — 2026-09-01
+
+Çekim kaydı: hangi veri kümesi ne zaman çekildi, kaç satır, kaç bayt, ve
+başarısızsa neden.
+
+**Şema sürümü: 4** *(3'ten yükseldi)*. **Kuran kişinin yapması gereken:
+yükseltmeyi uygulayın** — panelde *Sağlık → Yükselt* düğmesi, ya da
+`install.sh`'ı yeniden koşturun.
+
+Uygulamazsanız hiçbir şey durmaz: servisler çalışmaya devam eder, adres
+çözümlemesi çalışır, sayfalar çizilir. Yalnız çekim kaydı yazılamaz ve
+her yenilemede günlüğe bir uyarı düşer — yani bu sürümün getirdiği tek
+şey çalışmaz.
+
+`install.sh`'ı yeniden koşturmak ayrıca aşağıdaki gereksiz yetkileri de
+kaldırır.
+
+### Ne var
+
+**Her dosya için bir satır.** Bir yenileme, bir veri kümesinin IPv4 ve
+IPv6 dosyalarını ayrı ayrı çekiyor ve bunlar **ayrı ayrı** başarısız
+oluyor — kod da zaten öyle davranıyor, düşen ailenin eski tablosunu
+koruyup çalışanı değiştiriyor. Yenileme başına tek satır, "IPv6 güncel,
+IPv4 bir aylık" durumunu tek bir sonuca sıkıştırmak zorunda kalırdı ve
+onun dürüst bir değeri yok.
+
+Yedek sıralaması da bundan bedava çıkıyor: seçilen kaynak düşüp sıradaki
+çalıştığında ikisi de kayıtta, sırasıyla.
+
+**Kesilmiş dosyayı yakalayan şey bayt sayısı.** Her iki ayrıştırıcı da
+bozuk bir satırda durup okuduğunu saklıyor, yani yarıda kesilmiş bir
+dosya hatasız ayrışıyor ve geriye internetin yarısı eksik bir tablo
+bırakıyor. Tek fark bayt sayısında görünüyor — ve `Content-Length`'ten
+değil, gerçekten okunandan sayılıyor.
+
+**Yazan ile okuyan ayrı.** Çeken servisler (collector, beacon) yazıyor;
+panel **yalnız okuyor**. Kimsede `UPDATE` yok: bir çekim satırı yazıldığı
+anda bitmiş oluyor, sonradan değiştirme yetkisi yalnızca bir
+başarısızlığı başarı gibi göstermeye yarardı.
+
+**Saklama: 90 gün**, ve süpürmeyi yazan servis yapıyor. Planı burada bir
+adım değiştirdik; gerekçesi `PurgeOldFetches`'te ve `PLAN.md`'de.
+
+**Yetkiler tablonun şema dosyasında.** Bir kurulum bu şemaya iki yoldan
+ulaşıyor ve ikisi aynı işi yapmıyor: `install.sh` şemaları *ve*
+`grants.sql`'i uyguluyor, yükseltme düğmesi yalnız şemaları. Bu, L1–L3
+yazıldığından beri eklenen ilk tablo olduğu için ilk kez ortaya çıktı —
+düzeltilmeseydi düğmeyle yükselten her kurulum, hiçbir servisin
+yazamadığı bir tablo alacaktı ve bu sürümün getirdiği tek şey sessizce
+çalışmayacaktı.
+
+### Kaldırılan yetkiler
+
+Üç `GRANT ... ON SEQUENCE` gereksizdi: ilgili sütunlar
+`GENERATED ALWAYS AS IDENTITY` ve PostgreSQL identity sekansını
+sütununun parçası sayıyor — tabloya `INSERT` yetkisi tek başına yetiyor.
+Ölçüldü. Dosyadan silmek kurulu veritabanından silmiyor, o yüzden açık
+`REVOKE` de eklendi; `install.sh` yeniden koşturulduğunda uygulanır.
+`BIGSERIAL` sekansları farklı ve yetkilerine gerçekten ihtiyaç
+duyuyorlar.
+
+---
+
 ## v0.11.1 — 2026-09-01
 
 Tek bir düzeltme, ve ciddi olanı: **yükseltme, çalışan bir yazmayı

@@ -918,6 +918,13 @@ saldırı sürerken SSH'a ihtiyaç duymamanız için:
 | `beacon.trusted_proxies` | Hangi ağların ilettiği başlıklara güvenileceği |
 | `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
 
+**Çekim kaydı.** `asn_lookup` açıkken her veri kümesi çekimi
+`ip_range_fetches` tablosuna bir satır yazar: hangi kaynak, hangi adres
+ailesi, kaç satır, kaç bayt, ve başarısızsa tam hata zinciri. "Coğrafya
+verim güncel mi, değilse neden" sorusunun cevabı burada — daha önce
+yalnız sunucunun kendi günlüğündeydi, yani kabuğu olmayan müşterinin
+bakamayacağı tek yerde. 90 gün saklanır, çeken servis kendi süpürür.
+
 **AS 0 kabul edilmez** — hem dosyada hem panelde reddedilir. Sebebi:
 0, ASN çözümlemesinin "bulamadım" değeri; bir AS0 kuralı tek bir ağı
 değil, çözümlenemeyen **her** adresi engellerdi.

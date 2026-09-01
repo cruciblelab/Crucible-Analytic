@@ -181,7 +181,7 @@ func TestLoadCountryCSV_ReadsAndParsesFromHTTPServer(t *testing.T) {
 	defer srv.Close()
 
 	r := &Resolver{httpClient: srv.Client()}
-	entries, err := r.loadCountryCSV(context.Background(), srv.URL, countryIPv4Filename)
+	entries, _, err := r.loadCountryCSV(context.Background(), srv.URL, countryIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadCountryCSV: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestLoadCountryCSV_NonOKStatusIsAnError(t *testing.T) {
 	defer srv.Close()
 
 	r := &Resolver{httpClient: srv.Client()}
-	if _, err := r.loadCountryCSV(context.Background(), srv.URL, countryIPv4Filename); err == nil {
+	if _, _, err := r.loadCountryCSV(context.Background(), srv.URL, countryIPv4Filename); err == nil {
 		t.Error("loadCountryCSV() error = nil, want an error for a non-200 response")
 	}
 }
@@ -213,7 +213,7 @@ func TestLoadCountryCSV_LocalPathReadsFromDiskInsteadOfNetwork(t *testing.T) {
 	// panic on a nil pointer - failing loudly rather than silently
 	// falling through to a real network call.
 	r := &Resolver{localCSVPath: dir}
-	entries, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename)
+	entries, _, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadCountryCSV: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestLoadCountryCSV_LocalPathReadsFromDiskInsteadOfNetwork(t *testing.T) {
 
 func TestLoadCountryCSV_LocalPathMissingFileIsAnError(t *testing.T) {
 	r := &Resolver{localCSVPath: t.TempDir()} // empty dir - the expected file isn't there
-	if _, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename); err == nil {
+	if _, _, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename); err == nil {
 		t.Error("loadCountryCSV() error = nil, want an error for a missing local file")
 	}
 }
@@ -237,7 +237,7 @@ func TestLoadASNCSV_ReadsAndParsesFromHTTPServer(t *testing.T) {
 	defer srv.Close()
 
 	r := &Resolver{httpClient: srv.Client()}
-	entries, err := r.loadASNCSV(context.Background(), srv.URL, asnIPv4Filename)
+	entries, _, err := r.loadASNCSV(context.Background(), srv.URL, asnIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadASNCSV: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestLoadASNCSV_NonOKStatusIsAnError(t *testing.T) {
 	defer srv.Close()
 
 	r := &Resolver{httpClient: srv.Client()}
-	if _, err := r.loadASNCSV(context.Background(), srv.URL, asnIPv4Filename); err == nil {
+	if _, _, err := r.loadASNCSV(context.Background(), srv.URL, asnIPv4Filename); err == nil {
 		t.Error("loadASNCSV() error = nil, want an error for a non-200 response")
 	}
 }
@@ -267,7 +267,7 @@ func TestLoadASNCSV_LocalPathReadsFromDiskInsteadOfNetwork(t *testing.T) {
 	// httpClient is deliberately nil, same reasoning as
 	// TestLoadCountryCSV_LocalPathReadsFromDiskInsteadOfNetwork.
 	r := &Resolver{localCSVPath: dir}
-	entries, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename)
+	entries, _, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadASNCSV: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestLoadASNCSV_LocalPathReadsFromDiskInsteadOfNetwork(t *testing.T) {
 
 func TestLoadASNCSV_LocalPathMissingFileIsAnError(t *testing.T) {
 	r := &Resolver{localCSVPath: t.TempDir()} // empty dir - the expected file isn't there
-	if _, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename); err == nil {
+	if _, _, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename); err == nil {
 		t.Error("loadASNCSV() error = nil, want an error for a missing local file")
 	}
 }

@@ -114,19 +114,19 @@ func TestLoadTest_LocalCSVPath_NeverContactsNetwork(t *testing.T) {
 		httpClient:   srv.Client(), // reachable and would happily serve a request - the point is that it's never asked to
 		localCSVPath: dir,
 	}
-	entries4, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename)
+	entries4, _, err := r.loadCountryCSV(context.Background(), countryIPv4URL, countryIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadCountryCSV(ipv4): %v", err)
 	}
-	entries6, err := r.loadCountryCSV(context.Background(), countryIPv6URL, countryIPv6Filename)
+	entries6, _, err := r.loadCountryCSV(context.Background(), countryIPv6URL, countryIPv6Filename)
 	if err != nil {
 		t.Fatalf("loadCountryCSV(ipv6): %v", err)
 	}
-	asnEntries4, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename)
+	asnEntries4, _, err := r.loadASNCSV(context.Background(), asnIPv4URL, asnIPv4Filename)
 	if err != nil {
 		t.Fatalf("loadASNCSV(ipv4): %v", err)
 	}
-	asnEntries6, err := r.loadASNCSV(context.Background(), asnIPv6URL, asnIPv6Filename)
+	asnEntries6, _, err := r.loadASNCSV(context.Background(), asnIPv6URL, asnIPv6Filename)
 	if err != nil {
 		t.Fatalf("loadASNCSV(ipv6): %v", err)
 	}

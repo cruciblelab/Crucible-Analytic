@@ -197,6 +197,7 @@ func (r *Resolver) Resolve(ip netip.Addr) Result {
 // refreshInterval after every process start otherwise.
 func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 	r.refresh(ctx)
+	r.sweep(ctx)
 
 	ticker := time.NewTicker(refreshInterval)
 	defer ticker.Stop()
@@ -206,7 +207,33 @@ func (r *Resolver) Run(ctx context.Context, refreshInterval time.Duration) {
 			return
 		case <-ticker.C:
 			r.refresh(ctx)
+			r.sweep(ctx)
 		}
+	}
+}
+
+// sweep trims the fetch log.
+//
+// Here rather than in the panel's housekeeping, and PurgeOldFetches says
+// why at length. After the refresh rather than before it, so a run that
+// has just written rows is the one that also removes the old ones - a
+// sweep that ran first would leave every refresh's own rows one tick
+// longer than the retention says.
+//
+// Failure is logged and nothing else. A fetch log that cannot be trimmed
+// is a table growing slowly; a refresh that stopped because of it would
+// be geography data going stale, which is the thing this whole package
+// is for.
+func (r *Resolver) sweep(ctx context.Context) {
+	removed, err := r.PurgeOldFetches(ctx)
+	if err != nil {
+		r.logger().Warn("asnlookup: could not trim the fetch log", "err", err)
+		return
+	}
+	if removed > 0 {
+		// Only when something went. A line saying "removed 0" on every
+		// tick is how a log stops being read.
+		r.logger().Info("asnlookup: trimmed the fetch log", "removed", removed)
 	}
 }
 
@@ -330,8 +357,20 @@ func (r *Resolver) refreshCountry(ctx context.Context) {
 		err6     error
 	)
 	for _, src := range chain {
-		entries4, err4 = r.loadCountryCSV(ctx, src.IPv4URL, src.IPv4File)
-		entries6, err6 = r.loadCountryCSV(ctx, src.IPv6URL, src.IPv6File)
+		var bytes4, bytes6 int64
+		began4 := time.Now()
+		entries4, bytes4, err4 = r.loadCountryCSV(ctx, src.IPv4URL, src.IPv4File)
+		began6 := time.Now()
+		entries6, bytes6, err6 = r.loadCountryCSV(ctx, src.IPv6URL, src.IPv6File)
+		done := time.Now()
+
+		// One row per file, written whichever way it went. A failed
+		// attempt followed by a successful one is how the fallback shows
+		// up in the log: both rows are here, in order, saying which
+		// dataset was asked first.
+		r.recordFetch(ctx, r.newFetchRecord(src, familyIPv4, began4, began6, len(entries4), bytes4, err4))
+		r.recordFetch(ctx, r.newFetchRecord(src, familyIPv6, began6, done, len(entries6), bytes6, err6))
+
 		if err4 == nil || err6 == nil {
 			if src.ID != chain[0].ID {
 				r.logger().Warn("asnlookup: country dataset came from a fallback",
@@ -383,8 +422,16 @@ func (r *Resolver) refreshASN(ctx context.Context) {
 		err6     error
 	)
 	for _, src := range chain {
-		entries4, err4 = r.loadASNCSV(ctx, src.IPv4URL, src.IPv4File)
-		entries6, err6 = r.loadASNCSV(ctx, src.IPv6URL, src.IPv6File)
+		var bytes4, bytes6 int64
+		began4 := time.Now()
+		entries4, bytes4, err4 = r.loadASNCSV(ctx, src.IPv4URL, src.IPv4File)
+		began6 := time.Now()
+		entries6, bytes6, err6 = r.loadASNCSV(ctx, src.IPv6URL, src.IPv6File)
+		done := time.Now()
+
+		r.recordFetch(ctx, r.newFetchRecord(src, familyIPv4, began4, began6, len(entries4), bytes4, err4))
+		r.recordFetch(ctx, r.newFetchRecord(src, familyIPv6, began6, done, len(entries6), bytes6, err6))
+
 		if err4 == nil || err6 == nil {
 			if src.ID != chain[0].ID {
 				r.logger().Warn("asnlookup: asn dataset came from a fallback",
@@ -457,22 +504,51 @@ func (r *Resolver) fetchOrReadLocal(ctx context.Context, url, localFilename stri
 	return resp.Body, nil
 }
 
-func (r *Resolver) loadCountryCSV(ctx context.Context, url, localFilename string) ([]rangeEntry[string], error) {
-	body, err := r.fetchOrReadLocal(ctx, url, localFilename)
-	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-	return parseCountryCSV(body)
+// countingReader counts what passed through it.
+//
+// The byte count is one of the two numbers M2 promises, and it has to be
+// measured here rather than taken from Content-Length: a header is what
+// the server said it would send, and the interesting failure is the one
+// where it sent less. A truncated file parses without error - both
+// parsers stop at a malformed record and keep what they read - so the
+// only evidence that half of it never arrived is the count.
+type countingReader struct {
+	r io.Reader
+	n int64
 }
 
-func (r *Resolver) loadASNCSV(ctx context.Context, url, localFilename string) ([]rangeEntry[asnInfo], error) {
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// loadCountryCSV returns the parsed ranges and how many bytes were read
+// to get them.
+//
+// Bytes are returned even on a parse failure, because zero bytes and
+// nine thousand bytes are different problems: the first is a URL that
+// moved, the second is a format that changed.
+func (r *Resolver) loadCountryCSV(ctx context.Context, url, localFilename string) ([]rangeEntry[string], int64, error) {
 	body, err := r.fetchOrReadLocal(ctx, url, localFilename)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer body.Close()
-	return parseASNCSV(body)
+	counted := &countingReader{r: body}
+	entries, err := parseCountryCSV(counted)
+	return entries, counted.n, err
+}
+
+func (r *Resolver) loadASNCSV(ctx context.Context, url, localFilename string) ([]rangeEntry[asnInfo], int64, error) {
+	body, err := r.fetchOrReadLocal(ctx, url, localFilename)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer body.Close()
+	counted := &countingReader{r: body}
+	entries, err := parseASNCSV(counted)
+	return entries, counted.n, err
 }
 
 // writeCountryRanges replaces the entire ip_country_ranges table in one

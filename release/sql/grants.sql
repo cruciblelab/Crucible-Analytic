@@ -42,6 +42,39 @@ GRANT SELECT, INSERT ON panel_audit_log TO panel_user;
 -- By name for the same reason: "ALL" is a grant to whoever adds a
 -- sequence to public tomorrow, which is a decision being made now by
 -- somebody who is not here.
+--
+-- # Only the BIGSERIAL ones, and that distinction was measured
+--
+-- Three grants used to be here that nobody needed: the sequences behind
+-- panel_upgrade_requests.id, panel_logs.id, and (nearly) the fetch log's.
+-- All three columns are GENERATED ALWAYS AS IDENTITY, and PostgreSQL
+-- treats an identity sequence as part of its column - INSERT on the
+-- table is the whole permission. Measured on this database rather than
+-- read from the manual: with every privilege on
+-- panel_upgrade_requests_id_seq revoked, panel_user inserted and got
+-- back id 740.
+--
+-- A privilege nobody needs is one nobody audits, which is what H5 was
+-- about. The seven below are BIGSERIAL and genuinely do need it;
+-- TestNoIdentitySequenceIsGranted keeps the two kinds from being
+-- confused again.
+--
+-- # Deleting the GRANT does not remove the privilege
+--
+-- Measured, and it is the half that would have been missed: this file is
+-- re-run on every install, and re-running it without a line simply does
+-- not grant that line again. Every database already installed keeps what
+-- it was given. So the removal has to be said out loud, once, here -
+-- otherwise "we removed that privilege" would be true of the repository
+-- and false of every deployment.
+--
+-- IF EXISTS on the sequence names is not available for REVOKE, so these
+-- run against a database where the tables exist - which is every
+-- database this file is applied to, since install.sh applies the schemas
+-- first.
+REVOKE ALL ON SEQUENCE panel_upgrade_requests_id_seq FROM PUBLIC, panel_user;
+REVOKE ALL ON SEQUENCE panel_logs_id_seq
+  FROM PUBLIC, collector, beacon_writer, analytics_reader, panel_user;
 GRANT USAGE, SELECT ON
   panel_users_id_seq, panel_audit_log_id_seq, panel_api_tokens_id_seq,
   panel_dev_access_id_seq, panel_owner_claims_id_seq,
@@ -99,7 +132,6 @@ GRANT SELECT, INSERT, UPDATE ON schema_version TO schema_admin;
 -- cannot fabricate the result of one, so a row saying "succeeded" is
 -- always something the applier wrote.
 GRANT SELECT, INSERT, DELETE ON panel_upgrade_requests TO panel_user;
-GRANT USAGE, SELECT ON SEQUENCE panel_upgrade_requests_id_seq TO panel_user;
 GRANT SELECT, UPDATE ON panel_upgrade_requests TO schema_admin;
 
 -- ------------------------------------------------------ table ownership
@@ -213,8 +245,6 @@ END $$;
 -- as service_heartbeat's is.
 GRANT INSERT ON panel_logs TO collector, beacon_writer, analytics_reader, panel_user;
 GRANT SELECT ON panel_logs TO panel_user;
-GRANT USAGE, SELECT ON SEQUENCE panel_logs_id_seq
-  TO collector, beacon_writer, analytics_reader, panel_user;
 
 -- DELETE for the panel alone, and it needs its own policy.
 --
@@ -277,3 +307,23 @@ GRANT SELECT ON panel_settings TO collector, beacon_writer;
 -- than interleave.
 GRANT SELECT, INSERT, TRUNCATE ON ip_asn_ranges, ip_country_ranges
   TO collector, beacon_writer;
+
+-- The fetch log (M2): written by whoever fetches, read by the panel.
+--
+-- DELETE to the writers and not to the panel, and that asymmetry is the
+-- phase's one real deviation from its plan - which said the sweep would
+-- hang off internal/panel/housekeeping.go, and also said "the collector
+-- writes, the panel reads". Both cannot hold: a sweep needs DELETE.
+--
+-- The writers keep it. They are the ones with a ticker already running,
+-- the table only grows while they are running, and the alternative was
+-- either widening the panel's rights on a table it does not own or
+-- adding a SECURITY DEFINER function to do one DELETE. internal/asnlookup
+-- says the rest, and a test there fails if the sweep loses its caller.
+--
+-- No UPDATE for anybody. A fetch row is finished the moment it is
+-- written - the attempt is over - so the authority to change one after
+-- the fact would only ever be the authority to make a failure look like
+-- a success.
+GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO collector, beacon_writer;
+GRANT SELECT ON ip_range_fetches TO panel_user;

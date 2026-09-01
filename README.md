@@ -229,6 +229,22 @@ tables rather than merged into one. An in-memory LRU+TTL cache
 (`asn_lookup.cache_max_entries`/`cache_ttl_seconds`, default 50,000
 entries / 6 hours) sits in front of that for repeat IPs.
 
+**Every attempt is recorded.** `ip_range_fetches` gets one row per
+dataset file per try: which source, which address family, when it started
+and finished, how many rows parsed, how many bytes were actually read,
+and on a failure the whole error chain. The panel reads it; the fetching
+service writes it and nothing can update a row afterwards.
+
+The reason it is per *file* rather than per refresh is that the two
+address families fail independently and the code already treats them that
+way - one row per refresh would have to collapse "IPv6 is current, IPv4
+is a month old" into a single outcome. The reason the byte count is
+measured rather than taken from `Content-Length` is that a truncated file
+parses without error: both parsers stop at a malformed record and keep
+what they read, so a half-delivered dataset looks exactly like a small
+one, and only the count says otherwise. Rows are kept 90 days and the
+fetching service trims them on the same ticker that refreshes.
+
 `Result.ASN` and `Result.ASNName` are real now, not placeholders - both
 datasets are fetched, parsed, and queried independently, the same way
 `Result.Country` always has been.

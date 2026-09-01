@@ -46,3 +46,135 @@ CREATE TABLE IF NOT EXISTS ip_asn_ranges (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ip_asn_ranges_start ON ip_asn_ranges (start_addr);
+
+-- The fetch log: one row per dataset file this deployment tried to
+-- fetch.
+--
+-- # The question it answers
+--
+-- "Is my geography data current, and if not, why not." Before this
+-- table the answer lived in one warning line on the server's own journal
+-- - which is the one place a customer with no shell cannot look. A
+-- refresh that has been failing for a month looks exactly like a quiet
+-- month: the range tables still hold last month's data and every page
+-- draws normally.
+--
+-- # Why one row per file rather than per refresh
+--
+-- Because that is what actually happens. A refresh fetches the IPv4 and
+-- IPv6 files of one dataset separately, and they fail separately -
+-- asnlookup.go keeps the previous table for whichever family failed and
+-- swaps in the one that worked. A single row per refresh would have to
+-- collapse "IPv6 is current, IPv4 is a month old" into one outcome, and
+-- there is no honest value for it.
+--
+-- Fallbacks fall out of the same choice for free: when the chosen source
+-- fails and the next one works, the failed attempt and the successful
+-- one are both here, in order, saying which was which.
+--
+-- # Who writes and who reads
+--
+-- The collector and the beacon write - they are the two services that
+-- build a Resolver - and the panel only reads. See release/sql/grants.sql.
+-- The split is the same one panel_upgrade_requests makes and for the
+-- same reason: a record whose reader can also write it is a record that
+-- can be made to say the fetch succeeded.
+--
+-- # No CHECK on the text columns
+--
+-- kind, family and outcome look like enums and are deliberately not
+-- constrained, matching panel_operations, which this table is otherwise
+-- shaped after. A CHECK would turn adding a source kind into a schema
+-- migration on every deployment before a single row could be written -
+-- and the failure would land on the writer, at runtime, on the machine
+-- that upgraded its binary first. The closed set lives in Go, where
+-- internal/ipsources already keeps it.
+CREATE TABLE IF NOT EXISTS ip_range_fetches (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    -- Both ends, not a duration: "it started at 03:00 and took 40s" and
+    -- "it took 40s" are different facts, and the first is the one that
+    -- lines up with everything else in the journal.
+    started_at  TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ NOT NULL,
+
+    -- Which dataset, by the id internal/ipsources gives it, so a row
+    -- read a year later still names something the library can look up.
+    source_id TEXT NOT NULL,
+    kind      TEXT NOT NULL,
+    family    TEXT NOT NULL,
+
+    -- 'download' or 'mirror'. Without it a byte count of zero from a
+    -- local directory reads as a failed download rather than as
+    -- asn_lookup.local_csv_path doing exactly what it was set to do.
+    origin TEXT NOT NULL,
+
+    outcome TEXT NOT NULL,
+
+    -- What was actually obtained. Both are recorded even on a failure:
+    -- a parse that got 9,000 rows into a truncated file is a different
+    -- problem from one that got zero bytes, and only the numbers say
+    -- which.
+    rows_parsed BIGINT NOT NULL DEFAULT 0,
+    bytes_read  BIGINT NOT NULL DEFAULT 0,
+
+    -- The whole chain, not its last link, for the reason
+    -- panel_operations.error_chain gives: the innermost cause is usually
+    -- the one that names the fix.
+    error_chain TEXT NOT NULL DEFAULT ''
+);
+
+-- The only query the panel makes: the most recent attempts, newest
+-- first. Same shape as idx_panel_operations_time and for the same
+-- reason.
+CREATE INDEX IF NOT EXISTS idx_ip_range_fetches_started ON ip_range_fetches (started_at DESC);
+
+-- The fetch log's privileges live here rather than only in
+-- release/sql/grants.sql, and the reason is a gap this table was the
+-- first to fall into.
+--
+-- # The gap, measured
+--
+-- There are two ways a database reaches a new schema. install.sh applies
+-- the schema files *and* grants.sql; the upgrade button (L3) applies the
+-- schema files and nothing else - internal/schemafiles.InOrder is
+-- exactly the list of schema.sql files and privileges are not in it.
+--
+-- Every table in this project predates that machinery, so nobody had
+-- added one since. This is the first, and the result is what it sounds
+-- like: a customer presses the button, the table appears, and every
+-- insert into it fails.
+--
+--	psql -U collector -c "INSERT INTO ip_range_fetches ..."
+--	ERROR:  permission denied for table ip_range_fetches
+--
+-- The failure is quiet in this project's usual way - recordFetch logs a
+-- warning and the refresh carries on, so geography keeps working and the
+-- fetch log stays permanently empty, which looks exactly like a
+-- deployment that has never refreshed.
+--
+-- So the grants travel with the table. grants.sql still lists them,
+-- because it is the one place that answers "what may this role do" - and
+-- a grant issued twice is idempotent.
+--
+-- DO blocks for the same reason internal/retention/schema.sql uses them:
+-- this file is applied both to installed databases whose roles exist and
+-- to development ones where they may not, and a GRANT to a role that
+-- does not exist aborts the whole file.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
+        GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO collector;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer') THEN
+        GRANT SELECT, INSERT, DELETE ON ip_range_fetches TO beacon_writer;
+    END IF;
+    -- Read only, and no UPDATE for anybody: a fetch row is finished the
+    -- moment it is written, so the authority to change one afterwards
+    -- would only ever be the authority to make a failure look like a
+    -- success.
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user') THEN
+        GRANT SELECT ON ip_range_fetches TO panel_user;
+    END IF;
+END
+$$;

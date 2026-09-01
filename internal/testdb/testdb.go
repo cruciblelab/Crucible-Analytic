@@ -169,6 +169,24 @@ const UpgradeQueueLock = 0x75706772616465FF // "upgrade"
 // like a hung machine rather than like a bug.
 const SchemaVersionLock = 0x736368656D617601 // "schema" + 1
 
+// FetchLogLock serialises the suites that share ip_range_fetches.
+//
+// A third lock, and the reason is the same as the other two: two
+// packages touch one table and `go test ./...` runs them in parallel.
+// internal/asnlookup writes rows and, in one test, revokes and re-grants
+// privileges on the table to prove the upgrade path carries them;
+// internal/panel reads it as panel_user. A read that lands inside that
+// revoke fails with "permission denied", which reads as a broken grant
+// rather than as two tests overlapping.
+//
+// # Ordering
+//
+// Nothing takes this together with the other two today. If something
+// ever does, take them in the order they are declared here - two suites
+// taking the same pair in opposite orders deadlock, and a deadlocked
+// suite looks like a hung machine rather than like a bug.
+const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.
