@@ -232,6 +232,36 @@ const RefreshQueueLock = 0x726566726573680A // "refresh"
 // deadlocked suite looks like a hung machine rather than like a bug.
 const SchemaApplyLock = dblock.SchemaApply
 
+// SchemaRaceLock keeps everyone out while one test races appliers
+// against each other on purpose.
+//
+// A sixth lock, and the reason it cannot be the one above: that key is
+// the mechanism under test. internal/applier's concurrency test measures
+// what three appliers do when they meet inside the schema, so it must
+// not hold SchemaApplyLock - the appliers take it themselves, and a test
+// holding it would make all three give way to the test rather than to
+// each other.
+//
+// That leaves it defenceless against a suite that *is* holding
+// SchemaApplyLock, and the failure was measured rather than imagined:
+// internal/asnlookup's upgrade-path test holds that key for its whole
+// duration, `go test ./...` runs packages in parallel, and the racers
+// then time out against it instead of against one another. The test
+// reported "8 applied, 16 gave way" - which is precisely the signature
+// of the lock not being taken at all, so a false red and a true red
+// were the same red.
+//
+// So the two meanings get two keys. This one means "no other suite may
+// be applying a schema right now"; SchemaApplyLock keeps its production
+// meaning and nothing else. Anything that applies a schema file by hand
+// takes both.
+//
+// # Ordering
+//
+// After SchemaApplyLock, where both are taken. internal/asnlookup takes
+// FetchLogLock, then SchemaApplyLock, then this.
+const SchemaRaceLock = 0x736368656D617263 // "schemarc"
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.

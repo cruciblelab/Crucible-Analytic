@@ -466,6 +466,11 @@ func TestTheUpgradePathAloneLeavesTheFetchLogWritable(t *testing.T) {
 	// reported as a failure of a grant that was never wrong. Second,
 	// always: see testdb.SchemaApplyLock on why the order is fixed.
 	testdb.Lock(t, admin, testdb.SchemaApplyLock)
+	// And the race lock, last: internal/applier measures what appliers
+	// do to each other and cannot hold SchemaApplyLock while doing it,
+	// so this is what keeps that test and this one apart. See
+	// testdb.SchemaRaceLock.
+	testdb.Lock(t, admin, testdb.SchemaRaceLock)
 
 	roles := []string{"collector", "beacon_writer", "panel_user"}
 	for _, role := range roles {

@@ -601,6 +601,85 @@ servisin isteneceğine bakıp doğru binary'yi doğru yapılandırmayla
 açılması. Bu projede yalnız collector ve beacon yayımlanır; panel ve
 okuma API'si yalnız compose ağının içinden erişilebilir.
 
+### Yükseltme
+
+Kurulmuş bir sistemin şemasını ileri taşıyan makine. L1–L3 fazlarında
+yazıldı ve bu sözlüğe kadar gelmemişti — aşağıdaki `internal/upgrade`
+atfı yukarıda bir yerde tanımsız duruyordu.
+
+**şema sürümü (schema version)** (`internal/schemaver`) — Bir
+tam sayı: veritabanının hangi şekilde olması gerektiği. **Yapı sürümüyle
+aynı şey değil** ve bağımsız artar; hiçbir şema değişikliği içermeyen bir
+düzeltme sürümünün her kurulumdan yükseltme istemesi bunu bağlamanın
+bedeli olurdu. Kurulu değeri `schema_version` tablosunda durur.
+
+**şema parmak izi (fingerprint)** — Gömülü bütün şema dosyalarının
+özeti. Sürüm sayısı "kaçıncı", parmak izi "tam olarak hangi baytlar"
+demek. Uygulayıcı, taşımadığı bir parmak izini isteyen isteği
+**reddeder**: bir dağıtımda yeni panel ile eski upgrader birlikte
+bulunabilir, ve eski olanın veritabanını kimsenin istemediği bir şekle
+taşıması geri alınamaz — reddetmek tek komutla düzelir.
+
+**açılışta sütun kontrolü** — Servis, yazacağı tabloda beklediği bir
+sütun yoksa **yazmadan durur**; fazladan sütun serbesttir. Eksik sütuna
+yazmaya çalışmak, veriyi sessizce kaybetmenin yoludur.
+
+**yükseltme kuyruğu (upgrade queue)** (`internal/upgrade`,
+`panel_upgrade_requests`) — Panelin "Yükselt" düğmesi bir satır yazar;
+upgrader onu **hak talebiyle (claim)** alır, uygular, sonucu geri yazar.
+Kısmi tekil indeks aynı anda tek isteğin uçuşta olmasını sağlar. Bir hak
+talebi on beş dakikada bayatlar ve başkası devralır — yani ölü değil
+*yavaş* olan bir uygulayıcı, yerine geçenle aynı anda şemanın içinde
+olabilir. Panel dışarı bağlantı açmaz; `internal/rangerefresh` bu desenin
+bir tablo ötedeki eşi.
+
+**uygulayıcı (applier)** (`internal/applier`) — Bu depoda DDL koşturan
+**tek** şey. `schema_admin` rolüyle bağlanır: tabloları o sahiplenir, ama
+`CREATE ROLE` yetkisi ve bu şemanın dışında hiçbir şeyi yoktur. Beşinci
+rolün var olma sebebi bu — alternatifi, servislerin ömrü boyunca diskte
+duran bir süperkullanıcı DSN'iydi.
+
+**`lock_timeout`** — Uygulayıcının tek bir kilit için bekleyeceği süre:
+**250 ms**, ve `deadlock_timeout`'un (1 sn) *altında* olması seçim değil
+şart. Altında kalırsa hiçbir dedektör koşmaz, çevrimi yükseltmenin geri
+çekilmesi kırar, ve seçilecek bir kurban olmaz. Yoksa kurban müşterinin
+yazması olabiliyordu — üstelik düğme ona "siteniz trafik alırken basmak
+güvenli" demişken. Kilit zaman aşımı **başarısızlık değildir**: istek
+sıraya geri konur, sebep satıra yazılır, sonraki tik tekrar dener.
+
+**danışma kilidi (advisory lock)** (`internal/dblock`) —
+Veritabanının hiçbir tabloya bağlamadığı, anlamını tamamen uygulamanın
+verdiği kilit. Üretimde kullanılan anahtarlar burada durur;
+`internal/testdb`'dekiler yalnız test paketlerini birbirinden ayırır ve
+hiçbir dağıtımda görünmez.
+
+**şema kilidi** (`dblock.SchemaApply`) — Bir uygulama boyunca tutulur:
+şemanın içinde aynı anda tek uygulayıcı. `lock_timeout`'tan *sonra*
+alınır, yani ikinci uygulayıcı 250 ms bekler ve alamazsa 55P03 ile zaten
+var olan "sıraya geri koy" yoluna düşer. Ölçüldü, üç uygulayıcı bütün
+dosyaları sekizer kez uygularken:
+
+| | uygulandı | yol verdi |
+|---|---|---|
+| kilitle | 24 | 0 |
+| kilitsiz | 8 | 16 |
+
+Kilidin engellediği şey çakışma değil — onu zaten `lock_timeout`
+engelliyor — **boşuna sıraya dönme**. Kilitsiz hâlde işin üçte ikisi
+kuyruğa geri dönüyordu, her biri müşterinin yükseltmesinin ekranda
+görünmeyen bir sebeple bir tur daha beklemesi.
+
+**`tuple concurrently updated` (XX000)** — Aynı katalog satırını aynı
+anda yeniden yazan iki oturumdan kaybedenin aldığı hata; sıraya girmez,
+kimse yeniden denemez. Tuzağı şu: **hiçbir şeyi değiştirmeyen ifadeler de
+yazar.** `GRANT`, rol yetkiyi zaten tutuyorsa bile ACL satırını yeniden
+yazar (ölçüldü: aynı yetki, 900 denemenin 93'ü); `CREATE OR REPLACE
+FUNCTION` gövde aynı kalsa da `pg_proc` satırını yeniler. Bu yüzden bu
+depodaki `GRANT`'ler önce `has_table_privilege` /
+`has_function_privilege` ile gerekli olup olmadıklarını sorar — yetki
+başına ayrı ayrı, çünkü virgüllü biçim "bunlardan herhangi biri" demek ve
+yarım yetkili bir rolü tam sayardı.
+
 ---
 
 ## 11. Test ve doğrulama
@@ -612,6 +691,15 @@ test. Birleştirme kapısında koşar.
 `internal/testdb`'de. `-tags integration`. Bu projede her paket
 **üretimde koştuğu rolle** bağlanır — daha yetkili bir düzenek üretimi
 test etmez.
+
+**test veritabanı yardımcısı** (`internal/testdb`) — Entegrasyon
+paketlerinin bağlantıyı hangi rolle açacağını ve birbirlerinin ayağına
+basmamasını sağlayan yer. İkisi de tarihsel: bir zamanlar bütün paketler
+`collector` olarak bağlanıyordu — yani rol ayrımını test ettiğini söyleyen
+on paket, hiçbir dağıtımın vermediği yetkiyle koşuyordu ve arkasında üç
+gerçek delik aylarca yaşadı. Danışma kilitleri de oradan: `go test ./...`
+paketleri paralel koşturur, ve iki paketin çakıştığı şey satır değil,
+yapısı gereği global olan bir tablo ya da yetkidir.
 
 **uçtan uca test (E2E)** — Ürünün tamamını bir kez çalıştırır. `-tags
 e2e` tarball kurulumunu, `-tags docker` konteyner yığınını. Aynı soruyu

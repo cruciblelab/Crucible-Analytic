@@ -176,3 +176,118 @@ func TestTheGlossaryCoversEveryBinary(t *testing.T) {
 		t.Fatalf("found %d commands under cmd/, which is fewer than this product has", found)
 	}
 }
+
+// internalPackage matches the way SOZLUK.md writes a package: the import
+// path's tail, in backticks or not. Only lowercase, which is every
+// package in this repository and keeps prose like "internal/Foo" from
+// being read as a reference.
+var internalPackage = regexp.MustCompile(`internal/[a-z0-9]+`)
+
+// TestTheGlossaryDefinesEveryPackageItMentions.
+//
+// # Why the glossary needed a test of its own
+//
+// The tests above ask whether everything the glossary names still
+// exists. That is one direction, and it is the one that catches a rename
+// or a dropped table. It cannot catch the other: a package the glossary
+// refers to and never explains passes every one of them, because the
+// package is right there in the tree.
+//
+// So the file fell a whole phase group behind without anything saying
+// so - and the checks that were meant to keep it honest all stayed
+// green, which is why the gap survived long enough to be found by
+// reading. L1,
+// L2 and L3 built the upgrade machinery - the schema version, the
+// fingerprint, the queue, the applier, lock_timeout - and none of it
+// reached the glossary. The M phases that came after did get entries,
+// which is what made the gap invisible: the document looked current
+// because its newest parts were.
+//
+// The tell was already in the file. An entry on the refresh queue said
+// "the same pattern as internal/upgrade, one table over" - referring the
+// reader to a package the glossary never defined, as if it had.
+//
+// # What this checks, and why it is derived rather than listed
+//
+// Not "every package must be in the glossary": most are plumbing and an
+// entry for each would be noise, and the hand-written list of exceptions
+// would be the usual trap - wrong is survivable, short is not.
+//
+// The rule is about self-consistency instead, and it needs no list at
+// all: if SOZLUK.md names a package, some entry in SOZLUK.md has to
+// define it. That makes a passing mention of an undefined package the
+// failure - which is exactly the state the file was in.
+//
+// # What counts as a definition, and why the first answer was too loose
+//
+// A definition is the *head* of an entry: the text from the bold term up
+// to the em dash that introduces the prose, which is where this file has
+// always put an entry's package -
+//
+//	**uygulayıcı (applier)** (`internal/applier`) — Bu depoda DDL...
+//
+// The first version of this test accepted a package named anywhere in an
+// entry's paragraph. That was wrong in a way its own passing run hid: an
+// entry that happens to mention five packages would "define" all five,
+// so the glossary could refer to something undefined and stay green as
+// long as the reference sat inside somebody else's entry. It was caught
+// by a mutation - a dangling mention of internal/storage was dropped into
+// the upgrade-queue entry, and the test did not notice. The gap this test
+// was written for had been caught only by the luck of sitting in a
+// paragraph that did not open in bold.
+//
+// The tightened rule then found two more real ones: internal/dblock and
+// internal/testdb were both referred to from inside other entries and
+// neither had one of its own.
+func TestTheGlossaryDefinesEveryPackageItMentions(t *testing.T) {
+	body := readFile(t, repoRootFromWD(t), "SOZLUK.md")
+
+	mentioned := map[string]bool{}
+	for _, m := range internalPackage.FindAllString(body, -1) {
+		mentioned[m] = true
+	}
+	if len(mentioned) == 0 {
+		t.Fatal("SOZLUK.md names no packages at all, so this test is comparing " +
+			"nothing against nothing - the regexp above has probably stopped " +
+			"matching how the file writes them")
+	}
+
+	// A paragraph is a run of lines between blank ones, an entry is a
+	// paragraph that opens in bold, and its head is everything before the
+	// em dash. The head rather than the whole paragraph, for the reason
+	// written out above; the term may wrap across lines, so this works on
+	// the paragraph rather than the line.
+	defined := map[string]bool{}
+	for _, para := range strings.Split(body, "\n\n") {
+		para = strings.TrimSpace(para)
+		if !strings.HasPrefix(para, "**") {
+			continue
+		}
+		head, _, found := strings.Cut(para, "—")
+		if !found {
+			// No em dash means no prose to separate from, so the whole
+			// paragraph is the term. Rare, and treating it as a head keeps
+			// a bold line that is only a heading from defining nothing.
+			head = para
+		}
+		for _, m := range internalPackage.FindAllString(head, -1) {
+			defined[m] = true
+		}
+	}
+
+	var undefined []string
+	for pkg := range mentioned {
+		if !defined[pkg] {
+			undefined = append(undefined, pkg)
+		}
+	}
+	sort.Strings(undefined)
+
+	for _, pkg := range undefined {
+		t.Errorf("SOZLUK.md mentions %s but no entry defines it.\n"+
+			"A reader sent to a package by the glossary has nowhere to look it "+
+			"up, and the glossary reads as though it covers ground it does not. "+
+			"Either give %s an entry - a paragraph opening with its bold term - "+
+			"or stop naming it", pkg, pkg)
+	}
+}

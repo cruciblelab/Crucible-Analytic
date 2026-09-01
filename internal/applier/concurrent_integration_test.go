@@ -79,6 +79,14 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 	// would make all three give way to this test rather than to each
 	// other, and measure a tidy "0 applied" that proved only that the
 	// test could block itself. That was version one of this line.
+	//
+	// testdb.SchemaRaceLock instead, which means the opposite: no other
+	// suite may be applying a schema while this one races. Without it the
+	// racers time out against internal/asnlookup rather than against each
+	// other, and report "8 applied, 16 gave way" - the exact signature of
+	// the lock not being taken, so the false red and the true red were the
+	// same red. Measured, on the first of two consecutive runs.
+	testdb.Lock(t, testdb.Pool(t, testdb.SchemaAdmin), testdb.SchemaRaceLock)
 
 	// Three, one more than the two the stale-claim path can actually
 	// produce: a fix that only worked for two would pass a two-way test.

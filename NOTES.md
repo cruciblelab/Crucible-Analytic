@@ -7745,3 +7745,85 @@ Gerçek koşul kurulup ölçüldü — paket dünyaya açık bir dizine açıld�
 kanıtlamaz** — ve yeşil geldiği için kanıtladığını sanmak kolay. Bu
 oturumda ölçtüğünü sanan üçüncü test bu oldu; ilk ikisi
 `TestAppliersRunningAtOnceGiveWayInsteadOfColliding`'in iki sürümüydü.
+
+---
+
+## Sözlük: aynası olmayan tek belge, ve iki yönlü kontrolün tek yönü
+
+"md dosyaları eskide kalmadı mı" diye soruldu. `CHANGELOG` güncel,
+`PLAN` güncel (M1/M2/M3 ✅, C8 sırada), `README`'de eskiyecek bir sayı
+yok. **`SOZLUK.md` değildi.**
+
+Bütün **L1–L3 yükseltme makinesi** sözlükte hiç yoktu: şema sürümü,
+parmak izi, yükseltme kuyruğu, uygulayıcı, `lock_timeout`. Sonradan
+gelen M fazları girdi almıştı — kusuru görünmez kılan da buydu, çünkü
+belge *en yeni* kısımları güncel olduğu için güncel görünüyordu.
+
+İpucu zaten dosyanın içindeydi: yenileme kuyruğu girdisi
+"`internal/upgrade` ile aynı desen, bir tablo ötede" diyor, yani okuru
+sözlüğün hiç tanımlamadığı bir pakete, tanımlamış gibi gönderiyordu.
+
+### Kontrol vardı ama tek yöne bakıyordu
+
+Önce "hiçbir test SOZLUK'a bakmıyor" dedim. **Yanlıştı** — `release/`
+altında dört test var, ve aramayı tek dizine daralttığım için görmedim.
+Ama asıl mesele bu değil: o dörtlü, sözlüğün *andığı her şeyin var
+olduğunu* soruyor. Yeniden adlandırmayı, düşen tabloyu yakalar.
+**Tanımlanmamış bir atfı yakalayamaz**, çünkü paket ağaçta gerçekten
+duruyor.
+
+Yani kontroller yeşildi, ve bir faz grubu kadar boşluk aylarca yaşadı.
+*Bir yüzeyi tek yönden ölçen kontrol, o yüzeyin öbür yarısı hakkında
+sessizdir — ve sessizliği yeşil görünür.*
+
+Eklenen kural ters yöne bakıyor, elle liste tutmadan: **sözlük bir paketi
+anıyorsa, sözlükteki bir girdi onu tanımlamalı.**
+
+### Kuralın ilk hâli fazla gevşekti, ve bunu mutasyon gösterdi
+
+İlk sürüm, kalın bir terimle başlayan paragrafın *herhangi bir yerinde*
+geçen paketi "tanımlı" sayıyordu. Mutasyon: başka bir girdinin gövdesine
+`internal/storage` diye tanımsız bir atıf düşürdüm — **test görmedi.**
+Beş paket anan bir girdi, beşini birden "tanımlıyor" oluyordu; asıl
+boşluk da yalnız kalın olmayan bir paragrafta durduğu için yakalanmıştı,
+yani şans eseri.
+
+Kural girdinin **başına** daraltıldı — kalın terimden em çizgisine kadar,
+ki dosyanın kendi yazım düzeni zaten bu:
+
+    **uygulayıcı (applier)** (`internal/applier`) — Bu depoda DDL...
+
+Daraltılmış kural iki gerçek boşluk daha buldu: `internal/dblock` ve
+`internal/testdb`, ikisi de başka girdilerin gövdesinden anılıyor,
+ikisinin de kendi girdisi yok. İkisi de yazıldı.
+
+Dört mutasyonun dördü de kırmızı: girdiyi sil, gövdeye tanımsız atıf
+düşür, kalın terimi düz metne çevir, paketi başlıktan gövdeye it.
+
+---
+
+## Aynı kilidin iki anlamı olamaz
+
+Kapıyı koştururken `TestAppliersRunningAtOnceGiveWayInsteadOfColliding`
+iki koşunun **birincisinde** düştü: *8 applied, 16 gave way*.
+
+Bu, kilidin hiç alınmamış hâlinin **birebir imzası**. Ama kilit
+yerindeydi. Olan şuydu: `internal/asnlookup`'ın yükseltme yolu testi
+`SchemaApplyLock`'u kendi süresi boyunca tutuyor, `go test ./...`
+paketleri paralel koşturuyor, ve yarışan uygulayıcılar birbirlerine
+değil **ona** yol veriyordu.
+
+Yani yanlış kırmızı ile doğru kırmızı aynı kırmızıydı — ve testi ben
+öyle yazmıştım.
+
+Tek bir anahtar iki şeyi birden söyleyemiyor:
+
+- *"ben şema uygularken kimse girmesin"* → `dblock.SchemaApply`, üretimin
+  mekanizması, elle şema uygulayan testlerin de aldığı.
+- *"ben kimin uyguladığını ölçerken kimse uygulamasın"* → yarış testinin
+  ihtiyacı, ve bunu `SchemaApplyLock` ile ifade etmek imkânsız, çünkü o
+  anahtar zaten ölçülen şeyin kendisi.
+
+İki anlam, iki anahtar: `testdb.SchemaRaceLock` eklendi. Dört koşu üst
+üste temiz, ve kilidi kasten bozan mutasyon hâlâ kırmızıya döndürüyor —
+yani yalıtım, duyarlılığı öldürmeden geldi.
