@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
-| **M** Veri kaynakları | ⬜ **0/3** | M1 kütüphane, M2 çekim kaydı, M3 yenile düğmesi |
+| **M** Veri kaynakları | 🟡 **1/3** | M2 çekim kaydı, M3 yenile düğmesi *(M1 kütüphane yapıldı)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -170,7 +170,7 @@ geçer.
 | 4 | ~~**B1+B2** birlikte~~ ✅ | tek faz, ayrılamaz; B3/D4b/L3'ün altı |
 | 5 | ~~**L3** düğme~~ ✅ | 3 ve 4'ün üstüne oturdu; beşinci rol ve altıncı binary burada geldi |
 | 5.5 | ~~**D4c** ayarlar kabuğu~~ ✅ | M1, C8 ve L3'ün yüzeyleri buraya biniyor; kabuk sonra gelirse üçü de düz listeye eklenip taşınır |
-| 5.6 | **M1 → M2 → M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
+| 5.6 | ~~**M1** kaynak kütüphanesi~~ ✅ → **M2 → M3**, **C8** ← **sıradaki** | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -4632,7 +4632,7 @@ ikinci liste de yok.
 
 ---
 
-#### M1 — Kaynak kütüphanesi ve "neyi nereden"
+#### M1 — Kaynak kütüphanesi ve "neyi nereden" ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** `internal/asnlookup/sources.go`'da bir kayıt: kimlik, etiket, ne
 sağladığı (ülke / ASN / ikisi), URL'ler, hangi ayrıştırıcı, lisans, ve
@@ -4655,6 +4655,75 @@ davranıyor; seçim değiştirildiğinde bir sonraki yenileme yeni kaynaktan
 çekiyor; kütüphaneye eklenen bir kaynak panelde ek bir değişiklik
 olmadan görünüyor *(mutasyonla ölçülecek: kütüphaneye giriş ekle, panel
 testinin onu gördüğünü doğrula)*.
+
+##### Nasıl bitti
+
+**Beş kaynak, hepsi indirilerek ölçüldü.** Ülke tarafında `user-country`
+(varsayılan), `server-country`, `iptoasn-country`; ASN tarafında
+`origin-asn` (varsayılan), `iptoasn-asn`. Beşi de PDDL 1.0 — kamu malı,
+atıf gerekmiyor — ve beşi de mevcut ayrıştırıcıya uyuyor: ülke üç sütun,
+ASN dört, IPv4 ve IPv6 aynı. Yani "yeni ayrıştırıcı" borcu çıkmadı.
+Biçim iddiası varsayılmadı, dosyalar çekilip bakıldı.
+
+**Gönderilmeyen ikisi ve gerekçesi:** aynı depo DB-IP Lite (CC BY 4.0) ve
+GeoLite2'yi de yayınlıyor. İkisi de yükümlülüğü *kuruluma* bindiriyor —
+taşınacak bir atıf, kabul edilecek şartlar. THIRD-PARTY.md'nin tuttuğu
+çizgi tam olarak bu: bu yazılımın kendiliğinden indirdiği bir veri
+kümesi, müşteriye avukatının okuması gereken bir lisans bırakmamalı.
+Bedeli olan bir kaynak yine de eklenebilir; şartı, o bedelin `Why`
+alanında ve THIRD-PARTY.md'de yazılı olması.
+
+**Plandan iki sapma, ikisi de ölçümle:**
+
+*Kütüphane `internal/asnlookup/sources.go`'ya değil, kendi yaprak
+paketine (`internal/ipsources`) kondu.* Sebep, planın kendi "ikinci liste
+yok" kuralıyla projenin başka bir kuralının çakışması: panelin ayar
+kaydı, trafik yolundaki paketleri **import etmiyor** — aşırı yük politika
+sabitleri tam bu yüzden elle aynalanmış, üstünde iki listenin uyuştuğunu
+iddia eden bir testle. Kütüphaneyi `asnlookup`'a koymak aynı düzeneği bir
+kez daha kurardı. Bağımlılığı olmayan bir yaprak paket, seçimi ortadan
+kaldırıyor: liste bir tane, iki taraf da onu import ediyor, ve panel
+adres çözen hiçbir şeyi içeri çekmiyor.
+
+*`local_csv_path` kütüphaneye giriş olarak taşınmadı.* İlk tasarım oydu
+ve yanlıştı: bir giriş olsaydı "yereldeki hangi veri kümesi" sorusuna
+cevap vermesi gerekirdi, ve cevabı "hangisini seçtiysen o". Ayna bir
+*kaynak* değil bir *taşıma*. Onun yerine her kaynak kendi dosya adlarını
+taşıyor (`IPv4File` / `IPv6File`), ve ayna dizininden okuma seçimi
+izliyor — kaynağı değiştiren kurulum, aynadan da farklı dosyayı okuyor.
+Ayna senaryosu ayarlarda görünür hâle geldi, ama doğru yerde: kaynak
+seçiminin altında değil, yanında.
+
+**Üçüncü ölçüt mutasyonla kanıtlandı:** kütüphaneye `deneme-ulke` diye
+bir giriş eklendi, panelde **hiçbir değişiklik yapılmadan**, ve testin
+gördüğü enum `[user-country server-country iptoasn-country deneme-ulke]`
+oldu. Tek doğruluk kaynağı kuralı çalışıyor.
+
+**Yolda çıkan altıncı elle yazılmış liste.** Faz, yıllardır yeşil duran
+bir testi kırdı: `TestSettings_LiveKeysMatchWhatServicesRead` "üç
+`sources.*` ayarını hiçbir servis okumuyor" dedi — oysa collector
+okuyordu. Testin `readByServices` listesi elle yazılmıştı. Üç isim
+eklemek yerine liste **türetildi**: servislerin kaynağı taranıp
+`settings.Key*` göndermeleri toplanıyor, isimler `internal/settings`
+ayrıştırılarak değerlerine çözülüyor. Bu sezon aynı kusurun altıncı
+görülüşü, ve altısında da çözüm aynı: *ismi ekleme, listeyi türet.*
+
+**Gerçek kaynaklara karşı ölçüm, ve yedinci liste.** Faz "hangi kaynak
+seçildi"yi ölçüyordu, "o kaynak var mı"yı hiçbir şey ölçmüyordu — oysa
+dördü yalnız *seçen* kurulumun eriştiği adresler. `network` etiketli yeni
+takım onunu da çekiyor, öneki ayrıştırıyor ve **tamamının** özetini
+alıyor (~124 MB, 4,7 sn). Özetin tamamdan alınması ölçümle çıktı:
+`user-country` ile `server-country` ilk 330.696 byte boyunca birebir
+aynı, yani bir önek "bunlar farklı kaynaklar" hakkında hiçbir şey
+söylemiyor.
+
+Bunu gecelik iş akışına eklerken, o işin komutunun elle yazılmış tek bir
+dizin olduğu görüldü — ve yük işi de öyleydi. `internal/asnlookup`'ın üç
+`loadtest` testi, biri `local_csv_path`'in ağa hiç dokunmadığı kanıtı,
+**hiçbir iş akışında hiç koşmamış**. Geçiyorlar; hiç koşmayan bir takım
+geçmeyi bıraktığı günü bildiremez. `internal/invariants/suites_test.go`
+artık iki yönlü tutuyor: etiketler test kaynaklarından, komutlar iş
+akışı dosyalarından.
 
 ---
 
@@ -4745,7 +4814,9 @@ kategoriye ait, ve kategorisiz tanım kırmızı)*.
 ##### Nasıl bitti
 
 Yedi kategori, 28 ayar: görünüm 4, toplama 2, bot 4, gizlilik 7,
-sınırlar 8, tanılama 2, bakım 1.
+sınırlar 8, tanılama 2, bakım 1. *(D4c günündeki dağılım. M1 toplamaya üç
+kaynak ayarı ekledi: bugün 31 — toplama 5. Kategori sayısı değişmedi,
+kabuk da değişmedi; kabuğun işe yaradığının ölçüsü zaten bu.)*
 
 Akordeon `<details>/<summary>` — betik değil. CSP'de ne unsafe-inline
 var ne unsafe-eval, yani tıklama işleyicisiyle kurulan bir akordeon

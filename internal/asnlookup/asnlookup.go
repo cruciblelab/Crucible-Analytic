@@ -35,6 +35,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/ipsources"
 )
 
 // Result is the outcome of resolving one IP.
@@ -46,17 +48,10 @@ type Result struct {
 	Found   bool   // True if IP was found in the country dataset, the ASN dataset, or both.
 }
 
-const (
-	countryIPv4URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv4.csv"
-	countryIPv6URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/user-country-ipv6.csv"
-	countryIPv4Filename = "user-country-ipv4.csv"
-	countryIPv6Filename = "user-country-ipv6.csv"
-
-	asnIPv4URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/origin-asn-ipv4.csv"
-	asnIPv6URL      = "https://github.com/sapics/ip-location-db/releases/download/latest/origin-asn-ipv6.csv"
-	asnIPv4Filename = "origin-asn-ipv4.csv"
-	asnIPv6Filename = "origin-asn-ipv6.csv"
-)
+// The URLs and filenames moved to sources.go, which holds them once per
+// dataset alongside the licence and the reason to choose it. They were
+// four constants describing one provider; M1 made them a library because
+// "which source" became a question a deployment can answer.
 
 // CacheConfig sizes the in-memory result cache sitting in front of the
 // range tables. Both fields must be positive - see config validation.
@@ -94,6 +89,15 @@ type Resolver struct {
 	// against a database some *other* process already refreshes - the
 	// beacon alongside a collector, for instance - must set this.
 	SkipRangePersistence bool
+	// chosen is which datasets to fetch, swapped whole by SetSources.
+	//
+	// An atomic pointer to an immutable value rather than three fields,
+	// and the reason is that Run refreshes on its own goroutine while
+	// the collector's settings loop writes on another. Three plain
+	// fields would be three races, and the shape they would produce is
+	// the worst kind: a refresh that read the new country id and the old
+	// fallback list, which is a combination nobody configured.
+	chosen atomic.Pointer[chosenSources]
 	// Logger defaults to slog.Default() when nil - see the logger()
 	// accessor - so a Resolver value built directly (bypassing
 	// NewResolver, as some tests do) is never at risk of a nil-pointer
@@ -219,15 +223,137 @@ func (r *Resolver) refresh(ctx context.Context) {
 	r.refreshASN(ctx)
 }
 
+// CountrySource and ASNSource name the datasets this resolver fetches,
+// and Fallbacks are tried in order when the chosen one fails.
+//
+// Empty means the library's default, which is what every installation
+// made before M1 is already downloading. That equivalence is the phase's
+// first done criterion and TestAnUntouchedResolverFetchesTodaysDatasets
+// is what holds it: a deployment that has chosen nothing must not start
+// fetching something else because the library grew.
+// chosenSources is one consistent answer to "what should this refresh
+// fetch".
+type chosenSources struct {
+	country   string
+	asn       string
+	fallbacks []string
+}
+
+// SetSources tells a running resolver which datasets to use from the
+// next refresh onwards.
+//
+// Takes effect at the next refresh rather than immediately, and that is
+// the honest behaviour rather than a shortcut: a refresh in flight is
+// downloading tens of megabytes, and abandoning it to start again would
+// turn every settings save into a re-download. The panel's help says the
+// change applies at the next refresh.
+func (r *Resolver) SetSources(country, asn string, fallbacks []string) {
+	next := &chosenSources{country: country, asn: asn}
+	next.fallbacks = append(next.fallbacks, fallbacks...)
+	r.chosen.Store(next)
+}
+
+// sources returns what this refresh should fetch.
+func (r *Resolver) sources() chosenSources {
+	if c := r.chosen.Load(); c != nil {
+		return *c
+	}
+	return chosenSources{}
+}
+
+func (r *Resolver) countrySource() ipsources.Source {
+	return r.sourceOr(r.sources().country, ipsources.DefaultCountry)
+}
+
+func (r *Resolver) asnSource() ipsources.Source {
+	return r.sourceOr(r.sources().asn, ipsources.DefaultASN)
+}
+
+// sourceOr resolves an id, falling back to the default when it is empty
+// or unknown.
+//
+// Unknown rather than refusing, and it is deliberate: the id comes from
+// a settings row, and a row naming a source this build does not carry is
+// exactly what an operator sees after rolling a binary back. Refusing
+// would turn a stale setting into no country data at all; falling back
+// keeps the deployment working and says so once.
+func (r *Resolver) sourceOr(id, fallback string) ipsources.Source {
+	if id != "" {
+		if src, ok := ipsources.ByID(id); ok {
+			return src
+		}
+		r.logger().Warn("asnlookup: this build does not carry the configured dataset, "+
+			"using the default", "configured", id, "using", fallback)
+	}
+	src, _ := ipsources.ByID(fallback)
+	return src
+}
+
+// chain is the chosen source followed by the configured fallbacks, with
+// anything of the wrong kind or unknown dropped.
+//
+// Dropped rather than refused for the same reason sourceOr falls back:
+// the list is a settings row and half of a usable list is better than
+// none. Each drop is logged with its reason, so "why is my fallback not
+// being used" has an answer in the log rather than in the source.
+func (r *Resolver) chain(first ipsources.Source, kind ipsources.SourceKind) []ipsources.Source {
+	out := []ipsources.Source{first}
+	seen := map[string]bool{first.ID: true}
+	for _, id := range r.sources().fallbacks {
+		if seen[id] {
+			continue
+		}
+		src, ok := ipsources.ByID(id)
+		if !ok {
+			r.logger().Warn("asnlookup: fallback names a dataset this build does not carry",
+				"id", id)
+			continue
+		}
+		if src.Kind != kind {
+			// A country list naming an ASN dataset is a real mistake and
+			// silently skipping it would leave the operator believing
+			// they had a fallback.
+			continue
+		}
+		seen[id] = true
+		out = append(out, src)
+	}
+	return out
+}
+
 func (r *Resolver) refreshCountry(ctx context.Context) {
-	entries4, err4 := r.loadCountryCSV(ctx, countryIPv4URL, countryIPv4Filename)
+	chain := r.chain(r.countrySource(), ipsources.KindCountry)
+	var (
+		entries4 []rangeEntry[string]
+		entries6 []rangeEntry[string]
+		err4     error
+		err6     error
+	)
+	for _, src := range chain {
+		entries4, err4 = r.loadCountryCSV(ctx, src.IPv4URL, src.IPv4File)
+		entries6, err6 = r.loadCountryCSV(ctx, src.IPv6URL, src.IPv6File)
+		if err4 == nil || err6 == nil {
+			if src.ID != chain[0].ID {
+				r.logger().Warn("asnlookup: country dataset came from a fallback",
+					"chosen", chain[0].ID, "used", src.ID)
+			}
+			break
+		}
+		if len(chain) > 1 {
+			r.logger().Warn("asnlookup: country dataset failed, trying the next",
+				"source", src.ID, "ipv4_err", err4, "ipv6_err", err6)
+		}
+	}
+	r.storeCountry(ctx, entries4, entries6, err4, err6)
+}
+
+func (r *Resolver) storeCountry(ctx context.Context, entries4, entries6 []rangeEntry[string], err4, err6 error) {
 	if err4 != nil {
 		r.logger().Warn("asnlookup: country ipv4 refresh failed, keeping previous table", "err", err4)
 	} else {
 		r.countryTable4.Store(newRangeTable(entries4))
 	}
 
-	entries6, err6 := r.loadCountryCSV(ctx, countryIPv6URL, countryIPv6Filename)
 	if err6 != nil {
 		r.logger().Warn("asnlookup: country ipv6 refresh failed, keeping previous table", "err", err6)
 	} else {
@@ -249,14 +375,38 @@ func (r *Resolver) refreshCountry(ctx context.Context) {
 }
 
 func (r *Resolver) refreshASN(ctx context.Context) {
-	entries4, err4 := r.loadASNCSV(ctx, asnIPv4URL, asnIPv4Filename)
+	chain := r.chain(r.asnSource(), ipsources.KindASN)
+	var (
+		entries4 []rangeEntry[asnInfo]
+		entries6 []rangeEntry[asnInfo]
+		err4     error
+		err6     error
+	)
+	for _, src := range chain {
+		entries4, err4 = r.loadASNCSV(ctx, src.IPv4URL, src.IPv4File)
+		entries6, err6 = r.loadASNCSV(ctx, src.IPv6URL, src.IPv6File)
+		if err4 == nil || err6 == nil {
+			if src.ID != chain[0].ID {
+				r.logger().Warn("asnlookup: asn dataset came from a fallback",
+					"chosen", chain[0].ID, "used", src.ID)
+			}
+			break
+		}
+		if len(chain) > 1 {
+			r.logger().Warn("asnlookup: asn dataset failed, trying the next",
+				"source", src.ID, "ipv4_err", err4, "ipv6_err", err6)
+		}
+	}
+	r.storeASN(ctx, entries4, entries6, err4, err6)
+}
+
+func (r *Resolver) storeASN(ctx context.Context, entries4, entries6 []rangeEntry[asnInfo], err4, err6 error) {
 	if err4 != nil {
 		r.logger().Warn("asnlookup: asn ipv4 refresh failed, keeping previous table", "err", err4)
 	} else {
 		r.asnTable4.Store(newRangeTable(entries4))
 	}
 
-	entries6, err6 := r.loadASNCSV(ctx, asnIPv6URL, asnIPv6Filename)
 	if err6 != nil {
 		r.logger().Warn("asnlookup: asn ipv6 refresh failed, keeping previous table", "err", err6)
 	} else {

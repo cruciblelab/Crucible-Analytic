@@ -27,11 +27,46 @@ terms. Nothing here is fetched at build time, and nothing is committed.
 | IP → country ranges | Country attribution | `asn_lookup.enabled = true`, or a local CSV | [PDDL 1.0](https://opendatacommons.org/licenses/pddl/1.0/) — public domain, no attribution required |
 | IP → ASN ranges | Network attribution | as above | PDDL 1.0 |
 
-Both range datasets come from [ipinfo.io's free
-downloads](https://ipinfo.io/products/free-ip-database), which are PDDL
-— effectively public domain. They are still fetched rather than
-committed, because they are large, they age, and a stale copy in a
-repository is a copy somebody eventually trusts.
+Both range datasets come from
+[sapics/ip-location-db](https://github.com/sapics/ip-location-db), which
+compiles them from public network data and geofeeds and publishes them
+under PDDL — effectively public domain, no attribution required.
+
+*This paragraph said ipinfo.io until M1. It was wrong: the code has
+always fetched from the repository above, and the two are different
+publishers compiling from different inputs. The licence happened to be
+right, which is how it survived — a provenance claim nobody could
+falsify by reading the licence line beside it.*
+
+They are fetched rather than committed because they are large, they age,
+and a stale copy in a repository is a copy somebody eventually trusts.
+
+### Which datasets, and which are deliberately absent
+
+`internal/ipsources` is the library of datasets this build can fetch;
+the panel's **Toplama** settings choose between them. Every entry is
+PDDL, verified against the publisher's own per-dataset table on
+2026-09-01:
+
+| Entry | Provides | Why you would choose it |
+|---|---|---|
+| `user-country` *(default)* | country | The visitor's country, even behind a VPN or proxy |
+| `server-country` | country | The country the address is *hosted* in — the datacentre question |
+| `iptoasn-country` | country | An independent compilation; useful as a fallback |
+| `origin-asn` *(default)* | ASN | Full organisation names (`"Cloudflare, Inc."`) |
+| `iptoasn-asn` | ASN | Network handles (`CLOUDFLARENET`); steadier for matching |
+
+The same publisher also offers **DB-IP Lite** (CC BY 4.0) and **GeoLite2**
+(MaxMind's own terms). Neither is in the library, and that is a decision
+rather than an oversight: both put an obligation on the *deployment* — an
+attribution to display, terms to accept — and the position of this whole
+document is that a dataset this software fetches must not hand the
+customer a licence their lawyer has to read.
+
+Adding one is allowed. It would need its cost written into the library
+entry, into this table, and into the setting's help text before it
+shipped — `TestNoSourceCostsTheDeploymentAnything` is where somebody has
+to say so out loud.
 
 **Not fetching anything is a supported state.** With no known-bot file
 the bot-fingerprint signal is simply absent and every other signal still

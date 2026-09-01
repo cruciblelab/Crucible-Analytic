@@ -324,6 +324,22 @@ aralığının hangi kuruma ait olduğunu söyler — bir veri merkezi mi, bir
 ev interneti mi. Bulut sağlayıcısından gelen trafik, mobil operatörden
 gelenden farklı bir şeydir.
 
+**kaynak kütüphanesi (source library)** (`internal/ipsources`) — Bu
+yapının indirmeyi ve ayrıştırmayı bildiği IP aralığı veri kümelerinin
+listesi: kimlik, etiket, "bunu neden seçersin", URL'ler, lisans. Panelin
+ayar seçenekleri buradan üretilir, o yüzden kaynak eklemek tek yerde
+olur.
+
+Neden panelde serbest URL kutusu **yok**: bir kaynak URL değil, *URL +
+ayrıştırıcı*dır. Kutu ancak zaten desteklenen biçimdeki bir şeyi
+gösterebilirdi — yani "yeni sağlayıcı ekleme" işini yapamazdı, ama
+yapabildiğini sandırırdı. Yapabileceği tek şeyin (aynı biçim, başka
+sunucu) karşılığı zaten `asn_lookup.local_csv_path`.
+
+**yedek sıralaması (fallback order)** — Seçilen kaynak erişilemezse
+sırayla denenecekler. Yanlış türdekiler atlanır: ülke yenilemesi bir ASN
+veri kümesine düşmez.
+
 **sessiz adres (silent address)** — Collector'ın gördüğü ama beacon'ın
 hiç görmediği adres. Yani JavaScript çalıştırmamış: ya bot, ya JS kapalı
 bir tarayıcı. **JavaScript tabanlı hiçbir analitik aracın göremediği

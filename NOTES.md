@@ -6938,3 +6938,178 @@ iddia güven verici yönde bayatlar.**
 Elle yerleştirme mesajı da güçlendirildi: bunların gösterildiği tek an
 olduğu, başka hiçbir yerde bulunmadıkları, ve terminal kapanmadan
 kopyalanmaları gerektiği artık açıkça yazıyor.
+
+---
+
+## M1 — Kaynak kütüphanesi: iki listenin çakıştığı yer, ve altıncı elle yazılmış liste
+
+*(2026-09-01)*
+
+Faz basit görünüyordu: kaynakları bir tabloya koy, panel oradan okusun.
+İki şey çıktı — biri tasarımda, biri hiç bakmadığım bir testte.
+
+### Önce ölçüm: hangi kaynaklar gerçekten gönderilebilir
+
+Plan bilerek isim saymamıştı ("şimdi isim saymak, doğrulanmamış bir
+iddiayı plana yazmak olurdu"). O yüzden aday veri kümeleri **indirildi**,
+okunmadı.
+
+Beşi geçti: `user-country`, `server-country`, `iptoasn-country`,
+`origin-asn`, `iptoasn-asn`. Hepsi PDDL 1.0, hepsi mevcut ayrıştırıcıya
+uyuyor — ülke üç sütun, ASN dört, IPv4 ve IPv6 aynı biçim. Fazın en
+büyük riski buydu ve gerçekleşmedi: yeni ayrıştırıcı borcu yok.
+
+İkisi bilerek dışarıda kaldı. DB-IP Lite CC BY 4.0, GeoLite2 MaxMind'in
+kendi şartlarıyla geliyor. İkisinin de yükümlülüğü *bizde* değil
+*kurulumda*: taşınacak bir atıf, kabul edilecek şartlar. Bu yazılımın
+kendiliğinden indirdiği bir dosyanın, müşteriye avukatının okuması
+gereken bir metin bırakması kabul edilebilir değil. Karar kaydedildi —
+bedeli olan bir kaynak eklenebilir, ama bedeli `Why` alanında ve
+THIRD-PARTY.md'de yazılı olarak.
+
+Bu arada THIRD-PARTY.md'nin kaynak sağlayıcısını yanlış yazdığı da
+çıktı: belge ipinfo.io diyordu, kod sapics/ip-location-db'den indiriyor.
+Lisans metni bir *iddia*dır, ve indirilen dosya onu doğrulayana kadar
+sadece iddiadır.
+
+### Tasarım: planın kendi kuralı projenin başka bir kuralıyla çakıştı
+
+Plan "kütüphane `internal/asnlookup/sources.go`'da" diyordu ve gerekçesi
+sağlamdı: **ikinci liste yok.** Ama projenin başka bir kuralı da var ve o
+da sağlam: panelin ayar kaydı trafik yolundaki paketleri import etmez.
+Aşırı yük politikası sabitleri tam bu yüzden elle aynalanmış, üstünde iki
+listenin uyuştuğunu iddia eden bir testle.
+
+İkisi aynı anda tutulamıyordu. Üçüncü seçenek kuralı değil yerleşimi
+değiştirdi: `internal/ipsources`, bağımlılığı olmayan bir yaprak paket.
+Hem `asnlookup` hem `panel` onu import ediyor, liste bir tane kalıyor, ve
+panel adres çözen hiçbir şeyi içeri çekmiyor.
+
+**İki kural çakıştığında üçüncü bir yer aramak, birini feda etmekten
+neredeyse her zaman ucuz.**
+
+### `local_csv_path`: ayna bir kaynak değil, bir taşıma
+
+Plan onu kütüphaneye "birinci sınıf giriş" olarak taşımayı söylüyordu.
+Yazıldı, ve yazılınca cevaplanamayan bir soru çıktı: *yereldeki hangi
+veri kümesi?* Cevap "hangisini seçtiysen o" — yani ayna kaynak
+seçiminin bir alternatifi değil, seçilen kaynağın nereden okunacağı.
+
+Bu yüzden her kaynak kendi dosya adlarını taşıyor, ve ayna dizininden
+okuma seçimi izliyor. Kaynağını değiştiren bir kurulum, aynadan da
+farklı dosyayı okuyor. Kütüphaneye bir "yerel" girişi konsaydı, seçimi
+değiştiren ayna kullanıcısı sessizce eski dosyayı okumaya devam ederdi.
+
+### Üçüncü ölçüt: mutasyon
+
+Fazın "kütüphaneye eklenen bir kaynak panelde ek değişiklik olmadan
+görünüyor" ölçütü, iddia edilerek değil kırılarak doğrulandı:
+kütüphaneye `deneme-ulke` eklendi, panelde tek satır değiştirilmedi, ve
+testin gördüğü enum `[user-country server-country iptoasn-country
+deneme-ulke]` oldu.
+
+### Ve sonra: altıncı elle yazılmış liste
+
+Kapı kırmızıya döndü, ama benim yazdığım bir testte değil — yıllardır
+yeşil duran birinde:
+
+```
+"sources.asn" is marked Live but no service reads it, so the panel
+promises an immediate effect that never happens
+```
+
+Üçü için de aynı satır. Oysa collector üçünü de okuyordu; kodu az önce
+ben yazmıştım. Testin `readByServices` listesi **elle yazılmıştı**, ve
+üstündeki yorum bunu açıkça söylüyordu: *"internal/settings/live.go'nun
+bildirdiği isimler, kopyalanmış."*
+
+Bu sezon aynı kusurun **altıncı** görülüşü:
+
+| # | liste | nasıl kısaydı |
+|---|---|---|
+| 1 | ayar kategorileri | üretilen sekiz limit ayarı hiç sayılmamış |
+| 2 | `phaseHeading` düzenli ifadesi | harfli faz kodlarını (`D4c`) hiç eşleştirmiyor |
+| 3 | CI'ın veritabanı rolleri | beşten dördü — `schema_admin` yok |
+| 4 | paketlenmiş binary'lerin `-version` kontrolü | altıdan beşi |
+| 5 | `install.sh`'ın bildirdiği parolalar | beşten dördü — biri hiçbir yere gitmiyordu |
+| 6 | `readByServices` | üç yeni anahtar eksik |
+
+Altısında da doğru hamle aynı: **ismi ekleme, listeyi türet.**
+
+Liste artık servislerin kaynağından çıkıyor: test dışı her `.go`
+dosyasında `settings.Key*` göndermeleri toplanıyor, isimler
+`internal/settings` ayrıştırılarak değerlerine çözülüyor.
+
+**Değiştirdiği şey sadece bakım değil, sorunun kendisi.** Eski liste
+`live.go`'nun *bildirdiklerini* aynalıyordu; bildirilip hiçbir yere
+bağlanmamış bir sabit onu memnun ederdi. Yenisi, hata mesajının zaten
+sorduğunu iddia ettiği soruyu gerçekten soruyor: *bunu kim okuyor?*
+
+### Testin kendi tuzağı: test dosyaları sayılmamalı
+
+Tarama test dosyalarını dışarıda bırakıyor, ve bu satır dekor değil.
+`internal/beacon`'ın canlı ayar takımı dört anahtarı adıyla anıyor. Test
+dosyaları da sayılsaydı, servisin okumayı bıraktığı ama testin hâlâ
+andığı bir anahtar "okunuyor" görünürdü — yani kontrol, tam olarak
+üretimde hiçbir şey yapmayan ayar için yeşil kalırdı.
+
+Ölçüldü: beacon'ın `LiveTrustedProxies`'inden canlı okuma silindi.
+
+- Dışlama yerindeyken: **kırmızı** — `beacon.trusted_proxies` okunmuyor.
+- Dışlama kaldırılınca: **yeşil**, aynı bozuk kodla.
+
+Takma adlı import da aynı şekilde ölçüldü: collector'ın `settings`
+importu `set` diye adlandırıldı — test yeşil kaldı; `importedAs`
+kırıldı — on bir anahtar birden kırmızıya döndü.
+
+**Bir taramanın görmediği şey, o taramanın dayandığı testi sessizce
+boşaltır.** O yüzden görmediği şey de ölçülmeli.
+
+### İki ölçüm daha, ve ikisi de gerçek bulgu çıkardı
+
+**Beş kaynağın hiçbiri gerçekten indirilerek sınanmıyordu.** Fazın
+testleri "hangi kaynak seçildi"yi ölçüyordu; "o kaynak var mı"yı hiçbir
+şey ölçmüyordu. Dördü yalnız *seçen* kurulumun eriştiği adresler, yani
+taşınmış bir URL müşterinin kendi sunucusundaki tek bir uyarı satırı
+olarak görünür ve buraya hiç ulaşmazdı.
+
+`internal/asnlookup/live_test.go` (`network` etiketi, gecelik):
+on dosyanın hepsi çekiliyor, önek ayrıştırılıyor, ve **tamamının**
+sha256'sı alınıyor. Ölçüm, 2026-09-01, ~124 MB, 4,7 saniye.
+
+Digest'in tamamı üzerinden alınmasının sebebi ölçülerek çıktı.
+`user-country-ipv4.csv` ile `server-country-ipv4.csv` ilk **330.696
+byte** boyunca birebir aynı — düşük adres uzayında barındırma ülkesiyle
+kullanıcı ülkesi zaten örtüşüyor. İlk yazdığım örnek 262.144 byte'tı,
+yani farkın *öncesinde* bitiyordu. Tam dosyalarda: 8.796.182 ve
+8.425.916 byte, 286.082 ve 274.801 satır, **11.461 satır farklı**.
+
+Yani bir önek *biçim* hakkında kanıttır, "bunlar farklı kaynaklar"
+hakkında hiçbir şey söylemez. İki kimlik aynı dosyayı gösterseydi panel
+olmayan bir seçim sunar, "ne zaman tercih edersin"i açıklar, ve seçimi
+değiştiren müşteri aynı veriyi geri alırdı. Mutasyonla ölçüldü:
+`server-country`'nin IPv4 adresi `user-country`'ninkine çevrildi, test
+"byte-identical" diye kırmızıya döndü.
+
+**Ve sonra: hiç koşmamış bir test takımı.** Ağ işini gecelik iş akışına
+eklerken komutun elle yazılmış tek bir dizin olduğunu gördüm —
+`./internal/loadtest/`. Oysa `internal/asnlookup` üç tane `loadtest`
+etiketli test taşıyor, biri **`local_csv_path` ağa hiç dokunmuyor**
+kanıtı. Hiçbir iş akışında hiç koşmamışlar.
+
+Geçiyorlar; mesele o değil. Kapı her etiketi `vet`'liyor, yani
+derleniyorlar; elle koşturan herkeste yeşiller. **Hiç koşmayan bir
+takım, geçmeyi bıraktığı günü bildiremez.**
+
+`internal/invariants/suites_test.go` bunu iki yönlü bir değişmez yaptı:
+etiketler test kaynaklarından, komutlar iş akışı dosyalarından okunuyor.
+Bir etiketli takım hiçbir işte adı geçmiyorsa kırmızı; `gatedTags`'te
+duran bir etiketi taşıyan dosya kalmamışsa da kırmızı (o iş, hiçbir şeyi
+sınayarak geçer — ve özet sayfasında bu, geçmekle aynı görünür).
+
+**Testin kendisi ilk koşusunda kendi hatasını yakaladı.** İş akışı
+satırını ayrıştıran düzenli ifadenin karakter kümesi `[a-z,]+`'ydı —
+rakamsız. `e2e` etiketi `e` diye yakalandı, e2e işi hiçbir dosyanın
+taşımadığı bir etiketi koşuyor göründü, ve e2e takımı koşulmuyor
+göründü. Yani düzenli ifade, testin tam olarak yakalamak için var olduğu
+hatayı yaptı, ve test onu yakaladı.

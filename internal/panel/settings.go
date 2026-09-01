@@ -105,6 +105,12 @@ const (
 	// customer can unlock is not one.
 	KeyUpgradeLocked Key = "upgrade.locked"
 
+	// The IP range dataset choices. Options come from internal/ipsources
+	// at init() - see sourceSettings below.
+	KeySourceCountry  Key = "sources.country"
+	KeySourceASN      Key = "sources.asn"
+	KeySourceFallback Key = "sources.fallback_order"
+
 	// KeyLogVerboseUntil is when a temporary raise to debug expires.
 	// Stored as an RFC3339 timestamp, empty when not raised.
 	//

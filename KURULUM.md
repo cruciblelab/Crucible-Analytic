@@ -914,6 +914,7 @@ saldırı sürerken SSH'a ihtiyaç duymamanız için:
 | `asn_lookup.blocked_countries` | Ülke engel listesi (ISO 3166-1 alpha-2, örn. `["RU","KP"]`) |
 | `asn_lookup.blocked_asns` | ASN engel listesi (pozitif sayılar) |
 | `asn_lookup.known_bot_asns` + `apply_to_scoring` | Bot skoruna ASN katkısı |
+| `sources.country`, `sources.asn`, `sources.fallback_order` | Hangi IP aralığı veri kümesinin kullanılacağı ve biri erişilemezse sıradakiler. Bir sonraki zamanlanmış yenilemede etkili olur — indirme anında, isteğin ortasında değil |
 | `beacon.trusted_proxies` | Hangi ağların ilettiği başlıklara güvenileceği |
 | `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
 

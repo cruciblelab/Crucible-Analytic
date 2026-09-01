@@ -298,6 +298,7 @@ func main() {
 	// starting on rather than a change from nothing.
 	lastLimits := cfg.Limits.LiveLimits(nil)
 	lastCountries, lastASNs := cfg.ASNLookup.LiveBlocklist(nil)
+	lastCountrySrc, lastASNSrc, lastFallbacks := cfg.ASNLookup.LiveSources(nil)
 	lastBotASNs := knownBotASNs
 
 	// # Every setting below is applied on every poll, and compared only
@@ -348,6 +349,28 @@ func main() {
 				"countries", len(countries), "asns", len(blockedASNs),
 				"was_countries", len(lastCountries), "was_asns", len(lastASNs))
 			lastCountries, lastASNs = countries, blockedASNs
+		}
+
+		// Which range datasets the next refresh fetches.
+		//
+		// Only when there is a resolver: with asn_lookup disabled there
+		// is nothing to tell, and calling a method on a nil *Resolver
+		// here would be the same nil-in-interface trap flusher.Resolver
+		// guards against above.
+		if lookup != nil {
+			country, asnSrc, fallbacks := cfg.ASNLookup.LiveSources(live)
+			lookup.SetSources(country, asnSrc, fallbacks)
+			if country != lastCountrySrc || asnSrc != lastASNSrc ||
+				!slices.Equal(fallbacks, lastFallbacks) {
+				// Info, like the blocklist, and for the same reason:
+				// "when did we start using a different country dataset"
+				// is a question somebody asks after the numbers move,
+				// and the answer should be in the log rather than
+				// inferred from a settings table's mtime.
+				logger.Info("range dataset choice changed",
+					"country", country, "asn", asnSrc, "fallbacks", fallbacks)
+				lastCountrySrc, lastASNSrc, lastFallbacks = country, asnSrc, fallbacks
+			}
 		}
 
 		// The scoring signal.

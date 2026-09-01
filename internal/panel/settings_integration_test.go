@@ -5,11 +5,20 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -250,33 +259,15 @@ func TestSettings_ListReportsWhatWasStored(t *testing.T) {
 // drags the panel's data layer into the one process the whole internet
 // can reach.
 func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
-	// The names internal/settings/live.go declares, copied. If this list
-	// and that one drift, one of them is wrong and this test says so.
-	readByServices := []Key{
-		"beacon.sites",
-		"campaign.drop_params",
-		"campaign.extra_params",
-		"campaign.store_click_ids",
-		"logs.level",
-		"logs.verbose_until",
-		"privacy.ip_storage",
-
-		// A5.1.
-		"beacon.trusted_proxies",
-		"collector.limits.max_concurrent",
-		"collector.limits.max_requests_per_second",
-		"collector.limits.overload_policy",
-		"collector.limits.throttle_queue_size",
-		"beacon.limits.max_concurrent",
-		"beacon.limits.max_requests_per_second",
-		"beacon.limits.overload_policy",
-		"beacon.limits.throttle_queue_size",
-
-		// A5.2.
-		"collector.blocked_countries",
-		"collector.blocked_asns",
-		"collector.known_bot_asns",
-		"collector.apply_asn_to_scoring",
+	// Read out of the services' source rather than listed here. What was
+	// here was a copy of internal/settings/live.go's declarations, and it
+	// was short: three keys added in M1 were defined by the panel, marked
+	// Live and read by the collector, and this test called all three
+	// settings that nothing reads.
+	readByServices := keysServicesRead(t)
+	if len(readByServices) == 0 {
+		t.Fatal("no service reads any setting, which cannot be true - the scan " +
+			"found nothing and every check here would pass by comparing empty sets")
 	}
 	for _, key := range readByServices {
 		def, ok := Lookup(key)
@@ -304,6 +295,232 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 			t.Errorf("%q is marked Live but no service reads it, so the panel promises an "+
 				"immediate effect that never happens", def.Key)
 		}
+	}
+}
+
+// --- deriving what the services read ---
+
+// settingsPkg is the package whose Key constants name settings. A
+// service does not write key strings; it writes settings.KeyLogLevel.
+const settingsPkg = "github.com/cruciblelab/crucible-analytic/internal/settings"
+
+// keysServicesRead is the set of setting keys the running services read,
+// taken from the source of the services themselves.
+//
+// Two steps, because the reference and the value live in different
+// places: every settings.Key* mention in non-test code is collected, then
+// those constant names are resolved to their strings by parsing
+// internal/settings.
+//
+// # Why derived and not listed
+//
+// This project has now found the same defect six times, and it is always
+// a hand-written list: the eight generated limit settings with no
+// category, a heading regexp that could not match a lettered phase, CI's
+// four-of-five database roles, the packaged binaries whose -version was
+// checked, install.sh's four-of-five reported passwords - and this. A
+// list is not dangerous when it is wrong. It is dangerous when it is
+// short, because wrong goes red and short stays green.
+//
+// # Why non-test code only
+//
+// A key a test mentions is not a key a service reads. Counting one would
+// make this check pass for precisely the setting that does nothing in
+// production - a customer changes it, the page says saved, and no process
+// anywhere looks at it. internal/beacon's live-settings suite names four
+// keys, so this is not hypothetical.
+//
+// # Why this is stricter than what it replaced
+//
+// The old list mirrored the constants live.go declares. A constant that
+// was declared and never wired to anything satisfied it. This asks the
+// question the failure message actually claims to have asked: who reads
+// it.
+//
+// # What it cannot see
+//
+// A service that wrote the key as a string literal instead of using the
+// constant. That is deliberately not worked around: naming settings
+// through internal/settings is what makes both halves of this check and
+// TestEveryServiceKeyIsARealSetting possible, and a literal in a service
+// is already outside every cross-check this project has. The failure is
+// loud rather than silent - the key reads as unread and this test says
+// so - which is the right way round.
+func keysServicesRead(t *testing.T) []Key {
+	t.Helper()
+	root := moduleRoot(t)
+
+	values := keyConstantValues(t, filepath.Join(root, "internal", "settings"))
+	if len(values) == 0 {
+		t.Fatal("internal/settings declares no Key constants, so there is nothing to " +
+			"resolve the services' references against and every setting would look unread")
+	}
+
+	// Constant name -> the file that reads it, so a failure can name the
+	// reader rather than making somebody grep for it.
+	referenced := map[string]string{}
+	fset := token.NewFileSet()
+
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if skipDirForScan(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return fmt.Errorf("parsing %s: %w", path, err)
+		}
+		local, ok := importedAs(file, settingsPkg)
+		if !ok {
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok || pkg.Name != local || !strings.HasPrefix(sel.Sel.Name, "Key") {
+				return true
+			}
+			referenced[sel.Sel.Name] = rel
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanning the repository for settings.Key references: %v", err)
+	}
+
+	out := make([]Key, 0, len(referenced))
+	for name, where := range referenced {
+		value, ok := values[name]
+		if !ok {
+			// Reachable only if the constant moved somewhere this scan does
+			// not read. Silently dropping it would hide the setting from
+			// both halves of the test below, which is the failure being
+			// guarded rather than a tidy way to skip one.
+			t.Errorf("%s reads settings.%s and internal/settings does not declare it "+
+				"with a string literal, so this check cannot tell which setting it is",
+				where, name)
+			continue
+		}
+		out = append(out, Key(value))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// keyConstantValues maps the Key* constant names a package declares to
+// their string values.
+//
+// The whole directory rather than live.go alone: a constant added in a
+// new file beside it is still a constant, and a scan that reads one file
+// would call it undeclared.
+func keyConstantValues(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", dir, err)
+	}
+
+	out := map[string]string{}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				spec, ok := n.(*ast.ValueSpec)
+				if !ok {
+					return true
+				}
+				for i, name := range spec.Names {
+					if !strings.HasPrefix(name.Name, "Key") || i >= len(spec.Values) {
+						continue
+					}
+					lit, ok := spec.Values[i].(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING {
+						continue
+					}
+					value, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						continue
+					}
+					out[name.Name] = value
+				}
+				return true
+			})
+		}
+	}
+	return out
+}
+
+// importedAs reports the name path is referred to by inside file, which
+// is the alias when there is one and the package name otherwise.
+//
+// Needed because an aliased import would otherwise make every reference
+// in that file invisible - the quiet half of this test's own failure
+// mode, applied to itself.
+func importedAs(file *ast.File, path string) (string, bool) {
+	for _, spec := range file.Imports {
+		value, err := strconv.Unquote(spec.Path.Value)
+		if err != nil || value != path {
+			continue
+		}
+		if spec.Name != nil {
+			switch spec.Name.Name {
+			case "_", ".":
+				// Neither can carry a settings.Key* selector: a blank import
+				// has no name, and a dot import would be written bare.
+				return "", false
+			}
+			return spec.Name.Name, true
+		}
+		return path[strings.LastIndex(path, "/")+1:], true
+	}
+	return "", false
+}
+
+// skipDirForScan keeps the walk inside this repository's own Go source.
+func skipDirForScan(name string) bool {
+	switch name {
+	case "vendor", "node_modules", "testdata":
+		return true
+	}
+	// .git, .github and anything else hidden.
+	return strings.HasPrefix(name, ".") && name != "." && name != ".."
+}
+
+// moduleRoot walks up to the directory holding go.mod.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("no go.mod above this package; cannot find the repository root")
+		}
+		dir = parent
 	}
 }
 

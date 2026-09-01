@@ -152,6 +152,28 @@ func (c LimitsConfig) LiveLimits(src *settings.Source) limiter.Config {
 	return cfg
 }
 
+// LiveSources is which range datasets to fetch, in force.
+//
+// Empty strings and an empty list are the supported state and mean "the
+// library's defaults", which is what an installation that has chosen
+// nothing already downloads. Nothing here validates the ids: the
+// resolver falls back from one it does not carry and logs why, because a
+// stale setting must not leave a deployment with no country data at all.
+// The panel is where a person typing one is told - see
+// checkFallbackOrder.
+func (c ASNLookupConfig) LiveSources(src *settings.Source) (country, asn string, fallbacks []string) {
+	if src == nil {
+		return "", "", nil
+	}
+	// No admissible list passed to String: the panel's enum is the place
+	// that constrains what can be stored, and repeating the library here
+	// would be the second list this phase exists to avoid.
+	country = src.String(settings.KeySourceCountry, "", "", nil)
+	asn = src.String(settings.KeySourceASN, "", "", nil)
+	fallbacks = src.Strings(settings.KeySourceFallback, "", nil)
+	return country, asn, fallbacks
+}
+
 // LiveBlocklist is the country and ASN denylist in force, taking the
 // stored values over the file's when a source is present.
 //

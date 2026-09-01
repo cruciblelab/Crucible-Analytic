@@ -65,7 +65,7 @@ jobs:
           "$(go env GOPATH)/bin/govulncheck" ./...
 
   network:
-    name: the known-bot source still exists and still parses
+    name: the fetched datasets still exist and still parse
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +78,14 @@ jobs:
       # deployment is quietly losing the known-bot signal, because this
       # project fetches that data rather than shipping it.
       - run: go test -tags network -count=1 -v ./internal/botdata/
+      # The same question for the five IP range datasets M1 added. Four
+      # of them are reachable only by a deployment that chose them, so a
+      # URL that moved would show up as one warning line on a customer's
+      # own server and nowhere else. ~124 MB streamed, under five
+      # seconds; the parse is over a prefix, the digest over all of it -
+      # internal/asnlookup/live_test.go says why the digest needs the
+      # whole file.
+      - run: go test -tags network -count=1 -v -timeout 20m ./internal/asnlookup/ -run TestLive
 
   load:
     name: limits and the live blocklist under real concurrency
@@ -91,7 +99,18 @@ jobs:
       # -count=3 because the question this job is answering is not "did
       # it pass" but "is it stable enough to be a gate". One green night
       # says nothing about a range assertion on a shared runner.
-      - run: go test -tags loadtest -race -count=3 -timeout 20m ./internal/loadtest/
+      #
+      # Both packages, not just internal/loadtest. internal/asnlookup has
+      # carried three loadtest-tagged tests - the cache hit ratio, the
+      # "local_csv_path never touches the network" proof, and "a bare
+      # resolver starts nothing in the background" - and this line named
+      # one directory, so none of them had ever run anywhere. They pass;
+      # that is not the point. A suite that never runs cannot report the
+      # day it stops passing.
+      #
+      # internal/invariants asserts this the other way round now, so the
+      # next tagged suite cannot arrive unrun.
+      - run: go test -tags loadtest -race -count=3 -timeout 20m ./internal/loadtest/ ./internal/asnlookup/
 
   fuzz:
     name: fuzz the parsers that read attacker bytes

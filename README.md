@@ -193,12 +193,27 @@ compiled from RIR delegated-stats, BGP routing archives (RouteViews / RIPE
 RIS), and RFC 8805/9632 geofeeds. Huge thanks to sapics and the
 organizations behind those underlying sources.
 
-Four CSVs total - two datasets x two address families
-(`user-country-ipv4.csv`/`-ipv6.csv`, three columns each; `origin-asn-ipv4.csv`/`-ipv6.csv`,
-four columns each) - are fetched from GitHub Releases on a schedule
-(`asn_lookup.refresh_interval_seconds`, default weekly) - or, if
-`asn_lookup.local_csv_path` is set, all four are read from that directory
-on local disk instead, with **no network access of any kind** in that mode
+`user-country` and `origin-asn` are the defaults, not the only choice.
+`internal/ipsources` is the library of datasets this build knows how to
+fetch and parse - five today, all PDDL - and the panel's **Ayarlar →
+Toplama** section generates its dropdowns from it, so a deployment can
+pick a different country or ASN dataset, and give a fallback order for
+when one is unreachable. `server-country` is the notable alternative: it
+attributes an address to where it is *hosted* rather than where its user
+is, which is the right answer for "did this come from a data centre" and
+the wrong one for visitor geography. The choice takes effect on the next
+scheduled refresh, without a restart. There is deliberately no URL box -
+a source is a URL *and* a parser, so a box could only ever point at
+something already in a supported shape; `internal/ipsources`' doc comment
+has the full reasoning.
+
+Four CSVs total - two datasets x two address families (the defaults'
+`user-country-ipv4.csv`/`-ipv6.csv`, three columns each;
+`origin-asn-ipv4.csv`/`-ipv6.csv`, four columns each) - are fetched from
+GitHub Releases on a schedule (`asn_lookup.refresh_interval_seconds`,
+default weekly) - or, if `asn_lookup.local_csv_path` is set, all four are
+read from that directory on local disk instead, with **no network access
+of any kind** in that mode
 (useful for an offline VDS, or if you'd rather manage the download
 yourself, e.g. via your own cron job writing into that directory). Either
 way, lookups are then answered locally against four independent in-memory
@@ -908,7 +923,7 @@ other field has a default. `config.toml` is gitignored since
 | `asn_lookup.cache_max_entries`      | `50000`              | Only validated when `asn_lookup.enabled = true`. Size of the in-memory LRU result cache. |
 | `asn_lookup.cache_ttl_seconds`      | `21600` (6h)         | Same; how long one resolved IP is cached before being re-checked against the range tables. |
 | `asn_lookup.refresh_interval_seconds` | `604800` (1 week)  | Same; how often both datasets are re-fetched (downloaded, or re-read from `local_csv_path`) and re-parsed. |
-| `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read `user-country-ipv4/6.csv` and `origin-asn-ipv4/6.csv` from this directory instead - no network access at all in that mode. |
+| `asn_lookup.local_csv_path`         | `""`                 | If set, skip downloading entirely and read the four CSVs from this directory instead - no network access at all in that mode. The filenames follow the datasets in force, so with the defaults they are `user-country-ipv4/6.csv` and `origin-asn-ipv4/6.csv`; changing the dataset in the panel changes which files are read here too. |
 | `asn_lookup.blocked_countries`      | `[]`                 | ISO 3166-1 alpha-2 codes (case-insensitive); a match rejects the connection/request outright, regardless of `limits.overload_policy` - see "Optional: IP → country / ASN lookup" below. |
 | `asn_lookup.blocked_asns`           | `[]`                 | ASN numbers; same reject behavior as `blocked_countries`, checked independently. |
 | `asn_lookup.known_bot_asns`         | `[]`                 | ASN numbers; only consulted when `apply_to_scoring = true`. A match adds a flat bonus to the bot-likelihood score instead of blocking - a separate list from `blocked_asns`, since a blocked ASN never reaches scoring. |

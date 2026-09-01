@@ -334,6 +334,12 @@ const (
 	// ran the snippet.
 	KeyTrustedProxies = "beacon.trusted_proxies"
 
+	// The IP range dataset choices. See internal/ipsources for the
+	// library these name, and internal/panel for the definitions.
+	KeySourceCountry  = "sources.country"
+	KeySourceASN      = "sources.asn"
+	KeySourceFallback = "sources.fallback_order"
+
 	KeyCollectorMaxConcurrent  = "collector.limits.max_concurrent"
 	KeyCollectorMaxPerSecond   = "collector.limits.max_requests_per_second"
 	KeyCollectorOverloadPolicy = "collector.limits.overload_policy"

@@ -9,6 +9,78 @@ yapacağım".
 
 ---
 
+## v0.11.0+M1 — 2026-09-01
+
+Kaynak kütüphanesi: hangi IP aralığı veri kümesinin kullanılacağı artık
+panelden seçiliyor. Ayrıca `v0.10.0+D4c` ile bu sürüm arasına giren iki
+düzeltme burada.
+
+**Şema sürümü: 3** — değişmedi. Kuran kişinin yapması gereken: **iki
+şey, ikisi de yalnız belirli kurulumlar için** (aşağıda).
+
+### Ne var
+
+**Beş veri kümesi, ikisi varsayılan.** Ülke tarafında `user-country`
+(varsayılan — ziyaretçinin ülkesi), `server-country` (adresin
+*barındırıldığı* ülke), `iptoasn-country`; ASN tarafında `origin-asn`
+(varsayılan) ve `iptoasn-asn`. Beşi de PDDL 1.0 — kamu malı, atıf
+gerekmiyor, kurulumun üstünde hiçbir yükümlülük yok. **Hiç dokunmayan
+kurulum bugüne kadarki iki veri kümesini indirmeye devam ediyor;
+davranış birebir aynı.**
+
+**Üç yeni ayar** — *Ayarlar → Toplama* altında: ülke kaynağı, ASN
+kaynağı, ve biri erişilemezse denenecek yedek sıralaması. Üçü de
+yeniden başlatma istemiyor; bir sonraki zamanlanmış yenilemede etkili
+oluyor.
+
+**Panelde serbest URL kutusu yok, ve olmayacak.** Bir kaynak URL değil,
+URL *ve ayrıştırıcı*dır: kutu ancak zaten desteklenen biçimdeki bir şeyi
+gösterebilirdi, yani "yeni sağlayıcı ekle" işini yapamazdı ama
+yapabildiğini sandırırdı. Yapabileceği tek şeyin (aynı biçim, başka
+sunucu) karşılığı zaten `asn_lookup.local_csv_path`.
+
+**Ayna dizini seçimi izliyor.** `local_csv_path` kullanan kurulumda
+okunan dosya adları seçilen veri kümesinden geliyor. Varsayılanlarda
+değişen bir şey yok.
+
+### Düzeltmeler
+
+**`schema_admin` parolası hiçbir yere gitmiyordu.** `install.sh` beş
+rolün beşi için de parola üretiyordu ama yalnız dördünü bildiriyordu:
+beşincisi ne dosyaya yazılıyordu ne ekrana. Yapılandırma dosyası önceden
+varsa yükseltici `change-me` ile kalıyor ve şema uygulayamıyordu, ve
+ekranda bunu söyleyen hiçbir şey yoktu. **Kuran kişinin yapması gereken:
+`install.sh`'ı daha önce koşturduysanız `/etc/crucible-analytic/upgrader.toml`
+içindeki parolanın gerçek olduğunu doğrulayın** (`change-me` ise
+yükseltici çalışmaz). Betik artık beş rolü tek bir tablodan okuyor ve
+sayıyı sayarak yazıyor.
+
+**CI haftalardır kırmızıydı.** İki sebep: iş akışının rol döngüsü beşten
+dördünü oluşturuyordu (`schema_admin` yoktu), ve `actions/checkout`
+varsayılan sığ klonu CLA testine deponun değil klonun bir olgusunu
+rapor ettiriyordu. İkisi de kapatıldı. **Kuran kişiyi ilgilendirmez** —
+yalnız geliştirme hattı.
+
+---
+
+## v0.10.0+D4c — 2026-08-31
+
+Ayarlar sayfası: 28 ayar yedi açılır kategoriye.
+
+**Şema sürümü: 3** — değişmedi. Kuran kişinin yapması gereken: yok.
+
+### Ne var
+
+Görünüm, toplama, bot, gizlilik, sınırlar, tanılama, bakım. Varsayılan
+görünüm kısa: kategoriler kapalı geliyor. Akordeon `<details>` ile —
+betik yok, dolayısıyla CSP'de gevşetilen hiçbir şey yok.
+
+Reddedilen bir kaydın bulunduğu bölüm **açık** geliyor. Olmasaydı,
+sayfanın tepesindeki kırmızı bant sebebini kapalı bir başlığın arkasında
+bırakırdı.
+
+---
+
 ## v0.9.0+L3 — 2026-08-31
 
 İlk etiketli sürüm. On altı faz, 130 commit, altı binary.
