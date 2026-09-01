@@ -8374,3 +8374,42 @@ ayrıcalıksız koşuyor, orada her koşuda görülecek.
 
 Sonuncusu en anlamlısı: mutasyon, gecelik kütüğündeki cümlenin aynısını
 üretti — yazılamayan bir yolda, çalışmayacak komutu öneren INFO satırı.
+
+---
+
+## N3 — Altı kırmızıdan sonra iki yeşil
+
+`nightly` hattı bugün altı kez koştu ve beşinde kırmızı verdi. Her
+kırmızının arkasından **başka bir kusur** çıktı, ve bu fazın ayrı
+tutulmasının tek gerekçesi buydu:
+
+| koşu | arkasından çıkan |
+|---|---|
+| #1–#2 | `--no-systemd` verilmiyordu |
+| #3 | N1 — panel günlük dizinini açamıyor |
+| #4 | N5 — imajın şema listesi altıda kalmış |
+| #5 | N7 — konteyner sınaması panoyu tek okuyor |
+| #6, #7 | 7/7 yeşil |
+
+Fazın kendi cümlesi şuydu: *"N1 ve N2 düzeldiğinde gecelik yeşile döner
+**varsayımı** tam olarak bu grubun karşı çıktığı şey."* Varsayım üç kez
+daha yanlış çıktı. Bir hattın yeşile döneceğini tahmin etmek, yeşil
+görmekten farklı bir şeydir — ve arada dört kusur vardı.
+
+### İki koşu da aynı ağaçta, ve bu bilerek
+
+`414d6f7`. Farklı iki commit'te yeşil olmak "bu hat güvenilir" demez,
+"iki ayrı şey birer kez çalıştı" der. Ölçütün derdi kararlılıktı — N7'nin
+düzelttiği şey bir yazı-turaydı — ve bir yazı-turanın kalkıp kalkmadığını
+sınamanın yolu aynı parayı iki kez atmaktır.
+
+### Ölçütü değiştirmedim
+
+Gün içinde üç kez, bir testin iddiasını gördüğü sonuca uydurmanın
+bedelini ödedim: 250 ms tabanı, "üçten fazla yol verme", "hiçbiri tabloyu
+beklemesin". Üçü de makinenin hızını doğa yasası sanmıştı.
+
+Aynı hamleyi bir plan maddesine yapmak daha ucuza gelir gibi görünüyordu
+— "N1 ile N2 düzeldi, N5 düzeldi, kapatalım" — ve tam da bu yüzden daha
+tehlikeliydi: **bir plan maddesi kırmızı vermez.** Yanlış kapatılan bir
+faz, kendini hiçbir zaman bildirmez.

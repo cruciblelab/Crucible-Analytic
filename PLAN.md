@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **5/7** | N3 gecelik yeşil, N6 /var/lib bölünmesi |
+| **N** Kurulumun ikinci yolu | 🟡 **6/7** | N6 /var/lib bölünmesi (N6a bitti, yol ailesi kaldı) |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4108,7 +4108,7 @@ yazılmıyorsa öbürleri de sorgusuz sayılmamalı.**
 
 ---
 
-#### N3 — Gecelik hattın yeşile ulaşması 🟡 **yerelde yeşil, hatta bekleniyor**
+#### N3 — Gecelik hattın yeşile ulaşması ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** `nightly` hattı bugüne kadar hiç yeşil koşmadı. İlk kusuru
 (`--no-systemd` verilmemesi) düzeltildi ve arkasından N1 çıktı; N1'in
@@ -4130,15 +4130,25 @@ gerçekten koştu — atlanmadı.
 | #3 | kırmızı | N1 — panel günlük dizinini açamıyor |
 | #4 | kırmızı | N5 — imajın şema listesi altıda kalmış |
 | #5 | 7 işten 6'sı yeşil | N7 — konteyner sınaması panoyu tek okuyor |
+| **#6** | **7/7 yeşil** | — |
+| **#7** | **7/7 yeşil** | — |
 
 **#5'te ilk kez ölçülen şey:** *"tarball'dan ve imajdan"* işinin
 **tarball yarısı hatta yeşil geçti.** Kalan tek kırmızı imaj yarısıydı,
-ve o da üründe değil testteydi. Yani N1, N2 ve N5 hatta doğrulandı —
-yerelde değil.
+ve o da üründe değil testteydi.
 
-**Neden hâlâ kapalı değil:** ölçüt "üst üste iki yeşil koşu" diyor ve
-hâlâ sıfır tane var. Ölçütü kanıta uydurmak, bu grubun bütün gün karşı
-çıktığı hareketin ta kendisi olurdu. N7 hatta gidince #6 karar verir.
+**#6 ve #7 ölçütü karşıladı.** İkisi de aynı ağaçta (`414d6f7`), ve bu
+bilerek: ölçütün derdi kararlılıktı, aynı ağacı iki kez koşturmak da
+kararlılığın daha sıkı sınamasıdır — farklı iki commit'te yeşil olmak
+"bu hat güvenilir" demez, yalnızca "iki ayrı şey bir kez çalıştı" der.
+
+Beş kırmızının her birinin arkasından başka bir kusur çıkmıştı; bu fazın
+ayrı tutulma gerekçesi tam olarak buydu, ve altıncıda durdu.
+
+**Ölçütü değiştirmedim.** Bugün üç kez, bir testin iddiasını gördüğü
+sonuca uydurmanın maliyetini ödedim; aynı şeyi bir plan maddesine
+yapmanın maliyeti daha da yüksek olurdu, çünkü orada kırmızı veren bir
+şey yok.
 
 ---
 
