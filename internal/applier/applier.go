@@ -35,6 +35,30 @@ var ErrNotThisBinary = errors.New("upgrade: this applier does not carry the requ
 // the queue and the next tick will try again.
 var ErrBusy = errors.New("upgrade: the tables were busy, so the upgrade gave way and will retry")
 
+// ErrSchemaLockBusy marks the one lock wait that is another applier
+// rather than traffic.
+//
+// Both are 55P03 and both end in the same place - RunOnce turns either
+// into ErrBusy and requeues - so this changes no behaviour. What it
+// changes is that the two become tellable apart, and that distinction is
+// the only machine-independent way to ask whether the schema lock is
+// doing its job.
+//
+// The alternative was counting: with the lock, appliers queue and nearly
+// all of them finish; without it they collide in the tables and most
+// give way. That is true, and it is a ratio, and a ratio needs a
+// threshold - which is how the concurrency test first came to assert
+// "no more than three may give way", pass on the machine it was written
+// on, and fail on CI at seven while nothing was wrong. The same mistake
+// as the stall floor in v0.13.1, made again in the test written to
+// replace it.
+//
+// A waiter on this lock is waiting for another applier, which is the
+// design working. A waiter on a table is waiting for traffic, which
+// during a schema apply means two appliers are inside the schema at
+// once. That holds on any machine at any speed.
+var ErrSchemaLockBusy = errors.New("upgrade: another applier holds the schema lock")
+
 // isLockTimeout reports whether err is PostgreSQL's lock_timeout
 // cancellation (SQLSTATE 55P03, lock_not_available).
 //
@@ -252,7 +276,7 @@ func (a *Applier) apply(ctx context.Context) (*int, error) {
 	// how the stale claim that allows two appliers gets created in the
 	// first place.
 	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, int64(dblock.SchemaApply)); err != nil {
-		return &reached, fmt.Errorf("taking the schema lock: %w", err)
+		return &reached, fmt.Errorf("%w: %w", ErrSchemaLockBusy, err)
 	}
 	defer func() {
 		if _, err := conn.Exec(context.WithoutCancel(ctx),

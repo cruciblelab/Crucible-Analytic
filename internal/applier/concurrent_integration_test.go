@@ -12,6 +12,7 @@ package applier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -111,7 +112,7 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 	var wg sync.WaitGroup
 	bad := make(chan string, appliers*rounds)
 	var mu sync.Mutex
-	var applied, busy int
+	var applied, waitedForSchemaLock, waitedForTable int
 	// How many were inside apply at the same moment, at the most. A run
 	// where this never reached two raced nobody, whatever else it found.
 	var inFlight, mostAtOnce int
@@ -141,13 +142,19 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 					mu.Lock()
 					applied++
 					mu.Unlock()
-				case isLockTimeout(err):
-					// The whole point. RunOnce turns this into ErrBusy and
-					// puts the request back for the next tick; here it is
-					// the raw 55P03 the schema lock produces, which is the
-					// same answer one step earlier.
+				case errors.Is(err, ErrSchemaLockBusy):
+					// Waited for another applier and gave way. The design
+					// working: RunOnce turns this into ErrBusy and puts the
+					// request back for the next tick.
 					mu.Lock()
-					busy++
+					waitedForSchemaLock++
+					mu.Unlock()
+				case isLockTimeout(err):
+					// Waited for a *table* instead - that is traffic, and an
+					// applier only meets traffic inside the schema. Counted
+					// separately because this is the whole assertion below.
+					mu.Lock()
+					waitedForTable++
 					mu.Unlock()
 				default:
 					bad <- err.Error()
@@ -190,12 +197,6 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 	// Nobody overlapped: three appliers that politely took turns would
 	// pass with no lock at all, which is exactly how the RunOnce version
 	// of this test passed with the lock deliberately defeated.
-	//
-	// Note that it is *not* an error for none of them to give way. An
-	// apply takes about 25ms and the lock is waited on for up to 250ms,
-	// so the usual outcome is that all three succeed in turn - queueing,
-	// not failing, is what the lock is for. Asserting on a lock timeout
-	// here would have made the good case the failing one.
 	if applied == 0 {
 		t.Error("nothing applied at all, so this run says nothing about two at once")
 	}
@@ -203,27 +204,31 @@ func TestAppliersRunningAtOnceGiveWayInsteadOfColliding(t *testing.T) {
 		t.Errorf("never more than %d applier inside the schema at once, so nothing "+
 			"raced.\nThis run would pass with no schema lock at all", mostAtOnce)
 	}
-	// What the schema lock is actually worth, and the only assertion here
-	// that moves when it is taken away.
+
+	// The assertion, and it counts kinds rather than quantities.
 	//
-	// Measured, three appliers applying every file eight times each:
+	// An applier that waited for the schema lock waited for another
+	// applier: the design working, and how many do so depends entirely on
+	// how fast the machine is. An applier that waited for a *table* waited
+	// for traffic - and it can only meet traffic inside the schema, which
+	// is where it is not supposed to be while another applier is there.
 	//
-	//	with dblock.SchemaApply     24 applied,  0 gave way
-	//	with the key made unique     8 applied, 16 gave way
-	//
-	// Without it they collide on ordinary table locks instead, and 250ms
-	// of lock_timeout turns two thirds of the work into requeues - each
-	// of which is a customer's upgrade sitting in the queue for another
-	// tick for no reason anybody can see. The ceiling is one per applier
-	// rather than zero because a lock timeout here is always possible:
-	// another suite can hold a table this schema touches.
-	if busy > appliers {
-		t.Errorf("%d of %d applications gave way to a lock timeout, with %d applied.\n"+
-			"Appliers holding the schema lock queue behind each other and finish; "+
-			"this many timing out means they are meeting in the tables instead, "+
-			"which is what it looks like when the lock is not being taken",
-			busy, appliers*rounds, applied)
+	// The first version of this asserted on the quantity instead - "no
+	// more than three may give way" - which passed on the machine it was
+	// written on and failed on CI at seven with nothing wrong. That is the
+	// v0.13.1 mistake, a threshold belonging to the machine that measured
+	// it, made again in the test written to replace it. See
+	// ErrSchemaLockBusy.
+	if waitedForTable > 0 {
+		t.Errorf("%d of %d applications timed out on a table rather than on the "+
+			"schema lock (%d waited for the lock, %d applied).\n"+
+			"An applier meets traffic only while it is inside the schema, so a "+
+			"table wait here means two of them were in there together - which is "+
+			"what the schema lock exists to prevent. See internal/dblock",
+			waitedForTable, appliers*rounds, waitedForSchemaLock, applied)
 	}
-	t.Logf("%d applied, %d gave way, %d inside at once at the most",
-		applied, busy, mostAtOnce)
+
+	t.Logf("%d applied, %d waited for the schema lock, %d waited for a table, "+
+		"%d inside at once at the most",
+		applied, waitedForSchemaLock, waitedForTable, mostAtOnce)
 }

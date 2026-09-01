@@ -7827,3 +7827,50 @@ Tek bir anahtar iki şeyi birden söyleyemiyor:
 İki anlam, iki anahtar: `testdb.SchemaRaceLock` eklendi. Dört koşu üst
 üste temiz, ve kilidi kasten bozan mutasyon hâlâ kırmızıya döndürüyor —
 yani yalıtım, duyarlılığı öldürmeden geldi.
+
+---
+
+## Aynı hatayı, onu düzeltmek için yazdığım testte tekrarladım
+
+`5cebc75` CI'da düştü: *7 of 24 gave way, 17 applied*. Eşiğim `busy >
+appliers`, yani üçten fazla yol verme kırmızı. Kendi makinemde 24/0
+çıkıyordu; CI daha yavaş, bir uygulama 250 ms'yi aşabiliyor, ve kilit
+**doğru çalışırken** yedi bekleme oluyor.
+
+Bu, v0.13.1'de düzelttiğim hatanın birebir aynısı — *eşik ölçüldüğü
+makineye aitti* — ve onu düzeltmek için yazdığım testin içinde. Oran bir
+eşik ister, eşik de bir makineye ait olur.
+
+### Sayı değil, cins
+
+Ayrım baştan oradaydı, bakmıyordum: her iki bekleme de 55P03 ama
+**neyi** beklediği farklı.
+
+- **Şema kilidini** bekleyen, başka bir uygulayıcıyı bekliyor — tasarımın
+  çalışması. Kaçının beklediği tamamen makinenin hızına bağlı.
+- **Tabloyu** bekleyen, trafiği bekliyor — ve bir uygulayıcı trafiğe
+  ancak şemanın içindeyken rastlar, yani orada başkası varken orada
+  olmaması gerekirken.
+
+İkincisi makineden bağımsız: hızlı makinede de yavaş makinede de sıfır
+olmalı. `ErrSchemaLockBusy` ikisini ayırt edilebilir kıldı; davranış
+değişmedi, `RunOnce` ikisini de `ErrBusy`'ye çeviriyor.
+
+### Ve mutasyonum da yanlışmış
+
+"Kilidi bozan mutasyon hâlâ kırmızıya döndürüyor" demiştim. Döndürüyordu
+ama sebebi sandığım değildi: `+mutantOffset`'i yalnız **alma**
+çağrısına uygulamıştım, **bırakma** çağrısına değil. Kilit K+ofset'te
+alınıp K'da bırakılıyordu, yani hiç bırakılmıyordu. Ölçtüğüm şey "kilit
+yok" değil, "kilit sızdırıyor"du — gerçek bir gerileme, ama başka bir
+gerileme.
+
+Doğrusu yapıldı: `pg_advisory_lock` ve `pg_advisory_unlock` birlikte
+kaldırıldı. Sonuç, kilidin engellediği asıl bozulma:
+
+    applying internal/retention/schema.sql:
+        ERROR: tuple concurrently updated (SQLSTATE XX000)  (3x)
+
+**Bir mutasyonun kırmızı vermesi, doğru şeyi bozduğunu kanıtlamaz.** Bu
+oturumda ölçtüğünü sanan dördüncü şey bu oldu — ve bu sefer sanan bendim,
+test değil.
