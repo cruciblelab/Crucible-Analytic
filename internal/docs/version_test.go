@@ -2,6 +2,7 @@ package docs
 
 import (
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -176,4 +177,88 @@ func readDoc(t *testing.T, name string) string {
 		t.Fatal(fmt.Sprintf("%s is missing from the repository root", name))
 	}
 	return body
+}
+
+// TestEveryReleaseNoteHasATagAndEveryTagHasANote.
+//
+// The two sides of a release record, and a gap in either one is quiet.
+//
+// A note with no tag is a version nobody can install: it reads as
+// released, and `git checkout v0.11.1` says the ref does not exist. A tag
+// with no note is worse in the other direction - somebody installs it and
+// has no way to find out whether they have to do anything, which is the
+// one question CHANGELOG.md exists to answer.
+//
+// # Where this came from
+//
+// v0.11.0+M1's note described a fix that landed one commit *after* the
+// tag. The prose was right about the work and wrong about the version,
+// and nothing anywhere could have said so: the note and the tag were
+// written in the same hour by the same person and never compared.
+//
+// This does not catch that exact mistake - no test reads prose - but it
+// catches its whole family, which is a release record and a set of refs
+// drifting apart while both look complete on their own.
+func TestEveryReleaseNoteHasATagAndEveryTagHasANote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH; this test compares the changelog against the tags")
+	}
+	root := repoRoot(t)
+
+	out, err := exec.Command("git", "-C", root, "tag", "--list", "v*").Output()
+	if err != nil {
+		t.Skipf("git tag failed: %v", err)
+	}
+	tags := map[string]bool{}
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			tags[line] = true
+		}
+	}
+	if len(tags) == 0 {
+		// A checkout without tags cannot answer this, and saying so is not
+		// the same as passing. actions/checkout fetches none at depth 1,
+		// and a contributor who cloned with --depth would meet a mystery
+		// instead of a skip - the same shape the CLA test met and wrote
+		// down.
+		t.Skip("this checkout has no tags, so any answer here would be about the " +
+			"checkout rather than the repository. Fetch them (git fetch --tags) to " +
+			"run this check")
+	}
+
+	var noted []string
+	for _, m := range changelogHeading.FindAllStringSubmatch(readDoc(t, "CHANGELOG.md"), -1) {
+		if semver.MatchString(m[1]) {
+			noted = append(noted, m[1])
+		}
+	}
+	if len(noted) == 0 {
+		t.Fatal("CHANGELOG.md names no versions; both directions below would pass " +
+			"by comparing against nothing")
+	}
+
+	// The newest entry may legitimately have no tag yet: VERSIONING.md's
+	// own procedure writes the note (step 2) before cutting the tag
+	// (step 3), so requiring one here would make following the written
+	// order fail the gate.
+	for _, version := range noted[1:] {
+		if !tags[version] {
+			t.Errorf("CHANGELOG.md has a note for %s and no tag of that name exists.\n"+
+				"It reads as released and cannot be checked out. Either cut the tag "+
+				"(VERSIONING.md has the command) or the note is describing something "+
+				"that was never a version", version)
+		}
+	}
+
+	inChangelog := map[string]bool{}
+	for _, v := range noted {
+		inChangelog[v] = true
+	}
+	for tag := range tags {
+		if !inChangelog[tag] {
+			t.Errorf("%s is tagged and CHANGELOG.md says nothing about it.\n"+
+				"Somebody installing it has no way to find out whether they have to "+
+				"do anything, which is the question a release note is read for", tag)
+		}
+	}
 }

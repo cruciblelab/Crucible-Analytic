@@ -78,6 +78,25 @@ docker        0.9.0_L3
 `+` → `_`. Yazılı olmasının sebebi, o gün birinin iki ayrı sürüm şeması
 uydurmasını engellemek.
 
+### Düzeltme sürümlerinde faz kodu yok
+
+`v0.11.1`'in faz kodu yok, ve bu eksiklik değil. Faz kodu tek bir şey
+söylüyor: *bu sürüm hangi fazın tamamlanmasıyla çıktı*. Bir düzeltme
+hiçbir fazı tamamlamıyor, dolayısıyla söyleyecek bir şeyi de yok.
+
+Denenmiş ve reddedilmiş alternatif, `v0.11.1+M1` yazmaktı: okuyan kişiye
+"M1 sürümü" diye görünür, ve o adı taşıyan iki farklı ağaç olurdu.
+
+**Nereden çıktı:** `v0.11.0+M1` etiketlendiği gün, notunun içinde ondan
+*bir commit sonra* gelmiş bir düzeltme anlatılıyordu. Yani sürüm notu,
+etiketli ağacın içermediği bir şeyi iddia ediyordu — kuran kişinin
+düzeltmeyi aldığını sanacağı, kimsenin de fark etmeyeceği türden. Not
+bölündü, düzeltme kendi sürümünü aldı.
+
+**Kural:** bir girdi yalnız kendi etiketinin gösterdiği ağaçtaki şeyleri
+anlatır. Sonradan gelen bir şeyi anlatmak istiyorsa, o bir sonraki
+sürümdür.
+
 ---
 
 ## İki ayrı sürüm var, ve karıştırılmamalı

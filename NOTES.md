@@ -7238,3 +7238,29 @@ düzeltme yavaşlatılmış bir hatadan ibaretti. İki yarı da temizleniyor art
 
 **Sonucu kendisinden önce kaç testin koştuğuna bağlı olan bir test,
 adındaki şeyi ölçmüyordur.**
+
+### Etiketler oturunca çıkan tutarsızlık
+
+Üç etiket itildikten sonra `v0.11.0+M1` `492c4bb`'yi gösteriyordu, ama o
+girdinin notu kilit düzeltmesini de anlatıyordu — düzeltme `a522b50`'de,
+bir commit sonra. **Sürüm notu, etiketli ağacın içermediği bir şeyi
+iddia ediyordu.**
+
+Kuran kişi için sonucu net: `v0.11.0+M1`'i kurar, notunda "yükseltme
+artık trafiğe yol veriyor" yazdığını okur, ve o ağaç hâlâ kusuru taşır.
+
+Not bölündü: düzeltme `v0.11.1` oldu. Faz kodu **yok**, ve bu eksiklik
+değil — faz kodu "hangi fazın tamamlanmasıyla çıktı" demek, bir düzeltme
+hiçbir fazı tamamlamıyor. `v0.11.1+M1` yazmak, aynı adı taşıyan iki
+farklı ağaç üretirdi.
+
+**Ve kural teste bağlandı.** Prozayı hiçbir test okuyamaz, ama ailesi
+okunabilir: `TestEveryReleaseNoteHasATagAndEveryTagHasANote`. Notu olup
+etiketi olmayan bir sürüm kurulamaz ama yayımlanmış görünür; etiketi olup
+notu olmayan bir sürüm kurulur ve kuran kişi "ben ne yapacağım"ın cevabını
+hiçbir yerde bulamaz. En yeni girdi muaf, çünkü `VERSIONING.md`'nin kendi
+sırası notu etiketten önce yazdırıyor — yazılı sırayı izlemenin kapıyı
+kırmızıya çevirmesi olmaz.
+
+İki yönlü de mutasyonla ölçüldü: bir etiketi sil → "notu var, etiketi
+yok"; karşılığı olmayan bir etiket ekle → "etiketli, günlük sessiz".

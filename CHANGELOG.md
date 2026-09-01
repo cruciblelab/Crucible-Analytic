@@ -9,6 +9,43 @@ yapacağım".
 
 ---
 
+## v0.11.1 — 2026-09-01
+
+Tek bir düzeltme, ve ciddi olanı: **yükseltme, çalışan bir yazmayı
+öldürebiliyordu.**
+
+**Şema sürümü: 3** — değişmedi. Kuran kişinin yapması gereken: **yok.**
+
+*(Faz kodu yok, ve bu kasıtlı: faz kodu "hangi fazın tamamlanmasıyla
+çıktı" demek, bir düzeltme ise hiçbir fazı tamamlamıyor. `VERSIONING.md`
+gerekçeyi yazıyor.)*
+
+### Ne düzeldi
+
+Şema dosyası tek bir işlem olarak koştuğu için aldığı her kilidi dosya
+bitene kadar tutuyor. `panel_operations`'a yazan bir panel isteği,
+yabancı anahtarı yüzünden aynı iki tabloyu **ters sırada** kilitliyor, ve
+PostgreSQL çevrimi birini öldürerek çözüyor — kurban müşterinin yazması
+olabiliyordu. Oysa yükseltme düğmesi ona "siteniz trafik alırken basmak
+güvenli" demişti.
+
+Uygulayıcı artık kendi bağlantısında `lock_timeout = 250ms` ile koşuyor.
+`deadlock_timeout`'un (1 sn) altında olması seçim değil şart: altında
+kalırsa hiçbir dedektör koşmaz, çevrimi **yükseltmenin** geri çekilmesi
+kırar, ve seçilecek bir kurban olmaz.
+
+İkinci yarısı: kilit zaman aşımı artık **başarısızlık değil**. İstek
+sıraya geri konuyor, sebep satıra yazılıyor, sonraki tik tekrar deniyor.
+Daha önce böyle bir an "Yükseltme başarısız" diye görünüyordu ve düğmeye
+tekrar basmak gerekiyordu; artık "Sırada" görünüyor ve son denemenin
+sebebi yanında yazıyor.
+
+*(Yanlış olan yalnız davranış değildi: `IF NOT EXISTS`'in "ağır kilit
+almaz" diye yazılı açıklaması da yanlıştı. Ölçüldü — işi atlıyor, kilidi
+değil. Ayrıntısı `NOTES.md`'de.)*
+
+---
+
 ## v0.11.0+M1 — 2026-09-01
 
 Kaynak kütüphanesi: hangi IP aralığı veri kümesinin kullanılacağı artık
@@ -61,24 +98,9 @@ varsayılan sığ klonu CLA testine deponun değil klonun bir olgusunu
 rapor ettiriyordu. İkisi de kapatıldı. **Kuran kişiyi ilgilendirmez** —
 yalnız geliştirme hattı.
 
-**Yükseltme, çalışan bir yazmayı öldürebiliyordu.** Şema dosyası tek bir
-işlem olarak koştuğu için aldığı her kilidi dosya bitene kadar tutuyor;
-`panel_operations`'a yazan bir panel isteği aynı iki tabloyu ters sırada
-kilitliyor, ve PostgreSQL çevrimi birini öldürerek çözüyor — kurban
-müşterinin yazması olabiliyordu. Uygulayıcı artık `lock_timeout = 250ms`
-ile koşuyor: `deadlock_timeout`'un (1 sn) altında kaldığı için çevrimi her
-zaman **yükseltme** geri çekilerek kırıyor, trafik değil.
-
-Bunun ikinci yarısı: kilit zaman aşımı artık **başarısızlık değil**.
-İstek sıraya geri konuyor, sebep satıra yazılıyor, sonraki tik tekrar
-deniyor. **Kuran kişinin yapması gereken: yok.** Daha önce böyle bir an
-"Yükseltme başarısız" diye görünüyordu ve düğmeye tekrar basmak
-gerekiyordu; artık "Sırada" görünüyor ve son denemenin sebebi yanında
-yazıyor.
-
-*(Yanlış olan yalnız davranış değildi: `IF NOT EXISTS`'in "ağır kilit
-almaz" diye yazılı açıklaması da yanlıştı. Ölçüldü — işi atlıyor, kilidi
-değil. Ayrıntısı `NOTES.md`'de.)*
+*(Yükseltmenin çalışan bir yazmayı öldürebilmesi de bu sürümün
+etiketlendiği gün bulundu, ama **bu sürümde değil** — düzeltmesi bir
+commit sonra geldi ve `v0.11.1`'de. Bu ağaç hâlâ o kusuru taşıyor.)*
 
 ---
 
