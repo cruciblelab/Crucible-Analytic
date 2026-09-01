@@ -350,7 +350,17 @@ func scratchDatabase(t *testing.T, dsn string) string {
 func install(t *testing.T, pkg, dsn, db string) {
 	t.Helper()
 
-	cmd := exec.Command("./release/install.sh")
+	// --no-systemd for the same reason the CI workflow passes it: a runner
+	// is not a machine anybody deploys to, there is no service to start,
+	// and install.sh refuses outright rather than write unit files it
+	// cannot enable. Without it every nightly ended at the preflight -
+	//
+	//	install: systemd units need root, and this is running as runner.
+	//
+	// - which is install.sh being right, and this helper never asking for
+	// the install it actually wanted. The gate's own integration job had
+	// the flag from the start; this path was written later and did not.
+	cmd := exec.Command("./release/install.sh", "--no-systemd")
 	cmd.Dir = pkg
 	cmd.Env = append(os.Environ(),
 		"SUPERUSER_DSN="+dsn,

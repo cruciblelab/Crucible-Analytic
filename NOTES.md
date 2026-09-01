@@ -7703,3 +7703,45 @@ olarak buydu.
 
 **Bir kurulumun iki ayrı yoldan aynı duruma varabildiği her yerde, iki
 yol da ölçülmeli** — bu oturumda ikinci kez.
+
+---
+
+## Gecelik: kapının hiç koşmamış yarısı, ve yalan söyleyen bir mutasyon
+
+Gecelik hattın "bütün ürün, tarball'dan ve imajdan" işi düşüyordu — ve
+`main` yeşilken düştüğü için kimsenin bakmadığı bir kırmızıydı. Sebebi
+tek satır:
+
+    install: systemd units need root, and this is running as runner.
+
+`e2e`'nin `install()` yardımcısı `install.sh`'ı **`--no-systemd`
+olmadan** çağırıyordu. Betik haklı: köke ihtiyaç duyan birim dosyalarını
+yazamayacağını anlayıp hiçbir şey yaratmadan duruyor. Kapının kendi
+entegrasyon işi bu bayrağı ilk günden veriyordu; `e2e` yolu sonradan
+yazıldı ve vermedi.
+
+**Bir kurulumun iki ayrı yoldan aynı işi yaptığı her yerde, iki yol da
+ölçülmeli** — bu oturumda üçüncü kez, ve bu sefer ölçülmeyen yol aylardır
+hiç koşmamış.
+
+### Mutasyonun yalan söylediği yer
+
+Düzeltmeyi yapıp `go test -tags e2e` koştum: yeşil. Sonra bayrağı geri
+alıp tekrar koştum — **yine yeşil.** Yani mutasyon düzeltmenin gerekli
+olmadığını söylüyordu.
+
+Söylemiyordu. Bu konteynerde `id -u` sıfır, ve betiğin reddi
+`elif [ "$(id -u)" -ne 0 ]` dalında. Kök olarak koşan bir makinede o dal
+hiç çalışmıyor, yani mutasyon **başarısız olamayacağı bir ortamda**
+koşmuştu.
+
+Gerçek koşul kurulup ölçüldü — paket dünyaya açık bir dizine açıldı ve
+`nobody` olarak koşturuldu:
+
+    bayraksız, kök değil:   install: systemd units need root ...  (geceliğin aynısı)
+    bayraklı, kök değil:    == preflight → == database analytics  (geçti)
+
+**Ortamı, başarısızlığın koşulunu taşımayan bir mutasyon hiçbir şey
+kanıtlamaz** — ve yeşil geldiği için kanıtladığını sanmak kolay. Bu
+oturumda ölçtüğünü sanan üçüncü test bu oldu; ilk ikisi
+`TestAppliersRunningAtOnceGiveWayInsteadOfColliding`'in iki sürümüydü.
