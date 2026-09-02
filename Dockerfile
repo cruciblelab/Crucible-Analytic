@@ -161,8 +161,8 @@ RUN chmod 0755 /opt/crucible/entrypoint.sh /opt/crucible/release/install.sh \
 # regenerating that key silently breaks the pseudonyms of every row
 # already stored - so it is a volume, and the compose file says so.
 #
-# /var/lib/crucible holds the downloaded bot-data file, which is a cache:
-# losing it costs one refresh. Not a volume, deliberately.
+# /var/lib/crucible-analytic holds the downloaded bot-data file, which is
+# a cache: losing it costs one refresh. Not a volume, deliberately.
 #
 # /var/log/crucible-analytic exists because install.sh creates LOG_DIR on
 # every path now, and inside the image it runs as `crucible`, who cannot
@@ -171,12 +171,17 @@ RUN chmod 0755 /opt/crucible/entrypoint.sh /opt/crucible/release/install.sh \
 # written here; what the directory buys is an install that does not stop
 # at its own mkdir.
 #
-# Its name follows the installer and the systemd units rather than the
-# /var/lib spelling above. Two spellings for the log directory is exactly
-# the defect this came from - see TestOneLogDirectoryFamily - and the
-# /var/lib pair is the same shape still open, one directory over.
-RUN mkdir -p /etc/crucible-analytic /var/lib/crucible /var/log/crucible-analytic \
- && chown -R crucible:crucible /etc/crucible-analytic /var/lib/crucible /var/log/crucible-analytic \
+# Both follow the installer and the systemd units, and both names are
+# load-bearing rather than cosmetic: the collector unit runs under
+# ProtectSystem=strict and lists exactly these two in ReadWritePaths, so
+# a directory spelled any other way is one the service cannot write.
+#
+# This file used to spell the state directory the short way while
+# install.sh's STATE_DIR and that ReadWritePaths line used this one -
+# the same defect the log directory had, one directory over. See
+# TestOneNamePerDirectoryFamily, which now watches both.
+RUN mkdir -p /etc/crucible-analytic /var/lib/crucible-analytic /var/log/crucible-analytic \
+ && chown -R crucible:crucible /etc/crucible-analytic /var/lib/crucible-analytic /var/log/crucible-analytic \
  && chmod 0750 /etc/crucible-analytic
 
 ENV PATH="/opt/crucible/bin:${PATH}" \

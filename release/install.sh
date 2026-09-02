@@ -528,6 +528,43 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     sed -i -E "s|^([[:space:]]*)dir[[:space:]]*=[[:space:]]*\"[^\"]*\"|\1dir = \"${LOG_DIR}\"|" "${f}"
   done
 
+  # ---- and where they keep the data they fetch ----
+  #
+  # STATE_DIR had the identical defect one variable over, and it outlived
+  # the fix above by three phases: accepted, used for the mkdir and the
+  # chown, and written into no configuration - so setting it created a
+  # directory the collector never opened, while bot data went on going
+  # wherever the example said.
+  #
+  # It was missed because the phase that fixed LOG_DIR said, in its own
+  # done-criterion, that the rest of the PREFIX / CONF_DIR / STATE_DIR
+  # family had been asked the same question. It had not been. The
+  # criterion was written, the phase was ticked, and nothing in between
+  # measured anything - which is worse than the defect, because a plan
+  # entry does not go red.
+  #
+  # Same rule as the log directory: only where the key already exists.
+  # bot_data.path is the one uncommented state path in the examples; the
+  # commented ones are defaults a service is meant to be given
+  # deliberately, and writing them here would turn an off switch into a
+  # surprise.
+  #
+  # The basename is kept rather than assumed. An operator who pointed
+  # bot_data.path at a differently-named file chose that name, and this
+  # moves the directory, not their file.
+  #
+  # Confined to the [bot_data] table by the address range rather than
+  # trusting that `path` is unique in the file. It is today - the only
+  # other one is local_csv_path, which the anchor would not match anyway
+  # - but "the pattern happens to hit one line" is a property of today's
+  # example, and a config edit that quietly hits a second line is not an
+  # edit.
+  for file in collector.toml; do
+    f="${CONF_DIR}/${file}"
+    [ -f "${f}" ] || continue
+    sed -i -E "/^\[bot_data\]/,/^\[/ s|^([[:space:]]*)path[[:space:]]*=[[:space:]]*\"[^\"]*/([^\"/]+)\"|\1path = \"${STATE_DIR}/\2\"|" "${f}"
+  done
+
   # ---- the four database passwords ----
   #
   # The script generated these a hundred lines ago and used to print

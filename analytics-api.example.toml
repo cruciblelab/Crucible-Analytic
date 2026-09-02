@@ -62,4 +62,4 @@ sites = ["*"]
 #
 # Dosyayı getiren komut collector'da: collector -update-bot-data
 # Bu proje bu veri kümesini dağıtmaz; bkz. internal/botdata.
-# bot_data_path = "/var/lib/crucible/known_bots.json"
+# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"

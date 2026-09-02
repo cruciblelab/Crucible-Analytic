@@ -216,7 +216,7 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # interval_seconds = 60
 
 [bot_data]
-path = "/var/lib/crucible/known_bots.json"
+path = "/var/lib/crucible-analytic/known_bots.json"
 # Kaynak adresi. Boş bırakılırsa varsayılan kullanılır. Yapılandırılabilir
 # olmasının sebebi: üçüncü tarafın adresini binary'ye çakmak, o adres
 # değiştiği gün kurulumun kendini güncelleyememesi demektir.

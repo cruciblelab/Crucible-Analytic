@@ -1059,7 +1059,7 @@ pg_dump -Fc analytics > /yedek/analytics-$(date +%F).dump
 ```
 
 Yedeklenmesi gerekenler: veritabanı, `/etc/crucible/*.toml` (parolalar
-ve anahtarlar orada), ve `/var/lib/crucible/known_bots.json`.
+ve anahtarlar orada), ve `/var/lib/crucible-analytic/known_bots.json`.
 
 ---
 

@@ -122,7 +122,7 @@ enabled = false
 # cache_max_entries = 100000
 # cache_ttl_seconds = 3600
 # refresh_interval_seconds = 86400
-# local_csv_path = "/var/lib/crucible/ip-data"
+# local_csv_path = "/var/lib/crucible-analytic/ip-data"
 
 # Which query-string parameters reach the database.
 #

@@ -9,6 +9,64 @@ yapacağım".
 
 ---
 
+## v0.15.0+N6 — 2026-09-01
+
+Bot verisi hiçbir systemd kurulumunda yazılamıyormuş, ve collector bunu
+"hiç çekilmedi" diye bildiriyormuş. **Herkesi ilgilendiriyor.**
+
+**Şema sürümü: 6** — değişmedi. **Kuran kişinin yapması gereken:**
+
+- **systemd / tarball ile kurduysanız:** `./release/install.sh`'ı yeniden
+  koşturun. Betik `collector.toml`'daki bot verisi yolunu `STATE_DIR`'e
+  taşıyor. Yeniden koşmak güvenli — betik zaten öyle tasarlandı,
+  yapılandırma dosyalarınızın içindeki sırlara dokunmuyor.
+- **Docker ile kurduysanız:** imajı yenileyin (`docker compose pull` ya
+  da yeniden `build`) ve yığını yeniden başlatın. **Veri kaybı yok:**
+  `state` adlandırılmış bir birim, içeriği aynı kalıp yeni yola
+  bağlanıyor.
+
+### Ne bozuktu
+
+Depoda `/var/lib` için iki yazım yan yana yaşıyordu:
+
+| yazım | nerede |
+|---|---|
+| `/var/lib/crucible-analytic` | `install.sh`'ın `STATE_DIR`'i, collector biriminin `ReadWritePaths`'i |
+| `/var/lib/crucible` | `config.example.toml`'un **açık** satırı, Dockerfile, compose, KURULUM.md |
+
+collector birimi `ProtectSystem=strict` ile koşuyor ve `ReadWritePaths`
+yalnız birinci yazımı listeliyor. Yani **her systemd kurulumunda**
+collector bot verisi dosyasını yazamıyordu.
+
+Sessizdi, çünkü bot verisi bir önbellek: collector bir uyarı yazıp devam
+ediyor. Ama uyarı yanlış şeyi söylüyordu —
+
+    "bot data has never been fetched; the known-bot signal is off"
+    how=run: collector -config <dosya> -update-bot-data
+
+— "hiç çekilmedi" diyordu, doğrusu "çekemiyorum, oraya yazamam"dı. Yani
+önerilen komut çalışmayacaktı, koşturan kişi yine "hiç çekilmedi"
+görecekti, ve **bilinen-bot sinyali sessizce kapalı kalacaktı.**
+
+### Ne değişti
+
+- Tek yazım: `/var/lib/crucible-analytic`. On iki yer taşındı.
+- collector artık ikisini ayırıyor. Yazamadığında **UYARI** veriyor ve
+  çalışmayacak komutu **önermiyor**; gerçekten çekilmemişse eskisi gibi
+  bilgi verip komutu söylüyor. Ayrım tahminle değil, yazmayı deneyerek
+  yapılıyor — `ProtectSystem=strict` altında dizinin kipi ve sahibi
+  doğru görünür, salt-okunur olan altındaki bağlama noktasıdır.
+- `install.sh` `STATE_DIR`'i artık yapılandırmaya **yazıyor**. Kabul
+  edip yalnız dizin yaratıyordu; yani `STATE_DIR` veren biri, hiçbir
+  servisin kullanmadığı bir dizin yaratıyordu.
+
+**Bir uyarı:** `install.sh` artık `collector.toml`'daki `bot_data.path`
+satırını `STATE_DIR` ile yeniden yazıyor. Bot verisini bilerek başka bir
+dizine koyduysanız, betiği o dizini `STATE_DIR` olarak vererek koşturun.
+Dosya adınız korunuyor; taşınan dizin.
+
+---
+
 ## v0.14.2 — 2026-09-01
 
 Konteyner kurulumları dört tablo eksik geliyordu. Docker kullanmıyorsanız

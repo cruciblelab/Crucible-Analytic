@@ -8413,3 +8413,76 @@ Aynı hamleyi bir plan maddesine yapmak daha ucuza gelir gibi görünüyordu
 — "N1 ile N2 düzeldi, N5 düzeldi, kapatalım" — ve tam da bu yüzden daha
 tehlikeliydi: **bir plan maddesi kırmızı vermez.** Yanlış kapatılan bir
 faz, kendini hiçbir zaman bildirmez.
+
+---
+
+## N6b/N6c — Tek yazım, ve ölçüldüğü söylenip ölçülmemiş bir ölçüt
+
+`/var/lib` bölünmesini kapatırken sayımı yaptım, plandaki tahmini
+tekrarlamadım: plan "dokuz yer" diyordu, **on iki çıktı**. Kazanan yazım
+`/var/lib/crucible-analytic` — günlük ailesiyle aynı ad, ve `install.sh`
+ile collector biriminin `ReadWritePaths`'inin zaten kullandığı ad. Yani
+kusuru üreten taraf kısa yazımdı, ve taşınacak olan da oydu.
+
+Konteynerde veri kaybı yok, ve bunu şansa bırakmadım: `state`
+adlandırılmış bir birim, içeriği aynı kalıp yeni yola bağlanıyor.
+
+**Bu sefer üçü birlikte taşındı.** `f30d9e5`'te entrypoint'i imajın
+yaratmadığı bir yola göndermiştim ve gecelik düşmüştü. Bu kez
+Dockerfile'ın `mkdir`'i, entrypoint'in `STATE_DIR`'i ve compose'un üç
+bağlaması tek commit'te, ve gerçek bir docker daemon'ında koşturuldu.
+
+### Kardeş değil, tablo
+
+`TestOneLogDirectoryFamily` iki aileyi de bilen
+`TestOneNamePerDirectoryFamily` oldu. Bir kardeş test, ikinci bir
+yürüyüş, ikinci bir mesaj şablonu ve **sonraki sefer düzeltilecek ikinci
+bir yer** demek olurdu. İlk aile, tek aileymiş gibi yazılmıştı.
+
+### Asıl bulgu: N2 ölçtüğünü söylemişti, ölçmemiş
+
+Sayarken çıktı: `install.sh` `STATE_DIR`'i alıyor, dizini yaratıyor,
+`chown` ediyor, **ve hiçbir yapılandırmaya yazmıyor.** N2'nin LOG_DIR
+için düzelttiği kusurun aynısı, bir değişken ötede.
+
+Kaçırılma sebebi N2'nin kendi bitti-ölçütünde yazılı: *"`PREFIX` /
+`CONF_DIR` / `STATE_DIR` ailesinin geri kalanının da aynı soruyu geçtiği
+**ayrıca ölçülüyor**."* Aradım: `LOG_DIR`'in dosyalara ulaştığını iddia
+eden bir test **hiç yok**, ve aileye hiç sorulmamış. İki yarı da
+ölçülmemiş.
+
+Ölçütü ben yazdım, fazı ben ✅ işaretledim, ve arada hiçbir şey ölçmedi.
+
+**Bu, sakladığı kusurdan daha kötü.** Bir testin iddiası yanlışsa bir gün
+kırmızı verir. **Bir plan maddesi kırmızı vermez** — bir kez işaretlenir
+ve ondan sonra inanılır. Ölçüm vaat edip koşmayan bir ölçüt, dışarıdan
+geçmiş bir ölçütle birebir aynı görünür; bugün "hiç koşmayan bir koruma
+korumanın yokluğudur" diye yazdığım cümlenin, plan tarafındaki hâli.
+
+### Testin ilk hâli iddiasını taşımıyordu
+
+İlk yazdığımda yorumda "anahtarı olmayan dosya kazanmamalı" diyordu ve
+kod bunu **kontrol etmiyordu**: kurulum eksik bir `dir` anahtarı eklese,
+test onu "adlandırıldı" diye sayıp geçerdi. Her dosyayı geldiği örnekle
+karşılaştırdım, ve eşlemeyi `install.sh`'ın kendi `copy_example`
+satırlarından türettim.
+
+Bir de ilk hâli sessizce zayıftı: dört dosyanın üçünde `dir` anahtarı
+yok — bilerek, stderr'e düşsünler diye — yani günlük yarısı **tek dosya**
+kontrol ediyordu ve bunu söylemiyordu. Artık sayıyor ve sıfırsa kırmızı
+veriyor.
+
+İkinci alt testi de sildim: `LOG_DIR` verilmeden ikinci bir kurulum
+koşturmak, süiti koşturan makinenin gerçek `/var`'ına yazmak demekti —
+root'ta sessizce başarılı olur, ve bu tam olarak
+`TestNoSystemdWritesNoUnitFiles`'ın yasakladığı şey. Anahtarı olmayan
+dosyalar aynı kanıtı bedavaya veriyor.
+
+### Mutasyonu geri alırken `git checkout` kullanmak
+
+`git checkout <dosya>` işlenmemiş çalışmayı da siler. İki mutasyonu böyle
+geri aldım ve `install.sh`'ın iki `sed`'ini birden kaybettim; testin
+kendisi bunu bir sonraki koşuda söyledi. Daha önce aynı gün dosya
+kopyasıyla doğru yapmıştım — `/tmp`'deki kopya dizini silinince alışkanlık
+geri geldi. **Üzerinde işlenmemiş değişiklik olan bir dosyanın yedeği
+`git` değildir.**

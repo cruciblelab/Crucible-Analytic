@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | 🟡 **6/7** | N6 /var/lib bölünmesi (N6a bitti, yol ailesi kaldı) |
+| **N** Kurulumun ikinci yolu | ✅ **7/7** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4183,7 +4183,7 @@ dâhil. Üç mutasyonla sınandı.
 
 ---
 
-#### N6 — `/var/lib` bölünmesi: bot verisi hiçbir systemd kurulumunda yazılamıyor ⬜
+#### N6 — `/var/lib` bölünmesi: bot verisi hiçbir systemd kurulumunda yazılamıyor ✅ **yapıldı** *(2026-09-01)*
 
 **Ne:** N1'in düzelttiği kusurun birebir aynısı, bir dizin ötede.
 
@@ -4242,8 +4242,68 @@ kötümserse çalışan bir kuruluma "bozuksun" diyor.
 Collector artık ikisini ayırıyor — biri INFO ve komutu söylüyor, öteki
 WARN ve **komutu söylemiyor**, çünkü orada o komut çalışmayacak.
 
-**Kalan:** `/var/lib` yol ailesi. Gecelik yeşile ulaştığına göre artık
-`docker/compose.yml`'ın bağlama yollarına dokunmanın önü açık.
+##### N6b — yol ailesi ✅ **yapıldı** *(2026-09-01)*
+
+Tek yazım: **`/var/lib/crucible-analytic`**. Gerekçesi üç tane, ve
+üçü de aynı yöne bakıyor — günlük ailesiyle (N1) aynı ad, `install.sh`
+ile `crucible-collector.service`'in `ReadWritePaths`'inin *zaten*
+kullandığı ad, ve ürünün kendi adı.
+
+Ölçülen sayım, plandaki "dokuz yer" tahmini değil: **kısa yazım on iki
+yerde**, uzun yazım dörtte. Taşınan on iki: `Dockerfile` (yorum + mkdir +
+chown), `docker/compose.yml` (üç bağlama), `docker/entrypoint.sh`,
+`config.example.toml` (**açık satır**), üç yorumlu örnek, `KURULUM.md`.
+
+**Konteynerde veri kaybı yok** ve bu şans değil: `state` *adlandırılmış*
+bir birim, yani içeriği aynı kalıp yeni yola bağlanıyor —
+`known_bots.json` birimin kökünde duruyor, sadece göründüğü yol
+değişiyor. Zaten önbellek; ama olmasaydı da kaybolmazdı.
+
+**Bu sefer üçü birlikte taşındı.** `f30d9e5`'te entrypoint'i imajın
+yaratmadığı bir yola göndermiştim; bu kez Dockerfile'ın `mkdir`'i,
+entrypoint'in `STATE_DIR`'i ve compose'un üç bağlaması aynı commit'te, ve
+gerçek bir docker daemon'ında koşturuldu.
+
+`TestOneLogDirectoryFamily` → **`TestOneNamePerDirectoryFamily`**: kardeş
+değil, tablo. İkinci aile ikinci bir yürüyüş, ikinci bir mesaj şablonu ve
+sonraki sefer düzeltilecek ikinci bir yer demek olurdu. Üçüncü aile artık
+bir satır.
+
+##### N6c — ve N2'nin ölçtüğünü söylediği şey ölçülmemiş ✅ **yapıldı**
+
+Yol ailesini sayarken çıktı: **`install.sh` `STATE_DIR`'i alıyor, onunla
+dizin yaratıyor, `chown` ediyor, ve hiçbir yapılandırmaya yazmıyor.**
+N2'nin LOG_DIR için düzelttiği kusurun birebir aynısı, bir değişken
+ötede, üç faz sonra hâlâ açık.
+
+Kaçırılma sebebi N2'nin kendi bitti-ölçütünde yazılı:
+
+> `PREFIX` / `CONF_DIR` / `STATE_DIR` ailesinin geri kalanının da aynı
+> soruyu geçtiği **ayrıca ölçülüyor** — bir tanesi yazılmıyorsa öbürleri
+> de sorgusuz sayılmamalı.
+
+İki yarısı da ölçülmemiş: `LOG_DIR`'in dosyalara ulaştığını iddia eden
+bir test **hiç yoktu**, ve aileye hiç sorulmadı. Ölçüt yazıldı, faz
+işaretlendi, arada hiçbir şey ölçmedi.
+
+**Bu, sakladığı kusurdan daha kötü bir arıza.** Bir plan maddesi kırmızı
+vermez; bir kez işaretlenir ve inanılır. Ölçüm vaat edip koşmayan bir
+ölçüt, geçmiş bir ölçütle birebir aynı görünür.
+
+Düzeltme: `install.sh` `bot_data.path`'i `${STATE_DIR}` ile yeniden
+yazıyor — günlük dizini kuralının aynısı, yalnız anahtarın zaten var
+olduğu yerde, ve `[bot_data]` tablosuyla sınırlı. Dosya adı korunuyor:
+başka bir ad seçen operatör onu seçmiş, burada taşınan dizin.
+
+`TestTheInstallWritesTheDirectoriesItWasGiven` iki yönü de ölçüyor —
+anahtarı olan dosya verilen dizini göstermeli, **olmayan dosya
+kazanmamalı**. İkincisi tek kurulumla ve gerçek `/var`'a dokunmadan
+alınıyor: örneği olmayan dosyalar kanıtı bedavaya veriyor.
+
+**Dört mutasyon:** `STATE_DIR` yazımını sil (durum yarısı kırmızı),
+`LOG_DIR` yazımını sil (günlük yarısı + "hiçbiri adlandırmadı" koruması),
+kurulum eksik anahtarı *eklesin* ("bırakılmalıydı" yarısı, dört dosyayı
+adıyla), ve `copy_example` eşlemesi bayatlasın (sessizce yok sayılmıyor).
 
 ---
 

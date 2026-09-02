@@ -97,7 +97,7 @@ timezone = "Europe/Istanbul"
 # sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
 # burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —
 # "baktık ve yoktu" ile aynı şey değil.
-# bot_data_path = "/var/lib/crucible/known_bots.json"
+# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
 
 # NOT: buradan aşağısı tablolara ait. secret_key ve bot_data_path
 # üst düzey ayarlar - yani [roles], [developer_gate] ve [logging]

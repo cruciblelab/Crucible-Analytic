@@ -1333,3 +1333,206 @@ func TestOnlyTheUpgraderCanReadTheDDLCredential(t *testing.T) {
 			"every table it is forbidden to read", runAs)
 	}
 }
+
+// TestTheInstallWritesTheDirectoriesItWasGiven.
+//
+// # The check a phase said it had done
+//
+// N2 fixed exactly this for LOG_DIR: the variable was accepted, used for
+// one mkdir, and written into no configuration at all, so setting it
+// created a directory nothing opened while every service went on using
+// whatever its example said. That fix shipped, and its done-criterion
+// read:
+//
+//	LOG_DIR verilen bir kurulumda dort yapilandirmanin dordu de o
+//	dizini gosteriyor ... PREFIX / CONF_DIR / STATE_DIR ailesinin geri
+//	kalaninin da ayni soruyu gectigi ayrica olculuyor - bir tanesi
+//	yazilmiyorsa oburleri de sorgusuz sayilmamali.
+//
+// Neither half was measured. No test asserted that LOG_DIR reached the
+// files, and the family was never asked. STATE_DIR turned out to carry
+// the identical defect, still open three phases later: created,
+// chowned, and named by nothing - so a collector went on writing its bot
+// data wherever the example pointed, which on a systemd host is a
+// directory ProtectSystem=strict will not let it write at all.
+//
+// That is a worse failure than the defect it hid. A plan entry does not
+// go red. It is ticked once and then believed, so a criterion that
+// promises a measurement and is never run reads exactly like one that
+// passed.
+//
+// # Both directions, from one install
+//
+// A file that ships the key must come out naming the directory the
+// install was given. A file that ships no key must still have none
+// afterwards - a service whose example omits `dir` logs to stderr on
+// purpose, and an installer that helpfully added one would turn a
+// deliberate default into a surprise.
+//
+// The second half is why this does not run a second install with the
+// variables unset. That would write to the real /var/log and /var/lib on
+// whatever machine is running the suite - which succeeds silently as
+// root and is exactly the thing TestNoSystemdWritesNoUnitFiles exists to
+// forbid. The files that ship no key give the same evidence for free.
+func TestTheInstallWritesTheDirectoriesItWasGiven(t *testing.T) {
+	const db = "ca_install_dirs_test"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	confDir, logDir, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	out, ok := runInstall(t, db, "CONF_DIR="+confDir, "LOG_DIR="+logDir, "STATE_DIR="+stateDir)
+	if !ok {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	// The configuration files as installed, derived by reading the
+	// directory rather than from a list here: a sixth service is covered
+	// the day somebody adds one.
+	installed, err := filepath.Glob(filepath.Join(confDir, "*.toml"))
+	if err != nil || len(installed) == 0 {
+		t.Fatalf("the install wrote no .toml files into %s (%v), so this test is "+
+			"checking nothing", confDir, err)
+	}
+
+	// What each file looked like before the install, so "left alone" can
+	// be checked rather than assumed. install.sh copies one example per
+	// configuration; the mapping is read out of the script so a renamed
+	// example cannot leave this comparing a file against nothing.
+	examples := exampleForConfig(t, repoRoot(t))
+
+	named, untouched := 0, 0
+	for _, path := range installed {
+		name := filepath.Base(path)
+		example, ok := examples[name]
+		if !ok {
+			t.Errorf("%s was installed but install.sh copies no example to that name; "+
+				"this test cannot tell what it looked like before", name)
+			continue
+		}
+		_, shipped := tomlValue(t, filepath.Join(repoRoot(t), example), "dir")
+
+		got, found := tomlValue(t, path, "dir")
+		switch {
+		case !shipped && found:
+			t.Errorf("%s ships no dir key in %s and has one after the install (%q).\n"+
+				"A service whose example omits dir logs to stderr on purpose; an "+
+				"installer that adds one turns a deliberate default into a surprise",
+				name, example, got)
+		case !shipped:
+			untouched++
+		case !found:
+			t.Errorf("%s ships a dir key in %s and has none after the install.\n"+
+				"The rewrite removed a key instead of changing it", name, example)
+		case got != logDir:
+			t.Errorf("%s: dir = %q, want %q.\n"+
+				"LOG_DIR was given and this file does not name it, so the install made "+
+				"a directory nothing will open - the defect N2 was supposed to close",
+				name, got, logDir)
+		default:
+			named++
+		}
+	}
+
+	if named == 0 {
+		t.Error("no installed configuration names the log directory it was given.\n" +
+			"Either the rewrite has stopped working or every example has stopped " +
+			"shipping an uncommented dir - and this check cannot tell which, which is " +
+			"itself the reason to look")
+	}
+	if untouched == 0 {
+		t.Log("every installed configuration ships a dir key, so the 'left alone' " +
+			"half of this test proved nothing on this run")
+	}
+	t.Logf("%d configuration(s) named the log directory, %d correctly left without one",
+		named, untouched)
+
+	// The state directory, which is one file and one key: bot_data.path
+	// is the only uncommented state path the examples ship.
+	got, found := tomlValue(t, filepath.Join(confDir, "collector.toml"), "path")
+	if !found {
+		t.Fatal("collector.toml no longer carries an uncommented bot_data path, so the " +
+			"state half of this test is blind; find where it went before deleting this")
+	}
+	if want := filepath.Join(stateDir, "known_bots.json"); got != want {
+		t.Errorf("collector.toml: bot_data path = %q, want %q.\n"+
+			"STATE_DIR was given, created and chowned, and then named by nothing - so "+
+			"the collector writes bot data somewhere the install never prepared, and "+
+			"on a systemd host cannot write it at all",
+			got, want)
+	}
+}
+
+// tomlValue reads one bare key's string value out of a TOML file.
+//
+// Deliberately crude, and deliberately not a TOML parser: what is being
+// checked is a line a shell script rewrote with sed, and a parser could
+// agree with the file about a mistake the sed made - a duplicated key,
+// where the parser takes the last and the service takes the last and
+// both are wrong together. So duplicates are reported rather than
+// resolved.
+//
+// Commented lines are skipped, because a commented key is precisely what
+// the install is supposed to leave alone.
+func tomlValue(t *testing.T, path, key string) (string, bool) {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	var found []string
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		name, value, ok := strings.Cut(trimmed, "=")
+		if !ok || strings.TrimSpace(name) != key {
+			continue
+		}
+		found = append(found, strings.Trim(strings.TrimSpace(value), `"`))
+	}
+	switch len(found) {
+	case 0:
+		return "", false
+	case 1:
+		return found[0], true
+	default:
+		t.Errorf("%s carries %d uncommented %s keys (%v); a configuration with a "+
+			"duplicated key is one where the service and anything reading it can "+
+			"disagree about which one wins",
+			filepath.Base(path), len(found), key, found)
+		return found[len(found)-1], true
+	}
+}
+
+// exampleForConfig maps each installed configuration back to the example
+// install.sh copied it from, by reading the script's own copy_example
+// calls.
+//
+// Derived rather than listed, for the reason this whole file keeps
+// finding: a list here would go on describing an arrangement the script
+// had already left.
+func exampleForConfig(t *testing.T, root string) map[string]string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(root, "release", "install.sh"))
+	if err != nil {
+		t.Fatalf("reading install.sh: %v", err)
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "copy_example ") {
+			continue
+		}
+		fields := strings.Fields(trimmed)
+		if len(fields) != 3 {
+			continue
+		}
+		out[fields[2]] = fields[1]
+	}
+	if len(out) == 0 {
+		t.Fatal("install.sh no longer calls copy_example in a form this can read, so " +
+			"every configuration would be compared against nothing")
+	}
+	return out
+}
