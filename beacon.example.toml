@@ -119,6 +119,13 @@ flush_interval_seconds = 2
 # the collector does not.
 [asn_lookup]
 enabled = false
+# Loads only the country half, leaving the ASN dataset unfetched and
+# unparsed. 136 MB against 59 MB, measured on the real datasets.
+#
+# Set it here too whenever it is set on the collector: the beacon runs on
+# the same machine and would otherwise go on paying for ASN files to fill
+# a column its sibling has stopped filling.
+# country_only = false
 # cache_max_entries = 100000
 # cache_ttl_seconds = 3600
 # refresh_interval_seconds = 86400

@@ -444,7 +444,24 @@ type ASNLookupConfig struct {
 	// scoring.Score call gets the snapshot's already-resolved ASN (the
 	// same Resolve() call already made for storage enrichment - no extra
 	// lookup) alongside it.
-	ApplyToScoring         bool `toml:"apply_to_scoring"`
+	ApplyToScoring bool `toml:"apply_to_scoring"`
+	// CountryOnly loads only the country dataset, leaving the ASN half
+	// unfetched, unread and unparsed.
+	//
+	// The country files are the smaller half, and the ASN files are what
+	// a small VDS notices: the difference is roughly 135 MB against
+	// 65-70 MB resident, and the peak during a refresh is larger still
+	// because the whole file becomes a slice of entries before any table
+	// is swapped in.
+	//
+	// What is lost is every ASN-derived thing: the asn column on stored
+	// rows, the panel's ASN breakdown, blocked_asns and the known-bot-ASN
+	// scoring signal. The last three are refused outright rather than
+	// quietly ignored - see Validate - because a list somebody wrote out
+	// and a switch somebody turned on are explicit requests, and a
+	// deployment where they do nothing is indistinguishable from one
+	// where they work.
+	CountryOnly            bool `toml:"country_only"`
 	CacheMaxEntries        int  `toml:"cache_max_entries"`
 	CacheTTLSeconds        int  `toml:"cache_ttl_seconds"`
 	RefreshIntervalSeconds int  `toml:"refresh_interval_seconds"`
@@ -600,6 +617,38 @@ func (c *Config) validate() error {
 		}
 		if c.ASNLookup.RefreshIntervalSeconds <= 0 {
 			return fmt.Errorf("config: asn_lookup.refresh_interval_seconds must be positive when asn_lookup.enabled = true")
+		}
+		// country_only against the three things that need an ASN.
+		//
+		// Refused rather than ignored. Each of these is somebody having
+		// written something down - a switch turned on, a list of
+		// networks typed out - and in country-only mode there is no ASN
+		// for any of them to match against, so they would sit in the
+		// file doing nothing while the deployment looked configured.
+		// That is the failure this project keeps finding: a control
+		// that is off and a control that is on but unreachable produce
+		// the same silence.
+		//
+		// The message names the two ways out, because which one is
+		// right is the operator's call and not something a config check
+		// can know.
+		if c.ASNLookup.CountryOnly {
+			const how = "either drop asn_lookup.country_only, or remove the setting that needs an ASN"
+			if c.ASNLookup.ApplyToScoring {
+				return fmt.Errorf("config: asn_lookup.country_only leaves no ASN for "+
+					"apply_to_scoring to score with, so the ASN component would always "+
+					"contribute 0 while looking enabled; %s", how)
+			}
+			if len(c.ASNLookup.BlockedASNs) > 0 {
+				return fmt.Errorf("config: asn_lookup.country_only leaves no ASN to match, "+
+					"so the %d entr(y/ies) in blocked_asns would never block anything; %s",
+					len(c.ASNLookup.BlockedASNs), how)
+			}
+			if len(c.ASNLookup.KnownBotASNs) > 0 {
+				return fmt.Errorf("config: asn_lookup.country_only leaves no ASN to match, "+
+					"so the %d entr(y/ies) in known_bot_asns would never be recognised; %s",
+					len(c.ASNLookup.KnownBotASNs), how)
+			}
 		}
 		for _, country := range c.ASNLookup.BlockedCountries {
 			if len(strings.TrimSpace(country)) != 2 {

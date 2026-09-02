@@ -84,7 +84,7 @@ gerekçe değil bahane olur.
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **10/14** | A2, A3, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **11/14** | A2, A8, A9 |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
 | **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
@@ -763,7 +763,7 @@ test.
 
 ---
 
-#### A3 — `asn_lookup` için yalnız-ülke modu
+#### A3 — `asn_lookup` için yalnız-ülke modu ✅ **yapıldı** *(2026-09-02)*
 
 **Ne:** Bugün `asnlookup` dört aralık tablosu yükler (ülke v4/v6, ASN
 v4/v6). Yalnız-ülke modu ikisini yüklemez.
@@ -776,6 +776,46 @@ tam olarak budur — ~135 MB'den ~65-70 MB'ye. Profil bu düğmeye basar.
 **Bitti ölçütü:** yalnız-ülke modunda ASN tablolarının hiç
 ayrıştırılmadığını (yalnız boş kalmadığını) doğrulayan test; bellek
 ölçümü.
+
+**Ölçüm — gerçek veri kümeleriyle, tahminle değil:**
+
+| mod | tutulan |
+|---|---|
+| tam | **136,2 MB** |
+| yalnız-ülke | **59,1 MB** |
+
+Planın tahmini 135 → 65-70 idi; gerçek biraz daha iyi çıktı. Ölçüm
+`network` etiketinde, gecelikte, "bu dosyalar hâlâ var mı ve hâlâ
+ayrışıyor mu" işinin yanında.
+
+**"Hiç ayrıştırılmadı", "boş kaldı" değil — ve testi bunu kanıtlıyor.**
+Tasarruf çoğunlukla tabloların tuttuğu bellek değil, *ayrıştırmanın
+istediği* bellek: iki ayrıştırıcı da dosyanın tamamını okuyup içindeki
+her aralığın slice'ını kuruyor, sonra tabloyu takas ediyor. Yükleyip atan
+bir mod o tepeyi olduğu yerde bırakır ve "tablolar boş mu" diye soran bir
+testi geçerdi. Bu yüzden kontrol `refresh`'in başında, indirmeden önce.
+
+Kanıt sayaçla değil tuzakla: ASN dosya adları **birer dizin** olarak
+yaratılıyor. `os.Open` başarılı oluyor, ilk `Read` EISDIR veriyor — ve
+izin bitinden farklı olarak bu root için de doğru, ki bu önemli, çünkü
+süiti çoğu makinede root koşturuyor.
+
+**Yapılandırma reddi, sessiz yok sayma değil.** `country_only` ile
+`apply_to_scoring`, `blocked_asns` ya da `known_bot_asns` bir arada
+olamıyor: üçü de eşleşecek bir ASN isteyen açık taleplerdir, ve bu modda
+dosyada yazılı görünüp hiçbir şey yapmazlardı. **Kapalı bir kontrol ile
+açık ama erişilemez bir kontrol dışarıdan aynı görünür** — bu grubun
+bütün gün bulduğu şeklin ta kendisi.
+
+**Beş mutasyon:** atlamayı kaldır (tuzak yakaladı), atlamayı koşulsuz yap
+(varsayılan yol kırmızı), üç reddin ikisini tek tek kaldır, ve reddi
+fazla geniş yaz (`country_only` tümden reddedilsin — hem mesajın adı
+söylemesi hem "tek başına sorunsuz" testi kırmızı verdi).
+
+**Testimin ilk hâli kendi paketinin adına takıldı:** günlükte `"asn"`
+alt dizesini arıyordum, ve bu paketin her satırı `asnlookup:` diye
+başlıyor — yani *ülke* başarı satırı eşleşip çalışan modu düşürdü.
+`": asn "` oldu.
 
 ---
 

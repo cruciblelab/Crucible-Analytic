@@ -88,6 +88,22 @@ throttle_queue_size = 200
 # When true, every traffic_snapshots row is also automatically enriched
 # with country/asn/asn_org at flush time - no separate flag for that.
 enabled = false
+# Loads only the country half, leaving the ASN dataset unfetched and
+# unparsed. Measured against the real datasets: a full refresh holds
+# 136 MB, country-only holds 59 MB - and the peak while parsing is
+# larger still, because each file becomes a slice of every range in it
+# before any table is swapped in. The switch to reach for on a small VDS.
+#
+# What it costs: the asn/asn_org columns on stored rows, the panel's ASN
+# breakdown, and the three settings below that need an ASN to match
+# against. Those three are refused rather than ignored - the collector
+# will not start with country_only alongside apply_to_scoring,
+# blocked_asns or known_bot_asns, because a list that can never match is
+# indistinguishable from one that is working.
+#
+# Country blocking (blocked_countries) is unaffected, and is most of the
+# reason to choose this mode.
+country_only = false
 # Turns on the ASN scoring signal (known_bot_asns below): a matching ASN
 # adds a flat bonus to the bot-likelihood score. False (the default)
 # means internal/scoring never even sees an ASN - see the README.

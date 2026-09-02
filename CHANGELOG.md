@@ -9,6 +9,47 @@ yapacağım".
 
 ---
 
+## v0.16.0+A3 — 2026-09-02
+
+Küçük bir VDS için: `asn_lookup` artık yalnız ülke verisini yükleyebiliyor.
+**136 MB yerine 59 MB.** Kimse için bir şey değişmiyor; bu yeni bir düğme.
+
+**Şema sürümü: 6** — değişmedi. **Kuran kişinin yapması gereken:**
+**hiçbir şey.** Varsayılan bugünküyle aynı: `country_only = false`, yani
+her iki veri kümesi de yükleniyor.
+
+### Ne eklendi
+
+`[asn_lookup]` bölümüne `country_only`. Açıldığında ASN veri kümesi
+**hiç indirilmiyor, okunmuyor, ayrıştırılmıyor** — boşaltılmıyor,
+en baştan alınmıyor. Tasarrufun büyük kısmı zaten burada: her iki
+ayrıştırıcı da dosyanın tamamını okuyup içindeki her aralığın listesini
+kuruyor, ve o tepe tablonun kendisinden büyük.
+
+Gerçek veri kümeleriyle ölçüldü:
+
+| mod | tutulan |
+|---|---|
+| tam | 136,2 MB |
+| yalnız-ülke | 59,1 MB |
+
+**Ne kaybediliyor:** satırlardaki `asn` / `asn_org` sütunları, panelin
+ASN kırılımı, ve ASN'e dayanan üç ayar. Ülke engelleme
+(`blocked_countries`) etkilenmiyor — zaten bu modu seçmenin başlıca
+sebebi o.
+
+**Ne reddediliyor:** `country_only` ile `apply_to_scoring`,
+`blocked_asns` ya da `known_bot_asns` bir arada verilirse collector
+**açılmıyor.** Üçü de eşleşecek bir ASN isteyen açık taleplerdir ve bu
+modda sessizce hiçbir şey yapmazlardı. Hata mesajı hangi ayarın
+çakıştığını söylüyor; hangisinden vazgeçeceğiniz sizin kararınız.
+
+Beacon'da da aynı anahtar var. **İkisinde birden açın:** aynı makinede
+koşan bir beacon, kardeşinin artık doldurmadığı bir sütun için ASN
+dosyalarını yüklemeye devam eder.
+
+---
+
 ## v0.15.0+N6 — 2026-09-01
 
 Bot verisi hiçbir systemd kurulumunda yazılamıyormuş, ve collector bunu

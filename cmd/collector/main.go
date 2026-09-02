@@ -170,6 +170,8 @@ func main() {
 		if err != nil {
 			logger.Error("failed to set up ASN/country lookup, continuing without it", "err", err)
 			lookup = nil
+		} else {
+			lookup.CountryOnly = cfg.ASNLookup.CountryOnly
 		}
 	}
 	lookupDone := make(chan struct{})

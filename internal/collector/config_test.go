@@ -679,3 +679,108 @@ days = `+strconv.Itoa(tc.days)+`
 		})
 	}
 }
+
+// TestLoad_CountryOnlyRefusesTheSettingsThatNeedAnASN.
+//
+// # Why a refusal and not a warning
+//
+// asn_lookup.country_only leaves no ASN for anything to match against.
+// Three settings in the same section are requests for exactly that:
+// apply_to_scoring turns on a scoring component keyed by ASN,
+// blocked_asns is a list of networks to reject, known_bot_asns a list to
+// flag. In country-only mode each of them would sit in the file looking
+// configured and do nothing at all.
+//
+// That is the failure this project keeps finding under different names -
+// a grant that was never applied, a sweep that was never called, a
+// schema file the image never carried. The shape is always the same: a
+// control that is off and a control that is on but unreachable are
+// indistinguishable from outside. So the config refuses to start rather
+// than letting a deployment believe it is blocking networks it is not.
+//
+// The fourth consumer, the asn column on stored rows, is deliberately
+// not refused. Nobody asks for it; it is simply absent, the way it is
+// absent when asn_lookup is off entirely.
+func TestLoad_CountryOnlyRefusesTheSettingsThatNeedAnASN(t *testing.T) {
+	const base = `
+site_id = "test-site"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+country_only = true
+`
+	cases := []struct {
+		name, extra, wants string
+	}{
+		{
+			name:  "apply_to_scoring",
+			extra: "apply_to_scoring = true\n",
+			wants: "apply_to_scoring",
+		},
+		{
+			name:  "blocked_asns",
+			extra: "blocked_asns = [13335]\n",
+			wants: "blocked_asns",
+		},
+		{
+			name:  "known_bot_asns",
+			extra: "known_bot_asns = [13335, 15169]\n",
+			wants: "known_bot_asns",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeTOML(t, base+tc.extra))
+			if err == nil {
+				t.Fatalf("Load() accepted country_only together with %s.\n"+
+					"That combination produces a deployment where %s is written down, "+
+					"reads as enabled, and can never match anything", tc.name, tc.name)
+			}
+			// The message has to name the setting, because the operator's
+			// next move is to decide which of the two to drop and they
+			// cannot do that from "invalid configuration".
+			if !strings.Contains(err.Error(), tc.wants) {
+				t.Errorf("the refusal does not name %s, so it does not say what to "+
+					"change:\n%v", tc.wants, err)
+			}
+			if !strings.Contains(err.Error(), "country_only") {
+				t.Errorf("the refusal does not name country_only, so it names only one "+
+					"side of a conflict:\n%v", err)
+			}
+		})
+	}
+}
+
+// TestLoad_CountryOnlyOnItsOwnIsFine.
+//
+// The other half, and the one that catches a refusal written too widely:
+// country_only is a supported mode, not a deprecation. A check that
+// rejected it outright would pass every assertion above.
+func TestLoad_CountryOnlyOnItsOwnIsFine(t *testing.T) {
+	cfg, err := Load(writeTOML(t, `
+site_id = "test-site"
+[network]
+backend_addr = "127.0.0.1:8080"
+[storage]
+timescale_dsn = "postgres://localhost/test"
+[asn_lookup]
+enabled = true
+country_only = true
+blocked_countries = ["RU"]
+`))
+	if err != nil {
+		t.Fatalf("Load() rejected country_only on its own: %v", err)
+	}
+	if !cfg.ASNLookup.CountryOnly {
+		t.Error("country_only was set in the file and did not survive the load, so " +
+			"nothing downstream would ever see it")
+	}
+	if len(cfg.ASNLookup.BlockedCountries) != 1 {
+		t.Error("blocked_countries was dropped; country blocking is the half that " +
+			"still works in this mode and is most of the reason to choose it")
+	}
+}

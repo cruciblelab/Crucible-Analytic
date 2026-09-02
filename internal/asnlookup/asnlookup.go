@@ -89,6 +89,33 @@ type Resolver struct {
 	// against a database some *other* process already refreshes - the
 	// beacon alongside a collector, for instance - must set this.
 	SkipRangePersistence bool
+	// CountryOnly stops the ASN dataset being fetched, read, parsed or
+	// stored at all. Country lookups are unaffected; Resolve simply
+	// never finds an ASN, because there is nothing to find it in.
+	//
+	// # What it buys
+	//
+	// The two ASN files are the larger half of this module's memory. A
+	// resolver holds four range tables, and in country-only mode two of
+	// them stay nil - see TestCountryOnlyNeverReadsTheASNDataset for the
+	// measurement.
+	//
+	// # Why "never read" and not "left empty"
+	//
+	// Emptying the tables afterwards would save the memory the tables
+	// occupy and none of the memory the parse needs, which is the
+	// larger figure and the one that decides whether a small VDS
+	// survives a refresh: the whole file is read and turned into a slice
+	// of entries before anything is swapped in. So this is checked at
+	// the top of refresh, before the fetch, and the test proves the file
+	// is never opened rather than that the table came out empty.
+	//
+	// Set from asn_lookup.country_only. That setting refuses to coexist
+	// with apply_to_scoring, blocked_asns or known_bot_asns - each of
+	// those is an explicit request for something this mode cannot
+	// answer, and accepting it would leave a configured control
+	// silently doing nothing.
+	CountryOnly bool
 	// chosen is which datasets to fetch, swapped whole by SetSources.
 	//
 	// An atomic pointer to an immutable value rather than three fields,
@@ -268,6 +295,12 @@ func (r *Resolver) sweep(ctx context.Context) {
 // one failing has no effect on the other.
 func (r *Resolver) refresh(ctx context.Context) {
 	r.refreshCountry(ctx)
+	// Before the fetch, not after the parse. See CountryOnly: what this
+	// mode is for is the memory the parse needs, not the memory the
+	// table keeps.
+	if r.CountryOnly {
+		return
+	}
 	r.refreshASN(ctx)
 }
 

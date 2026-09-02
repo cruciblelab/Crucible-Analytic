@@ -8486,3 +8486,72 @@ kendisi bunu bir sonraki koşuda söyledi. Daha önce aynı gün dosya
 kopyasıyla doğru yapmıştım — `/tmp`'deki kopya dizini silinince alışkanlık
 geri geldi. **Üzerinde işlenmemiş değişiklik olan bir dosyanın yedeği
 `git` değildir.**
+
+---
+
+## A3 — "Hiç ayrıştırılmadı" ile "boş kaldı" aynı şey değil
+
+`asn_lookup` dört aralık tablosu yüklüyor: ülke v4/v6, ASN v4/v6.
+Yalnız-ülke modu ikisini yüklemiyor. Fazın bitti-ölçütü tek bir kelimeyle
+zor tarafı işaret ediyordu: ASN tablolarının **hiç ayrıştırılmadığını**
+doğrula, *yalnız boş kalmadığını* değil.
+
+O ayrım fazın kendisi. Tasarrufun büyük kısmı tabloların tuttuğu bellek
+değil, **ayrıştırmanın istediği** bellek: iki ayrıştırıcı da dosyanın
+tamamını okuyup içindeki her aralığın slice'ını kuruyor, ve ancak sonra
+tabloyu takas ediyor. Yükleyip atan bir mod o tepeyi olduğu yerde bırakır
+— ve "tablolar boş mu" diye soran bir testi kusursuz geçerdi. Bu yüzden
+kontrol `refresh`'in en başında, indirmeden önce.
+
+### Sayaç değil, tuzak
+
+"Dosya hiç açılmadı"ı kanıtlamanın kolay yolu bir sayaç eklemek olurdu —
+üretim koduna yalnız test için bir alan. Onun yerine ASN dosya adlarını
+**birer dizin** olarak yarattım. `os.Open` başarılı oluyor, ilk `Read`
+EISDIR veriyor, ve refresh o dosyaya uzanırsa `storeASN` bir uyarı
+yazıyor. O satırın **yokluğu** kanıt.
+
+İzin bitiyle de yapılabilirdi ama yapılmamalıydı: root her kipi yürüyor,
+ve süiti çoğu makinede root koşturuyor. Bugün aynı tuzağa `botdata`
+tarafında düşmüştüm — orada vakayı atlamak zorunda kaldım. Dizin numarası
+root için de çalışıyor, yani atlanacak bir şey yok.
+
+### Ölçüm, gerçek veriyle
+
+| mod | tutulan |
+|---|---|
+| tam | 136,2 MB |
+| yalnız-ülke | 59,1 MB |
+
+Planın tahmini 135 → 65-70 idi. Testin eşiği ise mutlak bir megabayt
+değil, **oran**: yalnız-ülke tamın %70'inin altında kalmalı. Mutlak bir
+sayı bugünkü veri kümesi hakkında bir olgu olurdu ve veri her ay büyüyor;
+oran ise verinin şekli hakkında — ASN dosyaları aralık başına bir kurum
+adı taşıyor, ülke dosyaları iki harf.
+
+### Sessiz yok saymak yerine reddetmek
+
+`country_only` üç ayarı anlamsız kılıyor: `apply_to_scoring`,
+`blocked_asns`, `known_bot_asns`. Üçü de birinin bir şey yazdığı yerler —
+açılmış bir anahtar, elle yazılmış bir ağ listesi. Bu modda dosyada
+yazılı görünüp hiçbir şeyle eşleşemezlerdi.
+
+Reddediyorum. **Kapalı bir kontrol ile açık ama erişilemez bir kontrol
+dışarıdan aynı görünür** — bugün bu cümleyi üçüncü kez yazdım: hiç
+uygulanmamış bir GRANT, hiç çağrılmamış bir süpürme, imajın taşımadığı
+bir şema dosyası. Mesaj hangi ayarı ve `country_only`'yi birlikte
+adlandırıyor, çünkü hangisinden vazgeçileceği operatörün kararı.
+
+Dördüncü tüketici — satırdaki `asn` sütunu — bilerek reddedilmiyor: onu
+kimse ayrıca istemiyor, `asn_lookup` tümden kapalıyken nasıl yoksa öyle
+yok.
+
+### Testim kendi paketinin adına takıldı
+
+Günlükte `"asn"` alt dizesini arıyordum. Bu paketin **her** satırı
+`asnlookup:` diye başlıyor, yani *ülke* başarı satırı eşleşti ve çalışan
+mod kırmızı verdi. `": asn "` oldu, boşluklarıyla.
+
+Küçük bir hata ama cinsi tanıdık: **bir eşleşmenin doğru sebeple
+eşleştiğini varsaymak.** Kırmızıyı okuyup düzelttim; okumasaydım eşiği
+gevşetip "test bozuk" diye geçebilirdim.

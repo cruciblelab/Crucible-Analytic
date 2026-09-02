@@ -149,6 +149,7 @@ func main() {
 			// doing the same would repeatedly destroy the first one's
 			// data and leave both seeing an empty table mid-load.
 			lookup.SkipRangePersistence = true
+			lookup.CountryOnly = cfg.ASNLookup.CountryOnly
 		}
 	}
 	lookupDone := make(chan struct{})

@@ -162,7 +162,21 @@ type LimitsConfig struct {
 // megabytes), which is worth paying only when the beacon runs somewhere
 // the collector does not.
 type ASNLookupConfig struct {
-	Enabled                bool   `toml:"enabled"`
+	Enabled bool `toml:"enabled"`
+	// CountryOnly leaves the ASN dataset unfetched and unparsed - see
+	// collector.ASNLookupConfig.CountryOnly for what that costs and why
+	// the saving is in the parse rather than in the table.
+	//
+	// No refusal here, unlike the collector's copy: this process has
+	// nothing that consumes an ASN except the column on the row it
+	// writes. The switches that would be left doing nothing -
+	// apply_to_scoring, blocked_asns, known_bot_asns - are the
+	// collector's, and are not in this struct.
+	//
+	// Worth setting on both when it is set on either. A beacon that
+	// still loads the ASN files is still paying for them, on the same
+	// machine, for a column its sibling has stopped filling.
+	CountryOnly            bool   `toml:"country_only"`
 	CacheMaxEntries        int    `toml:"cache_max_entries"`
 	CacheTTLSeconds        int    `toml:"cache_ttl_seconds"`
 	RefreshIntervalSeconds int    `toml:"refresh_interval_seconds"`
