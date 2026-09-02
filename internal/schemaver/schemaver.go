@@ -81,20 +81,38 @@ import (
 //
 // It starts at 1 rather than 0 because 0 is what an unset integer column
 // reads as, and "never recorded" and "version zero" must not look alike.
-const Version = 6
+//
+// # Version 7 is a change of rule, not a change of shape
+//
+// It is the one bump in this file that no schema.sql caused. Two files
+// had their prose corrected on 2026-09-02 and, under the old rule of
+// hashing raw bytes, that moved Fingerprint - which State.Matches
+// compares, which the health page and the upgrade button both read.
+// A corrected sentence would have put "your schema does not match" and
+// a developer-password-gated upgrade in front of every installation.
+//
+// So the rule changed instead: FingerprintOf now hashes the DDL, with
+// comments stripped (see StripComments). Future comment fixes cost
+// nothing. Adopting the rule costs one hash change, which every existing
+// database sees once - and a hash that moves needs a number to move with
+// it or the mismatch has no order, which is this bump.
+const Version = 7
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "11a4a3ff0c6b7ef19309ee5077dbbb5eda9b72a3876c40da46722a98d728ca78"
+const Fingerprint = "7bfdefb18f8779ab274f9def80cac3a78bed7a665c990fce460ea9fcaba6368f"
 
 // FingerprintOf hashes a set of schema files.
 //
 // The key is the path relative to the repository root, so a file that
 // moves changes the fingerprint - moving a table between packages is a
 // schema change, even when the SQL is byte-identical.
+//
+// Each file is reduced to its DDL first - see StripComments for why the
+// prose is not part of the fact this value states.
 //
 // Sorted before hashing, because map iteration order is random in Go and
 // a fingerprint that depended on it would differ between two runs over
@@ -109,11 +127,12 @@ func FingerprintOf(files map[string]string) string {
 
 	h := sha256.New()
 	for _, p := range paths {
+		ddl := StripComments(files[p])
 		// Length-prefixed rather than separator-joined: two different
 		// file sets can otherwise hash identically by moving bytes
 		// across a separator, and a fingerprint with collisions anybody
 		// can construct is not one to build a safety check on.
-		fmt.Fprintf(h, "%d:%s\n%d:%s\n", len(p), p, len(files[p]), files[p])
+		fmt.Fprintf(h, "%d:%s\n%d:%s\n", len(p), p, len(ddl), ddl)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

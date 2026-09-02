@@ -253,7 +253,7 @@ enabled = false
 # read, and this placeholder sat under [retention] - so
 # release/install.sh, which writes the key by uncommenting this
 # line, put it in the wrong table on every fresh install. In masked
-# mode nothing needed it and nothing noticed; in hashed mode the
+# mode nothing needed it and nothing noticed; in full mode the
 # service refuses to start while holding a config file that visibly
 # contains an ip_hash_key. The installer reported "wrote the key"
 # and "matches in both files" throughout, because it looks for the
@@ -268,10 +268,15 @@ enabled = false
 # delete ever runs.
 #
 # ip_hash_key must match the collector's exactly - see
-# config.example.toml for what hashed mode does and does not protect
-# against. At least 32 bytes; hashed mode refuses to start without one,
+# config.example.toml for what the token does and does not protect
+# against. At least 32 bytes; full mode refuses to start without one,
 # because hashing with a weak key produces a value that looks like a
-# pseudonym and reverses in microseconds.
+# token and reverses in microseconds.
+#
+# That refusal was written here before it was written in the beacon:
+# until 2026-09-02 only the collector enforced it, so a pair configured
+# from one intent could have the collector refusing to start and the
+# beacon running in "full" mode writing no tokens at all.
 # ip_hash_key = ""
 
 # "masked" (the default) or "full". An absent or empty value means

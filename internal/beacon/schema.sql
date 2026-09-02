@@ -144,15 +144,29 @@ CREATE INDEX IF NOT EXISTS idx_beacon_events_campaign
     WHERE utm_source <> '' OR utm_medium <> '' OR utm_campaign <> ''
        OR ref <> '' OR click_source <> '';
 
--- Hashed IP storage (privacy.ip_storage = "hashed").
+-- The keyed token written in full mode (privacy.ip_storage = "full").
 --
--- In that mode no address is stored at all: ip is left NULL and this
--- column carries HMAC(key, masked_ip) instead. The crossover join moves
--- to this column, which still works because hashing preserves equality -
--- see internal/privacy.
+-- This comment described a different design until 2026-09-02: a
+-- "hashed" mode in which ip was left NULL, this column carried
+-- HMAC(key, masked_ip), and the crossover join moved here. None of that
+-- is true, and none of it has been for some time. What is true:
 --
--- NULL rather than a placeholder address, deliberately. A query that
--- forgets to switch columns then returns nothing, which is visibly
+--   * There are two modes, masked and full. See internal/privacy.
+--   * ip is never NULL in either. It always holds the masked network,
+--     because no mode stores a raw address.
+--   * In full mode this column additionally holds a token derived from
+--     the WHOLE address, which is the point: it tells two visitors
+--     inside one /24 apart, which the masked address in the same row
+--     cannot.
+--   * The crossover join therefore stays on ip. This column adds
+--     precision to it; it does not replace it.
+--
+-- The column stays nullable and ip stays nullable, which is what the two
+-- ALTERs below are for - masked mode simply leaves this one NULL, and
+-- the partial index below skips those rows.
+--
+-- NULL rather than a placeholder, deliberately. A query that forgets
+-- this column is empty in masked mode returns nothing, which is visibly
 -- wrong; a shared placeholder would join every row to every other row
 -- and return a plausible number that is completely false.
 ALTER TABLE beacon_events ALTER COLUMN ip DROP NOT NULL;

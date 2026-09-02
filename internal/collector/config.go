@@ -287,7 +287,7 @@ type PrivacyConfig struct {
 	// whole point: the value nobody sets is the one that ends up in
 	// production.
 	IPStorage string `toml:"ip_storage"`
-	// IPHashKey keys the pseudonym in hashed mode. Must match the
+	// IPHashKey keys the token stored in full mode. Must match the
 	// beacon's, or the crossover join silently finds nothing.
 	IPHashKey string `toml:"ip_hash_key"`
 }

@@ -11,11 +11,20 @@ import (
 // a bare address column.
 //
 // This is a structural check on the source because the failure it guards
-// is invisible at runtime. A deployment storing pseudonyms has NULL in
-// `ip`, so a query joining `b.ip = c.ip` returns *nothing* - no error,
-// no warning, just a crossover view that used to show numbers and now
-// shows zero. The next person to add a query here will reach for the
-// obvious spelling, and this is what tells them not to.
+// is invisible at runtime, and the reason it is invisible changed once
+// without this comment noticing.
+//
+// It used to say a deployment storing pseudonyms has NULL in `ip`, so a
+// bare join returns nothing. That has not been true since full mode
+// replaced hashed mode: `ip` always holds the masked network. The
+// failure is quieter now, which is worse. A query joining `b.ip = c.ip`
+// in full mode returns plausible numbers computed at /24 precision -
+// every visitor sharing a /24 collapsed into one - while the row beside
+// it, computed through joinKey, counts them apart. Two numbers on one
+// page, disagreeing, neither of them flagged.
+//
+// The next person to add a query here will reach for the obvious
+// spelling, and this is what tells them not to.
 func TestCrossoverQueries_JoinOnTheSharedKey(t *testing.T) {
 	source, err := os.ReadFile("store_crossover.go")
 	if err != nil {
@@ -27,8 +36,9 @@ func TestCrossoverQueries_JoinOnTheSharedKey(t *testing.T) {
 	bare := regexp.MustCompile(`\b[a-z]\.ip\s*=\s*[a-z]\.ip\b`)
 	if found := bare.FindAllString(text, -1); len(found) > 0 {
 		t.Errorf("crossover queries join on a bare address column: %v\n"+
-			"use the joinKey expression instead - in hashed mode `ip` is NULL and "+
-			"such a join silently returns nothing", found)
+			"use the joinKey expression instead - in full mode that column holds only "+
+			"the /24, so such a join quietly answers a coarser question than the "+
+			"queries beside it", found)
 	}
 
 	// And the shared expression is actually in use, so this test cannot

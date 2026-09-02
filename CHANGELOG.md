@@ -9,6 +9,59 @@ yapacağım".
 
 ---
 
+## v0.17.0 — 2026-09-02
+
+**KIRICI (küçük).** Beacon, daha önce sessizce kabul ettiği iki
+yapılandırmayı artık reddediyor. İkisi de zaten bozuk kurulumlar; beacon
+bunu söylemiyordu, collector söylüyordu.
+
+**Şema sürümü: 7.** Tek bir sütun, tablo ya da indeks değişmedi.
+**Kuran kişinin yapması gereken:** panelde **Sağlık → Yükselt**'i bir
+kez çalıştırmak. Aşağıda neden.
+
+### Beacon iki bozuk yapılandırmayı kabul ediyormuş
+
+**1. `privacy.ip_storage` bilinmeyen bir değerse.** Collector
+başlamayı reddediyor ve iki geçerli değeri söylüyor; beacon başlıyor,
+sessizce `masked`'a düşüyordu. Aynı dosyadan, aynı niyetle kurulmuş bir
+çiftin bir yarısı çalışıp öbürünün ayağa kalkmaması demek.
+
+Bu değerin en olası hâli `"hashed"`: beacon'ın kendi belge yorumu ve
+şema dosyası, artık var olmayan o modu anlatıyordu. Belgeler de
+düzeltildi.
+
+**2. `ip_storage = "full"` ama anahtar yok ya da 32 bayttan kısaysa.**
+Daha sessiz olanı. Beacon "full" modda çalışır, **hiç jeton yazmaz** —
+zayıf anahtarla jeton üretilmiyor, çünkü üretilseydi mikrosaniyede geri
+çevrilirdi — ve hem yapılandırma dosyası hem panel "full" der. Bir /24
+içindeki iki ziyaretçiyi ayırmaya dayanan her sayı yanlış olur.
+
+**Sizi ilgilendiriyor mu:** yalnız `[privacy]` bölümünde bu iki alandan
+birine dokunduysanız. Hiç dokunmadıysanız varsayılan `masked` ve
+hiçbir şey değişmiyor.
+
+### Şema sürümü neden 7 oldu
+
+Şema değişmedi; **parmak izinin hesaplanma kuralı** değişti.
+
+Parmak izi şema dosyalarının ham baytlarından alınıyordu, yani bir
+yorumun düzeltilmesi de onu oynatıyordu. Parmak izi ise panelin
+"şemanız uyuşmuyor" uyarısını ve yükseltme düğmesini süren değer. Yani
+bir cümlenin düzeltilmesi, veritabanının hiç görmediği bir metin için,
+her kuruluma geliştirici parolası isteyen bir yükseltme çıkarıyordu.
+
+Artık parmak izi **veritabanına giden DDL'den** alınıyor: yorumlar
+ayıklanıyor, boşluklar sadeleştiriliyor. Bundan sonraki yorum
+düzeltmeleri hiçbir şeye mal olmuyor. Kuralın kendisinin değişmesi ise
+bir kereye mahsus bütün özetleri oynatıyor — bu sürümün sizden bir kez
+yükseltme istemesinin sebebi bu.
+
+**Yükseltme ne yapıyor:** aynı şema dosyalarını yeniden uyguluyor
+(hepsi `IF NOT EXISTS`) ve kaydı 7'ye çekiyor. Veri değişmiyor, servis
+durmuyor.
+
+---
+
 ## v0.16.0+A3 — 2026-09-02
 
 Küçük bir VDS için: `asn_lookup` artık yalnız ülke verisini yükleyebiliyor.

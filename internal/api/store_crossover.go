@@ -76,19 +76,37 @@ type CrossoverSummary struct {
 
 // joinKey is the expression every crossover query joins on.
 //
-// The two tables carry an address in `ip` or a keyed pseudonym in
-// `ip_hash`, depending on the deployment's privacy.ip_storage mode -
-// never both. inet_send renders an address as bytea, so this yields one
-// comparable value whichever column is in use, and the five queries
-// below can share a single definition rather than each deciding for
-// itself.
+// # What the two columns actually hold
 //
-// Two properties fall out of it, and both are wanted. A row written
-// while the deployment stored addresses never joins one written after it
-// switched to pseudonyms: the encodings differ, so they compare
-// unequal - which is correct, because nothing can tell whether they are
-// the same visitor. And a row with neither column set joins nothing at
-// all, because NULL is not equal to NULL.
+// This comment described a design that no longer exists until
+// 2026-09-02: an either/or, `ip` or `ip_hash`, "never both", with `ip`
+// left NULL in the other mode. What is true, per internal/privacy:
+//
+//   - `ip` always holds the masked network, in both modes. It is never
+//     NULL, because no mode stores a raw address and every mode stores
+//     that one.
+//   - `ip_hash` additionally holds a token of the *whole* address, and
+//     only in full mode.
+//
+// So COALESCE does not pick between two spellings of one thing. It picks
+// the sharpest key the row has: the token when there is one, the /24
+// otherwise. That is what full mode is for, and inet_send renders the
+// fallback as bytea so both branches yield one comparable type.
+//
+// # The property that survives, and it is the one that matters
+//
+// A row written in masked mode never joins a row written in full mode.
+// The first keys on inet_send(/24), the second on a 16-byte token; the
+// encodings differ, so they compare unequal.
+//
+// That is correct - nothing can tell whether they are the same
+// visitor - but it is not free, and it is not visible from here: a
+// crossover view over a window that spans a privacy.ip_storage change
+// is reading two disjoint key spaces and will report coverage lower than
+// it was. Changing the mode is therefore not only a decision about what
+// is stored from now on; it puts a seam in this join for as long as
+// retention keeps rows from both sides of it. PLAN.md §P5 is where that
+// gets said to the customer rather than only here.
 const joinKey = `COALESCE(ip_hash, inet_send(ip))`
 
 func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to time.Time) (CrossoverSummary, error) {

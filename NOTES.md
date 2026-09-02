@@ -8773,3 +8773,191 @@ A9 planda duruyor, üstünde neden düştüğü yazılı. Silseydim aynı fikir
 altı ay sonra "hiç düşünülmemiş iyi bir fikir" olarak geri gelirdi.
 **Çürütülmüş bir tasarımın kaydı, hiç düşünülmemiş gibi görünen bir
 boşluktan ucuzdur.**
+
+---
+
+## Kaldırılmış bir modun kelimeleri, onu değiştiren kodun yorumlarında yaşıyordu
+
+P5'i yazmak için basit bir şey soracaktım: mod `full`'den `masked`'a
+geçince yazılmış jetonlar ne olacak. Kullanıcı kararı verdi —
+dokunmayalım, uyarı koyalım, ayrıca onaylı bir temizleme olsun. Fazı
+yazmadan önce sütunun gerçekten ne taşıdığına baktım.
+
+Taşıdığı şey, şema yorumunun anlattığı şey değildi.
+
+### Beş yerde aynı kelime, ve hiçbiri artık doğru değil
+
+`internal/beacon/schema.sql` bir **"hashed" modu** anlatıyordu: o modda
+`ip` NULL bırakılır, `ip_hash` `HMAC(anahtar, maskeli_ip)` taşır, kesişim
+birleştirmesi bu sütuna **taşınır**. Üçü de yanlış. Gerçek:
+
+- İki mod var, `masked` ve `full`.
+- `ip` **hiçbir modda NULL değil**; her zaman maskeli ağı taşıyor.
+- `full` modda `ip_hash` **bütün adresten** türetilmiş bir jeton taşıyor,
+  maskeliden değil. Amacı bir /24 içindeki iki ziyaretçiyi ayırmak.
+- Birleştirme `ip` üzerinde kalıyor; jeton ona çözünürlük ekliyor.
+
+Aynı kelime dokuz yerde daha duruyordu: iki örnek yapılandırmada,
+`compose.yml`'de, `collector/config.go`'da, `storage/row.go`'da (iki
+kez), `flusher.go`'da, kesişim sorgusunun yorumunda ve onu koruyan testin
+gerekçesinde.
+
+**Kaldırılmış bir tasarımın kelimeleri, onu kaldıran koda yapışıp
+kalmış.** Kod doğruydu; onu anlatan her cümle yanlıştı.
+
+### Yorumun bedeli bir yorumdan büyüktü
+
+Beacon'ın `PrivacyConfig`'i ayarı `"masked", "full" veya "hashed"` diye
+belgeliyordu. Bu cümleye uyan bir operatör `ip_storage = "hashed"` yazar.
+Sonra:
+
+- **collector başlamayı reddediyor**, iki geçerli değeri adıyla söyleyerek;
+- **beacon başlıyor**, sessizce maskeliye düşüyor, hiçbir şey demiyor.
+
+Yani tek dosyadan, tek niyetle, tek anahtarla kurulmuş bir çiftin bir
+yarısı çalışıyor, öbür yarısı ayağa kalkmıyor. Ekrana gelen cümle "kolektör
+başlamıyor", asıl kusur üç dosya öteki bir belge yorumu.
+
+### İkincisi daha sessiz, ve daha ağır
+
+Aynı aynayı yazarken ikinci bir ayrılık çıktı, bunu beklemiyordum:
+**anahtarsız `full` modu.** collector reddediyor ve `devpass -ipkey`'i
+adıyla söylüyor. Beacon kabul ediyordu.
+
+`privacy.TokenIP` zayıf anahtarla jeton üretmiyor, `nil` dönüyor — ki
+doğrusu bu. Sonucu: beacon "full" modda çalışır, **hiç jeton yazmaz**,
+yapılandırma dosyası da panel de "full" der. Yanlış olan hiçbir şey yok;
+yalnızca bir /24 içindeki iki ziyaretçiyi ayırmaya dayanan her sayı yanlış.
+
+Dahası: **`beacon.example.toml` bu reddi zaten yazıyordu** — "hashed mode
+refuses to start without one". Yani karar verilmemiş değildi, yazılmıştı;
+bir tarafta uygulanmamıştı. Örnek yapılandırmanın vaat ettiği kontrolü
+kodda aramak, bundan sonra bakacağım yerlerden biri.
+
+### Asıl bulgu jeton değil, dikiş
+
+Kullanıcıya sorduğum soru "jetonlar kalsın mı" idi. Kesişim sorgusuna
+bakınca mod değişiminin daha görünür bir sonucu olduğunu gördüm. Bütün
+kesişim sorguları tek ifade üzerinden birleşiyor:
+
+    COALESCE(ip_hash, inet_send(ip))
+
+Maskeli satırın anahtarı `inet_send(/24)`, tam moddaki satırın anahtarı 16
+baytlık jeton. İki kodlama asla eşit değil. Yani **maskeli modda yazılmış
+bir satır, tam modda yazılmış bir satırla hiç birleşmiyor.**
+
+Davranış doğru — iki satırın aynı ziyaretçi olduğunu söyleyebilecek bir
+şey yok. Ama sonucu şu: mod değişimini içine alan bir aralığın kesişim
+görünümü iki ayrı anahtar uzayını okuyor ve kapsamı olduğundan düşük
+gösteriyor. Saklama süresi iki taraftan birini tüketince kendiliğinden
+düzeliyor.
+
+Bunu hiçbir yer söylemiyordu. Kullanıcının "mod değişiminde otomatik
+düzelme" isteği, geçmiş tarafında tam olarak buna dokunuyor — ve P5'in
+uyarısının önce **bunu** söylemesi gerekiyor, jetonu değil.
+
+### Uyarının koşulu kayıt değil, verinin kendisi
+
+P5 "mod şu tarihte değişti" diye bir kayıt tutmayacak. Uyarının koşulu:
+saklama penceresinde hem jetonlu hem jetonsuz satır var mı? İki nedenle
+daha iyi. Doğrudan doğru şeyi söylüyor — değişikliğin *olmuş* olmasını
+değil, etkisinin *hâlâ sürüyor* olmasını. Ve son karşı-taraf satırı
+saklama süresiyle gidince uyarı kendiliğinden kayboluyor. Kayıt tutan bir
+tasarımda uyarıyı ayrıca silmeyi hatırlamak gerekirdi.
+
+### Ayna neyi yakalıyor
+
+`internal/invariants/privacymode_test.go`: aynı ayarı okuyan iki servis,
+aynı değerleri kabul etmek ve aynı değerleri reddetmek zorunda. Bir yanı
+kaynaktan türüyor (`internal/privacy`'nin gerçekten tanımladığı modlar),
+öbür yanı gerekçeli bir el listesi — çünkü ilginç girdiler *mod olmayan*
+değerler ve onları hiçbir türetme üretemez, birinin akıl etmesi gerekir.
+
+Dört mutasyon, dördü de yakalandı: beacon'dan mod kontrolünü çıkar,
+anahtar kontrolünü çıkar, collector'a `"hashed"`i kabul ettir (ters yön),
+`privacy`'de bir modun adını değiştir.
+
+Her birinin uygulandığını ayrıca doğruladım, ve yedekleri git'e değil
+scratchpad'e aldım — üzerinde işlenmemiş değişiklik olan bir dosyanın
+yedeği git değildir.
+
+---
+
+## Bir yorumu düzeltmek her müşteriye yükseltme çıkaracaktı
+
+Yukarıdaki şema yorumlarını düzelttim ve kapı kırmızı geldi:
+
+    the schema files do not hash to the recorded fingerprint
+
+Doğru davranış. `schemaver` bütün `schema.sql` dosyalarının SHA-256'sını
+tutuyor, ve testin verdiği tavsiye net: `Version`'ı da `Fingerprint`'i de
+birlikte oynat. Oynatacaktım.
+
+Oynatmadan önce sayının nereye gittiğine baktım, ve iyi ki bakmışım.
+
+### Sayının gittiği yer
+
+`State.Matches()` **parmak izini** karşılaştırıyor, sürüm numarasını
+değil. Sağlık sayfası `Matches`'a bakıyor. Yükseltme düğmesi de. Yani:
+
+- parmak izi oynarsa **her kurulumda** "şemanız uyuşmuyor" uyarısı çıkar,
+- yanında yükseltme düğmesi belirir,
+- ve o düğme **geliştirici parolası** istiyor.
+
+Yani düzelttiğim iki cümle, kurulu her sistemde bir uyarı ve bizim
+parolamızı gerektiren bir iş üretecekti. Veritabanının hiç görmediği bir
+metin için.
+
+Kullanıcının kuralı burada tam tersini söylüyor: geliştiriciye iş çıkaran
+şeyi kolaylaştırmayız. Ben tam da onu üretmek üzereydim, hem de bir yazım
+düzeltmesiyle.
+
+### Üç seçenek, ve ikisinin neden düştüğü
+
+**(a) Sürümü ve parmak izini oynat.** Bugün ucuz, her yorum
+düzeltmesinde tekrar pahalı. Ve bir sonraki yorum düzeltmesinde aynı
+karar yeniden verilecek — muhtemelen "boş ver, yorumu düzeltmeyelim"
+diye.
+
+**(b) Yorumu düzeltme.** `internal/beacon/schema.sql`, bir DBA'in ilk
+açacağı dosyada, kaldırılmış bir saklama modunu anlatmaya devam etsin.
+Hayır.
+
+**(c) Parmak izini DDL'den al.** Yorumları ayıkla, boşlukları
+sadeleştir, kalanı özetle. Seçilen bu.
+
+Karşı çıkış şuydu ve ciddiydi: yorum ayıklamak bir tarayıcı ister —
+tırnaklı katarlar, etiketli dolar alıntıları, PostgreSQL'in iç içe
+geçebilen blok yorumları. Üçü de bu dosyalarda var. Tarayıcıdaki bir
+hata **sesli düşmez**: bir katarın içinde kaçıp dosyanın geri kalanını
+yutar, ve ondan sonraki gerçek DDL değişikliklerini kimse fark etmez.
+Parmak izinin tek işi yalan söylememek; oraya sessiz bir yalan riski
+koymak yanlış yön.
+
+Bu itirazın cevabı tarayıcıyı yazmamak değil, **yazıp ölçmek** oldu.
+Gerçek külliyat üstünde çalışıyor: on dosyanın hepsi ayıklamadan sonra
+hâlâ DDL taşıyor, hepsi küçülüyor, ve düz DDL'inde yorum işareti
+kalmıyor. Üç mutasyon da yakalandı: tırnak durumunu kapat, dolar
+alıntısını kapat, `FingerprintOf`'u eski hâline döndür.
+
+### Bedeli bir kere ödeniyor, ve söylenerek
+
+Kuralın kendisi değişince bütün özetler bir kez oynuyor — yani bu sürüm
+kurulu her veritabanından bir kez yükseltme istiyor. Sürüm notunda tam
+olarak bu yazıyor: şema değişmedi, hesaplama kuralı değişti, yükseltme
+aynı dosyaları yeniden uyguluyor, veri değişmiyor.
+
+Bundan sonraki yorum düzeltmeleri hiçbir şeye mal olmuyor. **Bir kere
+pahalı, sonra bedava** ile **her seferinde biraz pahalı** arasında
+seçim buydu.
+
+### Bunun asıl dersi tavsiyeyi sorgulamakta
+
+Test bana ne yapacağımı söylüyordu ve söylediği şey makuldü. Yapsaydım
+kimse fark etmezdi; kapı yeşile dönerdi. Fark eden tek şey, bir sonraki
+yükseltmede parola isteyen panel olurdu.
+
+**Bir kontrolün tavsiyesi, o kontrolün gerekçesi kadar doğrudur.**
+Buradaki gerekçe — "şema değişti, sıraya sokulmalı" — benim durumumda
+geçerli değildi, çünkü şema değişmemişti. Sayı doğru değişiyordu; soru
+yanlıştı.

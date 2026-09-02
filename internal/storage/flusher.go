@@ -49,7 +49,7 @@ type Flusher struct {
 	// IPMode decides how much of each address is written. The zero value
 	// masks - see storage.RowOptions.
 	IPMode privacy.IPMode
-	// IPHashKey keys the pseudonym in hashed mode.
+	// IPHashKey keys the token stored in full mode.
 	IPHashKey []byte
 }
 

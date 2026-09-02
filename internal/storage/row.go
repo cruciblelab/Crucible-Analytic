@@ -35,7 +35,7 @@ type Row struct {
 	// can hold several sites' data.
 	SiteID string
 	IP     netip.Addr
-	// IPHash is the keyed pseudonym written in hashed mode, and nil in
+	// IPHash is the keyed token written in full mode, and nil in
 	// every other mode. Exactly one of IP and IPHash carries a value:
 	// a row with both would be storing the address it set out not to.
 	IPHash          []byte
@@ -89,7 +89,7 @@ type RowOptions struct {
 	// other one, and the mistake shows up as coarser data instead of as
 	// personal data on disk.
 	IPMode privacy.IPMode
-	// IPHashKey keys the pseudonym in hashed mode. Ignored otherwise.
+	// IPHashKey keys the token stored in full mode. Ignored otherwise.
 	IPHashKey []byte
 }
 

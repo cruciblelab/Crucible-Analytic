@@ -29,8 +29,8 @@
 # # Where the secrets live
 #
 # In the `conf` volume, written once by the `init` service. The
-# ip_hash_key in particular must never change: it keys the pseudonym in
-# every stored row, and regenerating it silently breaks the crossover
+# ip_hash_key in particular must never change: it keys the token stored
+# in full mode, and regenerating it silently breaks the crossover
 # join that this product exists to make. install.sh already refuses to
 # rotate a key it finds, so `init` is safe to re-run - it is not safe to
 # delete that volume.

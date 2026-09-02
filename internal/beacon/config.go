@@ -69,11 +69,18 @@ type Config struct {
 // the columns the crossover join compares, so a deployment that masked
 // one and not the other would produce a join that finds nothing.
 type PrivacyConfig struct {
-	// IPStorage is "masked" (the default), "full" or "hashed". Empty
-	// means masked - a config file written before this setting existed
-	// stores less rather than more.
+	// IPStorage is "masked" (the default) or "full". Empty means masked
+	// - a config file written before this setting existed stores less
+	// rather than more.
+	//
+	// It said `"masked", "full" or "hashed"` until 2026-09-02, and
+	// "hashed" had not been a mode for a long time before that. The
+	// stale word was not harmless: an operator who wrote it got a
+	// collector that refused to start, naming the two legal values, and
+	// a beacon that started, quietly fell back to masked, and said
+	// nothing. internal/invariants keeps the two in step now.
 	IPStorage string `toml:"ip_storage"`
-	// IPHashKey keys the pseudonym in hashed mode.
+	// IPHashKey keys the token stored in full mode.
 	//
 	// Both writers must carry the same key or the crossover join finds
 	// nothing, and the failure is silent - which is why the key lives in
@@ -254,6 +261,35 @@ func (c Config) validate() error {
 	}
 	if _, err := logging.ParseLevel(c.Logging.Level); err != nil {
 		return fmt.Errorf("beacon: %w", err)
+	}
+	// Both privacy checks mirror the collector's, and they are here
+	// because they were not: the collector refused these files and this
+	// one loaded them.
+	//
+	// The two processes write the two columns the crossover join
+	// compares. A deployment configured from one intent, with one key,
+	// where one service starts and the other refuses, is not half
+	// working - it is a customer looking at an empty join and a
+	// collector that will not come up, with nothing connecting the two.
+	//
+	// Refused rather than defaulted for the reason the retention check
+	// below gives: at startup somebody is standing at the file.
+	if v := strings.TrimSpace(c.Privacy.IPStorage); v != "" &&
+		v != string(privacy.IPFull) && v != string(privacy.IPMasked) {
+		return fmt.Errorf("beacon: privacy.ip_storage must be %q or %q, got %q",
+			privacy.IPMasked, privacy.IPFull, c.Privacy.IPStorage)
+	}
+	// Full mode without a real key is the quiet one. privacy.TokenIP
+	// returns nil rather than tokenising weakly, so the beacon would
+	// run in "full" mode writing no tokens at all, while the panel and
+	// the config file both said full. Nothing would be wrong except
+	// every number that depends on telling two visitors inside one /24
+	// apart.
+	if c.Privacy.IPMode().Tokenises() && len(c.Privacy.HashKey()) < privacy.MinHashKeyLen {
+		return fmt.Errorf("beacon: privacy.ip_hash_key must be at least %d bytes when "+
+			"ip_storage = %q - it must be the same key the collector carries, or the "+
+			"crossover join silently finds nothing",
+			privacy.MinHashKeyLen, privacy.IPFull)
 	}
 	// Retention is refused rather than clamped or ignored, and this is
 	// the one place in this file where that choice is not merely tidy.

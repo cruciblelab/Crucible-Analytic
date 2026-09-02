@@ -96,7 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/4** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -151,6 +151,8 @@ P1 çağrılar ──→ P2 açıklama yüzeyi ──→ P3 panel ayarları ─�
               (metin türetilir, kopyalanmaz;
                mod değişimi kendiliğinden düzeltir)
 
+B2 operasyon kanalı ──→ P5 temizleme  (P5'in uyarı yarısı bağımsız)
+
 H1 · H3 · E2  ←— bağımsız, araya girebilir
 E1            ←— ayrı karar, herkesi yeniden yazdırır
 ```
@@ -183,6 +185,7 @@ geçer.
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 6.5 | **P1 · P2 · P3 · P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
+| 7.5 | **P5** mod değişiminin geçmişi | uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
 | 10 | **E1** | *bilinçli karar ister* — ne zaman yapılırsa öncesi yeniden yazılır |
@@ -5597,6 +5600,7 @@ yasak listesiyle aynı ilke.
 | **P2** | Açıklama yüzeyi — gömülebilir blok **ve** ayrı sayfa, içeriği canlı moddan türeyen | "herhangi bir sayfaya gömebileceği ya da ayrı sayfa yapabileceği"; mod değişiminin kendiliğinden düzelmesi burada |
 | **P3** | Panel: politika sayfası adresleri, iletişim adresi, ve kapatma anahtarı | "isterse bunu kapatır, mail bazlı kendisi manuel yapar" |
 | **P4** | Belgeler: envanterde "planlanan"dan "yazıldı"ya | hukukçuya giden belge, koddan geri kalırsa yanlış belgedir |
+| **P5** | Mod değişiminin geçmişe etkisi: uyarı, ve isteğe bağlı onaylı temizleme | "dokunmayalım, o zamanki kurallar geçerli olur, uyarı notu ekleriz ... yada temizlemeyi açıp değiştirmeyi onaylar felan yaparız" |
 
 ---
 
@@ -5711,26 +5715,88 @@ KURULUM'da müşterinin göreceği kısım.
 belge ile kod arasında bir mutasyon testi *(metinde geçen ayar adının
 gerçekten var olduğunu tutan tür)*.
 
-#### Karara bağlanmamış tek soru — sana
+---
 
-**`full` → `masked` geçişinde, zaten yazılmış jetonlar ne olacak?**
+#### P5 — Mod değişiminin geçmişe etkisi: uyarı, ve isteğe bağlı onaylı temizleme
 
-Mod değişimi bugün ileriye dönük: `SetIPMode` bir sonraki isteği
-etkiliyor, geçmiş satırlara dokunmuyor. Yani `full`'de yazılmış
-satırlar, mod `masked`'a alındıktan sonra da anahtarlı jetonu taşımaya
-devam ediyor. "Mod değişiminde otomatik düzelme" isteğin *hangisi*:
+**Karar (kullanıcı, 2026-09-02):** *"Dokunmayalım, o zamanki kurallar
+geçerli olur, uyarı notu ekleriz, bunu bildirin belirtin diye ekleyelim —
+ya da temizlemeyi açıp değiştirmeyi onaylar felan yaparız, ikisi de
+olur."*
 
-- **(i) Yalnız ileriye dönük** *(bugünkü davranış)* — geçmiş, o an
-  yürürlükte olan politikanın kaydı olarak duruyor; saklama süresi
-  dolunca kendiliğinden gidiyor.
-- **(ii) Geçmişi de temizle** — `masked`'a geçiş, yazılmış jeton
-  sütununu da boşaltıyor. Daha temiz bir vaat, ama **geri alınamaz** ve
-  kesişim görünümünün geçmiş kısmını sessizce boşaltır.
+Yani **varsayılan dokunmamak**, üstüne bir uyarı, ve ayrıca **açıkça
+onaylanan** bir temizleme. İkisi birlikte.
 
-Ölçülmüş taraf: jetonun anahtarı yapılandırma dosyasında duruyor, yani
-(i) durumunda bile jeton ancak o anahtara sahip olan için anlamlı.
-Karar seninkilerden; ikisi de savunulabilir, ve **(ii) seçilirse P
-grubuna beşinci bir faz eklenir.**
+##### Fazı yazarken ölçülen şey: sorun sandığımdan büyük
+
+Soruyu sana "yazılmış jetonlar kalsın mı" diye sormuştum. Fazı hazırlarken
+`internal/api/store_crossover.go`'ya baktım ve mod değişiminin ikinci bir
+sonucu olduğunu gördüm — jetondan daha görünür olanı.
+
+Kesişim sorgularının hepsi tek bir ifade üzerinden birleşiyor:
+
+```sql
+COALESCE(ip_hash, inet_send(ip))
+```
+
+Maskeli modda `ip_hash` NULL, yani anahtar `inet_send(/24)`. Tam modda
+`ip_hash` dolu, yani anahtar 16 baytlık jeton. **İki kodlama hiçbir zaman
+eşit değil.** Sonucu: *maskeli modda yazılmış bir satır, tam modda
+yazılmış bir satırla asla birleşmiyor.*
+
+Bu doğru davranış — iki satırın aynı ziyaretçi olduğunu söyleyebilecek
+hiçbir şey yok. Ama bedeli var ve bugün hiçbir yerde yazmıyor: **mod
+değişimini içine alan bir tarih aralığındaki kesişim görünümü, iki ayrı
+anahtar uzayını okuyor ve kapsamı olduğundan düşük gösteriyor.** Etki,
+saklama süresi iki tarafı da tutmayı bıraktığında kendiliğinden bitiyor.
+
+Yani mod değişimi yalnız "bundan sonra ne saklanıyor" kararı değil;
+kesişim görünümüne, saklama süresi kadar sürecek bir dikiş atıyor. P5'in
+uyarısı öncelikle **bunu** söylemek zorunda.
+
+##### Ne yapılacak
+
+**1. Uyarı, ve durumdan türetilir.** Panel, "mod şu tarihte değişti" diye
+bir kayıt tutmuyor ve tutmayacak. Uyarının koşulu **verinin kendisi**:
+saklama penceresi içinde hem jetonlu hem jetonsuz satır var mı? Varsa
+uyarı görünür, yoksa görünmez.
+
+Bu, kayıt tutmaktan iki bakımdan iyi: doğrudan doğru şeyi söylüyor
+(değişikliğin *olmuş* olması değil, etkisinin *hâlâ sürüyor* olması), ve
+saklama süresi son karşı-taraf satırını sildiğinde uyarı kendiliğinden
+kayboluyor. Kullanıcının istediği "mod değişiminde otomatik bunun
+düzelmesi", geçmiş tarafında bu demek.
+
+**2. Uyarının metni müşteriye ne yapacağını söylüyor.** *"Bunu bildirin,
+belirtin"* — yani metin, aydınlatma yükümlülüğüne bakan cümleyi de
+taşıyor: bu tarihten önceki kayıtlar, o gün yürürlükte olan politikaya
+göre yazıldı ve öyle duruyor.
+
+**3. İsteğe bağlı temizleme, ve varsayılan kapalı.** Ayrı bir işlem:
+saklanmış jeton sütununu boşaltır. Özellikleri:
+
+- **Geri alınamaz** ve panel bunu, düğmeyi göstermeden önce yazar.
+- **Geliştirici parolası ister** — §8.5'in yedi ayarından birinin
+  (`privacy.ip_storage`) doğrudan sonucu, ve saklanan kişisel verinin
+  kapsamını değiştiriyor. Ayrıca bir kez çalışınca dönüşü yok; bu
+  projede geri alınamaz her işlem o kilidin arkasında.
+- **Panel doğrudan `UPDATE` yapmıyor.** L3'ün deseni: istek satırı +
+  yetkili uygulayıcı. Panel rolünün bu tablolara yazma yetkisi yok ve
+  olmayacak. Yani **P5 B2'nin operasyon kanalının üstünde duruyor** ve
+  sırası ona göre.
+- **Ne yaptığını sayıyla söylüyor:** kaç satır, hangi aralık — ve
+  temizlemenin kesişim görünümünün o dönemini /24 çözünürlüğüne
+  düşürdüğünü, "sildi" demeden önce yazıyor.
+
+**Bitti ölçütü:** gerçek TimescaleDB'ye karşı — iki modda yazılmış
+satırlar içeren bir veritabanında kesişim sorgusunun iki ayrı anahtar
+uzayı gördüğü **ölçülüyor** (bugün bu hiçbir testte yok); uyarı yalnız
+her iki tür satır varken çıkıyor ve biri saklama süresiyle gidince
+**kendiliğinden** kayboluyor *(mutasyonla: karşı-taraf satırlarını sil,
+uyarının kaybolduğunu doğrula)*; temizleme geliştirici parolası olmadan
+reddediliyor; panel rolünün hâlâ bu sütunlara yazamadığını doğrulayan
+rol testi; temizleme sonrası aynı aralığın kesişimi /24 çözünürlüğünde
+çalışmaya devam ediyor (boşalmıyor).
 
 ---
 
