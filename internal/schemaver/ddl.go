@@ -39,62 +39,122 @@ import "strings"
 // folded them would be answering a question nobody asked while hiding a
 // difference that matters.
 func StripComments(sql string) string {
+	out, _ := stripComments(sql)
+	return out
+}
+
+// Complete reports whether every literal and comment in sql is closed.
+//
+// # Why this is separate, and why anything reads it
+//
+// stripComments is total: handed a file that ends inside a block comment
+// it returns what it had, because a fingerprint function cannot refuse.
+// That is the one way this scanner can lose real DDL without saying so -
+// a `/*` typed where `*/` was meant swallows everything after it, the
+// hash is computed over the truncated remainder, and it looks exactly
+// like a hash of a shorter file.
+//
+// PostgreSQL would reject such a file outright, so it can only reach the
+// fingerprint by never having been applied. That is not reassurance
+// worth relying on: the gate hashes these files on every run, and
+// nothing else in the pipeline reads them at all. So the check lives
+// here and the mirror test runs it over the corpus.
+func Complete(sql string) bool {
+	_, complete := stripComments(sql)
+	return complete
+}
+
+// The states the scanner can be in. Everything inside a literal is
+// copied through untouched, because a `--` between quotes is data.
+const (
+	stateCode         = iota
+	stateSingle       // '...', with '' as the escape
+	stateEscapeString // E'...', where a backslash escapes as well
+	stateIdentifier   // "...", with "" as the escape
+	stateDollar       // $tag$...$tag$
+	stateLineComment  // -- to end of line
+	stateBlockComment // /* ... */, and PostgreSQL nests these
+)
+
+// stripComments is the scanner. The second result is false when the
+// input ended inside a literal or an unclosed block comment.
+func stripComments(sql string) (string, bool) {
 	var out strings.Builder
 	out.Grow(len(sql))
 
-	// The states this scanner can be in. Everything inside a literal is
-	// copied through untouched, because a `--` between quotes is data.
-	const (
-		code         = iota
-		single       // '...' with '' as the escape
-		identifier   // "..." with "" as the escape
-		dollar       // $tag$...$tag$
-		lineComment  // -- to end of line
-		blockComment // /* ... */, and PostgreSQL nests these
-	)
-
-	state := code
+	state := stateCode
 	depth := 0 // block comment nesting
 	tag := ""  // the active dollar-quote tag, including both $
+
+	// The last two bytes emitted in code state. prev is how the scanner
+	// tells a dollar-quote opener from a dollar inside a name; both are
+	// needed for the E-string prefix, because `E` only introduces one
+	// when it is a token of its own. Zero at the start of the file,
+	// which is a boundary.
+	var prev, pprev byte
+	shift := func(c byte) { pprev, prev = prev, c }
 
 	for i := 0; i < len(sql); {
 		rest := sql[i:]
 
 		switch state {
-		case code:
+		case stateCode:
 			switch {
 			case strings.HasPrefix(rest, "--"):
-				state = lineComment
+				state = stateLineComment
 				i += 2
 			case strings.HasPrefix(rest, "/*"):
-				state, depth = blockComment, 1
+				state, depth = stateBlockComment, 1
 				i += 2
 			case rest[0] == '\'':
-				state = single
-				out.WriteByte(rest[0])
-				i++
-			case rest[0] == '"':
-				state = identifier
-				out.WriteByte(rest[0])
-				i++
-			default:
-				// A dollar quote opens only where a tag actually
-				// closes; a bare $ is legal elsewhere (parameters,
-				// operator names), so this must not treat one as an
-				// opener.
-				if t, ok := dollarTag(rest); ok {
-					state, tag = dollar, t
-					out.WriteString(t)
-					i += len(t)
-					continue
+				// E'...' gives backslash its escaping meaning back.
+				// Ordinary strings do not have it - PostgreSQL has
+				// shipped standard_conforming_strings on since 9.1 -
+				// so treating every string as escaping would end
+				// literals in the wrong place.
+				//
+				// The E has to be a token of its own. Measured, because
+				// the first version of this check looked only at the
+				// byte before the quote: `SELECT type'a\'` ends with an
+				// identifier whose last letter is e, and reading that
+				// as an E-string made the backslash escape the closing
+				// quote - so the string never ended and the rest of the
+				// file went with it.
+				state = stateSingle
+				if (prev == 'E' || prev == 'e') && !identByte(pprev) {
+					state = stateEscapeString
 				}
 				out.WriteByte(rest[0])
+				shift(rest[0])
+				i++
+			case rest[0] == '"':
+				state = stateIdentifier
+				out.WriteByte(rest[0])
+				shift(rest[0])
+				i++
+			default:
+				// A dollar quote opens only at a token boundary. Inside
+				// a name it is an ordinary character: `a$b$c` is one
+				// identifier, and a scanner that read `$b$` there as an
+				// opener would swallow the rest of the file looking for
+				// a tag that never closes.
+				if !identByte(prev) {
+					if t, ok := dollarTag(rest); ok {
+						state, tag = stateDollar, t
+						out.WriteString(t)
+						shift('$')
+						i += len(t)
+						continue
+					}
+				}
+				out.WriteByte(rest[0])
+				shift(rest[0])
 				i++
 			}
 
-		case single, identifier:
+		case stateSingle, stateIdentifier:
 			quote := byte('\'')
-			if state == identifier {
+			if state == stateIdentifier {
 				quote = '"'
 			}
 			out.WriteByte(rest[0])
@@ -106,31 +166,54 @@ func StripComments(sql string) string {
 					i += 2
 					continue
 				}
-				state = code
+				state = stateCode
+				shift(quote)
 			}
 			i++
 
-		case dollar:
+		case stateEscapeString:
+			// A backslash consumes whatever follows it, including a
+			// quote and including another backslash.
+			if rest[0] == '\\' && len(rest) > 1 {
+				out.WriteString(rest[:2])
+				i += 2
+				continue
+			}
+			out.WriteByte(rest[0])
+			if rest[0] == '\'' {
+				if len(rest) > 1 && rest[1] == '\'' {
+					out.WriteByte(rest[1])
+					i += 2
+					continue
+				}
+				state = stateCode
+				shift('\'')
+			}
+			i++
+
+		case stateDollar:
 			if strings.HasPrefix(rest, tag) {
 				out.WriteString(tag)
 				i += len(tag)
-				state, tag = code, ""
+				state, tag = stateCode, ""
+				shift('$')
 				continue
 			}
 			out.WriteByte(rest[0])
 			i++
 
-		case lineComment:
+		case stateLineComment:
 			if rest[0] == '\n' {
-				state = code
+				state = stateCode
 				// The newline itself is kept: without it two lines of
 				// DDL separated only by a trailing comment would run
 				// together into one token.
 				out.WriteByte('\n')
+				shift('\n')
 			}
 			i++
 
-		case blockComment:
+		case stateBlockComment:
 			switch {
 			case strings.HasPrefix(rest, "/*"):
 				depth++
@@ -139,10 +222,11 @@ func StripComments(sql string) string {
 				depth--
 				i += 2
 				if depth == 0 {
-					state = code
+					state = stateCode
 					// Same reason as above: a block comment can sit
 					// between two tokens.
 					out.WriteByte(' ')
+					shift(' ')
 				}
 			default:
 				i++
@@ -150,7 +234,30 @@ func StripComments(sql string) string {
 		}
 	}
 
-	return strings.Join(strings.Fields(out.String()), " ")
+	// A line comment running to end of file is closed by the file
+	// ending, which is what PostgreSQL does too. Every other state means
+	// something was left open.
+	complete := state == stateCode || state == stateLineComment
+	return strings.Join(strings.Fields(out.String()), " "), complete
+}
+
+// identByte reports whether c can appear inside an unquoted identifier.
+// Dollar included: PostgreSQL allows it after the first character, which
+// is the whole reason the boundary check above exists.
+func identByte(c byte) bool {
+	switch {
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		return true
+	case c == '_' || c == '$':
+		return true
+	// Every byte of a multi-byte UTF-8 sequence has its high bit set,
+	// and PostgreSQL allows those in identifiers. Treating them as
+	// identifier bytes keeps a dollar after an accented name from
+	// looking like a token boundary.
+	case c >= 0x80:
+		return true
+	}
+	return false
 }
 
 // dollarTag reports whether s opens a dollar-quoted string, and returns
@@ -169,7 +276,7 @@ func dollarTag(s string) (string, bool) {
 		if c == '$' {
 			return s[:j+1], true
 		}
-		letter := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+		letter := c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 		digit := c >= '0' && c <= '9'
 		if letter || (digit && j > 1) {
 			continue

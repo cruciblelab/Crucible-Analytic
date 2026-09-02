@@ -33,7 +33,11 @@ import (
 // From the filesystem rather than from a list, for the same reason
 // release/schemalist_test.go does it: a list here would be one more copy
 // to forget, and the file this project actually forgot once was a schema.
-func schemaFilesOnDisk(t *testing.T) map[string]string {
+// Takes a testing.TB rather than a *testing.T so the fuzz target can
+// seed itself from the same corpus. A seed list written by hand beside
+// a glob that already exists is the second copy this helper was
+// written to avoid.
+func schemaFilesOnDisk(t testing.TB) map[string]string {
 	t.Helper()
 
 	root := repoRoot(t)
@@ -61,7 +65,7 @@ func schemaFilesOnDisk(t *testing.T) map[string]string {
 	return files
 }
 
-func repoRoot(t *testing.T) string {
+func repoRoot(t testing.TB) string {
 	t.Helper()
 	wd, err := os.Getwd()
 	if err != nil {

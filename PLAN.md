@@ -3802,16 +3802,50 @@ Kalan hedefler, saldırgana yakınlık sırasıyla: beacon'ın JSON gövdesi
 (tarayıcıdan gelir), `asnlookup`'ın aralık tabloları, `botdata`'nın
 yukarı akıştan çektiği JSON.
 
+**Beşinci hedef, listede yoktu ve saldırgan baytı okumuyor**
+*(2026-09-02'de eklendi)*: `schemaver.StripComments`. Bu fazın kapsamı
+"doğrulanmamış baytları okuyan ayrıştırıcı" diye yazılmıştı ve bu
+ayrıştırıcı yalnızca depodaki dosyaları okuyor — yani tanıma girmiyor.
+Yine de buraya alındı, çünkü **riskin türü farklı, ağırlığı değil.**
+
+Bir ClientHello ayrıştırıcısının kusuru süreci öldürür; bu ayrıştırıcının
+kusuru **sessizdir.** Bir katarın içine kaçarsa dosyanın geri kalanını
+yutar, parmak izi kırpılmış DDL üstünden hesaplanır, ve o parmak izi
+sonsuza kadar kararlı kalır — yani ondan sonraki her gerçek şema
+değişikliği fark edilmez. Yükseltme makinesinin tamamı (L1, L2, L3) o
+değere güveniyor.
+
+**Ölçüm:** `FuzzStripComments`, **9.032.218 çalıştırma, sıfır başarısızlık**,
+tohum korpusu on gerçek şema dosyası artı ayrıştırıcı bitiren şekiller.
+Üç özellik sınanıyor: idempotanlık, çıktının girdiden büyümemesi, ve —
+asıl olan — **girdide hiç yorum işareti yoksa çıktının girdiye eşit
+olması** (boşluk sadeleştirmesi dışında). Üçüncüsü, "yorum sanıp bir şey
+attı" durumunun doğrudan ölçüsü.
+
+**Fuzz'dan önce elle bulunan iki kusur, ikisi de sessiz türden:**
+`$` bir tanımlayıcının içinde geçebiliyor (`a$b$c` tek isimdir) ve
+`$argon2id$...` biçimi bu depoda zaten var — bir yorumun içinde. Bunlar
+alıntı açacağı için dosyanın kalanı yutulurdu. İkincisi daha ince:
+`E'...'` içinde ters bölü kaçış yapıyor, ve ilk yazdığım kontrol yalnız
+tırnaktan önceki bayta bakıyordu — `SELECT type'a\'` gibi, sonu `e` ile
+biten bir tanımlayıcı, sıradan bir katarı E-katarı sanmaya yetiyordu.
+İkisi de artık **token sınırı** kontrolüyle çözülü, ve ikisi de birer
+test satırı.
+
+**Ölçülen ve önemli olan:** bu sertleştirmeden sonra **parmak izi
+değişmedi.** Yani düzeltmeler gerçek külliyatta bir davranış değişikliği
+değil, gelecekteki bir şema dosyasına karşı sigorta.
+
 **Neden tohum korpusu gerçek el sıkışmalardan başlıyor.** Rastgele
 baytlardan başlayan bir mutasyoncu uzantı ayrıştırmasının derinine
 neredeyse hiç ulaşamaz; geçerli bir hello'dan başlayan ise ilk
 saniyelerde ulaşır. Fark ölçüldü: korpus 10'dan 143'e çıktı, yani
 mutasyoncu sürekli **yeni kod yolu** buluyordu.
 
-**Bitti ölçütü:** dört ayrıştırıcının dördünde de hedef var; gecelik
-işte korpus biriktirerek koşuyor; bulunan her çökme `testdata/fuzz/`
-altına commit'leniyor (Go bunu kendisi yapar ve o dosya kalıcı bir
-regresyon testine dönüşür).
+**Bitti ölçütü:** dört ayrıştırıcının dördünde de hedef var *(beşincisi
+yapıldı)*; gecelik işte korpus biriktirerek koşuyor; bulunan her çökme
+`testdata/fuzz/` altına commit'leniyor (Go bunu kendisi yapar ve o dosya
+kalıcı bir regresyon testine dönüşür).
 
 ---
 

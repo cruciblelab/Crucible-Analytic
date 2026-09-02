@@ -9022,3 +9022,111 @@ müşterilerin sayfalarında `crucible('event', 'signup')` diye duruyor.
 Üç çağrı ona özellik olarak eklenecek, yerine geçerek değil.
 JavaScript'te fonksiyona alan eklenir; farkı bilerek yazmak ile fark
 etmeden bozmak arasında tek satır var.
+
+---
+
+## Sessiz kusuru olan bir ayrıştırıcı, gürültülü olandan tehlikelidir
+
+`StripComments`'i dün yazdım, beş mutasyonla sınadım, kapı yeşildi. Bugün
+"iyice sağlamlaştır" denince aynı dosyaya bir daha baktım ve iki kusur
+buldum. İkisi de mutasyon testinin göremeyeceği türdendi, çünkü mutasyon
+testi **yazdığım kodun** doğru olduğunu ölçüyor; aklıma gelmemiş bir
+girdiyi soramaz.
+
+### Neden bu ayrıştırıcı H1'e girdi
+
+H1'in kapsamı "doğrulanmamış, kimliklendirilmemiş baytları okuyan
+ayrıştırıcı" diye yazılmıştı. Bu ayrıştırıcı deponun kendi dosyalarını
+okuyor — tanıma girmiyor. Yine de aldım, çünkü **riskin türü farklı,
+ağırlığı değil.**
+
+JA4 ayrıştırıcısının kusuru süreci öldürür: gürültülü, hemen görülür.
+Bunun kusuru sessizdir. Bir katarın içine kaçarsa dosyanın geri kalanını
+yutar; parmak izi kırpılmış DDL üstünden hesaplanır ve **mükemmel biçimde
+kararlı kalır.** Ondan sonraki her gerçek şema değişikliği fark edilmez,
+ve yükseltme makinesinin tamamı o değere güveniyor.
+
+Sessiz kusur, kendini gösteren bir olayla değil, yıllar sonra "neden bu
+sütun hiç eklenmemiş" sorusuyla bulunur.
+
+### İki kusur, ikisi de "bu karakter aslında o karakter değil"
+
+**1. `$` her zaman alıntı açmıyor.** PostgreSQL'de tanımlayıcının içinde
+geçebiliyor: `a$b$c` **tek bir isimdir.** Benim tarayıcım oradaki `$b$`'yi
+alıntı başlangıcı sanıp dosyanın kalanını yutardı.
+
+Ve bu teorik değil: `internal/panel/schema.sql` bir argon2id özetini
+`$argon2id$v=19$m=...$salt$hash` diye belgeliyor. Şu an bir yorumun
+içinde, yani zararsız. Bir satır yukarı taşınsa, kapanmayacak bir alıntı
+açar.
+
+**2. `E'...'` içinde ters bölü kaçış yapıyor**, sıradan katarda yapmıyor
+(PostgreSQL 9.1'den beri `standard_conforming_strings` açık). Yani ikisini
+ayırmak gerekiyordu. Ayırdım — ve **yanlış ayırdım:** yalnız tırnaktan
+önceki bayta baktım. `SELECT type'a\'` yazın: `type` sonu `e` ile bitiyor,
+tarayıcı bunu E-katarı sanıyor, ters bölü kapanış tırnağını kaçırıyor,
+katar hiç bitmiyor.
+
+İkisinin de cevabı aynı: **token sınırı.** `$` ancak bir tanımlayıcının
+ortasında değilse alıntı açar; `E` ancak kendi başına bir tokensa katarın
+türünü değiştirir.
+
+### Ve bir mutasyon yine ölçmedi
+
+E-katarı kontrolünü kaldıran mutasyonu koştum, hiçbir test düşmedi.
+Bir an "demek gereksizmiş" diye düşündüm. Değilmiş: mutasyon
+**derlenmemiş.** `pprev` kullanılmaz hâle gelmiş, Go da `declared and not
+used` demiş, ve benim grep'im `FAIL:` arıyordu — `FAIL\t...[build
+failed]` satırına takılmadı.
+
+Bu sessiz geçişin kendisi, ölçmeye çalıştığım kusurun aynı ailesinden.
+Derlenen bir mutasyonla tekrar ettim ve yakalandı.
+
+**Bu üçüncü kez oluyor.** Mutasyonun uygulandığını doğrulamak yetmiyor;
+**derlendiğini ve gerçekten koştuğunu** da doğrulamak gerekiyor. Bir
+mutasyon çalıştırmasında "hiçbir test düşmedi" cümlesi, kanıt değil, ilk
+şüphe sebebidir.
+
+### Fuzz: 9 milyon çalıştırma, ve asıl özellik üçüncüsü
+
+`FuzzStripComments`, tohum korpusu on gerçek şema dosyası artı ayrıştırıcı
+bitiren şekiller. **9.032.218 çalıştırma, sıfır başarısızlık.**
+
+Üç özellik sınanıyor, ve değerli olanı sonuncusu:
+
+1. İdempotanlık — ikinci geçiş bir şey değiştirmiyor.
+2. Çıktı girdiden büyük değil.
+3. **Girdide hiç yorum işareti yoksa, çıktı girdiye eşit** (boşluk
+   sadeleştirmesi dışında).
+
+Üçüncüsü "yorum sanıp bir şey attı"nın doğrudan ölçüsü. İlk ikisi bir
+şeyin bozulmadığını söylüyor; üçüncüsü doğru şeyi yaptığını.
+
+### Kapanmamış olanı da sormak
+
+`stripComments` toplam bir fonksiyon: blok yorumu içinde biten bir dosya
+verilirse elindekini döndürür, çünkü parmak izi fonksiyonu reddedemez.
+`Complete` bunu ayrı bir soru olarak soruyor, ve ayna testi bütün
+külliyata koşuyor. PostgreSQL böyle bir dosyayı zaten reddederdi — ama
+buradan PostgreSQL'e kadar o dosyaya bakan başka hiçbir şey yok.
+
+### En önemli ölçüm: parmak izi değişmedi
+
+Bütün bu sertleştirmeden sonra `Fingerprint` sabiti aynı kaldı. Yani
+düzeltmeler gerçek külliyatta bir davranış değişikliği değil — kimseye
+ikinci bir yükseltme çıkmıyor — gelecekteki bir şema dosyasına karşı
+sigorta. Bunu ölçmeden "zararsız bir düzeltme" diyemezdim.
+
+### Bir hedefi kimse koşturmuyorsa hedef değildir
+
+`go test ./...` bir fuzz hedefinin yalnız tohum korpusunu koşturuyor —
+bir avuç girdi, saniyenin altında. Milyonlar `-fuzz` ile geliyor, ve
+`-fuzz` çağrı başına tek hedef alıyor, yani gecelik iş hedefleri **elle**
+sayıyor.
+
+Büyüyen bir kümenin yanında elle yazılmış bir liste: bu deponun defalarca
+düzelttiği şekil. Yeni hedefi gecelik işe ekledim, ve listeyi ayna testine
+bağladım — ağaçtaki her `func Fuzz*` gecelikte adıyla geçmek zorunda,
+gecelikte adı geçen her hedef de var olmak zorunda. İkinci yön de gerekli:
+olmayan bir hedefi çağıran gecelik iş her gece kırmızı olur, ve her gece
+kırmızı olan bir işi kimse okumaz.

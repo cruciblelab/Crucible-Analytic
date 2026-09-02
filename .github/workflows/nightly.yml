@@ -144,6 +144,16 @@ jobs:
           go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
           go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
 
+      # Not attacker bytes - this one reads the repository's own schema
+      # files. It is here because the failure it can have is the silent
+      # kind: a scanner that runs away inside a string literal swallows
+      # the rest of the file, and the fingerprint is then taken over a
+      # truncated schema and stays perfectly stable while real DDL
+      # changes go unnoticed. Everything L1, L2 and L3 do rests on that
+      # value.
+      - name: schemaver - the scanner the upgrade machinery trusts
+        run: go test -run XXX -fuzz 'FuzzStripComments$' -fuzztime 5m ./internal/schemaver/
+
       # A crash is written to testdata/fuzz/ as a regression case, which
       # is the artifact actually worth having - it turns a one-off
       # finding into a permanent unit test. Upload it, because the
