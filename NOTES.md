@@ -9130,3 +9130,71 @@ bağladım — ağaçtaki her `func Fuzz*` gecelikte adıyla geçmek zorunda,
 gecelikte adı geçen her hedef de var olmak zorunda. İkinci yön de gerekli:
 olmayan bir hedefi çağıran gecelik iş her gece kırmızı olur, ve her gece
 kırmızı olan bir işi kimse okumaz.
+
+---
+
+## Reddetmek de bir kesintidir: hangisini seçtiğimizi ölçüye bağlamak
+
+A2'nin geri kalanına başladım. İlk dilim: collector kendi profilini
+bilsin, ve **yalnız gerçekten patlayacak olanı** reddetsin.
+
+Müşterinin kuralı netti — "kaynak yetersizse biz engellemezsek patlarsa
+bize sorarlar; onun dışında bir şeye zorlamayalım, en iyi serbestliği
+verelim." Yazarken fark ettim ki bu kural tek başına yetmiyor, çünkü
+**reddetmek de bir kesinti.** Collector müşterinin sitesinin önünde
+duruyor: açılmazsa site de yok. Yani "patlamasını engelle" ile "kesinti
+çıkarma" bazı durumlarda aynı şeyi söylemiyor.
+
+Ayrımı ölçü çözdü, tercih değil.
+
+`internal/memlimit` en baştan iki tür tavan tanımlıyordu ve yorumunda
+farkı yazıyordu: cgroup sınırı **zorunlu**, `MemAvailable` **tahmin**.
+O yorum yazıldığından beri kimse ayrımı kullanmamıştı. Bu ilk çağıran:
+
+- **Zorunlu tavan + sığmıyor → başlama.** Çekirdek zaten öldürecek, sayı
+  da oynamıyor. Burada başlamak, kesintinin *olup olmayacağını* değil
+  yalnız *ne zaman olacağını* seçmek olurdu — ve seçtiği zaman, üç hafta
+  sonra gecenin bir yarısı.
+- **Tahmini tavan + sığmıyor → uyar, başla.** TimescaleDB'nin çalıştığı
+  bir makinede boş bellek iki okuma arasında yüzlerce megabayt oynar.
+  Buna bakıp reddetmek, yoğun bir dakikayı bizim ürettiğimiz bir
+  kesintiye çevirirdi.
+- **Bilinmiyor → başla.** Okunamayan bir `/proc` kesinti sebebi olamaz;
+  paketin en baştan koyduğu kural.
+
+`TestARefusalNeverHappensWithoutAnEnforcedLimit` bunu bir örüntü olarak
+değil, **özellik olarak** yazıyor: her profil, her tahmini tavana karşı,
+hiçbirinde durmuyor.
+
+### Ret bir talimat taşımalı
+
+İlk hâlim "sığmıyor" diyip duruyordu. Sığmıyor bir talimat değil — okuyan
+kişi üç profilden hangisini deneyeceğini kendi çıkarmak zorunda kalıyor,
+oysa **kod zaten biliyor.** `largestThatFits` bunu söylüyor, ve hiçbiri
+sığmıyorsa onu söylüyor; en küçüğü önerip iki kez yanılmaktan iyi.
+
+### Kontrolü öne almak
+
+İlk yazdığımda kontrol veritabanı bağlantısından sonraydı. Öne aldım, ve
+gerekçesi ikili: hiçbir şeye ihtiyacı yok, dolayısıyla en ucuz cevap; ve
+veritabanı çalışmıyorken de cevap veriyor. **Yalnız doğru olabilecek bir
+kontrol, çalışan bir dünya isteyen kontrollerden önce koşmalı.**
+
+Yan etkisi, testin şeklini değiştirdi: kontrol veritabanından önce
+olduğu için konteyner testi bir yığın değil, düz bir `docker run`.
+
+### Ölçülemeyeni ölçüldü diye yazmamak
+
+`budgetVerdict`'i saf bir fonksiyona ayırdım — ilk hâli `memlimit.Detect()`'i
+içinden çağırıyordu, ki bu bütün ilginç durumları "testi 256 MB'lık bir
+konteynerde koşturursanız" hâline getiriyordu.
+
+Gerçek ikiliyi bu makinede koşturdum ve `resource profile` satırını
+yazdığını, sonra veritabanına takıldığını gördüm — yani kontrol
+gerçekten önce çalışıyor. **Ama konteyner reddi bu oturumda
+ölçülemedi:** docker daemon yok. `e2e/budget_docker_test.go` yazıldı,
+`docker` etiketiyle gecelik işte koşuyor, ve burada `SKIP` verdi.
+
+Bunu böyle yazmak, "ölçüldü" demekten daha uzun ve tek dürüst olanı. Bu
+oturumda `ok` yazan bir satır gördüm ve o satır **atlandığı için** ok
+diyordu; `-v` ile bakmasam "geçti" diye yazacaktım.

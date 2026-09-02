@@ -80,6 +80,26 @@ type Limit struct {
 // Known reports whether a ceiling was actually found.
 func (l Limit) Known() bool { return l.From != SourceUnknown && l.Bytes > 0 }
 
+// Exact reports whether this ceiling is enforced rather than estimated.
+//
+// The distinction the package doc promises, in the form a caller can
+// act on. A cgroup limit is a number the kernel will kill this process
+// for exceeding: it does not move, it belongs to this process alone, and
+// a profile that does not fit under it will die - not might.
+//
+// MemAvailable is none of those things. It is what the machine happens
+// to have free at the instant it was read, on a box where TimescaleDB is
+// sized to take most of the memory and where a backup or a query can
+// move the number by hundreds of megabytes between two readings.
+//
+// So a caller that refuses to start on an exact ceiling is refusing
+// something that was going to fail anyway; a caller that refuses on an
+// estimate has turned a busy minute into an outage. The first is worth
+// doing and the second is the thing this method exists to stop.
+func (l Limit) Exact() bool {
+	return l.From == SourceCgroupV2 || l.From == SourceCgroupV1
+}
+
 // Detect reads this process's memory ceiling.
 func Detect() Limit { return detect(os.DirFS("/")) }
 

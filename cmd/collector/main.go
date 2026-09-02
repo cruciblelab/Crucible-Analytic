@@ -106,6 +106,19 @@ func main() {
 		return
 	}
 
+	// What this configuration costs, against what this machine will
+	// give it.
+	//
+	// First of everything that can refuse, and deliberately so. It needs
+	// no database, no dataset and no network, so it is the cheapest
+	// answer available - and the failure it prevents is one the kernel
+	// delivers without an error, by killing the process during a refresh
+	// hours later. A check that can only be right is worth running
+	// before the checks that need a working world.
+	if !checkMemoryBudget(cfg, logger) {
+		os.Exit(1)
+	}
+
 	// Loaded before anything starts listening. A deployment that has
 	// never fetched gets the empty set and a line saying so: the
 	// known-bot signal is absent, every other signal still works, and

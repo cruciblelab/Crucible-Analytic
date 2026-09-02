@@ -791,6 +791,67 @@ olarak yazar — betiğin `LOG_DIR`/`STATE_DIR`/parolalar için zaten yaptığı
 işin aynısı. Servisler yeniden başlar; bu bir bedel değil, **zorunluluk**:
 136 MB'ı çalışırken ayırıp bırakmanın yolu yok.
 
+##### Yapılan ilk dilim *(2026-09-02)*: collector kendi profilini biliyor, ve yalnız patlayacak olanı reddediyor
+
+**Ne yazıldı:**
+
+- `Config.ProfileLevel()` / `Config.Profile()` — profil **türetiliyor**,
+  saklanmıyor. A2'nin kuralı: bir ayarın yanına yazılmış özet ad, birisi
+  o ayarı elle değiştirdiği anda bayatlar ve panel yanlış olanı gösterir.
+- `Config.RateStoreBound()` — hız deposunun en kötü durumu, ve
+  sınırlayıcı kapalıysa "sınır yok" diyor; sayı döndürmüyor, çünkü sayı
+  sınır gibi görünür ve öyle kullanılırdı.
+- `memlimit.Limit.Exact()` — tavanın *zorunlu* mu *tahmini* mi olduğu.
+  Paket bu ayrımı en başından yorumunda yazıyordu; onu kullanan ilk
+  çağıran bu.
+- `cmd/collector/budget.go` — açılışta bütçe kontrolü, **veritabanı
+  bağlantısından önce.** Hiçbir şeye ihtiyacı yok, o yüzden önce cevap
+  veriyor; ve önlediği kusuru veritabanı çalışmıyorken de önlüyor.
+
+**Reddetme/uyarma ayrımı — müşterinin kuralının doğrudan uygulanışı**
+*("kaynak yetersizse ... biz engellemezsek patlarsa bize sorarlar; onun
+dışında bir şeye zorlamayalım, en iyi serbestliği verelim")*:
+
+| tavan | sığmıyorsa |
+|---|---|
+| cgroup (zorunlu) | **başlamıyor** — çekirdek zaten öldürecek, sayı da oynamıyor |
+| boş bellek (tahmini) | **uyarıyor, başlıyor** — tahmine bakıp reddetmek yoğun bir dakikayı kesintiye çevirir |
+| bilinmiyor | başlıyor, sessiz |
+
+Reddetme ve uyarma, **hangi profilin sığacağını da söylüyor.** "Belleğiniz
+yetmiyor" bir talimat değil; kod hangisinin sığdığını zaten biliyor.
+
+**Nasıl doğrulandı:** `budgetVerdict` saf bir fonksiyona ayrıldı ve elle
+kurulan tavanlara karşı sınandı — ilk hâli `memlimit.Detect()`'i içeride
+çağırıyordu, ki bu bütün ilginç durumları "testi 256 MB'lık bir
+konteynerde koşturursanız" hâline getiriyordu. Dört mutasyon, dördü de
+yakalandı *(tahminde de reddet; zorunlu tavanda da başlat; hız deposunu
+bütçeden çıkar; `country_only`'yi yok say)*.
+
+**Gerçek ikili gerçekten koşturuldu:** yapılandırma dosyasıyla, bu
+makinede, ve şu satırı yazdı — sonra da veritabanına takıldı, yani
+kontrol gerçekten önce çalışıyor:
+
+```
+INFO resource profile profile=tam label="Tam Crucible" needs_mb=390
+     ceiling_mb=15395 ceiling_from="free memory" rate_store_bounded=true
+```
+
+**Konteyner reddi bu oturumda ölçülemedi ve bu açıkça yazılıyor.** Bu
+oturumda docker daemon yok. `e2e/budget_docker_test.go` (`docker`
+etiketi, gecelik işte koşuyor) gerçek `--memory=256m` altında reddi,
+`--memory=512m` altında başlamayı ve küçük profilin 256 MB'ta çalışmasını
+ölçüyor — **burada `SKIP` verdi**, yani yazıldı ama henüz koşmadı.
+
+##### Kalan üç iş
+
+1. **`install.sh` profil seçimi** — seçilen profili tek tek değer olarak
+   config dosyalarına yazar.
+2. **Kalp atışı satırına profil** — yeni bir `TEXT` sütun. Bugün
+   `counters` yalnız sayı taşıyor, yani etiket oraya sığmıyor. Şema
+   değişikliği, dolayısıyla sürüm 8.
+3. **Panelde gösterim**, "(değiştirilmiş)" dâhil.
+
 Panelin hangi profilde olunduğunu nereden bileceği ayrı bir karar, ve
 temiz olanı şu: **collector etkin profilini kalp atışı satırına yazar.**
 Panel hiçbir config dosyasına bakmaz — bakması, beş rolü ayırmak için

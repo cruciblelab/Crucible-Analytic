@@ -9,6 +9,66 @@ yapacağım".
 
 ---
 
+## v0.18.0 — 2026-09-02
+
+**KIRICI (dar).** Collector, konteyner bellek sınırının altına sığmayan
+bir IP zekâsı ayarıyla artık **başlamıyor.** Sığanlar için hiçbir şey
+değişmiyor.
+
+**Şema sürümü: 7** — değişmedi. **Kuran kişinin yapması gereken:**
+konteynerle kurduysanız ve `mem_limit` verdiyseniz, aşağıdaki tabloya bir
+bakın. systemd/tarball kurulumunda ve sınırsız konteynerde **hiçbir şey.**
+
+### Önlediği kusur
+
+`asn_lookup` veri kümeleri belleğe yükleniyor ve yenileme sırasında
+tepe yapıyor. Sığmayan bir kurulum saatlerce sorunsuz çalışıyor, sonra
+**yenileme sırasında çekirdek tarafından öldürülüyor.** Collector
+müşterinin sitesinin önünde durduğu için site de onunla gidiyor — günde
+bir kez, sürecin başladığı saatte, hiçbir uyarı olmadan.
+
+Ölçülen tabanlar (her boyutta beş koşu, hepsinin yaşadığı en küçük boyut):
+
+| profil | `asn_lookup` | taban | en az konteyner |
+|---|---|---|---|
+| Hafif | `enabled = false` | 32 MB | ~96 MB |
+| Dengeli | `country_only = true` | 160 MB | ~256 MB |
+| Tam | ikisi de açık | 320 MB | ~512 MB |
+
+Rakamlara hız deposu da ekleniyor: varsayılan 500 istek/sn ve 300 sn TTL
+ile ~23 MB.
+
+### Ne reddediliyor, ne reddedilmiyor
+
+**Yalnız zorunlu bir sınırın altında reddediliyor** — yani cgroup, yani
+`docker run --memory` ya da compose'daki `mem_limit`. Çekirdek o sayı
+için süreci öldürür ve sayı oynamaz.
+
+**Boş belleğe bakarak reddedilmiyor.** Makinenin o anki boş belleği bir
+tahmindir ve TimescaleDB'nin çalıştığı bir kutuda iki okuma arasında
+yüzlerce megabayt oynar. Orada yalnız **uyarı** var, servis başlıyor.
+Tavan hiç okunamıyorsa da başlıyor.
+
+Hem ret hem uyarı, **o bellekte çalışacak en büyük profilin adını**
+söylüyor.
+
+### Ne yapmalısınız
+
+Konteyner reddederse iki seçenek var, ikisi de sizin:
+
+- `mem_limit`'i tablodaki değere çıkarın, ya da
+- `asn_lookup` ayarını bir küçüğe alın (`country_only = true`, ya da
+  `enabled = false`).
+
+Log satırı da her açılışta ne istendiğini ve ne bulunduğunu yazıyor:
+
+```
+INFO resource profile profile=tam needs_mb=390 ceiling_mb=15395
+     ceiling_from="free memory"
+```
+
+---
+
 ## v0.17.0 — 2026-09-02
 
 **KIRICI (küçük).** Beacon, daha önce sessizce kabul ettiği iki
