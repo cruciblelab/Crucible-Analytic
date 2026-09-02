@@ -199,6 +199,72 @@ if [ "${WANT_SYSTEMD}" -eq 1 ]; then
     before anything is created, rather than part-way through."
   fi
 fi
+# The database, before anything is created in it.
+#
+# The same rule as the systemd check above, and it was missing for the
+# same reason: nobody had run this on a machine that did not already have
+# a database. Measured on one that did not - the whole output a person
+# saw was psql's own connection error, printed twice, with not one
+# sentence from this script about what to do next.
+#
+# That is the first minute of the first install, on the path taken by
+# every customer who does not want containers. This repository says what
+# to do everywhere else; it was silent exactly where a person is most
+# likely to be stuck.
+#
+# Three questions, cheapest first, and each names its own fix.
+if [ "${DRY_RUN}" -eq 0 ]; then
+  if ! psql_super -tAc "SELECT 1" >/dev/null 2>&1; then
+    die "cannot reach PostgreSQL.
+
+    Nothing has been created. The usual causes, in order:
+
+      * PostgreSQL is not installed. Install PostgreSQL 16 and the
+        TimescaleDB extension - KURULUM.md section 2 has the versions
+        this is tested against.
+      * It is installed but not running:  systemctl status postgresql
+      * It is running somewhere else. Point this script at it:
+          SUPERUSER_DSN='postgres://user@host:5432/postgres' ${0}
+      * You are not the postgres superuser. Without SUPERUSER_DSN this
+        script uses 'sudo -u postgres psql', which needs sudo.
+
+    If you would rather not run a database yourself, the container path
+    brings its own - see KURULUM.md section 1.5."
+  fi
+
+  # Available, which is a different question from loaded. A distro
+  # PostgreSQL with no Timescale packages answers no here, and the
+  # answer is worth having before four roles and ten schemas exist.
+  if [ -z "$(psql_super -tAc "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'")" ]; then
+    die "PostgreSQL is running and the TimescaleDB extension is not installed on it.
+
+    Nothing has been created. This product stores time series and its
+    retention policies are Timescale's; PostgreSQL alone will not do.
+    Install the timescaledb package for this server's version and run
+    this again - KURULUM.md section 2.
+
+    The container path brings a database with it already - KURULUM.md
+    section 1.5."
+  fi
+
+  # Loaded. Timescale's own error for this case is excellent - it names
+  # the config file and the exact line - but it arrives after the
+  # database has been created, and this script's rule is that a
+  # prerequisite is checked before anything is made.
+  case "$(psql_super -tAc "SHOW shared_preload_libraries")" in
+    *timescaledb*) ;;
+    *) die "TimescaleDB is installed but not preloaded, so CREATE EXTENSION would fail.
+
+    Nothing has been created. Add it to the server's configuration and
+    restart PostgreSQL:
+
+      shared_preload_libraries = 'timescaledb'
+
+    On a package install that line is in postgresql.conf; timescaledb-tune
+    will add it for you." ;;
+  esac
+fi
+
 [ -f "${HERE}/sql/grants.sql" ] || die "release/sql/grants.sql is missing; run this from the package"
 [ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
 

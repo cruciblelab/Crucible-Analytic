@@ -9257,3 +9257,64 @@ tam sorgu literaline çevirdim — gosec'i beklemeden, çünkü bu oturumda ayn�
 dersi bir kez daha almıştım: **bir bulguyu açıklamak yerine yok etmek.**
 Birleştirmeyle kurulan bir sorgu, gelecekteki bir düzenlemenin başka bir
 yerden değer alabileceği sorgudur; iki literal olamaz.
+
+---
+
+## "Bunu kullanacak kişi de bu kadar uğraşacak mı"
+
+Müşterinin sorusu, ve doğru soru. Cevabı tahmin etmek yerine ölçtüm:
+elimde gerçek bir makine ve gerçek bir veritabanı vardı, ikisini de
+bozup baktım.
+
+### Ölçüm 1: veritabanı hiç yokken
+
+Konteyner istemeyen bir müşterinin ilk dakikası. `install.sh`'ın
+gösterdiği **her şey** buydu:
+
+    == preflight
+    == database analytics
+    psql: error: connection to server on socket ... failed: Connection refused
+    psql: error: connection to server on socket ... failed: Connection refused
+
+Bizden **tek cümle yok.** Çıkış kodu doğruydu (2), yani yanlış bir başarı
+iddiası yoktu — ama insana ne yapacağını söyleyen hiçbir şey de yoktu.
+
+Bu depo başka her yerde ne yapılacağını söylüyor. Tam da insanın en çok
+takılacağı yerde susuyormuş. **İlk dakikada takılmak, ürün ile depo
+arasındaki farktır.**
+
+### Ölçüm 2: PostgreSQL var, TimescaleDB önyüklenmemiş
+
+Burada gösterilen mesaj iyiydi — ama **bizim değil, Timescale'in**.
+Kendi hatası dosyanın yolunu ve eklenecek satırı söylüyor. İyi de,
+o noktaya gelindiğinde veritabanı zaten oluşturulmuştu.
+
+### Düzeltmenin yeri, dosyanın kendi dersinde yazılıydı
+
+`preflight` bloğunun içindeki systemd kontrolünün yorumu şunu diyor:
+*"kendi aşamasında bulunan bir ön koşul, kurulumu şemalar zaten
+uygulandıktan sonra durdurur."* Aynı ders, aynı blok, eksik olan tek
+madde veritabanının kendisiydi.
+
+Üç soru eklendi, en ucuzu önce, ve her biri kendi çözümünü söylüyor:
+ulaşılabiliyor mu, eklenti kurulu mu, önyüklenmiş mi. Üçü de hiçbir şey
+oluşturulmadan önce.
+
+İki mutasyon: kontrolü etkisiz yap (test üç ayrı cümlenin eksikliğini
+söyledi), ve mesajdan konteyner yolunu çıkar (yakalandı). Test ayrıca
+**hiçbir dosya yazılmadığını** da kontrol ediyor — yarım bırakılmış bir
+yapılandırma, tekrar denemeden önce temizlenmesi gereken bir şeydir.
+
+### Kendi ortamımda bir yanılgı, ve nasıl anlaşıldı
+
+Kapıyı `--all` ile koşturdum ve entegrasyon yarısı dokuz testte düştü:
+`traffic_snapshots` yok. Bir an "release testleri entegrasyonun
+veritabanını siliyor" diye bir bulgu yazacaktım.
+
+Yazmadım, önce tekrar ettim. Sebep bendim: `CA_SUPERUSER_DSN`'i
+`release` yarısı için `.../postgres`'e çevirmiştim ve öyle bırakmıştım.
+Doğru DSN ile `--all` yeşil, ve `analytics` 22 tablosuyla yerinde.
+
+**Her kırmızı bir bulgu değil** — bu oturumda ikinci kez. Tekrar
+etmeden bulgu yazmak, düzeltmesi en pahalı yanlıştır: olmayan bir kusuru
+düzeltmeye çalışırken gerçek olanı aramayı bırakırsınız.

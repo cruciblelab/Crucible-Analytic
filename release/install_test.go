@@ -1536,3 +1536,79 @@ func exampleForConfig(t *testing.T, root string) map[string]string {
 	}
 	return out
 }
+
+// TestInstallSaysWhatToDoWhenThereIsNoDatabase.
+//
+// # What was measured, and why it is a product defect rather than a
+// cosmetic one
+//
+// Run on a machine with no PostgreSQL - which is the first minute of the
+// first install for every customer who does not want containers - the
+// whole output a person saw was psql's own connection error, printed
+// twice, and not one sentence from this script about what to do next.
+//
+// This repository says what to do everywhere else. It was silent exactly
+// where somebody is most likely to be stuck, and "stuck in the first
+// minute" is the difference between a product and a repository.
+//
+// # Why the check belongs in preflight rather than where it failed
+//
+// The same rule the systemd check in that block already follows, learned
+// the same way: a prerequisite found at its own stage stops the install
+// after roles and schemas exist, leaving a half-installed machine. This
+// test asserts both halves - the sentence, and that nothing was created.
+func TestInstallSaysWhatToDoWhenThereIsNoDatabase(t *testing.T) {
+	root := repoRoot(t)
+	conf := t.TempDir()
+
+	// A port nothing listens on. Deterministic, and it needs no database
+	// at all - which is the point: this is the one test in this file that
+	// describes a machine that does not have one.
+	cmd := exec.Command("./release/install.sh", "--no-systemd")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN=postgres://nobody@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2",
+		"DB_NAME=ca_no_database_test",
+		"CONF_DIR="+conf,
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	out, err := cmd.CombinedOutput()
+	body := string(out)
+
+	if err == nil {
+		t.Fatalf("the install reported success against a database that is not there:\n%s", body)
+	}
+
+	// The sentence, and the two ways out it has to name. Checked by
+	// content rather than by exit code alone: a script that fails with
+	// psql's error and nothing else fails just as loudly and helps
+	// nobody, which is the state this test was written from.
+	for _, want := range []string{
+		"cannot reach PostgreSQL",
+		"Nothing has been created",
+		"SUPERUSER_DSN",          // how to point it at a database elsewhere
+		"KURULUM.md section 1.5", // the container path, for somebody who would rather not
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the failure does not mention %q:\n%s", want, body)
+		}
+	}
+
+	// And nothing was written. A refusal that leaves half a
+	// configuration behind is a refusal somebody has to clean up before
+	// they can try again.
+	entries, readErr := os.ReadDir(conf)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Errorf("the install wrote %v before giving up; the check has to happen "+
+			"before anything is created, not after", names)
+	}
+}

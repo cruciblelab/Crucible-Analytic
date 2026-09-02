@@ -44,6 +44,28 @@ veri yazmıyor, **durum** yazıyor — ve o durumu gösteren sayfa, tam da
 yükseltmenin ortasında bakılan sayfa. Yükseltme sırasında izlemeyi
 körleştirmek, bir etiketi kaybetmekten kötü.
 
+### Kurulum betiği artık veritabanını önceden kontrol ediyor
+
+**Yeni kuranları ilgilendiriyor. Kurulu sistemlerde hiçbir şey
+değişmiyor.**
+
+Ölçüldü: veritabanı olmayan bir makinede `install.sh`'ın gösterdiği tek
+şey `psql`'in kendi bağlantı hatasıydı — iki kez basılmış, ve bizden tek
+cümle yok. Bu, konteyner istemeyen her müşterinin ilk dakikası.
+
+Artık `preflight` üç şeyi **hiçbir şey oluşturmadan önce** soruyor ve her
+biri kendi çözümünü söylüyor:
+
+1. PostgreSQL'e ulaşılabiliyor mu — ulaşılamıyorsa dört olası sebep,
+   uzaktaki bir veritabanına yönlendirme komutu, ve konteyner yolunun
+   veritabanını kendi getirdiği notu.
+2. TimescaleDB kurulu mu (`pg_available_extensions`).
+3. Önyüklenmiş mi (`shared_preload_libraries`) — değilse eklenecek satır.
+
+Üçü de yarım kurulum bırakmıyor: kontrol, rol ve şema oluşturulmadan
+önce. `KURULUM.md` Bölüm 2'ye de "veritabanını nereden bulacaksınız"
+başlığı eklendi.
+
 ---
 
 ## v0.18.0 — 2026-09-02

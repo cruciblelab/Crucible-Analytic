@@ -154,6 +154,44 @@ koşuyor. Daha eskisi çalışmaz demiyorum — **denenmedi** diyorum. Elinizde
 eski bir sunucu varsa şemaları uygulayıp `go test -tags integration ./...`
 çalıştırmak, tahmin etmekten ucuz.
 
+### Veritabanını nereden bulacaksınız
+
+Bu betik veritabanını **kurmuyor**, kurulmuş bir veritabanına bağlanıyor.
+Ayrımı burada yazmamızın sebebi ölçüm: veritabanı olmayan bir makinede
+`install.sh` çalıştırıldığında görülen tek şey `psql`'in kendi bağlantı
+hatasıydı — bizden tek cümle yoktu. Artık var, ve ne yapılacağını
+söylüyor; ama en iyisi buraya hiç düşmemek.
+
+**TimescaleDB dağıtımların kendi deposunda yok.** PostgreSQL'i paket
+yöneticinizden kurmak yetmez; Timescale'in kendi deposunu eklemek
+gerekiyor. Kurulum adımları sürüme ve dağıtıma göre değiştiği için
+buraya kopyalamıyoruz — kopyalanan bir komut listesi bayatlar ve bayat
+bir komut, hiç komut olmamasından kötüdür:
+
+> <https://docs.timescale.com/self-hosted/latest/install/>
+
+Kurduktan sonra iki şey:
+
+```bash
+sudo timescaledb-tune            # shared_preload_libraries'ı ekler, ayarları boyutlandırır
+sudo systemctl restart postgresql
+```
+
+Hazır olup olmadığını `install.sh`'ın kendi sorduğu sorularla
+doğrulayabilirsiniz:
+
+```bash
+sudo -u postgres psql -tAc "SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'"
+sudo -u postgres psql -tAc "SHOW shared_preload_libraries"
+```
+
+Birincisi `1`, ikincisi içinde `timescaledb` geçen bir satır vermeli.
+İkisi de doğruysa kurulum betiği bu adımı sessizce geçer.
+
+**Bunların hiçbirini yapmak istemiyorsanız** konteyner yolu veritabanını
+kendi getiriyor — Bölüm 1.5. O yolda bu bölümün tamamı sizi
+ilgilendirmiyor.
+
 **İsteğe bağlı, yalnız geliştirme için:** `node` + `playwright` +
 chromium (tarayıcı testleri), `docker` (yerel veritabanı).
 
