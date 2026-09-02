@@ -398,16 +398,48 @@ Bunlar **yazılmadı**, kararlaştırıldı:
 > saklama modu artık yazıldı ve varsayılanı maskeli.** Ayrıntısı Bölüm
 > 1.5'te. Aşağıdakiler hâlâ yazılmamış olanlardır.
 
-**Ziyaretçiye dönük gizlilik kartı.** Sitenin gizlilik/çerez sayfasına
-gömülebilen küçük bir bileşen. Ziyaretçi kendisi hakkında ne
-tutulduğunu görür ve **silinmesini talep edebilir.** Talep, kimlik
-iddiasıyla değil, isteğin kendisinden türetilen kimlikle işlenir —
-dolayısıyla kimse başkasının verisinin silinmesini isteyemez.
+**Ziyaretçiye dönük açıklama yüzeyi.** Sitenin gizlilik/çerez sayfasına
+gömülebilen bir bileşen, ve bağlantı verilebilecek ayrı bir sayfa.
+Ziyaretçi **ne tutulduğunu** görür, ve toplamayı kendi tarayıcısında
+kapatabilir.
 
-Bu bileşenin kapsamı, teknik gerçeği yansıtacak biçimde açıkça
-yazılacaktır: **bugünkü kayıtlar silinir**; daha eski kayıtlar zaten
-kişiyle ilişkilendirilemediği için bulunamaz ve saklama süresi sonunda
-kendiliğinden silinir.
+> **Düzeltme (2026-09-02) — hukukçunun bilmesi gereken.** Bu maddede
+> daha önce bir **silme talebi** kanalı tarif ediliyordu: talebin kimlik
+> iddiasıyla değil, isteğin kendisinden türetilen `visitor_id` ile
+> işleneceği, dolayısıyla kimsenin başkasının verisinin silinmesini
+> isteyemeyeceği yazıyordu. **Bu tasarım yazılmadan önce ölçüldü ve
+> kaldırıldı.**
+>
+> Gerekçesi: `visitor_id`, Bölüm 2'de tarif edildiği gibi
+> HMAC(günün tuzu; site + ağ + user agent). Türkiye'deki mobil
+> operatörlerin yaygın olarak kullandığı CGNAT altında bu üç girdinin
+> üçü de iki farklı kişi için **aynı olabiliyor** — ağ tanımı gereği
+> ortak, user agent aynı cihaz modeli ve tarayıcı sürümünde tek bir
+> katara çıkıyor. Yani böyle bir silme kanalı, engellemeyi vaat ettiği
+> şeyi üretirdi: bir ziyaretçi, hiçbir kimlik taklit etmeden, başka
+> kişilerin kayıtlarını sildirebilirdi.
+>
+> Alternatifi — ziyaretçinin tarayıcısına, taleplerini
+> ilişkilendirebileceğimiz **kalıcı bir tanımlayıcı** yazmak — sistemin
+> bugün hiç oluşturmadığı kişisel veriyi oluşturmak, ve bugün gerekmeyen
+> bir çerez onayını gerektirmek olurdu.
+>
+> **Sonuç, dürüstçe:** bu sistemde silinecek bir "kişiye ait kayıt
+> kümesi" teknik olarak oluşmuyor. Silme kanalı yerine **açıklama ve
+> kapatma** yazılıyor. Kayıtlar saklama süresi sonunda kendiliğinden
+> siliniyor (Bölüm 6), ve zaten hiçbiri gün sınırının ötesinde bir
+> kişiyle ilişkilendirilemiyor (Bölüm 2, "`visitor_id` — takma kimliğin
+> tam tanımı").
+
+**Açıklama metni ayardan türetilir, kopyalanmaz.** Ziyaretçiye
+gösterilen metin, `privacy.ip_storage`'ı **verinin yazıldığı yerin
+okuduğu aynı canlı kaynaktan** okur. Yani ayar değiştirildiğinde
+açıklama bir sonraki istekte kendiliğinden değişir; güncellenmesi
+unutulabilecek ikinci bir metin kopyası yoktur.
+
+**Müşteri bu yüzeyi kapatabilir.** Kapattığında yükümlülük ortadan
+kalkmaz, **kendisine ve elle** geçer; panel bunu kapatma anahtarının
+yanında açıkça yazar ve talep için bir iletişim adresi ister.
 
 **Devre dışı bırakma zaten mevcuttur.** Ziyaretçi kendi tarayıcısında
 `localStorage.setItem('crucible.disabled', '1')` ayarladığında beacon

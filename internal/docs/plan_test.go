@@ -43,8 +43,24 @@ var (
 	// against, so the blind spot also meant a build tagged +D4c would
 	// have been rejected as naming a phase that does not exist.
 	phaseHeading = regexp.MustCompile(`^#### ([A-Z]I?[0-9]+(?:\.[0-9]+)?[a-z]?) — (.*)$`)
-	groupRow     = regexp.MustCompile(`^\| \*\*([A-Z]I?)\*\* [^|]*\| [^*]*\*\*([0-9]+)/([0-9]+)\*\*`)
+	groupRow     = regexp.MustCompile(`^\| \*\*([A-Z]I?)\*\* [^|]*\| [^*]*\*\*([0-9]+)/([0-9]+)\*\*(?:[^|]*?\(\+([0-9]+) düştü\))?`)
 	groupOf      = regexp.MustCompile(`^([A-Z]I?)`)
+
+	// A phase can also stop being work without being finished.
+	//
+	// A9 was the first: a designed, argued, plausible phase whose
+	// central claim turned out to be false when it was finally measured
+	// against the code it rested on. Neither state the table knew fitted
+	// it. Calling it done would be a lie; leaving it in the denominator
+	// would say the project owes work it has decided not to do, forever.
+	//
+	// So there is a third state, and it is deliberately expensive to
+	// enter: the heading carries ❌ and has to name where the phase
+	// went. Without that requirement ❌ would be a way to delete
+	// inconvenient work quietly - which is the failure this whole test
+	// exists to prevent, wearing a different mark.
+	droppedMark = "❌"
+	droppedTo   = regexp.MustCompile(`yerine ([A-Z]I?[0-9]*(?:\.[0-9]+)?[a-z]?)`)
 )
 
 // TestPlan_TheGroupTableMatchesThePhaseHeadings.
@@ -71,8 +87,10 @@ func TestPlan_TheGroupTableMatchesThePhaseHeadings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	type tally struct{ done, total int }
+	type tally struct{ done, total, dropped int }
 	fromHeadings := map[string]*tally{}
+	replacements := map[string]string{}
+	phaseIDs := map[string]bool{}
 	var seen int
 
 	for _, line := range strings.Split(string(body), "\n") {
@@ -82,9 +100,25 @@ func TestPlan_TheGroupTableMatchesThePhaseHeadings(t *testing.T) {
 				continue
 			}
 			seen++
+			phaseIDs[id] = true
 			g := groupOf.FindString(id)
 			if fromHeadings[g] == nil {
 				fromHeadings[g] = &tally{}
+			}
+			if strings.Contains(title, droppedMark) {
+				// Out of the denominator, into its own column - and
+				// only if it says where it went.
+				fromHeadings[g].dropped++
+				to := droppedTo.FindStringSubmatch(title)
+				if to == nil {
+					t.Errorf("phase %s is marked %s and does not say what replaced it.\n"+
+						"A dropped phase has to name its successor, otherwise the mark is "+
+						"a way to remove work from the plan without anybody deciding to",
+						id, droppedMark)
+					continue
+				}
+				replacements[id] = to[1]
+				continue
 			}
 			fromHeadings[g].total++
 			if strings.Contains(title, "✅") {
@@ -100,10 +134,13 @@ func TestPlan_TheGroupTableMatchesThePhaseHeadings(t *testing.T) {
 	fromTable := map[string]tally{}
 	for _, line := range strings.Split(string(body), "\n") {
 		if m := groupRow.FindStringSubmatch(line); m != nil {
-			var done, total int
+			var done, total, dropped int
 			fmt.Sscanf(m[2], "%d", &done)
 			fmt.Sscanf(m[3], "%d", &total)
-			fromTable[m[1]] = tally{done, total}
+			if m[4] != "" {
+				fmt.Sscanf(m[4], "%d", &dropped)
+			}
+			fromTable[m[1]] = tally{done, total, dropped}
 		}
 	}
 	if len(fromTable) == 0 {
@@ -120,6 +157,27 @@ func TestPlan_TheGroupTableMatchesThePhaseHeadings(t *testing.T) {
 			t.Errorf("group %s: the table says %d/%d, the headings say %d/%d",
 				g, got.done, got.total, want.done, want.total)
 		}
+		if got.dropped != want.dropped {
+			t.Errorf("group %s: the table says %d dropped phase(s), the headings say %d.\n"+
+				"Write it in the status cell as *(+%d düştü)* - a phase that left the "+
+				"denominator silently is indistinguishable from one that was never planned",
+				g, got.dropped, want.dropped, want.dropped)
+		}
+	}
+
+	// A phase cannot be dropped in favour of somewhere that does not
+	// exist. Without this, "yerine X geçti" would be a sentence rather
+	// than a reference, and the work would be gone with a citation to
+	// nothing.
+	for id, to := range replacements {
+		if _, ok := fromTable[to]; ok {
+			continue
+		}
+		if phaseIDs[to] {
+			continue
+		}
+		t.Errorf("phase %s says it was replaced by %s, and %s is neither a group in the "+
+			"table nor a phase in this document", id, to, to)
 	}
 	for g := range fromTable {
 		if fromHeadings[g] != nil {

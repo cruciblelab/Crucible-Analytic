@@ -84,7 +84,7 @@ gerekçe değil bahane olur.
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **11/14** | A2, A8, A9 |
+| **A** Ayarlar ve saklama | 🟡 **11/13** *(+1 düştü)* | A2, A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
 | **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
@@ -96,6 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
+| **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/4** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -144,6 +145,12 @@ A3 yalnız-ülke ──→ A2 profiller ──→ D5 profil/görünüm ayrımı
 
 L1 şema sürümü ──→ L2 açılış kontrolü ──→ L3 düğme
 
+P1 çağrılar ──→ P2 açıklama yüzeyi ──→ P3 panel ayarları ──→ P4 belge
+                      ▲
+              canlı privacy.ip_storage
+              (metin türetilir, kopyalanmaz;
+               mod değişimi kendiliğinden düzeltir)
+
 H1 · H3 · E2  ←— bağımsız, araya girebilir
 E1            ←— ayrı karar, herkesi yeniden yazdırır
 ```
@@ -174,6 +181,7 @@ geçer.
 | 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ ~~**N4**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
+| 6.5 | **P1 · P2 · P3 · P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
@@ -1427,7 +1435,20 @@ Europe/Berlin) gün sınırı testi.
 
 ---
 
-#### A9 — Ziyaretçi gizlilik kartı ve veri silme talebi ⚠️ **yeni özellik**
+#### A9 — Ziyaretçi gizlilik kartı ve veri silme talebi ❌ **yerine P grubu geçti** *(2026-09-02)*
+
+> **Bu madde yapılmayacak, ve nedeni aşağıda yazdığının yanlış olması.**
+> A9'un merkezindeki cümle — *"başkasının verisini silmeyi isteyemezsin,
+> çünkü başkasının IP+UA'sını sunamazsın"* — ürünün hedeflediği
+> kurulumda geçerli değil: CGNAT arkasında IP+UA sunulmuyor,
+> **paylaşılıyor**, ve `visitor_id`'nin üç girdisi de o durumda ortak
+> oluyor. Yani A9'un silme kanalı, engellemeyi vaat ettiği şeyi —
+> başkasının verisine müdahaleyi — üretiyordu. Ölçümün tamamı ve yerine
+> geçen tasarım **§P grubunda**.
+>
+> Madde silinmedi, çünkü yanlış bir tasarımın kaydı, hiç düşünülmemiş
+> gibi görünen bir boşluktan daha ucuz: aynı fikir bir daha gündeme
+> geldiğinde neden düştüğü burada duruyor.
 
 **Ne:** Müşterinin çerez/gizlilik sayfasına gömülen küçük bir JS kartı.
 Sitenin **ziyaretçisi** kendisi hakkında ne tutulduğunu görür ve
@@ -5481,6 +5502,235 @@ eşleşmemişti, yani mutasyon hiç uygulanmamıştı ve "geçti" boş bir
 geçtiydi. Tekrar edildi, bu sefer uygulandığı doğrulanarak.
 
 ---
+
+---
+
+### P grubu — Ziyaretçiye dönük veri yönetimi *(A9'un yerine geçiyor)*
+
+*(2026-09-02'de eklendi. Kullanıcının isteği: "geliştirici ayarlarına
+yeni özellikler eklemeliyiz, veri yönetimi politikalar için sayfaları
+belirlemesi, kendi çerezlerde ya da başka sistemle gömebileceği ...
+ayrı bir şekilde herhangi bir sayfaya gömebileceği ya da ayrı sayfa
+yapabileceği bir şey, burada kullanıcının verilerini yönetebileceği,
+isterse bunu kapatır, mail bazlı kendisi manuel yapar, caydırmak için
+ona bırakırız" — ve ikinci turda: "bir yöntem yapıp başka birinin başka
+birinin verilerine müdahale etmesini engellemeliyiz, mod değişiminde
+otomatik bunun düzelmesi gerekir".)*
+
+Bu grup **A9'un yerine geçiyor.** A9 planda "ziyaretçi gizlilik kartı ve
+veri silme talebi" olarak duruyordu; aşağıdaki ikinci ölçüm A9'un
+merkezindeki iddiayı yanlışladı, ve yanlışlanan bir maddeyi yerinde
+bırakıp yanına doğrusunu yazmak iki tasarımın aynı anda plan olması
+demekti.
+
+#### Ölçülen üç gerçek
+
+**1. Devre dışı bırakma zaten yazılı, ama ziyaretçi için bulunabilir
+değil.** `beacon.js:37` her yüklenişte `localStorage`'daki
+`crucible.disabled` bayrağına bakıyor ve varsa hiçbir şey göndermiyor.
+Nerede yazılı olduğu: aynı dosyanın 14. satırındaki yorumda,
+`README.md:685`'te, ve `docs/VERI-ENVANTERI.md:413`'te. **Bir sitenin
+ziyaretçisi bu üçünden hiçbirini okumuyor.**
+
+Yani P grubunun ilk işi "kapatma yazmak" değil, **yazılmış olanı
+ulaşılabilir kılmak** — ve bu, işin boyunu bir mertebe değiştiriyor.
+
+**2. Türetilmiş kimlik kişiyi değil, kümeyi adresliyor.** A9'un tasarımı
+şuydu: kart bir kimlik göndermez, sunucu isteğin kendisinden
+(site + ağ + user agent + günün tuzu) beacon'ın yazdığı `visitor_id`'nin
+aynısını hesaplar. A9 bundan şu sonucu çıkarıyordu:
+
+> *"Başkasının verisini silmeyi isteyemezsin, çünkü başkasının IP+UA'sını
+> sunamazsın."*
+
+**Bu cümle, ürünün hedeflediği kurulumda yanlış.** Sunmak gerekmiyor —
+paylaşılıyor. `internal/beacon/visitor.go`'nun kendi belge yorumu tipin
+var oluş sebebini şöyle yazıyor: *"Turkish mobile carriers in particular
+run CGNAT, collapsing very many real people behind one address."*
+HMAC'in üç girdisinin üçü de o durumda ortak: ağ aynı (`visitorNetwork`
+IPv6'yı zaten /64'e indiriyor), user agent aynı (aynı telefon modeli +
+aynı tarayıcı sürümü tek bir katara çıkıyor), tuz zaten ortak.
+
+Sonuç, varsayım değil tanım: **aynı CGNAT adresinin arkasındaki iki kişi
+aynı `visitor_id`'yi türetir.** O kimliğe dayanan bir silme, yabancının
+satırlarını siler; ona dayanan bir gösterim, yabancının satırlarını
+gösterir. Kullanıcının engellememizi istediği şeyin ta kendisi, ve A9
+onu *engellemiyor değil, üretiyordu*.
+
+**3. Tuz yalnız bellekte, ve yeniden başlatmada kayboluyor.**
+`rotate()` her seferinde `rand.Read(32)` çekiyor ve hiçbir yere
+yazmıyor. Yani silmenin gerçek erişimi "bugünkü satırlar" bile değil,
+**"beacon'ın son açılışından beri yazılan bugünkü satırlar"**. A9'un
+kartı, sahip olmadığı bir erişimi ilan edecekti.
+
+#### Karar: açıklama + kapatma; hesap konsolu yok
+
+Üç yol vardı, ikisi ölçümde düştü:
+
+**(a) `visitor_id` ile silme/gösterme.** 2. maddede ölçüldü: kişiyi
+değil kümeyi adresliyor. **Reddedildi.**
+
+**(b) Tarayıcıda tutulan bir sırla silme.** Çalışırdı — ve çalışması
+için ziyaretçinin tarayıcısına **kalıcı bir tanımlayıcı yazmak**
+gerekirdi. Yani özelliğin "yöneteceğini" söylediği kişisel veriyi,
+özelliğin kendisi yaratırdı. Üstüne, bugün olmayan bir yükümlülük gelir:
+`visitor.go` bugünkü tasarımı *"which is what keeps this out of 'durable
+identifier' territory and is why the beacon needs no cookie and
+therefore no cookie banner"* diye savunuyor. **Reddedildi: ilaç
+hastalıktan ağır.**
+
+**(c) Açıklama + kapatma.** İlan ettiği her şeye gerçekten ulaşıyor,
+hiçbir yabancının satırına dokunmuyor, sunucuda yeni durum istemiyor,
+beacon rolüne yeni `GRANT` istemiyor. **Seçildi.**
+
+**Girişim yetkiyle değil, mimariyle engelleniyor.** Kullanıcının
+sorusunun cevabı bir kontrol değil, bir yokluk: *yabancının satırına
+nişan alınabilen bir operasyon yazmıyoruz.* Atlatılacak bir yetki
+kontrolü yok, çünkü kontrol edilecek bir operasyon yok. B3'ün kalıcı
+yasak listesiyle aynı ilke.
+
+#### Fazlar
+
+| faz | ne | neden burada |
+|---|---|---|
+| **P1** | `window.crucible` üzerinde üç çağrı: `optOut` / `optIn` / `status` | yazılmış olanı ulaşılabilir kılıyor; müşterinin kendi çerez bandı çağırır |
+| **P2** | Açıklama yüzeyi — gömülebilir blok **ve** ayrı sayfa, içeriği canlı moddan türeyen | "herhangi bir sayfaya gömebileceği ya da ayrı sayfa yapabileceği"; mod değişiminin kendiliğinden düzelmesi burada |
+| **P3** | Panel: politika sayfası adresleri, iletişim adresi, ve kapatma anahtarı | "isterse bunu kapatır, mail bazlı kendisi manuel yapar" |
+| **P4** | Belgeler: envanterde "planlanan"dan "yazıldı"ya | hukukçuya giden belge, koddan geri kalırsa yanlış belgedir |
+
+---
+
+#### P1 — `optOut` / `optIn` / `status`
+
+**Ne:** `beacon.js`'in bugün açtığı `window.crucible(type, name)`
+fonksiyonunun yanına üç çağrı. Üçü de saf `localStorage`; hiçbiri istek
+göndermiyor, dolayısıyla sunucuda ne durum ne kayıt oluşuyor.
+
+**Neden arayüz değil çağrı:** müşterinin sitesinde zaten bir çerez bandı
+ya da bir CMP var, ve bizim çizdiğimiz bir kutu onun yanında ikinci bir
+kutu olurdu. Çağrı verince müşteri kendi bandının kendi düğmesine
+bağlıyor — kullanıcının "kendi çerezlerde ya da başka sistemle
+gömebileceği" dediği şey bu. `status()` mevcut durumu döndürüyor ki band
+kendi anahtarını doğru konumda çizebilsin.
+
+**Taklit yüzeyi yok:** üç çağrının da etkisi yalnız çağıran tarayıcıda.
+Bir ziyaretçinin başkasının adına yapabileceği bir şey yok, çünkü
+başkasının `localStorage`'ına erişimi yok.
+
+**Bitti ölçütü:** gerçek Chromium'da (`internal/browsertest`) —
+`optOut()` çağrıldıktan sonraki gezinme **satır yazmıyor**; `optIn()`
+sonrası yazıyor; `status()` iki durumu da doğru bildiriyor; ve
+`localStorage`'ın kendisinin fırlattığı ortamda (sandbox'lı iframe)
+üçü de sayfayı kırmıyor — bugünkü `try/catch` deseninin aynısı, ama
+ölçülerek.
+
+---
+
+#### P2 — Açıklama yüzeyi, içeriği canlı moddan türeyen
+
+**Ne:** ziyaretçinin "burada ne toplanıyor" sorusunun cevabı. İki
+biçimde, çünkü kullanıcı ikisini de istedi: **(a)** müşterinin kendi
+gizlilik sayfasına koyduğu bir bağlama noktasına yerleşen blok,
+**(b)** beacon'ın kendi servis ettiği ayrı bir sayfa, bağlantı
+verilebilsin diye.
+
+**Neden beacon servis ediyor:** `docker/compose.yml` panel ile okuma
+API'sini bilerek yayımlamıyor *("Deliberately no ports", "the panel is a
+login form; it belongs behind a...")*. Ziyaretçiye açık olması gereken
+tek şey zaten dışarı bakan tek servistir.
+
+**İçerik türetilir, yazılmaz — ve "mod değişiminde otomatik düzelme"
+bu demek.** Sayfanın metni `privacy.ip_storage`'ı, **yazan tarafın
+okuduğu aynı canlı kaynaktan** okuyor (`internal/beacon/config.go:93`,
+`PrivacyConfig.Live`; beacon bugün de `SetIPMode` ile canlı güncelleniyor).
+Yani mod `masked`'dan `full`'e geçtiğinde açıklama metni bir sonraki
+istekte kendiliğinden değişiyor. İkinci bir metin kopyası yok,
+dolayısıyla sürüklenecek ikinci kopya da yok — deponun her yerindeki
+"listeyi türet, ismi ekleme" kuralının aynısı.
+
+**Dürüst kapsam cümlesi, kartın kendisinde:** açıklama, silme
+düğmesi olmadığını gizlemiyor; **neden olmadığını** yazıyor. Yani
+2. ölçümün sonucu ziyaretçiye de söyleniyor: *bu sistem sizi
+tanıyabilecek bir kimlik tutmuyor, bu yüzden "benim kayıtlarım"
+diyebileceğiniz bir küme de yok.* Çoğu analitik sağlayıcısının
+söyleyemeyeceği cümle, ve reklam değil mimarinin sonucu.
+
+**Bitti ölçütü:** iki mod için iki farklı metin, ikisi de türetilmiş;
+**mutasyonla ölçülecek** — ayarı çalışırken değiştir, sayfayı yeniden
+oku, metnin değiştiğini doğrula *(ve mutasyonun gerçekten uygulandığını
+doğrula: bu projede bir kez boşa giden mutasyon "geçti" demişti)*; bir
+değişmez testi, gizlilik metninin ağaçta ikinci bir kopyası olmadığını
+tutuyor; sayfa hiçbir ziyaretçiye özgü veri okumadığı için sızdıracak
+varlık/sayım da yok.
+
+---
+
+#### P3 — Panel: politika sayfaları, iletişim adresi, kapatma anahtarı
+
+**Ne:** üç ayar.
+
+1. **Politika sayfası adresi/adresleri** — müşterinin kendi gizlilik ve
+   çerez sayfası. P2'nin bloğu "ayrıntı" bağlantısını buraya veriyor;
+   müşteri kendi metnini kendi sayfasında tutuyor.
+2. **İletişim adresi** — elle işleyecekse talebin gideceği yer.
+3. **Ziyaretçi yüzeyi açık/kapalı** — varsayılan **açık**.
+
+**Kapatma serbest, ve panel bedelini açıkça yazıyor.** Kullanıcının
+kararı: *"isterse bunu kapatır, mail bazlı kendisi manuel yapar,
+caydırmak için ona bırakırız."* Panel, anahtarın yanında bunu düz
+Türkçeyle söylüyor: kapatıldığında yükümlülük ortadan kalkmıyor, **elle
+ve müşteriye** geçiyor. Caydırıcılık yasaktan değil, bedelin görünür
+olmasından geliyor.
+
+**Yetki: müşteri yazabilir, geliştirici parolası istenmiyor** — ve bu
+bilinçli, çünkü projenin kuralı ("geliştiriciye iş çıkaran hiçbir şey
+yetkiyle açılmaz, geliştirici parolasına bağlanır") **tam tersi yöne
+işaret ediyor burada:** yüzeyi kapatmak müşteriye iş çıkarıyor, bize
+değil. §8.5'in yedi kilitli ayarına da girmiyor; bu ayarların hiçbiri
+*hangi kişisel verinin ne kadar saklandığına* karar vermiyor. Refleksle
+kilitlenmesin diye buraya yazıldı.
+
+**Bitti ölçütü:** kapalıyken P2'nin iki biçimi de 404 veriyor ve
+`beacon.js` bağlama noktasına hiçbir şey yazmıyor; açıkken ikisi de
+çalışıyor; anahtar değiştiğinde **yeniden başlatma gerekmiyor** (canlı
+ayar, P2'nin okuduğu kaynağın aynısı); politika adresi boşken blok
+bağlantı göstermiyor, bozuk bağlantı göstermiyor.
+
+---
+
+#### P4 — Belgeler
+
+`docs/VERI-ENVANTERI.md` §7'nin "Ziyaretçiye dönük gizlilik kartı"
+maddesi "planlanan"dan çıkıyor ve **ne yapıldığı kadar ne yapılmadığı
+da** yazılıyor — özellikle 2. ölçüm, çünkü hukukçunun soracağı ilk soru
+"silme talebi nasıl karşılanıyor" olacak ve cevabı "silinecek kişisel
+veri kümesi teknik olarak oluşmuyor". README (artık İngilizce) ve
+KURULUM'da müşterinin göreceği kısım.
+
+**Bitti ölçütü:** envanterdeki her iddianın karşılığı kodda gösterilebiliyor;
+belge ile kod arasında bir mutasyon testi *(metinde geçen ayar adının
+gerçekten var olduğunu tutan tür)*.
+
+#### Karara bağlanmamış tek soru — sana
+
+**`full` → `masked` geçişinde, zaten yazılmış jetonlar ne olacak?**
+
+Mod değişimi bugün ileriye dönük: `SetIPMode` bir sonraki isteği
+etkiliyor, geçmiş satırlara dokunmuyor. Yani `full`'de yazılmış
+satırlar, mod `masked`'a alındıktan sonra da anahtarlı jetonu taşımaya
+devam ediyor. "Mod değişiminde otomatik düzelme" isteğin *hangisi*:
+
+- **(i) Yalnız ileriye dönük** *(bugünkü davranış)* — geçmiş, o an
+  yürürlükte olan politikanın kaydı olarak duruyor; saklama süresi
+  dolunca kendiliğinden gidiyor.
+- **(ii) Geçmişi de temizle** — `masked`'a geçiş, yazılmış jeton
+  sütununu da boşaltıyor. Daha temiz bir vaat, ama **geri alınamaz** ve
+  kesişim görünümünün geçmiş kısmını sessizce boşaltır.
+
+Ölçülmüş taraf: jetonun anahtarı yapılandırma dosyasında duruyor, yani
+(i) durumunda bile jeton ancak o anahtara sahip olan için anlamlı.
+Karar seninkilerden; ikisi de savunulabilir, ve **(ii) seçilirse P
+grubuna beşinci bir faz eklenir.**
 
 ---
 

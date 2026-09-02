@@ -8660,3 +8660,116 @@ altından oynatır.
 İki mutasyon: betikten gosec adımını çıkar (ayna hem eksik kurulumu hem
 "rapor üretip yargılamıyor"u söyledi), ve pini kaydır (sürüm uyuşmazlığı
 yakalandı).
+
+---
+
+## Kendi planımdaki bir cümleyi ölçtüm ve tutmadı
+
+Kullanıcı ziyaretçiye dönük bir veri yönetimi yüzeyi istedi, ve planda
+zaten bir madde vardı: A9, "ziyaretçi gizlilik kartı ve veri silme
+talebi". İyi yazılmış görünüyordu. Merkezinde şu cümle duruyordu:
+
+> Başkasının verisini silmeyi isteyemezsin, çünkü başkasının IP+UA'sını
+> sunamazsın.
+
+Tasarım şuydu: kart hiçbir kimlik göndermez, sunucu isteğin kendisinden
+`visitor_id`'yi yeniden hesaplar, dolayısıyla herkes yalnız kendi
+satırına ulaşır. Taklit yüzeyi yok, çünkü taklit edilecek bir iddia yok.
+
+Yazan bendim ve mantığı hâlâ hoşuma gidiyor. Sonra `visitor.go`'yu
+açtım.
+
+### Tipin var oluş sebebi, tasarımın çürütülmesiydi
+
+`VisitorIDs`'in belge yorumu, neden var olduğunu şöyle anlatıyor:
+
+> Turkish mobile carriers in particular run CGNAT, collapsing very many
+> real people behind one address.
+
+Yani `visitor_id`, "IP bir ziyaretçi değildir" diye yazıldı. HMAC'in
+girdileri: site, ağ, user agent. CGNAT arkasındaki iki kişide üçü de
+ortak olabiliyor — ağ tanımı gereği aynı (`visitorNetwork` IPv6'yı
+zaten /64'e indiriyor), user agent aynı telefon modeli ve aynı tarayıcı
+sürümünde tek bir katara çıkıyor, tuz zaten ortak.
+
+Sonuç varsayım değil, aritmetik: **aynı girdiler aynı HMAC'i verir.**
+İki yabancı aynı `visitor_id`'yi taşıyor.
+
+A9'un cümlesindeki hata tek bir fiilde: "sunamazsın" doğru, ama gereken
+şey sunmak değil, **paylaşmak** — ve paylaşılıyor. Yani A9'un silme
+kanalı, engellemeyi vaat ettiği şeyi üretiyordu: bir ziyaretçi, hiçbir
+şeyi taklit etmeden, hiçbir kontrolü atlatmadan, yabancıların satırlarını
+sildirebilirdi. Kullanıcının bu turda tam olarak "engelleyelim" dediği
+şey.
+
+**Bir tasarımın kendi gerekçesini, dayandığı kodun yorumunda
+çürütebilmesi, o gerekçenin hiç ölçülmediğinin işareti.** A9'u yazarken
+`visitor.go`'yu okumamışım; hatırladığım şeyi ölçülmüş sanmışım.
+
+### Üçüncü ölçüm, kapsamı da küçülttü
+
+Tuz `rand.Read(32)` ile çekiliyor ve hiçbir yere yazılmıyor — yeniden
+başlatma onu da kaybediyor. Yani A9'un "bugünkü kayıtlarınız silindi"
+vaadi bile fazlaydı: gerçek erişim "beacon'ın son açılışından beri
+yazılan bugünkü kayıtlar". Reklamı yapılan erişim, sahip olunan
+erişimden büyüktü.
+
+### İkinci yol daha kötüydü ve cazipti
+
+"Tarayıcıda bir sır tut, silmeyi ona bağla" akla ilk gelen düzeltme. Ve
+çalışırdı. Bedeli: ziyaretçinin tarayıcısına **kalıcı bir tanımlayıcı**
+yazmak — yani özelliğin yöneteceğini söylediği kişisel veriyi özelliğin
+kendisinin yaratması. Üstüne bugün olmayan bir yükümlülük: `visitor.go`
+mevcut tasarımı *"why the beacon needs no cookie and therefore no cookie
+banner"* diye savunuyor.
+
+Bir gizlilik özelliğinin, çalışabilmek için gizlilik özelliğini bozması
+gerekiyorsa, sorun özellikte değil sorunun kuruluşunda.
+
+### Kalan yol, ve neden yeterli
+
+Açıklama + kapatma. İlan ettiği her şeye gerçekten ulaşıyor, hiçbir
+yabancının satırına dokunmuyor, sunucuda yeni durum ve beacon rolünde
+yeni `GRANT` istemiyor.
+
+Ve kullanıcının asıl sorusunun cevabı burada değişiyor. "Başkasının
+verisine müdahaleyi engelleyelim" bir yetki kontrolü ister gibi duruyor.
+Ölçüm sonrası cevap bir kontrol değil, bir **yokluk**: yabancının
+satırına nişan alınabilen bir operasyon yazmıyoruz. Atlatılacak kontrol
+yok, çünkü kontrol edilecek operasyon yok.
+
+**En güçlü yetki kontrolü, var olmayan operasyondur.** B3'ün kalıcı
+yasak listesiyle aynı ilke, başka bir yüzde.
+
+### Dördüncü ölçüm: iş sandığımın onda biri
+
+Kapatma zaten yazılıymış. `beacon.js:37` her yüklenişte
+`crucible.disabled` bayrağına bakıyor ve varsa hiçbir şey göndermiyor.
+Nerede yazılı: aynı dosyanın yorumunda, README'de, veri envanterinde.
+Bir sitenin ziyaretçisi bu üçünü de okumuyor.
+
+Yani P1 "kapatma yaz" değil, "yazılmış olanı ulaşılabilir kıl". Bir
+özelliği yazmadan önce onun zaten yazılmış olup olmadığına bakmak, bu
+depoda bir kez daha kazandırdı.
+
+### "Mod değişiminde otomatik düzelme" nereye oturuyor
+
+Kullanıcının ikinci şartı. Cevabı yeni bir mekanizma değil, mevcut
+kuralın aynısı: **metin türetilir, kopyalanmaz.** Açıklama sayfası
+`privacy.ip_storage`'ı yazan tarafın okuduğu canlı kaynaktan okuyor, o
+yüzden mod değiştiğinde bir sonraki istekte kendiliğinden değişiyor.
+İkinci bir kopya olmadığı için sürüklenecek ikinci kopya da yok —
+"listeyi türet, ismi ekleme"nin metin hâli.
+
+Kapanmayan tek soru, kullanıcıya bırakıldı: `full` → `masked` geçişi
+**geçmişi de** temizlemeli mi. Mod değişimi bugün ileriye dönük, ve iki
+seçenek de savunulabilir; ölçülmüş taraf şu ki jetonun anahtarı
+yapılandırma dosyasında, yani temizlenmeyen bir jeton bile ancak o
+anahtara sahip olan için anlamlı.
+
+### Yanlış maddeyi silmedim
+
+A9 planda duruyor, üstünde neden düştüğü yazılı. Silseydim aynı fikir
+altı ay sonra "hiç düşünülmemiş iyi bir fikir" olarak geri gelirdi.
+**Çürütülmüş bir tasarımın kaydı, hiç düşünülmemiş gibi görünen bir
+boşluktan ucuzdur.**
