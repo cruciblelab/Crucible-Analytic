@@ -752,14 +752,41 @@ doğruluk kaynağı demek olurdu.
 | Profil | Beacon | JA4/parmak izi | IP zekâsı | Yaklaşık bellek |
 |---|---|---|---|---|
 | Hafif | ✔ | ✘ | ✘ | ~0 ek |
-| Dengeli (varsayılan) | ✔ | ✔ | yalnız ülke | ~65-70 MB |
-| Tam Crucible | ✔ | ✔ | tam (ülke+ASN) | ~135 MB |
+| Dengeli (varsayılan) | ✔ | ✔ | yalnız ülke | **59 MB** (ölçüldü, A3) |
+| Tam Crucible | ✔ | ✔ | tam (ülke+ASN) | **136 MB** (ölçüldü, A3) |
 | Özel | tek tek | tek tek | tek tek | — |
 
 **Bitti ölçütü:** profil uygulandıktan sonra tek tek ayarların
 veritabanında beklenen değerlerde olduğunu doğrulayan test; bir ayarı
 değiştirince profilin "değiştirilmiş" olarak raporlandığını doğrulayan
 test.
+
+**Başlamadan önce çıkan engel — ölçüldü *(2026-09-02)*:** yukarıdaki
+tablonun dayandığı üç eksenin **hiçbiri bugün bir panel ayarı değil.**
+Panelde 33 ayar var; beacon açık/kapalı, JA4 parmak izi ve IP zekâsı
+onlardan biri değil. Üçü de config dosyasında ve **açılışta** okunuyor:
+`main.go` resolver'ı `cfg.ASNLookup.Enabled` doğruysa bir kez kuruyor,
+yani çalışırken açılamıyor.
+
+Bu, fazın "profil tek tek **ayarları** yazar" kararını doğrudan
+etkiliyor: yazılacak ayarlar yok. Ve profilin baş vaadi olan **bellek**,
+tam da panelden ayarlanamayan bu üç şeyle belirleniyor — yani "yalnız
+panelden ayarlanabilenleri yaz" demek, tablodaki bellek sütununu silmek
+demek.
+
+**Önerilen şekil (müşteriye soruldu, onay bekliyor):** profil **kurulum
+zamanında** seçilir ve `install.sh` onu config dosyalarına tek tek değer
+olarak yazar — betiğin `LOG_DIR`/`STATE_DIR`/parolalar için zaten yaptığı
+işin aynısı. Servisler yeniden başlar; bu bir bedel değil, **zorunluluk**:
+136 MB'ı çalışırken ayırıp bırakmanın yolu yok.
+
+Panelin hangi profilde olunduğunu nereden bileceği ayrı bir karar, ve
+temiz olanı şu: **collector etkin profilini kalp atışı satırına yazar.**
+Panel hiçbir config dosyasına bakmaz — bakması, beş rolü ayırmak için
+harcanan emeği delerdi, çünkü `collector.toml` o servisin veritabanı
+parolasını taşıyor. Ayrıca daha doğru: dosyada ne yazdığı değil, **çalışan
+sürecin gerçekten ne yüklediği** görünür, ve dosya değişip servis
+yeniden başlatılmamışsa panel eski durumu gösterir — doğrusu da odur.
 
 ---
 
