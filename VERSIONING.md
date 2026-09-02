@@ -147,6 +147,22 @@ ve sürüm notunda **KIRICI** diye işaretleniyor.
    git tag -a v0.9.0+L3 -m "L3: yükseltme yolu"
    git push origin v0.9.0+L3
    ```
+
+   **2 ile 3 arasında kapı kırmızıdır, ve bu bilerek böyle.**
+   `TestEveryReleaseNoteHasATagAndEveryTagHasANote` en yeni bir nota
+   etiketsiz olma izni verir — yukarıdaki sıra tam olarak bunu üretiyor —
+   ama **ikinciye vermez.** Etiketsiz bir not "çıkarıldı" diye okunur ve
+   `git checkout` edilemez; iki tanesi, birinin unutulduğu anlamına
+   gelir.
+
+   Yani 2 ve 3 birlikte gider. Etiketi başkası kesecekse (bu depoda
+   olduğu gibi: bazı oturumların kimlik bilgileri `refs/tags/` yazamıyor,
+   HTTP 403 alır) not ile etiket arasında geçen süre boyunca kapı
+   kırmızı kalır — bir sonraki notu yazmadan önce kesilmiş olmalı.
+
+   Ölçüldü: `v0.14.2`'nin notu yazıldı, etiketi kesilmedi, ve sonraki not
+   (`v0.15.0+N6`) eklenince kapı `unit (-race)` işinde düştü. Tek
+   kontrol, doğru sebep.
 4. `release/build.sh` gerisini yapıyor: `git describe --tags` etiketi
    bulur, altı binary'ye `-X main.version` ile basar, paketi
    `crucible-analytic-v0.9.0+L3` diye adlandırır ve SHA256SUMS üretir.
