@@ -20,6 +20,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/profile"
 	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
@@ -66,10 +67,20 @@ func healthServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
 func writeBeat(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error) {
 	t.Helper()
+	writeBeatWithProfile(t, store, version, started, counters, note, "")
+}
+
+// writeBeatWithProfile is writeBeat plus the one field the profile test
+// needs. Two functions rather than one more parameter on every existing
+// call site, which would have been six edits saying "no profile here".
+func writeBeatWithProfile(t *testing.T, store *panel.Store, version string, started time.Time,
+	counters map[string]int64, note error, prof string) {
+	t.Helper()
 
 	r := heartbeat.New(heartbeat.Options{
 		Pool:    testdb.Pool(t, testdb.Collector),
 		Version: version,
+		Profile: prof,
 		Started: started,
 		Counters: func() map[string]int64 {
 			return counters
@@ -371,5 +382,46 @@ func TestAnUnknownActionIsRefused(t *testing.T) {
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("an unnamed action answered %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestTheHealthPageShowsTheResourceProfile.
+//
+// # What this is checking that the unit tests cannot
+//
+// The chain, end to end: a collector reports a profile id through the
+// heartbeat, the row survives a real database, the panel reads it back,
+// resolves it to a label out of internal/profile, and draws it. Four
+// packages and a table, each of which has its own tests and none of
+// which can tell whether the next one is listening.
+//
+// The label is asserted rather than the id, because the label is what
+// the customer reads. A page that showed "dengeli" would be showing an
+// internal identifier to somebody who never chose one.
+func TestTheHealthPageShowsTheResourceProfile(t *testing.T) {
+	srv, client, store := healthServer(t)
+
+	writeBeatWithProfile(t, store, "v-profile-page", time.Now().Add(-time.Hour),
+		map[string]int64{}, nil, "dengeli")
+
+	status, body := get(t, client, srv.URL+HealthPath)
+	if status != http.StatusOK {
+		t.Fatalf("the health page answered %d", status)
+	}
+
+	// The label from internal/profile, not the id and not a copy of the
+	// word: a second spelling here would pass while the two drifted.
+	want, ok := profile.ByID("dengeli")
+	if !ok {
+		t.Fatal("internal/profile no longer offers \"dengeli\"; this test names a " +
+			"profile that is gone")
+	}
+	if !strings.Contains(body, want.Label) {
+		t.Errorf("the health page does not show the reported profile %q", want.Label)
+	}
+	// And the column exists at all, so a page that happened to contain
+	// the word somewhere else would not pass.
+	if !strings.Contains(body, "Profil") {
+		t.Error("the services table has no profile column")
 	}
 }

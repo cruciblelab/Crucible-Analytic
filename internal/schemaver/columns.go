@@ -126,3 +126,32 @@ func queryRows(ctx context.Context, q Querier, sql string, args ...any) (map[str
 	}
 	return out, rows.Err()
 }
+
+// HasColumn reports whether one column is there.
+//
+// RequireColumns' question is "may this build write at all", and its
+// answer is a refusal. This is the other question, and it has a different
+// answer: a build that can write most of a row and one column fewer.
+//
+// There is exactly one place that shape is right, and it is monitoring.
+// The heartbeat is what tells an operator whether a service is alive, so
+// it is the one writer that must keep working while the schema is
+// mid-upgrade - the window between "new binary deployed" and "schema
+// applied" is precisely when somebody is watching that page, and a
+// heartbeat that refused to write during it would report every service
+// as down at the moment of maximum anxiety.
+//
+// Everywhere else the refusal is right, because writing a row with a
+// column missing loses data silently. Nothing about a heartbeat row is
+// data: it is a status, replaced every minute.
+//
+// An error is not a "no". A role that cannot read pg_catalog, or a
+// database that has gone away, is a different fact from a column that is
+// absent, and the caller has to be able to tell them apart.
+func HasColumn(ctx context.Context, q Querier, table, column string) (bool, error) {
+	have, err := columnsOf(ctx, q, table)
+	if err != nil {
+		return false, err
+	}
+	return have[column], nil
+}

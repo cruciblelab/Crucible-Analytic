@@ -843,14 +843,46 @@ etiketi, gecelik işte koşuyor) gerçek `--memory=256m` altında reddi,
 `--memory=512m` altında başlamayı ve küçük profilin 256 MB'ta çalışmasını
 ölçüyor — **burada `SKIP` verdi**, yani yazıldı ama henüz koşmadı.
 
-##### Kalan üç iş
+##### İkinci dilim *(2026-09-02)*: profil kalp atışında, ve panelde görünüyor
 
-1. **`install.sh` profil seçimi** — seçilen profili tek tek değer olarak
-   config dosyalarına yazar.
-2. **Kalp atışı satırına profil** — yeni bir `TEXT` sütun. Bugün
-   `counters` yalnız sayı taşıyor, yani etiket oraya sığmıyor. Şema
-   değişikliği, dolayısıyla sürüm 8.
-3. **Panelde gösterim**, "(değiştirilmiş)" dâhil.
+**Ne yazıldı:** `service_heartbeat.profile` sütunu (şema 8), collector'ın
+onu yazması, panelin Sağlık sayfasında yeni bir sütun olarak göstermesi.
+Etiket `internal/profile`'dan geliyor — mesaj tablosuna ikinci bir isim
+listesi konmadı, çünkü profiller orada tanımlı ve ikinci liste
+güncellenmeyi bekleyen ikinci şeydir.
+
+**Kalp atışı, eksik sütunla yazmaya devam ediyor** — ve bu, deponun geri
+kalanının tersi. Buradaki her yazıcı eksik sütunla başlamayı reddeder,
+haklı olarak: eksik sütunla yazmak veri kaybettirir. Kalp atışı veri
+değil **durum** yazıyor, ve o durumu gösteren sayfa tam da yükseltmenin
+ortasında bakılan sayfa. "Şema önce, ikili sonra" sırasının arasında
+kalan operatörü, izleme körken bırakmak bir etiketi kaybetmekten kötü.
+Aynı esnetme okuma tarafında da var: yeni panel, eski şemalı bir
+veritabanında sayfayı gösteriyor.
+
+**Nasıl doğrulandı — gerçek veritabanına karşı.** Bu oturumda yerel bir
+PostgreSQL 16.13 + TimescaleDB 2.17.2 ayağa kaldırıldı ve `install.sh`
+gerçekten koşturuldu. Sonra:
+
+- Şema **yükseltilmeden önce** kalp atışı entegrasyon süiti geçti — yani
+  bozulma yolu gerçek bir veritabanında ölçüldü, kurgulanarak değil.
+- Sütun uygulandıktan sonra profil yazılıyor ve `Read` ile geri geliyor.
+- Panelin Sağlık sayfası, gerçek bir kalp atışı satırından gelen profili
+  **etiketiyle** gösteriyor *(uçtan uca: collector → satır → panel →
+  HTML)*.
+- **Kapının tamamı yeşil** — `./release/gate.sh --all`, yani `release` ve
+  `integration` yarıları dâhil.
+
+Üç mutasyon, üçü de yakalandı: sütunu hiç yazma; bozulma yolunu kaldır
+(eski şemada satır hiç yazılmıyor); panelde etiket yerine ham kimlik
+göster.
+
+##### Kalan iş
+
+**`install.sh` profil seçimi** — seçilen profili tek tek değer olarak
+config dosyalarına yazar. "(değiştirilmiş)" göstergesi de buraya bağlı:
+bugün panel *çalışan* profili gösteriyor, ve bir profilin "değiştirilmiş"
+olması ancak seçilmiş bir profil kaydedildiğinde anlam kazanıyor.
 
 Panelin hangi profilde olunduğunu nereden bileceği ayrı bir karar, ve
 temiz olanı şu: **collector etkin profilini kalp atışı satırına yazar.**

@@ -9,6 +9,43 @@ yapacağım".
 
 ---
 
+## v0.19.0 — 2026-09-02
+
+Panelin **Sağlık** sayfası artık collector'ın hangi kaynak profilini
+çalıştırdığını gösteriyor.
+
+**Şema sürümü: 8.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Yükselt**. Tek bir sütun ekleniyor, veri değişmiyor, servis
+durmuyor.
+
+### Ne değişti
+
+`service_heartbeat` tablosuna `profile` sütunu eklendi. Collector her
+kalp atışında hangi profilde çalıştığını yazıyor; panel onu servis
+tablosunda yeni bir sütunda gösteriyor.
+
+**Neden dosyadan değil de buradan:** panelin veritabanı rolü
+`collector.toml`'u okuyamaz ve okumayı öğrenmemeli — o dosya collector'ın
+veritabanı parolasını taşıyor, ve beş ayrı rol tam da bunun için var.
+Ayrıca daha doğru: dosya birinin ne yazdığını söyler, kalp atışı satırı
+**çalışan sürecin gerçekten ne yüklediğini.** İkisi ayrıldığında —
+dosya değişmiş, servis yeniden başlatılmamış — panel eskisini gösterir,
+ve çalışan da eskisidir.
+
+### Yükseltmeden önce ve sonra
+
+**Bu sürümü kurup şemayı henüz yükseltmediyseniz her şey çalışmaya
+devam eder.** Kalp atışı, sütunun olmadığını fark edip onsuz yazıyor;
+panel de onsuz okuyor. Görünmeyen tek şey profil sütunu.
+
+Bu bilinçli bir istisna: bu depodaki her yazıcı eksik sütunla başlamayı
+**reddeder**, çünkü eksik sütunla yazmak veri kaybettirir. Kalp atışı
+veri yazmıyor, **durum** yazıyor — ve o durumu gösteren sayfa, tam da
+yükseltmenin ortasında bakılan sayfa. Yükseltme sırasında izlemeyi
+körleştirmek, bir etiketi kaybetmekten kötü.
+
+---
+
 ## v0.18.0 — 2026-09-02
 
 **KIRICI (dar).** Collector, konteyner bellek sınırının altına sığmayan

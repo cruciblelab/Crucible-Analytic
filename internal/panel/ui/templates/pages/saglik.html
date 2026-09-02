@@ -20,6 +20,7 @@ replacing the page. */}}
 <tr>
 <th scope="col">{{t "saglik.sutun.servis"}}</th>
 <th scope="col">{{t "saglik.sutun.surum"}}</th>
+<th scope="col">{{t "saglik.sutun.profil"}}</th>
 <th scope="col">{{t "saglik.sutun.son_haber"}}</th>
 <th scope="col">{{t "saglik.sutun.calisma"}}</th>
 <th scope="col">{{t "saglik.sutun.sayaclar"}}</th>
@@ -30,6 +31,10 @@ replacing the page. */}}
 <tr class="{{if .Stale}}kaldi{{else}}gecti{{end}}">
 <th scope="row">{{t (printf "saglik.servis.%s" .Name)}}</th>
 <td><code>{{if .Version}}{{.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
+{{- /* A dash rather than a blank: three of the four services have no
+resource profile at all, and an empty cell reads as a missing value
+rather than as an absent one. */}}
+<td>{{if .Profile}}{{.Profile}}{{else}}<span class="ipucu">—</span>{{end}}</td>
 <td>
   {{$.F.Since .LastBeat}}
   {{- if .Stale}} <span class="uyari">{{t "saglik.eskimis"}}</span>{{end}}

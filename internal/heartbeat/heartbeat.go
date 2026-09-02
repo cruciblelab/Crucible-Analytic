@@ -39,6 +39,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 )
 
 // DefaultInterval is how often a service writes its row.
@@ -103,6 +105,10 @@ type Beat struct {
 	StartedAt time.Time
 	BeatAt    time.Time
 	Counters  map[string]int64
+	// Profile is the resource profile the service is running, empty for
+	// the services that have none and for a build older than the column.
+	// See internal/profile and the schema's comment on it.
+	Profile   string
 	LastError string
 	// LastErrorAt is the zero time when nothing has failed, rather than
 	// a nil pointer: a template cannot hand a *time.Time to a formatter,
@@ -140,9 +146,19 @@ type Reporter struct {
 	// than a value so the service keeps owning its own numbers - this
 	// package never holds a reference to a counter it did not create.
 	counters func() map[string]int64
+	// profile is fixed for the life of the process: it is derived from
+	// configuration that is read once at startup, and changing it needs
+	// a restart because the datasets it names are loaded at startup too.
+	profile  string
 	interval time.Duration
 	logger   *slog.Logger
 	now      func() time.Time
+
+	// profileOnce guards the one-time check for the profile column; see
+	// write. hasProfile is only written inside it, and only read after
+	// it, so it needs no lock of its own.
+	profileOnce sync.Once
+	hasProfile  bool
 
 	mu          sync.Mutex
 	lastError   string
@@ -169,8 +185,12 @@ type Options struct {
 	//
 	// Set only by tests, which need to name a role they are not
 	// connected as.
-	Service  string
-	Version  string
+	Service string
+	Version string
+	// Profile is what internal/profile calls this service's resource
+	// configuration. Only the collector has one; everything else leaves
+	// it empty, which the panel renders as nothing.
+	Profile  string
 	Started  time.Time
 	Counters func() map[string]int64
 	Interval time.Duration
@@ -200,7 +220,7 @@ func New(o Options) *Reporter {
 	}
 	return &Reporter{
 		pool: o.Pool, service: o.Service, version: o.Version,
-		started: o.Started, counters: o.Counters,
+		profile: o.Profile, started: o.Started, counters: o.Counters,
 		interval: o.Interval, logger: o.Logger, now: o.Now,
 	}
 }
@@ -304,18 +324,7 @@ func (r *Reporter) beat(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	_, execErr := r.pool.Exec(ctx, `
-		INSERT INTO service_heartbeat
-		    (service, version, started_at, beat_at, counters, last_error, last_error_at)
-		VALUES ($1, $2, $3, now(), $4, $5, $6)
-		ON CONFLICT (service) DO UPDATE SET
-		    version = EXCLUDED.version,
-		    started_at = EXCLUDED.started_at,
-		    beat_at = now(),
-		    counters = EXCLUDED.counters,
-		    last_error = EXCLUDED.last_error,
-		    last_error_at = EXCLUDED.last_error_at`,
-		r.service, r.version, r.started, counters, lastError, errAt)
+	execErr := r.write(ctx, counters, lastError, errAt)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -343,10 +352,33 @@ func (r *Reporter) beat(ctx context.Context) {
 // so this returns what is there and the caller says which services it
 // expected.
 func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
-	rows, err := pool.Query(ctx, `
-		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at
+	// The same accommodation the writer makes, for the same window and
+	// the same reason: a panel binary carrying schema 8 against a
+	// database still on 7 must show the health page rather than an
+	// error. It is the page an operator opens to find out what state the
+	// upgrade is in.
+	// Two whole queries rather than one with the column name pasted in.
+	// The pasted version worked and read worse in the way that matters:
+	// a query built by concatenation is one a future edit can make take
+	// a value from somewhere else, and this file would then be the place
+	// it happened. Two literals cannot.
+	const (
+		withProfile = `
+		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at, profile
 		FROM service_heartbeat
-		ORDER BY beat_at DESC`)
+		ORDER BY beat_at DESC`
+		withoutProfile = `
+		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at, ''::text
+		FROM service_heartbeat
+		ORDER BY beat_at DESC`
+	)
+
+	query := withoutProfile
+	if has, err := schemaver.HasColumn(ctx, pool, "service_heartbeat", "profile"); err == nil && has {
+		query = withProfile
+	}
+
+	rows, err := pool.Query(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +393,7 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 			version string
 		)
 		if err := rows.Scan(&b.Service, &version, &b.StartedAt, &b.BeatAt,
-			&raw, &b.LastError, &errAt); err != nil {
+			&raw, &b.LastError, &errAt, &b.Profile); err != nil {
 			return nil, err
 		}
 		b.Version = version
@@ -400,4 +432,76 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(runes[:max]) + "…"
+}
+
+// write inserts or replaces this service's row.
+//
+// # The one column it will do without
+//
+// profile arrived with schema 8. A binary carrying it, run against a
+// database that has not been upgraded yet, would fail every write - and
+// the reporter's failure is quiet by design (one warning, then silence),
+// so the visible symptom would be the health page showing every service
+// as down.
+//
+// That window is not hypothetical: this project's upgrade order is
+// schema first, binaries second, and an operator who does it the other
+// way round, or who is halfway through, is exactly the person looking at
+// the health page. Blinding the monitoring during an upgrade is worse
+// than losing one label, so the label is what gives way.
+//
+// Checked once rather than per beat. The answer only changes when
+// somebody applies a schema, which restarts nothing - so a process that
+// started before the upgrade keeps writing without the column until it
+// is restarted, and that is both correct and invisible: the column is
+// empty for a minute or a day and then it is not.
+func (r *Reporter) write(ctx context.Context, counters []byte, lastError string, errAt *time.Time) error {
+	r.profileOnce.Do(func() {
+		has, err := schemaver.HasColumn(ctx, r.pool, "service_heartbeat", "profile")
+		if err != nil {
+			// Could not ask. Assume the column is there, because the
+			// far more common reason to be here is a database blip
+			// rather than an old schema, and the write below reports
+			// its own failure anyway.
+			r.hasProfile = true
+			return
+		}
+		r.hasProfile = has
+		if !has {
+			r.logger.Info("heartbeat: this database has no profile column yet, so the " +
+				"resource profile will not appear in the panel until the schema is " +
+				"upgraded; everything else is being reported normally")
+		}
+	})
+
+	if !r.hasProfile {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO service_heartbeat
+			    (service, version, started_at, beat_at, counters, last_error, last_error_at)
+			VALUES ($1, $2, $3, now(), $4, $5, $6)
+			ON CONFLICT (service) DO UPDATE SET
+			    version = EXCLUDED.version,
+			    started_at = EXCLUDED.started_at,
+			    beat_at = now(),
+			    counters = EXCLUDED.counters,
+			    last_error = EXCLUDED.last_error,
+			    last_error_at = EXCLUDED.last_error_at`,
+			r.service, r.version, r.started, counters, lastError, errAt)
+		return err
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO service_heartbeat
+		    (service, version, started_at, beat_at, counters, last_error, last_error_at, profile)
+		VALUES ($1, $2, $3, now(), $4, $5, $6, $7)
+		ON CONFLICT (service) DO UPDATE SET
+		    version = EXCLUDED.version,
+		    started_at = EXCLUDED.started_at,
+		    beat_at = now(),
+		    counters = EXCLUDED.counters,
+		    last_error = EXCLUDED.last_error,
+		    last_error_at = EXCLUDED.last_error_at,
+		    profile = EXCLUDED.profile`,
+		r.service, r.version, r.started, counters, lastError, errAt, r.profile)
+	return err
 }

@@ -151,3 +151,15 @@ func largestThatFits(ceiling memlimit.Limit, rateStore uint64, bounded bool) str
 	return fmt.Sprintf("Bu bellekte çalışacak en büyük profil: %q "+
 		"(asn_lookup ayarlarını ona göre değiştirin).", best)
 }
+
+// collectorProfileID is what this process reports as its profile.
+//
+// Empty when nothing matches, rather than a made-up name: the panel
+// renders an empty profile as nothing at all, which is the truthful
+// rendering of "this build does not know what it is running".
+func collectorProfileID(cfg *collector.Config) string {
+	if p, ok := cfg.Profile(); ok {
+		return p.ID
+	}
+	return ""
+}

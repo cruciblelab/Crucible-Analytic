@@ -1046,6 +1046,7 @@ ip_country_ranges = "IP → ülke aralıkları"
 [metin.saglik.sutun]
 servis = "Servis"
 surum = "Sürüm"
+profil = "Profil"
 son_haber = "Son haber"
 calisma = "Çalışma süresi"
 sayaclar = "Sayaçlar"

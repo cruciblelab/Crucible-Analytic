@@ -9198,3 +9198,62 @@ gerçekten önce çalışıyor. **Ama konteyner reddi bu oturumda
 Bunu böyle yazmak, "ölçüldü" demekten daha uzun ve tek dürüst olanı. Bu
 oturumda `ok` yazan bir satır gördüm ve o satır **atlandığı için** ok
 diyordu; `-v` ile bakmasam "geçti" diye yazacaktım.
+
+---
+
+## Bu oturumda ilk kez gerçek bir veritabanı vardı
+
+A2'nin ikinci dilimi — profil, kalp atışı satırından panele — bir şema
+değişikliği istiyordu, ve şema değişikliğini gerçek veritabanı olmadan
+doğrulamak mümkün değil. Oturumda `CA_SUPERUSER_DSN` yoktu, 5432
+dinlenmiyordu, `postgresql` paketi kurulu değildi.
+
+Ama `/usr/lib/postgresql/16/bin` oradaydı, ve `timescaledb-2.17.2.so`
+da. Yani sunucu kuruluydu, yalnız çalışmıyordu. Üç engel çıktı ve üçü de
+küçüktü: PostgreSQL root olarak çalışmıyor (`postgres` kullanıcısıyla),
+scratchpad yolunun ara dizinleri o kullanıcıya kapalı (`/var/tmp`'ye
+geçildi), ve `/tmp` soket kilidi için yazılabilir değil (kendi `run`
+dizini).
+
+Sonra deponun **kendi kurulum betiği** koşturuldu — `install.sh --db
+analytics` — ve beş rolü, şemayı, parolaları gerçekten yazdı. Yani hem
+test ortamı hazır oldu hem de kurulum betiği bir kez daha gerçek bir
+veritabanına karşı ölçüldü.
+
+**"Ölçülemedi" demek zorunda kalmamak için harcanan on dakika, bu
+oturumdaki en kârlı on dakikaydı.** Önceki iki turda "docker yok, bu
+kısım koşmadı" yazmıştım; burada yazmak zorunda kalmadım.
+
+### Bozulma yolu, kurgulanmadan ölçüldü
+
+Sıralama şans eseri doğru çıktı ve en iyi kanıtı verdi: yeni ikiliyi,
+`profile` sütunu **henüz eklenmemiş** bir veritabanına karşı koşturdum ve
+kalp atışı entegrasyon süiti geçti. Yani "eski şemada da yazmaya devam
+eder" iddiası bir kurguya değil, gerçek bir eski şemaya karşı ölçüldü.
+
+Sonra bunu teste çevirdim — sütunu düşüren, yazan, ve geri koyan bir
+entegrasyon testi. Şansı tekrarlanabilir hâle getirmek, şansı not etmekten
+iyidir.
+
+### Deponun kuralının tersine gittiğim tek yer
+
+Bu depodaki her yazıcı eksik sütunla başlamayı **reddeder.** L2'nin tamamı
+bunun üzerine kurulu, ve gerekçesi ölçülmüş: eksik sütunla yazan bir
+süreç sağlıklı görünüp her satırı kaybediyor.
+
+Kalp atışını buna dâhil etmedim, ve gerekçesi tek cümle: **kalp atışı veri
+yazmıyor, durum yazıyor.** Kaybedilen şey bir dakikalık bir etiket, kazanılan
+şey yükseltmenin ortasında çalışan bir izleme sayfası. "Şema önce, ikili
+sonra" sırasının arasında kalan operatör, tam da o sayfaya bakan kişi; orada
+her servisi "düştü" diye göstermek, gösterebileceğimiz en yanlış şey.
+
+Bir kuralın istisnası, kuralın gerekçesinin geçmediği yerdir. Geçmediğini
+göstermek de istisnayı yazan kişinin işi.
+
+### Küçük ama tekrar eden: birleştirilen sorgu
+
+`Read`'i önce sütun adını dizeye ekleyerek yazdım. Çalışıyordu. Sonra iki
+tam sorgu literaline çevirdim — gosec'i beklemeden, çünkü bu oturumda aynı
+dersi bir kez daha almıştım: **bir bulguyu açıklamak yerine yok etmek.**
+Birleştirmeyle kurulan bir sorgu, gelecekteki bir düzenlemenin başka bir
+yerden değer alabileceği sorgudur; iki literal olamaz.

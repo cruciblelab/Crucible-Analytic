@@ -156,6 +156,13 @@ func main() {
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    writer.Pool(),
 		Version: buildinfo.Version(version),
+		// What this process actually loaded, not what a file says. The
+		// panel has no way to read collector.toml and must not gain one
+		// - that file holds this service's database password - so the
+		// running process is the only honest source, and it is also the
+		// more useful one: a file edited without a restart is a file
+		// that describes nothing yet.
+		Profile: collectorProfileID(cfg),
 		Logger:  logger,
 		Counters: func() map[string]int64 {
 			written, failed := writer.Counters()

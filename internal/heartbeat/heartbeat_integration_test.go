@@ -213,3 +213,122 @@ func TestRunBeatsImmediately(t *testing.T) {
 	}
 	t.Fatal("no row appeared within three seconds, with an interval of one hour")
 }
+
+// TestTheProfileReachesTheRowAndComesBack.
+//
+// The plain case, against the real column: what the collector reports is
+// what the panel reads. Asserted through Read rather than by selecting
+// the column directly, because Read is what the panel actually calls and
+// a column written but never selected is a column nobody sees.
+func TestTheProfileReachesTheRowAndComesBack(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	r := New(Options{Pool: pool, Version: "v-profile", Profile: "dengeli"})
+	r.beat(ctx)
+
+	beats, err := Read(ctx, testdb.Admin(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *Beat
+	for i := range beats {
+		if beats[i].Service == testdb.Collector {
+			found = &beats[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no row for %s after a beat", testdb.Collector)
+	}
+	if found.Profile != "dengeli" {
+		t.Errorf("Profile = %q, want %q", found.Profile, "dengeli")
+	}
+}
+
+// TestAServiceWithNoProfileReportsNone.
+//
+// Three of the four services have no resource profile, and the empty
+// string is what they must write. The alternative a future edit might
+// reach for - a placeholder like "none" or "-" - would reach the panel
+// as a profile named "none" and cost somebody a minute working out which
+// one that is.
+func TestAServiceWithNoProfileReportsNone(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	New(Options{Pool: pool, Version: "v-noprofile"}).beat(ctx)
+
+	var got string
+	if err := testdb.Admin(t).QueryRow(ctx,
+		`SELECT profile FROM service_heartbeat WHERE service = $1`,
+		testdb.Collector).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Errorf("profile = %q, want empty for a service that has none", got)
+	}
+}
+
+// TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind.
+//
+// # The window this is about
+//
+// The profile column arrived with schema 8, and this project's upgrade
+// order is schema first, binaries second. Somebody who does it the other
+// way round - or who is simply between the two steps - is running a
+// binary that knows about a column the database does not have.
+//
+// Every other writer in this repository refuses to start in that state,
+// correctly: a row written with a column missing loses data. The
+// heartbeat is the exception, and the reason is what it is for. It is
+// how the panel knows whether a service is alive, so a heartbeat that
+// stopped writing during an upgrade would report every service as down
+// at the exact moment an operator is watching to see whether the upgrade
+// worked.
+//
+// So the label gives way and the row survives. This test drops the
+// column, writes, and checks that the beat is still there.
+func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
+	pool := testPool(t)
+	admin := testdb.Admin(t)
+	ctx := context.Background()
+
+	if _, err := admin.Exec(ctx, `ALTER TABLE service_heartbeat DROP COLUMN profile`); err != nil {
+		t.Fatalf("dropping the column this test is about: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(),
+			`ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS profile TEXT NOT NULL DEFAULT ''`); err != nil {
+			t.Fatalf("restoring the column: %v - this database is now on an older shape "+
+				"than the schema files, and every later run in it will be measuring "+
+				"something other than what it thinks", err)
+		}
+	})
+
+	r := New(Options{Pool: pool, Version: "v-behind", Profile: "tam"})
+	r.beat(ctx)
+
+	var version string
+	if err := admin.QueryRow(ctx,
+		`SELECT version FROM service_heartbeat WHERE service = $1`,
+		testdb.Collector).Scan(&version); err != nil {
+		t.Fatalf("no heartbeat row was written against the older schema: %v\n"+
+			"The panel would show this service as down for as long as the upgrade "+
+			"takes, which is when somebody is watching it", err)
+	}
+	if version != "v-behind" {
+		t.Errorf("version = %q, want %q", version, "v-behind")
+	}
+
+	// And the reader survives it too, for the same reason: the panel
+	// binary may be the new one while the database is still the old one.
+	beats, err := Read(ctx, admin)
+	if err != nil {
+		t.Fatalf("Read failed against the older schema: %v", err)
+	}
+	for _, b := range beats {
+		if b.Service == testdb.Collector && b.Profile != "" {
+			t.Errorf("Profile = %q against a database with no such column", b.Profile)
+		}
+	}
+}

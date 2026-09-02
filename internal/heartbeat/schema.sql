@@ -113,3 +113,29 @@ CREATE POLICY heartbeat_write ON service_heartbeat
     FOR ALL
     USING (service = current_user)
     WITH CHECK (service = current_user);
+
+-- The resource profile the collector is actually running (A2).
+--
+-- # Why this is a column and not a counter
+--
+-- counters is JSONB of name to number, and a profile is a name. Encoding
+-- it as a number would mean a mapping, and a mapping is the second
+-- source of truth this whole feature is built to avoid: A2's rule is
+-- that the profile is derived from the settings that cost memory and
+-- stored nowhere.
+--
+-- # Why the panel reads it here rather than from a config file
+--
+-- The panel's role cannot read collector.toml, and must not learn to:
+-- that file carries the collector's database password, and five separate
+-- roles exist precisely so no service holds another's credentials.
+--
+-- It is also the more truthful answer. A file says what somebody wrote;
+-- this says what the running process actually loaded. When the two
+-- differ - the file was edited and the service was never restarted - the
+-- panel shows the old value, and the old value is what is running.
+--
+-- Empty for every service that is not the collector, and for a collector
+-- built before this column existed. Both mean "not reported", which the
+-- panel renders as nothing rather than as a profile named "".
+ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS profile TEXT NOT NULL DEFAULT '';

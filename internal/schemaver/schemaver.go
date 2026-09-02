@@ -96,14 +96,20 @@ import (
 // nothing. Adopting the rule costs one hash change, which every existing
 // database sees once - and a hash that moves needs a number to move with
 // it or the mismatch has no order, which is this bump.
-const Version = 7
+//
+// Version 8 is an ordinary one: service_heartbeat gained a profile
+// column (A2). Additive, so an older binary writing into it carries on
+// unaffected - Case A above - and the heartbeat reporter degrades to the
+// column list it has rather than refusing, because monitoring is the one
+// writer that must survive the window this number exists to describe.
+const Version = 8
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "7bfdefb18f8779ab274f9def80cac3a78bed7a665c990fce460ea9fcaba6368f"
+const Fingerprint = "71a87c1f8d811d8cb6add2167f79ec48685546f8511338c78cb9ffeead5d9ac8"
 
 // FingerprintOf hashes a set of schema files.
 //

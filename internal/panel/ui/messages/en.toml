@@ -1009,6 +1009,7 @@ ip_country_ranges = "IP → country ranges"
 [metin.saglik.sutun]
 servis = "Service"
 surum = "Version"
+profil = "Profile"
 son_haber = "Last report"
 calisma = "Uptime"
 sayaclar = "Counters"

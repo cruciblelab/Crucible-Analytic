@@ -12,6 +12,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/profile"
 )
 
 // The system health page.
@@ -152,6 +153,19 @@ type healthService struct {
 
 	LastBeat time.Time
 	Uptime   time.Duration
+
+	// Profile is the resource profile this service reports, already
+	// turned into the name a person reads. Empty for the services that
+	// have none and for a collector too old to report one; the template
+	// draws a dash there rather than inventing a value.
+	//
+	// The label comes from internal/profile rather than from the message
+	// table, because that package is where the profiles are defined and
+	// a second list of their names would be a second thing to update.
+	// An id this build does not know is shown raw: a newer collector
+	// against an older panel should say something true rather than
+	// nothing at all.
+	Profile string
 
 	Counters []healthCounter
 
@@ -421,6 +435,7 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 			Uptime:      b.Uptime(),
 			LastError:   b.LastError,
 			LastErrorAt: b.LastErrorAt,
+			Profile:     profileLabel(b.Profile),
 		}
 		// Only counters with a label, in a fixed order. A counter a
 		// service invented and nobody has words for would otherwise
@@ -492,4 +507,21 @@ func (s *Server) healthAPI(ctx context.Context) healthAPI {
 	}
 	out.Reachable = true
 	return out
+}
+
+// profileLabel turns a reported profile id into the name a person reads.
+//
+// An empty id stays empty: three of the four services have no profile,
+// and a placeholder would look like one they had.
+func profileLabel(id string) string {
+	if id == "" {
+		return ""
+	}
+	if p, ok := profile.ByID(id); ok {
+		return p.Label
+	}
+	// Unknown, which means a service newer than this panel. Its own id
+	// is the most truthful thing available, and more useful than a blank
+	// cell to whoever is working out why the two disagree.
+	return id
 }
