@@ -8961,3 +8961,64 @@ yükseltmede parola isteyen panel olurdu.
 Buradaki gerekçe — "şema değişti, sıraya sokulmalı" — benim durumumda
 geçerli değildi, çünkü şema değişmemişti. Sayı doğru değişiyordu; soru
 yanlıştı.
+
+---
+
+## "Docker'da da çalışacak" bir umut değil, bir yol kısıtı
+
+Kullanıcı P grubunu okuyunca üç şey söyledi: kimseye zorunlu tutmayalım,
+Docker'da çalışırken de olacak, uçları ve çağrıları verelim. Üçü tek bir
+ölçüme dayanıyor ve o ölçüm README'nin dağıtım bölümünde duruyor:
+
+    location /_ca/ {
+        proxy_pass http://127.0.0.1:8081;
+    }
+
+Müşterinin ters vekili beacon'a **tek bir yol** yönlendiriyor.
+`compose.yml` aynı şeyi başka kelimeyle söylüyor: 8081'i yayımlıyor ve
+"aynı ters vekilin arkasına koyun" diyor.
+
+Sonucu şu: **önekin dışına açılan bir uç, kurulu her sistemde bir nginx
+düzenlemesi demek.** Bizim tarafta hiçbir şey kırılmıyor, testler yeşil,
+konteyner ayakta. Müşteride 404. Ve kusuru gösteren hiçbir şey bu depoda
+yok, çünkü bu depo hiçbir şeyi yönlendirmiyor.
+
+"Docker'da da çalışsın" cümlesinin somut karşılığı buymuş: yeni bir
+Docker işi değil, **yol seçiminde bir kısıt.**
+
+### Kontrolü, koruduğu koddan önce yazdım
+
+`internal/invariants/beaconprefix_test.go` bugün var olmayan uçları
+koruyor. Beacon'ın ziyaretçiye dönük her rotası önekten türemek zorunda;
+tek istisna `/healthz` ve gerekçesi listede yazılı — konteynerin kendi
+sağlık kontrolü, loopback üzerinden, ziyaretçi hiç istemiyor.
+
+Bir paragraf yerine bir kontrol olmasının sebebi: P2 yazılırken bu karar
+hatırlanmayacak. Kontrol hatırlıyor.
+
+İkinci kontrol daha da dolaylı bir şeyi tutuyor: `DefaultPathPrefix` ile
+README'deki nginx bloğunun aynı yolu söylediğini. Önek değişip belge
+değişmezse, dün çalışan sitelerde snippet 404 vermeye başlar ve sebebi
+kodda değil, kimsenin bir daha okumadığı bir kurulum talimatında olur.
+
+Üç mutasyon, üçü de yakalandı: önek dışına rota ekle, gerekçesi listede
+duran rotayı sil, README'deki yolu değiştir.
+
+### "Zorunlu tutmayalım" tasarıma ne yaptı
+
+Tek bir gömme biçimi dayatmak yerine üç yol: JS çağrıları, JSON ucu,
+hazır sayfa. Müşteri sıfırını da seçebilir. Ve `beacon.js` kendiliğinden
+hiçbir şey çizmiyor — bant açmıyor, DOM'a düğüm eklemiyor. Bir analitik
+betiğinin müşterinin sayfasına kendi arayüzünü koyması, o sayfanın
+sahibinin vermediği bir karardır.
+
+Bunu yazarken bir ayrım çıktı, planda yoktu: **kapatma anahtarı açıklama
+yüzeyini kapatır, vazgeçme çağrılarını değil.** Vazgeçme hakkı bizim bir
+sayfa servis ediyor olmamıza bağlanamaz. Zaten çağrıların sunucuyla
+alışverişi yok, yani kapatılacak bir şeyleri de yok.
+
+Bir de geriye uyumluluk: `window.crucible` bugün bir *fonksiyon*, ve
+müşterilerin sayfalarında `crucible('event', 'signup')` diye duruyor.
+Üç çağrı ona özellik olarak eklenecek, yerine geçerek değil.
+JavaScript'te fonksiyona alan eklenir; farkı bilerek yazmak ile fark
+etmeden bozmak arasında tek satır var.

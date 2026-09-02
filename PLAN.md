@@ -5592,6 +5592,61 @@ nişan alınabilen bir operasyon yazmıyoruz.* Atlatılacak bir yetki
 kontrolü yok, çünkü kontrol edilecek bir operasyon yok. B3'ün kalıcı
 yasak listesiyle aynı ilke.
 
+#### İkinci karar (aynı gün): hiçbir şey zorunlu değil, ve Docker fazladan ayar istemiyor
+
+*Kullanıcı: "kendimize zorunlu tutmayalım insanları, Docker'da çalışırken
+de olacak, uçları çağrıları da verelim."*
+
+Bu, A2'deki serbestlik kararının aynısının bu gruba uygulanması —
+"engellemek zorunda olmadığımız hiçbir şeyi engellemeyelim" — artı iki
+somut kısıt. Üçü de ölçüldü.
+
+**1. Ters vekilin yönlendirdiği tek yol `/_ca/`.** README'nin dağıtım
+bölümü tam olarak bunu yazıyor:
+
+```nginx
+location /_ca/ {
+    proxy_pass http://127.0.0.1:8081;
+}
+```
+
+Docker da aynı şeyi söylüyor: `compose.yml` beacon'ı 8081'de yayımlıyor
+ve *"put it behind the same reverse proxy that terminates TLS for the
+site"* diyor. Yani **önekin dışında açılan bir uç, kurulu her sistemde
+bir nginx düzenlemesi demek** — kimsenin istemediği, ve kullanıcının
+"zorunlu tutmayalım" dediği şeyin tam örneği.
+
+**Kural: P'nin bütün uçları `pathPrefix()`'in altında**, ve önek ikinci
+kez yazılmıyor — mevcut üç rotanın kullandığı `prefix` değişkeninin
+aynısından türüyor. `/healthz` bugün önekin dışında ve gerekçesi burada
+geçmiyor: o, loopback üzerinden konteynerin kendi sağlık kontrolü için,
+ziyaretçi için değil. *(Bir değişmez testi: beacon'ın ziyaretçiye dönük
+her rotası önek altında; tek istisna `/healthz` ve gerekçesiyle listede.)*
+
+**2. Üç yol, üçü de isteğe bağlı.** Müşteri sıfırını, birini ya da
+üçünü seçer:
+
+| yol | ne için |
+|---|---|
+| `window.crucible.optOut()` / `optIn()` / `status()` | kendi çerez bandına, CMP'sine, kendi düğmesine bağlar |
+| `GET <önek>/privacy` (JSON) | kendi sayfasında kendi diliyle, kendi tasarımıyla basar — hangi yığında olursa olsun |
+| `GET <önek>/privacy.html` | hazır sayfa; bağlantı verir, iframe'e koyar, ya da hiç kullanmaz |
+
+**Kendiliğinden hiçbir şey çizilmiyor.** `beacon.js` bir bant açmıyor,
+DOM'a düğüm eklemiyor, yönlendirme yapmıyor. Bugün de öyle ve öyle
+kalıyor — bir analitik betiğinin müşterinin sayfasına kendi arayüzünü
+koyması, o sayfanın sahibinin vermediği bir karardır.
+
+**3. Uçlar sözleşme, README'de yazılı.** Yöntem, yol, yanıt şekli. Go
+okumadan kullanılabilsin diye; "uçları da verelim" bu.
+
+**Kapatma anahtarı açıklama yüzeyini kapatır, çağrıları değil.** P3'ün
+anahtarı `/privacy` ve `/privacy.html`'i kapatıyor; `optOut()` her
+koşulda çalışmaya devam ediyor. Gerekçe: vazgeçme hakkı bizim bir
+sayfayı servis ediyor olmamıza bağlanamaz. Zaten çağrıların sunucuyla
+hiçbir alışverişi yok — saf `localStorage` — yani kapatılacak bir şeyleri
+de yok.
+
 #### Fazlar
 
 | faz | ne | neden burada |
@@ -5621,9 +5676,17 @@ kendi anahtarını doğru konumda çizebilsin.
 Bir ziyaretçinin başkasının adına yapabileceği bir şey yok, çünkü
 başkasının `localStorage`'ına erişimi yok.
 
+**Geriye uyumluluk, ve neden bir kısıt:** `window.crucible` bugün bir
+*fonksiyon* — `crucible('event', 'signup')` diye çağrılıyor ve
+müşterilerin sayfalarında öyle duruyor. Üç çağrı ona **özellik olarak**
+eklenecek, yerine geçerek değil. Go'da fonksiyonlara alan eklenemez ama
+JavaScript'te eklenir, ve bunu bilerek yazmak ile fark etmeden bozmak
+arasındaki fark tek satır. *(Bitti ölçütünde ayrı madde.)*
+
 **Bitti ölçütü:** gerçek Chromium'da (`internal/browsertest`) —
 `optOut()` çağrıldıktan sonraki gezinme **satır yazmıyor**; `optIn()`
-sonrası yazıyor; `status()` iki durumu da doğru bildiriyor; ve
+sonrası yazıyor; `status()` iki durumu da doğru bildiriyor;
+**`crucible('event', 'x')` eskisi gibi çalışmaya devam ediyor**; ve
 `localStorage`'ın kendisinin fırlattığı ortamda (sandbox'lı iframe)
 üçü de sayfayı kırmıyor — bugünkü `try/catch` deseninin aynısı, ama
 ölçülerek.
@@ -5632,16 +5695,25 @@ sonrası yazıyor; `status()` iki durumu da doğru bildiriyor; ve
 
 #### P2 — Açıklama yüzeyi, içeriği canlı moddan türeyen
 
-**Ne:** ziyaretçinin "burada ne toplanıyor" sorusunun cevabı. İki
-biçimde, çünkü kullanıcı ikisini de istedi: **(a)** müşterinin kendi
-gizlilik sayfasına koyduğu bir bağlama noktasına yerleşen blok,
-**(b)** beacon'ın kendi servis ettiği ayrı bir sayfa, bağlantı
-verilebilsin diye.
+**Ne:** ziyaretçinin "burada ne toplanıyor" sorusunun cevabı. **İki uç,
+ikisi de önek altında:**
+
+- **`GET <önek>/privacy`** — JSON. Müşteri kendi sayfasında kendi
+  diliyle, kendi tasarımıyla basar. Hangi yığında olduğu bizi
+  ilgilendirmiyor, ve ilgilendirmemesi bu ucun varlık sebebi.
+- **`GET <önek>/privacy.html`** — hazır sayfa. Bağlantı verilebilir,
+  gömülebilir, ya da hiç kullanılmaz.
+
+Gömme yolu ayrı bir uç değil: müşteri kendi gizlilik sayfasına bir
+bağlama noktası koyarsa `beacon.js` onu doldurur. **Nokta yoksa hiçbir
+şey çizilmez** — betik kendi başına sayfaya bir şey eklemiyor.
 
 **Neden beacon servis ediyor:** `docker/compose.yml` panel ile okuma
 API'sini bilerek yayımlamıyor *("Deliberately no ports", "the panel is a
 login form; it belongs behind a...")*. Ziyaretçiye açık olması gereken
-tek şey zaten dışarı bakan tek servistir.
+tek şey zaten dışarı bakan tek servistir. Ve önek altında olduğu için
+**kurulu hiçbir sistem nginx'ine dokunmuyor** — Docker'da da, systemd'de
+de, bugün `/_ca/`'yı yönlendiren kural bu iki ucu da yönlendiriyor.
 
 **İçerik türetilir, yazılmaz — ve "mod değişiminde otomatik düzelme"
 bu demek.** Sayfanın metni `privacy.ip_storage`'ı, **yazan tarafın
@@ -5665,7 +5737,11 @@ oku, metnin değiştiğini doğrula *(ve mutasyonun gerçekten uygulandığını
 doğrula: bu projede bir kez boşa giden mutasyon "geçti" demişti)*; bir
 değişmez testi, gizlilik metninin ağaçta ikinci bir kopyası olmadığını
 tutuyor; sayfa hiçbir ziyaretçiye özgü veri okumadığı için sızdıracak
-varlık/sayım da yok.
+varlık/sayım da yok; **her iki uç da önek altında** *(değişmez testi)*;
+ve **gerçek konteynerde ölçülüyor** — `e2e`'nin Docker yarısı, yayımlanan
+8081'den, bugünkü `compose.yml`'e tek satır eklemeden ikisini de
+okuyor. Bu son madde "Docker'da da çalışacak"ın ölçülmüş hâli;
+yazılmazsa yalnız umut olur.
 
 ---
 
@@ -5694,15 +5770,23 @@ değil. §8.5'in yedi kilitli ayarına da girmiyor; bu ayarların hiçbiri
 *hangi kişisel verinin ne kadar saklandığına* karar vermiyor. Refleksle
 kilitlenmesin diye buraya yazıldı.
 
-**Bitti ölçütü:** kapalıyken P2'nin iki biçimi de 404 veriyor ve
+**Bitti ölçütü:** kapalıyken P2'nin iki ucu da 404 veriyor ve
 `beacon.js` bağlama noktasına hiçbir şey yazmıyor; açıkken ikisi de
-çalışıyor; anahtar değiştiğinde **yeniden başlatma gerekmiyor** (canlı
-ayar, P2'nin okuduğu kaynağın aynısı); politika adresi boşken blok
-bağlantı göstermiyor, bozuk bağlantı göstermiyor.
+çalışıyor; **kapalıyken `optOut()` hâlâ çalışıyor** — vazgeçme hakkı
+bizim bir sayfa servis etmemize bağlı değil; anahtar değiştiğinde
+**yeniden başlatma gerekmiyor** (canlı ayar, P2'nin okuduğu kaynağın
+aynısı); politika adresi boşken blok bağlantı göstermiyor, bozuk
+bağlantı göstermiyor.
 
 ---
 
 #### P4 — Belgeler
+
+**README'de uçların sözleşmesi** — yöntem, yol, yanıt şekli, ve üç
+yolun da isteğe bağlı olduğu. Bugün orada `/_ca/ca.js` ile
+`location /_ca/` nginx bloğu var; yeni uçlar aynı bölümde, aynı önek
+altında, **nginx bloğu değişmeden** duracak. Değişmesi gerekiyorsa
+tasarım yanlış demektir.
 
 `docs/VERI-ENVANTERI.md` §7'nin "Ziyaretçiye dönük gizlilik kartı"
 maddesi "planlanan"dan çıkıyor ve **ne yapıldığı kadar ne yapılmadığı
