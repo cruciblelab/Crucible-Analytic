@@ -8612,3 +8612,51 @@ varsayılanlarla 500 × 300 × 160 bayt ≈ 23 MB.
 
 Her şüphe bir bulgu değil. Ama bunu ölçmeden "sınırlı olmalı" diye
 geçseydim, sınırlı olduğunu bilmiyor, sanıyor olacaktım.
+
+---
+
+## Süiti koşturmak kapıyı koşturmak değildir
+
+`internal/memlimit`'i ittim, yerelde `go test ./...` yeşildi, "süit temiz"
+dedim. Kapı kırmızı geldi:
+
+    sastdiff: 2 finding(s) the baseline does not know about
+    NEW  G304 internal/memlimit/memlimit.go:140  Potential file inclusion via variable
+
+gosec, `os.ReadFile(root + path)` çağrılarımı işaretlemiş. **Kapı doğru
+çalışıyordu**; ben sekiz komutluk bir listenin tanıdık ikisini koşturmuştum.
+`go test` gosec'i çalıştırmıyor, deadcode'u da çalıştırmıyor — ikisi de ayrı
+bir kurulum istiyor, yani **kazara asla koşmuyorlar.**
+
+"Süit temiz" doğru bir cümleydi ve önemli olan cümle değildi.
+
+### Bulguyu açıklamak yerine yok etmek
+
+Taban çizgisine "yollar zaten sabit" diye bir gerekçe yazabilirdim; H2'nin
+kalıbı bu ve 28 girdisi var. Yazmadım. `os.ReadFile(root + path)` yerine
+`fs.FS` + sabit adlar koydum: artık **her çağrıda ad bir sabit**, ve gelecek
+bir çağıran başka yerden yol geçiremez çünkü geçirecek yer yok.
+
+Bir gerekçe sonsuza kadar doğru kalmak zorundadır; kaldırılmış bir bulgu
+kalmaz. Yan etkisi de iyi oldu: fikstür geçici dosyalardan `fstest.MapFS`'e
+döndü, çünkü sabit yolların gerçek bir dosya sistemine kanıtlatacağı bir şey
+kalmadı.
+
+### Asıl düzeltme koddan çok süreçteydi
+
+Kapı CONTRIBUTING'de sekiz komuttu, ve **sekiz komut, insanın tanıdık ikisini
+koşturduğu bir listedir.** `release/gate.sh` tek giriş noktası oldu.
+
+Ama bir betik, listeyi kısa tutmanın yeni bir yolu: yedi adım koşturup yeşil
+diyen bir betik, sekiz komutluk listeden kötüdür — liste hiç değilse okunacak
+kadar uzun görünüyordu, betiğin sıfırla çıkması ise bir iddia.
+
+`TestTheGateScriptRunsWhatCIRuns` ikisini bağlıyor: CI'ın kurduğu her
+çözümleyiciyi betik de kuruyor, **aynı sabitlenmiş sürümle.** Sürüm de
+kontrol ediliyor, çünkü iş akışının kendi yorumu pinin yük taşıdığını
+söylüyor — kayan bir çözümleyici, kimse seçmeden taban çizgisini kapının
+altından oynatır.
+
+İki mutasyon: betikten gosec adımını çıkar (ayna hem eksik kurulumu hem
+"rapor üretip yargılamıyor"u söyledi), ve pini kaydır (sürüm uyuşmazlığı
+yakalandı).

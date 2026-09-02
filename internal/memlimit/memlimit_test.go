@@ -1,25 +1,25 @@
 package memlimit
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+	"testing/fstest"
 )
 
 // fakeRoot builds a filesystem for detect to read.
-func fakeRoot(t *testing.T, files map[string]string) string {
+//
+// In memory rather than on disk. It began as a temporary directory of
+// real files, which worked and cost a MkdirAll and a WriteFile per case;
+// the switch to fs.FS - made to remove a gosec G304 finding, see the
+// detect comment - turned the fixture into a map literal as a side
+// effect. The paths under test are constants now, so there is nothing
+// left for a real filesystem to prove.
+func fakeRoot(t *testing.T, files map[string]string) fstest.MapFS {
 	t.Helper()
-	root := t.TempDir()
+	fsys := fstest.MapFS{}
 	for name, body := range files {
-		path := filepath.Join(root, name)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
+		fsys[name] = &fstest.MapFile{Data: []byte(body)}
 	}
-	return root + "/"
+	return fsys
 }
 
 const meminfo16G = `MemTotal:       16461068 kB

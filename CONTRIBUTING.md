@@ -68,6 +68,22 @@ state.
 
 ## The gate
 
+Run it in one command:
+
+```
+./release/gate.sh          # everything that needs no database
+./release/gate.sh --all    # plus the release and integration halves
+```
+
+**Two of these steps are not `go test`, and those are the two that catch
+people.** gosec and deadcode need a tool installed, so they never run by
+accident - a package was once pushed on the strength of a clean
+`go test ./...` and the gate went red on gosec. "The suite is clean" was
+true and was not the claim that mattered.
+
+release/gate_test.go holds the script and the workflow together: every
+analyser CI installs, the script installs, at the same pinned version.
+
 What CI runs, and what a pull request has to pass:
 
 ```

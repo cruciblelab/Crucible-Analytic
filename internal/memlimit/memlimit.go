@@ -29,6 +29,7 @@
 package memlimit
 
 import (
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -80,31 +81,55 @@ type Limit struct {
 func (l Limit) Known() bool { return l.From != SourceUnknown && l.Bytes > 0 }
 
 // Detect reads this process's memory ceiling.
-func Detect() Limit { return detect("/") }
+func Detect() Limit { return detect(os.DirFS("/")) }
 
-// detect is Detect with a root to read under, so the tests can build a
-// filesystem instead of describing one.
+// detect is Detect over a filesystem, so the tests can build one instead
+// of describing it.
+//
+// # An fs.FS rather than a path prefix
+//
+// It began as detect(root string) with os.ReadFile(root + path), which
+// is the obvious shape and which gosec rejects: G304, "potential file
+// inclusion via variable", because the argument is not a constant. The
+// merge gate caught it - correctly, and after this package had been
+// pushed with a green `go test ./...` behind it, which runs the tests
+// and not the gate.
+//
+// It could have been answered with a baseline entry saying the paths are
+// all literals. This is better: with fs.ReadFile the names *are*
+// literals, at every call, and no future caller can pass a path from
+// somewhere else because there is nowhere else to pass one from. A
+// finding removed beats a finding explained, and the explanation would
+// have had to stay true forever.
 //
 // The order is most specific first. A container carries both a cgroup
 // limit and a MemAvailable, and the cgroup limit is the one that kills
 // it; reading them the other way round would report the host's free
 // memory to a process that may not have any of it.
-func detect(root string) Limit {
+func detect(fsys fs.FS) Limit {
 	// The machine's total, used below to recognise a cgroup "limit" that
 	// is not one. Read first because both cgroup branches need it.
-	total := meminfoValue(root, "MemTotal")
+	total := meminfoValue(fsys, "MemTotal")
 
-	if v, ok := readUint(root, "sys/fs/cgroup/memory.max"); ok && isRealLimit(v, total) {
+	if v, ok := readUint(fsys, cgroupV2Path); ok && isRealLimit(v, total) {
 		return Limit{Bytes: v, From: SourceCgroupV2}
 	}
-	if v, ok := readUint(root, "sys/fs/cgroup/memory/memory.limit_in_bytes"); ok && isRealLimit(v, total) {
+	if v, ok := readUint(fsys, cgroupV1Path); ok && isRealLimit(v, total) {
 		return Limit{Bytes: v, From: SourceCgroupV1}
 	}
-	if v := meminfoValue(root, "MemAvailable"); v > 0 {
+	if v := meminfoValue(fsys, "MemAvailable"); v > 0 {
 		return Limit{Bytes: v, From: SourceAvailable}
 	}
 	return Limit{From: SourceUnknown}
 }
+
+// The three files, as constants. Unrooted, because that is what an
+// fs.FS takes; Detect supplies the root.
+const (
+	cgroupV2Path = "sys/fs/cgroup/memory.max"
+	cgroupV1Path = "sys/fs/cgroup/memory/memory.limit_in_bytes"
+	meminfoPath  = "proc/meminfo"
+)
 
 // isRealLimit rejects the value an unlimited cgroup reports.
 //
@@ -136,8 +161,8 @@ func isRealLimit(v, total uint64) bool {
 }
 
 // readUint reads a file holding a single decimal number.
-func readUint(root, path string) (uint64, bool) {
-	body, err := os.ReadFile(root + path)
+func readUint(fsys fs.FS, path string) (uint64, bool) {
+	body, err := fs.ReadFile(fsys, path)
 	if err != nil {
 		return 0, false
 	}
@@ -153,8 +178,8 @@ func readUint(root, path string) (uint64, bool) {
 
 // meminfoValue reads one kB-denominated field out of /proc/meminfo and
 // returns it in bytes. Zero when absent.
-func meminfoValue(root, field string) uint64 {
-	body, err := os.ReadFile(root + "proc/meminfo")
+func meminfoValue(fsys fs.FS, field string) uint64 {
+	body, err := fs.ReadFile(fsys, meminfoPath)
 	if err != nil {
 		return 0
 	}
