@@ -8555,3 +8555,60 @@ mod kırmızı verdi. `": asn "` oldu, boşluklarıyla.
 Küçük bir hata ama cinsi tanıdık: **bir eşleşmenin doğru sebeple
 eşleştiğini varsaymak.** Kırmızıyı okuyup düzelttim; okumasaydım eşiği
 gevşetip "test bozuk" diye geçebilirdim.
+
+---
+
+## A2 — Bir ölçümü tek koşudan okumak
+
+Profil bütçesini önce hesapladım: tepe + hız deposu + tahmini ek yük. Sonra
+gerçek veri kümeleriyle, gerçek konteynerde koşturdum. **İlk koşu 256 MB'da
+Tam profilin yaşadığını söyledi** — yani bütçem gereksiz sıkıymış, gevşetmem
+gerekirmiş gibi göründü.
+
+Gevşetmedim, tekrar koştum. Beş denemede iki. **Uçurumun üstünde değil, tam
+üstündeymiş.**
+
+    Tam   @ 256m  2/5      Dengeli @  96m  0/5
+          @ 320m  5/5              @ 112m  0/5
+          @ 384m  5/5              @ 128m  1/5
+          @ 512m  5/5              @ 160m  5/5
+
+`128m 1/5` ile `256m 2/5` satırları bu tablonun tamamı. İkisi de "bazen
+yaşıyor" diyor, ve **tabanı yazı-tura olan bir profilin tabanı yoktur.** Tek
+koşuya baksaydım bütçeyi yüz megabayt aşağı çekecektim, ve müşterinin
+sitesi ayda bir düşecekti.
+
+### Ölçüm sırasında kendi ölçüm aracımı bozdum
+
+Arada bir tur `grep -q ok` ile başarıyı aradım. Derlenmiş bir test ikilisi
+`PASS` basıyor, `ok` değil — `ok <paket>` satırını `go test` basar, ikilinin
+kendisi değil. Yani o turda **her koşu "öldü" göründü**, 384 MB dâhil.
+
+Fark ettim çünkü sonuç önceki ölçümle çelişiyordu: 512 yaşamıştı, 384
+ölemezdi. Çelişki olmasaydı sayıyı olduğu gibi alacaktım. *Eşleşmenin doğru
+sebeple eşleştiğini varsaymak*, bugün ikinci kez.
+
+### Tepe yanlış temeldi
+
+Bütçeyi tepeye dayandırmıştım. Tepe iki milisaniyede bir örneklenen bir yığın
+rakamı; süreç yığını bir sayıya değdiği için ölmüyor, **çekirdek bir ayırmayı
+karşılayamadığı için** ölüyor, ve arada çalışma zamanının kendi rezervasyonları
+var. Doğru temel, sınır altında koşturup ölmeyi bırakana kadar bakmak:
+`Floor`. Ölçülen taban Go çalışma zamanının payını zaten taşıdığı için ek yük
+sabitinden onu çıkardım — iki kez saymak, gayet iyi koşacak profilleri
+reddetmek olurdu, ve boşuna kurt diyen bir kontrolün etrafından dolaşılır.
+
+### Şüphelendim, ölçtüm, yanılmışım
+
+Hız deposunun tavanı yok — yalnız TTL'i var, ve anahtarı saldırganın
+seçtiği bir IP. IPv6'da bir /64 milyarlarca adres demek; sitenin önünde
+duran süreçte sınırsız bir harita, düzgün trafikle siteyi öldürmenin yolu
+olurdu.
+
+Değilmiş. `internal/proxy` önce geo-listeye, sonra limiter'a bakıyor ve
+`RecordRequest`'e **yalnız ikisini de geçen** bağlantı ulaşıyor. Reddedilen
+ya da düşürülen hiç kaydedilmiyor. Yani harita `rps × ttl` ile sınırlı —
+varsayılanlarla 500 × 300 × 160 bayt ≈ 23 MB.
+
+Her şüphe bir bulgu değil. Ama bunu ölçmeden "sınırlı olmalı" diye
+geçseydim, sınırlı olduğunu bilmiyor, sanıyor olacaktım.
