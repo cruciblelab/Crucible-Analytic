@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -36,13 +37,34 @@ import (
 // loaded four. Both figures come from the same process, minutes apart,
 // so the comparison scales with whatever the data has grown to.
 //
+// # What the two numbers are worth
+//
+// Measured five times: held came out 136.1 MB and 59.1 MB on every
+// single run, to a tenth of a megabyte. The peak did not - 192-216 MB
+// full, 102-111 MB country-only - because it depends on when the
+// collector decides to run, and a 2ms sampler catches a different
+// moment each time.
+//
+// So held is a figure worth quoting and peak is a ratio worth quoting:
+// roughly one and a half to two times held. Anything sizing a container
+// limit needs the peak, and needs headroom on top of it, because this
+// module is not the only thing in the process.
+//
 // The margin is a property of the data rather than of the hardware. The
 // ASN files carry an organisation name per range where the country files
 // carry two letters, so the ASN half is the larger one by a wide margin;
 // requiring country-only to come in under 70% of full is well inside
 // that and still fails loudly if the skip silently stops happening.
 func TestCountryOnlyIsMeasurablySmaller(t *testing.T) {
-	measure := func(countryOnly bool) uint64 {
+	// held and peak. The peak is the number that decides whether a
+	// container survives: a cgroup limit kills on the high-water mark,
+	// not on what is left afterwards, and the parse allocates a slice of
+	// every range in the file before any table is swapped in.
+	//
+	// Sampled from a second goroutine rather than derived from
+	// TotalAlloc, which counts every byte ever allocated and would report
+	// a figure no limit ever sees.
+	measure := func(countryOnly bool) (held, peak uint64) {
 		t.Helper()
 		r := &Resolver{
 			httpClient:           &http.Client{Timeout: 5 * time.Minute},
@@ -55,7 +77,24 @@ func TestCountryOnlyIsMeasurablySmaller(t *testing.T) {
 		var before runtime.MemStats
 		runtime.ReadMemStats(&before)
 
+		var stop atomic.Bool
+		var high atomic.Uint64
+		watching := make(chan struct{})
+		go func() {
+			defer close(watching)
+			var m runtime.MemStats
+			for !stop.Load() {
+				runtime.ReadMemStats(&m)
+				if m.HeapAlloc > high.Load() {
+					high.Store(m.HeapAlloc)
+				}
+				time.Sleep(2 * time.Millisecond)
+			}
+		}()
+
 		r.refresh(context.Background())
+		stop.Store(true)
+		<-watching
 
 		// Held, not peak. The peak during a parse is larger and is the
 		// better argument for this mode, but it is not something
@@ -74,16 +113,27 @@ func TestCountryOnlyIsMeasurablySmaller(t *testing.T) {
 				"would be comparing two of the same thing",
 				countryOnly, map[bool]string{true: "is absent", false: "exists"}[r.asnTable4.Load() == nil])
 		}
-		held := after.HeapAlloc - min(after.HeapAlloc, before.HeapAlloc)
+		held = after.HeapAlloc - min(after.HeapAlloc, before.HeapAlloc)
 		runtime.KeepAlive(r)
-		return held
+		return held, high.Load()
 	}
 
-	full := measure(false)
-	only := measure(true)
+	full, fullPeak := measure(false)
+	only, onlyPeak := measure(true)
 
-	t.Logf("held after a refresh: full %d bytes (%.1f MB), country-only %d bytes (%.1f MB)",
-		full, float64(full)/(1<<20), only, float64(only)/(1<<20))
+	t.Logf("full:         held %.1f MB, peak %.1f MB", float64(full)/(1<<20), float64(fullPeak)/(1<<20))
+	t.Logf("country-only: held %.1f MB, peak %.1f MB", float64(only)/(1<<20), float64(onlyPeak)/(1<<20))
+
+	// The peak is what a cgroup limit kills on, so it gets its own
+	// assertion rather than being logged and forgotten. Relative, like
+	// the one below: which is larger cannot change without something
+	// being wrong, while the megabytes move every time the datasets grow.
+	if onlyPeak >= fullPeak {
+		t.Errorf("country-only peaked at %d bytes and a full refresh at %d.\n"+
+			"Parsing two files instead of four cannot cost more at the high-water "+
+			"mark, and the high-water mark is what a container limit enforces",
+			onlyPeak, fullPeak)
+	}
 
 	if full == 0 {
 		t.Fatal("a full refresh appeared to hold nothing, so the measurement is not " +
