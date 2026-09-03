@@ -194,12 +194,36 @@
       "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
+      "fingerprint": "905ac286b6fc8f41005416f6",
       "rule": "G304",
-      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "file": "internal/relupdate/fetch.go",
       "severity": "MEDIUM",
-      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
-      "snippet": "f, err = os.Open(path)"
+      "reason": "Writing one member of the archive. This is the line that actually creates files from untrusted bytes, so it is the one the whole check order above exists for. mode is masked to 0755, which keeps the executable bit and drops setuid; the directories around it are 0700 because the tree is the upgrader's private workspace until verification passes. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)"
+    },
+    {
+      "fingerprint": "96ee1d329a83e2153705936b",
+      "rule": "G304",
+      "file": "internal/relupdate/fetch.go",
+      "severity": "MEDIUM",
+      "reason": "The package's own checksum list, at a fixed name under a root this code unpacked itself. Nothing from the request row reaches this path: root comes from the archive's single top-level directory inside a temporary directory the caller created. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "sums, err := os.ReadFile(filepath.Join(root, \"SHA256SUMS\"))"
+    },
+    {
+      "fingerprint": "d0fe3f6802aa0c475118bd52",
+      "rule": "G304",
+      "file": "internal/relupdate/fetch.go",
+      "severity": "MEDIUM",
+      "reason": "The signature beside the list, same fixed name, same root. The suffix is appended here rather than configured so the signer and the verifier cannot disagree about where a signature lives. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "sig, err := os.ReadFile(filepath.Join(root, \"SHA256SUMS.sig\"))"
+    },
+    {
+      "fingerprint": "c3964ee668f7f434e28e167a",
+      "rule": "G304",
+      "file": "internal/relupdate/fetch.go",
+      "severity": "MEDIUM",
+      "reason": "hashFile, reading a file the package listed in its own SHA256SUMS so it can be hashed and compared. The name went through safeJoin before reaching here even though the list is signed - a path check that only holds because the signature held is a check in the wrong order, and the two verifications are meant to be independent. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "f, err := os.Open(path)"
     },
     {
       "fingerprint": "d6c6a65214f34db19b4fcd2d",
@@ -210,12 +234,12 @@
       "snippet": "body, err := os.ReadFile(path)"
     },
     {
-      "fingerprint": "fa42d02f0b0211ce9728d1b4",
+      "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
       "rule": "G304",
-      "file": "internal/sast/cmd/sastdiff/main.go",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
-      "snippet": "rf, err := os.Open(reportPath)"
+      "snippet": "f, err = os.Open(path)"
     },
     {
       "fingerprint": "15ed33029fa76d5146f7fccb",
@@ -224,6 +248,14 @@
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag; the baseline it reads is a tracked file in the repository.",
       "snippet": "bf, err := os.Open(baselinePath)"
+    },
+    {
+      "fingerprint": "fa42d02f0b0211ce9728d1b4",
+      "rule": "G304",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
+      "snippet": "rf, err := os.Open(reportPath)"
     },
     {
       "fingerprint": "deef7fcc5a79364178911970",

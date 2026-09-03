@@ -100,7 +100,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **3/6** | V3–V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+| **V** Panelden güncelleme | 🟡 **4/6** | V4, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6808,10 +6808,73 @@ iki test birden yakaladı.
 gelmiyor. Ve bu oturumda beşinci kez: mutasyonun asıl değeri geçen
 mutasyonlarda.*
 
-#### V3 — İndiren ve kuran uygulayıcı ⬜
+#### V3 — İndiren ve doğrulayan yarı ✅ *(2026-09-03)*
 
-`upgrader`'ın ikinci işi: yapılandırmadaki adresten indir, **imzayı
-doğrula**, sürümün gerçekten yeni olduğunu doğrula, kur.
+*(Kurma işi V4'e bırakıldı bilerek: geri dönüşü olmayan bir kurulum
+yazmak, geri dönüşü yazmadan yapılacak iş değil.)*
+
+**Yapılandırma yarısı.** `upgrader.toml`'a `[release] base_url` ve
+`public_key`. İkisi de o dosyada, veritabanında değil — bu bölümün bütün
+güvenlik argümanı bu.
+
+**İkisi birlikte doğrulanıyor, ayrı ayrı değil.** Anahtarsız bir
+`base_url`, biraz daha zayıf bir güncelleme yolu değil; **ağdan kod
+indirip kuran bir özellik**, ve onu durduracak tek şey imzaydı. O yüzden
+yarım yapılandırma açılışta reddediliyor: açılmayan bir yükseltici
+gürültülü ve tek satıra kadar izlenebilir, alternatifi ise
+yapılandırılmış görünen ve her şeyi kuran bir kurulum.
+
+**`https` zorunlu, ve gerekçesi imzanın kapatmadığı yer.** İmza
+değiştirilmiş bir paketi reddeder; **gerçekten imzaladığımız eski bir
+paketi reddetmez.** Düz http'de yoldaki herkes bilinen açığı olan bir
+sürümü servis edebilir, ve hiçbir imza buna hayır demez.
+
+##### Kontrol sırası, ve neden bu sıra
+
+1. Adres yapılandırmadan + şekli zaten kontrol edilmiş bir sürümden
+   kuruluyor. İstek satırından başka hiçbir şey hiçbir yere girmiyor.
+2. Geçici dizine, boyut sınırıyla, https üzerinden indiriliyor.
+3. Açılıyor — dizinin dışına yazacak ya da düz dosya/dizin olmayan her
+   girdi reddediliyor.
+4. `SHA256SUMS` üstündeki **imza** doğrulanıyor.
+5. **Her dosya** `SHA256SUMS`'a karşı doğrulanıyor.
+6. Ancak ondan sonra çağıran bir şey kurabiliyor.
+
+**4 ve 5'in ikisi de gerekli ve biri diğerini gerektirmiyor.** İmza
+listeyi bizim yazdığımızı söylüyor; liste dosyaların ona uyduğunu.
+Geçerli imzalı ama kendi dosyalarını anlatmayan bir liste, birinin
+iki paketimizden birleştirdiği bir pakettir.
+
+##### Testin bulduğu gerçek kusur
+
+`safeJoin` ilk hâlinde alışılmış tavsiyeyi uyguluyordu: adı önce `/`
+altında temizle. `Clean` bunu yapınca
+`paket/../../../../etc/cron.d/evil` → `/etc/cron.d/evil` oluyor, kökle
+birleşince `kök/etc/cron.d/evil` — **dizinin içinde**, yani kaçış yok.
+
+Test bunu kabul etmedi, ve haklıydı. **Kaçış olmaması, yanlış olmaması
+demek değil.** Bizim derlememiz `..` içeren bir yol üretmiyor; öyle bir
+yol taşıyan arşiv bizim değil, ve onu sessizce düzeltmek dosyayı
+arşivin istemediği bir yere koyup başarı raporlamak oluyor. Artık
+`..` **düzeltilmiyor, reddediliyor.**
+
+##### Ölçüm ve mutasyonlar
+
+**644.598 fuzz çalıştırması**, açma dizininin yanında tek bir girdi
+belirmedi.
+
+| mutasyon | sonuç |
+|---|---|
+| İmzanın cevabını yok say | yakalandı *(ilk denemem derlenmedi — beşinci kez)* |
+| Dosya bazlı checksum kontrolünü atla | yakalandı |
+| Symlink ve hard link'lere izin ver | yakalandı |
+| `http` adresi kabul et | yakalandı |
+
+**gosec'in iki bulgusu gerekçeyle değil, düzeltmeyle kapandı:** açılan
+ağacın dizinleri 0755 yerine 0700 oldu. O ağaç, doğrulama geçene kadar
+yükselticinin özel çalışma alanı, ve kimsenin içinde gezinmesi gerekmiyor.
+*Bir tarayıcının bulgusunu susturmadan önce haklı olup olmadığına
+bakmak gerekiyor; bu sefer haklıydı.*
 
 #### V4 — Geri dönüş ⬜
 

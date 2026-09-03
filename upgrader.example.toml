@@ -52,3 +52,43 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 [logging]
 # dir = ""
 # level = "info"
+
+# ---------------------------------------------------------------------
+# Panelden güncelleme: paketler nereden gelir, ve neyle doğrulanır
+# ---------------------------------------------------------------------
+#
+# Bu bölüm **yoksa panelde güncelleme düğmesi de yoktur.** Güvenli yön
+# budur: paketlerinin nereden geleceği söylenmemiş bir kurulum tahmin
+# etmemeli.
+#
+# İki değer de burada, ve **veritabanında değil.** Sebep bu bölümün
+# tamamı:
+#
+#   Bu dosya mod 0640 ve crucible-upgrader grubunun. Dört servis
+#   `crucible` olarak koşuyor ve bu dosyayı okuyamıyor. Yani ele
+#   geçirilmiş bir panel "şu sürüme geç" diye bir satır yazabilir, ama
+#   paketin nereden geleceğini de neyle doğrulanacağını da
+#   değiştiremez.
+#
+# Adres veritabanında olsaydı panel indirmeyi yönlendirebilirdi.
+# Anahtar veritabanında olsaydı panel kendi paketini imzalatabilirdi.
+# İkisi de burada olduğu için, düğme kod çalıştırma yolu değil.
+#
+# [release]
+#
+# Paketlerin bulunduğu dizin. Yükseltici sonuna sürümü ve dosya adını
+# ekler; istek satırından buraya sürümden başka hiçbir şey geçmez, ve
+# sürümün şekli de ayrıca kontrol edilir.
+#
+# **https zorunlu.** Düz http'de yoldaki herkes, gerçekten bizim
+# imzaladığımız **eski** bir sürümü servis edebilir — ve imza bunu
+# reddetmez, çünkü o sürümü biz de imzaladık. Bilinen açığı olan bir
+# sürüme geri düşürmek, imzanın durdurmadığı bir saldırı.
+# base_url = "https://surumler.example.com/crucible-analytic"
+#
+# Paketin SHA256SUMS dosyasını doğrulayan açık anahtar. Sürüm
+# sayfasında yayınlanır; gizli değil, ama **doğru olması** gerekiyor.
+# İkisinden biri yazılıp diğeri yazılmazsa yükseltici açılmaz:
+# imzasız bir güncelleme yolu, biraz daha zayıf bir güncelleme yolu
+# değil, ağdan kod çalıştırma özelliğidir.
+# public_key = "..."

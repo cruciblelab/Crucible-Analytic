@@ -10102,3 +10102,77 @@ bütün mimari o varsayım üstüne kurulu.
 Talimatlarını bir tablodan okuyan bir bileşen, onları orada doğrulamak
 zorunda. Aksi hâlde kontrol, "tek yazıcı test edilmiş olan" olduğu sürece
 geçerli olur, ve o cümle bir güvenlik özelliği değil bir dilek.
+
+## Kaçış olmaması, yanlış olmaması demek değil
+
+V3'ün indirici tarafını yazdım. Arşiv açarken yol kontrolünü alışılmış
+tavsiyeyle yazdım: adı önce `/` altında `Clean`'le.
+
+`Clean("/paket/../../../../etc/cron.d/evil")` → `/etc/cron.d/evil`.
+Kökle birleşince `kök/etc/cron.d/evil`. **Dizinin içinde.** Yani hiçbir
+şey kaçmıyor, ve yazdığım kod "güvenli" idi.
+
+Test kabul etmedi. Ben "reddedilmeli" diye yazmıştım, kod "içeri
+taşıdım" diyordu.
+
+Testin haklı olduğunu görmek biraz sürdü. Gerekçe şu: **bizim
+derlememiz `..` içeren bir yol üretmiyor.** Öyle bir yol taşıyan arşiv
+bizim değil. Onu sessizce düzeltmek, dosyayı arşivin istemediği bir yere
+koyup "başarılı" demek oluyor — üstelik üst dizin tespiti adın ilk
+parçasına bakıyor, yani dosya bambaşka yere giderken paket adı doğru
+görünüyor.
+
+Artık `..` düzeltilmiyor, **reddediliyor**. Kaçış kontrolü ikinci duvar
+olarak duruyor, çünkü bir yol birleştirmesinin önünde tek kontrol bir
+eksiktir.
+
+*"Güvenli" ile "doğru" aynı şey değil. Bir saldırıyı engelleyen kod,
+engellediği şeyin ne olduğunu yanlış anlıyor olabilir.*
+
+### İmza ve checksum: ikisi de gerekli, biri diğerini gerektirmiyor
+
+Paket iki kez doğrulanıyor ve bu tekrar değil:
+
+- **İmza** listeyi bizim yazdığımızı söylüyor.
+- **Liste** dosyaların ona uyduğunu söylüyor.
+
+Geçerli imzalı ama kendi dosyalarını anlatmayan bir liste, birinin iki
+paketimizden birleştirdiği bir paket. Mutasyonla ölçüldü: checksum
+kontrolünü atlayınca "imzadan sonra değiştirilmiş dosya" vakası geçti.
+
+Boş bir `SHA256SUMS` de reddediliyor. Kusursuz imzalanır, kusursuz
+doğrulanır, ve hiçbir dosyaya kefil olmaz.
+
+### https zorunlu, ve sebebi imzanın kapatmadığı yer
+
+İmza değiştirilmiş bir paketi reddeder. **Gerçekten imzaladığımız eski
+bir paketi reddetmez** — çünkü onu da biz imzaladık.
+
+Düz http'de yoldaki herkes, bilinen açığı olan eski bir sürümü servis
+edebilir. Buna hiçbir imza hayır demiyor. Bu yüzden `base_url` https
+olmak zorunda, ve gerekçesi yapılandırma dosyasında yazılı.
+
+*Bir korumanın neyi kapatmadığını yazmak, neyi kapattığını yazmak kadar
+gerekli.*
+
+### Yarım yapılandırma açılışta reddediliyor
+
+`base_url` var, `public_key` yok: bu "biraz daha zayıf bir güncelleme
+yolu" değil, **ağdan kod indirip kuran bir özellik**. Onu durduracak tek
+şey imzaydı.
+
+Yükseltici böyle bir dosyayla açılmıyor. Açılmayan bir servis gürültülü,
+kurtarılabilir ve tek satıra kadar izlenebilir. Alternatifi,
+yapılandırılmış görünen ve adresteki her şeyi kuran bir kurulum.
+
+### gosec bu sefer haklıydı
+
+Altı yeni bulgu geldi. Dördü bir arşiv açıcının tanımı gereği yaptığı
+şey (hesaplanmış yoldan dosya okumak) ve gerekçe yazıldı.
+
+**İkisi gerçek düzeltmeydi:** açılan ağacın dizinlerini 0755 yapıyordum.
+O ağaç, doğrulama geçene kadar yükselticinin özel çalışma alanı; kimsenin
+içinde gezinmesi gerekmiyor. 0700 oldu.
+
+*Bir tarayıcının bulgusunu susturmadan önce haklı olup olmadığına bakmak
+gerekiyor.*

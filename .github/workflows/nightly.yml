@@ -160,6 +160,15 @@ jobs:
       # the two properties are that it never crashes and never says yes.
       # The verifier's target asserts the second directly: anything but
       # the exact pair the seed signed must be refused.
+      # The unpacker, which is the code with the least protection in
+      # front of it anywhere in this repository: it runs on bytes a
+      # server chose, before any signature has been checked - the
+      # signature is inside the archive, so it cannot be checked until
+      # the archive is open. What it writes then goes where systemd
+      # runs it.
+      - name: relupdate - the archive nobody has verified yet
+        run: go test -run XXX -fuzz 'FuzzUnpackNeverEscapesItsDirectory$' -fuzztime 5m ./internal/relupdate/
+
       - name: releasesign - the check between a package and root
         run: |
           go test -run XXX -fuzz 'FuzzVerifyNeverPanicsAndNeverAccepts$' -fuzztime 5m ./internal/releasesign/
