@@ -287,7 +287,7 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	for _, d := range rangeDays {
 		data.Ranges = append(data.Ranges, rangeChoice{
 			Days:     d,
-			Label:    lang.Tn("pano.aralik.gun", d, lang.T("")+strconv.Itoa(d)),
+			Label:    lang.Tn("pano.aralik.gun", d, strconv.Itoa(d)),
 			URL:      sitePath(siteID) + "?gun=" + strconv.Itoa(d),
 			Selected: d == days,
 		})

@@ -10309,3 +10309,71 @@ başka bir makinede, ikisini de adıyla anmayan bir mesajla.
 Bir test hatasının alabileceği en kötü şekil bu, ve bu depoda aynı tablo
 için ikinci kez oldu. Kilit vardı ve belgeliydi; eksik olan, üçüncü bir
 yazıcının belirdiğini fark eden bir şeydi.
+
+---
+
+## V4d — "Son «»7 gün": on altı gün boyunca ekranda duran hata
+
+Müşterinin panosundaki dönem düğmeleri, panonun yazıldığı ilk günden
+beri şunu yazıyordu:
+
+    Son «»1 gün    Son «»7 gün    Son «»30 gün    Son «»90 gün
+
+Sebep tek satır, `dashboardData` içinde:
+
+```go
+Label: lang.Tn("pano.aralik.gun", d, lang.T("")+strconv.Itoa(d)),
+```
+
+`lang.T("")` boş anahtarın aranmasıdır. Hiçbir dil paketi boş anahtarı
+tanımlamaz, dolayısıyla `T` **eksik mesaj işaretini** döndürür — ve
+işaret, tanım gereği, gözden kaçmasın diye vardır.
+
+### İşaret göründü; kimse görmedi
+
+`«»` on altı gün boyunca:
+
+- her müşterinin her pano yüklemesinde ekrandaydı,
+- tam bu sayfalara bakmak için çekilmiş **iki ayrı ekran görüntüsü
+  turunda** kadrajın ortasındaydı,
+- ve işaretin kendisini yazan kişi tarafından bakıldı.
+
+Hiçbiri onu bir kusur olarak okumadı. Sebebi de tam olarak şu: anahtar
+boş olduğunda işaret **`«»`'ye çöküyor**, ve bir sayının yanındaki iki
+tırnak işareti noktalama gibi görünüyor. `«pano.aralik.gun»` olsaydı
+kimse geçemezdi.
+
+*Bir uyarının görünür olması, fark edileceği anlamına gelmez. Göz,
+küçük ve tanıdık olmayan noktalamayı normalleştirmek üzere kurulmuş bir
+alettir.*
+
+### İki düzeltme, ve asıl olanı ikincisi
+
+**Birincisi** satırın kendisi: `lang.T("")+` silindi. Üç çağrı
+noktasından ikisi (`breakdown.go`, `technical.go`) zaten doğruydu; yalnız
+pano yanlıştı.
+
+**İkincisi**, boş anahtarın artık kendi adı var. `«»` yerine
+`«anahtarsiz-cagri»` yazılıyor. Boş anahtar bir şablondan gelemez —
+açılıştaki kontrol, tanımsız anahtar adı geçen bir şablonla binary'yi
+zaten çalıştırmıyor — yani her zaman Go kodudur ve işaret bunu söylemeli.
+
+### Ama asıl düzeltme, işarete bir okuyucu vermek
+
+`marker_integration_test.go`: giriş yapmış bir müşterinin ve giriş
+yapmış bir geliştiricinin ulaştığı **her sayfayı** yükleyip işareti
+arıyor. Gerçek veritabanı, gerçek analitik servisi.
+
+Ve yönlendiriciyi okuyan bir ayna testi: `server.go`'daki her
+`mux.HandleFunc` kaydı ya yürünen listede olacak, ya da **neden
+yürünmediğini yazan bir cümlesi** olacak. Cümle yazmak URL eklemekten
+zordur; kasıtlı olarak.
+
+Mutasyonlar: hatayı geri koydum — üç test de kırmızıya döndü ve hata
+mesajı `Son «anahtarsiz-cagri»7 gün` bağlamını bastı. Listeden bir
+sayfayı çıkardım — ayna testi adıyla söyledi. Listeye olmayan bir
+işleyici ekledim — ters yönde de söyledi.
+
+*Gözle okunmak üzere tasarlanmış bir sinyalin, onu okuyan bir makinesi
+yoksa; o sinyal yalnız birisi bakmayı bıraktığı ana kadar çalışır. Her
+istekte yeniden çizilen bir sayfa için o an derhâldir.*

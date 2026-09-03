@@ -45,10 +45,14 @@ const messagesDir = "messages"
 // the same key missing from a translation is a report and a fallback.
 const BaseLanguageCode = "tr"
 
-// MarkMissing wraps a key that no pack defines, so an untranslated
-// string is unmistakable on the page rather than an empty space
-// somebody has to notice. Guillemets because no copy in this product
-// uses them, so the marker can never be mistaken for real text.
+// markPrefix and markSuffix wrap a key that no pack defines, so an
+// untranslated string is unmistakable on the page rather than an empty
+// space somebody has to notice. Guillemets because no copy in this
+// product uses them, so the marker can never be mistaken for real text.
+//
+// "Unmistakable" was doing more work than it could carry. See mark, and
+// internal/panel/web/marker_integration_test.go, which is the machine
+// that reads these so that noticing is not left to an eye.
 const (
 	markPrefix = "«"
 	markSuffix = "»"
@@ -392,6 +396,35 @@ func (l *Language) lookup(key string) (entry, bool) {
 	return entry{}, false
 }
 
+// mark is what a caller sees for a key no pack defines.
+//
+// # Why the empty key gets a name of its own
+//
+// The marker's whole job is to be unmistakable, and for a real key it
+// is: «pano.aralik.gun» could not be anything but a fault. For the
+// empty key it collapses to «», which is a pair of guillemets and
+// reads, at a glance, as punctuation somebody meant to type.
+//
+// That is not a hypothetical. lang.T("")+strconv.Itoa(d) sat in
+// dashboardData from the day the dashboard was written, and the
+// customer's own site page said "Son «»7 gün" in every screenshot for
+// sixteen days without anybody - including the person taking the
+// screenshots - reading it as a defect.
+//
+// An empty key cannot come from a template: the startup check refuses a
+// binary whose templates name a key the base pack lacks, and "" is not
+// a key any pack has. So it is always Go code calling with nothing, and
+// the marker should say so rather than leave a shape the eye forgives.
+func (l *Language) mark(key string) string {
+	if key == "" {
+		key = emptyKeyName
+	}
+	return markPrefix + key + markSuffix
+}
+
+// emptyKeyName is what stands in for a key that was not given.
+const emptyKeyName = "anahtarsiz-cagri"
+
 // T returns the text for key.
 //
 // A key no pack defines returns the marker rather than "" and rather
@@ -402,7 +435,7 @@ func (l *Language) lookup(key string) (entry, bool) {
 func (l *Language) T(key string) string {
 	e, ok := l.lookup(key)
 	if !ok {
-		return markPrefix + key + markSuffix
+		return l.mark(key)
 	}
 	if e.text != "" {
 		return e.text
@@ -417,7 +450,7 @@ func (l *Language) T(key string) string {
 func (l *Language) Tf(key string, args ...any) string {
 	e, ok := l.lookup(key)
 	if !ok {
-		return markPrefix + key + markSuffix
+		return l.mark(key)
 	}
 	text := e.text
 	if text == "" {
@@ -431,7 +464,7 @@ func (l *Language) Tf(key string, args ...any) string {
 func (l *Language) Tn(key string, n int, formatted string) string {
 	e, ok := l.lookup(key)
 	if !ok {
-		return markPrefix + key + markSuffix
+		return l.mark(key)
 	}
 	if e.plural.empty() {
 		// Not a plural message. Fill it anyway rather than dropping the
