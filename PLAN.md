@@ -84,7 +84,7 @@ gerekçe değil bahane olur.
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **11/13** *(+1 düştü)* | A2, A8 *(A9 düştü — yerine P)* |
+| **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
 | **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
@@ -750,7 +750,7 @@ iyidir.
 
 ---
 
-#### A2 — Üç profil, adlandırılmış varsayılan kümeleri olarak
+#### A2 — Üç profil, adlandırılmış varsayılan kümeleri olarak ✅ **yapıldı** *(2026-09-03)*
 
 **Ne:** Hafif / Dengeli / Tam Crucible / Özel.
 
@@ -878,12 +878,48 @@ gerçekten koşturuldu. Sonra:
 (eski şemada satır hiç yazılmıyor); panelde etiket yerine ham kimlik
 göster.
 
+##### Üçüncü dilim *(2026-09-03)*: `install.sh --profile`, ve söylenmeyen varsayılan
+
+**`--profile hafif|dengeli|tam`** seçilen profili iki dosyaya da yazıyor —
+collector ve beacon, çünkü kardeşinin artık doldurmadığı bir sütun için
+ASN veri kümelerini yükleyen bir beacon 136 MB'ı boşa harcıyor.
+
+**Yazarken çıkan asıl kusur, bayrağın kendisi değildi.** Örnek
+yapılandırmalar `asn_lookup.enabled = false` ile geliyor. Yani bugüne
+kadar **hiç kimsenin seçmediği bir kurulum Hafif profiline düşüyordu** —
+ülke kırılımı yok, ASN kırılımı yok — ve betik bunu söylemiyordu.
+Müşteri haftalar sonra boş bir grafiğe bakarak öğreniyordu.
+
+Aynı sınıf: *zorunlu olmayan ama söylenmemiş bir varsayılan.* Site
+kimliğininki gibi, bunun da cevabı dosyadan okuyup söylemek oldu — sonraki
+adımlar listesi artık her kurulumda hangi profilde olunduğunu yazıyor, ve
+Hafif ise ne kaybedildiğini ve nasıl açılacağını da.
+
+**Bayrak varsayılan bir profil dayatmıyor.** `--profile` verilmezse
+dosyalar olduğu gibi kalıyor. Serbestlik kararının aynısı: seçmediği bir
+şeyi kimse adına seçmiyoruz, ama seçilmiş olanı söylüyoruz.
+
+**İki ayna:**
+
+1. Betiğin kabul ettiği kimlikler ile `internal/profile`'ın tanımladığı
+   kimlikler aynı küme olmak zorunda. Kabuk Go'yu import edemez; test
+   ikisini de kaynaktan okuyor.
+2. **Daha önemlisi:** her profil için gerçek bir kurulum koşuluyor,
+   yazılan dosya `collector.Load` ile yükleniyor, ve türetilen seviye
+   `internal/profile`'ın o kimlik için söylediği seviye olmak zorunda.
+   Testte "country_only true olmalı" diye bir cümle yok — o bilgi tek
+   yerde duruyor ve oradan okunuyor.
+
+İkincisi bir mutasyonla ortaya çıktı: `dengeli`yi `tam` gibi yazmak
+hiçbir testi kırmıyordu. Yani kabul edilen ama yanlış yazılan bir profil
+— sessizce iki katı bellek, hem de küçüğünü seçen makinede.
+
 ##### Kalan iş
 
-**`install.sh` profil seçimi** — seçilen profili tek tek değer olarak
-config dosyalarına yazar. "(değiştirilmiş)" göstergesi de buraya bağlı:
-bugün panel *çalışan* profili gösteriyor, ve bir profilin "değiştirilmiş"
-olması ancak seçilmiş bir profil kaydedildiğinde anlam kazanıyor.
+**"(değiştirilmiş)" göstergesi.** Panel bugün *çalışan* profili
+gösteriyor. Bir profilin "değiştirilmiş" olması ancak seçilmiş bir profil
+ayrıca kaydedildiğinde anlam kazanıyor, ve onu nereye kaydedeceğimiz
+ayrı bir karar — dosyaya yazmak ikinci bir doğruluk kaynağı olur.
 
 Panelin hangi profilde olunduğunu nereden bileceği ayrı bir karar, ve
 temiz olanı şu: **collector etkin profilini kalp atışı satırına yazar.**

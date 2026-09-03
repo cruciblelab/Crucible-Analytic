@@ -9381,3 +9381,49 @@ Go'da bu, map'in **değerlerini** veriyor. Test "docker/.env.example
 Yanlıştı, ama saçmalığı görünürdü. Sessizce geçen bir testten kıyas kabul
 etmez biçimde iyi: bir testin yanlış olmasının iki yolu var, ve yalnız
 biri düzeltilebilir.
+
+---
+
+## Bayrağı yazarken bayraktan büyük bir kusur çıktı
+
+A2'nin son dilimi `install.sh --profile` olacaktı. Basit iş: üç kimlik,
+iki dosya, iki `sed`.
+
+Yazmadan önce örnek yapılandırmaya baktım: `asn_lookup.enabled = false`.
+Yani **bugüne kadar hiç kimsenin seçmediği her kurulum Hafif profiline
+düşüyordu** — ülke kırılımı yok, ASN kırılımı yok — ve betik bunu
+söylemiyordu. Müşteri bunu haftalar sonra, boş bir grafiğe bakarak
+öğrenirdi.
+
+Bu, site kimliğiyle aynı sınıf: **söylenmemiş varsayılan.** İkisinde de
+kusur "yanlış davranış" değil, "kimseye söylenmemiş davranış". Ve ikisi
+de betiğin bittiği yerde, tek cümleyle kapanıyor.
+
+Bir sınıf olarak aramaya değer: *kimsenin seçmediği ve kimseye
+söylenmemiş her varsayılan.* Bu depoda iki tane buldum; üçüncüsü de
+vardır.
+
+### Bayrak varsayılan dayatmıyor
+
+`--profile` verilmezse dosyalar olduğu gibi kalıyor. Kullanıcının
+serbestlik kuralının aynısı: seçmediği bir şeyi kimse adına seçmiyoruz.
+Değişen tek şey, seçili olanın artık söyleniyor olması.
+
+### Aynanın ikinci katı, ve onu bulan mutasyon
+
+İlk ayna kimlik listesiydi: betiğin kabul ettiği kimlikler ile
+`internal/profile`'ın tanımladıkları aynı küme olmalı. Kabuk Go'yu import
+edemiyor, o yüzden test ikisini de kaynaktan okuyor.
+
+Mutasyonla sınadım: `dengeli`yi `tam` gibi yazmak **hiçbir testi
+kırmadı.** Yani kabul edilen ama yanlış yazılan bir profil sessizce
+geçiyordu — küçüğünü seçen makinede iki katı bellek.
+
+İkinci ayna bunu kapattı, ve şekli ilkinden iyi: her profil için gerçek
+bir kurulum koşuluyor, yazılan dosya `collector.Load` ile yükleniyor, ve
+türetilen seviye paketin o kimlik için söylediği seviye olmak zorunda.
+**Testte "country_only true olmalı" diye bir cümle yok.** O bilgi tek
+yerde duruyor ve testte oradan okunuyor.
+
+Bir aynanın iyi olup olmadığı, iddiayı kaç yerde tekrar ettiğine bakarak
+anlaşılıyor. Sıfır en iyisi.

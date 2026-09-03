@@ -9,6 +9,44 @@ yapacağım".
 
 ---
 
+## v0.20.0 — 2026-09-03
+
+Kurulumda **kaynak profili seçilebiliyor**, ve seçilmediğinde hangisinde
+olunduğu artık ekranda yazıyor.
+
+**Şema sürümü: 8** — değişmedi. **Kuran kişinin yapması gereken:**
+**hiçbir şey.** Kurulu sistemler etkilenmiyor; bu, yeni kurulumlarda bir
+bayrak ve bir cümle.
+
+### `install.sh --profile hafif|dengeli|tam`
+
+Seçileni hem `collector.toml`'a hem `beacon.toml`'a yazıyor. İkisi birden,
+çünkü kardeşinin artık doldurmadığı bir sütun için ASN veri kümelerini
+yükleyen bir beacon 136 MB'ı boşa harcar.
+
+| profil | ne yükler | ölçülen taban | en az konteyner |
+|---|---|---|---|
+| `hafif` | hiçbiri | 32 MB | ~96 MB |
+| `dengeli` | yalnız ülke | 160 MB | ~256 MB |
+| `tam` | ülke + ASN | 320 MB | ~512 MB |
+
+### Söylenmeyen varsayılan
+
+Bayrağı yazarken asıl kusur çıktı: örnek yapılandırmalar
+`asn_lookup.enabled = false` ile geliyor, yani **hiç kimsenin seçmediği
+bir kurulum `hafif` profiline düşüyordu** — ülke kırılımı yok, ASN
+kırılımı yok — ve betik bunu söylemiyordu. Müşteri haftalar sonra boş bir
+grafiğe bakarak öğreniyordu.
+
+Artık her kurulumun sonunda hangi profilde olunduğu yazıyor, ve `hafif`
+ise ne kaybedildiği ve nasıl açılacağı da.
+
+**Bayrak bir varsayılan dayatmıyor:** `--profile` verilmezse dosyalar
+olduğu gibi kalır. Seçmediğiniz bir şeyi sizin adınıza seçmiyoruz; yalnız
+seçili olanı söylüyoruz.
+
+---
+
 ## v0.19.0 — 2026-09-02
 
 Panelin **Sağlık** sayfası artık collector'ın hangi kaynak profilini

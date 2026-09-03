@@ -165,6 +165,28 @@ koşuyor. Daha eskisi çalışmaz demiyorum — **denenmedi** diyorum. Elinizde
 eski bir sunucu varsa şemaları uygulayıp `go test -tags integration ./...`
 çalıştırmak, tahmin etmekten ucuz.
 
+### Kaynak profili — kurulumda seçilir
+
+`install.sh --profile hafif|dengeli|tam`, seçileni hem `collector.toml`'a
+hem `beacon.toml`'a yazar. İkisinin birden yazılması bilinçli: kardeşinin
+artık doldurmadığı bir sütun için ASN veri kümelerini yükleyen bir beacon,
+136 MB'ı hiçbir şey için harcar.
+
+| profil | ne yükler | ölçülen taban | en az konteyner |
+|---|---|---|---|
+| `hafif` | hiçbiri | 32 MB | ~96 MB |
+| `dengeli` | yalnız ülke | 160 MB | ~256 MB |
+| `tam` | ülke + ASN | 320 MB | ~512 MB |
+
+**Bayrağı vermezseniz dosyalar olduğu gibi kalır**, ve örnekler
+`asn_lookup.enabled = false` ile geliyor — yani dokunmadığınız bir kurulum
+`hafif` olur: ülke ve ASN kırılımı yok. Betik bunu kurulum sonunda açıkça
+yazar; boş bir grafiğe bakıp sebebini aramak zorunda kalmayın.
+
+Collector açılışta profili bu makinenin belleğine karşı kontrol ediyor ve
+yalnız bir konteyner sınırının öldüreceğini reddediyor. Ayrıntısı
+`CHANGELOG.md`'de v0.18.0.
+
 ### Veritabanını nereden bulacaksınız
 
 Bu betik veritabanını **kurmuyor**, kurulmuş bir veritabanına bağlanıyor.

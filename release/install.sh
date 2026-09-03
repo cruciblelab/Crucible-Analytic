@@ -65,6 +65,23 @@ SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 # out by failing, correctly, before anything started.
 DB_HOST="${DB_HOST:-}"
 DOMAIN=""
+# PROFILE is the resource profile to write into the configs, empty for
+# "leave the examples alone".
+#
+# Empty is the default rather than a named profile, and that is the same
+# judgement as everywhere else in this product: do not decide for
+# somebody what they did not ask. What changed is that the install now
+# *says* which one it ended up in, which is the half that was missing -
+# the examples ship asn_lookup off, so an install nobody steered lands on
+# Hafif and used to say nothing about it.
+#
+# The ids are internal/profile's. release/install_test.go checks this
+# list against that package so the two cannot drift.
+# Overridable from the environment like DB_NAME and SUPERUSER_DSN above,
+# which is how the release suite drives it: the flag is what a person
+# uses, the variable is what a test sets without rebuilding the command
+# line for one case.
+PROFILE="${PROFILE:-}"
 DRY_RUN=0
 # WANT_SYSTEMD is decided in preflight rather than at the systemd stage,
 # and --no-systemd forces it off. See the preflight block for why the
@@ -80,6 +97,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="$2"; shift 2 ;;
     --db) DB_NAME="$2"; shift 2 ;;
+    --profile) PROFILE="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
     --conf) CONF_DIR="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -304,6 +322,16 @@ say "   database reachable, TimescaleDB installed and preloaded"
 # the name safe to append to a DSN, which dsn_for_db does.
 case "${DB_NAME}" in
   *[!A-Za-z0-9_]*|"") die "database name ${DB_NAME:-(empty)} is not a bare identifier (letters, digits and _)" ;;
+esac
+
+# The profile, checked here rather than where it is written, for the
+# reason this whole block exists: a typo found at the config stage stops
+# the install after the database is built.
+case "${PROFILE}" in
+  ""|hafif|dengeli|tam) ;;
+  *) die "unknown profile ${PROFILE}. One of: hafif (no IP intelligence),
+    dengeli (country only), tam (country and ASN). Leave it out to keep
+    whatever the configuration files already say." ;;
 esac
 
 # GNU sed, checked rather than assumed.
@@ -658,6 +686,36 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     [ -f "${f}" ] || continue
     sed -i -E "/^\[bot_data\]/,/^\[/ s|^([[:space:]]*)path[[:space:]]*=[[:space:]]*\"[^\"]*/([^\"/]+)\"|\1path = \"${STATE_DIR}/\2\"|" "${f}"
   done
+
+  # ---- the resource profile ----
+  #
+  # Two keys in two files, and both files have to agree: a beacon that
+  # loads the ASN datasets its collector no longer fills is paying 136 MB
+  # for a column nobody writes. The examples say so in prose; this makes
+  # it structural.
+  #
+  # Written only when asked. Without --profile the files keep whatever
+  # they say, which for a fresh install is the examples' asn_lookup off -
+  # and the next-steps list at the end names that, so a default nobody
+  # chose is at least a default somebody was told about.
+  if [ -n "${PROFILE}" ]; then
+    case "${PROFILE}" in
+      hafif)   p_enabled=false; p_country=false ;;
+      dengeli) p_enabled=true;  p_country=true  ;;
+      tam)     p_enabled=true;  p_country=false ;;
+    esac
+    for file in collector.toml beacon.toml; do
+      f="${CONF_DIR}/${file}"
+      [ -f "${f}" ] || continue
+      # Confined to the [asn_lookup] table by the address range. Both
+      # files carry an `enabled` key elsewhere, so an unanchored pattern
+      # would turn something else on or off - the same trap the bot_data
+      # rewrite above documents.
+      sed -i -E "/^\[asn_lookup\]/,/^\[/ s|^([[:space:]]*)#?[[:space:]]*enabled[[:space:]]*=.*|\1enabled = ${p_enabled}|" "${f}"
+      sed -i -E "/^\[asn_lookup\]/,/^\[/ s|^([[:space:]]*)#?[[:space:]]*country_only[[:space:]]*=.*|\1country_only = ${p_country}|" "${f}"
+    done
+    say "   resource profile: ${PROFILE} (asn_lookup written into both files)"
+  fi
 
   # ---- the four database passwords ----
   #
@@ -1120,7 +1178,28 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   INSTALLED_SITE_ID="$(sed -n 's/^site_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
     "${CONF_DIR}/collector.toml" 2>/dev/null | head -1)"
 
+  # Which profile the configuration actually ended up in, read back out
+  # of the file for the same reason the site id is: what a run intended
+  # and what a file says are two things, and the second is the one that
+  # runs.
+  #
+  # Named even when it was not chosen, which is the point. The examples
+  # ship asn_lookup off, so an install nobody steered lands on Hafif -
+  # no country breakdown, no ASN breakdown - and used to say nothing.
+  # A default the customer never chose and was never told about is
+  # discovered weeks later, looking at an empty chart.
+  INSTALLED_PROFILE="hafif"
+  if grep -qE '^[[:space:]]*enabled[[:space:]]*=[[:space:]]*true' "${CONF_DIR}/collector.toml" 2>/dev/null; then
+    if sed -n '/^\[asn_lookup\]/,/^\[/p' "${CONF_DIR}/collector.toml" 2>/dev/null |
+       grep -qE '^[[:space:]]*country_only[[:space:]]*=[[:space:]]*true'; then
+      INSTALLED_PROFILE="dengeli"
+    else
+      INSTALLED_PROFILE="tam"
+    fi
+  fi
+
   printf '\nNEXT STEPS\n\n'
+
 
   if [ -z "${INSTALLED_SITE_ID}" ] || [ "${INSTALLED_SITE_ID}" = "example-site" ]; then
     cat <<NEXT
@@ -1132,6 +1211,18 @@ if [ "${DRY_RUN}" -eq 0 ]; then
      It is still the example's "example-site". Every stored row is keyed
      by it, and changing it later does not rename anything - it starts a
      second site whose history begins that day. KURULUM.md section 6.
+
+NEXT
+  fi
+
+  if [ "${INSTALLED_PROFILE}" = "hafif" ]; then
+    cat <<NEXT
+     While you are in those files: IP intelligence is off, which is what
+     the example configs ship. No country breakdown and no ASN
+     breakdown - those charts will be empty and nothing else is
+     affected. Re-run with --profile dengeli (country only, about
+     256 MB) or --profile tam (country and ASN, about 512 MB), or set
+     asn_lookup.enabled in both files yourself.
 
 NEXT
   fi
@@ -1172,6 +1263,10 @@ NEXT
 
   4. Put the snippet on the site - KURULUM.md section 10. It is printed by:
        ${PREFIX}/bin/beacon -snippet https://${DOMAIN:-example.com} ${INSTALLED_SITE_ID:-<site-id>}
+
+  Resource profile: ${INSTALLED_PROFILE}. The collector checks it against
+  this machine's memory at startup and refuses only what a container
+  limit would kill.
 
   KURULUM.md section 13 is how to tell whether it is really working.
 

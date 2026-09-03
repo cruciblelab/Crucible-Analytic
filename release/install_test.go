@@ -10,6 +10,8 @@ package release
 import (
 	"context"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/collector"
+	"github.com/cruciblelab/crucible-analytic/internal/profile"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1902,4 +1904,126 @@ func envKeys(t *testing.T, path string) map[string]string {
 		t.Fatalf("%s carries no KEY=VALUE lines at all", path)
 	}
 	return out
+}
+
+// TestTheInstallerOffersTheProfilesThePackageDefines.
+//
+// # Two lists, one set
+//
+// internal/profile defines the resource profiles and what each costs.
+// install.sh accepts them by id in a shell case statement, which is a
+// second copy of that list in a language that cannot import the first.
+//
+// The drift is silent in both directions and both are bad. A profile
+// added to the package and not to the script is one nobody can install;
+// an id the script accepts that the package does not know is a
+// configuration the collector will refuse to name at startup, after the
+// database is already built.
+//
+// One side is read out of the Go source, the other out of the shell.
+// Neither is written here.
+func TestTheInstallerOffersTheProfilesThePackageDefines(t *testing.T) {
+	root := repoRoot(t)
+
+	// The ids as internal/profile declares them: ID: "hafif", ...
+	source := readFile(t, root, filepath.Join("internal", "profile", "profile.go"))
+	declared := map[string]bool{}
+	for _, m := range regexp.MustCompile(`ID:\s*"([a-z]+)"`).FindAllStringSubmatch(source, -1) {
+		declared[m[1]] = true
+	}
+	if len(declared) < 2 {
+		t.Fatalf("found %d profile ids in internal/profile; the pattern has stopped "+
+			"matching how they are declared", len(declared))
+	}
+
+	// The ids install.sh accepts, out of the case arm that validates
+	// --profile. Anchored on the empty alternative so this reads the
+	// validation rather than any other case statement in the file.
+	script := readFile(t, root, filepath.Join("release", "install.sh"))
+	arm := regexp.MustCompile(`\n  ""\|([a-z|]+)\) ;;`).FindStringSubmatch(script)
+	if arm == nil {
+		t.Fatal("could not find the --profile validation in install.sh; either it " +
+			"changed shape or the flag stopped being validated, and an unvalidated " +
+			"profile reaches the config files as whatever was typed")
+	}
+	accepted := map[string]bool{}
+	for _, id := range strings.Split(arm[1], "|") {
+		accepted[id] = true
+	}
+
+	for id := range declared {
+		if !accepted[id] {
+			t.Errorf("internal/profile offers %q and install.sh will not accept it, "+
+				"so it is a profile nobody can install", id)
+		}
+	}
+	for id := range accepted {
+		if !declared[id] {
+			t.Errorf("install.sh accepts --profile %q and internal/profile has no such "+
+				"profile; the collector would refuse to name it at startup, after the "+
+				"database was already built", id)
+		}
+	}
+}
+
+// TestEachProfileWritesTheConfigurationItNames.
+//
+// # Why this loads the file with the collector's own loader
+//
+// The id list is mirrored above, and that catches a profile nobody can
+// select. It does not catch the worse case: an id the script accepts and
+// writes wrongly. Swapping one boolean makes --profile dengeli produce
+// the Tam configuration - twice the memory, silently, on the machine
+// somebody chose the smaller profile for.
+//
+// So this asserts the loop rather than the file: the installer writes,
+// internal/collector reads, and the level it derives has to be the level
+// internal/profile declares for that id. Nothing here says "country_only
+// should be true"; that fact lives in one place and is read from it.
+//
+// Found by a mutation - inverting dengeli's country_only broke no test.
+func TestEachProfileWritesTheConfigurationItNames(t *testing.T) {
+	for _, p := range profile.All() {
+		t.Run(p.ID, func(t *testing.T) {
+			db := "ca_profile_" + p.ID
+			scratchDatabase(t, db)
+
+			conf := t.TempDir()
+			out, ok := runInstall(t, db, "CONF_DIR="+conf, "PROFILE="+p.ID)
+			if !ok {
+				t.Fatalf("the install failed:\n%s", out)
+			}
+
+			cfg, err := collector.Load(filepath.Join(conf, "collector.toml"))
+			if err != nil {
+				t.Fatalf("the collector cannot load the config this profile wrote: %v", err)
+			}
+			if got := cfg.ProfileLevel(); got != p.Level {
+				t.Errorf("--profile %s produced level %q, and internal/profile says that "+
+					"profile is level %q.\nThe installer and the package disagree about "+
+					"what this profile is, which is memory the operator did not choose",
+					p.ID, got, p.Level)
+			}
+
+			// The beacon has to agree, and that is not decoration: a
+			// beacon loading the ASN datasets its collector no longer
+			// fills pays the full 136 MB for a column nobody writes.
+			beacon := readFileAt(t, filepath.Join(conf, "beacon.toml"))
+			wantEnabled := p.Level != "kapali"
+			if got := strings.Contains(beacon, "enabled = true"); got != wantEnabled {
+				t.Errorf("beacon.toml has asn_lookup enabled=%v, want %v - the two "+
+					"writers have to load the same datasets", got, wantEnabled)
+			}
+		})
+	}
+}
+
+// readFileAt reads a file by absolute path.
+func readFileAt(t *testing.T, path string) string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
 }
