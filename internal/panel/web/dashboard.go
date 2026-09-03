@@ -181,7 +181,19 @@ type cardView struct {
 // dashboardPage is Data for the template.
 type dashboardPage struct {
 	SiteID string
-	Cards  []cardView
+	// Chart is the beacon's activity over the period, laid out on the
+	// server. Drawn above the cards: the cards say how much and the
+	// chart says when, and reading the totals first fixes an impression
+	// the shape then has to argue with.
+	Chart ui.Chart
+	// ChartEmpty is why there is no chart, using the same vocabulary as
+	// a card's. A period with nothing in it is a measurement and gets
+	// axes with a sentence; an unreachable API gets no box at all,
+	// because an empty chart drawn over a failed call is a claim that
+	// nothing happened.
+	ChartEmpty     emptiness
+	ChartEmptyText string
+	Cards          []cardView
 	// Sections are the breakdowns beneath the cards: which pages, from
 	// where, which campaign. A card without one of these is a number a
 	// customer can read and not act on.
@@ -259,9 +271,14 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	days := s.rangeFrom(r)
-	from, to := wholeDays(time.Now().In(s.zone(r.Context())), days)
+	// One instant for the whole page. The range is derived from it and so
+	// is the chart's cut-off; two calls to time.Now could straddle a
+	// bucket boundary and draw a chart that runs a step past the period
+	// it is labelled with.
+	now := time.Now().In(s.zone(r.Context()))
+	from, to := wholeDays(now, days)
 
-	data := s.dashboardData(r.Context(), lang, siteID, days, from, to, access.ShowsTechnical())
+	data := s.dashboardData(r.Context(), lang, siteID, days, now, from, to, access.ShowsTechnical())
 	page := s.page(r, lang, access, "siteler", siteID)
 	page.Site = ui.SiteView{ID: siteID, Name: s.siteName(r.Context(), access, siteID)}
 	page.Heading = page.Site.Name
@@ -281,7 +298,7 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 // fingerprints and no jargon. The detail pages take the role alone; see
 // detailHandler for why the two differ.
 func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
-	siteID string, days int, from, to time.Time, technical bool) dashboardPage {
+	siteID string, days int, now, from, to time.Time, technical bool) dashboardPage {
 
 	data := dashboardPage{SiteID: siteID, From: from, To: to}
 	for _, d := range rangeDays {
@@ -318,6 +335,29 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		shown.Breakdowns = append(append([]analytics.BreakdownKind(nil), shown.Breakdowns...), technicalBreakdowns...)
 	}
 	req := shown.request(sectionRows)
+	// The chart is drawn only when a card it plots is on the page.
+	//
+	// # Why this is derived rather than given its own setting
+	//
+	// C6's promise is that a block nobody chose costs nothing - not
+	// merely that it is hidden, but that its query never runs. The first
+	// version of this hung the chart on req.Beacon, which made it
+	// unconditional for any page with any beacon block on it, and
+	// TestABlockNobodyChoseIsNeverQueried failed with the timeseries call
+	// in its list. It was right to.
+	//
+	// A new visibility setting would be the obvious repair and it is the
+	// wrong one: the chart introduces no quantity of its own. It draws
+	// the visitor and pageview counts over time, and the customer already
+	// has a switch for each. A second switch for the same two numbers is
+	// a setting whose only job is to disagree with another setting.
+	//
+	// So a customer who turned both of those cards off has said they do
+	// not want these numbers, and the chart of them is not drawn and not
+	// fetched.
+	if req.Beacon && slices.ContainsFunc(shown.Cards, chartPlots) {
+		req.SeriesDays = days
+	}
 	site := s.Analytics.FetchSite(ctx, siteID, from, to, req)
 	board := site.Dashboard
 
@@ -363,6 +403,10 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		data.Cards = append(data.Cards, view)
 	}
 	data.Sections = s.sections(lang, f, siteID, site, presence, days, shown.Breakdowns)
+	data.Chart, data.ChartEmpty = s.chart(lang, f, req, site, presence, now, from, to)
+	if data.ChartEmpty != hasData {
+		data.ChartEmptyText = lang.T("pano.bos." + string(data.ChartEmpty) + "." + string(sourceBeacon))
+	}
 
 	// The histogram and the coverage summary. Fetched separately from the
 	// breakdowns rather than folded into FetchSite: they are not

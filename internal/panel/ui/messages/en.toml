@@ -662,6 +662,10 @@ baslik = "Period"
 one = "Last %s day"
 other = "Last %s days"
 
+[metin.pano.grafik]
+baslik = "Activity over the period"
+aciklama = "Activity across the period you chose. A gap is not missing measurement — it means nothing happened in that interval."
+
 [metin.pano.hata]
 ulasilamiyor = "The numbers cannot be read right now: the panel cannot reach the analytics service. Nothing is missing — it has not arrived. The page will fill in by itself once the service is back."
 reddedildi = "The analytics service did not recognise this panel. That is a configuration problem rather than a data one: the panel's API token needs renewing. Tell whoever set the server up."

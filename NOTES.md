@@ -10440,3 +10440,93 @@ etiketteki hâline geri döndürüldü (şema 8, yapılacak bir şey yok).
 
 **İki mutasyon:** yayımlanmamış bölümün şema iddiasını 8'e çevirdim
 *(yakalandı)*, başlığı sürümün altına taşıdım *(yakalandı)*.
+
+---
+
+## T7a — Panoda zaman grafiği: sunucuda çizilen SVG
+
+Kullanıcının cümlesi: *"daha çok grafik şekilli şeyler eklemeliyiz bence,
+her şey düz yazıyla olmaması gerektiğini düşünüyorum."*
+
+Doğruydu, ve eksik olan şey süsleme değildi. Pano altı sayı ve dokuz
+tablo gösteriyordu. "Yedi günde 1.260 sayfa görüntüleme" okuyan birinin
+asıl sorusunu — **bu istikrarlı mı, yükseliyor mu, yoksa bir iyi salı ve
+altı sessiz gün mü** — sayfada soracak yer yoktu.
+
+### Veri zaten vardı; hiçbir sayfa sormamıştı
+
+`/api/v1/sites/{site}/beacon/timeseries` API yazıldığı günden beri
+cevap veriyor. Panelin analitik istemcisinde karşılığı yoktu.
+
+### Kütüphane değil, sunucu
+
+Panelin kuralı: *"Tarayıcının indirdiği her şey binary'nin içindedir.
+CDN yok, npm yok, derleme adımı yok."* Bir grafik kütüphanesi bunu ilk
+satırda kırar. Alternatif — zaten gönderdiğimiz 51 KB htmx içinde bir
+tane yazmak — aritmetiği bu depodaki hiçbir testin ulaşamayacağı bir yere
+koyardı.
+
+Yani geometri Go'da: `internal/panel/ui/chart.go`. Tarayıcıya `<path>`'i
+olan bir `<svg>` gidiyor, tıpkı `<tr>`'leri olan bir `<table>` gibi. Ve
+yol verisi sayı olduğu için, **test yolun içinden koordinatları geri
+okuyup hakkında iddia kurabiliyor.**
+
+### Ölçülen tuzak: API boş kovaları göndermiyor
+
+Gerçek demo veriyle ölçtüm: yedi günlük saatlik seri **169 saatlik bir
+aralıkta 144 kova** döndü. Eksik 25 saat, 11 boşluk hâlinde, ve hepsi
+sabaha karşıydı.
+
+O 144 noktayı eşit aralıklarla çizmek, düzgün görünen, makul görünen ve
+**ne zaman olduğu hakkında yalan söyleyen** bir çizgi üretir. Her sessiz
+gece sessizce *hiç zaman değil* hâline gelir.
+
+Bu yüzden `Build` aralığı kendisi dolduruyor: `From`'dan adım adım
+yürüyor, API'nin göndermediği kova sıfır oluyor. *O saatte satır yok, o
+saatte görüntüleme yok demektir — o saati bilmiyoruz demek değil.*
+
+### Ekranda bakınca çıkan iki kusur
+
+Test yeşilken sayfayı açtım. İkisi de oradaydı:
+
+**1. Çizgi sağ uçta dibe vurup düz gidiyordu.** Panelin dönemleri tam
+yerel gün: sabah dokuzda "son yedi gün" hâlâ bu gecenin on beş saatini
+içeriyor. O kovalar *olmadı*; sıfırla doldurmak "bu sabah trafik
+çöktü" diye okunuyor. Kendi kuralım yalnız **geçmiş** aralıklar için
+doğruymuş. `Now` eklendi; başlamamış kovalar çizilmiyor. **Devam eden
+kova kalıyor** — o gerçek ölçüm, ve panele bakan kişinin görmek istediği
+şey o.
+
+**2. Son tarih etiketi kırpılıyordu: `04.09.2`.** Sağ kenardaki
+ortalanmış bir etiket genişliğinin yarısı kadar viewBox'ın dışına taşar.
+Hiçbir yerde hata yok; okuyan kişi yılı yarım biten bir tarih görüyor.
+
+*Testi geçen bir çizim, doğru çizim değildir. İkisinin arasındaki fark
+ekrana bakmaktır.*
+
+### Ve C6 testi tasarım hatasını yakaladı
+
+İlk hâli grafiği `req.Beacon`'a bağlıyordu — yani beacon'lu her sayfada
+koşulsuz. `TestABlockNobodyChoseIsNeverQueried` kırmızıya döndü ve
+haklıydı: C6'nın sözü *kimsenin seçmediği bloğun hiçbir şeye mal
+olmaması*.
+
+Bariz onarım yeni bir görünürlük ayarı, ve yanlış olan da o: grafik
+kendine ait bir büyüklük getirmiyor. Ziyaretçi ve sayfa görüntüleme
+sayılarını zamana yayıyor, ve müşterinin ikisi için de zaten anahtarı
+var. **Aynı iki sayı için ikinci bir anahtar, tek işi başka bir ayarla
+çelişmek olan bir ayardır.**
+
+Yani: grafik, çizdiği kartlardan biri açıksa çiziliyor. Liste de
+elle yazılmıyor — `chartPlots` serinin kendi anahtarlarını okuyor, yani
+grafiğe üçüncü bir çizgi eklemek o kartı kendiliğinden buraya katıyor.
+
+**Dört mutasyon:** boşluğu atlayan çizim *(yakalandı)*, koşulsuz
+getirme *(yakalandı, iki alt durumda)*, alan yolunu hiç üretmemek
+*(yakalandı)*, ve eksen tepesini bölünmeyen bir sayıya yuvarlamak
+*(yakalandı — eşit aralıklı çizgilerin altında eşit olmayan etiketler)*.
+
+**Ölçümler:** 7 gün / 6 saatlik kova = 29 nokta, 2.309 bayt, 7,7 ms. 7
+gün / saatlik = 144 nokta, 10.726 bayt, 11,4 ms. 168 noktalık bir yol,
+koordinat başına tek ondalıkla 3 KB'ın altında; `%v` ile yazılsaydı
+otuz kilobayt olurdu — stylesheet'in tamamı on dört.

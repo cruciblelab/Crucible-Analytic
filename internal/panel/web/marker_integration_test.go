@@ -263,3 +263,55 @@ func TestEveryPageHandlerIsWalkedOrExcused(t *testing.T) {
 		}
 	}
 }
+
+// TestTheChartIsNotFetchedWhenItsCardsAreOff.
+//
+// C6's promise is that a block nobody chose costs nothing - not that it
+// is hidden, but that its query never runs.
+//
+// The first version of the chart hung on "does this page use the beacon
+// at all", which made the timeseries call unconditional for any page
+// with any beacon block on it. TestABlockNobodyChoseIsNeverQueried
+// caught that, by accident: it counts everything under /beacon/ that is
+// not the summary, so the chart's call landed in a list of breakdowns it
+// is not one of. A rule enforced by accident is a rule that survives
+// until somebody makes the accident stop happening.
+//
+// So this says it directly, in both directions.
+func TestTheChartIsNotFetchedWhenItsCardsAreOff(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cards []string
+		want  bool
+	}{
+		"neither card chosen":      {[]string{string(cardHumanIPs), string(cardBotIPs)}, false},
+		"pageviews chosen":         {[]string{string(cardPageviews)}, true},
+		"visitors chosen":          {[]string{string(cardVisitors)}, true},
+		"an unrelated beacon card": {[]string{string(cardBounceRate)}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv, store := setupTestServer(t)
+			seen := countingAPI(t, srv)
+			site := "grafik-" + strings.ReplaceAll(name, " ", "-")
+
+			setVisible(t, store, site, tc.cards, nil)
+			server, client, _ := signedInOwner(t, srv, store, site, "grafik-"+t.Name()[:8])
+			if status, _ := get(t, client, server.URL+sitePath(site)); status != http.StatusOK {
+				t.Fatalf("the dashboard answered %d", status)
+			}
+
+			var asked bool
+			for _, p := range *seen {
+				if strings.HasSuffix(p, "/beacon/timeseries") {
+					asked = true
+				}
+			}
+			if asked != tc.want {
+				t.Errorf("the timeseries was fetched=%v, want %v. The chart draws the "+
+					"visitor and pageview counts over time; a customer who turned both "+
+					"of those cards off has said they do not want these numbers, and a "+
+					"query that runs anyway is the cost C6 exists to remove",
+					asked, tc.want)
+			}
+		})
+	}
+}

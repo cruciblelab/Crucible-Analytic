@@ -691,6 +691,13 @@ baslik = "Dönem"
 one = "Son %s gün"
 other = "Son %s gün"
 
+[metin.pano.grafik]
+baslik = "Dönem boyunca hareket"
+# Grafik bir resim; ekran okuyucu onu okumaz, altındaki kartları ve
+# tabloları okur. Bu cümle grafiğin ne gösterdiğini söyler, tek tek
+# noktaları değil - noktaların hepsi zaten aynı sayfada sayı olarak var.
+aciklama = "Seçilen dönemde günlük hareket. Boş kalan yerler ölçüm eksikliği değil, o aralıkta hareket olmadığı anlamına gelir."
+
 [metin.pano.hata]
 ulasilamiyor = "Sayılar şu an okunamıyor: panel, analitik servisine ulaşamıyor. Veriler eksik değil, henüz gelmedi — servis geri geldiğinde sayfa kendiliğinden dolacak."
 reddedildi = "Analitik servisi bu paneli tanımadı. Bu bir veri sorunu değil, yapılandırma sorunu: panelin API anahtarının yenilenmesi gerekiyor. Sunucuyu kuran kişiye iletin."

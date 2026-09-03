@@ -168,8 +168,12 @@ type BreakdownRequest struct {
 // so a caller must not skip one whose numbers it then divides by. The
 // panel decides that from its own registries; see the web package.
 type SiteRequest struct {
-	Traffic    bool
-	Beacon     bool
+	Traffic bool
+	Beacon  bool
+	// Series asks for the beacon's activity over time, bucketed by
+	// Interval(days). Zero days means no series, which is how a page
+	// that draws no chart avoids paying for one.
+	SeriesDays int
 	Breakdowns []BreakdownRequest
 }
 
@@ -181,6 +185,11 @@ type SiteRequest struct {
 type Site struct {
 	Dashboard
 	Breakdowns map[BreakdownKind]Breakdown
+	// Series is the activity over time, empty unless SeriesDays asked
+	// for it. Its own Err rather than the page's: a chart that could not
+	// be drawn is a missing picture, and the numbers it decorates are
+	// still on the page.
+	Series Series
 }
 
 // breakdownSpec is what fetching one kind requires.
@@ -418,6 +427,9 @@ func (c *Client) FetchSite(ctx context.Context, site string, from, to time.Time,
 				Kind: req.Kind, Limit: req.Limit, Offset: req.Offset, Err: ErrUnavailable,
 			}
 		}
+		if want.SeriesDays > 0 {
+			out.Series.Err = ErrUnavailable
+		}
 		return out
 	}
 
@@ -440,6 +452,14 @@ func (c *Client) FetchSite(ctx context.Context, site string, from, to time.Time,
 		go func() {
 			defer wg.Done()
 			out.Beacon, out.BeaconErr = c.beaconSummary(ctx, site, from, to)
+		}()
+	}
+	if want.SeriesDays > 0 {
+		interval, step := Interval(want.SeriesDays)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out.Series = c.series(ctx, site, from, to, interval, step)
 		}()
 	}
 	for _, req := range want.Breakdowns {

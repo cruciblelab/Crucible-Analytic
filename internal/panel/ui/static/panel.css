@@ -1027,3 +1027,110 @@ code.secret {
   font-size: 0.9em;
 }
 .ayar-katagori > .ayar { padding-left: 1rem; padding-right: 1rem; }
+
+/* The time chart.
+ *
+ * Every colour is a custom property, so the light and dark palettes at
+ * the top of this file drive the drawing the same way they drive
+ * everything else. A chart with hardcoded colours is a chart that is
+ * unreadable in exactly one of the two themes, and it is always the one
+ * the author does not use.
+ *
+ * The SVG carries a viewBox and no width, so it scales to its column;
+ * preserveAspectRatio="none" lets it stretch horizontally without
+ * growing taller, which is what a time series wants - more room means
+ * more time visible, not a bigger picture. */
+.grafik {
+  background: var(--kart);
+  border: 1px solid var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  box-shadow: var(--golge);
+  padding: calc(var(--olcu) * 1.25);
+  margin: 0 0 var(--olcu);
+}
+
+.grafik-cizim {
+  display: block;
+  width: 100%;
+  height: 200px;
+}
+
+/* vector-effect keeps the stroke one pixel wide after the horizontal
+ * stretch above. Without it a chart squeezed into a narrow column draws
+ * a line that is thin across and fat down. */
+.grafik-cizgi {
+  fill: none;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.grafik-izgara {
+  stroke: var(--kart-kenar);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.grafik-yazi {
+  fill: var(--metin-soluk);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.grafik-alan {
+  fill: var(--vurgu);
+  fill-opacity: 0.12;
+  stroke: none;
+}
+
+.grafik-goruntuleme {
+  stroke: var(--vurgu);
+}
+
+.grafik-ziyaretci {
+  stroke: var(--kilit);
+  stroke-dasharray: 4 3;
+}
+
+.grafik-anahtar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--olcu);
+  margin: calc(var(--olcu) * 0.5) 0 0;
+  font-size: 0.8125rem;
+  color: var(--metin-soluk);
+}
+
+/* The legend swatch is a border rather than a filled block, and the
+ * visitors one is dashed, so the two series are told apart by shape as
+ * well as by hue - about one man in twelve cannot use the hue. */
+.grafik-rozet::before {
+  content: "";
+  display: inline-block;
+  width: 14px;
+  vertical-align: middle;
+  margin-inline-end: 6px;
+  border-top: 2px solid currentColor;
+}
+
+.grafik-anahtar .grafik-goruntuleme {
+  color: var(--vurgu);
+}
+
+.grafik-anahtar .grafik-ziyaretci {
+  color: var(--kilit);
+}
+
+.grafik-anahtar .grafik-ziyaretci::before {
+  border-top-style: dashed;
+}
+
+.grafik-bos {
+  color: var(--metin-soluk);
+  background: var(--kart);
+  border: 1px dashed var(--kart-kenar);
+  border-radius: var(--yuvarlak);
+  padding: calc(var(--olcu) * 1.25);
+  margin: 0 0 var(--olcu);
+}

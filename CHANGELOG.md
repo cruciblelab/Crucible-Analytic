@@ -26,6 +26,29 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
+### Panoda zaman grafiği
+
+Pano artık dönem boyunca hareketi **çiziyor**: sayfa görüntüleme ve
+ziyaretçi, kartların üstünde, seçilen döneme göre saatlik / altı saatlik
+/ günlük kovalarla.
+
+Sunucuda çizilen düz SVG. Grafik kütüphanesi yok, CDN yok, ek bir istek
+yok — panelin "tarayıcının indirdiği her şey binary'nin içindedir"
+kuralı grafikte de geçerli. JavaScript kapalıyken de çiziliyor.
+
+Üç şey bilerek şöyle:
+
+- **Boş kova, boş zaman değil.** Analitik servisi satırı olmayan
+  kovaları hiç göndermiyor. Grafik aralığı kendisi dolduruyor, yani
+  sessiz bir gece çizgiyi tabana indiriyor — atlanıp yokmuş gibi
+  yapılmıyor.
+- **Gelecek çizilmiyor.** Dönem tam yerel gün olduğu için "son yedi
+  gün" bu gecenin saatlerini de kapsıyor; henüz olmamış kovalar
+  çizilmiyor. Devam eden kova kalıyor: o gerçek ölçüm.
+- **Kapatılabiliyor.** Grafik, çizdiği kartlardan (Ziyaretçi / Sayfa
+  görüntüleme) en az biri açıkken çiziliyor. İkisi de kapalıysa
+  çizilmiyor **ve sorgusu hiç koşmuyor.**
+
 ### Panoda "Son «»7 gün" yazıyordu
 
 Müşterinin panosundaki dönem düğmeleri, panonun yazıldığı ilk günden beri

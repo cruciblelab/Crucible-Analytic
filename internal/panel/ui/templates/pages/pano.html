@@ -23,6 +23,61 @@ boundary nobody thinks in. */}}
 </p>
 </nav>
 
+{{- /* The shape, above the totals. A reader who takes in the numbers
+first has formed an impression by the time the shape appears, and the
+shape then has to argue with it: traffic that halved on Thursday and a
+total reading "1 479" are the same week, and whichever is read first is
+the one that is believed.
+
+Drawn on the server as plain SVG. Everything the browser downloads is
+inside the binary - no CDN, no npm, no build step - and a charting
+library breaks that on its first line. */}}
+{{- with .Data}}
+{{- if not .ChartEmpty}}
+<figure class="grafik">
+<svg class="grafik-cizim" viewBox="0 0 {{.Chart.Width}} {{.Chart.Height}}"
+     preserveAspectRatio="none" role="img"
+     aria-labelledby="grafik-ad grafik-aciklama">
+<title id="grafik-ad">{{.Chart.Label}}</title>
+{{- /* The description, not a reading of the points. A screen reader
+given ninety coordinates learns nothing; the same numbers are on this
+page as text in the cards and the tables below. */}}
+<desc id="grafik-aciklama">{{t "pano.grafik.aciklama"}}</desc>
+
+{{- range .Chart.Grid}}
+<line class="grafik-izgara" x1="{{$.Data.Chart.PlotLeft}}" y1="{{.Y}}"
+      x2="{{$.Data.Chart.PlotRight}}" y2="{{.Y}}" />
+<text class="grafik-yazi grafik-deger" x="{{$.Data.Chart.ValueLabelX}}" y="{{.TextY}}"
+      text-anchor="end">{{.Value}}</text>
+{{- end}}
+
+{{- range .Chart.Lines}}
+{{- if .Area}}
+<path class="grafik-alan" d="{{.Area}}" />
+{{- end}}
+<path class="grafik-cizgi grafik-{{.Key}}" d="{{.Path}}" />
+{{- end}}
+
+{{- range .Chart.Ticks}}
+<text class="grafik-yazi" x="{{.X}}" y="{{$.Data.Chart.TickLabelY}}"
+      text-anchor="{{.Anchor}}">{{.Label}}</text>
+{{- end}}
+</svg>
+
+<figcaption class="grafik-anahtar">
+{{- range .Chart.Lines}}
+<span class="grafik-rozet grafik-{{.Key}}">{{.Label}}</span>
+{{- end}}
+</figcaption>
+</figure>
+{{- else}}
+{{- /* No chart, and the sentence says which of the three reasons it is:
+a period with nothing in it is a measurement, a beacon that never wrote
+a row is a snippet nobody embedded, and an unreachable API is neither. */}}
+<p class="grafik-bos durum-{{.ChartEmpty}}">{{.ChartEmptyText}}</p>
+{{- end}}
+{{- end}}
+
 <div class="kartlar">
 {{- range .Data.Cards}}
 <article class="kart" data-kart="{{.ID}}">
