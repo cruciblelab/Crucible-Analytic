@@ -92,6 +92,21 @@ type healthPage struct {
 	Schema      healthSchema
 	SchemaError string
 
+	// SelfURL is this page's own URL, so the template can poll it
+	// without carrying a second copy of the constant. Derived from
+	// HealthPath rather than written out: a path spelled twice is a
+	// path that gets renamed once.
+	//
+	// Not SelfPath, which is what it was called first.
+	// TestTheHealthPageCarriesNoVisitorNumbers refused that name, and
+	// correctly: "path" on this page means a visitor's requested path,
+	// which is precisely the class of value the panel's role may not
+	// read. The check works by field name because a value check would
+	// need the field to exist first, so a name that reads like a
+	// forbidden one is a name worth changing rather than an exception
+	// worth adding.
+	SelfURL string
+
 	Upgrade      upgradeSection
 	UpgradeError string
 
@@ -328,6 +343,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	now := time.Now()
 
 	data := healthPage{
+		SelfURL: HealthPath,
 		Panel: healthService{
 			Name:    "panel_user",
 			Version: buildinfo.Version(s.Renderer.Version),

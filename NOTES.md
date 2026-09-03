@@ -9427,3 +9427,74 @@ yerde duruyor ve testte oradan okunuyor.
 
 Bir aynanın iyi olup olmadığı, iddiayı kaç yerde tekrar ettiğine bakarak
 anlaşılıyor. Sıfır en iyisi.
+
+---
+
+## "Yükleme ekranı ekleyelim mi" — önce ölçtüm, ve cevap hayır çıktı
+
+Müşteri güzel bir yükleme ekranı istedi: girişten sonra, ilk girişlerde,
+yüklenmenin uzun sürdüğü yerlerde. Makul istek. Ama "yüklenmenin uzun
+sürdüğü yer" bir iddia, ve iddialar ölçülür.
+
+Gerçek veritabanına karşı, üç veri hacminde:
+
+| sayfa | 0 satır | 5.000 | 50.000 |
+|---|---|---|---|
+| pano | 440 ms *(soğuk)* | 13 ms | 13 ms |
+| sağlık | 38 ms | 36 ms | 9 ms |
+| hesap | 66 ms | 2 ms | 2 ms |
+
+Girişteki argon2id: 24 ms.
+
+**Yavaş bir yer yok, ve veri hacmiyle yavaşlamıyor** — 50.000 satırda
+5.000 ile aynı. Olmayan bir gecikmeye animasyon koymak, kullanıcıya
+gecikme *eklemektir*: en az animasyonun süresi kadar.
+
+Tek gerçek rakam 440 ms ve o da soğuk açılış — süreç başına bir kez, bir
+kişi.
+
+### Ölçerken aradığımdan başka bir şey buldum
+
+htmx her sayfada yükleniyor. **51 KB JavaScript, üstüne bir CSP meta
+etiketi, ve şablonlarda tek bir `hx-` özniteliği yok.** Sıfır kullanım.
+
+"Animasyon ekleyelim mi" sorusunun ilk cevabı buydu: zaten gönderdiğimiz
+arayüz kütüphanesi ya işini yapsın ya da gitsin.
+
+### Ve gerçek gecikme başka yerdeydi
+
+Sayfalar hızlı; **operasyonlar** yavaş. Yükseltme dakikalar sürüyor, veri
+kümesi yenilemesi 136 MB ayrıştırıyor. İkisinin de durum satırı vardı —
+ama görmenin yolu sayfayı elle yenilemekti. Yükseltme mesajı bunu
+kelimesi kelimesine söylüyordu: *"bu sayfayı yenileyerek sonucu
+görebilirsiniz."*
+
+Dakikalar süren bir işlem, insana tuşa basmayı sürdürmesini söylüyordu.
+Hem de zaten endişelendiği için açtığı sayfada.
+
+**Aranan şey buydu.** Müşterinin sezgisi doğruydu, gösterdiği yer
+yanlıştı: sorun sayfanın açılışında değil, açıldıktan sonra hiçbir şeyin
+değişmemesindeydi.
+
+### Durma koşulu betikte değil, yapıda
+
+Yoklama, `hx-trigger` yalnız uçuşta bir istek varken basıldığı için
+kendiliğinden duruyor: takas edilen kopya tetikleyicisiz geliyor.
+Kapatmayı hatırlaması gereken hiçbir şey yok.
+
+Bir zamanlayıcıyı durduran en güvenilir kod, yazılmamış olan koddur.
+
+### İki küçük ders, ikisi de testlerden
+
+**Bir:** alanı `SelfPath` diye adlandırdım, sağlık sayfasının alan adı
+denetimi reddetti. Haklıydı — o sayfada "path" ziyaretçinin istediği yol
+demek, ve panelin rolü onu okuyamaz. İsmi değiştirdim, teste istisna
+eklemedim. **Yasak bir ada benzeyen ad, istisna değil değişiklik ister**;
+istisna eklemek denetimi bir sonraki gerçek ihlalde de sessiz bırakır.
+
+**İki:** testi `t.Skipf` ile kurmuştum ve ilk koşuda atladı — sütun adını
+yanlış tahmin etmişim. Atlama, `-v` olmadan geçmiş gibi görünür. Bu
+oturumda ikinci kez: docker testi de atlayıp `ok` yazdırmıştı.
+
+**Kurmak istediği durumu kuramayan bir test atlanmış değil, bozuktur.**
+Skip, koşulların yokluğu içindir; kendi hatam için değil.

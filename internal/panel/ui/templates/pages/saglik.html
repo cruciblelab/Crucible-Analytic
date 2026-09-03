@@ -131,7 +131,30 @@ somebody suspects it is not. */}}
 <p class="uyari">{{.Data.UpgradeError}}</p>
 </section>
 {{- else if .Data.Upgrade.Show}}
-<section class="bolum">
+{{- /* Polls itself while an upgrade is in flight, and stops when it is
+not.
+
+The stop condition is structural rather than scripted: the hx-trigger is
+only rendered while InFlight is true, so the swapped-in section arrives
+without one and the polling ends by itself. Nothing has to remember to
+turn it off.
+
+Why this exists at all: the message this section shows used to say "bu
+sayfayı yenileyerek sonucu görebilirsiniz" - refresh the page yourself to
+see the result. That is an operation which takes minutes asking a person
+to keep pressing a key, on a page they opened because they were already
+worried.
+
+Measured before writing it: the panel's pages render in 2-38 ms and do
+not slow down with data volume (13 ms at 50,000 rows), so a poll every
+five seconds costs nothing worth counting. htmx was already loaded on
+every page and used by nothing - 51 KB of JavaScript shipped for zero
+uses - so this is also the first thing that makes it earn its place. */}}
+<section class="bolum" id="yukseltme-durumu"
+{{- if and .Data.Upgrade.Latest .Data.Upgrade.Latest.InFlight}}
+  hx-get="{{$.Data.SelfURL}}" hx-select="#yukseltme-durumu"
+  hx-target="this" hx-swap="outerHTML" hx-trigger="every 5s"
+{{- end}}>
 <h2>{{t "saglik.yukselt.baslik"}}</h2>
 
 {{- if .Data.Upgrade.Notice}}

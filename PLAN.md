@@ -98,6 +98,7 @@ gerekçe değil bahane olur.
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
+| **T** Arayüz cilası | 🟡 **1/4** | T2, T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6129,6 +6130,107 @@ Yapabildiğimiz oraya gelmeden söylemekti.
 yakalanmadı, bu yüzden ikisi için ayrı test yazıldı: `--dry-run`'ın
 veritabanını kontrol etmesi, ve 0. adımın varlığı. *Bir düzeltmenin
 kendi koruması yoksa, o düzeltme geri gelir.*
+
+---
+
+### T grubu — Arayüz cilası, ölçülmüş gecikmelere
+
+*(2026-09-03'te eklendi. Müşterinin sorusu: "güzel bir yükleme ekranı
+ekleyelim mi, girişten sonra ve ilk girişlerde ya da yüklenmenin uzun
+sürdüğü yerlerde? Bu tarz animasyonlar için ayrı bir faz mı ekleyelim?")*
+
+#### Önce ölçüm: panelde yavaş bir yer yok
+
+Gerçek veritabanına karşı, üç veri hacminde, her sayfa üç kez okunup en
+kötüsü alındı:
+
+| sayfa | 0 satır | 5.000 | 50.000 |
+|---|---|---|---|
+| pano | **440 ms** *(soğuk açılış)* | 13 ms | 13 ms |
+| sağlık | 38 ms | 36 ms | 9 ms |
+| hesap | 66 ms | 2 ms | 2 ms |
+
+Ve girişteki argon2id doğrulaması: **24 ms**.
+
+**Sonuç: genel bir yükleme ekranının karşılığı yok.** Sayfalar 2-38 ms
+sürüyor ve **veri hacmiyle yavaşlamıyor** — 50.000 satırda 5.000 ile
+aynı. Olmayan bir gecikmeye animasyon koymak, kullanıcıya gecikme
+*eklemektir*.
+
+440 ms tek gerçek rakam ve o da **soğuk açılış**: sürecin ilk sayfası.
+Süreç başına bir kez, bir kişi görüyor.
+
+#### Ölçerken çıkan asıl bulgu
+
+**htmx her sayfada yükleniyor ve hiçbir yerde kullanılmıyor.** 51 KB
+JavaScript, üstüne bir CSP meta etiketi, sıfır kullanım için. Şablonlarda
+tek bir `hx-` özniteliği yok.
+
+Yani "animasyon ekleyelim mi" sorusunun cevabı şuydu: önce, zaten
+gönderdiğimiz arayüz kütüphanesi ya işini yapsın ya da gitsin.
+
+#### Ve gerçek gecikme başka yerdeydi
+
+Sayfalar hızlı; **operasyonlar** yavaş. Yükseltme dakikalar sürüyor, veri
+kümesi yenilemesi 136 MB ayrıştırıyor. İkisinin de durum satırı var
+("Sırada", "Uygulanıyor", "Tamamlandı") — ama görmenin yolu **sayfayı
+elle yenilemek**. Yükseltme mesajı bunu kelimesi kelimesine söylüyordu:
+*"bu sayfayı yenileyerek sonucu görebilirsiniz."*
+
+Dakikalar süren bir işlem, insana tuşa basmayı sürdürmesini söylüyordu —
+hem de zaten endişelendiği için açtığı sayfada. **Aranan şey buydu, ve
+bir yükleme animasyonu değil.**
+
+---
+
+#### T1 — Uzun operasyonlar kendini tazeliyor ✅ *(2026-09-03)*
+
+Yükseltme bölümü, uçuşta bir istek varken kendini beş saniyede bir
+yeniliyor. **Durma koşulu betikte değil, yapıda:** `hx-trigger` yalnız
+`InFlight` iken basılıyor, yani takas edilen kopya tetikleyicisiz
+geliyor ve yoklama kendiliğinden bitiyor. Kapatmayı hatırlaması gereken
+hiçbir şey yok.
+
+Maliyeti ölçülmüştü: sayfa 9-38 ms, beş saniyede bir istek sayılacak bir
+şey değil. Ve htmx ilk kez bir işe yarıyor.
+
+**İki mutasyon:** durma koşulunu kaldır *(sonsuza kadar yoklayan sayfa
+yakalandı)*, yoklamayı hiç yapma *(değişmeyen sayfa yakalandı)*.
+
+**Yazarken iki şey daha çıktı, ikisi de test disiplininden:**
+
+- Alanı önce `SelfPath` diye adlandırdım ve `TestTheHealthPageCarriesNoVisitorNumbers`
+  reddetti. Haklıydı: bu sayfada "path" ziyaretçinin istediği yol demek
+  ve panelin rolü onu okuyamaz. **İsim değişti, teste istisna
+  eklenmedi** — yasak bir ada benzeyen bir ad, istisna değil değişiklik
+  ister.
+- Test önce `t.Skipf` ile kuruluyordu ve ilk koşuda **atladı**: sütun
+  adını yanlış tahmin etmişim. Atlama, `-v` olmadan geçmiş gibi
+  görünür. Kurmak istediği durumu kuramayan bir test atlanmış değil,
+  bozuktur. `t.Fatalf` oldu.
+
+#### T2 — Veri kümesi yenilemesi de kendini tazelesin ⬜
+
+Aynı desen, M3'ün yenileme bölümüne. Ayrı madde çünkü o bölümün uçuş
+durumu farklı bir tabloda ve okuma yolu ayrı.
+
+#### T3 — Soğuk açılışın 440 ms'i ⬜
+
+Sürecin ilk sayfası. Ölçülecek ilk şey **neyin** pahalı olduğu: şablon
+ayrıştırma mı, ilk veritabanı bağlantısı mı, ilk sorgu planı mı.
+Ölçmeden çözüm yazmak, bu grubun kendi kuralını çiğnemek olur.
+
+**Dürüst uyarı:** bir kişinin süreç başına bir kez gördüğü 440 ms,
+düzeltilmeye değmeyebilir. Fazın ilk işi "değer mi" sorusunu ölçmek.
+
+#### T4 — htmx: ya kullan ya kaldır ⬜
+
+T1 bir kullanım getirdi. T2 ikincisini getirecek. Bu madde, **ikisinden
+sonra** sorulacak soru: 51 KB, iki yoklama için mi duruyor?
+
+Cevap "evet" olabilir — kütüphane iki satırlık öznitelikle iş görüyor ve
+alternatifi elle yazılmış JavaScript. Ama soru sorulmadan kalmasın:
+kullanılmayan bir bağımlılık, kimsenin bakmadığı bir yüzeydir.
 
 ---
 

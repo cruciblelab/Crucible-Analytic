@@ -425,3 +425,64 @@ func TestTheHealthPageShowsTheResourceProfile(t *testing.T) {
 		t.Error("the services table has no profile column")
 	}
 }
+
+// TestTheUpgradeSectionPollsOnlyWhileSomethingIsRunning.
+//
+// # What this is for
+//
+// An upgrade takes minutes, and the message beside it used to say "bu
+// sayfayı yenileyerek sonucu görebilirsiniz" - refresh the page yourself
+// to see the result. That is an operation asking a person to keep
+// pressing a key, on a page they opened because they were already
+// worried about something.
+//
+// The section polls itself instead, and the stop condition is
+// structural: the hx-trigger is rendered only while the request is in
+// flight, so the swapped-in copy arrives without one and the polling
+// ends by itself. Nothing has to remember to turn it off - which is the
+// half worth testing, because a poll that never stops is a page that
+// reloads forever on a machine nobody is watching.
+//
+// Measured before it was written: the panel's pages render in 2-38 ms
+// and do not slow with data volume (13 ms at 50,000 rows), so a request
+// every five seconds costs nothing worth counting.
+func TestTheUpgradeSectionPollsOnlyWhileSomethingIsRunning(t *testing.T) {
+	srv, client, _ := healthServer(t)
+
+	// Nothing in flight: the section may or may not be shown at all,
+	// but it must not be polling.
+	_, body := get(t, client, srv.URL+HealthPath)
+	if strings.Contains(body, "hx-trigger") {
+		t.Error("the health page polls itself with no upgrade in flight; that is a " +
+			"request every five seconds, forever, from every open tab")
+	}
+
+	// A request in flight. Written straight into the table rather than
+	// through RequestUpgrade, which needs the developer password: this
+	// test is about what the page draws for a given state, not about
+	// how the state is reached.
+	//
+	// Fatal rather than a skip when the insert fails. It was a skip
+	// first, and the first run skipped on a column name this test had
+	// guessed - which reads as a pass in every summary that is not run
+	// with -v. A test that cannot set up the state it is about has not
+	// been skipped by circumstance; it is broken.
+	if _, err := testdb.Admin(t).Exec(context.Background(), `
+		INSERT INTO panel_upgrade_requests
+		    (actor_kind, actor_label, state, from_version, to_version, to_fingerprint)
+		VALUES ('test', 'test-actor', 'running', 7, 8, 'test-fingerprint')`); err != nil {
+		t.Fatalf("could not seed a running upgrade request: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = testdb.Admin(t).Exec(context.Background(),
+			`DELETE FROM panel_upgrade_requests WHERE actor_label = 'test-actor'`)
+	})
+
+	_, body = get(t, client, srv.URL+HealthPath)
+	for _, want := range []string{`id="yukseltme-durumu"`, "hx-trigger", "hx-select"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("an upgrade is running and the section does not carry %q, so the "+
+				"page will sit unchanged until somebody reloads it", want)
+		}
+	}
+}
