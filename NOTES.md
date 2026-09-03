@@ -10176,3 +10176,78 @@ içinde gezinmesi gerekmiyor. 0700 oldu.
 
 *Bir tarayıcının bulgusunu susturmadan önce haklı olup olmadığına bakmak
 gerekiyor.*
+
+## Geri dönüşün asıl tasarımı, geri dönüşü nadir kılmak
+
+V4 bu grubun en riskli parçasıydı: collector müşterinin sitesinin
+önünde, açılmayan bir binary siteyi düşürür, ve düzeltecek paneli de
+düşürebilir.
+
+Yazarken fark ettiğim şey şu oldu: **geri dönüş, her sistemde en az test
+edilmiş yoldur.** Çünkü yalnız başka bir şey zaten bozulduğunda koşar.
+Yani üstüne ne kadar test yazarsam yazayım, gerçek koşulda ilk kez
+çalışacak.
+
+O yüzden asıl iş geri dönüşü iyi yazmak değil, **ona ihtiyaç duyulmasını
+engellemek** oldu: her yeni binary, hiçbir şey değiştirilmeden önce
+`-version` ile çalıştırılıyor. Yanlış mimari, kırpılmış dosya, eksik
+kütüphane, açılış paniği — hepsi burada düşüyor, ve burada düşmenin
+bedeli sıfır.
+
+*İmza kimin yaptığını söyler, burada çalıştığını asla söylemez.* Yanlış
+mimariye derlenmiş bir paket, gerçekten imzaladığımız bir pakettir.
+
+### Üç küçük karar, üçü de "ne zaman başarısız olur" sorusundan
+
+**Eskiler aynı dosya sisteminde saklanıyor.** `/tmp`'ye koysaydım geri
+dönüş `invalid cross-device link` ile patlayabilirdi — tam da ihtiyaç
+duyulduğu anda, başka bir şey zaten bozulmuşken, müşterinin sitesi
+muhtemelen kapalıyken.
+
+**Yeni eklenen bir binary geri dönüşte siliniyor.** Bunu ilk yazışımda
+unutmuştum ve testi yazarken fark ettim: geri konacak eski hâli yok, yani
+"geri koymak" onu almak demek. Bırakılırsa hiç kurulmamış bir sürümden
+kalan bir dosya, bir birimin adıyla anabileceği yerde durur.
+
+**Yeniden başlatma hatası geri dönüş yapmıyor.** Bu ters geliyor ama
+doğru: binary'ler kurulu ve her biri çalışıyor, eski süreçler açtıkları
+inode'dan hizmet vermeye devam ediyor. Dosyaları altlarından geri almak
+hiçbir şeyi düzeltmez, bir sonraki yeniden başlatmayı geriye götürür.
+
+### Yeniden başlatmayı `systemctl` çağrısı yapmadım
+
+Bir birimi yeniden başlatmak bu sürecin sahip olmadığı yetki istiyor. Ve
+**servisleri yeniden başlatabilen bir süreç, onları durdurabilen bir
+süreçtir.**
+
+Bu, patlama yarıçapı gerçek olan bir dağıtım kararı: açıkça verilir ya
+da hiç verilmez. Kanca olarak bıraktım, varsayılanı `nil`, ve `nil`
+hiçbir şey yeniden başlatmıyor. Verilmediğinde kurulum yine oluyor ve
+panel "yeniden başlatma gerekiyor" diyor.
+
+Düğmenin işi bitirdiği bir deneyimden kötü. Müşterinin sitesini durdurma
+gücünü sessizce edinmiş bir bileşenden iyi. Ve müşteri bunu istediği için
+V4b diye ayrı bir madde olarak duruyor — atlanmış değil, yazılı.
+
+### `-version` neyi kanıtlar, neyi kanıtlamaz
+
+Kanıtlar: dosya var, bu makinede çalıştırılabilir, bağlanıyor, kendi
+`main`'ine ulaşıyor. Uyumsuz bir paketin ürettiği hata kümesi tam olarak
+bu.
+
+Kanıtlamaz: servisin gerçekten hizmet verdiğini. Bunu yorumda açıkça
+yazdım, çünkü bir kontrolün ne kadar ileri gittiğini abartmak, o
+kontrolün hiç olmamasından daha tehlikeli — insan ona güvenip başka
+kontrol koymuyor.
+
+### gosec'in 0755'leri bu sefer haklı değildi
+
+Beş bulgu geldi, ikisi "dosya izinleri 0600 veya daha az olmalı".
+Burada **0600 hata olurdu**: bunlar systemd'nin *başka bir hesapla*
+çalıştırdığı servis binary'leri. 0600 kurmak, kendi servisinin
+çalıştıramayacağı bir binary kurmak — U1'in kapattığı
+`status=203/EXEC` hatasının ta kendisi.
+
+Gerekçe yazıldı, ve gerekçe "tarayıcı yanılıyor" değil: tarayıcı genel
+bir kural uyguluyor, bu dosya o kuralın istisnası olduğu yer, ve neden
+olduğu yazılı.

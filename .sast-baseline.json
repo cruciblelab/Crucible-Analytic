@@ -170,20 +170,20 @@
       "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "350d5279b7410b58d11468f1",
-      "rule": "G710",
-      "file": "internal/panel/web/auth.go",
-      "severity": "MEDIUM",
-      "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
-      "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
-    },
-    {
       "fingerprint": "798c1599668a9329270b6212",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
       "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
       "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "350d5279b7410b58d11468f1",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
+      "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
     },
     {
       "fingerprint": "f1393b798a3aaa96ff378e19",
@@ -226,12 +226,44 @@
       "snippet": "f, err := os.Open(path)"
     },
     {
-      "fingerprint": "d6c6a65214f34db19b4fcd2d",
-      "rule": "G304",
-      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "fingerprint": "835905907ad6233c49bbc30d",
+      "rule": "G301",
+      "file": "internal/relupdate/install.go",
       "severity": "MEDIUM",
-      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
-      "snippet": "body, err := os.ReadFile(path)"
+      "reason": "The installation's bin directory, which four services running as a different account must be able to enter and execute out of. 0750 would work only while the group happens to be right and breaks the moment it is not; install.sh creates the same directory with the same mode. This is not the unpack tree - that one is 0700, because nothing but the upgrader has any business in it until verification passes.",
+      "snippet": "if err := os.MkdirAll(binDir, 0o755); err != nil {"
+    },
+    {
+      "fingerprint": "79a41af519ee378fbe964f2b",
+      "rule": "G302",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives.",
+      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
+    },
+    {
+      "fingerprint": "64cb764dfb4f6cdeda21b7c7",
+      "rule": "G302",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives. The Chmod repeats the mode after the write because OpenFile's permission argument is masked by umask, and an upgrader running under umask 077 would otherwise install binaries nothing can run.",
+      "snippet": "if err := os.Chmod(tmp, 0o755); err != nil {"
+    },
+    {
+      "fingerprint": "28fecf0323c3567659f60b68",
+      "rule": "G304",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "Writing the new binary beside its destination before renaming it into place. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml. Written-then-renamed rather than written in place because Linux refuses to write to a running executable (ETXTBSY) and rename(2) over an open file is fine.",
+      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
+    },
+    {
+      "fingerprint": "da10131660a7df116adea6ee",
+      "rule": "G304",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
+      "snippet": "in, err := os.Open(src)"
     },
     {
       "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
@@ -242,12 +274,12 @@
       "snippet": "f, err = os.Open(path)"
     },
     {
-      "fingerprint": "15ed33029fa76d5146f7fccb",
+      "fingerprint": "d6c6a65214f34db19b4fcd2d",
       "rule": "G304",
-      "file": "internal/sast/cmd/sastdiff/main.go",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
       "severity": "MEDIUM",
-      "reason": "Development tool, path from a command-line flag; the baseline it reads is a tracked file in the repository.",
-      "snippet": "bf, err := os.Open(baselinePath)"
+      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
+      "snippet": "body, err := os.ReadFile(path)"
     },
     {
       "fingerprint": "fa42d02f0b0211ce9728d1b4",
@@ -256,6 +288,14 @@
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
       "snippet": "rf, err := os.Open(reportPath)"
+    },
+    {
+      "fingerprint": "15ed33029fa76d5146f7fccb",
+      "rule": "G304",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag; the baseline it reads is a tracked file in the repository.",
+      "snippet": "bf, err := os.Open(baselinePath)"
     },
     {
       "fingerprint": "deef7fcc5a79364178911970",

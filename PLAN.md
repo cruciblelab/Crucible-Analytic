@@ -100,7 +100,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **4/6** | V4, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+| **V** Panelden güncelleme | 🟡 **5/7** | V4b, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6876,12 +6876,94 @@ yükselticinin özel çalışma alanı, ve kimsenin içinde gezinmesi gerekmiyor
 *Bir tarayıcının bulgusunu susturmadan önce haklı olup olmadığına
 bakmak gerekiyor; bu sefer haklıydı.*
 
-#### V4 — Geri dönüş ⬜
+#### V4 — Kurulum ve geri dönüş ✅ *(2026-09-03)*
 
-**Bu grubun en riskli parçası ve atlanamaz.** Collector müşterinin
-sitesinin önünde; açılmayan bir binary siteyi düşürür, ve düzeltecek
-paneli de düşürebilir. Eski binary saklanmalı, ve uygulayıcı yenisinin
-gerçekten ayağa kalktığını görmeden eskisini atmamalı.
+**Bu grubun en riskli parçası.** Collector müşterinin sitesinin önünde;
+açılmayan bir binary siteyi düşürür, ve düzeltecek paneli de
+düşürebilir.
+
+##### Asıl karar: geri dönüşü nadir kılmak
+
+Buraya gelene kadar paket https'ten indirilmiş, düşmanca her şekli
+reddedilerek açılmış, imzamıza karşı ve kendi listesine karşı
+doğrulanmış. Kalan şey gerçekten bizim.
+
+**Yine de yanlış olabilir.** Yanlış mimariye derlenmiş bir sürüm, bu
+makinede olmayan bir kütüphaneye bağlanan bir binary, yakalamadığımız
+bir açılış hatası — hepsi **gerçekten imzaladığımız** paketler. *İmza
+kimin yaptığını söyler, burada çalıştığını asla söylemez.*
+
+O yüzden sıra şu:
+
+1. **Her yeni binary `-version` ile çalıştırılıyor** — henüz hiçbir şey
+   değiştirilmeden, açılmış dizinde. Yanlış mimari, kırpılmış dosya,
+   eksik kütüphane ve açılış paniği burada düşüyor, ve burada düşmenin
+   bedeli sıfır çünkü geri alınacak bir şey yok.
+2. Mevcut binary'ler **silinmiyor, yana taşınıyor.**
+3. Yeniler yerine geçiyor.
+4. Kurulmuş her binary tekrar `-version` ile çalıştırılıyor.
+5. 3 veya 4'teki herhangi bir hata eskileri geri koyuyor.
+
+**1. adım, 5. adımı nadir kılan şey.** Geri dönüş her sistemde en az test
+edilmiş yoldur, çünkü yalnız başka bir şey zaten bozulduğunda koşar — o
+yüzden tasarımın işi, yaygın hataları geri alınacak bir şey olmadan
+yakalamak.
+
+##### Yazılırken verilen üç karar
+
+**Eskiler aynı dosya sisteminde saklanıyor** (`bin/.previous-<zaman>`),
+`/tmp`'de değil. `invalid cross-device link` ile başarısız olabilen bir
+geri dönüş, tam da ihtiyaç duyulduğu anda başarısız olan bir geri
+dönüştür.
+
+**Bu sürümün eklediği yeni bir binary, geri dönüşte siliniyor.** Geri
+konacak eski hâli yok; bırakılırsa hiç kurulmamış bir sürümden kalan bir
+dosya, bir birimin adıyla anabileceği yerde durur.
+
+**Yeniden başlatma hatası geri dönüş yapmıyor.** Binary'ler kurulu ve
+her biri çalışıyor; eski süreçler açtıkları inode'dan servis vermeye
+devam ediyor, yani sistem çalışır hâlde. Dosyaları altlarından geri
+almak hiçbir şeyi düzeltmez, bir sonraki yeniden başlatmayı geriye
+götürür.
+
+##### Dürüst sınır: yeniden başlatma bir kanca, `systemctl` çağrısı değil
+
+Bir birimi yeniden başlatmak bu sürecin sahip olmadığı bir yetki
+istiyor. Ve **servisleri yeniden başlatabilen bir süreç, onları
+durdurabilen bir süreçtir** — yani bu, patlama yarıçapı gerçek olan bir
+dağıtım kararı. Açıkça verilir ya da hiç verilmez.
+
+Verilmediğinde kurulum yine oluyor ve panel "yeniden başlatma gerekiyor"
+diyor. Düğmenin işi bitirdiği bir deneyimden kötü; müşterinin sitesini
+durdurma gücünü sessizce edinmiş bir bileşenden iyi.
+
+**`-version`'ın kanıtladığı ve kanıtlamadığı:** dosya var, bu makinede
+çalıştırılabilir, bağlanıyor, ve kendi `main`'ine ulaşıyor. Uyumsuz bir
+paketin ürettiği hata kümesi tam olarak bu. **Servisin gerçekten hizmet
+verdiğinin kanıtı değil**, ve öyleymiş gibi yazılmadı.
+
+##### Beş mutasyon, beşi de yakalandı
+
+| mutasyon | sonuç |
+|---|---|
+| Ön kontrolü atla | yakalandı: *"hiçbir şey değiştirilmedi" cümlesi kayboldu ve geri dönüş raporlandı* |
+| Eskileri geri koyma | yakalandı |
+| Eklenen yeni binary'yi geri dönüşte bırak | yakalandı |
+| Yeniden başlatma hatasında geri dön | yakalandı |
+| Kurulumdan sonraki kontrolü atla | yakalandı |
+
+**gosec'in beş bulgusu gerekçelendirildi**, ve 0755 olanlar gerçekten
+gerekli: bunlar systemd'nin **başka bir hesapla** çalıştırdığı servis
+binary'leri. 0600 kurmak, kendi servisinin çalıştıramayacağı bir binary
+kurmaktır — U1'in kapattığı `status=203/EXEC` hatasının ta kendisi.
+
+#### V4b — Yeniden başlatmayı gerçekten bağlamak ⬜
+
+Kanca var, üretimde bağlı değil. Yapılacak: `crucible-upgrader`'a yalnız
+`systemctl restart crucible-*` verecek bir polkit kuralı ya da sudoers
+satırı, KURULUM.md'de yazılı ve **isteğe bağlı**, artı yeniden
+başlatılan servisin gerçekten ayağa kalktığını kalp atışı satırından
+doğrulamak.
 
 #### V5 — Panel yüzeyi ⬜
 
