@@ -98,7 +98,7 @@ gerekçe değil bahane olur.
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
-| **T** Arayüz cilası | 🟡 **2/5** | T3, T4, T5 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
+| **T** Arayüz cilası | 🟡 **3/6** | T3, T4, T5 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6294,6 +6294,156 @@ doğru katman.
 yeniden üretilebilir bir kaynağı var — şema dosyalardan, IP tabloları
 kaynaktan, ikililer paketten. Bozulmayı *onarmak* yerine *yeniden
 uygulamak* hem daha basit hem daha güvenilir, ve L3'ün düğmesi zaten o.
+
+#### T6 — Yeni sürüm sihirbaza bir şey eklediğinde, çoktan kurmuş olan ne görecek ✅ *(2026-09-03)*
+
+*(Müşterinin sorusu: "biz güncellemede kurulum sihirbazıyla geliştirici
+sihirbazı gibi yerlere yeni şeyler ekledik diyelim, çoktan kurulum yapan
+kişiler güncelledi diyelim, ne olacak? Bekleyen işlemler tarzı yeni bir
+alan mı, bildirim sekmesi mi?")*
+
+**Önce envanter, ve envanter soruyu kesin bir kusura çevirdi.**
+
+`internal/panel/web/setup.go`: `wizardSteps` kapalı ve sıralı sekiz
+adım. **Tamamlanma durumu hiçbir yerde saklanmıyor** — yani "sihirbazı
+bitirmiş kullanıcı" diye bir kayıt yok, sihirbaz her açıldığında
+sistemin o anki halini yeniden okuyor. Kendi iki kuralı da bunu
+söylüyor: *"sihirbaz yapılandırdığından fazlasını doğrular"* ve *"her
+adım değiştirdiğini hemen yazar."*
+
+**Belirleyici ölçüm:** `kontrol_listesi` parçacığı tam iki şablonda
+kullanılıyor — `pages/kurulum_kontrol.html` ve
+`pages/kurulum_veritabani.html`. **İkisi de `/kurulum/` altında.**
+
+Sonuç, tahmin değil: kurulumu bitirmiş bir sistemde ön koşul
+kontrollerinin tamamı görünmez. Sonraki bir sürümde eklenen bir kontrol,
+mevcut müşterilerin **hiçbir zaman** görmeyeceği bir kontroldür. Bir kez,
+kurulum gününde çalışan bir doğrulama, yalnızca çalıştığı günün
+doğrulamasıdır.
+
+##### Karar: türetilmiş, bildirilmiş değil
+
+Bildirim kutusu yazmadık, ve gerekçesi tek cümlede duruyor: **bir
+bildirimin üretilmesi, iletilmesi, okundu işaretlenmesi ve temizlenmesi
+gerekir — dördü de yanlış olabileceği yerlerdir; karşılanmamış bir
+kontrol ise düzeltilene kadar zaten doğrudur.**
+
+Türetilmiş bir listenin saklayacak durumu yok. Yeni sürümde gelen bir
+kontrol kendiliğinden beliriyor, biri düzeltince kendiliğinden
+kayboluyor. "Görüldü" diye bir kayıt yok, dolayısıyla o kaydın yanlış
+olabileceği bir hal de yok. Bu, grubun kendi kuralının aynısı: *en güçlü
+yetki kontrolü, var olmayan operasyondur* — burada da en güvenilir
+bildirim, saklanmayan bildirimdir.
+
+##### Ne yazıldı
+
+Sağlık sayfasına bir **Kurulum kontrolleri** bölümü: yalnız
+**karşılanmamış** kontroller listeleniyor, altında geçen kontrol sayısı.
+Geçenler bilerek listelenmiyor — "baktık, iyiydi" satır hak etmez;
+"bakmadık" ise eyleme değer bir olgudur, ve yeni gelen bir kontrolün
+haberi olmayan bir kurulumda tam olarak bunu bildirir. `skip` bu yüzden
+`pass` gibi düşürülmüyor.
+
+Geçen sayısı boş bir alan yerine bir rakam veriyor: boşluk, "hepsi
+tamam" ile "hiçbir şey çalışmadı"nın ikisini birden anlatır.
+
+`Preflight` boş (nil) olabilir ve bu hata değil: panel onsuz da
+derleniyor, ve isteğe bağlı bir bileşen yok diye sağlık sayfasının
+render'dan kaçınması, sayfanın var olma sebebinde başarısız olması olurdu.
+
+##### İki mutasyon, biri ilk turda geçti
+
+1. Kontrolleri hiç çalıştırma → **yakalandı.**
+2. Geçen kontrolleri de listele → **yakalanmadı.** Test yalnız başlığı
+   ve sayıyı arıyordu; yani her açılışta karşılanmış on kontrolü
+   sıralayan, aradığı tek şeyi bulunmaz eden bir bölüm testten
+   geçiyordu. Test `durum-pass` sınıfının **yokluğunu** da arar hale
+   getirildi, mutasyon tekrarlandı, yakalandı.
+
+*Bu grupta ikinci kez: mutasyonun asıl işi kodu değil testi ölçmek.*
+
+##### Ve bölümü yazarken bölümden büyük bir kusur çıktı
+
+Yazdıktan sonra "bunun bedeli ne" diye ölçtüm — çünkü bu sayfa T1'de
+**beş saniyede bir kendini yeniliyor.** Gerçek veritabanına karşı, üç
+koşunun en kötüsü:
+
+| durum | süre |
+|---|---|
+| servis adresi tanımlı değil | 17 ms |
+| bir servis portu reddediyor | 2 ms |
+| **bir servis cevapsız** | **5.007 ms** |
+| **iki servis cevapsız** | **10.011 ms** |
+
+`preflight.Run` her tanımlı `/healthz`'i **sırayla** yokluyor, her birine
+beş saniye istemci zaman aşımı. Sihirbazda bu doğru şekil: bir kez,
+kurulumda, cevabı bekleyen biri varken. **Burada iki kez yanlış:**
+
+1. Sayfa her açılışta koşuyor, ve yükseltme sürerken beş saniyede bir
+   yeniden koşuyor. Yani cevapsız bir servis, yavaş bir sayfayı yavaş
+   sayfa **kuyruğuna** çeviriyor — üstelik cevapsız servis, insanın bu
+   sayfayı açtığı durumun ta kendisi.
+2. Kontroller diğer bölümlerden **önce** toplanıyor. Tıkanan bir yoklama
+   servisleri, şemayı ve depolamayı da geciktiriyor — ve *"her bölüm
+   kendi başına düşer"* bu sayfanın bütün tasarımı.
+
+**Yoklamalar hızlandırılmadı, kaldırıldı.** Gerekçe milisaniye değil:
+bu sayfa "o servis ayakta mı" sorusunu zaten kalp atışı satırından
+cevaplıyor, ve daha iyi cevaplıyor. `/healthz` "süreç şu an ayakta" der;
+kalp atışı satırı "son yazma başarılı oldu, saat 14:02" der. Zayıf olanı
+koşturup güçlü olanı geciktirmek hiçbir hızda iyi takas değil.
+
+**Kalanına süre sınırı kondu.** Geri kalan on altı kontrolün hepsi
+panelin kendi veritabanına sorgu — bu sayfanın etrafından dolaşamayacağı
+tek bağımlılık. Tıkanmış bir veritabanı, *hiç gelmeyen bir sayfa* değil,
+**"okunamadı" diyen bir bölüm** üretmeli.
+
+**İki mutasyon daha:**
+
+- Yoklamaları geri koy → **yakalandı**, ve testin ölçtüğü rakam
+  5,02 saniye çıktı.
+- Süre sınırını kaldır → **yakalandı**, ve şekli öğreticiydi: test
+  başarısız olmadı, **durdu**. Beş dakikadan uzun sürdü, sonra 40
+  saniyelik sınırla tekrarlandığında yığın izi tam yeri gösterdi:
+  `web.(*Server).healthChecks → preflight.(*Checker).Run`. Kusurun
+  saf hâli: sayfa hiç gelmiyor.
+
+*Bir özelliği yazdıktan sonra "bunun bedeli ne" diye ölçmek, özelliği
+yazmadan önce envanter çıkarmak kadar iş görüyor.*
+
+##### Ve kapı, iki testimi birden reddetti
+
+`TestEveryTimingVerdictIsAccountedFor` süreye bakarak karar veren her
+test dosyasının gerekçesini kayıtlı istiyor. İki yeni testime de süre
+karşılaştırması koymuştum; ikisi de reddedildi. Gerekçe yazıp geçmek
+yerine bakınca ikisi de gereksizmiş:
+
+- Yoklama testinde kanal zaten kesin cevap veriyordu; süre satırı
+  kanaldan önce patlayamazdı. Silindi.
+- Tıkalı veritabanı testinde süre satırına **hiç ulaşılmıyordu** — sayfa
+  gelmediği için istek orada blokeydi. Mutasyonu yakalayan şey benim
+  ölçümüm değil, Go'nun test zaman aşımıydı. İstemciye zaman aşımı
+  verildi; mutasyon artık 4,23 saniyede tek cümleyle düşüyor.
+
+Kapının mesajı iki yol söylüyordu; **üçüncüsü karşılaştırmayı hiç
+yapmamakmış.**
+
+##### Açık kalan yarısı: kontrol olmayan yenilikler
+
+Bu bölüm yalnız **kontrolleri** taşıyor. Yeni bir *özellik* — mesela P
+grubunun ziyaretçiye dönük veri yönetimi yüzeyi — bir kontrol değil,
+karşılanmamış bir şey de değil. Onun için türetilecek bir doğruluk yok.
+
+Bugün elimizdeki dürüst yüzey **Ayarlar → Hakkında**: binary sürümü,
+şema sürümü, kaynak kodu ve lisans zaten orada. Sürüm notlarının doğal
+yeri de orası, çünkü zaten sürüm sorusunun sorulduğu yer.
+
+**Karar verilmedi, ve bilerek:** sürüm notlarını panele gömmek, her
+sürümde güncellenmesi gereken ve güncellenmediğinde sessizce eskiyen bir
+metin demektir. Bunun ölçülmesi gereken bedeli var ve bu faz onu
+ölçmedi. Yazılı olan tek şey **ne yapmayacağımız**: bildirim sekmesi
+yanlış şekil — okunmamış rozeti taşıyan bir kutu, kendisi bakım
+isteyen bir yüzeydir, ve taşıyacağı şeylerin çoğu zaten türetilebiliyor.
 
 #### T3 — Soğuk açılışın 440 ms'i ⬜
 

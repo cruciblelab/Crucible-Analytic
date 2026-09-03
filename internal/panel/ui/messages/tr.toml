@@ -1043,6 +1043,13 @@ beacon_events = "Beacon olayları"
 ip_asn_ranges = "IP → ASN aralıkları"
 ip_country_ranges = "IP → ülke aralıkları"
 
+[metin.saglik.kontroller]
+baslik = "Kurulum kontrolleri"
+aciklama = "Bunlar kurulum sihirbazının çalıştırdığı kontroller. Aşağıda yalnız karşılanmayanlar var; yeni bir sürüm yeni bir kontrol getirdiğinde burada kendiliğinden görünür."
+hepsi_gecti = "Bütün kontroller geçti."
+gecen = "Geçen kontrol"
+okunamadi = "Kurulum kontrolleri çalıştırılamadı."
+
 [metin.saglik.sutun]
 servis = "Servis"
 surum = "Sürüm"

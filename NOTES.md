@@ -9568,3 +9568,172 @@ testten geçiyordu.
 
 Mutasyonun birinci işi kodu ölçmek; ikincisi testi ölçmek. İkincisi bu
 oturumda üç kez iş gördü.
+
+## Sihirbaz bitince kaybolan doğrulamalar
+
+Müşteri şunu sordu: yeni bir sürüm kurulum sihirbazına ya da geliştirici
+sihirbazına bir şey eklerse, çoktan kurmuş ve kullanıyor olan kişi
+güncelledikten sonra ne görecek? Bekleyen işlemler tarzı yeni bir alan mı
+lazım, yoksa bildirim sekmesi mi?
+
+Yeni bir yüzey tasarlamadan önce mevcut olanı saydım, ve sayım soruyu
+kesin bir kusura çevirdi.
+
+`kontrol_listesi` parçacığı tam iki şablonda kullanılıyor:
+`pages/kurulum_kontrol.html` ve `pages/kurulum_veritabani.html`. İkisi de
+`/kurulum/` altında. Yani ön koşul kontrollerinin tamamı, kurulumu
+bitirmiş bir sistemde **görünmez**.
+
+Bu, "ileride şöyle olabilir" cinsinden bir risk değil. Bugün eklediğim
+bir kontrol, dün kuran müşteride hiçbir zaman çalışmayacak bir kontrol
+olurdu — ve ben onu ekledim diye korunduğunu sanacaktım.
+
+Sihirbazın kendi ilk kuralı da bunu söylüyormuş: *"sihirbaz
+yapılandırdığından fazlasını doğrular."* Bir kez, kurulum gününde
+koşan bir doğrulama, yalnızca koştuğu günün doğrulamasıdır.
+
+### Neden bildirim kutusu yazmadım
+
+Müşterinin önerdiği iki şekil vardı: "bekleyen işlemler" alanı, ya da
+bildirim sekmesi. İkisi de saklanan durum ister, ve saklanan durumun
+bedeli şu:
+
+**Bir bildirimin üretilmesi, iletilmesi, okundu işaretlenmesi ve
+temizlenmesi gerekir. Dördü de yanlış olabileceği yerlerdir.**
+Karşılanmamış bir kontrol ise düzeltilene kadar zaten doğrudur.
+
+Türetilmiş listenin saklayacak durumu yok: yeni sürümde gelen kontrol
+kendiliğinden beliriyor, biri düzeltince kendiliğinden kayboluyor,
+"görüldü" kaydı olmadığı için o kaydın yanlış olabileceği bir hal de yok.
+
+Bu, deponun kendi kuralının başka bir yüzü: *en güçlü yetki kontrolü, var
+olmayan operasyondur.* Burada da en güvenilir bildirim, saklanmayan
+bildirimdir.
+
+Yazdığım şey bu yüzden bir sekme değil, sağlık sayfasında bir bölüm:
+yalnız karşılanmamış kontroller, altında geçen sayısı. Geçenleri
+listelemiyorum — "baktık, iyiydi" satır hak etmez. Ama `skip`'i
+düşürmüyorum: "bakmadık" eyleme değer bir olgudur, ve yeni gelen bir
+kontrolün haberi olmayan bir kurulumda tam olarak o rapor edilir.
+
+### Geçen sayısı boşluk yüzünden var
+
+Bölüm bir rakam gösteriyor, çünkü boş bir liste iki farklı şeyi birden
+anlatır: "hepsi tamam" ve "hiçbir şey çalışmadı". Bu ikisi bir arayüzde
+aynı görünüyorsa, arayüz ikisinden yanlış olanı seçme hakkını kullanıcıya
+bırakmış olur.
+
+### Mutasyon, dördüncü kez testi ölçtü
+
+İki mutasyon koştum. Kontrolleri hiç çalıştırmayan yakalandı. **Geçen
+kontrolleri de listeleyen geçti** — testim yalnız başlığı ve sayıyı
+arıyormuş. Yani her açılışta karşılanmış on kontrolü sıralayan, aradığı
+tek şeyi bulunmaz eden bir bölüm testten geçiyordu.
+
+Test `durum-pass` sınıfının yokluğunu da arar hale getirildi, mutasyon
+tekrarlandı, yakalandı. Bu oturumda dördüncü.
+
+### Bölümü yazdım, sonra bedelini ölçtüm, ve bölümden büyük bir kusur çıktı
+
+Bitirdikten sonra tek soru sordum: bu sayfa T1'de beş saniyede bir
+kendini yeniliyor, eklediğim şeyin bedeli ne? Gerçek veritabanına karşı
+ölçtüm, üç koşunun en kötüsü:
+
+| durum | süre |
+|---|---|
+| servis adresi tanımlı değil | 17 ms |
+| bir servis portu reddediyor | 2 ms |
+| bir servis cevapsız | 5.007 ms |
+| iki servis cevapsız | 10.011 ms |
+
+`preflight.Run` her tanımlı `/healthz`'i sırayla yokluyor, her birine beş
+saniye zaman aşımı. Sihirbazda doğru şekil. Burada felaket: sayfa her
+açılışta koşuyor, yükseltme sürerken beş saniyede bir yeniden koşuyor, ve
+kontroller diğer bölümlerden **önce** toplanıyor — yani tıkanan bir
+yoklama servisleri, şemayı ve depolamayı da geciktiriyor.
+
+*"Her bölüm kendi başına düşer"* bu sayfanın bütün tasarımı. Ben o kuralı
+bozan bir bölüm eklemişim, üstelik kuralı kendi yorumumda yazarken.
+
+**Yoklamaları hızlandırmadım, kaldırdım.** Gerekçe milisaniye değil: bu
+sayfa "o servis ayakta mı" sorusunu zaten kalp atışı satırından
+cevaplıyor ve daha iyi cevaplıyor. `/healthz` "süreç şu an ayakta" der,
+kalp atışı satırı "son yazma başarılı oldu, saat 14:02" der. Zayıf olanı
+koşturup güçlü olanı geciktirmek hiçbir hızda iyi bir takas değil.
+
+Ve önemli olan: **üretimde bugün `ServiceURLs` hiç tanımlı değil.** Yani
+bu kusur bugün patlamıyordu. Ama alan tam olarak birileri doldursun diye
+var, ve bir kusurun bugün tetiklenmemesi yokluğu değil, şansı.
+
+### Sonra veritabanı tarafını da sınırladım, ve mutasyonun şekli öğreticiydi
+
+Geri kalan on altı kontrol panelin kendi veritabanına sorgu — sayfanın
+etrafından dolaşamayacağı tek bağımlılık. Tıkanmış bir veritabanı, hiç
+gelmeyen bir sayfa değil, "okunamadı" diyen bir bölüm üretmeli.
+
+Süre sınırını kaldıran mutasyon **başarısız olmadı, durdu.** Beş
+dakikadan uzun sürdü. 40 saniyelik test sınırıyla tekrarladığımda yığın
+izi tam yeri gösterdi:
+
+```
+web.(*Server).healthChecks → preflight.(*Checker).Run
+```
+
+Kusurun saf hâli: sayfa hiç gelmiyor. Ve şunu not ediyorum çünkü tekrar
+edecek — **duran bir test, başarısız olan testten daha kolay yanlış
+okunur.** Zaman aşımı olmasa "hâlâ koşuyor" diye bekleyip geçtiğini
+sanabilirdim.
+
+Bu arada küçük bir tuzak daha: ilk mutasyon koşusunu öldürünce test
+kullanıcısı satırı veritabanında kaldı, ve bir sonraki koşu *kurulumda*
+patladı — "bu e-posta zaten kayıtlı". Ölçtüğüm şeyle ilgisi olmayan bir
+başarısızlık, ölçüm sanılabilirdi. Satırı sildim, tekrar koştum.
+
+### Kapı, iki testimi de reddetti — ve haklıydı
+
+`TestEveryTimingVerdictIsAccountedFor`, süre karşılaştırmasıyla karar
+veren her test dosyasının gerekçesini kayıtlı istiyor. İki testime de
+"sayfa üç saniyeden uzun sürdü" tarzı bir satır koymuştum, ve kapı
+ikisini de yakaladı.
+
+Gerekçe yazıp geçebilirdim. Bakınca ikisi de gereksizmiş:
+
+- **Yoklama testinde** kanal zaten "istek yapıldı mı" sorusunu kesin
+  cevaplıyor. Süre karşılaştırması hiçbir şey eklemiyordu; kanal
+  patlamadan patlaması mümkün değildi. Sildim.
+- **Tıkalı veritabanı testinde** daha kötüsü vardı: süre satırına **hiç
+  ulaşılmıyordu.** Sayfa gelmediği için istek orada blokeydi. Yani
+  mutasyonu yakalayan şey benim ölçümüm değil, Go'nun test zaman
+  aşımıydı — bir asma. İstemciye zaman aşımı verdim; artık mutasyon
+  4,23 saniyede tek cümleyle düşüyor: *"the health page never arrived."*
+
+Kapının mesajı zaten yolu söylüyordu: *"ya ölçtüğün boşluğu yaz, ya da
+karşılaştırmayı aynı koşudan başka bir ölçüme göre yap."* Üçüncü bir yol
+daha varmış: **karşılaştırmayı hiç yapmamak.**
+
+*Bir kapının istediği şeyi vermeden önce, kapının neden istediğine bakmak
+bazen o şeyi gereksiz kılıyor.*
+
+### Ve bir kez daha: atlanan test, geçen test gibi görünür
+
+Yeni testi ilk kez `-v` ile koştum ve **atladı** — `CA_SUPERUSER_DSN`'i
+ihraç etmeyi unutmuşum. `-v` olmasa "ok" görüp geçerdim. Bu oturumda
+üçüncü kez aynı sınıf, ve `-v` ile koşma alışkanlığı üçünde de kurtardı.
+
+### Cevaplayamadığım yarısı, ve neden yazılı bıraktım
+
+Bu bölüm yalnız kontrolleri taşıyor. Yeni bir *özellik* — kontrol
+olmayan, karşılanmamış da olmayan bir şey — için türetilecek doğruluk
+yok. Ayarlar → Hakkında bugün zaten sürümü, şemayı, kaynağı ve lisansı
+gösteriyor; sürüm notlarının doğal yeri orası.
+
+Ama yazmadım, çünkü panele gömülen sürüm notu her sürümde güncellenmesi
+gereken ve güncellenmediğinde sessizce eskiyen bir metindir. Bunun
+ölçülmemiş bir bedeli var.
+
+Karara bağladığım tek şey **ne yapmayacağımız**: bildirim sekmesi yanlış
+şekil. Okunmamış rozeti taşıyan bir kutu, kendisi bakım isteyen bir
+yüzeydir, ve taşıyacağı şeylerin çoğu zaten türetilebiliyor.
+
+*Bir sorunun yarısını cevaplayıp diğer yarısını "bakılacak" diye
+bırakmak, ikisini birden yarım cevaplamaktan dürüst.*

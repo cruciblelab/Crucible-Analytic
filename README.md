@@ -1514,15 +1514,20 @@ developer is refused. The difference is what each hands over: configuring
 outgoing mail is close to becoming any user, and a byte count is a byte
 count. It is also the developer's own diagnostic tool.
 
-### Three sections, three independent failures
+### Every section fails on its own
 
 That is the whole design. A health page whose sections all go dark
 together says nothing at the moment it is read, which is the only moment
-it is read. So:
+it is read. Each source is gathered separately, each failure is written
+into its own field, and none of them returns early:
 
 | Section | Source | What it says when that source is unavailable |
 |---|---|---|
 | Services | `service_heartbeat` in the panel's own database | The table could not be read, and which schema file is missing |
+| Schema | `schema_version`, against this build's fingerprint | The recorded version could not be read |
+| Setup checks | The same preflight checks the install wizard runs | The checks could not be run |
+| Upgrade | The request row the applier watches | The request could not be read |
+| Data sources | The IP range refresh log | The log could not be read |
 | Storage | A second query, same database | The table information could not be read |
 | Read API | An authenticated request to the API | It could not be reached, the transport error, and what that does and does not affect |
 
@@ -1530,6 +1535,49 @@ Nothing on the page is a number about a visitor. Traffic counts live
 behind the read-only API and on the site pages, and putting one here
 would give the panel's role a route to the analytics it is specifically
 not allowed to have.
+
+### The setup checks outlive the wizard
+
+The install wizard's own first rule is that it verifies more than it
+configures. But its checks were rendered in exactly two templates, both
+under `/kurulum/` — so an installation whose operator finished the wizard
+never saw them again, and a check added in a later version was a check
+every existing customer was invisible to.
+
+The health page lists the ones that are **not** satisfied, with a count
+of the ones that are. Passing checks are not listed: "we looked and it
+was fine" does not earn a line, and a wall of green makes the one red
+line harder to find. Skipped checks *are* listed, because "we did not
+look" is a fact worth acting on, and it is exactly what a newly shipped
+check reports on a deployment that has never been told about it.
+
+There is no stored state behind this, and that is the point. A new check
+appears by itself when a build ships with it and disappears by itself
+when somebody fixes it. A notification has to be created, delivered,
+marked read and cleaned up, and each of those is somewhere it can be
+wrong; an unmet check is simply true until it is not.
+
+The count exists because an empty list means two different things — "all
+clear" and "nothing ran" — and a page that renders those identically has
+handed the reader the job of guessing which one it is.
+
+One check the wizard runs is deliberately absent here: the HTTP probe of
+each service's `/healthz`. Measured against the real database, the check
+run costs 17 ms with no probes and 5,007 ms with one unreachable
+service, because the probes run in turn with a five second timeout each.
+The wizard can afford that once, at install. This page cannot: it
+re-renders itself every five seconds while an upgrade is running, and an
+unreachable service is the state somebody opens it in. It is not a speed
+trade either — the heartbeat rows above answer the same question better,
+since `/healthz` says a process is up right now and a heartbeat row says
+the last write succeeded and when.
+
+The rest of the run is bounded at five seconds, against a normal run of
+17 ms. That number does not decide how fast the page is; it decides what
+a wedged database produces. Above the bound, one section says it could
+not be read and the others render. Without it, the request holds until
+the server's own sixty second write timeout and the reader gets nothing
+at all.
 
 ### Why a heartbeat row rather than another `/healthz`
 

@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"errors"
-	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,8 +10,10 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/profile"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 )
 
 // The system health page.
@@ -106,6 +107,35 @@ type healthPage struct {
 	// forbidden one is a name worth changing rather than an exception
 	// worth adding.
 	SelfURL string
+
+	// Checks are the preflight results that are not satisfied, and the
+	// count of the ones that are.
+	//
+	// # Why this is on the health page and not only in the wizard
+	//
+	// Measured: preflight's checks were rendered in exactly two places,
+	// both inside /kurulum/. A deployment whose installer finished the
+	// wizard never sees them again - so a check added in a later version
+	// is a check that every existing customer is invisible to, forever.
+	//
+	// The wizard's own first rule is that it "verifies more than it
+	// configures". A verification that runs once, at install, and never
+	// again is a verification of the day it ran.
+	//
+	// Derived rather than notified, which is the decision this section
+	// rests on. A notification has to be created, delivered, marked
+	// read, and cleaned up, and every one of those is a place for it to
+	// be wrong; an unmet check is simply true until it is not. A new
+	// check shipped in a new build appears here by itself, and
+	// disappears by itself when somebody fixes it. Nothing stores that
+	// it was seen.
+	Checks []preflight.CheckResult
+	// ChecksPassed is how many are satisfied, so a clean installation
+	// gets a number rather than an empty space that could equally mean
+	// "nothing ran".
+	ChecksPassed int
+	// ChecksError is filled when the checks could not be run at all.
+	ChecksError string
 
 	Upgrade      upgradeSection
 	UpgradeError string
@@ -353,6 +383,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	// Three sources, gathered independently. Each failure is written
 	// into its own field and none of them returns early - which is the
 	// page's entire reason for existing.
+	data.Checks, data.ChecksPassed, data.ChecksError = s.healthChecks(ctx, lang)
 	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
@@ -540,4 +571,98 @@ func profileLabel(id string) string {
 	// is the most truthful thing available, and more useful than a blank
 	// cell to whoever is working out why the two disagree.
 	return id
+}
+
+// defaultHealthCheckBudget is how long the whole check run may take
+// before the page gives up on it and renders everything else.
+//
+// Five seconds, and the number is chosen against the page rather than
+// against the checks: the measured run is 17 ms, so this is three orders
+// of magnitude of headroom for the normal case, and the only thing it
+// decides is how long a wedged database can hold a page that exists to
+// report a wedged database.
+//
+// It is bounded above by the server's own 60 second write timeout, which
+// is what stops a hung request outright. The difference between the two
+// is the whole point: at 60 seconds the reader gets nothing, at five
+// they get every section that did not depend on the stuck one.
+const defaultHealthCheckBudget = 5 * time.Second
+
+// checkBudget is the deadline this server gives the check run.
+func (s *Server) checkBudget() time.Duration {
+	if s.HealthCheckBudget > 0 {
+		return s.HealthCheckBudget
+	}
+	return defaultHealthCheckBudget
+}
+
+// healthChecks runs the setup checks and keeps the ones worth showing.
+//
+// Pass is dropped and the rest are kept, including skip: "we looked and
+// it was fine" needs no line, while "we did not look" is a fact somebody
+// may want to act on and is exactly what a newly shipped check reports
+// on a deployment that has never been told about it.
+//
+// A nil Checker is not an error. The panel can be built without one -
+// see Server.Preflight - and a health page that refused to render
+// because an optional component is absent would be the page failing at
+// the job it exists for.
+//
+// # Why this run is bounded and the wizard's is not
+//
+// Measured, against the real database, worst of three runs:
+//
+//	no service URLs                17 ms
+//	one service refusing the port   2 ms
+//	one service blackholed       5,007 ms
+//	two services blackholed     10,011 ms
+//
+// preflight.Run probes each configured /healthz in turn, with a five
+// second client timeout each. On the wizard that is the right shape:
+// once, at install, with somebody waiting for exactly that answer.
+//
+// Here it is the wrong shape twice over. This page renders on every
+// load and T1 makes it re-render every five seconds while an upgrade is
+// running, so a blackholed service turns one slow page into a queue of
+// them - and an unreachable service is the state somebody opens this
+// page *in*. Worse, the checks are gathered before the other sections,
+// so a blocked probe delays the services, schema and storage sections
+// too, and "each section fails on its own" is the page's entire design.
+//
+// So the probes are dropped here rather than made faster. Not to save
+// the milliseconds: this page already answers "is that service alive"
+// from its heartbeat rows, and answers it better. /healthz says the
+// process is up right now; a heartbeat row says the last write
+// succeeded, and at what time. Running the weaker probe to delay the
+// stronger one would be a bad trade at any speed.
+//
+// The deadline is for everything else. Every remaining check is a query
+// against the panel's own database, which is the one dependency this
+// page cannot route around - and a wedged database must produce a
+// section that says so, not a page that never arrives.
+func (s *Server) healthChecks(ctx context.Context, lang *ui.Language) ([]preflight.CheckResult, int, string) {
+	if s.Preflight == nil {
+		return nil, 0, ""
+	}
+
+	cfg := s.preflightConfig()
+	cfg.ServiceURLs = nil
+
+	ctx, cancel := context.WithTimeout(ctx, s.checkBudget())
+	defer cancel()
+
+	results := s.Preflight.Run(ctx, cfg)
+	unmet := make([]preflight.CheckResult, 0, len(results))
+	passed := 0
+	for _, r := range results {
+		if r.Status == preflight.CheckPass {
+			passed++
+			continue
+		}
+		unmet = append(unmet, r)
+	}
+	if len(results) == 0 {
+		return nil, 0, lang.T("saglik.kontroller.okunamadi")
+	}
+	return unmet, passed, ""
 }

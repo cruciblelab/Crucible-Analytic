@@ -11,6 +11,7 @@ package web
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,9 +21,11 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/profile"
 	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const healthSite = "saglik-testi"
@@ -30,8 +33,23 @@ const healthSite = "saglik-testi"
 // healthServer returns a running panel with an owner signed in.
 func healthServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
 	t.Helper()
+	return healthServerTweaked(t, nil)
+}
+
+// healthServerTweaked is healthServer with one hook, for the tests that
+// need a panel configured differently before it starts serving.
+//
+// A hook rather than more parameters: the one caller that uses it wants
+// a field no other test has an opinion about, and threading that field
+// through every call site would make five tests state a preference they
+// do not have.
+func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *http.Client, *panel.Store) {
+	t.Helper()
 
 	srv, store := setupTestServer(t)
+	if tweak != nil {
+		tweak(srv)
+	}
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "saglik-sahip", false)
@@ -546,5 +564,232 @@ func TestTheDatasetSectionPollsOnlyWhileARefreshIsRunning(t *testing.T) {
 	if strings.Contains(body, "hx-trigger") {
 		t.Error("the page still polls after the refresh finished; the stop condition " +
 			"is what keeps a poll from outliving the thing it was watching")
+	}
+}
+
+// TestTheHealthPageShowsTheSetupChecks.
+//
+// # The gap this closes, measured
+//
+// preflight's checks were rendered in exactly two templates, both under
+// /kurulum/. An installation whose installer finished the wizard never
+// saw them again - so a check added in a later version was a check every
+// existing customer was invisible to, permanently. That is the shape of
+// the customer's question: what happens to somebody who already
+// installed, when a new build adds something to the wizard.
+//
+// # Why derived and not notified
+//
+// A notification would have to be created when the build changes,
+// delivered to the right people, marked read, and cleaned up - four
+// places to be wrong, and each of them needs its own state. An unmet
+// check is true until it is not. This test asserts the property that
+// makes that work: what the page shows comes from running the checks
+// now, not from anything recorded earlier.
+func TestTheHealthPageShowsTheSetupChecks(t *testing.T) {
+	srv, client, _ := healthServer(t)
+
+	status, body := get(t, client, srv.URL+HealthPath)
+	if status != http.StatusOK {
+		t.Fatalf("the health page answered %d", status)
+	}
+
+	if !strings.Contains(body, "Kurulum kontrolleri") {
+		t.Fatalf("the health page has no setup-check section, so every check this "+
+			"build ships is invisible to an installation that finished the wizard:\n%s",
+			lastHealthLines(body))
+	}
+
+	// The count of passing checks, which is what stops an empty list
+	// from being read as "nothing ran". A test server has a Preflight
+	// checker, so at least one check has to have produced a verdict.
+	if !strings.Contains(body, "Geçen kontrol") {
+		t.Error("the section does not say how many checks passed; an empty list and a " +
+			"list nobody ran look identical without it")
+	}
+
+	// And a passing check is a count, never a row. The checklist partial
+	// renders each row's status as durum-<status>, so a satisfied check
+	// that reached the list would say so here.
+	//
+	// Found by a mutation: dropping the `continue` that skips passes
+	// broke no test, and the page would have grown twenty green lines -
+	// on the one page somebody opens because they suspect something is
+	// wrong, which is where a wall of green is worst.
+	if strings.Contains(body, "durum-pass") {
+		t.Error("a satisfied check was drawn as a row; passes are a number here, and a " +
+			"page of green lines is a page people stop reading")
+	}
+}
+
+// lastHealthLines trims a page down to something readable in a failure.
+func lastHealthLines(body string) string {
+	lines := strings.Split(body, "\n")
+	if len(lines) > 15 {
+		lines = lines[len(lines)-15:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// TestTheHealthPageDoesNotProbeServicesOverHTTP.
+//
+// # The measurement that produced this test
+//
+// preflight.Run probes each configured /healthz in turn, five second
+// client timeout each. Worst of three runs against the real database:
+//
+//	no service URLs                17 ms
+//	one service refusing the port   2 ms
+//	one service blackholed       5,007 ms
+//	two services blackholed     10,011 ms
+//
+// The wizard can afford that - once, at install, with somebody waiting
+// for exactly that answer. This page cannot: it renders on every load,
+// T1 re-renders it every five seconds while an upgrade runs, and the
+// checks are gathered before the other sections, so a blocked probe
+// delays the services, schema and storage sections too. "Each section
+// fails on its own" is the whole design of this page.
+//
+// The trade is not about speed. This page already answers "is that
+// service alive" from heartbeat rows, and answers it better: /healthz
+// says the process is up right now, a heartbeat row says the last write
+// succeeded and when.
+//
+// A blocking server rather than a blackholed address, because a test
+// that depends on how this machine's network drops packets is a test
+// that fails somewhere else for reasons that are not about this code.
+func TestTheHealthPageDoesNotProbeServicesOverHTTP(t *testing.T) {
+	release := make(chan struct{})
+	probed := make(chan string, 4)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probed <- r.URL.Path
+		<-release
+	}))
+	t.Cleanup(func() {
+		close(release)
+		slow.Close()
+	})
+
+	srv, client, _ := healthServerTweaked(t, func(s *Server) {
+		s.PreflightConfig.ServiceURLs = map[string]string{"yavas": slow.URL + "/healthz"}
+	})
+
+	status, body := get(t, client, srv.URL+HealthPath)
+
+	if status != http.StatusOK {
+		t.Fatalf("the health page answered %d", status)
+	}
+	// The checks themselves must still have run - otherwise this test
+	// would pass on a page that dropped the whole section.
+	if !strings.Contains(body, "Kurulum kontrolleri") {
+		t.Fatalf("the setup-check section is gone, so this test is measuring nothing:\n%s",
+			lastHealthLines(body))
+	}
+
+	// The request either happened or it did not, and this says which.
+	//
+	// No duration is compared. An earlier draft also asserted the page
+	// came back inside three seconds, which measured how fast this
+	// machine is rather than what the code does - and it could not fail
+	// without this line failing first.
+	select {
+	case path := <-probed:
+		t.Errorf("the health page made an HTTP request to a configured service (%s).\n"+
+			"One unreachable service costs five seconds here, and this page re-renders "+
+			"itself every five seconds while an upgrade is running", path)
+	default:
+	}
+}
+
+// TestAWedgedDatabaseDoesNotHoldTheWholeHealthPage.
+//
+// The page's rule is that every section fails on its own. The setup
+// checks are the section most able to break it: sixteen queries, and
+// they are gathered before the services, schema and storage sections.
+//
+// Without a deadline those sixteen queries against an unreachable
+// database hold the request until the server's own sixty second write
+// timeout, and the reader gets nothing at all - on the page they opened
+// precisely because something is wrong. With one, they get every section
+// that did not depend on the stuck connection.
+//
+// The wedged database is a listener that accepts connections and then
+// says nothing, which is the failure that hangs rather than the one that
+// returns an error. A refused port would prove nothing: that fails fast
+// on its own.
+//
+// # Why the client carries the verdict
+//
+// The failure this catches is a page that never arrives, so there is
+// nothing to compare a duration against - the first draft measured the
+// elapsed time and never reached that line, because the request was
+// still blocked. Verified by mutation: with the deadline removed the
+// test did not fail, it *stopped*, for over five minutes, and the stack
+// trace named web.(*Server).healthChecks inside preflight.Run.
+//
+// A test whose only failure mode is a hang is a test that reads as
+// "still running" - the third time this session that something silently
+// not-failing looked like something passing. So the client is given a
+// deadline instead, and the hang becomes a sentence.
+func TestAWedgedDatabaseDoesNotHoldTheWholeHealthPage(t *testing.T) {
+	const budget = 400 * time.Millisecond
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Held, never answered, never closed. Closing here would
+			// turn this into a fast failure and the test would pass
+			// without the deadline doing anything.
+			t.Cleanup(func() { conn.Close() })
+		}
+	}()
+
+	stuck, err := pgxpool.New(context.Background(),
+		"postgres://nobody@"+ln.Addr().String()+"/nothing?sslmode=disable")
+	if err != nil {
+		t.Fatalf("pgxpool.New: %v", err)
+	}
+	t.Cleanup(stuck.Close)
+
+	srv, client, store := healthServerTweaked(t, func(s *Server) {
+		s.Preflight = preflight.New(stuck, false)
+		s.HealthCheckBudget = budget
+	})
+	writeBeat(t, store, "saglik-tikali", time.Now().Add(-time.Minute), nil, nil)
+
+	// Ten budgets. Not a measurement of this machine: the correct page
+	// does not wait on the stuck pool at all, and the failure it stands
+	// in for is unbounded. It exists so an unbounded wait is reported
+	// rather than waited out.
+	client.Timeout = 10 * budget
+
+	resp, err := client.Get(srv.URL + HealthPath)
+	if err != nil {
+		t.Fatalf("the health page never arrived while the check database was unreachable, "+
+			"so a stuck check run holds the whole page: %v", err)
+	}
+	body := readBody(t, resp)
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("the health page answered %d while the check database was unreachable",
+			resp.StatusCode)
+	}
+
+	// The sections that do not depend on the stuck pool are still there.
+	// This is the assertion the deadline exists for.
+	if !strings.Contains(body, "saglik-tikali") {
+		t.Errorf("the services section is missing, so a stuck check run took the rest of "+
+			"the page with it:\n%s", lastHealthLines(body))
+	}
+	if !strings.Contains(body, "traffic_snapshots") {
+		t.Error("the storage section is missing")
 	}
 }

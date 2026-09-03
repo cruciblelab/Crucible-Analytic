@@ -12,11 +12,12 @@ yapacağım".
 ## v0.20.0 — 2026-09-03
 
 Kurulumda **kaynak profili seçilebiliyor**, ve seçilmediğinde hangisinde
-olunduğu artık ekranda yazıyor.
+olunduğu artık ekranda yazıyor. Panelde uzun süren işlemler **kendini
+tazeliyor**, ve kurulum kontrolleri kurulumdan sonra da **görünür
+kalıyor**.
 
 **Şema sürümü: 8** — değişmedi. **Kuran kişinin yapması gereken:**
-**hiçbir şey.** Kurulu sistemler etkilenmiyor; bu, yeni kurulumlarda bir
-bayrak ve bir cümle.
+**hiçbir şey.** Veritabanına dokunulmuyor, servis durmuyor.
 
 ### `install.sh --profile hafif|dengeli|tam`
 
@@ -44,6 +45,49 @@ ise ne kaybedildiği ve nasıl açılacağı da.
 **Bayrak bir varsayılan dayatmıyor:** `--profile` verilmezse dosyalar
 olduğu gibi kalır. Seçmediğiniz bir şeyi sizin adınıza seçmiyoruz; yalnız
 seçili olanı söylüyoruz.
+
+### Uzun işlemler artık kendini tazeliyor
+
+Sağlık sayfasındaki **yükseltme** ve **veri kümesi yenileme** bölümleri,
+uçuşta bir istek varken beş saniyede bir kendini yeniliyor. Eskiden
+durumu görmenin tek yolu sayfayı elle yenilemekti — ve yükseltme
+mesajının kendisi bunu söylüyordu.
+
+Yoklama, iş bitince **kendiliğinden** duruyor: tetikleyici yalnız çalışan
+bir istek varken basılıyor, yani gelen yeni kopya tetikleyicisiz geliyor.
+Kapatmayı hatırlaması gereken bir şey yok.
+
+Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
+2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
+sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
+
+### Kurulum kontrolleri kurulumdan sonra da görünüyor
+
+Sağlık sayfasına **Kurulum kontrolleri** bölümü eklendi: yalnız
+karşılanmamış kontroller listeleniyor, altında geçen kontrol sayısı.
+
+Bunun düzelttiği kusur şu: ön koşul kontrolleri yalnız `/kurulum/`
+altındaki iki sayfada gösteriliyordu, yani kurulumu bitirmiş bir sistemde
+görünmez oluyorlardı. Sonraki bir sürümde eklenen bir kontrol, mevcut
+kurulumların hiçbir zaman görmeyeceği bir kontrol demekti.
+
+**Saklanan bir durum yok.** Yeni bir kontrol geldiğinde kendiliğinden
+beliriyor, düzeltildiğinde kendiliğinden kayboluyor. "Okundu" işareti
+taşıyan bir bildirim kutusu değil, çünkü karşılanmamış bir kontrol
+düzeltilene kadar zaten doğrudur.
+
+Sihirbazın koştuğu kontrollerden biri burada bilerek yok: servislerin
+`/healthz` adreslerini HTTP ile yoklayan kontrol. Ölçüldü — yoklamasız 17
+ms, cevapsız tek servisle 5.007 ms, çünkü yoklamalar sırayla ve her
+birine beş saniye zaman aşımıyla koşuyor. Sihirbaz bunu bir kez, kurulum
+anında karşılayabilir; beş saniyede bir kendini yenileyen bir sayfa
+karşılayamaz. Zaten bu sayfa aynı soruyu kalp atışı satırlarından daha
+iyi cevaplıyor: `/healthz` "süreç şu an ayakta" der, kalp atışı satırı
+"son yazma başarılı oldu, saat 14:02" der.
+
+Kalan kontroller beş saniyeyle sınırlı. Tıkanmış bir veritabanında sayfa
+beklemek yerine o bölümün okunamadığını yazıyor, diğer bölümler
+görünmeye devam ediyor.
 
 ---
 

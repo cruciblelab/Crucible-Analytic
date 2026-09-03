@@ -1006,6 +1006,13 @@ beacon_events = "Beacon events"
 ip_asn_ranges = "IP → ASN ranges"
 ip_country_ranges = "IP → country ranges"
 
+[metin.saglik.kontroller]
+baslik = "Setup checks"
+aciklama = "These are the checks the setup wizard runs. Only the unsatisfied ones are listed; a check added by a new version appears here by itself."
+hepsi_gecti = "Every check passed."
+gecen = "Checks passed"
+okunamadi = "The setup checks could not be run."
+
 [metin.saglik.sutun]
 servis = "Service"
 surum = "Version"

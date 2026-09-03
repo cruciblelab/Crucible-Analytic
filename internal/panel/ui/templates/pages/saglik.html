@@ -125,6 +125,36 @@ Drawn only when there is something to say: the schema does not match, or
 a request is still in flight. A permanent "everything is fine" panel is
 one people learn to scroll past, and this page is read precisely when
 somebody suspects it is not. */}}
+{{- /* The setup checks, outside the wizard.
+
+Measured: they were rendered in exactly two places, both under
+/kurulum/. A deployment whose installer finished the wizard never saw
+them again - so a check added in a later version was a check every
+existing customer was invisible to, forever. The wizard's own first rule
+is that it verifies more than it configures, and a verification that runs
+once at install is a verification of the day it ran.
+
+Only the unsatisfied ones are listed, and the satisfied ones are a count.
+A page that prints twenty green lines is a page people stop reading, and
+this one is read precisely when somebody suspects something is wrong. */}}
+{{- if .Data.ChecksError}}
+<section class="bolum">
+<h2>{{t "saglik.kontroller.baslik"}}</h2>
+<p class="uyari" role="note">{{.Data.ChecksError}}</p>
+</section>
+{{- else if or .Data.Checks .Data.ChecksPassed}}
+<section class="bolum">
+<h2>{{t "saglik.kontroller.baslik"}}</h2>
+{{- if .Data.Checks}}
+<p class="ipucu">{{t "saglik.kontroller.aciklama"}}</p>
+{{template "kontrol_listesi" .Data.Checks}}
+{{- else}}
+<p class="ipucu" role="status">{{t "saglik.kontroller.hepsi_gecti"}}</p>
+{{- end}}
+<p class="soluk">{{t "saglik.kontroller.gecen"}}: {{.Data.ChecksPassed}}</p>
+</section>
+{{- end}}
+
 {{- if .Data.UpgradeError}}
 <section class="bolum">
 <h2>{{t "saglik.yukselt.baslik"}}</h2>

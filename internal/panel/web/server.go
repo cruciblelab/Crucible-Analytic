@@ -44,6 +44,14 @@ type Server struct {
 	Preflight *preflight.Checker
 	// PreflightConfig tells those checks where to look.
 	PreflightConfig preflight.Config
+	// HealthCheckBudget bounds the check run behind the health page's
+	// setup-check section. Zero means defaultHealthCheckBudget.
+	//
+	// A field rather than a constant because the behaviour it produces -
+	// a page that renders every other section while one of them reports
+	// a database it could not reach - cannot be shown at all without
+	// waiting out whatever the budget is. Production never sets it.
+	HealthCheckBudget time.Duration
 	// ConfigPath is the panel's own config file, quoted back in the
 	// command the first-run page tells the installer to run.
 	ConfigPath string
