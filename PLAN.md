@@ -100,7 +100,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **5/7** | V4b, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+| **V** Panelden güncelleme | 🟡 **6/8** | V4b, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6956,6 +6956,64 @@ verdiğinin kanıtı değil**, ve öyleymiş gibi yazılmadı.
 gerekli: bunlar systemd'nin **başka bir hesapla** çalıştırdığı servis
 binary'leri. 0600 kurmak, kendi servisinin çalıştıramayacağı bir binary
 kurmaktır — U1'in kapattığı `status=203/EXEC` hatasının ta kendisi.
+
+#### V4c — CI kırmızısı: paylaşılan tek satır, eksik kilit ✅ *(2026-09-03)*
+
+V4 pushlandıktan sonra CI daldaki koşuda kırmızı yandı. **Aynı commit
+`main`'de yeşildi** — ve bu, aramaya nereden başlanacağını söyleyen imza:
+kod değil, zamanlama.
+
+```
+--- FAIL: TestTheHealthPageReportsTheSchemaVersion/uyuşuyor
+    the page says "satırları kaybeder", which belongs to another state
+```
+
+**Gerçekten başka bir duruma aitti** — ama testin bilmediği bir sürecin
+kurduğu duruma.
+
+`schema_version` bütün veritabanı için **tek satır** (`id = 1`, CHECK ile
+zorlanmış). Üç paket onu yazıyor: `internal/panel/web` dört duruma
+sokup sağlık sayfasının ne dediğine bakıyor, `internal/applier`
+uyguladığını kaydediyor, ve `internal/panel` yükseltme testinde kurulu
+sürümü ayarlıyor.
+
+**İlk ikisi `SchemaVersionLock` alıyordu. Üçüncüsü almıyordu.**
+
+##### Neden şimdi patladı
+
+Yarış yeniydi değil, **pencere yeniydi.** V2 ve V4'te eklediğim testler
+`internal/panel/web`'i doksan saniyeden yüz on ikiye çıkardı. O yirmi
+saniye, iki paketin çakışma penceresini "bazen" olmaktan çıkarıp "bu
+koşuda kesin" hâline getirdi.
+
+*Bir yarışı görünür yapan şey genellikle onu yaratan şey değil.* Ve
+kilidin kendi yorumu bunu zaten yazıyormuş: *"yarış, onu ortaya çıkaran
+testten eskidir."* İkinci kez.
+
+##### Düzeltme, ve düzeltmeden önemlisi
+
+Eksik kilit eklendi, `internal/applier`'ın sırasıyla —
+`UpgradeQueueLock` önce, sonra bu. Ters sırada alan iki paket
+kilitlenir, ve kilitlenmiş bir test paketi hata gibi değil **donmuş
+makine** gibi görünür.
+
+Asıl iş **bir sonraki üçüncü yazıcıyı yakalayan değişmez** oldu:
+`TestEverySuiteThatWritesASharedRowTakesItsLock`. Yazan dosyaları
+listeden değil **kaynaktan** buluyor — her test dosyasının **string
+literal**'lerinde `INSERT/UPDATE/DELETE ... schema_version` arıyor, ve
+bulduysa dosyanın kilidi de anması gerekiyor.
+
+**String literal, dosya metni değil.** İlk hâli dosyanın tamamında
+arıyordu ve hemen `dockerschema_test.go`'yu işaretledi: o dosya geçmiş
+bir hatayı anlatan **yorumda** aynı SQL'i alıntılıyor. *Bir yazmadan söz
+eden dosya, yazma yapan dosya değildir.* Ayırt edemeyen bir kontrol,
+insanlara düzyazı için istisna eklemeyi öğretir — ve istisna listesi, bir
+sonraki gerçek yazıcının içeri girdiği yerdir.
+
+| mutasyon | sonuç |
+|---|---|
+| Kilidi tekrar kaldır *(CI'ın düştüğü hâl)* | yakalandı |
+| Kilitsiz yeni bir suite ekle | yakalandı |
 
 #### V4b — Yeniden başlatmayı gerçekten bağlamak ⬜
 

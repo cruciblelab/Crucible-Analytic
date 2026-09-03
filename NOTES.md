@@ -10251,3 +10251,61 @@ Burada **0600 hata olurdu**: bunlar systemd'nin *başka bir hesapla*
 Gerekçe yazıldı, ve gerekçe "tarayıcı yanılıyor" değil: tarayıcı genel
 bir kural uyguluyor, bu dosya o kuralın istisnası olduğu yer, ve neden
 olduğu yazılı.
+
+## Aynı commit bir koşuda yeşil, diğerinde kırmızı
+
+V4'ten sonra CI daldaki koşuda düştü, `main`'deki koşuda geçti — **aynı
+SHA.** Bu tek başına aramaya nereden başlanacağını söylüyor: kod değil,
+zamanlama.
+
+Log aracı bana veritabanı konteynerinin çıktısını veriyordu, testinkini
+değil. Tam logu diske alıp `--- FAIL` aradım:
+
+```
+--- FAIL: TestTheHealthPageReportsTheSchemaVersion/uyuşuyor
+    the page says "satırları kaybeder", which belongs to another state
+```
+
+Ve gerçekten başka bir duruma aitti. Testin bilmediği bir sürecin
+kurduğu duruma.
+
+`schema_version` bütün veritabanı için tek satır. Üç paket yazıyor.
+**İkisi kilit alıyordu, biri almıyordu.**
+
+### Yarışı görünür yapan şey, onu yaratan şey değildi
+
+Yarış yeni değildi. Yeni olan **pencereydi**: V2 ve V4'te eklediğim
+testler `internal/panel/web`'i doksan saniyeden yüz on ikiye çıkardı, ve
+o yirmi saniye çakışmayı "bazen"den "bu koşuda kesin"e taşıdı.
+
+Kilidin kendi yorumu bunu zaten yazıyormuş: *"yarış, onu ortaya çıkaran
+testten eskidir."* İkinci kez aynı tabloda, aynı sebeple.
+
+*Bir testi yavaşlatmak, başka bir yerdeki gizli yarışı ortaya çıkarabilir.
+Yeni testin suçu değil, ama yeni testin getirdiği bilgi.*
+
+### Düzeltmeden önemlisi, bir sonrakini yakalayan şey
+
+Eksik kilidi eklemek üç satır. Asıl iş, dördüncü yazıcı ortaya çıktığında
+onu **CI'da değil kapıda** yakalayan değişmezdi.
+
+Yazan dosyalar listeden değil kaynaktan bulunuyor. Ve önemli detay:
+**dosya metninde değil, string literal'lerinde** aranıyor.
+
+İlk hâlim dosyanın tamamına bakıyordu ve hemen `dockerschema_test.go`'yu
+işaretledi — o dosya geçmiş bir hatayı anlatan **yorumda** aynı SQL'i
+alıntılıyor.
+
+*Bir yazmadan söz eden dosya, yazma yapan dosya değildir.* İkisini
+ayıramayan bir kontrol, insanlara düzyazı için istisna eklemeyi öğretir —
+ve istisna listesi, bir sonraki gerçek yazıcının içeri girdiği yerdir.
+
+### Bu tür bir hatanın en kötü şekli
+
+Paralel paketlerde paylaşılan bir satırı kilitsiz yazan bir suite
+**kendi** testini düşürmüyor. **Başka** bir paketi düşürüyor, sonra,
+başka bir makinede, ikisini de adıyla anmayan bir mesajla.
+
+Bir test hatasının alabileceği en kötü şekil bu, ve bu depoda aynı tablo
+için ikinci kez oldu. Kilit vardı ve belgeliydi; eksik olan, üçüncü bir
+yazıcının belirdiğini fark eden bir şeydi.

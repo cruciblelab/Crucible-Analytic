@@ -27,6 +27,37 @@ func upgradeStore(t *testing.T) *Store {
 	store := &Store{pool: testdb.Pool(t, testdb.Panel)}
 	testdb.Lock(t, testdb.Pool(t, testdb.SchemaAdmin), testdb.UpgradeQueueLock)
 
+	// And the schema_version row, because setInstalledVersion below
+	// writes it - and that row is a single row for the whole database.
+	//
+	// # How this was missed, and how it surfaced
+	//
+	// Three suites write it: this one, internal/panel/web (which puts it
+	// into four states to see what the health page says) and
+	// internal/applier (which records what it applied). Two of them took
+	// this lock and this one did not, so the pair could interleave.
+	//
+	// It stayed invisible while the overlap was narrow. It became a CI
+	// failure when internal/panel/web grew: the V2 and V4 tests pushed
+	// that package from about ninety seconds to a hundred and twelve,
+	// which widened the window until the two packages were running at
+	// the same time for the whole of this suite. The same commit passed
+	// on one runner and failed on another, which is the signature.
+	//
+	// The failure named neither package:
+	//
+	//	--- FAIL: TestTheHealthPageReportsTheSchemaVersion/uyuşuyor
+	//	    the page says "satırları kaybeder", which belongs to another state
+	//
+	// It did belong to another state - one this suite had set.
+	//
+	// # Ordering
+	//
+	// UpgradeQueueLock first, then this one, matching internal/applier.
+	// Two suites taking the same pair in opposite orders deadlock, and a
+	// deadlocked suite looks like a hung machine rather than like a bug.
+	testdb.Lock(t, testdb.Pool(t, testdb.SchemaAdmin), testdb.SchemaVersionLock)
+
 	clean := func() {
 		admin := testdb.Admin(t)
 		if _, err := admin.Exec(context.Background(),

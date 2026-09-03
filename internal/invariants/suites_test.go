@@ -1,6 +1,9 @@
 package invariants
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -269,4 +272,145 @@ func sortedSuiteKeys(m map[suite]bool) []suite {
 		return out[i].tag < out[j].tag
 	})
 	return out
+}
+
+// sharedRows are the single-row-per-database tables, and the lock a
+// suite must hold before writing one.
+//
+// A table rather than a second copy of the test below: the schema
+// version row came first, and the next one is a line.
+var sharedRows = []struct {
+	table string
+	lock  string
+	// cost is what the disagreement actually did, for the failure
+	// message. A test that says "these differ" invites somebody to make
+	// them differ deliberately; one that says what it broke does not.
+	cost string
+}{
+	{
+		table: "schema_version",
+		lock:  "SchemaVersionLock",
+		cost: "It cost a CI run, and the failure named neither package: " +
+			"TestTheHealthPageReportsTheSchemaVersion reported \"the page says " +
+			"satırları kaybeder, which belongs to another state\" - and it did belong " +
+			"to another state, one internal/panel had set from a different process " +
+			"mid-assertion. Three suites write this row; two took the lock and one " +
+			"did not, and the overlap stayed narrow enough to hide until " +
+			"internal/panel/web grew by twenty seconds",
+	},
+}
+
+// TestEverySuiteThatWritesASharedRowTakesItsLock.
+//
+// # What this catches
+//
+// `go test ./...` runs packages in parallel, and some tables hold
+// exactly one row for the whole database. A suite that writes one
+// without taking its advisory lock does not fail; it makes some *other*
+// package fail, later, on a different runner, with a message that names
+// neither of them.
+//
+// That is the worst shape a test failure can have, and it has now
+// happened twice in this repository for the same table. The lock exists
+// and is documented; what was missing was anything that noticed a third
+// writer had appeared.
+//
+// # Why the write is found by pattern rather than by a list
+//
+// A list of suites is a list that is right on the day it is written -
+// which is exactly how this got through. What is derived is the set of
+// test files that write the row at all; the check is that each one also
+// names its lock.
+func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
+	root := repoRootFromInvariants(t)
+
+	for _, shared := range sharedRows {
+		t.Run(shared.table, func(t *testing.T) {
+			// INSERT INTO / UPDATE / DELETE FROM, allowing the newlines
+			// and indentation a Go raw string puts inside SQL.
+			write := regexp.MustCompile(
+				`(?is)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+` + shared.table + `\b`)
+
+			var missing []string
+			found := 0
+			err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+				if d.IsDir() {
+					switch d.Name() {
+					case ".git", "dist", "node_modules", "vendor":
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if !strings.HasSuffix(path, "_test.go") {
+					return nil
+				}
+				body, err := os.ReadFile(path)
+				if err != nil {
+					return nil
+				}
+				if !write.MatchString(sqlLiterals(path)) {
+					return nil
+				}
+				found++
+				if !strings.Contains(string(body), shared.lock) {
+					rel, _ := filepath.Rel(root, path)
+					missing = append(missing, filepath.ToSlash(rel))
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if found == 0 {
+				t.Fatalf("no test file writes %s, so this check is looking at nothing. "+
+					"Either the table was renamed or the pattern stopped matching how "+
+					"these writes are spelled", shared.table)
+			}
+			sort.Strings(missing)
+			for _, f := range missing {
+				t.Errorf("%s writes %s and never mentions testdb.%s.\n\n"+
+					"%s is one row for the whole database, and `go test ./...` runs "+
+					"packages in parallel - so this does not fail here, it makes "+
+					"another package fail somewhere else with a message that names "+
+					"neither.\n\n%s.\n\nTake the lock, and take it in the order "+
+					"internal/testdb declares.",
+					f, shared.table, shared.lock, shared.table, shared.cost)
+			}
+		})
+	}
+}
+
+// sqlLiterals returns every string literal in a Go file, joined.
+//
+// String literals rather than the file's text, and the difference is not
+// pedantry: the first version of the check above matched the file as a
+// whole and immediately flagged internal/invariants/dockerschema_test.go,
+// which quotes "INSERT INTO schema_version" inside a *comment*
+// explaining a past failure.
+//
+// A file that talks about a write is not a file that performs one. A
+// check that cannot tell those apart teaches people to add exceptions
+// for prose, and an exception list is how the next real writer gets in.
+func sqlLiterals(path string) string {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		// Unparseable is somebody else's failure to report; here it
+		// means "found nothing", which is the safe direction only
+		// because the compiler will not accept the file either.
+		return ""
+	}
+	var b strings.Builder
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.BasicLit)
+		if ok && lit.Kind == token.STRING {
+			b.WriteString(lit.Value)
+			b.WriteByte('\n')
+		}
+		return true
+	})
+	return b.String()
 }
