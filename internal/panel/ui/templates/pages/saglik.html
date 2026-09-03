@@ -219,7 +219,24 @@ uses - so this is also the first thing that makes it earn its place. */}}
 <p class="uyari" role="note">{{.Data.RangeRefreshError}}</p>
 </section>
 {{- else if .Data.RangeRefresh.Show}}
-<section class="bolum">
+{{- /* The same self-refresh as the upgrade section above, and this is
+the one that earns it. An upgrade is 40-640 ms - measured, see
+internal/applier's downtime test - so nobody ever sees it running. A
+dataset refresh downloads and parses the IP range files, which is tens of
+seconds and the parse peak internal/profile measured at 111-216 MB. That
+is long enough to walk away from, and until now the only way to see it
+finish was to reload the page.
+
+Unanswered is excluded on purpose. asn_lookup is off by default, so a
+request nobody claims is the ordinary outcome of pressing this on a
+deployment that is not fetching - and polling forever on a request that
+will never be claimed is the exact failure the stop condition exists to
+prevent. */}}
+<section class="bolum" id="kaynak-durumu"
+{{- if and .Data.RangeRefresh.Latest (not .Data.RangeRefresh.Unanswered) .Data.RangeRefresh.Latest.InFlight}}
+  hx-get="{{$.Data.SelfURL}}" hx-select="#kaynak-durumu"
+  hx-target="this" hx-swap="outerHTML" hx-trigger="every 5s"
+{{- end}}>
 <h2>{{t "saglik.kaynak.baslik"}}</h2>
 
 {{- if .Data.RangeRefresh.Notice}}

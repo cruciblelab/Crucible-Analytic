@@ -486,3 +486,65 @@ func TestTheUpgradeSectionPollsOnlyWhileSomethingIsRunning(t *testing.T) {
 		}
 	}
 }
+
+// TestTheDatasetSectionPollsOnlyWhileARefreshIsRunning.
+//
+// The same shape as the upgrade section's test, for the operation that
+// actually takes time. An upgrade is 40-640 ms measured; a dataset
+// refresh downloads and parses the IP range files, which is tens of
+// seconds. That is the one somebody walks away from, and until this it
+// was also the one you could only see finish by reloading.
+//
+// The unanswered case is the interesting half. asn_lookup ships off, so
+// a refresh request nobody claims is an ordinary outcome - and polling
+// forever on a request that will never be claimed is precisely the
+// failure a stop condition exists to prevent.
+func TestTheDatasetSectionPollsOnlyWhileARefreshIsRunning(t *testing.T) {
+	srv, client, _ := healthServer(t)
+	admin := testdb.Admin(t)
+	ctx := context.Background()
+
+	clear := func() {
+		_, _ = admin.Exec(context.Background(),
+			`DELETE FROM ip_range_refresh_requests WHERE actor_label = 'test-actor'`)
+	}
+	clear()
+	t.Cleanup(clear)
+
+	seed := func(state string, claimed bool) {
+		t.Helper()
+		clear()
+		claimedAt := "NULL"
+		if claimed {
+			claimedAt = "now()"
+		}
+		if _, err := admin.Exec(ctx, `
+			INSERT INTO ip_range_refresh_requests (actor_kind, actor_label, state, claimed_at)
+			VALUES ('test', 'test-actor', $1, `+claimedAt+`)`, state); err != nil {
+			t.Fatalf("could not seed a %s refresh request: %v", state, err)
+		}
+	}
+
+	// Claimed and running: it polls.
+	seed("running", true)
+	_, body := get(t, client, srv.URL+HealthPath)
+	// All three attributes, not just the trigger. A mutation that
+	// removed hx-get and hx-select and left hx-trigger behind passed a
+	// version of this test that only looked for the trigger - a section
+	// that fires every five seconds and has nowhere to fetch from and
+	// nothing to swap.
+	for _, want := range []string{`id="kaynak-durumu"`, "hx-get", "hx-select", "hx-trigger"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("a dataset refresh is running and the section does not carry %q, "+
+				"so the page sits unchanged for the tens of seconds the parse takes", want)
+		}
+	}
+
+	// Finished: it stops.
+	seed("succeeded", true)
+	_, body = get(t, client, srv.URL+HealthPath)
+	if strings.Contains(body, "hx-trigger") {
+		t.Error("the page still polls after the refresh finished; the stop condition " +
+			"is what keeps a poll from outliving the thing it was watching")
+	}
+}

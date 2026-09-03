@@ -98,7 +98,7 @@ gerekçe değil bahane olur.
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
-| **T** Arayüz cilası | 🟡 **1/4** | T2, T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
+| **T** Arayüz cilası | 🟡 **2/5** | T3, T4, T5 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6209,10 +6209,91 @@ yakalandı)*, yoklamayı hiç yapma *(değişmeyen sayfa yakalandı)*.
   görünür. Kurmak istediği durumu kuramayan bir test atlanmış değil,
   bozuktur. `t.Fatalf` oldu.
 
-#### T2 — Veri kümesi yenilemesi de kendini tazelesin ⬜
+#### T2 — Veri kümesi yenilemesi de kendini tazeliyor ✅ *(2026-09-03)*
 
-Aynı desen, M3'ün yenileme bölümüne. Ayrı madde çünkü o bölümün uçuş
-durumu farklı bir tabloda ve okuma yolu ayrı.
+Aynı desen, ve **asıl kazandığı yer burası.** Yükseltme 40-640 ms —
+kimse çalışırken göremiyor. Veri kümesi yenilemesi ise dosyaları indirip
+ayrıştırıyor: onlarca saniye, ve ayrıştırma tepesi `internal/profile`'ın
+ölçtüğü 111-216 MB. Yanından kalkılacak kadar uzun, ve şimdiye kadar
+bittiğini görmenin tek yolu sayfayı yenilemekti.
+
+**Cevapsız istek bilinçli olarak dışarıda.** `asn_lookup` varsayılan
+kapalı, yani kimsenin sahiplenmediği bir istek olağan sonuç — ve asla
+sahiplenilmeyecek bir isteği sonsuza kadar yoklamak, durma koşulunun
+önlemek için var olduğu şeyin ta kendisi.
+
+**Bir mutasyon zayıf bir testi buldu.** İlk testim yalnız `hx-trigger`
+arıyordu; `hx-get` ile `hx-select`'i silen mutasyon geçti. Yani beş
+saniyede bir tetiklenen, ama çekeceği yer ve takas edeceği şey olmayan
+bir bölüm testten geçiyordu. Üçü de kontrol ediliyor artık.
+
+*Mutasyonun ikinci işi: testin kendisini ölçmek.*
+
+#### T5 — Yükseltme ekranı: ölçüm ne diyor ⬜ **büyük kısmı gereksiz çıktı**
+
+*(Müşterinin soruları: güncelleme sırasında panel çalışır mı, biri girip
+istek atarsa güncelleme sekteye uğrar mı, siteye giren herkes güncelleme
+ekranını görmeli mi, ilerleme olmalı mı, dosya bütünlüğü kontrolü.)*
+
+**Dördü zaten ölçülmüş, ve cevapları planda duruyordu.**
+
+**1. Panel güncelleme sırasında çalışır mı — ölçüldü, evet.**
+`internal/applier/downtime_integration_test.go`, dört servisin sorgu
+deseni eşzamanlı koşarken:
+
+| | ölçüm |
+|---|---|
+| yükseltmenin kendisi | 35 ms, 35 ms, 86 ms *(CI'da 639 ms)* |
+| sırasındaki en kötü sorgu | 2,3 – 9,9 ms |
+| **boştayken** en kötü sorgu | 5,0 – 83,5 ms |
+
+Yani yükseltme sırasındaki en kötü sorgu, hiçbir şey olmazken görülen en
+kötü sorgudan **hızlıydı.**
+
+**2. Biri girip yazarsa sekteye uğrar mı — hayır, ve mekanizması yazılı.**
+Aynı testin "panel write" probu, `IF NOT EXISTS`in *işi* atladığını ama
+*kilidi* atlamadığını ortaya çıkardı; iki tarafın tabloları ters sırada
+alması kilitlenme (deadlock) üretebilirdi ve cevabı `applier.lockTimeout`.
+Yani eşzamanlı yazma hem ölçülmüş hem karşılanmış.
+
+**3. Siteye giren herkes güncelleme ekranını görmeli mi — hayır, ve bu
+bir tercih değil.** Sitenin ziyaretçisi panele hiç uğramıyor; collector
+ve beacon durmuyor. Ziyaretçiye "güncelleniyor" göstermek, olmayan bir
+kesintiyi kendi elimizle üretmek olurdu.
+
+**4. İlerleme çubuğu — yükseltme için gösterilecek ilerleme yok.**
+40-640 ms, çubuk çizilmeden biter. Durum satırları artı T1'in kendini
+tazelemesi dürüst arayüz; 40 ms'lik bir işleme ilerleme çubuğu tiyatrodur.
+İlerlemenin gerçek olduğu yer veri kümesi yenilemesi, ve T2 orayı aldı.
+
+**Geriye kalan gerçek madde:** panel kullanıcısı *başka bir sayfadayken*
+yükseltmeden haberdar olmalı mı. Bugün yalnız sağlık sayfası biliyor.
+**Ölçülmesi gereken:** her sayfaya bir sorgu eklemenin bedeli (sayfalar
+2-38 ms) karşılığında, ortalama 300 ms süren bir olayı kimin göreceği.
+Muhtemel cevap "kimse", ve o zaman bu madde de kapanır — ama ölçmeden
+değil.
+
+#### Bütünlük: bugün ne kontrol ediliyor
+
+Müşterinin "dosya bütünlüğü kontrolü, tamir" sorusu. Envanter, ölçülerek:
+
+| ne | nasıl korunuyor |
+|---|---|
+| Şema | `schemaver.Fingerprint` — DDL'in SHA-256'sı, veritabanına yazılı, her açılışta karşılaştırılıyor |
+| Sürüm paketi | `SHA256SUMS`, G2'de üretiliyor |
+| IP aralık tabloları | Yenileme **tek işlem**: `BEGIN; TRUNCATE; COPY; COMMIT`. Yarım kalan bir yenileme geri alınıyor, kısmi aralık kalmıyor |
+| Yapılandırma | Açılışta doğrulama; eksik/yanlış değerde servis başlamıyor |
+| Şema dosyalarının kendisi | `schemaver.Complete` — kapanmamış katar/yorum, kırpılmış bir dosyanın sessizce özetlenmesini engelliyor |
+
+**Kapalı olmayan tek yer: çalışan ikililerin kendisi.** Ve bunun için
+çalışma zamanı sağlaması yazmak muhtemelen yanlış: bozulmuş bir Go
+ikilisi sessizce yanlış çalışmaz, çöker. Kurulum anındaki `SHA256SUMS`
+doğru katman.
+
+**"Tamir" yazmıyoruz, ve gerekçesi:** bu sistemde bozulabilecek her şeyin
+yeniden üretilebilir bir kaynağı var — şema dosyalardan, IP tabloları
+kaynaktan, ikililer paketten. Bozulmayı *onarmak* yerine *yeniden
+uygulamak* hem daha basit hem daha güvenilir, ve L3'ün düğmesi zaten o.
 
 #### T3 — Soğuk açılışın 440 ms'i ⬜
 

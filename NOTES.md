@@ -9498,3 +9498,73 @@ oturumda ikinci kez: docker testi de atlayıp `ok` yazdırmıştı.
 
 **Kurmak istediği durumu kuramayan bir test atlanmış değil, bozuktur.**
 Skip, koşulların yokluğu içindir; kendi hatam için değil.
+
+---
+
+## Sorulan beş şeyin dördü zaten ölçülmüştü
+
+Müşteri güncelleme ekranı istedi ve yanında beş soru sordu: panel
+çalışmaya devam eder mi, biri girip yazarsa güncelleme sekteye uğrar mı,
+siteye giren herkes bu ekranı görmeli mi, ilerleme olmalı mı, dosya
+bütünlüğü kontrolü olmalı mı.
+
+Yeni bir şey yazmadan önce deponun kendisine sordum. Dördünün cevabı
+zaten yazılıydı — üstelik ölçülerek.
+
+**Panel çalışır mı:** `internal/applier/downtime_integration_test.go`,
+dört servisin sorgu deseni eşzamanlı koşarken yükseltmeyi ölçüyor.
+Yükseltme 35-86 ms, sırasındaki en kötü sorgu 2,3-9,9 ms, **boştayken** en
+kötü sorgu 5,0-83,5 ms. Yani yükseltme sırasındaki en kötü sorgu, hiçbir
+şey olmazken görülenden hızlıydı.
+
+**Yazma sekteye uğratır mı:** aynı testin bir probu, `IF NOT EXISTS`in
+*işi* atladığını ama *kilidi* atlamadığını ortaya çıkarmış — ve o yanlış
+mekanizma açıklaması testin kendi yorumunda düzeltilmiş. Karşılığı
+`applier.lockTimeout`.
+
+**Herkes görmeli mi:** sitenin ziyaretçisi panele hiç uğramıyor.
+Ziyaretçiye "güncelleniyor" göstermek, olmayan bir kesintiyi kendi
+elimizle üretmek olurdu.
+
+**İlerleme:** 40-640 ms'lik bir işleme ilerleme çubuğu tiyatro. Gerçek
+ilerlemenin olduğu yer veri kümesi yenilemesi — onlarca saniye — ve T2
+orayı aldı.
+
+### Bunun dersi soruda değil, arşivde
+
+Beş sorudan dördünün cevabı depoda duruyordu, ölçüm sonuçlarıyla
+birlikte, aylar önce yazılmış bir test yorumunda. Ben de "iyi soru,
+ölçelim" diyerek aynı ölçümü baştan yapabilirdim.
+
+**Ölçümü yazmak, ölçümü yapmanın yarısı.** Bu deponun test yorumlarına
+rakam yazma alışkanlığı, bugün üç saatlik bir işi on dakikaya indirdi.
+
+### Bütünlük: envanter çıkarınca soru değişti
+
+"Dosya bütünlüğü kontrolü ve tamir" istendi. Envanteri çıkarınca beş
+katmanın dördü zaten korunuyormuş: şema parmak iziyle, paket
+SHA256SUMS'la, IP tabloları yenilemenin tek işlem olmasıyla
+(`BEGIN; TRUNCATE; COPY; COMMIT` — yarım kalan geri alınıyor),
+yapılandırma açılış doğrulamasıyla.
+
+Açık tek yer çalışan ikililer, ve oraya çalışma zamanı sağlaması yazmak
+muhtemelen yanlış: bozulmuş bir Go ikilisi sessizce yanlış çalışmaz,
+çöker.
+
+**"Tamir" ise hiç yazılmayacak, ve gerekçesi tasarımda:** bu sistemde
+bozulabilecek her şeyin yeniden üretilebilir bir kaynağı var. Onarmak
+yerine yeniden uygulamak hem basit hem güvenilir — ve L3'ün düğmesi
+zaten o.
+
+*Bir özelliği yazmadan önce envanterini çıkarmak, çoğu zaman özelliği
+küçültüyor. Bu sefer sıfıra indirdi.*
+
+### Ve mutasyon yine testin kendisini ölçtü
+
+Veri kümesi bölümünün yoklama testi önce yalnız `hx-trigger` arıyordu.
+`hx-get` ile `hx-select`'i silen mutasyon geçti — yani beş saniyede bir
+tetiklenen, ama çekeceği yer ve takas edeceği şey olmayan bir bölüm
+testten geçiyordu.
+
+Mutasyonun birinci işi kodu ölçmek; ikincisi testi ölçmek. İkincisi bu
+oturumda üç kez iş gördü.
