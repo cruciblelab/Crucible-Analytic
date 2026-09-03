@@ -556,3 +556,66 @@ func fixtureFuncs(cat *Language) map[string]any {
 		"asset": assets.URL,
 	}
 }
+
+// TestTheHealthPageNeverTellsYouToRefreshIt.
+//
+// # The defect this comes from
+//
+// The health page's two long operations - the schema upgrade and the IP
+// dataset refresh - used to be watched by reloading the page. T1 and T2
+// made both sections poll themselves, and the upgrade's own message was
+// left behind saying:
+//
+//	"...bu sayfayı yenileyerek sonucu görebilirsiniz."
+//	"...refresh this page to see the result."
+//
+// So the one page that had just learned to refresh itself was still
+// telling the reader to do it by hand, in the sentence they see at the
+// exact moment it starts doing it. The same message also said "within a
+// few minutes" for a job the timer unit runs every thirty seconds.
+//
+// # Why the rule is the whole page and not those two keys
+//
+// Naming the two keys would be a list somebody has to remember to add
+// to. The rule that actually holds is broader and worth stating:
+//
+//	nothing on the health page changes without the page noticing.
+//
+// Everything on it is either static for the life of a page view, or it
+// is one of the two sections that poll. So a health message that asks
+// for a manual reload is either false, like this one was, or it is
+// describing a section that should have been made to poll instead.
+//
+// Reload messages elsewhere are untouched and correct: an expired CSRF
+// token or a malformed form really is fixed by reloading, and nothing
+// polls those pages.
+func TestTheHealthPageNeverTellsYouToRefreshIt(t *testing.T) {
+	// Both wordings, in both languages. Matched on the phrase rather
+	// than the key, because the next one will be written by somebody
+	// who has not read this test.
+	phrases := []string{
+		"yenileyerek", "sayfayı yenile", "sayfayi yenile",
+		"refresh this page", "reload this page", "reload the page",
+	}
+
+	cats := testCatalogs(t)
+	for _, lang := range cats.Languages() {
+		for _, key := range lang.Keys() {
+			if !strings.HasPrefix(key, "saglik.") {
+				continue
+			}
+			text := strings.ToLower(lang.T(key))
+			for _, p := range phrases {
+				if strings.Contains(text, strings.ToLower(p)) {
+					t.Errorf("messages/%s.toml: %s tells the reader to reload the health "+
+						"page, which refreshes the parts that change by itself:\n  %s",
+						lang.Code, key, lang.T(key))
+					// One report per message. The phrases overlap, and a
+					// single wrong sentence printed three times is how a
+					// failure people skim gets skimmed.
+					break
+				}
+			}
+		}
+	}
+}

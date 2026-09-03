@@ -61,6 +61,15 @@ Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
 2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
 sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
 
+### Yükseltme istendiğinde çıkan cümle düzeltildi
+
+Eskiden şöyle diyordu: "Uygulayıcı birkaç dakika içinde başlayacak; bu
+sayfayı yenileyerek sonucu görebilirsiniz."
+
+İkisi de yanlıştı. Uygulayıcı otuz saniyede bir bakıyor, ve bu bölüm
+artık kendini yeniliyor. Yani kendini yenilemeyi yeni öğrenmiş bir sayfa,
+size elle yenilemenizi söylüyordu.
+
 ### Kurulum kontrolleri kurulumdan sonra da görünüyor
 
 Sağlık sayfasına **Kurulum kontrolleri** bölümü eklendi: yalnız

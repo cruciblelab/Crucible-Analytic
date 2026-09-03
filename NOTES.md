@@ -9737,3 +9737,90 @@ yüzeydir, ve taşıyacağı şeylerin çoğu zaten türetilebiliyor.
 
 *Bir sorunun yarısını cevaplayıp diğer yarısını "bakılacak" diye
 bırakmak, ikisini birden yarım cevaplamaktan dürüst.*
+
+## "Kimse göremez" diyecektim, sayı yanlıştı
+
+T5'in kalan maddesi şuydu: panel kullanıcısı başka bir sayfadayken
+yükseltmeden haberdar olmalı mı? Planda kendi elimle yazdığım gerekçe
+"ortalama 300 ms süren bir olayı kim görecek ki" idi.
+
+Kapatmadan önce sayıya baktım. **35-86 ms olan şey uygulamanın kendisi.**
+Kullanıcının görebileceği pencere o değil: düğmeye basılıyor, satır
+yazılıyor, ve uygulayıcı **otuz saniyede bir** bakıyor
+(`OnUnitActiveSec=30s`, `AccuracySec=5s`). Yani pencere ortalama on beş
+saniye, en fazla otuz beş.
+
+Elli kat yanılmışım, ve tam da "bu madde kapanır" dediğim yönde.
+
+*Kendi planımdaki bir sayıyı, başkasının yazdığı gibi kontrol etmek
+gerekiyor. Yazan ben olduğum için doğru olmuyor.*
+
+### Doğru sayıyla cevap yine aynı çıktı, ama gerekçe değişti
+
+Soruyu tersine çevirdim: o on beş saniyede ikinci bir panel kullanıcısı
+ne yapabilir ki ters gitsin? Üç ihtimal var ve üçü de kapalı:
+
+- **İkinci kişi de düğmeye basar.** Tek-uçuş tekil indeksi reddediyor, ve
+  panel "hata" değil "zaten sırada, sonucu aşağıda" diyor.
+- **Panel yavaşlar.** Ölçülmüş: yükseltme sırasındaki en kötü sorgu,
+  boştaki en kötüden hızlı.
+- **Eşzamanlı yazma kilitlenir.** `applier.lockTimeout`, ve altındaki
+  bulgu (`IF NOT EXISTS` işi atlıyor, kilidi atlamıyor) test yorumunda
+  yazılı.
+
+Yani her sayfaya sorgu eklemek, önlediği kaza kalmamış bir uyarı için
+olurdu. *En güvenilir bildirim, gerektirmeyen tasarımdır.*
+
+### T1 kendi mesajını güncellememiş
+
+Kontrol ederken çıktı, ve utanç verici olan şu: planda T1'i anlatırken bu
+cümleyi **düzelttiğim şey diye alıntılamışım.** Cümle düzelmemiş.
+
+> "Yükseltme istendi. Uygulayıcı birkaç dakika içinde başlayacak;
+> bu sayfayı yenileyerek sonucu görebilirsiniz."
+
+İkisi de yanlış. Otuz saniye, dakikalar değil. Ve sayfa T1'den beri
+kendini yeniliyor — yani kendini yenilemeyi yeni öğrenmiş sayfa, tam o
+anda kullanıcıya elle yenilemesini söylüyordu.
+
+Kardeş bölüm doğruydu: veri kümesi yenilemesi "otuz saniye içinde" diyor
+ve yenileme talimatı vermiyor. Aynı desendeki iki bölüm, farklı mesajlar
+— ve farkı gören yoktu çünkü mesajlar kodun bir parçası gibi
+okunmuyor.
+
+Kural yazıldı: **sağlık sayfası hiçbir mesajında kendini yenilemenizi
+istemez.** İki anahtarı yasaklamak yerine kuralı yazdım, çünkü iki
+anahtarlık liste birinin eklemeyi unutacağı bir listedir. Kuralın
+gerekçesi de sağlam: bu sayfada değişen her şey ya sabit ya da kendini
+yokluyor, dolayısıyla elle yenileme isteyen bir mesaj ya yalandır ya da
+yoklamaya çevrilmesi gereken bir bölümü anlatıyordur.
+
+### Ve bir kesme işaretiyle yanlış sonuca vardım
+
+`ErrAlreadyInFlight`i grep'ledim, çıktıyı `head` ile kestim, sonuçlar
+rangerefresh'ten geldi, ve "**upgrade tarafı hiç test edilmemiş**"
+sonucuna vardım. Yanlıştı: `TestOnlyOneRequestMayBeInFlight` tam olarak
+onu test ediyor, kesilmiş çıktının altında kalmış.
+
+Gerçek boşluk bir katman yukarıdaydı: **reddin hangi cümleye
+çevrildiği** hiç test edilmemiş. `upgradeErrorText` dört reddi dört
+cümleye çeviriyor, beşincisi genel "istenemedi" satırına düşüyor — ve
+yeni bir ret sebebi eklenip haritaya yazılmazsa hiçbir şey kırılmıyor,
+sadece kullanıcı eyleme geçebileceği bir cümle yerine bizi aramaya davet
+eden bir cümle okuyor.
+
+Test listeyi **kaynaktan türetiyor**: `upgraderequest.go`'nun `return`
+ifadeleri okunuyor, beşinci sebep testin önüne kendiliğinden geliyor.
+
+*`head` bir araştırma aracı değil, bir görüntüleme aracı. Yokluk iddiası
+kesilmemiş çıktıya dayanmalı.*
+
+### Dördüncü kez: derlenmeyen mutasyon hiçbir şey kanıtlamaz
+
+"Haritalanmamış yeni bir ret ekle" mutasyonunu yazarken var olmayan bir
+`ErrNoSuchSite` uydurdum. Derlenmedi, ve derlenmeyen bir mutasyonun
+"yakalandı" çıktısı derleyicinin çıktısıdır, testin değil. Var olan bir
+sentinel ile tekrarladım.
+
+Bu oturumda dördüncü. Artık refleks: mutasyondan sonra `go build`, sonra
+test.

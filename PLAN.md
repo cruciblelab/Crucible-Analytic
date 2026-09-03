@@ -98,7 +98,7 @@ gerekçe değil bahane olur.
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
-| **T** Arayüz cilası | 🟡 **3/6** | T3, T4, T5 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
+| **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6229,7 +6229,7 @@ bir bölüm testten geçiyordu. Üçü de kontrol ediliyor artık.
 
 *Mutasyonun ikinci işi: testin kendisini ölçmek.*
 
-#### T5 — Yükseltme ekranı: ölçüm ne diyor ⬜ **büyük kısmı gereksiz çıktı**
+#### T5 — Yükseltme ekranı: ölçüm ne diyor ✅ *(2026-09-03)* **büyük kısmı gereksiz çıktı**
 
 *(Müşterinin soruları: güncelleme sırasında panel çalışır mı, biri girip
 istek atarsa güncelleme sekteye uğrar mı, siteye giren herkes güncelleme
@@ -6266,12 +6266,83 @@ kesintiyi kendi elimizle üretmek olurdu.
 tazelemesi dürüst arayüz; 40 ms'lik bir işleme ilerleme çubuğu tiyatrodur.
 İlerlemenin gerçek olduğu yer veri kümesi yenilemesi, ve T2 orayı aldı.
 
-**Geriye kalan gerçek madde:** panel kullanıcısı *başka bir sayfadayken*
-yükseltmeden haberdar olmalı mı. Bugün yalnız sağlık sayfası biliyor.
-**Ölçülmesi gereken:** her sayfaya bir sorgu eklemenin bedeli (sayfalar
-2-38 ms) karşılığında, ortalama 300 ms süren bir olayı kimin göreceği.
-Muhtemel cevap "kimse", ve o zaman bu madde de kapanır — ama ölçmeden
-değil.
+##### Geriye kalan madde: başka sayfadaki panel kullanıcısı ✅
+
+Soru şuydu: panel kullanıcısı *başka bir sayfadayken* yükseltmeden
+haberdar olmalı mı. Bugün yalnız sağlık sayfası biliyor.
+
+**Önce kendi rakamımı düzelttim.** Bu satır "ortalama 300 ms süren bir
+olay" diyordu ve **yanlıştı.** 35-86 ms olan şey uygulamanın kendisi.
+Kullanıcının görebileceği pencere bu değil:
+
+| aşama | süre |
+|---|---|
+| düğmeye basıldı → uygulayıcı isteği alır | **0-30 sn** *(`OnUnitActiveSec=30s`, `AccuracySec=5s`)* |
+| uygulamanın kendisi | 35-86 ms |
+| **görülebilir pencere** | **ortalama ~15 sn, en fazla ~35 sn** |
+
+Yani 300 ms değil, **elli kat uzun.** "Kimse göremez" cevabını yanlış bir
+sayıya dayandırıp kapatacaktım.
+
+**Doğru sayıyla da cevap aynı, ama gerekçesi başka.** Soruyu tersine
+çevirdim: o pencerede *ikinci bir panel kullanıcısı ne yapabilir ki ters
+gitsin?* Envanter:
+
+| olası kaza | bugün ne oluyor |
+|---|---|
+| İkinci kişi de düğmeye basar | Tek-uçuş tekil indeksi reddediyor, ve panel *hata* değil **"zaten sırada, sonucu aşağıda"** diyor |
+| Panel yavaşlar | Ölçüldü: yükseltme sırasındaki en kötü sorgu, boştaki en kötüden hızlı |
+| Eşzamanlı yazma kilitlenir | `applier.lockTimeout`, ve `IF NOT EXISTS`in kilidi atlamadığı ölçülerek bulunmuş |
+
+**Üçü de kapalı, ve hiçbiri bir bildirimle kapanmıyor.** Her sayfaya
+sorgu eklemek, önlediği hiçbir kaza kalmamış bir uyarı için olurdu.
+
+*En güvenilir bildirim, gerektirmeyen tasarımdır.* — bu grupta ikinci kez.
+
+##### Ama kontrol ederken iki gerçek kusur çıktı
+
+**1. T1 kendi mesajını güncellememiş.** Yükseltme istendiğinde çıkan
+cümle şuydu:
+
+> "Yükseltme istendi. Uygulayıcı **birkaç dakika içinde** başlayacak;
+> **bu sayfayı yenileyerek** sonucu görebilirsiniz."
+
+İkisi de yanlış. Uygulayıcı otuz saniyede bir bakıyor, dakikalarca değil.
+Ve sayfa T1'den beri kendini yeniliyor — yani **kendini yenilemeyi yeni
+öğrenmiş sayfa, tam da o anda kullanıcıya elle yenilemesini
+söylüyordu.** Planın kendisi bu cümleyi T1'in düzelttiği şey diye
+alıntılıyordu; cümle düzelmemiş.
+
+Kardeş bölüm (veri kümesi yenileme) doğruydu: *"otuz saniye içinde"*, ve
+yenileme talimatı yok. İki bölüm aynı desende, mesajları farklı.
+
+Düzeltildi, iki dilde. Ve tekrar gelmesin diye kural yazıldı:
+**sağlık sayfası hiçbir mesajında kendini yenilemenizi istemez** — çünkü
+üzerinde değişen her şey ya sabit ya da kendini yokluyor. Başka
+sayfalardaki "sayfayı yenileyin" mesajları (süresi geçmiş CSRF, bozuk
+form) doğru ve dokunulmadı.
+
+**2. Reddetme cümlelerinin haritası hiç test edilmemiş.**
+`upgradeErrorText` dört reddi dört ayrı cümleye çeviriyor, beşinci
+ihtimal genel bir "istenemedi" satırına düşüyor. Fonksiyonun kendi
+yorumu bunun *önlemek için* var olduğunu söylüyor — ama
+`RequestUpgrade`'e yeni bir ret sebebi eklenip haritaya eklenmezse
+hiçbir şey kırılmıyor: kullanıcı eyleme geçebileceği bir cümle yerine
+bizi aramaya davet eden bir cümle okuyor.
+
+Yazılan test **listeyi kaynaktan türetiyor**: `upgraderequest.go`'daki
+`return` ifadeleri okunuyor, yani beşinci sebep testin önüne kendiliğinden
+geliyor. Üstüne cümlelerin **birbirinden farklı** olduğu da kontrol
+ediliyor — kopyala-yapıştır bir `case` başka her kontrolü geçer.
+
+**Dört mutasyon, dördü de yakalandı:**
+
+| mutasyon | sonuç |
+|---|---|
+| Eski "sayfayı yenileyin" cümlesini geri koy | yakalandı |
+| "zaten sırada" durumunu haritadan sil | yakalandı: *genel mesaja düşüyor* |
+| Kilitli → "gerekmiyor" cümlesini döndür (kopyala-yapıştır) | yakalandı: *ikisi aynı cümleyi üretiyor* |
+| `RequestUpgrade`'e haritalanmamış yeni bir ret ekle | yakalandı *(ilk denemem derlenmedi, gerçek bir sentinel ile tekrarlandı)* |
 
 #### Bütünlük: bugün ne kontrol ediliyor
 
