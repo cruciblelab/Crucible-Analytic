@@ -29,6 +29,12 @@ ROOT="$(dirname "${HERE}")"
 
 DB_NAME="${DB_NAME:-analytics}"
 PREFIX="${PREFIX:-/opt/crucible-analytic}"
+# Where the executables are read from, which is not always beside this
+# script: KURULUM.md section 3 recommends building on another machine and
+# copying, and a package unpacked next to a checkout has two bin/
+# directories. Defaulting to ${ROOT}/bin covers both the release package
+# and a repository that has been built.
+BIN_DIR="${BIN_DIR:-${ROOT}/bin}"
 CONF_DIR="${CONF_DIR:-/etc/crucible-analytic}"
 LOG_DIR="${LOG_DIR:-/var/log/crucible-analytic}"
 STATE_DIR="${STATE_DIR:-/var/lib/crucible-analytic}"
@@ -99,6 +105,7 @@ while [ $# -gt 0 ]; do
     --db) DB_NAME="$2"; shift 2 ;;
     --profile) PROFILE="$2"; shift 2 ;;
     --prefix) PREFIX="$2"; shift 2 ;;
+    --bin-dir) BIN_DIR="$2"; shift 2 ;;
     --conf) CONF_DIR="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
     --no-systemd) WANT_SYSTEMD=0; shift ;;
@@ -1028,6 +1035,71 @@ if [ "${DRY_RUN}" -eq 0 ]; then
       say "   generated the read API token ($(digest "${API_TOKEN}"))"
     fi
   fi
+fi
+
+# -------------------------------------------------------------- binaries
+
+# The five executables the units run.
+#
+# # What was wrong before this existed
+#
+# Every unit in release/systemd runs /opt/crucible-analytic/bin/<name>.
+# This script created the roles, the database, the schema, the config
+# files, the service accounts, the directories and the units - and put
+# nothing in that directory. It only quoted those paths back in its
+# closing instructions.
+#
+# So an operator who followed KURULUM.md exactly reached `systemctl
+# enable --now crucible-collector` and got status=203/EXEC on all four
+# services. The only clue was a path inside a unit file nobody had told
+# them to read, and the guide's build section said "copy the bin/
+# directory" without saying where to. Guarded now by
+# TestEveryUnitRunsSomethingTheInstallerPutsThere, which reads the
+# destination out of the units rather than being told it.
+#
+# # Installed by rename, which is the upgrade case
+#
+# A running executable cannot be written to - Linux answers ETXTBSY -
+# so `install` straight over a live collector fails, and the second run
+# of this script is the one that matters: it is how somebody moves to a
+# new version. rename(2) over an open file is fine: the running process
+# keeps the inode it started with and the next start picks up the new
+# one. So each binary is written beside its destination and moved onto
+# it, which is also atomic - there is no moment where the path exists
+# and is half a file.
+#
+# Nothing is restarted here. Replacing a binary under a running service
+# and restarting it are two decisions, and the second one belongs to
+# whoever knows what else is happening on that machine.
+say "binaries"
+if [ "${DRY_RUN}" -eq 0 ]; then
+  if [ -d "${BIN_DIR}" ]; then
+    mkdir -p "${PREFIX}/bin"
+    chmod 0755 "${PREFIX}" "${PREFIX}/bin"
+    installed_any=0
+    for src in "${BIN_DIR}"/*; do
+      [ -f "${src}" ] || continue
+      name="$(basename "${src}")"
+      tmp="${PREFIX}/bin/.${name}.new.$$"
+      install -m 0755 "${src}" "${tmp}"
+      mv -f "${tmp}" "${PREFIX}/bin/${name}"
+      say "   ${PREFIX}/bin/${name}"
+      installed_any=1
+    done
+    if [ "${installed_any}" -eq 0 ]; then
+      say "   ${BIN_DIR} is empty; nothing to install"
+    fi
+  else
+    # Not a failure. Somebody running this from a source checkout has no
+    # bin/ yet, and the message names the one command that makes one -
+    # because "no binaries" with no instruction is how a person ends up
+    # at systemctl with nothing to run.
+    say "   no ${BIN_DIR} here; build first:"
+    say "     VERSION=\$(git describe --tags --always) ./release/build.sh"
+    say "   or unpack a release package, which carries bin/ already"
+  fi
+else
+  say "   dry run: would install ${BIN_DIR}/* into ${PREFIX}/bin"
 fi
 
 # ----------------------------------------------------------------- units

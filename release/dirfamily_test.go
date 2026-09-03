@@ -42,6 +42,23 @@ var directoryFamilies = []struct {
 			"never land - and the startup line said it had never been fetched, which " +
 			"sent the operator to a command that could not work",
 	},
+	{
+		what:    "configuration directory",
+		pattern: regexp.MustCompile(`/etc/crucible[a-z-]*`),
+		cost: "It cost an operator following the guide by hand a working install, " +
+			"and the guide contradicted itself seven sections apart: section 6 said " +
+			"to copy the five config files into one directory, every systemd unit " +
+			"read the other one, and section 7 used the units' spelling. Every " +
+			"service then failed at startup on a file that was on the disk, in the " +
+			"place the document had named",
+	},
+	{
+		what:    "install prefix",
+		pattern: regexp.MustCompile(`/opt/crucible[a-z-]*`),
+		cost: "It cost the weekly bot-data cron line in the guide: a job pointed at " +
+			"a binary that is not there fails once a week for ever, and the only " +
+			"symptom is bot data that quietly stops being refreshed",
+	},
 }
 
 // TestOneNamePerDirectoryFamily.

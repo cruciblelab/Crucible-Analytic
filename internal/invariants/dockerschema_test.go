@@ -14,7 +14,7 @@ import (
 // into the image, and pulls out both the source path and the numbered
 // name it lands under.
 var dockerSchemaCopy = regexp.MustCompile(
-	`(?m)^COPY\s+(internal/\S+/schema\.sql)\s+/opt/crucible/schema/(\d+)-\S+\.sql\s*$`)
+	`(?m)^COPY\s+(internal/\S+/schema\.sql)\s+/opt/crucible-analytic/schema/(\d+)-\S+\.sql\s*$`)
 
 // TestTheImageCarriesEverySchemaFile.
 //
@@ -91,7 +91,7 @@ func TestTheImageCarriesEverySchemaFile(t *testing.T) {
 	for _, p := range want {
 		if !inImageSet[p] {
 			t.Errorf("%s is part of the schema and the image does not carry it.\n"+
-				"A container install applies what is in /opt/crucible/schema and "+
+				"A container install applies what is in /opt/crucible-analytic/schema and "+
 				"nothing else, so the tables this file creates simply will not exist "+
 				"there - silently, until something asks for one", p)
 		}

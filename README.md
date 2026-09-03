@@ -1304,7 +1304,7 @@ copies it in:
 
 ```bash
 panel -config panel.toml -migrate-settings collector \
-      -migrate-from /etc/crucible/config.toml
+      -migrate-from /etc/crucible-analytic/config.toml
 ```
 
 It **never overwrites a value somebody already set in the panel**, it

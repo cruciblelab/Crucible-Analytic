@@ -68,7 +68,7 @@ sites = ["mysite"]
 # To copy what is here into the panel, once:
 #
 #     panel -config panel.toml -migrate-settings beacon \
-#           -migrate-from /etc/crucible/beacon.toml
+#           -migrate-from /etc/crucible-analytic/beacon.toml
 trusted_proxies = ["127.0.0.1/32"]
 
 # Narrows CORS. Empty (the default) allows every origin, which is safe

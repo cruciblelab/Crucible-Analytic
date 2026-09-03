@@ -2027,3 +2027,130 @@ func readFileAt(t *testing.T, path string) string {
 	}
 	return string(body)
 }
+
+// TestEveryUnitRunsSomethingTheInstallerPutsThere.
+//
+// # The gap this was written to prove
+//
+// Every unit in release/systemd runs /opt/crucible-analytic/bin/<name>.
+// install.sh creates the roles, the database, the schema, the config
+// files, the service accounts, the directories and the units themselves
+// - and puts nothing in that directory. It only quotes those paths back
+// in its closing instructions.
+//
+// So an operator who follows KURULUM.md exactly reaches `systemctl
+// enable --now crucible-collector` and gets status=203/EXEC on all four
+// services, with the only clue being a path inside a unit file they were
+// never told to read. The guide's build section says "copy the bin/
+// directory" and does not say where to.
+//
+// # Why a mirror rather than a checklist
+//
+// The destination is written in five places already - one per unit - and
+// the installer is the sixth. Asserting the sixth agrees with the five
+// costs nothing and cannot go stale, because a new service arrives here
+// with its own ExecStart.
+func TestEveryUnitRunsSomethingTheInstallerPutsThere(t *testing.T) {
+	root := repoRoot(t)
+
+	entries, err := os.ReadDir(filepath.Join(root, "release", "systemd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	execStart := regexp.MustCompile(`(?m)^ExecStart=(\S+)`)
+	want := map[string]string{} // binary path -> the unit that runs it
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".service") {
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(root, "release", "systemd", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := execStart.FindSubmatch(body)
+		if m == nil {
+			t.Errorf("%s has no ExecStart, so systemd has nothing to run", e.Name())
+			continue
+		}
+		want[string(m[1])] = e.Name()
+	}
+	if len(want) < 4 {
+		t.Fatalf("read %d ExecStart paths; this repository ships more services, so "+
+			"this test is looking at the wrong place", len(want))
+	}
+
+	script, err := os.ReadFile(filepath.Join(root, "release", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(script)
+
+	for path, unit := range want {
+		name := filepath.Base(path)
+		dir := filepath.Dir(path) // /opt/crucible-analytic/bin
+
+		// The installer has to do two things: know the directory, and
+		// know this binary belongs in it. Checking only the directory
+		// would pass on a script that installs four of the five.
+		installsDir := strings.Contains(text, `${PREFIX}/bin`) ||
+			strings.Contains(text, dir)
+		if !installsDir {
+			t.Errorf("%s runs %s and install.sh never writes into %s.\n"+
+				"Every service starts with status=203/EXEC and nothing said the "+
+				"binaries had to be put there by hand", unit, path, dir)
+			continue
+		}
+		if !strings.Contains(text, "install_binaries") && !strings.Contains(text, name) {
+			t.Errorf("%s runs %s and install.sh never names %q, so that one binary "+
+				"is the one nobody copies", unit, path, name)
+		}
+	}
+
+	// And then it is run, because reading the script is not the claim.
+	// The claim is that a file arrives, executable, at the path the unit
+	// names - and the first version of this test asserted a spelling of
+	// the fix instead, which passed and failed for reasons that had
+	// nothing to do with whether anything was installed.
+	binDir := t.TempDir()
+	prefix := t.TempDir()
+	for name := range map[string]bool{"collector": true, "panel": true} {
+		if err := os.WriteFile(filepath.Join(binDir, name),
+			[]byte("#!/bin/sh\necho stub\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	const db = "ca_install_binaries_test"
+	scratchDatabase(t, db)
+	base := superuserDSN(t)
+
+	cmd := exec.Command("./release/install.sh", "--no-systemd",
+		"--bin-dir", binDir, "--prefix", prefix)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(base, db),
+		"DB_NAME="+db,
+		"CONF_DIR="+t.TempDir(),
+		"PREFIX="+prefix,
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install.sh: %v\n%s", err, out)
+	}
+
+	for _, name := range []string{"collector", "panel"} {
+		got := filepath.Join(prefix, "bin", name)
+		info, err := os.Stat(got)
+		if err != nil {
+			t.Errorf("install.sh finished and %s is not there: %v.\n"+
+				"Every unit runs a binary out of this directory, so systemd answers "+
+				"status=203/EXEC on all of them", got, err)
+			continue
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s is mode %v, which systemd cannot execute", got, info.Mode().Perm())
+		}
+	}
+}

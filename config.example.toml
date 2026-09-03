@@ -56,7 +56,7 @@ flush_interval_seconds = 10
 # To copy what is already here into the panel, once:
 #
 #     panel -config panel.toml -migrate-settings collector \
-#           -migrate-from /etc/crucible/config.toml
+#           -migrate-from /etc/crucible-analytic/config.toml
 #
 # It never overwrites a value somebody has already set in the panel, it
 # reports what it skipped, and every value it moves is recorded in the
@@ -218,7 +218,7 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # söyler. Sessizce eksilen bir şey yok.
 #
 # Örnek cron satırı (haftada bir, pazartesi 04:00):
-#     0 4 * * 1 /usr/local/bin/collector -config /etc/crucible/config.toml -update-bot-data
+#     0 4 * * 1 /usr/local/bin/collector -config /etc/crucible-analytic/config.toml -update-bot-data
 # ---------------------------------------------------------------------
 # How often the settings the panel owns are re-read.
 #

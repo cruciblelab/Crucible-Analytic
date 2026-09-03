@@ -96,9 +96,9 @@ do_init() {
     db_host="$(printf '%s' "${SUPERUSER_DSN}" | sed -E 's|^[a-z+]+://||; s|^[^@]*@||; s|[/?].*$||')"
 
     SUPERUSER_DSN="${SUPERUSER_DSN}" DB_NAME="${DB_NAME}" DB_HOST="${db_host}" \
-        CONF_DIR="${CONF_DIR}" PREFIX=/opt/crucible \
+        CONF_DIR="${CONF_DIR}" PREFIX=/opt/crucible-analytic \
         LOG_DIR=/var/log/crucible-analytic STATE_DIR=/var/lib/crucible-analytic \
-        /opt/crucible/release/install.sh
+        /opt/crucible-analytic/release/install.sh
 
     # 1. Logs to stdout.
     #

@@ -166,7 +166,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		Store:      store,
 		Sessions:   panel.NewSessions(store, time.Hour, false),
 		Gate:       gate,
-		ConfigPath: "/etc/crucible/panel.toml",
+		ConfigPath: "/etc/crucible-analytic/panel.toml",
 		ConfigFileValues: map[string]string{
 			"panel.listen_addr": "127.0.0.1:8090",
 		},
@@ -241,7 +241,7 @@ func TestSetupFlow(t *testing.T) {
 	if !strings.Contains(body, "-dev-link") {
 		t.Errorf("the refusal does not say how to get in:\n%s", body)
 	}
-	if !strings.Contains(body, "/etc/crucible/panel.toml") {
+	if !strings.Contains(body, "/etc/crucible-analytic/panel.toml") {
 		t.Error("the printed command does not name this deployment's config file")
 	}
 

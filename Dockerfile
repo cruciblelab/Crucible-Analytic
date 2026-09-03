@@ -123,36 +123,36 @@ RUN --mount=type=secret,id=extra_ca,target=/run/secrets/extra_ca \
 # 443 to it, which is the orchestrator's job rather than the process's.
 RUN addgroup -S crucible && adduser -S -G crucible -H -s /sbin/nologin crucible
 
-COPY --from=build /out/ /opt/crucible/bin/
+COPY --from=build /out/ /opt/crucible-analytic/bin/
 
 # What the install needs, in the layout install.sh already knows how to
 # find: it looks for ../schema and ../ornek-yapilandirma relative to
 # itself, the same as inside an unpacked release tarball.
-COPY internal/panel/schema.sql      /opt/crucible/schema/01-panel.sql
-COPY internal/storage/schema.sql    /opt/crucible/schema/02-storage.sql
-COPY internal/beacon/schema.sql     /opt/crucible/schema/03-beacon.sql
-COPY internal/asnlookup/schema.sql  /opt/crucible/schema/04-asnlookup.sql
-COPY internal/heartbeat/schema.sql  /opt/crucible/schema/05-heartbeat.sql
-COPY internal/retention/schema.sql  /opt/crucible/schema/06-retention.sql
-COPY internal/logsink/schema.sql    /opt/crucible/schema/07-logsink.sql
-COPY internal/upgrade/schema.sql    /opt/crucible/schema/08-upgrade.sql
-COPY internal/rangerefresh/schema.sql /opt/crucible/schema/09-rangerefresh.sql
-COPY internal/schemaver/schema.sql  /opt/crucible/schema/10-schemaver.sql
+COPY internal/panel/schema.sql      /opt/crucible-analytic/schema/01-panel.sql
+COPY internal/storage/schema.sql    /opt/crucible-analytic/schema/02-storage.sql
+COPY internal/beacon/schema.sql     /opt/crucible-analytic/schema/03-beacon.sql
+COPY internal/asnlookup/schema.sql  /opt/crucible-analytic/schema/04-asnlookup.sql
+COPY internal/heartbeat/schema.sql  /opt/crucible-analytic/schema/05-heartbeat.sql
+COPY internal/retention/schema.sql  /opt/crucible-analytic/schema/06-retention.sql
+COPY internal/logsink/schema.sql    /opt/crucible-analytic/schema/07-logsink.sql
+COPY internal/upgrade/schema.sql    /opt/crucible-analytic/schema/08-upgrade.sql
+COPY internal/rangerefresh/schema.sql /opt/crucible-analytic/schema/09-rangerefresh.sql
+COPY internal/schemaver/schema.sql  /opt/crucible-analytic/schema/10-schemaver.sql
 
-COPY config.example.toml            /opt/crucible/ornek-yapilandirma/config.example.toml
-COPY beacon.example.toml            /opt/crucible/ornek-yapilandirma/beacon.example.toml
-COPY analytics-api.example.toml     /opt/crucible/ornek-yapilandirma/analytics-api.example.toml
-COPY panel.example.toml             /opt/crucible/ornek-yapilandirma/panel.example.toml
-COPY upgrader.example.toml          /opt/crucible/ornek-yapilandirma/upgrader.example.toml
+COPY config.example.toml            /opt/crucible-analytic/ornek-yapilandirma/config.example.toml
+COPY beacon.example.toml            /opt/crucible-analytic/ornek-yapilandirma/beacon.example.toml
+COPY analytics-api.example.toml     /opt/crucible-analytic/ornek-yapilandirma/analytics-api.example.toml
+COPY panel.example.toml             /opt/crucible-analytic/ornek-yapilandirma/panel.example.toml
+COPY upgrader.example.toml          /opt/crucible-analytic/ornek-yapilandirma/upgrader.example.toml
 
-COPY release/install.sh release/verify.sh /opt/crucible/release/
-COPY release/sql/                         /opt/crucible/release/sql/
-COPY docker/entrypoint.sh                 /opt/crucible/entrypoint.sh
+COPY release/install.sh release/verify.sh /opt/crucible-analytic/release/
+COPY release/sql/                         /opt/crucible-analytic/release/sql/
+COPY docker/entrypoint.sh                 /opt/crucible-analytic/entrypoint.sh
 
-COPY LICENSE NOTICE THIRD-PARTY.md KURULUM.md README.md /opt/crucible/
+COPY LICENSE NOTICE THIRD-PARTY.md KURULUM.md README.md /opt/crucible-analytic/
 
-RUN chmod 0755 /opt/crucible/entrypoint.sh /opt/crucible/release/install.sh \
-               /opt/crucible/release/verify.sh
+RUN chmod 0755 /opt/crucible-analytic/entrypoint.sh /opt/crucible-analytic/release/install.sh \
+               /opt/crucible-analytic/release/verify.sh
 
 # Two directories, and only one of them is a volume.
 #
@@ -184,13 +184,13 @@ RUN mkdir -p /etc/crucible-analytic /var/lib/crucible-analytic /var/log/crucible
  && chown -R crucible:crucible /etc/crucible-analytic /var/lib/crucible-analytic /var/log/crucible-analytic \
  && chmod 0750 /etc/crucible-analytic
 
-ENV PATH="/opt/crucible/bin:${PATH}" \
+ENV PATH="/opt/crucible-analytic/bin:${PATH}" \
     CA_CONF_DIR="/etc/crucible-analytic"
 
 USER crucible
 WORKDIR /opt/crucible
 
-ENTRYPOINT ["/opt/crucible/entrypoint.sh"]
+ENTRYPOINT ["/opt/crucible-analytic/entrypoint.sh"]
 # No default command. A container started with no argument should say
 # what the arguments are, not pick one - four of the five do different
 # jobs and none of them is the obvious default.

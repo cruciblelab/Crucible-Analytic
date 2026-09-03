@@ -574,13 +574,13 @@ yalnız kendi sitesini listeleyin.
 Dört örnek dosya var; kopyalayıp düzenleyin:
 
 ```bash
-cp config.example.toml        /etc/crucible/collector.toml
-cp beacon.example.toml        /etc/crucible/beacon.toml
-cp analytics-api.example.toml /etc/crucible/analytics-api.toml
-cp panel.example.toml         /etc/crucible/panel.toml
+cp config.example.toml        /etc/crucible-analytic/collector.toml
+cp beacon.example.toml        /etc/crucible-analytic/beacon.toml
+cp analytics-api.example.toml /etc/crucible-analytic/analytics-api.toml
+cp panel.example.toml         /etc/crucible-analytic/panel.toml
 
-chmod 600 /etc/crucible/*.toml
-chown crucible: /etc/crucible/*.toml
+chmod 600 /etc/crucible-analytic/*.toml
+chown crucible: /etc/crucible-analytic/*.toml
 ```
 
 **Dosya izinleri gerçekten önemli:** bu dosyalar veritabanı parolasını,
@@ -815,7 +815,7 @@ Hiç hesap yokken panelin ön sayfası giriş formu değil, "kurulum
 bekleniyor" sayfasıdır ve size bu komutu söyler:
 
 ```bash
-./bin/panel -config /etc/crucible/panel.toml -dev-link
+./bin/panel -config /etc/crucible-analytic/panel.toml -dev-link
 ```
 
 Ekrana **bir kez** bir bağlantı yazar. Saklanan yalnız SHA-256'sı; o
@@ -890,7 +890,7 @@ bir sahiplenme bağlantısı** üretir.
 Kaybederseniz kabuktan yeniden üretebilirsiniz:
 
 ```bash
-./bin/panel -config /etc/crucible/panel.toml -owner-link musteri@example.com
+./bin/panel -config /etc/crucible-analytic/panel.toml -owner-link musteri@example.com
 ```
 
 Bağlantı kullanıldığında tek işlemde: hesap oluşturulur, **yapılandırılmış
@@ -905,7 +905,7 @@ Devir tesliminden sonra sunucuya girmeniz gerekirse müşteri **onaylamak
 zorunda**:
 
 ```bash
-./bin/panel -config /etc/crucible/panel.toml -dev-link -dev-reason "yavaşlık şikayeti"
+./bin/panel -config /etc/crucible-analytic/panel.toml -dev-link -dev-reason "yavaşlık şikayeti"
 ```
 
 Müşteri panelinde bir afiş görür (her sayfada), gerekçeyi okur, onaylar
@@ -921,7 +921,7 @@ cümle. Sayfa bunu ilk isteğin üstünde yazıyor.
 ## 10. Snippet
 
 ```bash
-./bin/beacon -config /etc/crucible/beacon.toml -snippet https://example.com mysite
+./bin/beacon -config /etc/crucible-analytic/beacon.toml -snippet https://example.com mysite
 ```
 
 Çıkan `<script>` etiketini müşterinin sitesine ekleyin. `mysite`,
@@ -937,7 +937,7 @@ tarafa ait, şartları bu depoya yazılamaz). Kurulum kendi makinesine
 indirir:
 
 ```bash
-./bin/collector -config /etc/crucible/collector.toml -update-bot-data
+./bin/collector -config /etc/crucible-analytic/collector.toml -update-bot-data
 ```
 
 **Hiç çalıştırmamak desteklenen bir durumdur:** bilinen-bot sinyali
@@ -946,7 +946,7 @@ olmaz, diğer bütün sinyaller çalışır, ve collector açılışta bunu söy
 Cron önerisi (haftada bir):
 
 ```cron
-0 4 * * 1 /opt/crucible/bin/collector -config /etc/crucible/collector.toml -update-bot-data
+0 4 * * 1 /opt/crucible-analytic/bin/collector -config /etc/crucible-analytic/collector.toml -update-bot-data
 ```
 
 ---
@@ -957,11 +957,11 @@ Bazı ayarlar artık dosya yerine panelden değiştiriliyor. Dosyadakileri
 bir kez veritabanına kopyalayın:
 
 ```bash
-./bin/panel -config /etc/crucible/panel.toml \
-    -migrate-settings collector -migrate-from /etc/crucible/collector.toml
+./bin/panel -config /etc/crucible-analytic/panel.toml \
+    -migrate-settings collector -migrate-from /etc/crucible-analytic/collector.toml
 
-./bin/panel -config /etc/crucible/panel.toml \
-    -migrate-settings beacon -migrate-from /etc/crucible/beacon.toml
+./bin/panel -config /etc/crucible-analytic/panel.toml \
+    -migrate-settings beacon -migrate-from /etc/crucible-analytic/beacon.toml
 ```
 
 Komut:
@@ -1087,6 +1087,85 @@ ulaşılamıyor.
 
 ---
 
+## 13.5 Yeni sürüme geçme
+
+**Bu bölüm uzun süre yoktu, ve olmaması bir kusurdu.** Belge sıfırdan
+kurmayı ve şemayı yükseltmeyi anlatıyordu; ikisinin arasındaki adımı —
+"elimde yeni paket var, ne yapacağım" — hiçbir yerde anlatmıyordu.
+
+### Kaybolmayan şeyler
+
+Önce endişeyi kapatalım. **Yeni sürüme geçerken hiçbiri kaybolmaz:**
+
+| Ne | Ne oluyor |
+|---|---|
+| Yapılandırma dosyaları | **Dokunulmuyor.** `install.sh`, var olan bir `.toml`'u asla üzerine yazmaz — parolaları ve `site_id`'yi taşıyorlar, ve `site_id` geri alınamaz |
+| Veritabanı, bütün analitik | **Dokunulmuyor.** Yükseltme yalnızca DDL: sütun ekleme, indeks. Satır silen bir adım yok |
+| Panel kullanıcıları, oturumlar, üyelikler | Veritabanında; dokunulmuyor |
+| Sırlar (IP anahtarı, API jetonu, geliştirici parolası) | Yapılandırma dosyalarında; dokunulmuyor |
+| Bot verisi, IP aralık tabloları | Kendi yerlerinde; dokunulmuyor |
+
+**Ve hiçbir şey GitHub'dan indirilmiyor.** Sunucunuz güncelleme için
+dışarıya bağlanmaz. Şema, çalışan binary'nin **içine gömülü**; paneldeki
+yükseltme düğmesi o gömülü şemayı uyguluyor, bir yerden çekmiyor.
+Paketi sunucuya siz taşıyorsunuz — bu bir eksiklik değil, tercih: kendi
+kendine güncellenen bir servis, kendisini değiştirebilen bir servistir.
+
+### Dört adım
+
+```bash
+# 1. Yeni paketi açın ve bütünlüğünü doğrulayın
+tar xzf crucible-analytic-v0.20.0.tar.gz
+cd crucible-analytic-v0.20.0/
+sha256sum -c SHA256SUMS
+
+# 2. install.sh'ı tekrar çalıştırın.
+#    Rolleri ve veritabanını olduğu gibi bırakır, yapılandırmaya
+#    dokunmaz, binary'leri yeniler, systemd birimlerini tazeler.
+sudo ./release/install.sh
+
+# 3. Servisleri yeniden başlatın. Binary'yi değiştirmek onu
+#    çalıştırmaz; eski süreç eski dosyayla çalışmaya devam eder.
+sudo systemctl restart crucible-collector crucible-beacon \
+                       crucible-analytics-api crucible-panel
+
+# 4. Sürümü doğrulayın
+/opt/crucible-analytic/bin/panel -version
+```
+
+Sonra **panelde Sağlık → Şema yükseltmesi**. Yeni yapı yeni bir şema
+bekliyorsa düğme orada olur; beklemiyorsa "yapacak bir şey yok" der.
+Uygulayıcı otuz saniyede bir bakar, bölüm kendini yeniler.
+
+### Çalışan bir binary'nin üstüne nasıl yazılıyor
+
+Linux çalışan bir çalıştırılabilir dosyaya yazmayı reddeder (`ETXTBSY`).
+`install.sh` bu yüzden dosyayı yanına yazıp **taşıyor** (`mv`):
+`rename(2)` açık bir dosyanın üstüne çalışır — çalışan süreç başladığı
+inode'la devam eder, bir sonraki başlatma yenisini alır. Aynı zamanda
+atomik: yolun yarım dosya içerdiği bir an yok.
+
+**Servisleri biz yeniden başlatmıyoruz.** Binary'yi değiştirmek ile onu
+yeniden başlatmak iki ayrı karar, ve ikincisi o makinede başka ne
+döndüğünü bilen kişinin.
+
+### Sıra önemli mi
+
+Hayır, ama bir tavsiye var: **önce panel, sonra collector.** Panel
+şemayı gösteren ve yükseltme düğmesini taşıyan yer; onu önce yenilemek,
+geri kalanı yenilemeden önce durumu görebilmenizi sağlar. Collector
+siteyi önlediği için en son yeniden başlatılacak olan da odur.
+
+### Geri dönmek
+
+Eski paketi tekrar kurup servisleri yeniden başlatın. **Şema geri
+alınmaz** ve alınmasına gerek yok: eski binary fazladan bir sütunu
+görmezden gelir (`L2`), ve panel Sağlık sayfasında "veritabanı ileride"
+diye yazar. Veri kaybettiren yön diğeridir — yeni binary, eski şema — ve
+o durumda servisler zaten yazmayı reddeder.
+
+---
+
 ## 14. Öneriler
 
 **Sırayla kurun, hepsini birden değil.** Önce veritabanı + panel; devir
@@ -1129,7 +1208,7 @@ kontrolü yalnız "yapılandırılmış mı" diye sorar.
 pg_dump -Fc analytics > /yedek/analytics-$(date +%F).dump
 ```
 
-Yedeklenmesi gerekenler: veritabanı, `/etc/crucible/*.toml` (parolalar
+Yedeklenmesi gerekenler: veritabanı, `/etc/crucible-analytic/*.toml` (parolalar
 ve anahtarlar orada), ve `/var/lib/crucible-analytic/known_bots.json`.
 
 ---
@@ -1153,18 +1232,19 @@ ve anahtarlar orada), ve `/var/lib/crucible-analytic/known_bots.json`.
 
 Dürüst olmak, sonradan sürpriz olmaktan iyidir.
 
-- **CI yok.** `govulncheck` ve testler elle çalıştırılıyor.
+*(Bu liste 2026-09-03'te denetlendi. Dört maddesi çoktan yapılmış
+işleri "eksik" diye anlatıyordu — CI, kurulum betiği, systemd birimleri,
+kurtarma kodları ve e-posta yolu. Var olmayan bir eksiği anlatan bir
+belge, okuyana **gerçek** eksikler hakkındakilere de inanmamayı
+öğretiyor, ve bu liste tam da inanılmak için var. Silinenler
+CHANGELOG'da.)*
+
 - **"Servisler ayakta mı" kontrolü binary'ye bağlı değil.**
   `preflight.checkService` yazılmış ve testleri var, ama `cmd/panel`
   ona hiç adres vermiyor ve `panel.toml`'da o adresleri yazacak bir alan
-  yok. Kurulum sihirbazı bu yüzden 14 kontrol gösteriyor ve hiçbiri
-  "collector çalışıyor mu" sorusunu sormuyor.
-- **Kurulum betiği ve systemd unit'i depoda yok.** §7 bir şablon
-  veriyor, paket vermiyor.
-- **E-posta yolu yok.** Üye eklemek, hesabı **zaten olan** birini
-  ekliyor. Davet e-postası ve parola sıfırlama henüz yok.
-- **İki faktör kurtarma kodu yok.** Kaybeden kişiyi sahip ya da
-  işletmeci kurtarır; tek sahip kaybederse kabuk gerekir.
+  yok. Kurulum sihirbazı bu yüzden "collector çalışıyor mu" sorusunu
+  sormuyor. *(Sağlık sayfası aynı soruyu kalp atışı satırlarından
+  cevaplıyor, ve daha iyi cevaplıyor — ama sihirbazdaki boşluk duruyor.)*
 - **Parola değişikliği diğer cihazlardaki oturumları kapatmıyor.**
 - **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe.**
   Panelin geri kalanı Türkçe ve İngilizce.

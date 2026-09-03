@@ -99,6 +99,7 @@ gerekçe değil bahane olur.
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
+| **U** Yeni sürüme geçme | ✅ **4/4** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6533,6 +6534,107 @@ sonra** sorulacak soru: 51 KB, iki yoklama için mi duruyor?
 Cevap "evet" olabilir — kütüphane iki satırlık öznitelikle iş görüyor ve
 alternatifi elle yazılmış JavaScript. Ama soru sorulmadan kalmasın:
 kullanılmayan bir bağımlılık, kimsenin bakmadığı bir yüzeydir.
+
+---
+
+### U grubu — Yeni sürüme geçme yolu ✅ *(2026-09-03)*
+
+*(Müşterinin sorusu: "Güncelleme yapınca ne oluyor? GitHub reposundan mı
+güncel şeyleri alıyor? Kullanıcının yaptığı değişiklikler kayboluyor mu,
+config dosyaları falan?")*
+
+Cevabı vermek için koda baktım. Cevabın kendisi rahatlatıcıydı; yanında
+bulduklarım değildi.
+
+#### Sorunun cevabı, ölçülerek
+
+**Hiçbir şey GitHub'dan indirilmiyor.** `git pull`, `releases/download`,
+`api.github` — hiçbiri yok. Paneldeki yükseltme düğmesi, **çalışan
+binary'nin içine gömülü** şemayı uyguluyor. Sunucu güncelleme için
+dışarıya hiç bağlanmıyor.
+
+**Yapılandırma dosyaları asla ezilmiyor.** `install.sh`'ın `copy_example`
+fonksiyonu `[ -f "${dst}" ] && return 0` ile başlıyor: var olan bir dosya
+hiç ellenmiyor. Üretilen rol parolaları da yalnız o koşunun *yeni
+oluşturduğu* dosyalara yazılıyor (`FRESH_CONF`).
+
+**Veritabanı ellenmiyor.** Yükseltme yalnızca DDL.
+
+#### Ama dört gerçek kusur çıktı
+
+#### U1 — `install.sh` binary'leri hiç kurmuyordu ✅
+
+Beş systemd biriminin hepsi `/opt/crucible-analytic/bin/<ad>` çalıştırıyor.
+Betik rolleri, veritabanını, şemayı, yapılandırmayı, servis hesaplarını,
+dizinleri ve **birimlerin kendisini** kuruyor — ve o dizine **hiçbir şey
+koymuyordu.** O yolları yalnız kapanış talimatlarında alıntılıyordu.
+
+Yani KURULUM.md'yi harfiyen izleyen biri `systemctl enable --now
+crucible-collector` diyor ve dört servisin dördünden de
+**`status=203/EXEC`** alıyor. Tek ipucu, okuması söylenmemiş bir birim
+dosyasının içindeki yol. §3 "bin/ dizinini kopyalayın" diyordu ve
+**nereye** kopyalanacağını söylemiyordu.
+
+Yazıldı, ve **yeniden adlandırarak**: Linux çalışan bir çalıştırılabilir
+dosyaya yazmayı reddeder (`ETXTBSY`), ve asıl önemli koşu ikincisi —
+yeni sürüme geçen koşu. `rename(2)` açık dosyanın üstüne çalışıyor;
+çalışan süreç inode'uyla devam ediyor, bir sonraki başlatma yenisini
+alıyor, ve dosyanın yarım olduğu bir an olmuyor.
+
+`--bin-dir` de eklendi, çünkü §3 zaten "başka makinede derleyip
+kopyalayın" diyor.
+
+#### U2 — Bir dizin, iki isim, ve kendisiyle çelişen bir belge ✅
+
+`TestOneNamePerDirectoryFamily` tam bu kusur için yazılmıştı, ve
+tablosunda yapılandırma dizini yoktu. Eklenince ölçüm çıktı:
+
+| yazım | nerede |
+|---|---|
+| `/etc/crucible` | KURULUM.md (17 kez), README, iki örnek yapılandırma, bir test |
+| `/etc/crucible-analytic` | beş systemd birimi, `install.sh`, `docker/entrypoint.sh` |
+
+**§6 elle kurulumu anlatırken dosyaları hiçbir servisin okumadığı bir
+dizine kopyalatıyordu. §7, yedi bölüm sonra, doğru yazımı
+kullanıyordu.** Aynı belge, iki isim.
+
+Kurulum öneki de ikiye ayrılmıştı: birimler `/opt/crucible-analytic`,
+Docker dünyası `/opt/crucible`, ve KURULUM'un haftalık bot verisi cron
+satırı `/opt/crucible` — yani **haftada bir sessizce başarısız olan bir
+cron işi.**
+
+Dört aile de tek isme indirildi. *Bu, o testin yakalamak için yazıldığı
+kusurun üçüncü ve dördüncü örneği.*
+
+#### U3 — "Yeni sürüme geçme" diye bir bölüm yoktu ✅
+
+On yedi bölümlük kurulum kılavuzu sıfırdan kurmayı ve şemayı
+yükseltmeyi anlatıyor, ikisinin arasındaki adımı anlatmıyordu. §13.5
+yazıldı: neyin kaybolmadığı (tablo hâlinde), dört adım, çalışan
+binary'nin nasıl değiştirildiği, sıra tavsiyesi, ve geri dönüş.
+
+#### U4 — "Bilinen eksikler" listesi bayattı ✅
+
+Dört maddesi çoktan yapılmış işleri eksik diye anlatıyordu: CI, kurulum
+betiği, systemd birimleri, kurtarma kodları, e-posta yolu. *Var olmayan
+bir eksiği anlatan bir belge, okuyana gerçek eksikler hakkındakilere de
+inanmamayı öğretiyor* — ve bu liste tam da inanılmak için var. §7 aynı
+dersi kendi içinde zaten yazmıştı; liste onu okumamış.
+
+#### İki mutasyon, ikisi de yakalandı
+
+Ve testin kendisi bir kez yeniden yazıldı: ilk hâli `install.sh`'ın
+**metnini** grep'liyordu, yani düzeltmenin bir *yazımını* doğruluyordu.
+Kendi düzeltmemi yazdım ve test hâlâ kırmızıydı — çünkü regex'im o
+yazımı beklemiyordu. Doğrusu betiği **çalıştırmak**: geçici bir önek,
+geçici bir `--bin-dir`, ve dosya oraya varmış mı diye bakmak.
+
+| mutasyon | sonuç |
+|---|---|
+| Binary'leri hiç kurma | yakalandı: *dosya orada değil* |
+| 0644 ile kur | yakalandı: *systemd bunu çalıştıramaz* |
+
+*Bir düzeltmenin metnini test etmek, düzeltmeyi test etmek değildir.*
 
 ---
 

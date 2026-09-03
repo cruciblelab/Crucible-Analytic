@@ -61,6 +61,49 @@ Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
 2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
 sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
 
+### `install.sh` artık binary'leri de kuruyor
+
+**Bu bir düzeltme, ve etkisi total.** Beş systemd biriminin hepsi
+`/opt/crucible-analytic/bin/<ad>` çalıştırıyor. Betik rolleri,
+veritabanını, şemayı, yapılandırmayı, servis hesaplarını ve birimlerin
+kendisini kuruyordu — ve o dizine hiçbir şey koymuyordu.
+
+Yani kılavuzu harfiyen izleyen biri `systemctl enable --now` diyor ve
+dört servisten de `status=203/EXEC` alıyordu. Tek ipucu, okuması
+söylenmemiş bir birim dosyasının içindeki yol.
+
+Dosya yanına yazılıp **taşınıyor** (`mv`), çünkü Linux çalışan bir
+çalıştırılabilir dosyaya yazmayı reddeder ve asıl önemli koşu ikincisi:
+yeni sürüme geçen koşu. Servisler yeniden başlatılmıyor — binary'yi
+değiştirmek ile onu yeniden başlatmak iki ayrı karar.
+
+`--bin-dir` de eklendi: başka makinede derleyip kopyalayanlar için.
+
+### Yapılandırma dizini tek bir yazıma indirildi
+
+`/etc/crucible` ve `/etc/crucible-analytic` yan yana yaşıyordu.
+**Kurulum kılavuzunun 6. bölümü dosyaları hiçbir servisin okumadığı bir
+dizine kopyalatıyordu**; 7. bölüm, yedi bölüm sonra, doğru yazımı
+kullanıyordu. Kurulum öneki de ikiye ayrılmıştı, ve kılavuzun haftalık
+bot verisi cron satırı var olmayan bir binary'yi gösteriyordu — haftada
+bir sessizce başarısız olan bir iş.
+
+Dördü de tek isme indirildi ve dizin ailesi testine eklendi.
+
+### KURULUM.md §13.5 — "Yeni sürüme geçme"
+
+Kılavuz sıfırdan kurmayı ve şemayı yükseltmeyi anlatıyor, ikisinin
+arasındaki adımı anlatmıyordu. Yeni bölüm neyin **kaybolmadığını** tablo
+hâlinde söylüyor (yapılandırma, veritabanı, sırlar, kullanıcılar — hiçbiri
+ellenmiyor), dört adımı veriyor, ve hiçbir şeyin GitHub'dan
+indirilmediğini yazıyor.
+
+### §16 "Bilinen eksikler" denetlendi
+
+Dört maddesi çoktan yapılmış işleri eksik diye anlatıyordu. Var olmayan
+bir eksiği anlatan bir belge, okuyana gerçek eksikler hakkındakilere de
+inanmamayı öğretir.
+
 ### Yükseltme istendiğinde çıkan cümle düzeltildi
 
 Eskiden şöyle diyordu: "Uygulayıcı birkaç dakika içinde başlayacak; bu

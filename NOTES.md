@@ -9824,3 +9824,100 @@ sentinel ile tekrarladım.
 
 Bu oturumda dördüncü. Artık refleks: mutasyondan sonra `go build`, sonra
 test.
+
+## "Güncelleyince ne oluyor" sorusu üç kusur açtı
+
+Müşteri sordu: güncelleme yapınca ne oluyor, GitHub'dan mı çekiyor,
+config dosyaları kayboluyor mu?
+
+Cevabı vermek için koda baktım, ve cevabın kendisi rahatlatıcıydı:
+GitHub'a hiç bağlanılmıyor (şema çalışan binary'nin içine gömülü),
+yapılandırma dosyaları asla ezilmiyor (`copy_example` var olan dosyada
+hemen dönüyor), veritabanı ellenmiyor.
+
+Sorun yanında bulduklarımdı.
+
+### install.sh binary'leri hiç kurmuyormuş
+
+Beş systemd biriminin hepsi `/opt/crucible-analytic/bin/<ad>`
+çalıştırıyor. Betik rolleri, veritabanını, şemayı, yapılandırmayı, servis
+hesaplarını, dizinleri ve **birimlerin kendisini** kuruyor. O dizine
+hiçbir şey koymuyordu. Yolları yalnız kapanış talimatlarında
+alıntılıyordu.
+
+Yani kılavuzu harfiyen izleyen biri `systemctl enable --now` diyor ve
+dördünden de `status=203/EXEC` alıyor. Tek ipucu, okuması söylenmemiş bir
+birim dosyasının içindeki bir yol.
+
+**Nasıl bu kadar uzun yaşadı:** kurulum betiğinin bütün testleri
+`--no-systemd` ile koşuyor, ve `--no-systemd` binary'leri de kapsamıyordu
+ama kimse oraya bakmıyordu çünkü systemd aşaması testin dışındaydı. Bu
+depoda daha önce **aynı sebeple** bir kusur yaşamıştı: yapılandırma
+dizininin izinleri, yine systemd aşamasında, yine `--no-systemd`
+yüzünden. Betiğin kendi yorumu bunu yazıyor. İkinci kez.
+
+### Dizin ailesi testi kendi üçüncü ve dördüncü örneğini buldu
+
+`TestOneNamePerDirectoryFamily` iki aile tutuyordu: log ve state. Kendi
+yorumunda "üçüncü bir aile artık bir satır" yazıyordu. İki satır ekledim
+ve ikisi de kırmızı yandı:
+
+| aile | ayrışma |
+|---|---|
+| yapılandırma dizini | `/etc/crucible` (KURULUM 17 kez, README, iki örnek) ve `/etc/crucible-analytic` (beş birim, install.sh, docker) |
+| kurulum öneki | `/opt/crucible` (docker) ve `/opt/crucible-analytic` (birimler, install.sh) |
+
+En kötüsü belgenin kendisiydi: **§6 dosyaları hiçbir servisin okumadığı
+bir dizine kopyalatıyor, §7 doğru yazımı kullanıyordu.** Aynı belge,
+yedi bölüm arayla, iki isim.
+
+Ve kurulum öneki ayrışması somut bir zarar üretiyordu: kılavuzun haftalık
+bot verisi cron satırı var olmayan bir binary'yi gösteriyordu. Haftada
+bir sessizce başarısız olan bir iş, ve tek belirtisi tazelenmeyi bırakan
+bot verisi.
+
+*Bir testin "üçüncüsü bir satır" demesi, üçüncüsünün yazılacağı anlamına
+gelmiyormuş. Yazılmasını bekleyen üçüncü ve dördüncü zaten oradaydı.*
+
+### Düzeltmenin metnini test etmek, düzeltmeyi test etmek değil
+
+İlk testim `install.sh`'ın **metnini** grep'liyordu: "`install -m 07..`
+ile `${PREFIX}/bin` aynı satırda geçiyor mu". Kırmızıydı, doğru sebeple.
+
+Sonra düzeltmeyi yazdım — ve test **hâlâ kırmızıydı.** Çünkü ben dosyayı
+geçici bir ada yazıp taşıyordum, yani `install -m 0755` ile
+`${PREFIX}/bin` aynı satırda değildi. Test düzeltmenin bir *yazımını*
+bekliyordu, düzeltmeyi değil.
+
+Testi yeniden yazdım: geçici bir önek, geçici bir `--bin-dir`, betiği
+gerçekten koştur, ve dosya oraya varmış mı diye bak. İki mutasyon
+(hiç kurma, 0644 ile kur) ikisi de yakalandı, ve mesajları somut:
+"dosya orada değil", "systemd bunu çalıştıramaz".
+
+*Bir betiği grep'lemek onu okumaktır. Onu koşturmak test etmektir.*
+
+### Ve bir sed'im doğru yolları bozdu
+
+`s#/etc/crucible\b#/etc/crucible-analytic#g` yazdım. GNU grep/sed'de
+`\b` kelime sınırı, ve `-` kelime karakteri değil — yani desen zaten
+doğru olan `/etc/crucible-analytic`'in içine de uyuyor. Sonuç:
+`/etc/crucible-analytic-analytic`.
+
+Yakalanma sebebi, değişiklikten sonra "kaç tane kaldı" diye sayınca
+**sayının hiç değişmemesi** olmuştu. Sayı değişmeyince bakmasaydım, altı
+satır bozuk gidecekti.
+
+*Bir dönüşümden sonra "değişti mi" diye bakmak, "doğru değişti mi" diye
+bakmanın ucuz yarısı — ama ikisi de gerekli.*
+
+### §16 "Bilinen eksikler" dört madde bayatmış
+
+CI, kurulum betiği, systemd birimleri, kurtarma kodları, e-posta yolu —
+hepsi yapılmıştı ve liste hâlâ "yok" diyordu.
+
+§7 aynı dersi kendi içinde zaten yazmıştı: *"Var olmayan bir eksiği
+anlatan bir belge, okuyana gerçek eksikler hakkındakilere de inanmamayı
+öğretir."* Listenin kendisi o cümleyi okumamış.
+
+*Dürüstlük bölümü, bakımı en kolay unutulan ve bayatladığında en pahalı
+olan bölüm.*

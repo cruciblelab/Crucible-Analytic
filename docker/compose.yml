@@ -201,7 +201,7 @@ services:
   # panel may not be running.
   panel-cli:
     image: ${CA_IMAGE:-crucible-analytic:dev}
-    entrypoint: ["/opt/crucible/entrypoint.sh"]
+    entrypoint: ["/opt/crucible-analytic/entrypoint.sh"]
     command: ["--help"]
     volumes:
       - conf:/etc/crucible-analytic
