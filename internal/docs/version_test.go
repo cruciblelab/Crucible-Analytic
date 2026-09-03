@@ -31,6 +31,31 @@ var changelogHeading = regexp.MustCompile(`(?m)^## (v[^ ]+)`)
 // build metadata, which no off-the-shelf parser asserts.
 var semver = regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)(?:\+([0-9A-Za-z.-]+))?$`)
 
+// unreleasedHeading is the section work lands in before it is tagged.
+//
+// # Why this exists, and what happened without it
+//
+// The rule below - the newest entry names the schema the code carries -
+// was written when the newest entry was always the one being worked on.
+// After a tag it stops being true: v0.20.0 shipped with schema 8, work
+// continued, the schema became 9, and the only way to satisfy a check
+// that looked at the newest *version* heading was to go back and edit
+// v0.20.0's note.
+//
+// Which is what happened. The v0.20.0 entry was rewritten in place to
+// say "Şema sürümü: 9" and to tell the operator to run Sağlık → Şema
+// yükseltmesi - for a release that carries neither. Anybody reading the
+// notes for the version they actually installed was told to perform an
+// upgrade that release does not contain.
+//
+// The test's own comment said older entries "must not be rewritten". It
+// said so while making that the only way to pass.
+//
+// *Bir kurala uymanın meşru bir yolu yoksa, o kural insanlara kuralı
+// çiğnemeyi öğretir.* So the file gets a heading that new work belongs
+// under, and the check below looks at whichever entry is first.
+var unreleasedHeading = regexp.MustCompile(`(?m)^## (Yayımlanmamış|Unreleased)\s*$`)
+
 // TestTheChangelogVersionIsSemVer.
 //
 // A version string is read by machines as well as people: `git describe`
@@ -123,15 +148,14 @@ func TestEveryReleasedPhaseCodeIsARealPhase(t *testing.T) {
 func TestTheChangelogNamesTheSchemaVersionTheCodeCarries(t *testing.T) {
 	body := readDoc(t, "CHANGELOG.md")
 
-	// The newest entry only. Older ones name the schema *they* shipped
-	// with, which is the point of a changelog and must not be rewritten.
-	idx := changelogHeading.FindStringIndex(body)
-	if idx == nil {
+	// The newest entry only, and "newest" includes the unreleased
+	// section: after a tag, the work that follows it is what carries the
+	// current schema, and a released note describes the release rather
+	// than the tip. Older entries name the schema *they* shipped with,
+	// which is the point of a changelog and must not be rewritten.
+	newest, ok := newestEntry(body)
+	if !ok {
 		t.Fatal("CHANGELOG.md has no version headings")
-	}
-	newest := body[idx[0]:]
-	if next := changelogHeading.FindStringIndex(newest[2:]); next != nil {
-		newest = newest[:next[0]+2]
 	}
 
 	stated := regexp.MustCompile(`[Şş]ema sürümü:?\*{0,2} *(\d+)`).FindStringSubmatch(newest)
@@ -151,6 +175,60 @@ func TestTheChangelogNamesTheSchemaVersionTheCodeCarries(t *testing.T) {
 			"An operator reading the note would conclude there is nothing to do, and "+
 			"L2 would then refuse to start the service rather than let it write into "+
 			"a schema that has no column for it", got, schemaver.Version)
+	}
+}
+
+// newestEntry returns the topmost entry: the unreleased section when
+// there is one, otherwise the newest version.
+//
+// Bounded by whichever heading comes next, of either kind, so an
+// unreleased section is not read as running into the release below it.
+func newestEntry(body string) (string, bool) {
+	start := -1
+	if idx := unreleasedHeading.FindStringIndex(body); idx != nil {
+		start = idx[0]
+	}
+	if idx := changelogHeading.FindStringIndex(body); idx != nil {
+		if start < 0 || idx[0] < start {
+			start = idx[0]
+		}
+	}
+	if start < 0 {
+		return "", false
+	}
+	entry := body[start:]
+	// From just past this heading, so the search does not find it again.
+	end := len(entry)
+	for _, re := range []*regexp.Regexp{changelogHeading, unreleasedHeading} {
+		if idx := re.FindStringIndex(entry[2:]); idx != nil && idx[0]+2 < end {
+			end = idx[0] + 2
+		}
+	}
+	return entry[:end], true
+}
+
+// TestTheUnreleasedSectionIsSingularAndFirst.
+//
+// Two of them, or one below a release, and "the newest entry" stops
+// meaning anything - which is the state the check above silently
+// tolerated before this file knew the heading existed.
+func TestTheUnreleasedSectionIsSingularAndFirst(t *testing.T) {
+	body := readDoc(t, "CHANGELOG.md")
+
+	found := unreleasedHeading.FindAllStringIndex(body, -1)
+	if len(found) == 0 {
+		// Legitimate: a tree whose tip is exactly a release has nothing
+		// unreleased in it.
+		return
+	}
+	if len(found) > 1 {
+		t.Errorf("CHANGELOG.md has %d unreleased sections. Work has one place to "+
+			"go, or it goes into a released note", len(found))
+	}
+	if version := changelogHeading.FindStringIndex(body); version != nil && version[0] < found[0][0] {
+		t.Error("CHANGELOG.md's unreleased section sits below a released version. " +
+			"It is the newest thing in the file by definition, and a reader takes " +
+			"the top entry as current")
 	}
 }
 

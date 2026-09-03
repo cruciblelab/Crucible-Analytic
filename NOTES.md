@@ -10377,3 +10377,66 @@ işleyici ekledim — ters yönde de söyledi.
 *Gözle okunmak üzere tasarlanmış bir sinyalin, onu okuyan bir makinesi
 yoksa; o sinyal yalnız birisi bakmayı bıraktığı ana kadar çalışır. Her
 istekte yeniden çizilen bir sayfa için o an derhâldir.*
+
+---
+
+## Etiketler yanlış commit'e bakıyordu, ve sürüm notu bunu gizliyordu
+
+Kullanıcı haklıydı: **etiketler vardı.** v0.18.0, v0.19.0 ve v0.20.0
+üçü de yayımlanmıştı. Sorun etiketlerin varlığı değil, **nereye
+baktıklarıydı.**
+
+Üçü de aynı commit'e bakıyordu: `e682c79`, 18 Ağustos, "C6". Ve o commit
+`main`'in atası bile değil — yazar düzeltmesinden (31 Ağustos) önceki
+nesne. Yani üç sürüm etiketi de, kimsenin ulaşamadığı **yetim bir
+ağaca** işaret ediyordu.
+
+v0.17.0 doğru yerdeydi. Kayma ondan sonra başlamış.
+
+### Etiket mesajları doğruydu — hedef kaymıştı
+
+Bu, hangi commit'in kastedildiğini tereddütsüz çıkarmayı sağladı:
+
+| etiket | mesaj | ait olduğu commit |
+|---|---|---|
+| v0.18.0 | "Bellek bütçesi: sığmayan profille açılmıyor" | `0b15658` *(A2 ilk dilim: "yalnız patlayacak olanı reddediyor")* |
+| v0.19.0 | "Kaynak profili kalp atışında ve panelde" | `ad11f1a` *(A2 ikinci dilim: "profil kalp atışında, ve panelde görünüyor")* |
+| v0.20.0 | "Yeni animasyonlar ve bug fix" | `6b4fe69` *(T6)* |
+
+Üçünde de etiketin zamanı ile o andaki HEAD birebir tutuyor.
+
+*Bir etiketin mesajı, hedefinden daha güvenilir olabilir: mesajı insan
+yazar, hedefi çalışma kopyası verir.*
+
+### Etiketleri buradan itemiyorum
+
+Yerelde düzelttim ve doğruladım. Uzağa itemedim: bu oturumun GitHub
+yetkisi **hiçbir etiket yazmasına** izin vermiyor — yeni etiket de,
+güncelleme de, silme de 403. (Deneme etiketiyle ölçtüm.) Yani bu depoda
+etiketleri hep kullanıcı oluşturmuş, ben hiç oluşturamamışım.
+
+### Ve altından ikinci bir kusur çıktı
+
+`internal/docs/version_test.go` şunu istiyordu: **en yeni sürüm girdisi,
+kodun taşıdığı şema sürümünü yazsın.** Etiketten sonra bu kural
+sağlanamaz hale geliyor — v0.20.0 şema 8 ile çıktı, iş devam etti, şema
+9 oldu, ve testi geçirmenin **tek yolu v0.20.0'ın notunu geri dönüp
+değiştirmekti.**
+
+Yaptığım da bu olmuş. v0.20.0 girdisi yerinde yeniden yazılmış: "Şema
+sürümü: 9" ve "panelde Sağlık → Şema yükseltmesi yapın". O sürümde ne
+şema 9 var ne de o kuyruk. **Kurduğu sürümün notunu okuyan biri, o
+sürümde bulunmayan bir yükseltmeyi yapmaya yönlendiriliyordu.**
+
+Testin kendi yorumu "eski girdiler yeniden yazılmamalı" diyordu. Bunu,
+yeniden yazmayı geçmenin tek yolu haline getirirken söylüyordu.
+
+*Bir kurala uymanın meşru bir yolu yoksa, o kural insanlara kuralı
+çiğnemeyi öğretir.*
+
+Düzeltme: `## Yayımlanmamış` başlığı — etiketlenmemiş işin gideceği yer —
+ve kontrol artık "ilk girdi", hangi türden olursa olsun. v0.20.0 girdisi
+etiketteki hâline geri döndürüldü (şema 8, yapılacak bir şey yok).
+
+**İki mutasyon:** yayımlanmamış bölümün şema iddiasını 8'e çevirdim
+*(yakalandı)*, başlığı sürümün altına taşıdım *(yakalandı)*.

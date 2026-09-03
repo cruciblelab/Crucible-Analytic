@@ -9,12 +9,13 @@ yapacağım".
 
 ---
 
-## v0.20.0 — 2026-09-03
+## Yayımlanmamış
 
-Kurulumda **kaynak profili seçilebiliyor**, ve seçilmediğinde hangisinde
-olunduğu artık ekranda yazıyor. Panelde uzun süren işlemler **kendini
-tazeliyor**, ve kurulum kontrolleri kurulumdan sonra da **görünür
-kalıyor**.
+Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+
+Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek
+kuyruğu, indirme ve doğrulama, kurulum ve geri dönüş. Üç kuyrukta rol
+ayrımının aslında uygulanmadığı bulundu ve düzeltildi.
 
 **Şema sürümü: 9.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Tablo ekleniyor ve üç tablonun satır
@@ -25,47 +26,23 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
-### `install.sh --profile hafif|dengeli|tam`
+### Panoda "Son «»7 gün" yazıyordu
 
-Seçileni hem `collector.toml`'a hem `beacon.toml`'a yazıyor. İkisi birden,
-çünkü kardeşinin artık doldurmadığı bir sütun için ASN veri kümelerini
-yükleyen bir beacon 136 MB'ı boşa harcar.
+Müşterinin panosundaki dönem düğmeleri, panonun yazıldığı ilk günden beri
+`Son «»1 gün` / `Son «»7 gün` diye okunuyordu. Sebep tek satır: dönem
+etiketi kurulurken **boş bir mesaj anahtarı** aranıyordu, ve hiçbir dil
+paketi boş anahtarı tanımlamadığı için "eksik mesaj" işareti basılıyordu.
 
-| profil | ne yükler | ölçülen taban | en az konteyner |
-|---|---|---|---|
-| `hafif` | hiçbiri | 32 MB | ~96 MB |
-| `dengeli` | yalnız ülke | 160 MB | ~256 MB |
-| `tam` | ülke + ASN | 320 MB | ~512 MB |
+İşaret tam da fark edilsin diye var. Ama boş anahtarda `«»`'ye çöküyor,
+ve bir sayının yanındaki iki tırnak noktalama gibi okunuyor: on altı gün,
+iki ekran görüntüsü turu ve bütün test takımı boyunca kimse kusur olarak
+görmedi.
 
-### Söylenmeyen varsayılan
-
-Bayrağı yazarken asıl kusur çıktı: örnek yapılandırmalar
-`asn_lookup.enabled = false` ile geliyor, yani **hiç kimsenin seçmediği
-bir kurulum `hafif` profiline düşüyordu** — ülke kırılımı yok, ASN
-kırılımı yok — ve betik bunu söylemiyordu. Müşteri haftalar sonra boş bir
-grafiğe bakarak öğreniyordu.
-
-Artık her kurulumun sonunda hangi profilde olunduğu yazıyor, ve `hafif`
-ise ne kaybedildiği ve nasıl açılacağı da.
-
-**Bayrak bir varsayılan dayatmıyor:** `--profile` verilmezse dosyalar
-olduğu gibi kalır. Seçmediğiniz bir şeyi sizin adınıza seçmiyoruz; yalnız
-seçili olanı söylüyoruz.
-
-### Uzun işlemler artık kendini tazeliyor
-
-Sağlık sayfasındaki **yükseltme** ve **veri kümesi yenileme** bölümleri,
-uçuşta bir istek varken beş saniyede bir kendini yeniliyor. Eskiden
-durumu görmenin tek yolu sayfayı elle yenilemekti — ve yükseltme
-mesajının kendisi bunu söylüyordu.
-
-Yoklama, iş bitince **kendiliğinden** duruyor: tetikleyici yalnız çalışan
-bir istek varken basılıyor, yani gelen yeni kopya tetikleyicisiz geliyor.
-Kapatmayı hatırlaması gereken bir şey yok.
-
-Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
-2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
-sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
+Üç şey değişti. Satır düzeltildi. Boş anahtar artık kendi adını basıyor
+(`«anahtarsiz-cagri»`). Ve işarete bir **okuyucu** eklendi: müşterinin ve
+geliştiricinin ulaştığı her sayfa gerçek veritabanıyla yükleniyor ve
+işaret aranıyor; yönlendiriciyi okuyan bir ayna testi de yeni bir
+sayfanın sessizce atlanmasını engelliyor.
 
 ### Üç kuyrukta rol ayrımı aslında uygulanmıyormuş
 
@@ -193,6 +170,60 @@ sayfayı yenileyerek sonucu görebilirsiniz."
 İkisi de yanlıştı. Uygulayıcı otuz saniyede bir bakıyor, ve bu bölüm
 artık kendini yeniliyor. Yani kendini yenilemeyi yeni öğrenmiş bir sayfa,
 size elle yenilemenizi söylüyordu.
+
+---
+
+## v0.20.0 — 2026-09-03
+
+Kurulumda **kaynak profili seçilebiliyor**, ve seçilmediğinde hangisinde
+olunduğu artık ekranda yazıyor. Panelde uzun süren işlemler **kendini
+tazeliyor**, ve kurulum kontrolleri kurulumdan sonra da **görünür
+kalıyor**.
+
+**Şema sürümü: 8** — değişmedi. **Kuran kişinin yapması gereken:**
+**hiçbir şey.** Veritabanına dokunulmuyor, servis durmuyor.
+
+### `install.sh --profile hafif|dengeli|tam`
+
+Seçileni hem `collector.toml`'a hem `beacon.toml`'a yazıyor. İkisi birden,
+çünkü kardeşinin artık doldurmadığı bir sütun için ASN veri kümelerini
+yükleyen bir beacon 136 MB'ı boşa harcar.
+
+| profil | ne yükler | ölçülen taban | en az konteyner |
+|---|---|---|---|
+| `hafif` | hiçbiri | 32 MB | ~96 MB |
+| `dengeli` | yalnız ülke | 160 MB | ~256 MB |
+| `tam` | ülke + ASN | 320 MB | ~512 MB |
+
+### Söylenmeyen varsayılan
+
+Bayrağı yazarken asıl kusur çıktı: örnek yapılandırmalar
+`asn_lookup.enabled = false` ile geliyor, yani **hiç kimsenin seçmediği
+bir kurulum `hafif` profiline düşüyordu** — ülke kırılımı yok, ASN
+kırılımı yok — ve betik bunu söylemiyordu. Müşteri haftalar sonra boş bir
+grafiğe bakarak öğreniyordu.
+
+Artık her kurulumun sonunda hangi profilde olunduğu yazıyor, ve `hafif`
+ise ne kaybedildiği ve nasıl açılacağı da.
+
+**Bayrak bir varsayılan dayatmıyor:** `--profile` verilmezse dosyalar
+olduğu gibi kalır. Seçmediğiniz bir şeyi sizin adınıza seçmiyoruz; yalnız
+seçili olanı söylüyoruz.
+
+### Uzun işlemler artık kendini tazeliyor
+
+Sağlık sayfasındaki **yükseltme** ve **veri kümesi yenileme** bölümleri,
+uçuşta bir istek varken beş saniyede bir kendini yeniliyor. Eskiden
+durumu görmenin tek yolu sayfayı elle yenilemekti — ve yükseltme
+mesajının kendisi bunu söylüyordu.
+
+Yoklama, iş bitince **kendiliğinden** duruyor: tetikleyici yalnız çalışan
+bir istek varken basılıyor, yani gelen yeni kopya tetikleyicisiz geliyor.
+Kapatmayı hatırlaması gereken bir şey yok.
+
+Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
+2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
+sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
 
 ### Kurulum kontrolleri kurulumdan sonra da görünüyor
 
