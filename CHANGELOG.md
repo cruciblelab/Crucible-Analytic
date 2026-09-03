@@ -44,6 +44,11 @@ veri yazmıyor, **durum** yazıyor — ve o durumu gösteren sayfa, tam da
 yükseltmenin ortasında bakılan sayfa. Yükseltme sırasında izlemeyi
 körleştirmek, bir etiketi kaybetmekten kötü.
 
+### İlk kurulum deneyimi: üç kusur, üçü de ilk beş dakikada
+
+**Yeni kuranları ilgilendiriyor. Kurulu sistemlerde hiçbir şey
+değişmiyor.**
+
 ### Kurulum betiği artık veritabanını önceden kontrol ediyor
 
 **Yeni kuranları ilgilendiriyor. Kurulu sistemlerde hiçbir şey
@@ -65,6 +70,33 @@ biri kendi çözümünü söylüyor:
 Üçü de yarım kurulum bırakmıyor: kontrol, rol ve şema oluşturulmadan
 önce. `KURULUM.md` Bölüm 2'ye de "veritabanını nereden bulacaksınız"
 başlığı eklendi.
+
+**`--dry-run` yalan söylüyormuş.** Veritabanı olmayan bir makinede bütün
+aşamaları yazıp `== done` diyor ve sıfırla çıkıyordu — oysa o mod "bu
+makine hazır mı" sorusunun cevabı. Kontroller artık kuru koşuda da
+çalışıyor; hepsi okuma olduğu için kuru koşunun koruyacağı bir şey yok.
+
+### Kurulum bittiğinde ne yapılacağı ekranda yazıyor
+
+Dört adım, yapılması gereken sırayla: ters vekil ve TLS, servisleri
+başlatma, geliştirici bağlantısı ve sihirbaz, snippet.
+
+**Ve bir sıfırıncı adım:** `install.sh` `site_id`'yi yazmıyor, örnekler
+`example-site` ile geliyor. Bu karar **geri alınamaz** — her satır o
+kimliğe göre anahtarlanıyor, sonradan değiştirmek o günden başlayan
+ikinci bir site açıyor. Betik artık dosyadan okuyup hâlâ örnek değerse
+bunu ilk sırada söylüyor.
+
+### `docker/setup.sh` — konteyner yolunda `.env`'i yazan betik
+
+```bash
+./docker/setup.sh --site musteri --backend site:443
+```
+
+Site kimliğini ve arka ucu bayrakla verirsiniz ya da sorar; veritabanı
+parolasını **üretir**. Compose'u çalıştırmıyor, imajı derlemiyor. Mevcut
+bir `.env`'in üstüne yazmayı reddediyor — o dosya veritabanı parolasını
+taşıyor.
 
 ---
 

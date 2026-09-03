@@ -96,15 +96,26 @@ istediğiniz muhtemelen odur:
 
 ```bash
 git clone <depo> && cd crucible-analytic
-docker build -t crucible-analytic:$(git describe --tags --always) .
+docker build -t crucible-analytic:dev .
 
-cd docker
-cp .env.example .env && $EDITOR .env     # site adı, arka uç, parola
-docker compose up -d
+./docker/setup.sh --site musteri --backend site:443
+cd docker && docker compose up -d
 
 # İlk giriş: tek kullanımlık geliştirici bağlantısı
 docker compose run --rm panel-cli panel -dev-link -base-url https://panel.example.com
 ```
+
+`setup.sh`, `.env`'i yazıyor: site kimliğini ve arka ucu bayrakla
+verirsiniz ya da sorar, **veritabanı parolasını üretir** — bir insanın
+yazdığı parola, tekrar kullandığı paroladır. Compose'u çalıştırmıyor ve
+imajı derlemiyor; ikisi de okununca anlaşılan tek komut, ve sarmalamak
+bir sorun çıktığında tanımanız gereken tam o iki şeyi gizlerdi.
+
+**Mevcut bir `.env`'in üstüne yazmayı reddediyor.** O dosya veritabanı
+parolasını taşıyor; yenisini üretmek, veritabanının kendi servislerini
+kabul etmediği bir yığın bırakır ve bunu bir sonraki yeniden başlatmaya
+kadar hiçbir şey söylemez. Baştan başlamak istiyorsanız `--force`, ama o
+zaman mevcut veritabanı birimi de kullanılamaz.
 
 `init` servisi bu kılavuzun 4., 5. ve 6. bölümlerini bir kez yapıyor:
 dört rol, bütün şemalar, GRANT'ler, sertleştirme, doğrulama, ve

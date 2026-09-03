@@ -13,6 +13,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -1611,4 +1613,293 @@ func TestInstallSaysWhatToDoWhenThereIsNoDatabase(t *testing.T) {
 		t.Errorf("the install wrote %v before giving up; the check has to happen "+
 			"before anything is created, not after", names)
 	}
+}
+
+// TestAFreshInstallSaysTheSiteIdIsStillTheExample.
+//
+// # The one irreversible thing this script does not do
+//
+// install.sh writes four config files and does not set site_id: the
+// examples ship "example-site" and a person decides. Every stored row is
+// keyed by it, and changing it later renames nothing - it starts a
+// second site whose history begins that day and leaves the old rows
+// under the old name.
+//
+// So it is a required manual step, it is irreversible, and until this
+// was written the installer neither did it nor mentioned it. A step in
+// that shape is a step that gets skipped, and the cost of skipping it is
+// discovered weeks later by somebody looking for their own data.
+//
+// Found by a mutation: deleting the paragraph broke no test.
+func TestAFreshInstallSaysTheSiteIdIsStillTheExample(t *testing.T) {
+	const db = "ca_siteid_test"
+	scratchDatabase(t, db)
+
+	out, ok := runInstall(t, db)
+	if !ok {
+		t.Fatalf("the install failed:\n%s", out)
+	}
+
+	for _, want := range []string{
+		"example-site", // what it actually is right now
+		"site_id",      // the key to change, by name
+		"second site",  // what changing it later really does
+		"KURULUM.md section 6",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the next-steps list does not mention %q.\n"+
+				"This is the one irreversible decision the installer leaves to a "+
+				"person, so it is the one it must not leave silent:\n%s", want, out)
+		}
+	}
+}
+
+// TestADryRunStillChecksTheDatabase.
+//
+// # The defect this is guarding, which a mutation found by not failing
+//
+// The database checks were first written inside `if DRY_RUN -eq 0`,
+// which reads as caution and was the opposite of it. Measured on a
+// machine with no database at all: `--dry-run` printed every stage,
+// ended with "done", and exited 0.
+//
+// That is the worse failure of the two this file covers. A real run that
+// says nothing leaves somebody confused; a dry run that says "ready"
+// leaves them confident. It is the mode a person runs precisely to ask
+// whether this machine is ready before committing to anything.
+//
+// It was fixed, and then a mutation put the guard back and every test in
+// this file still passed - so the fix had no guard of its own, which is
+// a fix that comes back. This is the guard.
+//
+// Nothing here needs a database: every check is a read, which is exactly
+// why they are safe to run in a dry run.
+func TestADryRunStillChecksTheDatabase(t *testing.T) {
+	root := repoRoot(t)
+	conf := t.TempDir()
+
+	cmd := exec.Command("./release/install.sh", "--dry-run", "--no-systemd")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN=postgres://nobody@127.0.0.1:1/postgres?sslmode=disable&connect_timeout=2",
+		"DB_NAME=ca_dry_run_test",
+		"CONF_DIR="+conf,
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	out, err := cmd.CombinedOutput()
+	body := string(out)
+
+	if err == nil {
+		t.Fatalf("--dry-run reported success on a machine with no database.\n"+
+			"This is the mode somebody runs to find out whether the machine is ready, "+
+			"so answering yes here is worse than saying nothing:\n%s", body)
+	}
+	if !strings.Contains(body, "cannot reach PostgreSQL") {
+		t.Errorf("--dry-run failed without saying why:\n%s", body)
+	}
+	// And it really did stop at the prerequisite rather than running the
+	// whole dry run and failing somewhere later, which would be a
+	// different bug wearing the same exit code.
+	if strings.Contains(body, "== done") {
+		t.Error("--dry-run reached the end after a prerequisite failed; the check has " +
+			"to stop it, not decorate it")
+	}
+}
+
+// TestTheNextStepsNameUnitsThatExist.
+//
+// # Why this test exists at all
+//
+// The next-steps list printed at the end of install.sh is the last thing
+// a person reads before they start typing, and a command in it that does
+// not work is worse than no list: it costs the reader the time to run it,
+// the time to disbelieve it, and their trust in the rest of the page.
+//
+// It happened in the first draft of that list, twice in three lines.
+// crucible-api does not exist - the unit is crucible-analytics-api - and
+// the timer is crucible-upgrader.timer, not crucible-upgrade.timer. Both
+// were caught by looking at release/systemd/, which is exactly the
+// looking a test can do every time instead of once.
+//
+// # Derived, not listed
+//
+// One side is the directory. The other is whatever unit names the script
+// happens to print. Neither is a hand-written list, so a unit renamed or
+// added cannot leave this behind.
+func TestTheNextStepsNameUnitsThatExist(t *testing.T) {
+	root := repoRoot(t)
+
+	entries, err := os.ReadDir(filepath.Join(root, "release", "systemd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	units := map[string]bool{}
+	for _, e := range entries {
+		units[e.Name()] = true
+	}
+	if len(units) < 4 {
+		t.Fatalf("found %d unit files; this repository ships more, so this test is "+
+			"comparing against the wrong directory", len(units))
+	}
+
+	script, err := os.ReadFile(filepath.Join(root, "release", "install.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Every crucible-* name the script mentions with a unit suffix. The
+	// suffix is what makes this unambiguous: the script also writes the
+	// binaries' own names, and those are not units.
+	named := regexp.MustCompile(`crucible-[a-z-]+\.(service|timer)`)
+	found := named.FindAllString(string(script), -1)
+	if len(found) == 0 {
+		t.Fatal("install.sh names no systemd units at all; either the next-steps list " +
+			"lost them or this pattern has stopped matching how they are written")
+	}
+
+	seen := map[string]bool{}
+	for _, name := range found {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !units[name] {
+			t.Errorf("install.sh tells the operator to run %s and release/systemd/ has "+
+				"no such file.\nThe units that exist: %s",
+				name, strings.Join(sortedUnitNames(units), " "))
+		}
+	}
+}
+
+func sortedUnitNames(units map[string]bool) []string {
+	out := make([]string, 0, len(units))
+	for name := range units {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestTheContainerSetupWritesEveryKeyTheExampleDocuments.
+//
+// # The two-way mirror, and the failure it is for
+//
+// docker/setup.sh writes docker/.env, and docker/.env.example is where
+// every one of those values is explained. Two files, one list, and the
+// list grows: a value added to the compose file gets a block in the
+// example, and the script that writes the file for people is exactly
+// where somebody forgets to add it.
+//
+// The failure is quiet in the way that costs the most. compose reads a
+// missing variable as empty, and an empty SITE_BACKEND is a collector
+// proxying to nothing - a stack that comes up, stays up, and serves
+// errors.
+//
+// One side is the example, read for its keys. The other is what the
+// script actually produces, run for real. Neither is written by hand
+// here, so a key added to one and not the other cannot pass.
+func TestTheContainerSetupWritesEveryKeyTheExampleDocuments(t *testing.T) {
+	root := repoRoot(t)
+	env := filepath.Join(t.TempDir(), ".env")
+
+	cmd := exec.Command("./docker/setup.sh",
+		"--site", "mirror-test", "--backend", "site:443", "--image", "ca:test")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "CA_ENV_FILE="+env)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("setup.sh failed: %v\n%s", err, out)
+	}
+
+	written := envKeys(t, env)
+	// Ranging the map's keys, not its values. Written the other way
+	// round first, which produced a failure naming "site:443" as a key
+	// the script had not written - wrong, but loudly wrong, which is the
+	// only kind of wrong worth having in a test.
+	for key := range envKeys(t, filepath.Join(root, "docker", ".env.example")) {
+		if _, ok := written[key]; !ok {
+			t.Errorf("docker/.env.example documents %s and setup.sh does not write it.\n"+
+				"compose reads a missing variable as empty, which is a stack that comes "+
+				"up and serves errors", key)
+			continue
+		}
+		if written[key] == "" {
+			t.Errorf("setup.sh wrote %s with no value", key)
+		}
+	}
+
+	// The password is generated rather than defaulted, and long enough
+	// to be worth generating. Asserted because the whole reason it is
+	// not asked for is that a generated one is better than a typed one.
+	if len(written["POSTGRES_PASSWORD"]) < 32 {
+		t.Errorf("POSTGRES_PASSWORD is %d characters; that is not a generated password",
+			len(written["POSTGRES_PASSWORD"]))
+	}
+	if written["SITE_ID"] != "mirror-test" {
+		t.Errorf("SITE_ID = %q, want the value passed on the command line",
+			written["SITE_ID"])
+	}
+}
+
+// TestTheContainerSetupRefusesToOverwrite.
+//
+// The file holds the database superuser's password. A second run that
+// generated a new one would leave a stack whose database no longer
+// accepts its own services, and nothing would say so until the next
+// restart - which might be weeks later, and would look like the database
+// had broken on its own.
+func TestTheContainerSetupRefusesToOverwrite(t *testing.T) {
+	root := repoRoot(t)
+	env := filepath.Join(t.TempDir(), ".env")
+
+	run := func() (string, error) {
+		cmd := exec.Command("./docker/setup.sh", "--site", "twice", "--backend", "site:443")
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "CA_ENV_FILE="+env)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	if out, err := run(); err != nil {
+		t.Fatalf("the first run failed: %v\n%s", err, out)
+	}
+	first := envKeys(t, env)
+
+	out, err := run()
+	if err == nil {
+		t.Fatalf("the second run overwrote an existing .env:\n%s", out)
+	}
+	if !strings.Contains(out, "already exists") {
+		t.Errorf("the refusal does not say why:\n%s", out)
+	}
+	if second := envKeys(t, env); second["POSTGRES_PASSWORD"] != first["POSTGRES_PASSWORD"] {
+		t.Error("the password changed despite the refusal; the file was written before " +
+			"the check, which is the failure the check exists for")
+	}
+}
+
+// envKeys reads a KEY=VALUE file, ignoring comments and blank lines.
+func envKeys(t *testing.T, path string) map[string]string {
+	t.Helper()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s carries no KEY=VALUE lines at all", path)
+	}
+	return out
 }

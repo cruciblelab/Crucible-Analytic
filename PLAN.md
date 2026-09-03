@@ -97,6 +97,7 @@ gerekçe değil bahane olur.
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6008,6 +6009,90 @@ uyarının kaybolduğunu doğrula)*; temizleme geliştirici parolası olmadan
 reddediliyor; panel rolünün hâlâ bu sütunlara yazamadığını doğrulayan
 rol testi; temizleme sonrası aynı aralığın kesişimi /24 çözünürlüğünde
 çalışmaya devam ediyor (boşalmıyor).
+
+---
+
+### S grubu — İlk kurulum deneyimi ✅ **3/3** *(2026-09-03)*
+
+*(Planda yoktu. Müşterinin sorusu açtı: "bu kadar uğraştın, peki bunu
+kullanacak kişiler bu kadar uğraşacak mı, ya da Docker vesaire
+kullanmak istemeyenler?")*
+
+Cevabı tahmin etmek yerine ölçtüm: gerçek bir makinede veritabanını
+kapatıp, sonra TimescaleDB'yi önyüklemeden bırakıp `install.sh`'ı
+koşturdum. **Üç kusur çıktı, üçü de ilk beş dakikada.**
+
+#### S1 — Veritabanı ön koşulları, ve `--dry-run`'ın yalanı ✅
+
+**Ölçüm 1:** veritabanı olmayan bir makinede betiğin gösterdiği her şey
+`psql`'in kendi bağlantı hatasıydı, iki kez basılmış. Bizden tek cümle
+yok. Bu, konteyner istemeyen her müşterinin ilk dakikası.
+
+**Ölçüm 2 — daha kötüsü:** `--dry-run`, aynı makinede bütün aşamaları
+yazdı, `== done` dedi ve **sıfırla çıktı.** O mod, "bu makine hazır mı"
+sorusunun cevabı; hazır değilken "evet" diyordu.
+
+**Yapılan:** üç okuma kontrolü (`SELECT 1`, `pg_available_extensions`,
+`shared_preload_libraries`), hiçbir şey oluşturulmadan önce, **kuru
+koşuda da.** Hepsi okuma olduğu için kuru koşunun koruyacağı bir şey
+yoktu — sessizlik güvenlik değil, yalan söyleyen bir moddu.
+
+Üçü birlikte raporlanıyor, ilkinde durulmuyor: `gate.sh`'ın kendisi için
+verdiği gerekçe. PostgreSQL'i kurup ikinci kez eklentiyi öğrenen kişi,
+iki sefer gidip gelen kişidir.
+
+#### S2 — Kurulumdan sonra "şimdi ne olacak" ✅
+
+Betiğin bittiği yer ile müşterinin analitiğini gördüğü yer arasındaki
+boşluk, kurulumun ürün olmayı bıraktığı yer. Dört adım, yapılması
+gereken sırayla — panel loopback'te olduğu için önce ters vekil, sonra
+geliştirici bağlantısı, sonra snippet.
+
+**Yazarken çıkan asıl kusur sıfırıncı adımdı.** `install.sh` `site_id`'yi
+**yazmıyor**; örnekler `example-site` ile geliyor ve karar insanın. Ama
+bu karar geri alınamaz — her satır o kimliğe göre anahtarlanıyor,
+sonradan değiştirmek bir şeyi yeniden adlandırmıyor, o günden başlayan
+ikinci bir site açıyor. Yani zorunlu, geri alınamaz, ve betik ne
+yapıyordu ne de söylüyordu. Artık dosyadan okuyup hâlâ örnek değerse
+0. adım olarak söylüyor.
+
+**İlk taslakta üç satırda iki yanlış birim adı vardı** (`crucible-api`
+diye bir birim yok, `crucible-upgrade.timer` de yok). Çalışmayan bir
+komut, listesiz olmaktan kötüdür. `release/systemd/` dizininden türeyen
+bir ayna testi artık bunu tutuyor.
+
+#### S3 — Konteyner yolunda `.env`'i yazan betik ✅
+
+`docker/setup.sh`: altı değerin üçünü sorar, parolayı **üretir**, birini
+varsayılana bırakır. Compose'u çalıştırmıyor ve imajı derlemiyor —
+ikisi de okununca anlaşılan tek komut, ve sarmalamak müşterinin bir
+sorun çıktığında tanıması gereken tam o iki şeyi gizlerdi.
+
+**Mevcut `.env`'in üstüne yazmayı reddediyor.** O dosya veritabanı
+parolasını taşıyor; sessizce yenisini üretmek, veritabanı kendi
+servislerini kabul etmeyen bir yığın bırakırdı — ve bunu bir sonraki
+yeniden başlatmaya kadar hiçbir şey söylemezdi.
+
+Ayna: `.env.example`'daki her anahtar betiğin yazdığı dosyada olmak
+zorunda. Compose eksik değişkeni **boş** okur, ve boş bir
+`SITE_BACKEND` hiçbir yere vekillik eden bir collector demektir —
+ayağa kalkan, ayakta kalan, ve hata servis eden bir yığın.
+
+#### Ölçülen sonuç
+
+| yol | müşterinin işi |
+|---|---|
+| Konteyner | `setup.sh` (iki soru), `compose up`, geliştirici bağlantısı |
+| Elle | veritabanını kur, `install.sh`, ekrandaki dört adım |
+
+Elle yolda kalan tek gerçek yük veritabanını kurmak, ve onu biz
+kuramayız: sunucunun paket yöneticisi, dağıtımı ve sürümü müşterinin.
+Yapabildiğimiz oraya gelmeden söylemekti.
+
+**Dokuz mutasyon, dokuzu da yakalandı** — ve ikisi ilk turda
+yakalanmadı, bu yüzden ikisi için ayrı test yazıldı: `--dry-run`'ın
+veritabanını kontrol etmesi, ve 0. adımın varlığı. *Bir düzeltmenin
+kendi koruması yoksa, o düzeltme geri gelir.*
 
 ---
 

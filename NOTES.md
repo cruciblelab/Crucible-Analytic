@@ -9318,3 +9318,66 @@ Doğru DSN ile `--all` yeşil, ve `analytics` 22 tablosuyla yerinde.
 **Her kırmızı bir bulgu değil** — bu oturumda ikinci kez. Tekrar
 etmeden bulgu yazmak, düzeltmesi en pahalı yanlıştır: olmayan bir kusuru
 düzeltmeye çalışırken gerçek olanı aramayı bırakırsınız.
+
+---
+
+## Üç kusur, üçü de ilk beş dakikada — ve ikisini mutasyon buldu
+
+Müşterinin sorusunu faza çevirdim. Ölçtükçe bulduklarım sırayla kötüleşti.
+
+**Bir:** veritabanı yokken bizden tek cümle yok. Bunu bir önceki turda
+düzeltmiştim.
+
+**İki, daha kötüsü:** `--dry-run`, veritabanı olmayan bir makinede bütün
+aşamaları yazdı, `== done` dedi, sıfırla çıktı. Kontrolleri
+`if DRY_RUN -eq 0` içine koymuştum — temkinli görünen, tam tersi olan bir
+şey. O mod "bu makine hazır mı" sorusunun cevabı, ve hazır değilken
+"evet" diyordu.
+
+Sessizlik güvenlik değildi; yalan söyleyen bir moddu. Kontrollerin hepsi
+okuma — üç `SELECT` ve bir `SHOW` — yani kuru koşunun koruyacağı hiçbir
+şey yok.
+
+**Üç:** kurulum bittiğinde ne yapılacağını söyleyen liste yazarken asıl
+kusur çıktı. `install.sh` `site_id`'yi **yazmıyor**. Örnekler
+`example-site` ile geliyor, karar insanın, ve karar **geri alınamaz**:
+her satır o kimliğe göre anahtarlanıyor. Yani zorunlu, geri alınamaz, ve
+betik ne yapıyordu ne de söylüyordu.
+
+*Zorunlu + geri alınamaz + söylenmemiş* — bir kusur sınıfı olarak
+aranmaya değer.
+
+### İlk taslağımda üç satırda iki yanlış komut vardı
+
+Sonraki adımlar listesine `crucible-api` ve `crucible-upgrade.timer`
+yazmışım. İkisi de yok. Çalışmayan bir komut, listesiz olmaktan
+kötüdür: okuyanın çalıştırma zamanını, inanmama zamanını, ve sayfanın
+geri kalanına olan güvenini alır.
+
+`release/systemd/` dizininden türeyen bir ayna testi artık bunu tutuyor.
+Bir kez bakmak yerine her seferinde bakan şey testtir.
+
+### İki mutasyon ilk turda yakalanmadı
+
+Dokuz mutasyon koştum. Yedisi yakalandı, ikisi geçti:
+
+- `--dry-run`'da veritabanı kontrolünü tekrar atlamak,
+- 0. adımı (site_id) listeden silmek.
+
+Yani az önce düzelttiğim iki şeyin **kendi koruması yoktu.** Bir
+düzeltmenin koruması yoksa, o düzeltme geri gelir — hem de düzelttiğini
+sanan biri tarafından.
+
+İkisi için ayrı test yazdım ve mutasyonları tekrar ettim. **Mutasyon
+testinin asıl değeri, geçen mutasyonlarda.** Yakalanan mutasyon testin
+çalıştığını söyler; geçen mutasyon, hangi testi yazmadığını söyler.
+
+### Ve bir testin kendisi yanlıştı, ama gürültülü biçimde
+
+`.env` aynasını yazarken `for _, key := range envKeys(...)` yazdım —
+Go'da bu, map'in **değerlerini** veriyor. Test "docker/.env.example
+`site:443` anahtarını belgeliyor ve setup.sh onu yazmıyor" dedi.
+
+Yanlıştı, ama saçmalığı görünürdü. Sessizce geçen bir testten kıyas kabul
+etmez biçimde iyi: bir testin yanlış olmasının iki yolu var, ve yalnız
+biri düzeltilebilir.

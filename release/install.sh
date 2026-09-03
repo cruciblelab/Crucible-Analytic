@@ -212,12 +212,34 @@ fi
 # to do everywhere else; it was silent exactly where a person is most
 # likely to be stuck.
 #
-# Three questions, cheapest first, and each names its own fix.
-if [ "${DRY_RUN}" -eq 0 ]; then
-  if ! psql_super -tAc "SELECT 1" >/dev/null 2>&1; then
-    die "cannot reach PostgreSQL.
+# # Why this runs in a dry run too, and why that was the real defect
+#
+# The first version of this block was wrapped in `if DRY_RUN -eq 0`,
+# which reads as caution and was the opposite. Measured on a machine with
+# no database at all: `--dry-run` printed every stage, ended with "done",
+# and exited 0. That is the mode somebody runs to ask "is this machine
+# ready", answering yes when the answer is no.
+#
+# Every check here is a read - three SELECTs and a SHOW - so there is
+# nothing for a dry run to protect. Silence was never safety; it was a
+# mode that lied.
+#
+# # All three, then stop
+#
+# Reported together rather than dying at the first, for the reason
+# release/gate.sh gives about itself: one run should say everything that
+# is wrong. Somebody installing PostgreSQL to fix the first line, only to
+# be told about the extension afterwards, is somebody making two trips.
+DB_PROBLEMS=0
+db_problem() {
+  DB_PROBLEMS=$((DB_PROBLEMS + 1))
+  printf '\n!! %s\n' "$1" >&2
+}
 
-    Nothing has been created. The usual causes, in order:
+if ! psql_super -tAc "SELECT 1" >/dev/null 2>&1; then
+  db_problem "cannot reach PostgreSQL.
+
+    The usual causes, in order:
 
       * PostgreSQL is not installed. Install PostgreSQL 16 and the
         TimescaleDB extension - KURULUM.md section 2 has the versions
@@ -230,18 +252,20 @@ if [ "${DRY_RUN}" -eq 0 ]; then
 
     If you would rather not run a database yourself, the container path
     brings its own - see KURULUM.md section 1.5."
-  fi
+else
+  # These two need a connection, so they are only asked when there is
+  # one. Asking them anyway would add two more failures saying the same
+  # thing as the first.
 
   # Available, which is a different question from loaded. A distro
   # PostgreSQL with no Timescale packages answers no here, and the
   # answer is worth having before four roles and ten schemas exist.
   if [ -z "$(psql_super -tAc "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'")" ]; then
-    die "PostgreSQL is running and the TimescaleDB extension is not installed on it.
+    db_problem "PostgreSQL is running and the TimescaleDB extension is not installed on it.
 
-    Nothing has been created. This product stores time series and its
-    retention policies are Timescale's; PostgreSQL alone will not do.
-    Install the timescaledb package for this server's version and run
-    this again - KURULUM.md section 2.
+    This product stores time series and its retention policies are
+    Timescale's; PostgreSQL alone will not do. Install the timescaledb
+    package for this server's version - KURULUM.md section 2.
 
     The container path brings a database with it already - KURULUM.md
     section 1.5."
@@ -251,12 +275,11 @@ if [ "${DRY_RUN}" -eq 0 ]; then
   # the config file and the exact line - but it arrives after the
   # database has been created, and this script's rule is that a
   # prerequisite is checked before anything is made.
-  case "$(psql_super -tAc "SHOW shared_preload_libraries")" in
+  case "$(psql_super -tAc "SHOW shared_preload_libraries" 2>/dev/null)" in
     *timescaledb*) ;;
-    *) die "TimescaleDB is installed but not preloaded, so CREATE EXTENSION would fail.
+    *) db_problem "TimescaleDB is installed but not preloaded, so CREATE EXTENSION would fail.
 
-    Nothing has been created. Add it to the server's configuration and
-    restart PostgreSQL:
+    Add it to the server's configuration and restart PostgreSQL:
 
       shared_preload_libraries = 'timescaledb'
 
@@ -264,6 +287,11 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     will add it for you." ;;
   esac
 fi
+
+if [ "${DB_PROBLEMS}" -ne 0 ]; then
+  die "${DB_PROBLEMS} prerequisite(s) above are not met. Nothing has been created."
+fi
+say "   database reachable, TimescaleDB installed and preloaded"
 
 [ -f "${HERE}/sql/grants.sql" ] || die "release/sql/grants.sql is missing; run this from the package"
 [ -f "${HERE}/sql/harden.sql" ] || die "release/sql/harden.sql is missing; run this from the package"
@@ -1057,6 +1085,98 @@ cat <<TLS
 TLS
 
 say "done"
+
+# What to do next, in the order it has to be done.
+#
+# # Why this is here and not only in KURULUM.md
+#
+# It is in KURULUM.md, across four sections, and that is the right place
+# for the reasoning. It is the wrong place for the next three commands:
+# somebody who has just watched this script succeed is looking at a
+# terminal, not at a document, and the gap between "it installed" and "I
+# can see my analytics" is where an install stops being a product.
+#
+# Measured on the path this list is for: with no systemd units and no
+# reverse proxy, nothing this script writes is reachable by a person.
+# The script said so nowhere.
+#
+# # The order is not decoration
+#
+# The panel binds to loopback, so without a reverse proxy there is
+# nothing to open; the developer link points at a URL, so it needs that
+# URL to exist first; and the snippet is worth nothing until somebody has
+# signed in and finished the wizard. Reversing any two of these produces
+# a step that cannot be completed, which is how a list of next steps
+# loses the reader.
+if [ "${DRY_RUN}" -eq 0 ]; then
+  # The site id, read back out of the file rather than remembered.
+  #
+  # This script does not set it - the examples ship "example-site" and a
+  # person decides - and the list below said nothing about that until it
+  # was read. A step the reader has to do, that the installer neither
+  # does nor mentions, is a step that gets skipped; and this one is
+  # irreversible, because every stored row is keyed by it and changing it
+  # later starts a second site rather than renaming the first.
+  INSTALLED_SITE_ID="$(sed -n 's/^site_id[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "${CONF_DIR}/collector.toml" 2>/dev/null | head -1)"
+
+  printf '\nNEXT STEPS\n\n'
+
+  if [ -z "${INSTALLED_SITE_ID}" ] || [ "${INSTALLED_SITE_ID}" = "example-site" ]; then
+    cat <<NEXT
+  0. Decide the site id and write it into the config files, before
+     anything starts:
+       site_id = "..."      in ${CONF_DIR}/collector.toml
+       sites   = ["..."]    in ${CONF_DIR}/beacon.toml
+
+     It is still the example's "example-site". Every stored row is keyed
+     by it, and changing it later does not rename anything - it starts a
+     second site whose history begins that day. KURULUM.md section 6.
+
+NEXT
+  fi
+
+  cat <<NEXT
+  1. Reverse proxy and TLS - KURULUM.md section 8.
+     Every service binds to 127.0.0.1 on purpose, so until something
+     terminates TLS in front of them there is nothing to open in a
+     browser.
+NEXT
+
+  if [ "${WANT_SYSTEMD}" -eq 1 ]; then
+    cat <<NEXT
+  2. Start the services:
+       systemctl enable --now crucible-collector.service crucible-beacon.service
+       systemctl enable --now crucible-analytics-api.service crucible-panel.service
+       systemctl enable --now crucible-upgrader.timer
+
+     The upgrader is a timer, not a service: enabling the service itself
+     would run one upgrade and stop.
+NEXT
+  else
+    cat <<NEXT
+  2. Start the services yourself. No unit files were written (--no-systemd,
+     or no systemd here), so nothing is running yet:
+       ${PREFIX}/bin/panel -config ${CONF_DIR}/panel.toml
+     ...and the same for collector, beacon and analytics-api.
+     Without systemd nothing restarts them; that is yours to arrange.
+NEXT
+  fi
+
+  cat <<NEXT
+  3. Create the one-time developer link, open it, and run the wizard:
+       ${PREFIX}/bin/panel -config ${CONF_DIR}/panel.toml -dev-link -base-url https://${DOMAIN:-panel.example.com}
+     The wizard ends by handing the installation to the customer's own
+     account; after that this machine's operator cannot sign in without
+     their approval.
+
+  4. Put the snippet on the site - KURULUM.md section 10. It is printed by:
+       ${PREFIX}/bin/beacon -snippet https://${DOMAIN:-example.com} ${INSTALLED_SITE_ID:-<site-id>}
+
+  KURULUM.md section 13 is how to tell whether it is really working.
+
+NEXT
+fi
 
 # What is left for a person to do about the four passwords, which is
 # now usually nothing.
