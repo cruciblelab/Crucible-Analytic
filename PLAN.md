@@ -99,7 +99,7 @@ gerekçe değil bahane olur.
 | **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
-| **U** Yeni sürüme geçme | ✅ **4/4** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
+| **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6560,7 +6560,7 @@ oluşturduğu* dosyalara yazılıyor (`FRESH_CONF`).
 
 **Veritabanı ellenmiyor.** Yükseltme yalnızca DDL.
 
-#### Ama dört gerçek kusur çıktı
+#### Ama beş gerçek kusur çıktı
 
 #### U1 — `install.sh` binary'leri hiç kurmuyordu ✅
 
@@ -6612,6 +6612,28 @@ On yedi bölümlük kurulum kılavuzu sıfırdan kurmayı ve şemayı
 yükseltmeyi anlatıyor, ikisinin arasındaki adımı anlatmıyordu. §13.5
 yazıldı: neyin kaybolmadığı (tablo hâlinde), dört adım, çalışan
 binary'nin nasıl değiştirildiği, sıra tavsiyesi, ve geri dönüş.
+
+#### U5 — Ve düzeltmenin kendisinde aynı kusur vardı ✅
+
+§13.5'i yazdım, ve **iki kurulum yolundan yalnız birini anlattım.**
+Kılavuz §1.5'te okura seçtiriyor — konteyner mi, elle mi — ve yeni
+bölüm yalnız elle kurulumun nasıl yükseltileceğini yazıyordu. Konteyner
+müşterisi kendisine uymayan talimatları okuyordu.
+
+*Boşluğu kapatan yazının içinde, aynı boşluk, bir yol öteye kaymış
+hâlde.* Bu depoda tanıdık bir şekil: log dizini düzeltildi, state dizini
+"bir değişken öteye" aynı kusurla üç faz daha yaşadı.
+
+Konteyner yolu yazıldı (üç adım, ve üç kalıcı birimin ne taşıdığı), ve
+**kapsamı türeten bir test** eklendi: her kurulum yolu, o yolu gerçek
+kılan bir dosyayla (`release/install.sh`, `docker/compose.yml`)
+tanımlanıyor, ve §13.5'in o yolun komutunu adıyla anması gerekiyor.
+Üçüncü bir yol geldiğinde test, üç satırı yazılana kadar kırmızı kalır.
+
+| mutasyon | sonuç |
+|---|---|
+| Konteyner yarısını sil *(bu düzeltmeden önceki hâl)* | yakalandı |
+| §13.5'i tümüyle sil *(iki commit öncesi)* | yakalandı |
 
 #### U4 — "Bilinen eksikler" listesi bayattı ✅
 

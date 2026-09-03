@@ -9921,3 +9921,28 @@ anlatan bir belge, okuyana gerçek eksikler hakkındakilere de inanmamayı
 
 *Dürüstlük bölümü, bakımı en kolay unutulan ve bayatladığında en pahalı
 olan bölüm.*
+
+### Boşluğu kapatan yazının içinde, aynı boşluk
+
+§13.5'i yazdım — "yeni sürüme geçme", kılavuzda hiç olmayan bölüm — ve
+**iki kurulum yolundan yalnız birini anlattım.** Kılavuz §1.5'te okura
+konteyner mi elle mi diye seçtiriyor; yeni bölümüm yalnız elle kurulumu
+yükseltmeyi yazıyordu.
+
+Yani eksik bir bölümü yazarken, o bölümün kendisinde aynı cinsten bir
+eksik bıraktım. Bu depoda tanıdık bir şekil: log dizini düzeltildi, state
+dizini "bir değişken öteye" aynı kusurla üç faz daha yaşadı. Betiğin
+kendi yorumu bunu yazıyor, ve ben o yorumu bu oturumda okumuştum.
+
+Fark etme sebebi müşterinin sorusuydu: "ee peki güncelleme nasıl
+yapılacak o zaman". Cevabı yazmak için bölüme dönünce yarısının orada
+olmadığını gördüm.
+
+*Bir soruyu cevaplamak için kendi yazdığına dönmek, onu yazarken
+yapamadığın okumadır.*
+
+Test kapsamı **türetiyor**: her kurulum yolu, o yolu gerçek kılan bir
+dosyayla tanımlı (`release/install.sh`, `docker/compose.yml`), ve
+§13.5'in o yolun komutunu anması gerekiyor. Üçüncü bir yol geldiğinde
+test, üç satırı yazılana kadar kırmızı kalıyor. İki mutasyon, ikisi de
+yakalandı.

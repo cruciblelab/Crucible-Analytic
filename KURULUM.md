@@ -1111,7 +1111,40 @@ yükseltme düğmesi o gömülü şemayı uyguluyor, bir yerden çekmiyor.
 Paketi sunucuya siz taşıyorsunuz — bu bir eksiklik değil, tercih: kendi
 kendine güncellenen bir servis, kendisini değiştirebilen bir servistir.
 
-### Dört adım
+### Konteyner yolu: üç adım
+
+*(§1.5'te konteyner yolunu seçtiyseniz burası sizin bölümünüz. Elle
+kurulum için bir sonraki başlık.)*
+
+```bash
+# 1. Yeni imajı üretin (ya da hazır olanı çekin)
+docker build -t crucible-analytic:v0.20.0 .
+
+# 2. docker/.env içindeki CA_IMAGE'i ona çevirin
+#    CA_IMAGE=crucible-analytic:v0.20.0
+
+# 3. Yığını yeni imajla ayağa kaldırın
+cd docker && docker compose up -d
+```
+
+`compose up -d` yalnız imajı değişen konteynerleri yeniden yaratır.
+**Üç kalıcı birim dokunulmadan kalır** ve içindekiler de öyle:
+
+| birim | ne taşıyor |
+|---|---|
+| `conf` | Yapılandırma ve içindeki her sır — `ip_hash_key` dâhil. Bunu kaybetmek "yeniden kur ve devam et" değildir: saklanmış her satırdaki takma adlar tutmaz olur |
+| `db` | Veritabanı, yani bütün analitik |
+| `state` | Bot verisi önbelleği. Kaybı bir yenilemeye mal olur |
+
+Sonra **panelde Sağlık → Şema yükseltmesi**. Konteyner yığınında
+yükselticiyi çalıştıran ayrı bir servis var, aynı imajdan.
+
+**`.env`'e dokunmayın, `CA_IMAGE` satırı dışında.** `POSTGRES_PASSWORD`
+o dosyada duruyor ve veritabanı birimi onu bekliyor; yenisini üretmek
+kendi servislerini kabul etmeyen bir yığın bırakır. `docker/setup.sh`
+bu yüzden var olan bir `.env`'i ezmeyi reddediyor.
+
+### Elle kurulum: dört adım
 
 ```bash
 # 1. Yeni paketi açın ve bütünlüğünü doğrulayın

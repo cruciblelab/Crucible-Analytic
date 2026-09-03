@@ -95,8 +95,17 @@ Dördü de tek isme indirildi ve dizin ailesi testine eklendi.
 Kılavuz sıfırdan kurmayı ve şemayı yükseltmeyi anlatıyor, ikisinin
 arasındaki adımı anlatmıyordu. Yeni bölüm neyin **kaybolmadığını** tablo
 hâlinde söylüyor (yapılandırma, veritabanı, sırlar, kullanıcılar — hiçbiri
-ellenmiyor), dört adımı veriyor, ve hiçbir şeyin GitHub'dan
-indirilmediğini yazıyor.
+ellenmiyor), ve hiçbir şeyin GitHub'dan indirilmediğini yazıyor.
+
+**İki kurulum yolunun ikisi de var:**
+
+| yol | güncelleme |
+|---|---|
+| Konteyner | Yeni imaj, `docker/.env` içinde `CA_IMAGE`, `compose up -d`. Üç kalıcı birim dokunulmadan kalır |
+| Elle | Paketi doğrula, `install.sh`'ı tekrar koştur, servisleri yeniden başlat, sürümü doğrula |
+
+Sonrasında ikisinde de aynı: panelde **Sağlık → Şema yükseltmesi**, ve
+şema değişmediyse düğme "yapacak bir şey yok" der.
 
 ### §16 "Bilinen eksikler" denetlendi
 

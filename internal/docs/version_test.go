@@ -2,7 +2,9 @@ package docs
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -270,6 +272,67 @@ func TestEveryReleaseNoteHasATagAndEveryTagHasANote(t *testing.T) {
 			t.Errorf("%s is tagged and CHANGELOG.md says nothing about it.\n"+
 				"Somebody installing it has no way to find out whether they have to "+
 				"do anything, which is the question a release note is read for", tag)
+		}
+	}
+}
+
+// TestTheUpgradeSectionCoversEveryInstallPath.
+//
+// # The defect, twice
+//
+// KURULUM.md had no "moving to a new version" section at all: seventeen
+// sections covering installing from nothing and upgrading the schema,
+// and nothing about the step between them. Section 13.5 was written to
+// close that.
+//
+// Its first draft then covered one of the two install paths. The guide
+// offers a container path and a manual one - section 1.5 makes the
+// reader choose - and the new section explained how to upgrade a manual
+// install only. The identical gap, one path over, in the fix for the
+// gap.
+//
+// # What is derived
+//
+// The install paths are not a list kept here. Each one is a file that
+// has to exist for that path to work, and the upgrade section has to
+// name the command that path is driven by. A third path arrives with a
+// third entry and fails this test until somebody writes its three
+// lines.
+func TestTheUpgradeSectionCoversEveryInstallPath(t *testing.T) {
+	paths := []struct {
+		name     string
+		artifact string // the file that makes this path real
+		command  string // what the upgrade section must tell them to run
+	}{
+		{"manual", "release/install.sh", "./release/install.sh"},
+		{"container", "docker/compose.yml", "docker compose up -d"},
+	}
+
+	body := readDoc(t, "KURULUM.md")
+	const heading = "## 13.5"
+	start := strings.Index(body, heading)
+	if start < 0 {
+		t.Fatalf("KURULUM.md has no %s section. A guide that explains installing "+
+			"and explains upgrading the schema, with nothing in between, leaves "+
+			"its reader at the one step they will take more than once", heading)
+	}
+	section := body[start:]
+	if next := strings.Index(section[len(heading):], "\n## "); next >= 0 {
+		section = section[:next+len(heading)]
+	}
+
+	for _, p := range paths {
+		if _, err := os.Stat(filepath.Join(repoRoot(t), p.artifact)); err != nil {
+			t.Errorf("the %s install path names %s and it is not there: %v",
+				p.name, p.artifact, err)
+			continue
+		}
+		if !strings.Contains(section, p.command) {
+			t.Errorf("%s does not tell a %s installation how to upgrade.\n"+
+				"It is a real install path - %s is in this repository - and its "+
+				"reader gets the other path's instructions, which do not apply to "+
+				"them.\nExpected the section to name: %s",
+				heading, p.name, p.artifact, p.command)
 		}
 	}
 }
