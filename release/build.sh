@@ -98,10 +98,11 @@ cp internal/upgrade/schema.sql    "${STAGE}/schema/08-upgrade.sql"
 # and its comments point at ip_range_fetches - so it comes after the
 # asnlookup schema that creates that table.
 cp internal/rangerefresh/schema.sql "${STAGE}/schema/09-rangerefresh.sql"
+cp internal/relupdate/schema.sql "${STAGE}/schema/10-relupdate.sql"
 # The version record, last of all, because what it records is "every
 # schema above was applied". A row written before the schemas it
 # describes would be a claim about work that had not happened yet.
-cp internal/schemaver/schema.sql  "${STAGE}/schema/10-schemaver.sql"
+cp internal/schemaver/schema.sql  "${STAGE}/schema/11-schemaver.sql"
 
 echo "== example configuration"
 for f in config.example.toml beacon.example.toml analytics-api.example.toml panel.example.toml \

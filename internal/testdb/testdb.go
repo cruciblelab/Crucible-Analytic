@@ -209,6 +209,23 @@ const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
 // does, take them in the order they are declared here.
 const RefreshQueueLock = 0x726566726573680A // "refresh"
 
+// ReleaseQueueLock serialises the suites that share
+// panel_release_requests.
+//
+// A fifth lock, for the third queue with a one-in-flight index. The
+// reason is identical to the two above and worth repeating rather than
+// cross-referencing: the index permits exactly one pending-or-running
+// row in the whole table, so any suite's request makes another's Ask
+// fail with ErrAlreadyInFlight, and a Claim from either can take a row
+// it did not write. Naming each suite's rows would not help - what they
+// collide on is global by construction.
+//
+// # Ordering
+//
+// Nothing takes this together with the others today. If something ever
+// does, take them in the order they are declared here.
+const ReleaseQueueLock = 0x72656C65617365FF // "release"
+
 // SchemaApplyLock serialises anything that applies a schema file.
 //
 // Unlike the four above, this one is not a test fixture. The applier

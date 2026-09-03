@@ -10040,3 +10040,65 @@ doğrulanamaz yapardı.
 Ama imzasız paket, panelin güncelleme düğmesinin reddedeceği pakettir.
 Bunu müşterinin makinesinde öğrenmek yanlış yer. O yüzden `build.sh`
 imzasız olduğunu yüksek sesle söylüyor, ve testi de bunu arıyor.
+
+## Yeni kuyruğun testi, eski iki kuyrukta delik buldu
+
+V2 için istek kuyruğunu yazdım ve testini kardeşinden kopyaladım. Bir
+iddia ekledim: *uygulayıcı ekleme yapamaz.* Test kırmızı yandı.
+
+`schema_admin` ile bağlanıp düz bir `INSERT` çalıştırdım. Çalıştı. Sonra
+diğer iki kuyrukta denedim — **üçünde de çalıştı.**
+
+Sebep tek satır ve PostgreSQL belgelerinde yazıyor: **bir tablonun
+sahibi satır güvenliğinden muaftır**, tabloya `FORCE ROW LEVEL SECURITY`
+denmedikçe. Bu depodaki her tablo `schema_admin`'e ait, çünkü
+`ALTER TABLE` sahiplik istiyor ve göç uygulamak çoğunlukla
+`ALTER TABLE`.
+
+Yani üç tablonun da varlık sebebi olan ayrım — *bir rol ister, başka bir
+rol cevaplar* — cevaplayan rol için **hiç uygulanmıyordu.** Politikalar
+oradaydı, GRANT'lar oradaydı, ve ikisi de tabloyu sahiplenen rol
+hakkında hiçbir şey söylemiyordu.
+
+### Asıl kötü olan: bunu yakalaması gereken test geçiyordu
+
+`TestTheApplierCanAnswerAndCannotAsk` şunu yapıyordu: iste, talep et
+(satır artık `running`), sonra uygulayıcı rolüyle `Ask` çağır ve
+`err == nil` olmadığını kontrol et.
+
+Hata geliyordu — ama **tekil indeksten**. Uçuşta bir istek varken ikinci
+bir satır zaten eklenemez. Yani test "kuyruk meşguldü" cevabını "yetkin
+yok" sanıyordu, ve kuyruk boşken aynı çağrı sessizce başarılı olurdu.
+
+İki düzeltme, ikisi de gerekli:
+
+1. Testler artık **hangi** hatanın geldiğini kontrol ediyor. `permission
+   denied` ya da `row-level security` — ikisi de yetki reddi, hangisinin
+   geldiği tablonun sahibine bağlı. Tekil indeks ihlali **değil**.
+2. Test, ekleme denemeden önce uçuştaki isteği **bitiriyor**, ki indeks
+   cevabı vermesin.
+
+*Bir testin geçmesi, test ettiğini sandığınız şeyin doğru olduğu anlamına
+gelmiyor. Ve bir testin "bir hata geldi" demesi, doğru hatanın geldiği
+anlamına hiç gelmiyor.*
+
+### Bunun genel dersi, çünkü tekrar edecek
+
+Bu depo "negatif iddiaları" seviyor: *panel şunu yapamaz, API şunu
+okuyamaz, uygulayıcı şunu isteyemez.* Negatif bir iddianın testi çok
+kolay yanlış sebeple geçer, çünkü **başarısızlığın binlerce sebebi
+vardır ve testin aradığı yalnız bir tanesi.**
+
+Kural: bir yasağı test ederken, yasağın kendisinden **başka her sebebi
+ortadan kaldır**, sonra hatanın kimliğini kontrol et. "Bir şey reddetti"
+bir test değil, bir temenni.
+
+### Ve sürüm dizgisi neden iki kez kontrol ediliyor
+
+`Ask` panelin sürecinde koşuyor, `Claim` uygulayıcının sürecinde. Aradaki
+satırı yazan rol, uygulayıcının dürüst saydığı bir rol değil — zaten
+bütün mimari o varsayım üstüne kurulu.
+
+Talimatlarını bir tablodan okuyan bir bileşen, onları orada doğrulamak
+zorunda. Aksi hâlde kontrol, "tek yazıcı test edilmiş olan" olduğu sürece
+geçerli olur, ve o cümle bir güvenlik özelliği değil bir dilek.

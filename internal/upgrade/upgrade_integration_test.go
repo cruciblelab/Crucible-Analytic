@@ -96,11 +96,54 @@ func TestTheApplierCanAnswerAndCannotAsk(t *testing.T) {
 		t.Errorf("claimed %d in state %q, want %d running", claimed.ID, claimed.State, req.ID)
 	}
 
-	if _, err := Ask(ctx, adminPool,
-		Actor{Kind: "service", Label: "applier"}, "", 1, 2, "x"); err == nil {
+	// Finished first, so the in-flight index is not what refuses the
+	// insert below.
+	//
+	// This test passed for years without that line, and it was passing
+	// for the wrong reason: it asked while the claimed request was still
+	// running, the unique index refused it, and the assertion only
+	// checked that *something* had. Measured on a real database,
+	// schema_admin could insert here whenever the queue was empty -
+	// every table is owned by schema_admin, and an owner is exempt from
+	// row-level security unless the table FORCEs it. The schema now
+	// does; this is the test that would have said so.
+	applied := 2
+	if err := Finish(ctx, adminPool, req.ID, StateSucceeded, &applied, ""); err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+
+	_, err = Ask(ctx, adminPool, Actor{Kind: "service", Label: "applier"}, "", 1, 2, "x")
+	if err == nil {
 		t.Fatal("the applier inserted its own upgrade request; " +
 			"an upgrade with no customer behind it has nobody who asked for it")
 	}
+	if !refusedByPrivilege(err) {
+		t.Errorf("the refusal was %v. That is not the privilege check doing it, and "+
+			"a test that accepts any error here passes on a database where this "+
+			"role can insert whenever the queue happens to be empty", err)
+	}
+}
+
+// refusedByPrivilege reports whether an error is the database refusing
+// on authority rather than on data.
+//
+// Two spellings, because two mechanisms enforce the same rule and which
+// one answers depends on who owns the table. A plain GRANT refusal says
+// "permission denied"; row-level security says "violates row-level
+// security policy" - and this project needs the second, since every
+// table is owned by schema_admin and an owner is exempt from RLS unless
+// the table FORCEs it.
+//
+// What this must never match is a unique-violation. "The queue was busy"
+// and "you are not allowed" are different answers, and a test that
+// treats them alike is the test this one used to be.
+func refusedByPrivilege(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "permission denied") ||
+		strings.Contains(msg, "row-level security")
 }
 
 // TestASecondClaimFindsNothing.

@@ -483,7 +483,8 @@ if [ "${DRY_RUN}" -eq 0 ]; then
              internal/beacon/schema.sql internal/asnlookup/schema.sql \
              internal/heartbeat/schema.sql internal/retention/schema.sql \
              internal/logsink/schema.sql internal/upgrade/schema.sql \
-             internal/rangerefresh/schema.sql internal/schemaver/schema.sql; do
+             internal/rangerefresh/schema.sql internal/relupdate/schema.sql \
+             internal/schemaver/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done
   fi

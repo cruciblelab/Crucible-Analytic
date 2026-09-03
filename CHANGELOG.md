@@ -16,8 +16,14 @@ olunduğu artık ekranda yazıyor. Panelde uzun süren işlemler **kendini
 tazeliyor**, ve kurulum kontrolleri kurulumdan sonra da **görünür
 kalıyor**.
 
-**Şema sürümü: 8** — değişmedi. **Kuran kişinin yapması gereken:**
-**hiçbir şey.** Veritabanına dokunulmuyor, servis durmuyor.
+**Şema sürümü: 9.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Tablo ekleniyor ve üç tablonun satır
+güvenliği sıkılaştırılıyor; veri değişmiyor, servis durmuyor.
+
+Yükseltmeden önce her şey çalışmaya devam eder. Görünmeyen tek şey
+panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
+güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
+olduğu yazıyor.
 
 ### `install.sh --profile hafif|dengeli|tam`
 
@@ -60,6 +66,41 @@ Kapatmayı hatırlaması gereken bir şey yok.
 Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
 2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
 sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
+
+### Üç kuyrukta rol ayrımı aslında uygulanmıyormuş
+
+**Bu bir güvenlik düzeltmesi ve testin kendisi bulmadı — testi
+sıkılaştırınca bulundu.**
+
+Üç istek kuyruğu (şema yükseltmesi, IP veri kümesi yenilemesi, ve yeni
+sürüm güncellemesi) aynı ayrımı iddia ediyor: **bir rol ister, başka bir
+rol cevaplar.** Panel isteği yazar ve sonucu uyduramaz.
+
+Ölçüldü: uygulayıcı rolüyle bağlanıp düz bir `INSERT` çalıştırmak
+**üçünde de başarılı oluyordu.** Sebep: bütün tablolar `schema_admin`'e
+ait, ve PostgreSQL bir tablonun sahibini satır güvenliğinden muaf
+tutuyor — tabloya `FORCE` denmedikçe. Yani politikalar ve GRANT'lar,
+tabloyu sahiplenen tek rol hakkında hiçbir şey söylemiyordu.
+
+Bunu yakalaması gereken test **geçiyordu, ve yanlış sebeple**: uçuşta bir
+istek varken ekleme yapıyordu, tekil indeks reddediyordu, ve iddia
+yalnız "bir şey reddetti" diye bakıyordu. Test artık **hangi şeyin**
+reddettiğini kontrol ediyor, ve üç tabloda da `FORCE ROW LEVEL SECURITY`
+var.
+
+*Bir testin geçmesi, test ettiğini sandığınız şeyin doğru olduğu
+anlamına gelmiyor.*
+
+### Panelden güncelleme: istek kuyruğu
+
+`panel_release_requests` tablosu eklendi. Panel yüzeyi henüz yok; bu
+altyapı.
+
+Kuyruk **adres taşımıyor, sürüm taşıyor.** Paketlerin nereden geldiği
+`upgrader.toml`'daki `[release] base_url`, ve orada kalmalı: tablodaki
+bir adres, ele geçirilmiş bir panelin seçebileceği bir adres olurdu.
+Sürüm dizgisi de sıkı kontrol ediliyor, çünkü bir URL'nin parçası
+oluyor — eğik çizgi taşıyabilen bir sürüm, yol taşıyabilen bir sürümdür.
 
 ### Sürüm paketleri artık imzalanabiliyor
 

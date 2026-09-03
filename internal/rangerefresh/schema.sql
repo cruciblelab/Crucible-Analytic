@@ -120,6 +120,30 @@ CREATE INDEX IF NOT EXISTS idx_range_refresh_requested_at
     ON ip_range_refresh_requests (requested_at DESC);
 
 ALTER TABLE ip_range_refresh_requests ENABLE ROW LEVEL SECURITY;
+-- And the owner is bound by them too, which is not the default.
+--
+-- # The hole this closes, found by a test that was passing
+--
+-- Every table here is owned by schema_admin, because ALTER TABLE needs
+-- ownership and applying a migration is mostly ALTER TABLE. PostgreSQL
+-- exempts a table's owner from row-level security unless told
+-- otherwise - so the policies above, and the GRANTs beside them, said
+-- nothing at all about the one role that owns the table.
+--
+-- Measured rather than reasoned: connecting as schema_admin and running
+-- a plain INSERT succeeded on every one of these three queues.
+--
+-- The split each of these tables exists to enforce - one role asks, a
+-- different role answers - was therefore false for the answering role.
+-- The test that was supposed to catch it passed for the wrong reason:
+-- it inserted while a request was already in flight, so the unique
+-- index refused it, and the assertion only checked that *something*
+-- did.
+--
+-- FORCE makes the policies apply to the owner as well, which is what
+-- the file already reads as though it says.
+ALTER TABLE ip_range_refresh_requests FORCE ROW LEVEL SECURITY;
+
 
 -- Reading is open to whoever holds SELECT: the panel shows the result
 -- and the fetcher reads what to do.

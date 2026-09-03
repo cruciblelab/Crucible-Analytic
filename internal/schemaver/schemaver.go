@@ -102,14 +102,27 @@ import (
 // unaffected - Case A above - and the heartbeat reporter degrades to the
 // column list it has rather than refusing, because monitoring is the one
 // writer that must survive the window this number exists to describe.
-const Version = 8
+//
+// Version 9 adds panel_release_requests - the queue behind the panel's
+// update button, V2 - and forces row-level security on the three request
+// queues.
+//
+// The second half is a fix rather than a feature, and additive is the
+// wrong word for it: every table is owned by schema_admin, and
+// PostgreSQL exempts an owner from row-level security unless the table
+// FORCEs it. So the "one role asks, another answers" split those three
+// tables exist to enforce was, measured on a real database, not enforced
+// against the answering role at all. An older binary is unaffected -
+// nothing it does needs the permission that was removed - but a database
+// that has not applied this is a database where the split is a comment.
+const Version = 9
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "71a87c1f8d811d8cb6add2167f79ec48685546f8511338c78cb9ffeead5d9ac8"
+const Fingerprint = "14110bb9eb0ff507ca92dc74d9561017d41e3903556b85952b74e0ee53a6c222"
 
 // FingerprintOf hashes a set of schema files.
 //

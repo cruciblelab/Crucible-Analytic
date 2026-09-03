@@ -100,7 +100,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **1/5** | V2–V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+| **V** Panelden güncelleme | 🟡 **3/6** | V3–V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6752,10 +6752,61 @@ yakalandı.
 *Bir kontrolün gereksiz görünmesi, gerekçesinin başka yerde olduğu
 anlamına gelebilir. Silmeden önce sormak gerekiyor.*
 
-#### V2 — İstek kuyruğu ⬜
+#### V2 — İstek kuyruğu ✅ *(2026-09-03)*
 
-Şema kuyruğunun aynısı: istek tablosu, tek-uçuş tekil indeksi, `Ask` /
-`Claim` / `Finish` / `Latest`. Şema sürümü 9'a çıkacak.
+`panel_release_requests`, şema kuyruğunun aynı şekli: tek-uçuş tekil
+indeksi, `Ask` / `Claim` / `Finish` / `Latest`, ve bayat bir talebi
+serbest bırakan süpürme. Şema sürümü **9**.
+
+**İki şey bilerek farklı:**
+
+- **Tabloda adres yok, sürüm var.** Paketlerin nereden geldiği
+  `upgrader.toml`'daki `[release] base_url`. Tablodaki bir adres, ele
+  geçirilmiş bir panelin *seçebileceği* bir adres olurdu; imza da onun
+  altındaki ikinci kat, gerekçesi değil. İkisi birlikte anlamlı: panel
+  kaynağı seçemiyor, seçebilseydi de kullanamazdı.
+- **Sürüm dizgisi sıkı kontrol ediliyor** (`ValidVersion`), çünkü bir
+  URL'nin parçası oluyor. *Eğik çizgi taşıyabilen bir sürüm, yol
+  taşıyabilen bir sürümdür.* Hem `Ask`'te hem `Claim`'de: birincisi
+  panelin sürecinde koşuyor, ikincisi uygulayıcının — ve aradaki satırı
+  yazan rol, uygulayıcının dürüst saydığı bir rol değil.
+
+`StaleAfter` **yirmi dakika**, şema kuyruğunun çok üstünde: o milisaniye
+ölçeğinde bir göç koşuyor, bu megabaytlarca dosya taşıyor.
+
+#### V2.5 — Ve kuyruğu yazarken üç kuyrukta birden bir delik çıktı ✅ *(2026-09-03)*
+
+**Bu, bu grubun şimdiye kadarki en ciddi bulgusu, ve testi sıkılaştırmak
+buldu.**
+
+Üç kuyruk da aynı şeyi iddia ediyor: *bir rol ister, başka bir rol
+cevaplar.* Yeni kuyruğun testini yazarken "uygulayıcı ekleyemez"
+iddiasını koydum ve **test kırmızı yandı.**
+
+Ölçüm: `schema_admin` ile bağlanıp düz bir `INSERT` çalıştırmak
+**üçünde de başarılı oluyordu** — şema kuyruğu, veri kümesi kuyruğu, yeni
+kuyruk. Sebebi tek satır:
+
+> Bütün tablolar `schema_admin`'e ait, ve PostgreSQL bir tablonun
+> **sahibini satır güvenliğinden muaf tutuyor** — tabloya `FORCE`
+> denmedikçe.
+
+Yani politikalar ve GRANT'lar, tabloyu sahiplenen tek rol hakkında
+hiçbir şey söylemiyordu. İki yıldır dosyaların okunduğu gibi
+davranmıyorlardı.
+
+**Bunu yakalaması gereken test geçiyordu, ve yanlış sebeple.**
+`TestTheApplierCanAnswerAndCannotAsk` uçuşta bir istek varken ekleme
+yapıyor, tekil indeks reddediyor, ve iddia yalnız `err == nil` diye
+bakıyordu. Yani "kuyruk meşguldü" ile "yetkin yok" aynı sayılıyordu.
+
+Düzeltme üç satır (`FORCE ROW LEVEL SECURITY`) artı testlerin
+**hangi** hatanın geldiğini kontrol etmesi. Mutasyon: `FORCE`'u geri al →
+iki test birden yakaladı.
+
+*Bir testin geçmesi, test ettiğini sandığınız şeyin doğru olduğu anlamına
+gelmiyor. Ve bu oturumda beşinci kez: mutasyonun asıl değeri geçen
+mutasyonlarda.*
 
 #### V3 — İndiren ve kuran uygulayıcı ⬜
 

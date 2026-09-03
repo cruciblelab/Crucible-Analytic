@@ -73,6 +73,7 @@ GRANT SELECT, INSERT ON panel_audit_log TO panel_user;
 -- database this file is applied to, since install.sh applies the schemas
 -- first.
 REVOKE ALL ON SEQUENCE panel_upgrade_requests_id_seq FROM PUBLIC, panel_user;
+REVOKE ALL ON SEQUENCE panel_release_requests_id_seq FROM PUBLIC, panel_user;
 REVOKE ALL ON SEQUENCE panel_logs_id_seq
   FROM PUBLIC, collector, beacon_writer, analytics_reader, panel_user;
 GRANT USAGE, SELECT ON
@@ -133,6 +134,22 @@ GRANT SELECT, INSERT, UPDATE ON schema_version TO schema_admin;
 -- always something the applier wrote.
 GRANT SELECT, INSERT, DELETE ON panel_upgrade_requests TO panel_user;
 GRANT SELECT, UPDATE ON panel_upgrade_requests TO schema_admin;
+
+-- The release update queue: the same split, and it buys more here.
+--
+-- The schema queue keeps the panel away from DDL. This one keeps it away
+-- from *code*: the row says which version somebody wants, and the
+-- upgrader is what downloads and installs it. A panel that could write
+-- "succeeded" could claim a version is running that is not; a panel that
+-- could install would, once compromised, own the machine.
+--
+-- What the row deliberately cannot carry is an address. Where packages
+-- come from is [release] base_url in upgrader.toml, and the signing key
+-- is in the same file - a file the panel's account cannot read. So the
+-- panel cannot choose the source, and could not use a chosen source if
+-- it could.
+GRANT SELECT, INSERT, DELETE ON panel_release_requests TO panel_user;
+GRANT SELECT, UPDATE ON panel_release_requests TO schema_admin;
 
 -- ------------------------------------------------------ table ownership
 --

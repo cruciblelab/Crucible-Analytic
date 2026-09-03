@@ -137,7 +137,8 @@ COPY internal/retention/schema.sql  /opt/crucible-analytic/schema/06-retention.s
 COPY internal/logsink/schema.sql    /opt/crucible-analytic/schema/07-logsink.sql
 COPY internal/upgrade/schema.sql    /opt/crucible-analytic/schema/08-upgrade.sql
 COPY internal/rangerefresh/schema.sql /opt/crucible-analytic/schema/09-rangerefresh.sql
-COPY internal/schemaver/schema.sql  /opt/crucible-analytic/schema/10-schemaver.sql
+COPY internal/relupdate/schema.sql   /opt/crucible-analytic/schema/10-relupdate.sql
+COPY internal/schemaver/schema.sql  /opt/crucible-analytic/schema/11-schemaver.sql
 
 COPY config.example.toml            /opt/crucible-analytic/ornek-yapilandirma/config.example.toml
 COPY beacon.example.toml            /opt/crucible-analytic/ornek-yapilandirma/beacon.example.toml

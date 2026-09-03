@@ -39,6 +39,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
+	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
@@ -75,6 +76,10 @@ var InOrder = []File{
 	// ip_range_fetches and a reader applying these in order should meet
 	// the table before the queue that fills it.
 	{"internal/rangerefresh/schema.sql", rangerefresh.SchemaSQL},
+	// The release update queue. After the schema queue it mirrors, so a
+	// reader applying these in order meets the smaller version of the
+	// same idea first.
+	{"internal/relupdate/schema.sql", relupdate.SchemaSQL},
 	// Last of all: what this records is "everything above was applied".
 	{"internal/schemaver/schema.sql", schemaver.SchemaSQL},
 }
