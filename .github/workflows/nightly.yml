@@ -154,6 +154,17 @@ jobs:
       - name: schemaver - the scanner the upgrade machinery trusts
         run: go test -run XXX -fuzz 'FuzzStripComments$' -fuzztime 5m ./internal/schemaver/
 
+      # Release signatures, and this one runs on bytes an attacker
+      # chooses. Verification is the last thing standing between a
+      # package somebody handed the machine and code running as root, so
+      # the two properties are that it never crashes and never says yes.
+      # The verifier's target asserts the second directly: anything but
+      # the exact pair the seed signed must be refused.
+      - name: releasesign - the check between a package and root
+        run: |
+          go test -run XXX -fuzz 'FuzzVerifyNeverPanicsAndNeverAccepts$' -fuzztime 5m ./internal/releasesign/
+          go test -run XXX -fuzz 'FuzzParsePublicKeyNeverPanics$'        -fuzztime 5m ./internal/releasesign/
+
       # A crash is written to testdata/fuzz/ as a regression case, which
       # is the artifact actually worth having - it turns a one-off
       # finding into a permanent unit test. Upload it, because the

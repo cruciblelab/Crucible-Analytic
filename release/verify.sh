@@ -61,4 +61,30 @@ if [ -f "${STAGE}/SHA256SUMS" ]; then
   }
 fi
 
-echo "   nothing forbidden, checksums match"
+# And the signature, when the package carries one and a key was given.
+#
+# Both halves optional, and each absence says something different:
+#
+#   no .sig               the package is unsigned - a local build, or
+#                         somebody stripped it
+#   no CA_RELEASE_PUBKEY  we can read the signature and have nothing to
+#                         check it against, which is not verification
+#
+# Neither is an error here, because this script also runs inside
+# build.sh where there is nothing to verify against yet. What must never
+# happen is reporting success on an unchecked signature, so the line
+# printed at the end says which of the three states this was.
+signature_state="unsigned"
+if [ -f "${STAGE}/SHA256SUMS.sig" ]; then
+  signature_state="signed, not checked (set CA_RELEASE_PUBKEY)"
+  if [ -n "${CA_RELEASE_PUBKEY:-}" ]; then
+    if go run ./cmd/releasesign -verify "${STAGE}/SHA256SUMS" >/dev/null; then
+      signature_state="signed and verified"
+    else
+      echo "   the signature does not match this package" >&2
+      exit 1
+    fi
+  fi
+fi
+
+echo "   nothing forbidden, checksums match, ${signature_state}"

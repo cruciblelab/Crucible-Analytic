@@ -61,6 +61,37 @@ Bunun bir yükleme animasyonu olmamasının sebebi ölçüm: panelin sayfaları
 2-38 ms sürüyor ve 50.000 satırda 5.000 ile aynı. Gerçek bekleme
 sayfalarda değil, dakikalar süren veri kümesi yenilemesindeydi.
 
+### Sürüm paketleri artık imzalanabiliyor
+
+**Panelden güncelleme yolunun ilk parçası.** Müşteri paneldeki bir
+düğmeyle güncelleme yapabilsin istiyoruz; onun önündeki engel buydu.
+
+`SHA256SUMS` derleme sırasında üretiliyor ve paketin **içinde** geliyor.
+Yani dosyanın bozulmadığını kanıtlıyor, **kimin ürettiğini
+kanıtlamıyor** — paketi verebilen herkes yanına uyan bir liste de
+verebilir. İnsan bir arşivi açmayı seçerken bu katlanılır; panel
+güncelleme isteyebildiği anda değil.
+
+Artık Ed25519 imzası var:
+
+```bash
+go run ./cmd/releasesign -keygen            # iki yarıyı basar
+CA_RELEASE_KEY=... ./release/build.sh       # imzalı paket üretir
+CA_RELEASE_PUBKEY=... ./release/verify.sh dist/...   # kontrol eder
+```
+
+**Açık anahtar `upgrader.toml`'a gidiyor, veritabanına değil.** O dosyayı
+servislerin çalıştığı `crucible` hesabı okuyamıyor. Yani ele geçirilmiş
+bir panel güncelleme *isteyebilir*, ama ne kurulacağını *etkileyemez*.
+
+`verify.sh` üç durumu ayırıyor: imzasız, imzalı ama kontrol edilmedi,
+imzalı ve doğrulandı. **Kontrol edilmemiş bir imzayı başarı diye
+raporlamak, imzayı hiç görmemekten kötü.**
+
+Anahtarsız derleme hâlâ çalışıyor — baytların tekrar ürediğini kontrol
+eden herkes için gerekli — ama paketin imzasız olduğunu yüksek sesle
+söylüyor.
+
 ### `install.sh` artık binary'leri de kuruyor
 
 **Bu bir düzeltme, ve etkisi total.** Beş systemd biriminin hepsi

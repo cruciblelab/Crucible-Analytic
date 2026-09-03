@@ -79,6 +79,28 @@ dosyasını okur, ve o dosya kurulumdaki tek DDL yetkili DSN'i taşır.
 Taşıdığı şemanın parmak izi isteğinkiyle uyuşmazsa **reddeder**: eski
 bir upgrader, yeni bir panelin istediği göçü uygulamaz.
 
+**releasesign** (`cmd/releasesign`, `internal/releasesign`) — Bakımcının
+aleti, ve **pakete girmeyen tek binary**.
+Sürüm paketinin `SHA256SUMS` dosyasını Ed25519 ile imzalar, imza
+anahtarı üretir, ve bir paketi doğrular.
+
+Neden gerekli: `SHA256SUMS` derleme sırasında üretilir ve paketin içinde
+gelir, yani dosyanın bozulmadığını kanıtlar, **kimin ürettiğini
+kanıtlamaz**. Paketi verebilen herkes yanına uyan bir liste de verebilir.
+İnsan bir arşivi açmayı seçerken bu katlanılırdı; panel güncelleme
+isteyebildiği anda katlanılmaz olur — imzasız bir dünyada, güncelleme
+isteyebilen bir panel kod çalıştırabilen bir paneldir.
+
+Doğrulama tarafı `internal/releasesign`'da ve müşterinin makinesinde
+yalnız o çalışır. **Açık anahtar `upgrader.toml`'da durur**, veritabanında
+değil: o dosyayı `crucible` hesabı okuyamaz, yani ele geçirilmiş bir
+panel güncelleme isteyebilir ama ne kurulacağını etkileyemez. Anahtar
+veritabanında olsaydı bu tamamen çökerdi.
+
+İmzalanan şey liste, arşiv değil — kurulum betiği açılmış ağaçta çalışır
+ve arşiv imzası o ağacı doğrulanamaz bırakırdı. Ve `SHA256SUMS.sig`
+bilerek listenin içinde değildir: bir liste kendi kanıtına kefil olamaz.
+
 **snippet** — Müşterinin sayfasına eklenen küçük JavaScript. Beacon'a
 olay POST eder. `beacon -snippet <url> <site>` komutu üretir.
 

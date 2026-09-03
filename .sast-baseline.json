@@ -2,6 +2,38 @@
   "note": "Triaged gosec findings. Every entry needs a reason - see internal/sast. Regenerate with: go run ./internal/sast/cmd/sastdiff -init",
   "entries": [
     {
+      "fingerprint": "31a7c49723ae72af7c1a531e",
+      "rule": "G304",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "The path is this tool's own -sign/-verify argument, typed by whoever is building a release. cmd/releasesign is the maintainer's tool: it is not in the release package (see notShipped in release/release_test.go), no service invokes it, and it has no network surface at all - the only caller is a person at a terminal and release/build.sh. A tool whose whole job is 'sign the file I name' cannot refuse to open the file it was named.",
+      "snippet": "sums, err := os.ReadFile(path)"
+    },
+    {
+      "fingerprint": "e148659e986828f0b262c613",
+      "rule": "G304",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "The same argument with a fixed suffix appended, in the same maintainer-only tool. The suffix is written here rather than taken as a second flag precisely so the two names are decided in one place: a signer and a verifier that disagree about where the signature lives is a failure nobody sees until an install is refused.",
+      "snippet": "sig, err := os.ReadFile(path + \".sig\")"
+    },
+    {
+      "fingerprint": "9e249c02ed966cf88b599d79",
+      "rule": "G306",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "0644 is deliberate and 0600 would be the bug. This file is an Ed25519 signature over SHA256SUMS - public by construction, and useless if the person who unpacks the package cannot read it. It carries no secret: the signing key never leaves the maintainer's environment (CA_RELEASE_KEY) and is not derivable from a signature. Every other file in the package is world-readable for the same reason, and a signature nobody can read verifies nothing.",
+      "snippet": "if err := os.WriteFile(out, sig, 0o644); err != nil {"
+    },
+    {
+      "fingerprint": "56480be793f7c796f5080d36",
+      "rule": "G703",
+      "file": "cmd/releasesign/main.go",
+      "severity": "HIGH",
+      "reason": "Taint analysis following the -sign argument into the output path, which is that argument plus \".sig\". Same tool, same answer: the input is a path a maintainer typed, in a binary that is not shipped, has no network surface, and is run by a person or by release/build.sh. There is no untrusted source for the taint to have come from.",
+      "snippet": "if err := os.WriteFile(out, sig, 0o644); err != nil {"
+    },
+    {
       "fingerprint": "b060cf81d79b472f574506c1",
       "rule": "G304",
       "file": "internal/applier/config.go",
@@ -82,20 +114,20 @@
       "snippet": "return byte(v) == b && b&0x0f == 0x0a"
     },
     {
-      "fingerprint": "4d6e90ec4cf4f41d2675eb26",
-      "rule": "G304",
-      "file": "internal/logging/lifecycle.go",
-      "severity": "MEDIUM",
-      "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
-      "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
-    },
-    {
       "fingerprint": "d020082a35a957f24d2196ed",
       "rule": "G304",
       "file": "internal/logging/lifecycle.go",
       "severity": "MEDIUM",
       "reason": "Same, the read side of compressing a rotated log.",
       "snippet": "source, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "4d6e90ec4cf4f41d2675eb26",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
+      "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
     },
     {
       "fingerprint": "66f5946d5a67d042e4e0b6f7",
@@ -130,12 +162,12 @@
       "snippet": "return stat.Bavail * uint64(stat.Bsize), nil"
     },
     {
-      "fingerprint": "798c1599668a9329270b6212",
+      "fingerprint": "624a3104f4a4acfbd694a90d",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
-      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
-      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
+      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
       "fingerprint": "350d5279b7410b58d11468f1",
@@ -146,12 +178,12 @@
       "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "624a3104f4a4acfbd694a90d",
+      "fingerprint": "798c1599668a9329270b6212",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
-      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
-      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
+      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
+      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
     },
     {
       "fingerprint": "f1393b798a3aaa96ff378e19",

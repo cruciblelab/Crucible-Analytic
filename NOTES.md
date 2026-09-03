@@ -9946,3 +9946,97 @@ dosyayla tanımlı (`release/install.sh`, `docker/compose.yml`), ve
 §13.5'in o yolun komutunu anması gerekiyor. Üçüncü bir yol geldiğinde
 test, üç satırı yazılana kadar kırmızı kalıyor. İki mutasyon, ikisi de
 yakalandı.
+
+## Panelden güncelleme: engel algoritmada değil, anahtarın yerinde
+
+Müşteri sordu: güncellemeyi panele veremez miyiz, geliştirici isterse
+parola koyar, koymazsa müşteri kendi yapar?
+
+Fikir doğru ve deseni **zaten var**. Şema yükseltmesinde panel ayrıcalıklı
+işi kendisi yapmıyor: bir istek satırı yazıyor, ayrı bir binary ayrı bir
+işletim sistemi hesabıyla onu uyguluyor, ve panelin DDL koşan DSN'i
+okuma yetkisi bile yok. Parola kilidi de var (`KeyUpgradeLocked`).
+Yani icat edilecek bir şey değil, uzatılacak bir şey.
+
+Ama koda bakınca tek bir engel çıktı ve büyüktü.
+
+### SHA256SUMS kimin ürettiğini kanıtlamıyor
+
+Paketin içinde geliyor, ve derleme üretiyor. Yani dosyanın bozulmadığını
+söylüyor; **kimden geldiğini söylemiyor.** Paketi verebilen herkes yanına
+uyan bir liste de verebilir.
+
+Bu, insan bir arşivi açmayı *seçerken* katlanılır bir şey. Panel
+güncelleme isteyebildiği anda katlanılmaz oluyor: "şunu kur" ağdan gelen
+bir istek haline geliyor, ve isteyenin kendi sağladığı checksum bir
+kontrol değildir.
+
+**İmzasız bir dünyada, güncelleme isteyebilen bir panel kod
+çalıştırabilen bir paneldir.** Ve panel bu sistemin internete bakan
+parçası. O yüzden ilk dilim imzalama oldu; kuyruk, indirici, geri dönüş
+ve düğme sonra.
+
+### Asıl karar Ed25519 değil, anahtarın hangi dosyada durduğu
+
+Algoritma seçimi kolaydı: standart kütüphanede, 32 bayt, ayarlanacak
+parametre yok.
+
+Asıl karar şu: **açık anahtar `upgrader.toml`'da duruyor.** O dosya mod
+0640 ve `crucible-upgrader` grubunun; dört servis `crucible` olarak
+koşuyor ve okuyamıyor. Yani ele geçirilmiş bir panel güncelleme
+*isteyebilir*, ama ne kurulacağını *etkileyemez* — çünkü "bu gerçekten
+bizim mi" sorusunun cevabı panelin ulaşamadığı bir dosyadan
+hesaplanıyor.
+
+Anahtar veritabanında olsaydı bunun tamamı çökerdi. Panel veritabanına
+yazabiliyor. *Beş rol ayrımının tablolarda yaptığı şeyin, kodda
+yapılmış hâli.*
+
+### İmzalanan şey liste, arşiv değil
+
+Tarball'ı imzalamak akla ilk gelen. Yanlış olurdu: kurulum betiği
+**açılmış ağaçta** çalışıyor, ve arşiv imzası o ağacı doğrulanamaz
+bırakırdı. `SHA256SUMS`'ı imzalamak tek imzayla paketteki her dosyayı
+kapsıyor, çünkü liste zaten kapsıyor ve zaten açılışta doğrulanıyor.
+
+Ve `.sig` bilerek `SHA256SUMS`'ın içinde değil: **liste kendi kanıtına
+kefil olamaz.** Testte bu ayrı bir iddia olarak duruyor, çünkü ihlal
+edilirse belirtisi tuhaf olurdu — imzalı her pakette checksum adımı
+patlardı.
+
+### Mutasyon yine bir kontrolün gerekçesini buldu
+
+İmza uzunluğu kontrolünü silen mutasyon **geçti.** Bakınca sebebi
+açıktı: `ed25519.Verify` yanlış uzunluktaki imzayı zaten reddediyor.
+Yani kontrol güvenlik için gereksiz.
+
+Silecektim. Sonra ne için orada olduğunu sordum: **mesaj için.** Yarım
+inen bir `.sig` ile birinin düzenlediği bir paket aynı verdikti
+veriyordu, ve ikisinden yalnız biri "tekrar indir" ile düzeliyor. Test
+artık mesajın uzunluğu söylediğini de arıyor; mutasyon tekrarlandı,
+yakalandı.
+
+*Bir kontrolün gereksiz görünmesi, gerekçesinin başka katmanda olduğu
+anlamına gelebilir. Silmeden önce "bu ne için vardı" diye sormak
+gerekiyor.*
+
+### "İmzalı" ile "doğrulandı" ayrı şeyler
+
+`verify.sh` üç durumu ayırıyor: imzasız / imzalı ama kontrol edilmedi /
+imzalı ve doğrulandı. İkincisi anahtar verilmediğinde çıkıyor.
+
+Bunu ayırmasaydım, imza dosyasının varlığını başarı diye raporlardı —
+ve **kontrol edilmemiş bir imzayı başarı saymak, imzayı hiç görmemekten
+kötü**, çünkü ikincisi kimseyi yanıltmıyor. Mutasyon tam bunu denedi ve
+yakalandı.
+
+### İmzasız derleme bir hata değil, ama sessiz de değil
+
+Bu depoyu derleyen çoğu kişi baytların tekrar ürediğini kontrol ediyor,
+ve imza anahtarı yok. Anahtarsız derlemeyi reddetmek, tekrarlanabilirlik
+iddiasını **tam da onun için var olan insanlar** için
+doğrulanamaz yapardı.
+
+Ama imzasız paket, panelin güncelleme düğmesinin reddedeceği pakettir.
+Bunu müşterinin makinesinde öğrenmek yanlış yer. O yüzden `build.sh`
+imzasız olduğunu yüksek sesle söylüyor, ve testi de bunu arıyor.

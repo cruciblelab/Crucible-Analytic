@@ -171,6 +171,26 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 //
 // This asserts the fix where it matters - on the binaries that actually
 // ship, built by the script that actually builds them.
+// notShipped are the commands that must stay out of the package, with
+// the reason each one is out.
+//
+// An exclusion list, which is normally the thing this file argues
+// against - but the alternative here is worse. Without it the choice is
+// to ship a maintainer's tool to every customer, or to weaken the check
+// above into one that no longer notices a command build.sh was never
+// told about. This keeps the check total and makes the exception a
+// sentence somebody has to write.
+//
+// It is not a free pass in either direction: a name here that turns up
+// in the package fails too, so "excluded" cannot quietly become
+// "shipped anyway".
+var notShipped = map[string]string{
+	"releasesign": "the signing tool. It is how a release is made, not part of one, " +
+		"and the capability it represents belongs to whoever holds the key. " +
+		"Shipping it would be harmless - it cannot sign without CA_RELEASE_KEY - " +
+		"and it would still be the wrong signal in a customer's bin directory",
+}
+
 func TestEveryPackagedBinaryReportsItsVersion(t *testing.T) {
 	const version = "v0.0.0-stamp"
 	stage := build(t, repoRoot(t), t.TempDir(), version)
@@ -207,10 +227,21 @@ func TestEveryPackagedBinaryReportsItsVersion(t *testing.T) {
 		shipped[filepath.Base(p)] = true
 	}
 	for _, c := range commands {
-		if name := filepath.Base(c); !shipped[name] {
-			t.Errorf("cmd/%s is not in the release package; release/build.sh has a "+
-				"hand-written list of binaries and this one is not on it", name)
+		name := filepath.Base(c)
+		why, excluded := notShipped[name]
+		if shipped[name] {
+			if excluded {
+				t.Errorf("cmd/%s is listed as deliberately unshipped and the package "+
+					"contains it. One of the two is wrong, and the exclusion is the "+
+					"half somebody wrote down on purpose: %s", name, why)
+			}
+			continue
 		}
+		if excluded {
+			continue
+		}
+		t.Errorf("cmd/%s is not in the release package; release/build.sh has a "+
+			"hand-written list of binaries and this one is not on it", name)
 	}
 
 	for _, path := range packaged {
@@ -566,4 +597,155 @@ func directive(body, key string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// TestASignedPackageProvesWhoBuiltIt.
+//
+// # What this closes
+//
+// SHA256SUMS detects corruption. It says nothing about origin, because
+// the build writes it and ships it inside the same tarball - anybody
+// handing somebody a package hands them a matching list with it.
+//
+// That was tolerable while installing meant a person choosing to unpack
+// an archive. It stops being tolerable the moment the panel can ask for
+// an update, because then "install this" arrives over the network and a
+// checksum the requester also supplied is not a check. Without a
+// signature, a panel that can ask for an update is a panel that can run
+// code, and the panel is the part of this system facing the internet.
+//
+// # Built, signed and checked, rather than asserted
+//
+// The chain has four links - build writes the sums, the tool signs them,
+// the tool verifies them, verify.sh reports which - and each of them has
+// its own unit test. This runs all four against a package this test
+// built, because the failure that matters is two links that are each
+// correct and disagree about what is signed.
+func TestASignedPackageProvesWhoBuiltIt(t *testing.T) {
+	root := repoRoot(t)
+
+	// From the repository root: a test binary runs in its own package's
+	// directory, and ./cmd/releasesign does not exist from release/.
+	keygenCmd := exec.Command("go", "run", "./cmd/releasesign", "-keygen")
+	keygenCmd.Dir = root
+	keys, err := keygenCmd.Output()
+	if err != nil {
+		t.Fatalf("keygen: %v", err)
+	}
+	priv, pub := keyPair(t, string(keys))
+
+	out := t.TempDir()
+	cmd := exec.Command("./release/build.sh")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		"VERSION=v0.0.0-signed", "OUT="+out, "CA_RELEASE_KEY="+priv)
+	if combined, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build.sh with a signing key: %v\n%s", err, combined)
+	}
+	stage := filepath.Join(out, "crucible-analytic-v0.0.0-signed")
+
+	sig := filepath.Join(stage, "SHA256SUMS.sig")
+	if _, err := os.Stat(sig); err != nil {
+		t.Fatalf("build.sh was given a key and wrote no signature: %v", err)
+	}
+
+	// The signature is deliberately *not* in SHA256SUMS: it is what
+	// proves the list, and a list cannot vouch for its own proof. If it
+	// were listed, verify.sh's checksum step would fail on every signed
+	// package - which is a good way to find out this rule was broken.
+	sums, err := os.ReadFile(filepath.Join(stage, "SHA256SUMS"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(sums), "SHA256SUMS.sig") {
+		t.Error("SHA256SUMS lists its own signature, which cannot be right in either " +
+			"direction: signed before it exists, or listed after it was signed")
+	}
+
+	// verify.sh, told the key, must say it checked rather than say it
+	// found one. The distinction is the whole point: "signed" is not
+	// "verified", and a script that reported success on an unchecked
+	// signature would be worse than one that ignored signatures.
+	verify := exec.Command(filepath.Join(root, "release", "verify.sh"), stage)
+	verify.Dir = root
+	verify.Env = append(os.Environ(), "CA_RELEASE_PUBKEY="+pub)
+	got, err := verify.CombinedOutput()
+	if err != nil {
+		t.Fatalf("verify.sh refused a package it just signed: %v\n%s", err, got)
+	}
+	if !strings.Contains(string(got), "signed and verified") {
+		t.Errorf("verify.sh did not report that it checked the signature:\n%s", got)
+	}
+
+	// And the case that matters: one byte changed after signing.
+	f, err := os.OpenFile(filepath.Join(stage, "SHA256SUMS"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("\n")); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	verify = exec.Command(filepath.Join(root, "release", "verify.sh"), stage)
+	verify.Dir = root
+	verify.Env = append(os.Environ(), "CA_RELEASE_PUBKEY="+pub)
+	if got, err := verify.CombinedOutput(); err == nil {
+		t.Fatalf("verify.sh accepted a SHA256SUMS edited after signing:\n%s", got)
+	}
+}
+
+// TestAnUnsignedPackageSaysSoRatherThanLookingFine.
+//
+// A build with no key is the ordinary case - anybody checking that the
+// bytes reproduce builds without one - so it must not fail. What it must
+// not do either is stay quiet: an unsigned package is one the panel's
+// update button refuses, and a customer's machine is the wrong place to
+// discover that.
+func TestAnUnsignedPackageSaysSoRatherThanLookingFine(t *testing.T) {
+	root := repoRoot(t)
+
+	out := t.TempDir()
+	cmd := exec.Command("./release/build.sh")
+	cmd.Dir = root
+	// CA_RELEASE_KEY explicitly cleared: a maintainer running this suite
+	// may have it set, and the test would then silently measure the
+	// signed path while claiming to measure the other one.
+	cmd.Env = append(os.Environ(), "VERSION=v0.0.0-unsigned", "OUT="+out, "CA_RELEASE_KEY=")
+	combined, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("build.sh without a signing key: %v\n%s", err, combined)
+	}
+	if !strings.Contains(string(combined), "unsigned") {
+		t.Errorf("build.sh built an unsigned package without saying so:\n%s", combined)
+	}
+
+	stage := filepath.Join(out, "crucible-analytic-v0.0.0-unsigned")
+	if _, err := os.Stat(filepath.Join(stage, "SHA256SUMS.sig")); err == nil {
+		t.Error("a build with no key produced a signature")
+	}
+}
+
+// keyPair pulls the two halves out of what -keygen printed.
+//
+// Parsed rather than passed around as fields, because the printed form
+// is what a maintainer copies: a test that read the key some other way
+// would keep passing after the output changed shape and left a person
+// pasting the wrong line into upgrader.toml.
+func keyPair(t *testing.T, printed string) (priv, pub string) {
+	t.Helper()
+	for _, line := range strings.Split(printed, "\n") {
+		switch {
+		case strings.HasPrefix(line, "CA_RELEASE_KEY="):
+			priv = strings.TrimPrefix(line, "CA_RELEASE_KEY=")
+		case strings.HasPrefix(line, "public_key"):
+			if parts := strings.Split(line, `"`); len(parts) >= 2 {
+				pub = parts[1]
+			}
+		}
+	}
+	if priv == "" || pub == "" {
+		t.Fatalf("could not read both halves out of -keygen:\n%s", printed)
+	}
+	return priv, pub
 }

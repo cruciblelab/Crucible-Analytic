@@ -100,6 +100,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
+| **V** Panelden güncelleme | 🟡 **1/5** | V2–V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -6657,6 +6658,121 @@ geçici bir `--bin-dir`, ve dosya oraya varmış mı diye bakmak.
 | 0644 ile kur | yakalandı: *systemd bunu çalıştıramaz* |
 
 *Bir düzeltmenin metnini test etmek, düzeltmeyi test etmek değildir.*
+
+---
+
+### V grubu — Panelden güncelleme 🟡
+
+*(Müşterinin sorusu: "Panele veremez miyiz? Geliştirici isterse ayarlardan
+şifre koyar, şifreyle müşteriler güncelleme yapabilir. Şifre koymazsa
+'bize muhtaç olmasınlar' derse açar.")*
+
+**İki karar verildi:** paket bir adresten **indirilecek** (müşteri
+SSH'siz güncelleyebilsin diye), ve binary güncellemesi **varsayılan
+kilitli** başlayacak — şema yükseltmesinin tersine.
+
+Varsayılanın ters olmasının gerekçesi ölçülebilir bir fark: bozuk bir
+şema yükseltmesi parmak iziyle yakalanıyor ve hiçbir servisi
+durdurmuyor; bozuk bir binary siteyi düşürüyor. Müşterinin kendi kuralı
+da aynı yere çıkıyor — *"geliştiriciye iş çıkartan şey parolanın
+arkasında olmalı."*
+
+#### Mimarinin zaten hazır olan yarısı
+
+Panel ayrıcalıklı işi kendisi yapmıyor, **istiyor.** Şema
+yükseltmesinde: panel bir istek satırı yazıyor, `crucible-upgrader`
+kendi işletim sistemi hesabıyla onu uyguluyor, ve panelin DDL çalıştıran
+DSN'i okuma yetkisi yok. Binary güncellemesi bu desenin uzatılması.
+
+#### V1 — Sürüm imzası ✅ *(2026-09-03)*
+
+**Tespit edilen engel buydu.** `SHA256SUMS` derleme sırasında üretiliyor
+ve **aynı tarball'ın içinde** geliyor. Yani dosyanın bozulmadığını
+kanıtlıyor, **kimin ürettiğini kanıtlamıyor.** Paketi verebilen herkes
+yanına uyan bir liste de verebilir.
+
+Bu, insan bir arşivi açmayı seçerken katlanılırdı. Panel güncelleme
+isteyebildiği anda katlanılmaz oluyor: "şunu kur" ağdan gelen bir istek
+haline geliyor, ve isteyenin kendi sağladığı bir checksum kontrol
+değildir. **İmzasız bir dünyada, güncelleme isteyebilen bir panel kod
+çalıştırabilen bir paneldir** — ve panel bu sistemin internete bakan
+parçası.
+
+**Ed25519**, standart kütüphanede, 32 baytlık anahtar bir satıra
+sığıyor, ayarlanacak parametresi yok.
+
+**İmzalanan şey `SHA256SUMS`'ın kendisi**, tarball değil. Tek imza
+paketteki her dosyayı kapsıyor, çünkü liste zaten kapsıyor ve zaten
+açılışta doğrulanıyor. Arşivi imzalamak, açılmış ağacı doğrulanamaz
+bırakırdı — ve kurulum betiği tam olarak o ağaçta çalışıyor.
+
+**Asıl karar algoritmada değil, anahtarın yerinde.** Açık anahtar
+`upgrader.toml`'a gidiyor: mod 0640, `crucible-upgrader` grubunun. Dört
+servis `crucible` olarak koşuyor ve o dosyayı **okuyamıyor**. Yani
+ele geçirilmiş bir panel güncelleme *isteyebilir*, ama ne kurulacağını
+*etkileyemez* — çünkü "bu gerçekten bizim mi" sorusunun cevabı panelin
+ulaşamadığı bir dosyadan hesaplanıyor. Anahtar veritabanında olsaydı
+bunun tamamı çökerdi; panel veritabanına yazabiliyor.
+
+**Alan ayracı (domain separator)** var ve testi de var: Ed25519 kendisine
+verilen baytları imzalar, yani bu projenin ürettiği başka bir belgenin
+imzası — bir jeton, bir snippet — `SHA256SUMS` diye sunulabilseydi burada
+doğrulanırdı. Öneki atlayan bir imza reddediliyor.
+
+| ne | nerede |
+|---|---|
+| Doğrulama | `internal/releasesign` — müşterinin makinesinde yalnız bu çalışır |
+| İmzalama | `cmd/releasesign` — bakımcının aleti, pakete girmiyor |
+| Paket | `build.sh` anahtar varsa imzalıyor, yoksa **imzasız olduğunu söylüyor** |
+| Kontrol | `verify.sh` üç durumu ayırıyor: imzasız / imzalı ama kontrol edilmedi / imzalı ve doğrulandı |
+
+**"İmzalı" ile "doğrulandı" ayrımı bilinçli.** Kontrol edilmemiş bir
+imzayı başarı diye raporlamak, imzayı hiç görmemekten kötü.
+
+**Ölçüm:** 11,8 milyon fuzz çalıştırması (6,5 M doğrulayıcı + 5,3 M
+anahtar ayrıştırıcı), sıfır hata.
+
+**Beş mutasyon:**
+
+| mutasyon | sonuç |
+|---|---|
+| Anahtarsız doğrulayıcı her şeyi kabul etsin | yakalandı |
+| Alan ayracını kaldır | yakalandı |
+| İmza uzunluğu kontrolünü kaldır | **ilk turda geçti** |
+| `verify.sh` kontrol etmeden başarı yazsın | yakalandı |
+| `build.sh` anahtar varken imzalamasın | yakalandı |
+
+Üçüncüsü öğreticiydi. `ed25519.Verify` yanlış uzunluktaki imzayı zaten
+reddediyor, yani kontrol **güvenlik için gereksiz**. Yerini hak ettiği
+yer mesaj: yarım inen bir `.sig` ile birinin düzenlediği bir paket aynı
+verdikti veriyordu, ve ikisinden yalnız biri "tekrar indir" ile
+düzeliyor. Test mesajı da arar hale getirildi, mutasyon tekrarlandı,
+yakalandı.
+
+*Bir kontrolün gereksiz görünmesi, gerekçesinin başka yerde olduğu
+anlamına gelebilir. Silmeden önce sormak gerekiyor.*
+
+#### V2 — İstek kuyruğu ⬜
+
+Şema kuyruğunun aynısı: istek tablosu, tek-uçuş tekil indeksi, `Ask` /
+`Claim` / `Finish` / `Latest`. Şema sürümü 9'a çıkacak.
+
+#### V3 — İndiren ve kuran uygulayıcı ⬜
+
+`upgrader`'ın ikinci işi: yapılandırmadaki adresten indir, **imzayı
+doğrula**, sürümün gerçekten yeni olduğunu doğrula, kur.
+
+#### V4 — Geri dönüş ⬜
+
+**Bu grubun en riskli parçası ve atlanamaz.** Collector müşterinin
+sitesinin önünde; açılmayan bir binary siteyi düşürür, ve düzeltecek
+paneli de düşürebilir. Eski binary saklanmalı, ve uygulayıcı yenisinin
+gerçekten ayağa kalktığını görmeden eskisini atmamalı.
+
+#### V5 — Panel yüzeyi ⬜
+
+Sağlık sayfasında bölüm ve düğme, `KeyReleaseUpdateLocked` ayarı
+**varsayılan kilitli**, devgate ile, ve iki dilde mesajlar.
 
 ---
 

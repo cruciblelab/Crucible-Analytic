@@ -132,6 +132,29 @@ echo "== checksums"
 ( cd "${STAGE}" && find . -type f ! -name SHA256SUMS -print0 \
     | sort -z | xargs -0 sha256sum > SHA256SUMS )
 
+# The signature, when there is a key to make one with.
+#
+# Optional on purpose. Anybody can build this repository and most builds
+# are somebody checking that the bytes reproduce - a build that refused
+# without a signing key would make the reproducibility claim
+# unverifiable by exactly the people it exists for.
+#
+# But the omission is said out loud, because an unsigned package is a
+# package the panel's update button will refuse, and finding that out on
+# a customer's machine is the wrong place.
+if [ -n "${CA_RELEASE_KEY:-}" ]; then
+  echo "== signature"
+  go run ./cmd/releasesign -sign "${STAGE}/SHA256SUMS"
+  # Added to the checksum list *after* it is signed would be circular, so
+  # the .sig is deliberately not in SHA256SUMS: it is what proves the
+  # list, and a list cannot vouch for its own proof.
+else
+  echo "== signature: skipped (CA_RELEASE_KEY unset)"
+  echo "   This package is unsigned. The panel's update button refuses one,"
+  echo "   and an operator installing it by hand has no way to tell it came"
+  echo "   from us. Fine for a local build; not for a release."
+fi
+
 echo "== what must not be here"
 # The check the scope note promises, in its own script so it can be run
 # against a package nobody here built - see release/verify.sh.
