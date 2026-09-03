@@ -253,28 +253,25 @@ func TestASharePercentageIsOfTheSummaryAboveIt(t *testing.T) {
 // happens to run in.
 func percentagesIn(body string) []float64 {
 	var out []float64
-	for rest := body; ; {
-		const open = `<td class="sayi soluk">`
-		i := strings.Index(rest, open)
-		if i < 0 {
-			return out
-		}
-		rest = rest[i+len(open):]
-		j := strings.Index(rest, "</td>")
-		if j < 0 {
-			return out
-		}
-		cell := rest[:j]
-		rest = rest[j:]
-
-		cell = strings.TrimSpace(strings.ReplaceAll(cell, "%", ""))
+	// barShare, from sharebar_integration_test.go, rather than a second
+	// pattern for the same cell.
+	//
+	// There were two, and adding the share bar moved the number inside a
+	// span: this helper went on matching `<td class="sayi soluk">` and
+	// reported that a page full of percentages had none. Two patterns for
+	// one piece of markup is one pattern and one thing that will be wrong
+	// later.
+	for _, m := range barShare.FindAllStringSubmatch(body, -1) {
+		cell := strings.TrimSpace(m[1])
+		cell = strings.ReplaceAll(cell, "%", "")
 		cell = strings.ReplaceAll(cell, ",", ".")
 		// Non-breaking space, which the CLDR percent pattern inserts.
-		cell = strings.ReplaceAll(cell, " ", "")
+		cell = strings.ReplaceAll(cell, "\u00a0", "")
 		if v, err := strconv.ParseFloat(cell, 64); err == nil {
 			out = append(out, v)
 		}
 	}
+	return out
 }
 
 // TestTheDetailPageIsPagedAndKeepsThePeriod.

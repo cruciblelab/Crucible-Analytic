@@ -47,7 +47,19 @@ needed. */}}
 {{- if .KnownBot}} <span class="rozet-bot">{{t "pano.kirilim.bilinen_bot"}}</span>{{end}}</th>
 <td class="sayi">{{.Count}}</td>
 <td class="sayi">{{.Visitors}}</td>
-<td class="sayi soluk">{{.Share}}</td>
+<td class="sayi soluk pay">
+{{- /* The bar and the number in one cell, because they are one fact
+said twice. An SVG rect takes its width as a presentation attribute
+rather than a style, so it survives `style-src \'self\'` - a bar sized
+with a style attribute is blocked outright and silently does not draw.
+
+aria-hidden because the percentage is right beside it: a screen reader
+told the number and then told a picture of the number has been told
+twice. */}}
+{{- if .Bar}}
+<svg class="pay-cubuk" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="pay-dolgu" x="0" y="0" height="8" width="{{.Bar}}" /></svg>
+{{- end}}
+<span class="pay-sayi">{{.Share}}</span></td>
 </tr>
 {{- end}}
 </tbody>

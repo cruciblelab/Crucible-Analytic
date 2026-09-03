@@ -10530,3 +10530,74 @@ getirme *(yakalandı, iki alt durumda)*, alan yolunu hiç üretmemek
 gün / saatlik = 144 nokta, 10.726 bayt, 11,4 ms. 168 noktalık bir yol,
 koordinat başına tek ondalıkla 3 KB'ın altında; `%v` ile yazılsaydı
 otuz kilobayt olurdu — stylesheet'in tamamı on dört.
+
+---
+
+## T7b — Kırılım satırlarında oran çubuğu
+
+Grafiğin ikinci yarısı: dokuz tablo hâlâ düz sayıydı. Bir tablonun
+söylediği asıl şey **"bir tanesi baskın mı, yoksa eşit mi dağılmış"**, ve
+bu yüzde sütununu satır satır okuyarak çıkarılıyordu.
+
+### CSP çubuğu bir kez zaten çözmüştü — ama yetmiyordu
+
+Politika `style-src 'self'`, unsafe-inline yok. Yani `style="width:12%"`
+engelleniyor ve çubuk **sessizce çizilmiyor**. D3'ün skor histogramı bunu
+onar adet %10'luk genişlik sınıfıyla çözmüştü.
+
+O çözünürlük burada yetmiyor: bir kırılımın üst satırları birbirinden bir
+iki puan uzakta — 12,4 / 12,2 / 11,9 / 11,6 — ve onluğa yuvarlanınca
+**sekiz kez çizilmiş tek bir çubuk** oluyorlar.
+
+Cevap SVG: `<rect>`'in `width`'i bir *sunum özniteliği*, stil değil.
+Politika izin veriyor, değer tam.
+
+### Ölçek mutlak, en büyük satıra göre değil
+
+En büyük satırı tam genişlik yapmak satırları ayırt etmeyi kolaylaştırır
+ve **yanlış çubuktur**: `%12,4` yazan bir hücrenin içinde tam genişlikte
+bir çubuk, kendi içindeki sayıyla çelişen bir resimdir. Ve insanların
+inandığı yarı resimdir.
+
+Mutlak ölçek her iki şekli de doğru anlatıyor: dokuz sayfanın her biri
+trafiğin dokuzda birini alıyorsa dokuz kısa eşit çubuk — "eşit dağılmış"
+tam olarak böyle görünür. Bir ülke %39, altısı onda bir ise bir uzun altı
+kısa. Çubuğun var olma sebebi bu okuma, ve göreli ölçek ikisi arasındaki
+farkı siliyor.
+
+### Ekranda çıkan kusur: çubuk isim sütununu ezdi
+
+Çubuk eklenince `www.google.com` iki satıra, `/blog/demleme-rehberi` üç
+satıra bölündü — aranan şeyin **isim** olduğu bir tabloda. Çubuğun beş
+rem'i isimlerden çıkmıştı.
+
+Onarım çubuğu küçültmek değil, tabloya boşluğu kimin alacağını söylemek:
+isim sütunu `width: 100%`, sayısal sütunlar içeriği kadar. Auto tablo
+düzeninde %100 isteyen hücre, diğerleri payını aldıktan sonra kalanı
+alır.
+
+### Ve iki test kendi kusurlarını gösterdi
+
+**1. Mutasyon hayatta kaldı.** Çubuğu koşulsuz çizdim; test yeşil kaldı.
+Sebep: paydası olmayan satırda `width=""` üretiliyor, ve benim kalıbım
+`width="([0-9.]+)"` arıyordu — yani **kusurun tam da ürettiği şekli
+göremiyordu**. Kalıp artık öğenin kendisini arıyor.
+
+*Yokluğu "sayı bulamadım" ile aynı şey sanan bir kontrol, kusurun ürettiği
+şekli görmez.*
+
+**2. İkinci test hiçbir şeye bakmıyordu.** Payı olmayan satırları arıyor,
+ama yüzdeyi `%?([0-9,.]+)` ile eşliyordu — uzun tire hiçbirini
+karşılamıyor. On dört satırın üzerinden yeşil geçti. Alttaki sayaç
+söyledi.
+
+*Bir testin yeşil olması, bir şeye baktığı anlamına gelmez.*
+
+**3. Ve mevcut iki test kırıldı** — `percentagesIn` yardımcısı
+`<td class="sayi soluk">` arıyordu, ben sınıfa `pay` ekledim. Aynı
+biçimlendirme için iki kalıp vardı; artık bir tane var, ve ikisi de onu
+kullanıyor.
+
+**İki mutasyon:** koşulsuz çubuk *(kalıp düzeltildikten sonra
+yakalandı)*, çubuğu yanlış sütundan ölçmek *(yakalandı — 55,6 birim
+genişlik, yanında %66,7)*.

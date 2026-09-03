@@ -26,6 +26,17 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
+### Kırılım tablolarında oran çubuğu
+
+Her kırılım satırının yüzdesinin yanında artık bir **oran çubuğu** var.
+Ölçek mutlak: tam genişlik trafiğin tamamı demek, "buradaki en büyük
+satır" değil — çubuk hücrenin içindeki sayıyla aynı şeyi söylüyor.
+
+Payı bilinmeyen satırda çubuk **hiç çizilmiyor**. Sıfır genişlikte bir
+çubuk "%0" demektir, ve o "bilinmiyor"dan farklı bir iddiadır.
+
+Dar ekranlarda çubuk gizleniyor, sayı kalıyor.
+
 ### Panoda zaman grafiği
 
 Pano artık dönem boyunca hareketi **çiziyor**: sayfa görüntüleme ve

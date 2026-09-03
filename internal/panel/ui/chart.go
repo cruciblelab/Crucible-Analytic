@@ -456,3 +456,55 @@ func niceAxis(peak int) (top, step int) {
 func coord(v float64) string {
 	return strconv.FormatFloat(v, 'f', 1, 64)
 }
+
+// BarWidth is the share bar beside a breakdown row's percentage, in the
+// 0-100 user units of a viewBox="0 0 100 8".
+//
+// # Why a number and not a CSS class
+//
+// The panel's policy is `style-src 'self'` with no unsafe-inline, so a
+// style attribute is blocked outright and a bar sized that way silently
+// does not render. D3's histogram solved this with eleven ten-per-cent
+// width classes, which is enough resolution for ten fixed bands and is
+// not enough here: a breakdown's top rows sit within a point or two of
+// each other - 12.4, 12.2, 11.9, 11.6 - and rounded to tens they are one
+// bar drawn eight times.
+//
+// An SVG rect takes its width as a presentation attribute rather than a
+// style, so the policy allows it and the value is exact.
+//
+// # Why the scale is absolute and not relative to the biggest row
+//
+// Scaling so the largest row fills the column is what makes rows easy to
+// tell apart, and it is the wrong bar. A full-width bar beside "%12,4"
+// is a picture contradicting the number printed inside it, and the
+// picture is the half people believe.
+//
+// Absolute scaling tells the truth in both shapes this data comes in.
+// Nine pages that each take a ninth of the traffic draw nine short equal
+// bars, which is what "evenly spread" looks like; one country with 39%
+// and six with a tenth each draws one long bar and six short ones, which
+// is what "one dominant" looks like. Those two are the reading the bar
+// exists to give, and a relative scale erases the difference between
+// them.
+//
+// An empty string when there is no denominator. The share is a dash in
+// that case, and a zero-width bar would say "0%" - a different claim
+// from "not known", and the one this project has already refused to
+// draw once, in Formatter.Share.
+func BarWidth(part, total int64) string {
+	if total <= 0 || part <= 0 {
+		return ""
+	}
+	w := 100 * float64(part) / float64(total)
+	if w > 100 {
+		// A row bigger than its own denominator is a mismatch between
+		// the rows and the summary they divide by - a real possibility
+		// when the two came from calls with different filters. Clamped
+		// rather than drawn past the edge, because an overflowing bar is
+		// read as a rendering fault rather than as the data problem it
+		// is, and the number beside it still says what was measured.
+		w = 100
+	}
+	return strconv.FormatFloat(w, 'f', 1, 64)
+}

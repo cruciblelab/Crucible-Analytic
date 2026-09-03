@@ -211,6 +211,10 @@ type breakdownRow struct {
 	// Share is the row's percentage of the summary, or the dash when
 	// there is no denominator. Never "0%" for a missing total.
 	Share string
+	// Bar is the same figure as the width of an SVG rect, empty when
+	// Share is the dash. See ui.BarWidth for why it is a number rather
+	// than a CSS class and why the scale is absolute.
+	Bar string
 	// Detail is a human-readable name beside Label where the API resolved
 	// one: an ASN's organisation, or the bot behind a fingerprint.
 	//
@@ -345,6 +349,7 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 			Count:    f.Number(int64(row.Count)),
 			Visitors: f.Number(int64(row.Visitors)),
 			Share:    f.Share(int64(row.Count), total),
+			Bar:      ui.BarWidth(int64(row.Count), total),
 		}
 		// The collector's rows carry bot addresses where the beacon's
 		// carry visitors. Same column position, different question, and

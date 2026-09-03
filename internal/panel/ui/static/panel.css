@@ -1134,3 +1134,64 @@ code.secret {
   padding: calc(var(--olcu) * 1.25);
   margin: 0 0 var(--olcu);
 }
+
+/* The share bar beside a breakdown row's percentage.
+ *
+ * An SVG rect rather than a styled div: the policy is `style-src
+ * \'self\'` with no unsafe-inline, so a width set in a style attribute
+ * is blocked and the bar silently does not draw. A rect's width is a
+ * presentation attribute, which the policy allows and which is exact -
+ * D3\'s histogram had to round to ten per cent for the same reason, and
+ * a breakdown\'s top rows sit within a point of each other.
+ *
+ * The scale is absolute: full width means all of the traffic, not "the
+ * largest row here". See ui.BarWidth. */
+.kirilim-tablo td.pay {
+  white-space: nowrap;
+}
+
+/* The name column absorbs every spare pixel and the numeric ones take
+ * what they need.
+ *
+ * Without this the bar's five rem came out of the names: adding it broke
+ * "www.google.com" across two lines and "/blog/demleme-rehberi" across
+ * three, in a table where the name is the thing being looked up. In auto
+ * table layout a cell asking for 100% gets the slack after the others
+ * have taken their content width, which is exactly the split wanted
+ * here. */
+.kirilim-tablo th[scope="row"],
+.kirilim-tablo thead th:first-child {
+  width: 100%;
+}
+
+.pay-cubuk {
+  display: inline-block;
+  vertical-align: middle;
+  /* Wide enough that a ten-per-cent row is still a visible mark. At
+   * 3.5rem it was five pixels, which reads as "almost nothing" for a
+   * row that is a tenth of the traffic. */
+  width: 4rem;
+  height: 0.5rem;
+  margin-inline-end: 8px;
+  background: var(--vurgu-zemin);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pay-dolgu {
+  fill: var(--vurgu);
+  fill-opacity: 0.55;
+}
+
+.pay-sayi {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Narrow screens read the number and lose the bar rather than wrapping
+ * the cell onto two lines: the bar is the redundant half of the pair. */
+@media (max-width: 640px) {
+  .pay-cubuk {
+    display: none;
+  }
+}

@@ -508,3 +508,54 @@ func TestTheEndLabelsArePinnedToTheEdgesTheySitOn(t *testing.T) {
 		}
 	}
 }
+
+// TestTheShareBarSaysTheSameThingTheNumberDoes.
+//
+// The bar sits in the same cell as the percentage. A bar whose length
+// disagrees with the number printed inside it is worse than no bar,
+// because the picture is the half people believe.
+func TestTheShareBarSaysTheSameThingTheNumberDoes(t *testing.T) {
+	for _, tc := range []struct {
+		part, total int64
+		want        string
+	}{
+		{124, 1000, "12.4"},
+		{392, 1000, "39.2"},
+		{1, 1, "100.0"},
+		{1, 3, "33.3"},
+	} {
+		if got := BarWidth(tc.part, tc.total); got != tc.want {
+			t.Errorf("BarWidth(%d, %d) = %q, want %q", tc.part, tc.total, got, tc.want)
+		}
+	}
+}
+
+// TestNoDenominatorDrawsNoBarRatherThanAnEmptyOne.
+//
+// Formatter.Share already refuses to draw "no requests yet" as "0%".
+// A zero-width bar makes exactly that claim in a picture, so the bar has
+// to be absent rather than empty - the same distinction, one layer out.
+func TestNoDenominatorDrawsNoBarRatherThanAnEmptyOne(t *testing.T) {
+	for name, tc := range map[string][2]int64{
+		"no denominator":       {5, 0},
+		"negative denominator": {5, -3},
+		"nothing in this row":  {0, 100},
+	} {
+		if got := BarWidth(tc[0], tc[1]); got != "" {
+			t.Errorf("%s: BarWidth(%d, %d) = %q; want no bar at all", name, tc[0], tc[1], got)
+		}
+	}
+}
+
+// TestARowBiggerThanItsDenominatorIsClampedRatherThanDrawnPastTheEdge.
+//
+// Possible whenever the rows and the summary they divide by came from
+// calls with different filters, which this project has already had
+// happen once. An overflowing bar reads as a rendering fault; a
+// full-width one reads as "all of it", and the number beside it still
+// says what was measured.
+func TestARowBiggerThanItsDenominatorIsClampedRatherThanDrawnPastTheEdge(t *testing.T) {
+	if got := BarWidth(150, 100); got != "100.0" {
+		t.Errorf("BarWidth(150, 100) = %q, want the bar clamped to the column", got)
+	}
+}
