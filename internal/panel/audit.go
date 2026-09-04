@@ -113,6 +113,16 @@ const (
 	// records that a person asked for one, which is the half that has to
 	// survive after the request row is swept.
 	ActionUpgradeRequested = "upgrade.requested"
+	// ActionReleaseRequested marks somebody asking for a new version of
+	// the binaries.
+	//
+	// Separate from ActionUpgradeRequested because the two answer
+	// different questions after the fact. "Who migrated the database" and
+	// "who replaced the collector" are the two things somebody
+	// investigating an outage asks in that order, and a single action
+	// with a field to distinguish them is one grep away from being read
+	// as the wrong one.
+	ActionReleaseRequested = "release.requested"
 
 	// ActionRangeRefreshRequested marks somebody pressing "refresh the
 	// IP datasets now".

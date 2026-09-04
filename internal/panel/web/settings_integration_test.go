@@ -16,6 +16,7 @@ package web
 
 import (
 	"context"
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -209,7 +210,7 @@ func TestAGuardedSettingIsRefusedWithoutTheDeveloperPassword(t *testing.T) {
 				"deger":   {"full"},
 			}
 			if name == "yanlış parola" {
-				form.Set("gelistirici_parolasi", "bu-parola-yanlis")
+				form.Set(devgate.FormField, "bu-parola-yanlis")
 			}
 			status, _ := postSetting(t, client, server.URL, form)
 			if status == http.StatusOK {
@@ -251,12 +252,12 @@ func TestTheFormCannotChooseWhichActionItIsAuthorizedFor(t *testing.T) {
 		"deger":   {"full"},
 		// Field names a request would use if the server read the action
 		// or the scope from it. It does not; these must be inert.
-		"eylem":                {panel.GateAction(unguardedKey)},
-		"action":               {panel.GateAction(unguardedKey)},
-		"actions":              {panel.GateAction(unguardedKey)},
-		"scope":                {"global"},
-		"site":                 {""},
-		"gelistirici_parolasi": {"bu-parola-yanlis"},
+		"eylem":           {panel.GateAction(unguardedKey)},
+		"action":          {panel.GateAction(unguardedKey)},
+		"actions":         {panel.GateAction(unguardedKey)},
+		"scope":           {"global"},
+		"site":            {""},
+		devgate.FormField: {"bu-parola-yanlis"},
 	})
 	if status == http.StatusOK {
 		t.Error("the request talked its way past the gate")
@@ -439,10 +440,10 @@ func TestExtraFieldsInTheFormAreInert(t *testing.T) {
 	}
 
 	status, body := postSetting(t, client, server.URL, url.Values{
-		"islem":                {"kaydet"},
-		"anahtar":              {string(panel.KeyLogRetentionDays)},
-		"deger":                {"21"},
-		"gelistirici_parolasi": {testDevPassword},
+		"islem":           {"kaydet"},
+		"anahtar":         {string(panel.KeyLogRetentionDays)},
+		"deger":           {"21"},
+		devgate.FormField: {testDevPassword},
 		// Named after a different setting entirely. If any of these
 		// reached the routing, the write would land somewhere else.
 		"eylem":   {panel.GateAction(panel.KeyLogArchiveAfterDays)},
@@ -487,10 +488,10 @@ func TestTheRightPasswordOnTheRightSettingWorks(t *testing.T) {
 	// would fail for a reason that has nothing to do with the gate.
 	// This one is guarded and has no precondition.
 	status, body := postSetting(t, client, server.URL, url.Values{
-		"islem":                {"kaydet"},
-		"anahtar":              {string(panel.KeyLogRetentionDays)},
-		"deger":                {"21"},
-		"gelistirici_parolasi": {testDevPassword},
+		"islem":           {"kaydet"},
+		"anahtar":         {string(panel.KeyLogRetentionDays)},
+		"deger":           {"21"},
+		devgate.FormField: {testDevPassword},
 	})
 	if status != http.StatusOK {
 		t.Fatalf("the right password on the right setting answered %d: %s", status, noticeOf(body))
@@ -528,10 +529,10 @@ func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
 	restoreGlobal(t, store, panel.KeyPrivacyIPStorage)
 
 	status, body := postSetting(t, client, server.URL, url.Values{
-		"islem":                {"kaydet"},
-		"anahtar":              {string(panel.KeyPrivacyIPStorage)},
-		"deger":                {"full"},
-		"gelistirici_parolasi": {testDevPassword},
+		"islem":           {"kaydet"},
+		"anahtar":         {string(panel.KeyPrivacyIPStorage)},
+		"deger":           {"full"},
+		devgate.FormField: {testDevPassword},
 	})
 	if status == http.StatusOK {
 		t.Fatal("ip_storage=full was accepted with no ip_hash_key configured")

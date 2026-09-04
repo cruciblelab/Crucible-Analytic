@@ -10601,3 +10601,93 @@ kullanıyor.
 **İki mutasyon:** koşulsuz çubuk *(kalıp düzeltildikten sonra
 yakalandı)*, çubuğu yanlış sütundan ölçmek *(yakalandı — 55,6 birim
 genişlik, yanında %66,7)*.
+
+---
+
+## V5 — panelde güncelleme düğmesi, ve yanındaki dört yıllık sessiz kusur
+
+V1 paketleri imzaladı, V2 kuyruğu yazdı, V3 indirip doğruladı, V4 kurup
+geri döndü. Hiçbiri tarayıcıdan erişilebilir değildi: kuyruğun tablosu
+vardı, sayfası yoktu — müşterinin "bu özellik yok" diye yaşadığı durum.
+
+### İki kilit, iki farklı varsayılan
+
+`upgrade.locked` **kapalı**, `release.locked` **açık**. Bu bir tutarsızlık
+değil, hangi işlemin daha riskli olduğunun dürüst ifadesi.
+
+Şema yükseltmesi çalışmaya devam eden bir veritabanına tablo ekler. Sürüm
+güncellemesi **collector'ı** değiştirir — müşterinin sitesinin önünde
+duran programı. Açılmayan bir paket siteyi indirir, ve "geri al" düğmesini
+sunacak panel de yanında inmiş olabilir.
+
+Bir test iki varsayılanın **birbirinden farklı** kalmasını da kontrol
+ediyor: aynılaşırlarsa, bu projenin risk hakkındaki ifadesi sessizce
+kaybolmuş demektir.
+
+### Sürüm neden elle yazılıyor
+
+Panel hangi sürümlerin var olduğunu **bilmez**, ve bu eksiklik değil
+yapıdır. Paketler `upgrader.toml`'daki bir adresten gelir ve aynı
+dosyadaki açık anahtarla doğrulanır — veritabanında değil, çünkü
+veritabanına erişen birinin değiştirebileceği bir anahtar hiçbir şeyi
+yetkilendirmez. Panelde ikisi de yok.
+
+Liste sunan bir panel, listeyi kendisi çekmek zorunda kalırdı; ve sunduğu
+sürüm imzanın değil **panelin sözü** olurdu. Bedeli gerçek: bu düğme şema
+düğmesi kadar tek tık değil. Panelin anahtarı tutmamasının bedeli bu, ve
+doğru yön bu.
+
+### Ve ikizini yazarken birincinin şekli göründü
+
+`devgate.FromRequest` sabit bir alan adı okur: `developer_password`.
+Sağlık sayfasının yükseltme formu `gelistirici_parolasi` gönderiyordu.
+
+Yani **kilitli bir kurulumda şema yükseltmesi hiçbir zaman açılamamış.**
+Doğru parolayı yazan kişiye sayfa şunu diyordu: *"Yükseltme geliştirici
+parolasına kilitli. Parolayı yazarak başlatabilirsiniz."* — az önce
+yaptığı şeyi yapmasını söylüyordu, ve sonsuza kadar söyleyecekti.
+
+Ayarlar sayfası aynı yanlış adı kullanıyordu ama çalışıyordu, çünkü
+`settings.go` o adı **kendisi** okuyordu. İki isim vardı; biri iki yerde
+tutarlıydı, biri değildi.
+
+Neden hayatta kaldı: hiçbir test o formu parolayla göndermemişti. Store
+testleri `devgate.Authorization`'ı doğrudan kuruyordu — birim testi olarak
+doğru, ve bir formu göremez. Sayfa testleri düğmeye hiç basmamıştı.
+Arada, bir şablonda, kimsenin hiçbir şeyle karşılaştırmadığı bir alan adı
+duruyordu.
+
+*Bir alanı doldurup göndermeyen bir test, alanın adını sınamaz.*
+
+Üç düzeltme: dört şablonda tek isim; `settings.go` artık kendi
+literal'ini değil `devgate.FromRequest`'i kullanıyor; ve `ui` paketinde
+bir değişmez — her parola alanı ya kapının okuduğu adı taşıyacak, ya da
+neden taşımadığını yazan bir cümlesi olacak. Ad testte de literal değil,
+`devgate.FormField`'dan türetiliyor.
+
+### Kendi testimin de aynı kusuru vardı
+
+Düğmeye basan testi yazdım, sonra şablonu eski ada geri döndürdüm —
+**test yeşil kaldı.** Çünkü `postForm` alan adını `devgate.FormField`'dan
+kendisi üretiyor, sayfanın ne çizdiğine bakmıyor.
+
+Yakalayan, sayfanın çizdiği alanı okuyan diğer test oldu. İkisi birlikte
+kapsıyor, ama hangisinin neyi kapsadığını testin kendi yorumuna yazdım.
+
+*Formu kendi dolduran bir test, formun ne çizdiğini sınamaz.*
+
+**Dört mutasyon:** kilidi sürüm kontrolünden sonraya al *(ilk turda
+hayatta kaldı — sıra yalnız ikisi birden yanlışken görünür; o durumu
+sınayan test eklendi, sonra yakalandı)*, kilit varsayılanını kapat
+*(yakalandı, iki ayrı iddiayla)*, şema yetkisini sürüm kurulumuna da
+geçir *(yakalandı)*, şablonu eski alan adına döndür *(yakalandı)*.
+
+### Küçük ama gerçek: sessizce hiçbir şey silmeyen temizlik
+
+Testin `t.Cleanup`'ı `panel_release_requests`'i `schema_admin` ile
+siliyordu. O tabloda FORCE ROW LEVEL SECURITY var ve DELETE politikası
+yalnız `panel_user`'a verilmiş — schema_admin cevaplar, süpürmez. Silme
+sıfır satır etkiledi, hata dönmedi, ve bir sonraki test hiç ilgisi olmayan
+bir yerde `ErrAlreadyInFlight` ile düştü.
+
+*Hata döndürmeyen bir temizlik, temizlediğini kanıtlamaz.*

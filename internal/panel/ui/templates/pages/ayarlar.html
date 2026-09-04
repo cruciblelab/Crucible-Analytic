@@ -85,7 +85,7 @@ person has typed a value they would lose. */}}
 {{- if .Guarded}}
 {{- if $.Data.GateConfigured}}
 <label for="parola-{{.Key}}">{{t "ayarlar.parola_etiket"}}</label>
-<input id="parola-{{.Key}}" type="password" name="gelistirici_parolasi"
+<input id="parola-{{.Key}}" type="password" name="developer_password"
        autocomplete="off" required>
 {{- else}}
 <p class="kilit">{{t "ayarlar.hata.kapi_yok"}}</p>
@@ -107,7 +107,7 @@ that does nothing is how a panel loses the benefit of the doubt. */}}
 <input type="hidden" name="islem" value="sifirla">
 {{- if .Guarded}}
 <label class="gizli" for="sifirla-parola-{{.Key}}">{{t "ayarlar.parola_etiket"}}</label>
-<input id="sifirla-parola-{{.Key}}" type="password" name="gelistirici_parolasi"
+<input id="sifirla-parola-{{.Key}}" type="password" name="developer_password"
        autocomplete="off" placeholder="{{t "ayarlar.parola_etiket"}}" required>
 {{- end}}
 <button type="submit" class="ikincil">{{t "ayarlar.sifirla"}}</button>

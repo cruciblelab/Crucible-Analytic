@@ -234,11 +234,96 @@ uses - so this is also the first thing that makes it earn its place. */}}
 {{- if .Data.Upgrade.AskingForPassword}}
 <p class="ipucu">{{t "saglik.yukselt.parola_ipucu"}}</p>
 <label for="yukselt-parola">{{t "saglik.yukselt.parola"}}</label>
-<input type="password" id="yukselt-parola" name="gelistirici_parolasi" autocomplete="off" required>
+<input type="password" id="yukselt-parola" name="developer_password" autocomplete="off" required>
 {{- end}}
 <button type="submit">{{t "saglik.yukselt.dugme"}}</button>
 </form>
 {{- end}}
+{{- end}}
+</section>
+{{- end}}
+
+{{- if .Data.ReleaseError}}
+<section class="bolum">
+<h2>{{t "saglik.surum.baslik"}}</h2>
+<p class="uyari">{{.Data.ReleaseError}}</p>
+</section>
+{{- else}}
+{{- /* Always drawn, unlike the schema section above, and the difference
+is not a slip.
+
+The schema section knows whether there is anything to do: the database
+records its version and the binary carries the one it expects, so
+"nothing to do" is a fact it can state. This one has no such fact. The
+panel does not know what versions exist - packages come from a URL named
+in upgrader.toml and are verified against a key held in the same file,
+neither of which the panel has - so it cannot hide itself on the grounds
+that there is nothing new.
+
+What it can honestly show is the version that is running and the field to
+name another. See internal/panel/releaserequest.go. */}}
+<section class="bolum" id="surum-durumu"
+{{- if and .Data.Release.Latest .Data.Release.Latest.InFlight}}
+  hx-get="{{$.Data.SelfURL}}" hx-select="#surum-durumu"
+  hx-target="this" hx-swap="outerHTML" hx-trigger="every 5s"
+{{- end}}>
+<h2>{{t "saglik.surum.baslik"}}</h2>
+
+{{- if .Data.Release.Notice}}
+<p class="{{if .Data.Release.Failed}}uyari{{else}}ipucu{{end}}" role="status">{{.Data.Release.Notice}}</p>
+{{- end}}
+
+<table class="veri">
+<tbody>
+<tr>
+<th scope="row">{{t "saglik.surum.calisan"}}</th>
+<td><code>{{.Data.Release.Current}}</code></td>
+</tr>
+{{- if .Data.Release.Latest}}
+<tr>
+<th scope="row">{{t "saglik.surum.son_istek"}}</th>
+<td>
+<code>{{.Data.Release.Latest.ToVersion}}</code> —
+{{- if eq .Data.Release.Latest.State "pending"}} {{t "saglik.surum.durum_bekliyor"}}
+{{- else if eq .Data.Release.Latest.State "running"}} {{t "saglik.surum.durum_calisiyor"}}
+{{- else if eq .Data.Release.Latest.State "succeeded"}} {{t "saglik.surum.durum_basarili"}}
+{{- else}} {{t "saglik.surum.durum_basarisiz"}}{{end}}
+{{- if .Data.Release.Latest.Actor.Label}} — <code>{{.Data.Release.Latest.Actor.Label}}</code>{{end}}
+</td>
+</tr>
+{{- if .Data.Release.Latest.ErrorChain}}
+<tr>
+{{- /* Labelled by state, for the same reason the schema section does
+it: on a failed request this is an error somebody has to read, and on a
+queued one it is the upgrader saying it gave way and will try again. */}}
+<th scope="row">
+{{- if eq .Data.Release.Latest.State "pending"}}{{t "saglik.surum.son_deneme"}}
+{{- else}}{{t "saglik.surum.hata_zinciri"}}{{end}}</th>
+<td><pre class="hata-zinciri">{{.Data.Release.Latest.ErrorChain}}</pre></td>
+</tr>
+{{- end}}
+{{- end}}
+</tbody>
+</table>
+
+<p class="ipucu">{{t "saglik.surum.aciklama"}}</p>
+
+{{- if or .Data.Release.Allowed .Data.Release.AskingForPassword}}
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="surum">
+<label for="surum-no">{{t "saglik.surum.alan"}}</label>
+<input type="text" id="surum-no" name="surum" value="{{.Data.Release.Typed}}"
+       autocomplete="off" spellcheck="false" placeholder="v0.21.0" required>
+{{- if .Data.Release.AskingForPassword}}
+<p class="ipucu">{{t "saglik.surum.parola_ipucu"}}</p>
+<label for="surum-parola">{{t "saglik.surum.parola"}}</label>
+<input type="password" id="surum-parola" name="developer_password" autocomplete="off" required>
+{{- end}}
+<button type="submit">{{t "saglik.surum.dugme"}}</button>
+</form>
+{{- else}}
+<p class="ipucu">{{t "saglik.surum.kilitli_bilgi"}}</p>
 {{- end}}
 </section>
 {{- end}}

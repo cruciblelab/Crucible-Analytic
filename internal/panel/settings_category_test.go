@@ -95,6 +95,10 @@ func TestTheLegallyWeightySettingsAreTogether(t *testing.T) {
 		KeyUpgradeLocked: "not about data at all - it decides whether the customer may " +
 			"apply a schema upgrade, and it is guarded because it creates work for the " +
 			"developer rather than because it stores anything",
+		KeyReleaseUpdateLocked: "the same, one step further out: it decides whether the " +
+			"customer may replace the binaries. Guarded because the operation can take " +
+			"the customer's website down and the developer is who gets called, not " +
+			"because anything is stored",
 	}
 
 	var strays []string

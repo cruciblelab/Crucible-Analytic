@@ -37,6 +37,32 @@ Payı bilinmeyen satırda çubuk **hiç çizilmiyor**. Sıfır genişlikte bir
 
 Dar ekranlarda çubuk gizleniyor, sayı kalıyor.
 
+### Panelden sürüm güncellemesi: düğme
+
+**Sağlık → Sürüm güncellemesi.** Çalışan sürüm yazıyor, kurulacak sürümü
+yazıp gönderiyorsunuz; yükseltici otuz saniye içinde alıyor ve bölüm
+kendini yenileyerek sonucu gösteriyor.
+
+**Varsayılan kilitli.** Şema yükseltmesinin aksine — ve bilerek: şema
+yükseltmesi çalışan bir veritabanına tablo ekler, sürüm güncellemesi
+sitenizin önündeki programı değiştirir. Geliştirici, `Sürüm
+güncellemesini geliştirici parolasına kilitle` ayarını kapatarak müşteriye
+açabilir.
+
+Panel hangi sürümlerin yayımlandığını bilmez ve bilmemelidir: adres ve
+imza anahtarı yükseltici programın yapılandırma dosyasındadır,
+veritabanında değil.
+
+### Kilitli şema yükseltmesi doğru parolayı da reddediyormuş
+
+Sağlık sayfasındaki parola alanı, kapının okuduğundan **başka bir ad**
+gönderiyordu. Yani kilitli bir kurulumda şema yükseltmesi hiçbir zaman
+açılamıyordu: doğru parolayı yazana sayfa "parolayı yazarak
+başlatabilirsiniz" diyordu.
+
+Dört şablonda tek isim var artık, ve bir değişmez her parola alanının
+kapının okuduğu adı taşımasını kontrol ediyor.
+
 ### Panoda zaman grafiği
 
 Pano artık dönem boyunca hareketi **çiziyor**: sayfa görüntüleme ve

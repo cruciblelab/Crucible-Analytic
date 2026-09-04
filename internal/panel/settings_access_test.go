@@ -252,7 +252,8 @@ func TestRegistry_OnlyLegallyWeightedSettingsAreWithheld(t *testing.T) {
 	// Reason two: it decides who may do something that can make work for
 	// the developer, so a capability cannot guard it.
 	developersOwn := map[Key]bool{
-		KeyUpgradeLocked: true, // who may start a schema migration
+		KeyUpgradeLocked:       true, // who may start a schema migration
+		KeyReleaseUpdateLocked: true, // who may replace the binaries
 	}
 	for key := range developersOwn {
 		weighted[key] = true

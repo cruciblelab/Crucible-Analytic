@@ -66,6 +66,7 @@ const HealthPath = "/saglik"
 const (
 	eylemYukselt      = "yukselt"
 	eylemKaynakYenile = "kaynak_yenile"
+	eylemSurum        = "surum"
 )
 
 // healthPage is Data for the template.
@@ -139,6 +140,8 @@ type healthPage struct {
 
 	Upgrade      upgradeSection
 	UpgradeError string
+	Release      releaseSection
+	ReleaseError string
 
 	// The M3 refresh button and, beneath it, the M2 fetch log. Its own
 	// section with its own error field, like every other part of this
@@ -301,6 +304,9 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		case eylemYukselt:
 			section, sectionErr := s.upgradePost(w, r, lang, access)
 			posted.upgrade, posted.upgradeErr = &section, sectionErr
+		case eylemSurum:
+			section, sectionErr := s.releasePost(w, r, lang, access)
+			posted.release, posted.releaseErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
 			return
@@ -363,6 +369,8 @@ func (s *Server) requireHealthReader(w http.ResponseWriter, r *http.Request) (pa
 type pressed struct {
 	upgrade    *upgradeSection
 	upgradeErr string
+	release    *releaseSection
+	releaseErr string
 	refresh    *rangeRefreshSection
 	refreshErr string
 }
@@ -402,6 +410,11 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 		data.Upgrade, data.UpgradeError = *posted.upgrade, posted.upgradeErr
 	} else {
 		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(r, lang, access)
+	}
+	if posted.release != nil {
+		data.Release, data.ReleaseError = *posted.release, posted.releaseErr
+	} else {
+		data.Release, data.ReleaseError = s.releaseStatusFor(r, lang, access)
 	}
 	if posted.refresh != nil {
 		data.RangeRefresh, data.RangeRefreshError = *posted.refresh, posted.refreshErr

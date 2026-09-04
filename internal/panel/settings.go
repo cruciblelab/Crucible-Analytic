@@ -105,6 +105,25 @@ const (
 	// customer can unlock is not one.
 	KeyUpgradeLocked Key = "upgrade.locked"
 
+	// KeyReleaseUpdateLocked holds the *binary* update behind the
+	// developer password.
+	//
+	// On by default, which is the opposite of KeyUpgradeLocked, and the
+	// difference is the honest statement of which operation is riskier.
+	// A schema upgrade runs against a database that keeps serving. A
+	// release update replaces the collector, which stands in front of
+	// the customer's website - and the panel that would let somebody
+	// undo it may be down beside it.
+	//
+	// So this one starts shut. A developer who wants their customer to
+	// be able to update without asking - "bize muhtaç olmasınlar" -
+	// turns it off, deliberately, with the password in their hand.
+	//
+	// Like the schema lock, it needs the password to move in either
+	// direction: a lock a customer can unlock is not one, and a lock a
+	// customer can *close* would shut the developer's own button.
+	KeyReleaseUpdateLocked Key = "release.locked"
+
 	// The IP range dataset choices. Options come from internal/ipsources
 	// at init() - see sourceSettings below.
 	KeySourceCountry  Key = "sources.country"
@@ -744,6 +763,22 @@ var registry = map[Key]Definition{
 		RequiresDeveloperPassword: true,
 		GateReason: "Bu kilit, yükseltmeyi kimin başlatabileceğini belirler. " +
 			"Yetkiyle korunamaz: müşteri kendine yetki verebilir, parolayı veremez.",
+	},
+	KeyReleaseUpdateLocked: {
+		Key: KeyReleaseUpdateLocked, Scope: ScopeGlobal, Kind: KindBool,
+		Category: CatBakim,
+		Default:  true,
+		Label:    "Sürüm güncellemesini geliştirici parolasına kilitle",
+		Help: "Açıkken yalnız geliştirici parolası yeni sürüm kurabilir; yetki " +
+			"verilmesi yetmez. Kapalıyken müşteri de kurabilir. Şema " +
+			"yükseltmesinin aksine burada varsayılan açıktır: bu işlem " +
+			"servislerin kendisini değiştirir.",
+		Developer: true,
+
+		RequiresDeveloperPassword: true,
+		GateReason: "Bu kilit, sunucudaki programları kimin değiştirebileceğini " +
+			"belirler. Yetkiyle korunamaz: müşteri kendine yetki verebilir, " +
+			"parolayı veremez.",
 	},
 	KeyLogArchiveAfterDays: {
 		Key: KeyLogArchiveAfterDays, Scope: ScopeGlobal, Kind: KindInt,

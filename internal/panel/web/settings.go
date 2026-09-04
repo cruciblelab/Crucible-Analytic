@@ -352,7 +352,18 @@ func (s *Server) authorizeSetting(ctx context.Context, r *http.Request, lang *ui
 			settingsPage{Message: lang.T("ayarlar.hata.kapi_yok"), Failed: true, Focus: string(key)}, false
 	}
 
-	password := r.PostFormValue("gelistirici_parolasi")
+	// devgate.FromRequest rather than a literal field name.
+	//
+	// There were two names in this project - this one and the
+	// constant the gate reads - and the health page had the other.
+	// Its password field posted a name nothing looked at, so a locked
+	// schema upgrade could never be opened from the page that offers
+	// the button. It refused a correct password with "type it to
+	// start one", which is the worst shape a refusal can have: it
+	// tells the person to do the thing they just did.
+	//
+	// One name now, defined where it is consumed.
+	password := devgate.FromRequest(r)
 	if password == "" {
 		// Failed, not just a prompt. The first version of this left it
 		// unset, so a request to change a guarded setting with no
