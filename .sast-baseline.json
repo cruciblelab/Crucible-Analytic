@@ -18,6 +18,14 @@
       "snippet": "sig, err := os.ReadFile(path + \".sig\")"
     },
     {
+      "fingerprint": "92a5f5435a2bcabacc30679e",
+      "rule": "G304",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "The manifest path is this tool's own -manifest argument, typed by whoever is publishing a release - the same argument as the two -sign/-verify entries above and the same tool. cmd/releasesign is the maintainer's, not the product's: it is kept out of the release package by notShipped in release/release_test.go, no service invokes it, and it has no network surface. A tool asked to sign the file it was named cannot refuse to open it.",
+      "snippet": "body, err := os.ReadFile(path)"
+    },
+    {
       "fingerprint": "9e249c02ed966cf88b599d79",
       "rule": "G306",
       "file": "cmd/releasesign/main.go",
@@ -170,20 +178,20 @@
       "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "798c1599668a9329270b6212",
-      "rule": "G710",
-      "file": "internal/panel/web/auth.go",
-      "severity": "MEDIUM",
-      "reason": "Same helper as the entry above, reading next straight from the query string and sanitising it in the same call.",
-      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
-    },
-    {
       "fingerprint": "350d5279b7410b58d11468f1",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
       "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
       "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "798c1599668a9329270b6212",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "The redirect target is s.safeNext's return, which sanitises the raw next it is handed in the same call. Written without saying 'the entry above': -accept reorders this file, and a reason that points at a neighbour stops being true the first time it does.",
+      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
     },
     {
       "fingerprint": "f1393b798a3aaa96ff378e19",
@@ -250,6 +258,14 @@
       "snippet": "if err := os.Chmod(tmp, 0o755); err != nil {"
     },
     {
+      "fingerprint": "da10131660a7df116adea6ee",
+      "rule": "G304",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
+      "snippet": "in, err := os.Open(src)"
+    },
+    {
       "fingerprint": "28fecf0323c3567659f60b68",
       "rule": "G304",
       "file": "internal/relupdate/install.go",
@@ -258,12 +274,12 @@
       "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
-      "fingerprint": "da10131660a7df116adea6ee",
+      "fingerprint": "658de25b4b8c155ca39d8462",
       "rule": "G304",
-      "file": "internal/relupdate/install.go",
+      "file": "internal/relupdate/restart.go",
       "severity": "MEDIUM",
-      "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
-      "snippet": "in, err := os.Open(src)"
+      "reason": "The path is built here from two constants - DefaultDoorbellDir and DoorbellName - with Dir overridable only in-process, by a test. Nothing from a request, a configuration file or the network reaches it. The file is also the one place in this product where nothing is written: it is created empty and its contents are never read by anything, because it is a doorbell rather than an instruction (see internal/relupdate/restart.go and TestTheRequestCarriesNothing). A path that cannot be influenced, opening a file whose contents nobody reads, is not the shape G304 is about.",
+      "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)"
     },
     {
       "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",

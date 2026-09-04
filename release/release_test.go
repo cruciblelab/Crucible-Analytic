@@ -161,6 +161,38 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 			t.Errorf("the package has no %s", want)
 		}
 	}
+
+	// And then the same question asked the other way round: everything
+	// in release/systemd and release/tmpfiles reaches the package.
+	//
+	// The list above is a floor. It names what must be there and can say
+	// nothing at all about a file added afterwards - which is not
+	// hypothetical: crucible-restart.path, crucible-restart.service and
+	// the tmpfiles entry that makes them work were all added to the
+	// source tree later, and whether build.sh staged them was a
+	// question no test was asking.
+	//
+	// A missing unit is not a build failure. It is a package that
+	// installs, reports success, and is missing the half of a feature
+	// that only shows up the first time somebody needs it.
+	for _, dir := range []string{"systemd", "tmpfiles"} {
+		sources, err := filepath.Glob(filepath.Join(repoRoot(t), "release", dir, "*"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sources) == 0 {
+			t.Errorf("release/%s is empty, so this check examined nothing", dir)
+		}
+		for _, src := range sources {
+			want := filepath.Join(dir, filepath.Base(src))
+			if _, err := os.Stat(filepath.Join(stage, want)); err != nil {
+				t.Errorf("release/%s is in the source tree and %s is not in the package. "+
+					"build.sh copies these by name; a file it was never told about is "+
+					"simply absent, and nothing downstream says so",
+					filepath.Join(dir, filepath.Base(src)), want)
+			}
+		}
+	}
 }
 
 // TestEveryPackagedBinaryReportsItsVersion.
@@ -491,12 +523,31 @@ var unitExpectations = map[string]struct {
 		why:    "one-shot; logs to the journal and writes only to the database over TCP",
 	},
 
-	// A timer has no [Service] section at all, so none of the directives
-	// below apply to it. It is listed because the directory listing is
-	// checked against this map, and a timer silently outside every check
-	// is how the file that decides whether the upgrader ever runs stops
+	"crucible-restart.service": {
+		// The only unit here that runs as root, and it says so rather
+		// than leaving it to the default - see the file. Restarting a
+		// unit needs root: systemd authorises the caller of its private
+		// socket by uid.
+		//
+		// What keeps that from being a hole is that the unit takes no
+		// input. Its command is written in the file, the request that
+		// triggers it is an empty file whose contents are never read,
+		// and it drops every capability including root's own.
+		user: "root",
+		// It clears the doorbell, which is the one thing it writes;
+		// ProtectSystem=strict makes everything else read-only.
+		writes: true,
+		why:    "one-shot; deletes the request file under /run/crucible-analytic",
+	},
+
+	// Two units with no [Service] section at all, so none of the
+	// directives below apply to them. They are listed because the
+	// directory listing is checked against this map, and a unit silently
+	// outside every check is how the file that decides whether the
+	// upgrader ever runs - or whether anything is ever restarted - stops
 	// being looked at.
 	"crucible-upgrader.timer": {},
+	"crucible-restart.path":   {},
 }
 
 // TestEveryUnitCarriesTheHardening. Written once and copied four times,
@@ -531,14 +582,23 @@ func TestEveryUnitCarriesTheHardening(t *testing.T) {
 				"carrying whatever it was copied from", name)
 			continue
 		}
-		if strings.HasSuffix(name, ".timer") {
-			continue // no [Service] section; see the map's last entry
-		}
-
 		body, err := os.ReadFile(unit)
 		if err != nil {
 			t.Fatal(err)
 		}
+		// A unit with no [Service] section has no execution context, so
+		// none of the directives below exist for it to carry.
+		//
+		// Read out of the file rather than matched against a list of
+		// suffixes. It was `HasSuffix(name, ".timer")`, correct on the
+		// day it was written and wrong the moment a .path unit arrived:
+		// that unit was then checked for eight directives systemd would
+		// have rejected it for having. The file already says which kind
+		// it is.
+		if !strings.Contains(string(body), "[Service]") {
+			continue
+		}
+
 		for _, line := range required {
 			if !strings.Contains(string(body), line) {
 				t.Errorf("%s is missing %s", name, line)

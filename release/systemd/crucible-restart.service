@@ -1,0 +1,77 @@
+# The restarter.
+#
+# Runs as root, takes no input, and does one thing. Every parameter is
+# in this file, put here by whoever installed it - the process that
+# triggers it supplies nothing at all.
+#
+# # The limits
+#
+# StartLimitBurst caps how often this can run. A loop where a service
+# fails, something rings the doorbell, it fails again is a loop that
+# would otherwise restart the customer's website forever; after three
+# starts in five minutes systemd refuses and the failure stays visible
+# instead of being hidden under a restart.
+#
+# # Restart, never stop
+#
+# The script uses `systemctl restart`, which starts a unit that is not
+# running rather than leaving it down. There is deliberately no path
+# through this unit that ends with a service stopped.
+[Unit]
+Description=Restart the Crucible Analytic services
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+[Service]
+Type=oneshot
+# The command, fixed here. Nothing from the request reaches it.
+ExecStart=/opt/crucible-analytic/bin/restart.sh
+
+# Root, said out loud rather than left to the default.
+#
+# It is the only unit in this directory that runs as root, and a reader
+# should not have to know that an absent User= means root to find that
+# out. Restarting a unit needs it: systemd authorises the caller of its
+# private socket by uid.
+User=root
+# The group is the upgrader's, and that is what lets this drop every
+# capability below. The doorbell file is created by crucible-upgrader in
+# a directory this unit has to delete from; root without
+# CAP_DAC_OVERRIDE gets no free pass, so the directory is root-owned
+# with the upgrader's group (see release/tmpfiles/crucible-analytic.conf)
+# and both sides reach it through ordinary permissions.
+Group=crucible-upgrader
+
+# The same hardening the four service units carry, for the same reason:
+# these were written by copying one another, and the unit that runs as
+# root is the worst one to leave a line out of.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectClock=true
+PrivateTmp=true
+MemoryDenyWriteExecute=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallFilter=@system-service
+
+# Every capability dropped, including from root.
+#
+# Nothing here needs one. systemctl authorises by uid over a socket root
+# already owns, and the only file this deletes is in a directory root
+# owns - so the ordinary permission bits are enough and CAP_DAC_OVERRIDE
+# is not the thing standing between this unit and the filesystem.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ProtectSystem=strict makes the whole hierarchy read-only, and the
+# script clears the doorbell. This is the only path it may write.
+#
+# The leading "-" tolerates the directory being absent. It is on tmpfs,
+# so a machine that rebooted without the tmpfiles entry installed has no
+# such directory - and this unit should still restart the services in
+# that case rather than refuse to start over a file it only deletes.
+ReadWritePaths=-/run/crucible-analytic

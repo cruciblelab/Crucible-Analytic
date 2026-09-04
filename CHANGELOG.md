@@ -47,8 +47,10 @@ sırayı da boşaltıyor — paketi indiriyor, imzasını doğruluyor, kuruyor,
 Sırası önemli: **önce binary, sonra şema.** Yeni bir binary yeni bir şema
 bekliyorsa başlamayı reddeder, yani gürültülü durur; tersi sessizdir.
 
-**Yeniden başlatma hâlâ sizde.** Dosyalar değişse de çalışan süreçler
-eski binary'yi çalıştırmaya devam eder. Kurulum bittikten sonra:
+**Yeniden başlatma sizde** — ta ki aşağıdaki *Yeniden başlatma ve
+otomatik geri dönüş* bölümünü açana kadar. Dosyalar değişse de çalışan
+süreçler eski binary'yi çalıştırmaya devam eder. Kurulum bittikten
+sonra:
 
 ```
 sudo systemctl restart crucible-collector crucible-beacon \
@@ -79,6 +81,58 @@ sürüm var, ulaşılamadı. Son bakışı başarısız olan bir kuruluma asla
 **Yayıncı için:** `release/manifest.sh v0.21.0 [notlar-adresi]`, paketler
 yüklendikten sonra, aynı imza anahtarıyla. Ürettiği iki dosya sürüm
 adresinin köküne konur.
+
+### Yeniden başlatma ve otomatik geri dönüş
+
+**İsteğe bağlı, ve açmak sizin kararınız.** Açmazsanız hiçbir şey
+değişmez: güncelleme dosyaları değiştirir, panel "yeniden başlatın"
+der, siz başlatırsınız.
+
+Açarsanız güncelleme kendini tamamlar. Yükseltici `/run/crucible-analytic`
+içine **boş bir dosya** koyar; bir systemd birimi bunu görüp dört
+servisi yeniden başlatır.
+
+Yükselticiye `systemctl` yetkisi **verilmedi**, ve bu tasarımın
+tamamıdır. Dosyanın içi hiç okunmuyor: hangi birim, hangi yol, hangi
+sürüm — hiçbiri yazmıyor. Bir zil, bir emir değil. Yani ağdan paket
+indiren o programı ele geçiren biri, ancak bu yeniden başlatmayı
+yaptırabilir; makineye erişimi olan herkesin zaten yapabildiği şeyi.
+
+*Bir isteğin taşıdığı her alan, onu yazana verilmiş bir yetkidir.*
+
+**Kaçış mekanizması.** Yeni sürüm geri gelmezse eskisi otomatik geri
+konur. "Geri geldi"nin ölçüsü sürecin ayakta olması değil — veritabanına
+**yeniden başlatmadan sonra** kalp atışı yazmış olmasıdır. Bağlanamayan
+bir servis bu sınavı geçemez; ayakta durup hiçbir şey yapmayan bir
+servis de.
+
+Dördü de otuz saniye içinde yazmazsa yükseltici önceki binary'leri geri
+koyar, tekrar başlatır, tekrar bakar ve satıra ne olduğunu yazar. Hepsi
+yazarsa kontrol noktası silinir — o silme, tek "kanıt yok ediliyor"
+anıdır ve yalnızca servisler konuştuktan sonra olur.
+
+**Limitler.** systemd birimi beş dakikada üç başlatmayla sınırlı. Bir
+servisin çöküp yeniden başlatma isteyip yine çöktüğü bir döngü, aksi
+hâlde müşterinin sitesini sonsuza kadar yeniden başlatırdı; üçüncüden
+sonra systemd reddediyor ve arıza görünür kalıyor. Betikte `stop`,
+`disable`, `mask` yok: hiçbir yol servisi kapalı bırakmıyor.
+
+**Açmak için** (üçü de gerekli, bu sırayla):
+
+```
+sudo install -m 0644 /opt/crucible-analytic/tmpfiles/crucible-analytic.conf \
+     /etc/tmpfiles.d/
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/crucible-analytic.conf
+sudo systemctl enable --now crucible-restart.path
+```
+
+İlk satır `/run/crucible-analytic` dizinini oluşturur. Yükseltici "bir
+yeniden başlatıcı dinliyor mu" sorusunu **o dizinin varlığıyla**
+cevaplar, yani onsuz birim çalışır, doğrudur ve hiçbir zaman tetiklenmez.
+
+**Yapamadığı şey:** yeni binary makinenin ağını veya diskini bozarsa
+buradaki hiçbir şey yardım edemez. Geri dönüş veritabanına yazabilen bir
+makine varsayar. O durumda iş yine kuran kişide.
 
 ### Panelden sürüm güncellemesi: düğme
 

@@ -1115,10 +1115,103 @@ if [ "${WANT_SYSTEMD}" -eq 0 ]; then
   say "   skipped (--no-systemd, or no systemd here); no service units written"
 fi
 if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
-  for unit in "${HERE}"/systemd/*.service "${HERE}"/systemd/*.timer; do
+  # Both layouts, and a refusal when neither has anything.
+  #
+  # # The bug this replaces
+  #
+  # The units were read from ${HERE}/systemd, which is right in a
+  # repository checkout - this script lives in release/ and the units
+  # sit beside it. In a *release package* they do not: build.sh stages
+  # this script into release/ and the units into systemd/ at the top,
+  # so ${HERE}/systemd names a directory that does not exist.
+  #
+  # The loop's own guard then hid it. With no matches the glob stays
+  # literal, `[ -f ]` fails, `continue` runs, and the script carries on
+  # to print "systemctl enable --now crucible-collector.service" for
+  # units it never wrote. Installing from a package produced a machine
+  # with no services and no error - measured by building a package and
+  # looking, which is the only way this was ever going to be found.
+  #
+  # *Hiçbir şeyle eşleşmeyen bir glob, "yapacak iş yok" gibi görünür.*
+  UNIT_SRC=""
+  for candidate in "${HERE}/systemd" "${ROOT}/systemd"; do
+    if [ -d "${candidate}" ]; then
+      UNIT_SRC="${candidate}"
+      break
+    fi
+  done
+  if [ -z "${UNIT_SRC}" ]; then
+    die "no systemd/ directory beside ${HERE} or ${ROOT}; there are no unit files to install.
+     Run with --no-systemd if that is what you meant."
+  fi
+
+  # .path too, for the optional restarter. The files are installed and
+  # the units are NOT enabled: see the note printed at the end.
+  units_written=0
+  for unit in "${UNIT_SRC}"/*.service "${UNIT_SRC}"/*.timer "${UNIT_SRC}"/*.path; do
     [ -f "${unit}" ] || continue
     install -m 0644 "${unit}" "${SYSTEMD_DIR}/"
+    units_written=$((units_written + 1))
   done
+  if [ "${units_written}" -eq 0 ]; then
+    die "${UNIT_SRC} contains no unit files, so nothing was registered with systemd."
+  fi
+  say "   ${units_written} unit files -> ${SYSTEMD_DIR}"
+
+  # The restarter's script, beside the binaries its unit names.
+  #
+  # Installed even though nothing enables it, because the alternative is
+  # an operator who decides to turn the restarter on and finds the unit
+  # pointing at a file that is not there - which fails as
+  # "status=203/EXEC", a message that names the symptom and not this.
+  #
+  # The directory is created here rather than assumed. It is made in the
+  # binaries step, but only on the branch where ${BIN_DIR} exists: a
+  # source checkout with nothing built yet skips it, and this install
+  # then failed with "No such file or directory" on a path nobody had
+  # asked about. Found by the release test, which runs the real script.
+  mkdir -p "${PREFIX}/bin"
+  chmod 0755 "${PREFIX}" "${PREFIX}/bin"
+  restart_script=""
+  for candidate in "${HERE}/restart.sh" "${ROOT}/release/restart.sh"; do
+    if [ -f "${candidate}" ]; then
+      install -m 0755 "${candidate}" "${PREFIX}/bin/restart.sh"
+      restart_script="${PREFIX}/bin/restart.sh"
+      break
+    fi
+  done
+  # And the tmpfiles entry that creates the directory the doorbell goes
+  # in - installed under ${PREFIX}, deliberately NOT under /etc/tmpfiles.d.
+  #
+  # Putting it in a tmpfiles search path here would create
+  # /run/crucible-analytic on every machine at the next boot, and the
+  # upgrader reads that directory's existence as "a restarter is
+  # listening". A deployment that never opted in would then ring a
+  # doorbell nobody answers, wait for services that were never
+  # restarted, and roll back a release that was fine. The operator moves
+  # this file into place; see the note at the end.
+  # The two candidates are the two layouts, exactly as for the units
+  # above: release/tmpfiles in a source checkout, tmpfiles/ beside
+  # release/ in an unpacked package.
+  for candidate in "${HERE}/tmpfiles/crucible-analytic.conf" \
+                   "${ROOT}/tmpfiles/crucible-analytic.conf"; do
+    if [ -f "${candidate}" ]; then
+      mkdir -p "${PREFIX}/tmpfiles"
+      install -m 0644 "${candidate}" "${PREFIX}/tmpfiles/crucible-analytic.conf"
+      say "   ${PREFIX}/tmpfiles/crucible-analytic.conf (not enabled; see step 2b)"
+      break
+    fi
+  done
+
+  if [ -n "${restart_script}" ]; then
+    say "   ${restart_script}"
+  else
+    # Said, not passed over. crucible-restart.service has just been
+    # installed and it names this file; leaving quietly would hand the
+    # operator a unit that is enable-able and cannot run.
+    say "   restart.sh was not found beside this script, so the optional"
+    say "   restarter cannot run. Do not enable crucible-restart.path."
+  fi
   id -u "${RUN_AS}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS}"
   id -u "${RUN_AS_UPGRADER}" >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin "${RUN_AS_UPGRADER}"
   chown "${RUN_AS}:${RUN_AS}" "${LOG_DIR}" "${STATE_DIR}"
@@ -1316,6 +1409,33 @@ NEXT
 
      The upgrader is a timer, not a service: enabling the service itself
      would run one upgrade and stop.
+
+  2b. Optional, and a decision: let the panel restart the services after
+     a version update.
+
+       install -m 0644 ${PREFIX}/tmpfiles/crucible-analytic.conf /etc/tmpfiles.d/
+       systemd-tmpfiles --create /etc/tmpfiles.d/crucible-analytic.conf
+       systemctl enable --now crucible-restart.path
+
+     All three lines, in that order. The tmpfiles one creates
+     /run/crucible-analytic, and the upgrader reads that directory's
+     existence as its answer to "is a restarter listening?" - so
+     enabling the unit without it gives you a unit that is correct,
+     running, and can never fire.
+
+     Without it, a version update replaces the binaries and the page
+     tells you to restart the services yourself - because the running
+     processes keep the old files open until something restarts them.
+
+     With it, the upgrader can create one file in one directory, and a
+     unit whose command root wrote does the restart. The upgrader gains
+     no permission: the file's contents are never read, so the worst it
+     could ask for is this exact restart.
+
+     What that buys you is the automatic undo. The upgrader waits for
+     every service to report back through the database, and if one does
+     not, it puts the previous binaries back and restarts again - by
+     itself, in seconds, without anybody watching.
 NEXT
   else
     cat <<NEXT

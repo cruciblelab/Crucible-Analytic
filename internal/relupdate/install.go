@@ -71,6 +71,16 @@ type Result struct {
 	// Restarted names the services that were restarted, empty when
 	// nothing was.
 	Restarted []string
+	// Previous is where the binaries that were replaced were put, empty
+	// when nothing was replaced.
+	//
+	// Returned rather than kept private because the checkpoint outlives
+	// this function: whether the new binaries *work* is only knowable
+	// after the services have been restarted and have written a
+	// heartbeat, which happens minutes later and in the caller. A
+	// rollback that could only be triggered from inside Install would be
+	// a rollback that cannot be triggered by the evidence that matters.
+	Previous string
 }
 
 // Installer replaces the binaries under Prefix.
@@ -167,6 +177,7 @@ func (in Installer) Install(ctx context.Context, root string) (Result, error) {
 	if err := os.MkdirAll(keep, 0o700); err != nil {
 		return res, err
 	}
+	res.Previous = keep
 
 	saved := map[string]string{} // name -> path it was saved to
 	for _, b := range newBins {
@@ -372,4 +383,76 @@ func binariesIn(dir string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// Restore puts a checkpoint back.
+//
+// # Why this is separate from Install's own rollback
+//
+// Install rolls back what it can see: a binary that does not copy, a
+// binary that does not run where it was put. Those are knowable in the
+// same function call.
+//
+// Whether the new version *works* is not. A collector that starts,
+// listens, and cannot reach the database looks identical to a healthy
+// one for as long as nobody asks it to do anything - and the thing that
+// asks is the next request from the customer's website. The evidence
+// arrives after the restart, in the caller, so the undo has to be
+// callable from there.
+//
+// # What it does not do
+//
+// It does not restart anything. Putting the files back and leaving the
+// old processes running is a coherent state - they are still serving
+// from the inodes they opened - and deciding to restart is the caller's,
+// because the caller is the one that knows whether a restart is what
+// went wrong.
+func (in Installer) Restore(previous string) error {
+	if previous == "" {
+		return errors.New("relupdate: there is no checkpoint to restore")
+	}
+	entries, err := os.ReadDir(previous)
+	if err != nil {
+		return fmt.Errorf("relupdate: reading the checkpoint: %w", err)
+	}
+	if len(entries) == 0 {
+		// An empty checkpoint means the release added binaries and
+		// replaced none. Restoring it would be a no-op that reported
+		// success, which is a worse answer than saying so.
+		return fmt.Errorf("relupdate: the checkpoint at %s is empty; this release "+
+			"replaced nothing, so there is nothing to put back", previous)
+	}
+
+	binDir := filepath.Join(in.Prefix, "bin")
+	var failed []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		from := filepath.Join(previous, e.Name())
+		to := filepath.Join(binDir, e.Name())
+		// Copied rather than renamed, so a restore that fails halfway
+		// leaves the checkpoint intact and can be run again. A rename
+		// would consume it on the first attempt.
+		if err := copyExecutable(from, to); err != nil {
+			failed = append(failed, fmt.Sprintf("%s (%v)", e.Name(), err))
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("relupdate: could not put back: %s", strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// Forget removes a checkpoint.
+//
+// Called only once the new version has been seen to work. Kept until
+// then, and kept on the same filesystem, because a checkpoint deleted
+// on the strength of "the install succeeded" is a checkpoint deleted
+// before the question it answers has been asked.
+func (in Installer) Forget(previous string) error {
+	if previous == "" {
+		return nil
+	}
+	return os.RemoveAll(previous)
 }

@@ -10847,3 +10847,159 @@ başlat) → şema yükseltmesi**. Son iki adım hâlâ insanda.
 **İki mutasyon:** `Claim`'i hiç çağırma *(zincir testi yakaladı)*,
 bağlantıyı sil *(derlendi, hiçbir test görmedi — değişmez eklendi, sonra
 yakalandı)*.
+
+## V4c — Yeniden başlatmayı devretmek, ve onu devretmemek
+
+Bir önceki bölüm "hâlâ eksik olan: yeniden başlatma" diye bitiyordu ve
+sebebini de yazıyordu: **servisleri yeniden başlatabilen bir süreç,
+onları durdurabilen bir süreçtir.** Yükseltici ağdan paket indiren
+program. Ona `systemctl` vermek, o programa ulaşan herkese müşterinin
+sitesini kapatma yetkisi vermektir.
+
+Soru şuydu: yetkiyi vermeden işi nasıl yaptırırız.
+
+### Zil, emir değil
+
+Yükseltici `/run/crucible-analytic/restart-please` yolunda **boş bir
+dosya** oluşturuyor. `crucible-restart.path` bunu görüyor,
+`crucible-restart.service` root olarak `restart.sh`'ı çalıştırıyor, ve o
+betiğin dokunacağı birimlerin adları **betiğin içinde yazılı**.
+
+Dosyanın içi hiç okunmuyor. Hangi birim, hangi yol, hangi sürüm —
+hiçbiri istekte yok. Güvenlik tartışmasının tamamı bu: *isteğin taşıdığı
+bir alan, onu yazana verilmiş bir yetkidir*. Birim adı taşıyan bir dosya,
+root'un ne çalıştıracağını seçen bir dosya olurdu.
+
+Yani yükselticiyi ele geçiren biri **tam olarak bu yeniden başlatmayı**
+yaptırabiliyor. Makineye erişimi olan herkesin zaten yapabildiği şeyi.
+
+Testi de bu şekilde yazıldı: dosyanın boş olduğu **ölçülüyor**, kodun
+boş yazmaya devam edeceğine güvenilmiyor.
+
+### "Geri geldi" ne demek
+
+Sürecin ayakta olması değil. Başlayan, dinleyen, ama veritabanına
+ulaşamayan bir collector bu şekildeki her kontrolü geçer — ve kimse ondan
+bir şey isteyene kadar geçmeye devam eder.
+
+Dürüst sinyal kalp atışı: her servis başlarken ve her dakika bir satır
+yazıyor, ve o satırı yazmak veritabanını gerektiriyor. **Yeniden
+başlatmadan daha yeni** bir satır yazmış servis başlamış, bağlanmış ve
+işini bir kez yapmış demektir.
+
+Ölçüm: kalp atışı raportörü ilk tik'i beklemeden, **başlar başlamaz**
+yazıyor. Sağlıklı bir servis o satırı bir iki saniyede üretiyor —
+otomatik geri dönüşü sahip olmaya değer kılacak kadar hızlı yapan şey bu.
+
+### Kaçış
+
+Otuz saniye içinde dördü de yazmazsa: önceki binary'ler geri konur
+(`Installer.Restore`), zil tekrar çalınır, tekrar bakılır, ve satıra ne
+olduğu yazılır. Hepsi yazarsa kontrol noktası silinir
+(`Installer.Forget`) — bu tasarımdaki tek "kanıt yok ediliyor" anı, ve
+yalnızca servisler konuştuktan sonra oluyor.
+
+`Restore` taşımıyor, **kopyalıyor**. Yarıda kalan bir geri dönüş tekrar
+çalıştırılabilsin diye; test onu iki kez çağırıyor.
+
+### Proje ağırlaştı mı — hayır, ve sebebi ilginç
+
+Yeni olan şey az: bir dosya, iki birim, bir betik, bir tmpfiles satırı,
+ve doğrula/geri dön bağlantısı. Kontrol noktası (`bin/.previous-*`),
+geri dönüş, kalp atışı ve systemd'nin kendi `Restart=always`'ı **zaten
+vardı**. Eksik olan, onları birbirine bağlayan cümleydi.
+
+Ve tamamı isteğe bağlı: `crucible-restart.path`'i hiç etkinleştirmeyen
+bir kurulum aynen eskisi gibi davranıyor.
+
+Dürüst kalan sınır: yeni binary makinenin ağını veya diskini bozarsa
+buradaki hiçbir şey yardım edemez. Geri dönüş, veritabanına yazabilen
+bir makine varsayıyor.
+
+### Bu fazda bulunan üç gerçek kusur
+
+**1. İki saat, tek karşılaştırma.** `beat_at`'i veritabanı yazıyor
+(`INSERT ... beat_at = now()`), yeniden başlatma anını ise yükseltici
+kendi saatinden okuyordu (`time.Now()`). İki ayrı saat, ve
+karşılaştırdıkları şey **bir sürümün geri alınıp alınmayacağı**.
+
+Veritabanı birkaç saniye ileriyse: zaten orada olan her satır
+"yeniden başlatmadan yeni" görünür, geri gelmeyen bir sürüm kabul edilir,
+kaçış hiç çalışmaz. Birkaç saniye geriyse tersi — sağlıklı servisler
+yazar, satırları eski görünür, çalışan bir sürüm geri alınır. İkisi de
+dışarıdan **saat sorunu gibi görünmüyor**: biri geri dönüşün bozuk
+olduğu, diğeri sürümün bozuk olduğu izlenimi veriyor.
+
+İki süreç genelde aynı makinede, orada saatler tanım gereği aynı. Ama
+zorunlu değil: DSN başka bir yeri gösterebilir, ve bu kontrol tam o anda
+doğru olmayı bırakıyor. `Doorbell.Since` artık veritabanının saatini
+okuyor — okunan satırları yazan saatin ta kendisini.
+
+**2. Testi yeşil tutan da aynı şeydi.** Fikstür kalp atışını `now() + 1
+saniye` yazıyordu, yani **geleceğe**. Paketteki her test aynı
+veritabanını paylaşıyor, ve bir saniye sonrasına tarihlenmiş bir satır,
+sonraki teste "az önce geri gelmiş bir servis" gibi görünüyor. Kaçışın
+kendi uçtan uca testi bu yüzden geçiyordu: o testte hiçbir servis
+raporlamadı, bir önceki testin bıraktığı dört satır raporladığını
+söyledi.
+
+Fikstür artık servisin yazdığını yazıyor, ve testler "öncesi/sonrası"nı
+aritmetikle değil **sırayla** kuruyor: eski satır için önce yaz sonra
+saati oku, yeni satır için tersi.
+
+**3. `install.sh` paketten kurulduğunda hiçbir birim yazmıyordu.**
+Betik birimleri `${HERE}/systemd` altında arıyordu — depo düzeninde
+doğru, pakette yanlış (orada `systemd/` bir üst dizinde, çünkü betiğin
+kendisi `release/` içine giriyor). Döngünün `[ -f ] || continue` koruması
+da üstünü örtüyordu: hiçbir şeyle eşleşmeyen bir glob "yapacak iş yok"
+gibi görünür.
+
+Sonuç: paketten kurulum **sıfır birim yazıyor**, başarı bildiriyor, ve
+var olmayan birimler için `systemctl enable` yazdırıyordu.
+
+Sebebi: müşterinin yaptığı şey — paketi aç, içindeki kurucuyu çalıştır —
+hiçbir testin kullanmadığı tek düzendi. Artık bir test gerçek bir paket
+üretip **içinden** kuruyor.
+
+*Hiçbir şeyle eşleşmeyen bir glob, "yapacak iş yok" gibi görünür.*
+
+### Ve dizini kimsenin oluşturmadığı
+
+Kod incelemesiyle değil, birim dosyalarını yazarken çıktı:
+`/run/crucible-analytic` dizinini **hiçbir şey oluşturmuyordu**. `Configured()`
+o dizinin varlığına bakıyor, yani özellik sessizce hiç devreye girmezdi —
+operatör birimi etkinleştirir, doğru olur, ve hiçbir zaman tetiklenmez.
+
+`RuntimeDirectory=` yükselticiye konamaz: o zaman dizin **her zaman**
+var olur ve `Configured()` her kurulumda "bir yeniden başlatıcı dinliyor"
+der. O da tersi kusur — cevap gelmeyen bir zil çalınır, otuz saniye
+beklenir, ve sağlam bir sürüm geri alınır.
+
+Cevap tmpfiles.d: dizini o oluşturuyor, `install.sh` dosyayı
+`/etc/tmpfiles.d`'ye değil `${PREFIX}/tmpfiles`'a koyuyor, ve oraya
+taşımak operatörün "evet, benim yerime yeniden başlat" demesi oluyor.
+Dizinin varlığı hâlâ tam olarak bunu ifade ediyor.
+
+### Beş mutasyon
+
+| Mutasyon | Sonuç |
+|---|---|
+| `Since` yerel saati döndürsün | İkisi de yakaladı: odaklı test ve uçtan uca test |
+| `len(missing) == 0` → `true` (kaçışı kaldır) | Yakalandı |
+| Fikstür yine geleceğe yazsın | İki test yakaladı — biri doğrudan, biri bulaşmayla |
+| `restart.sh` yolunu `crucible-analytics` yap | Yeni değişmez yakaladı |
+| `install.sh` tek yola dönsün | Paket testi yakaladı, ve **gürültüyle** durdu |
+| `build.sh` tmpfiles'ı paketlemesin | Türetilmiş paket kontrolü yakaladı |
+
+Birincisinde `Since`'i `if false` ile bozmaya çalışmak **derlenmedi** —
+mutasyonun uygulandığını ve derlendiğini doğrulamak, mutasyonun kendisi
+kadar önemli. Yeniden yazıldı.
+
+### Sınanamayanı sınanamadı diye yazmak
+
+`since`'in zilden **önce** okunması doğru sıra, ve bunun testi yok. Zil
+ile okuma arasındaki pencere bir dosya oluşturma artı bir veritabanı
+gidiş-dönüşü — mikrosaniyeler — ve bir servisin yeniden başlaması yüz
+milisaniyelerden başlıyor. Yani gerçek bir kusur değil; kodun o farka
+bağlı olmaması gereken bir şey. Test edilemediği için yazılmadı diye
+değil, **yazıldığı için burada söyleniyor**.

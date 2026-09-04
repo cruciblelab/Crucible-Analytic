@@ -666,7 +666,7 @@ bölüm uzun süre "depoda systemd unit dosyası yok" diyordu; G2 fazından
 beri doğru değildi ve düzeltildi. Var olmayan bir eksiği anlatan bir
 belge, okuyana gerçek eksikler hakkındakilere de inanmamayı öğretir.
 
-Kurulan altı dosya:
+Kurulan sekiz dosya:
 
 | Dosya | Ne |
 |---|---|
@@ -676,6 +676,12 @@ Kurulan altı dosya:
 | `crucible-panel.service` | Müşterinin paneli |
 | `crucible-upgrader.service` | Şema yükseltmesini uygulayan altıncı binary |
 | `crucible-upgrader.timer` | Yukarıdakini çalıştıran şey |
+| `crucible-restart.path` | İsteğe bağlı: yeniden başlatma isteğini bekler |
+| `crucible-restart.service` | İsteğe bağlı: dört servisi yeniden başlatır |
+
+Son ikisi kurulur ama **etkinleştirilmez**, ve dosyaları oldukları
+yerde hiçbir şey yapmazlar. Ne işe yaradıkları ve nasıl açıldıkları
+13.5'te: *İsteğe bağlı: yeniden başlatmayı da devredin*.
 
 Dördü uzun ömürlü servis; `install.sh` bunları kurar ama **başlatmaz**:
 
@@ -1178,9 +1184,61 @@ Linux çalışan bir çalıştırılabilir dosyaya yazmayı reddeder (`ETXTBSY`)
 inode'la devam eder, bir sonraki başlatma yenisini alır. Aynı zamanda
 atomik: yolun yarım dosya içerdiği bir an yok.
 
-**Servisleri biz yeniden başlatmıyoruz.** Binary'yi değiştirmek ile onu
-yeniden başlatmak iki ayrı karar, ve ikincisi o makinede başka ne
-döndüğünü bilen kişinin.
+**Servisleri biz yeniden başlatmıyoruz** — siz istemedikçe. Binary'yi
+değiştirmek ile onu yeniden başlatmak iki ayrı karar, ve ikincisi o
+makinede başka ne döndüğünü bilen kişinin. Bir sonraki bölüm o kararı
+bize devretmenin yolunu anlatıyor.
+
+### İsteğe bağlı: yeniden başlatmayı da devredin
+
+Açmazsanız hiçbir şey değişmez. Açarsanız panelden yapılan güncelleme
+kendini tamamlar, ve **yeni sürüm geri gelmezse eskisi otomatik geri
+konur**.
+
+Üç komut, bu sırayla:
+
+```bash
+sudo install -m 0644 /opt/crucible-analytic/tmpfiles/crucible-analytic.conf \
+     /etc/tmpfiles.d/
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/crucible-analytic.conf
+sudo systemctl enable --now crucible-restart.path
+```
+
+Birim dosyaları ve `restart.sh` zaten `install.sh` tarafından kuruldu;
+etkinleştirilmediler. İlk komut `/run/crucible-analytic` dizinini
+oluşturur ve **atlanamaz**: yükseltici "bir yeniden başlatıcı dinliyor
+mu" sorusunu o dizinin varlığıyla cevaplar, yani onsuz birim çalışır,
+doğrudur ve hiçbir zaman tetiklenmez.
+
+**Yükselticiye `systemctl` yetkisi verilmedi.** O sadece
+`/run/crucible-analytic` içine **boş bir dosya** koyabiliyor. Dosyanın
+içi hiç okunmuyor — hangi birim, hangi yol, hangi sürüm, hiçbiri
+yazmıyor. Bir zil, bir emir değil. Ağdan paket indiren bir programa
+"servisleri durdurabilme" yetkisi vermek istemedik.
+
+**Geri dönüşün ölçüsü** sürecin ayakta olması değil, veritabanına
+**yeniden başlatmadan sonra** kalp atışı yazmış olması. Ayakta durup
+veritabanına bağlanamayan bir collector bu sınavı geçemez. Dördü de
+otuz saniye içinde yazmazsa önceki binary'ler geri konur, tekrar
+başlatılır, tekrar bakılır ve sonuç panele yazılır.
+
+**Sınır:** systemd birimi beş dakikada üç başlatmayla kısıtlı, ve
+betikte `stop`/`disable`/`mask` yok — hiçbir yol servisi kapalı
+bırakmıyor. Yeni binary makinenin ağını veya diskini bozarsa buradaki
+hiçbir şey yardım edemez; geri dönüş veritabanına yazabilen bir makine
+varsayar.
+
+**Kapatmak için:**
+
+```bash
+sudo systemctl disable --now crucible-restart.path
+sudo rm /etc/tmpfiles.d/crucible-analytic.conf
+sudo rmdir /run/crucible-analytic
+```
+
+Dizini de silin: yükseltici onun varlığına bakıyor, ve duran bir
+birimle var olan bir dizin, cevap gelmeyecek bir zilin çalınması
+demektir.
 
 ### Sıra önemli mi
 

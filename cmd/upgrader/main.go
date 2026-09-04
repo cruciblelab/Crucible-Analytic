@@ -166,6 +166,17 @@ func main() {
 		Install: relupdate.Installer{
 			Prefix: cfg.Release.InstallPrefix(),
 		},
+		// The restarter, if one is installed.
+		//
+		// Zero value when it is not, and Configured() reports that by
+		// looking for the directory the units create - so a deployment
+		// that never installed them behaves exactly as before: the
+		// binaries are replaced and the page says a restart is needed.
+		//
+		// The upgrader gains no permission from this. It can create one
+		// file in one directory; what happens next is decided by a unit
+		// whose command root wrote. See internal/relupdate/restart.go.
+		Restart: relupdate.Doorbell{Pool: pool},
 	}
 
 	if *once {

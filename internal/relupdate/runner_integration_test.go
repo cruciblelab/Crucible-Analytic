@@ -24,7 +24,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -250,6 +252,151 @@ func TestAClaimNobodyFinishedIsTakenBack(t *testing.T) {
 	// actually matters to somebody at the page.
 	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
 		t.Fatalf("a new request was refused after a stale claim was expired: %v", err)
+	}
+}
+
+// TestAReleaseThatDoesNotComeBackIsPutBackAutomatically is the escape,
+// end to end.
+//
+// The only test in this repository where the *desired* outcome is a
+// failed update. Everything up to the restart works: the package is
+// ours, the files copy, each binary runs. What is broken is the thing
+// no verification before the restart can see - the services do not come
+// back - and the machine has to notice that by itself and undo it.
+func TestAReleaseThatDoesNotComeBackIsPutBackAutomatically(t *testing.T) {
+	asks, pool := runnerQueue(t)
+	ctx := context.Background()
+
+	src, version := servedPackage(t)
+	prefix := t.TempDir()
+	binDir := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The version that is running, so there is something to put back.
+	for _, name := range []string{"collector", "beacon", "analytics-api", "panel"} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte("the old "+name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
+		t.Fatal(err)
+	}
+
+	// A restarter that is installed and does nothing: the doorbell rings
+	// into an empty room. That is exactly what a service which restarts
+	// and then dies looks like from here - no fresh heartbeat.
+	bell, _ := doorbellIn(t, pool)
+	runner := Runner{
+		Pool: pool, Source: src, Name: "test-upgrader", Restart: bell,
+		Install: Installer{Prefix: prefix,
+			Verify: func(context.Context, string) error { return nil }},
+	}
+
+	if _, err := runner.RunOnce(ctx); err == nil {
+		t.Fatal("a release whose services never reported back was recorded as a success")
+	}
+
+	// The old binaries are back.
+	body, err := os.ReadFile(filepath.Join(binDir, "collector"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "the old collector" {
+		t.Errorf("the collector on disk is %q; the previous one was not put back", body)
+	}
+
+	// And the row says so, in those words, because the page shows it.
+	latest, err := Latest(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != StateFailed {
+		t.Errorf("the request is in state %q", latest.State)
+	}
+	if !latest.RolledBack {
+		t.Error("the row does not record that it rolled back, so the page cannot tell " +
+			"somebody their machine is running the version it was running before")
+	}
+	if !strings.Contains(latest.ErrorChain, "collector") {
+		t.Errorf("the reason does not name which service failed to come back: %q",
+			latest.ErrorChain)
+	}
+}
+
+// TestAReleaseThatComesBackKeepsRunningAndDropsTheCheckpoint.
+//
+// The positive half, and the one that makes the test above mean
+// something: a runner that rolled back unconditionally would pass it.
+//
+// It also asserts the checkpoint is removed, which is the only place in
+// this design where evidence is deliberately destroyed - and it happens
+// exactly once the services have reported, never on the strength of
+// "the install returned nil".
+func TestAReleaseThatComesBackKeepsRunningAndDropsTheCheckpoint(t *testing.T) {
+	asks, pool := runnerQueue(t)
+	ctx := context.Background()
+
+	src, version := servedPackage(t)
+	prefix := t.TempDir()
+	binDir := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "collector"), []byte("the old collector"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
+		t.Fatal(err)
+	}
+
+	bell, _ := doorbellIn(t, pool)
+	// This machine's clock, an hour ahead of the database's.
+	//
+	// It must not matter. beat_at is written by the database, so the
+	// moment the restart was asked for has to be read from the same
+	// clock; when it was read from this one, an upgrader whose host ran
+	// fast rolled back every healthy release, and one whose host ran
+	// slow kept every broken one. Neither would look like a clock
+	// problem to whoever had to explain it.
+	bell.Now = func() time.Time { return time.Now().Add(time.Hour) }
+	// Every service reports back shortly after the doorbell rings, which
+	// is what a healthy restart looks like: the heartbeat reporter writes
+	// on start rather than after its first tick.
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		allBeat(t)
+	}()
+
+	runner := Runner{
+		Pool: pool, Source: src, Name: "test-upgrader", Restart: bell,
+		Install: Installer{Prefix: prefix,
+			Verify: func(context.Context, string) error { return nil }},
+	}
+	if _, err := runner.RunOnce(ctx); err != nil {
+		t.Fatalf("a release whose services came back was reported as a failure: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(binDir, "collector"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) == "the old collector" {
+		t.Error("the previous binary was put back even though every service reported")
+	}
+
+	// The checkpoint is gone.
+	entries, err := os.ReadDir(binDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".previous-") {
+			t.Errorf("the checkpoint %s survived a successful update. Kept forever, one "+
+				"accumulates per release", e.Name())
+		}
 	}
 }
 

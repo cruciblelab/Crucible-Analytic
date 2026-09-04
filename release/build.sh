@@ -115,7 +115,17 @@ echo "== systemd units"
 # section by design - the timer is what starts it - so a package carrying
 # the service alone installs an upgrader that never runs, and says nothing
 # about it.
-cp release/systemd/*.service release/systemd/*.timer "${STAGE}/systemd/"
+cp release/systemd/*.service release/systemd/*.timer release/systemd/*.path "${STAGE}/systemd/"
+
+# The tmpfiles entry travels with them.
+#
+# It is what creates /run/crucible-analytic, and the upgrader reads that
+# directory's existence as "a restarter is listening". A package that
+# carried crucible-restart.path without it would ship a restarter that
+# installs, enables, and can never fire - the file it watches for cannot
+# be created.
+mkdir -p "${STAGE}/tmpfiles"
+cp release/tmpfiles/*.conf "${STAGE}/tmpfiles/"
 
 echo "== install and verify scripts"
 # The package carries its own installer and its own verifier. A release
@@ -123,7 +133,7 @@ echo "== install and verify scripts"
 # operator who downloaded a tarball to go and clone something, which is
 # the manual work F2 exists to remove.
 mkdir -p "${STAGE}/release/sql"
-install -m 0755 release/install.sh release/verify.sh "${STAGE}/release/"
+install -m 0755 release/install.sh release/verify.sh release/restart.sh "${STAGE}/release/"
 install -m 0644 release/sql/*.sql "${STAGE}/release/sql/"
 
 echo "== documents"

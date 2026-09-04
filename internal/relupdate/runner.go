@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -56,6 +57,12 @@ type Runner struct {
 	// WorkDir is where packages are unpacked. Empty means a temporary
 	// directory, removed afterwards.
 	WorkDir string
+
+	// Restart asks the restarter to restart the services and reports
+	// whether they came back. Zero value means no restarter: the
+	// binaries are replaced and the page says a restart is needed,
+	// which is what every deployment did before V4c.
+	Restart Doorbell
 }
 
 // RunOnce claims one request and finishes it.
@@ -149,7 +156,97 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (s
 	if err != nil {
 		return "", res.RolledBack, err
 	}
-	return req.ToVersion, false, nil
+
+	// ---- and then the part that decides whether it worked ----
+	//
+	// Everything above proves the files are ours and that each binary
+	// runs when executed. Neither is the question. The question is
+	// whether the *services* come back, and that is only answerable
+	// after they have been restarted - which is why the checkpoint
+	// outlives Install.
+	if !r.Restart.Configured() {
+		// No restarter installed. The install stands and the page says
+		// a restart is needed; the checkpoint is kept, because nothing
+		// has yet shown the new version working.
+		log.Info("relupdate: installed; no restarter is configured, so the services are " +
+			"still running the previous binaries until somebody restarts them")
+		return req.ToVersion, false, nil
+	}
+
+	// The moment is read before the doorbell rings, and off the database
+	// - see Doorbell.Since. Before, because a service that came back
+	// between the ring and the reading would be dated earlier than the
+	// restart it was answering. Off the database, because that is what
+	// writes the rows this is about to be compared against.
+	since, sinceErr := r.Restart.Since(ctx)
+	if err := r.Restart.Ring(); err != nil {
+		return req.ToVersion, false, fmt.Errorf("the binaries are installed and each one "+
+			"runs, but the restart could not be requested: %w", err)
+	}
+	log.Info("relupdate: restart requested, waiting for the services to report back")
+	if sinceErr != nil {
+		// The restart still happened, which is the half that matters to
+		// a running machine. What is lost is the ability to tell whether
+		// it worked, and that is said rather than guessed at: a fallback
+		// to this machine's clock here would be the defect this call
+		// exists to remove, reintroduced on the path nobody watches.
+		return req.ToVersion, false, fmt.Errorf("the binaries are installed and restarted, "+
+			"and whether the services came back could not be determined: %w", sinceErr)
+	}
+
+	missing, err := r.Restart.Healthy(ctx, since)
+	if err != nil {
+		// The check itself failed - the database went away, or the
+		// context ended. Not evidence the release is bad, so nothing is
+		// rolled back: rolling back on "we could not tell" would undo
+		// good releases every time the database blinked.
+		return req.ToVersion, false, fmt.Errorf("the binaries are installed and restarted, "+
+			"and whether the services came back could not be determined: %w", err)
+	}
+	if len(missing) == 0 {
+		// Only now is the checkpoint worthless.
+		if err := r.Install.Forget(res.Previous); err != nil {
+			log.Warn("relupdate: could not remove the checkpoint", "err", err, "path", res.Previous)
+		}
+		return req.ToVersion, false, nil
+	}
+
+	// ---- the escape ----
+	log.Error("relupdate: services did not come back; putting the previous binaries back",
+		"missing", missing)
+	rolledBack := true
+	if err := r.Install.Restore(res.Previous); err != nil {
+		// The worst outcome in this file, and it is reported as itself:
+		// the new binaries are in place, the services are not healthy,
+		// and the old ones could not be put back. Somebody has to be
+		// told exactly that rather than "the update failed".
+		return "", false, fmt.Errorf("%s did not come back after the update, and the "+
+			"previous binaries could NOT be put back (%v). The machine needs somebody: "+
+			"the checkpoint is at %s", strings.Join(missing, ", "), err, res.Previous)
+	}
+	back, backErr := r.Restart.Since(ctx)
+	if err := r.Restart.Ring(); err != nil {
+		return "", rolledBack, fmt.Errorf("%s did not come back, the previous binaries "+
+			"were put back, and the restart that would start them could not be "+
+			"requested: %w", strings.Join(missing, ", "), err)
+	}
+	if backErr != nil {
+		return "", rolledBack, fmt.Errorf("%s did not come back after the update. The "+
+			"previous binaries were put back and restarted, and whether they came back "+
+			"could not be determined (%v). The machine needs somebody",
+			strings.Join(missing, ", "), backErr)
+	}
+	stillMissing, healthErr := r.Restart.Healthy(ctx, back)
+	if healthErr != nil || len(stillMissing) > 0 {
+		return "", rolledBack, fmt.Errorf("%s did not come back after the update. The "+
+			"previous binaries were put back and restarted, and %s are still not "+
+			"reporting. The machine needs somebody",
+			strings.Join(missing, ", "), strings.Join(stillMissing, ", "))
+	}
+	return "", rolledBack, fmt.Errorf("%s did not come back after the update, so the "+
+		"previous version was put back and is running again. Nothing was lost; the "+
+		"release was refused by this machine rather than by its signature",
+		strings.Join(missing, ", "))
 }
 
 func (r Runner) name() string {

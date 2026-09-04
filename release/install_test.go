@@ -2154,3 +2154,118 @@ func TestEveryUnitRunsSomethingTheInstallerPutsThere(t *testing.T) {
 		}
 	}
 }
+
+// TestInstallingFromAPackageWritesEverythingAPackageCarries.
+//
+// # The layout nothing ran against
+//
+// Every other install test in this file runs ./release/install.sh from a
+// source checkout, where the units are at release/systemd - beside the
+// script. A release package puts them at systemd/, one level up, because
+// the script itself moves into release/.
+//
+// The script read only the first of those. The loop's own guard then
+// hid it: with no matches the glob stays literal, `[ -f ]` fails,
+// `continue` runs, and installing from a package wrote *zero unit files*
+// and then printed "systemctl enable --now crucible-collector.service"
+// for units that did not exist. Success, according to the exit status.
+//
+// It survived because the thing every customer does - unpack a package
+// and run its installer - was the one arrangement no test used. So this
+// test builds a real package and runs the installer inside it.
+//
+// *Hiçbir şeyle eşleşmeyen bir glob, "yapacak iş yok" gibi görünür.*
+func TestInstallingFromAPackageWritesEverythingAPackageCarries(t *testing.T) {
+	const db = "ca_install_package_test"
+
+	if os.Geteuid() != 0 {
+		t.Skip("the systemd stage needs root (it creates a system account)")
+	}
+	for _, tool := range []string{"useradd", "su"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not on PATH", tool)
+		}
+	}
+	for _, account := range []string{"crucible", "crucible-upgrader"} {
+		if _, err := exec.Command("id", "-u", account).Output(); err != nil {
+			t.Cleanup(func() { _ = exec.Command("userdel", account).Run() })
+		}
+	}
+
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	stage := build(t, repoRoot(t), t.TempDir(), "v0.0.0-package-install")
+
+	confDir := t.TempDir()
+	systemdDir := t.TempDir()
+	prefix := t.TempDir()
+	for dir := confDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o711); err != nil {
+			t.Fatalf("opening the temp chain: %v", err)
+		}
+	}
+
+	// From inside the package, which is the whole point: an absolute
+	// path would let the script resolve HERE to the same place a source
+	// checkout does and the test would prove nothing.
+	cmd := exec.Command("./install.sh")
+	cmd.Dir = filepath.Join(stage, "release")
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+		"DB_NAME="+db,
+		"CONF_DIR="+confDir,
+		"SYSTEMD_DIR="+systemdDir,
+		"PREFIX="+prefix,
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install.sh from a package failed:\n%s", out)
+	}
+
+	// Every unit the package carries, derived from the package rather
+	// than listed here. A list would have been written from the source
+	// tree and would have said nothing about whether the script found
+	// the package's copy - which is the entire question.
+	packaged, err := filepath.Glob(filepath.Join(stage, "systemd", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packaged) == 0 {
+		t.Fatal("the package carries no unit files, so this test examined nothing")
+	}
+	for _, src := range packaged {
+		name := filepath.Base(src)
+		if _, err := os.Stat(filepath.Join(systemdDir, name)); err != nil {
+			t.Errorf("the package carries systemd/%s and the install did not write it. "+
+				"Nothing failed: the script reports success and prints `systemctl "+
+				"enable` for a unit that is not there", name)
+		}
+	}
+
+	// The restarter's two halves, which are useless separately: the unit
+	// runs a script, and the script needs a directory that only the
+	// tmpfiles entry creates.
+	for _, want := range []string{"bin/restart.sh", "tmpfiles/crucible-analytic.conf"} {
+		if _, err := os.Stat(filepath.Join(prefix, want)); err != nil {
+			t.Errorf("%s is not under the prefix after installing from a package: %v",
+				want, err)
+		}
+	}
+
+	// And the tmpfiles entry is NOT in a search path, because the
+	// upgrader reads the directory's existence as "a restarter is
+	// listening". An install that created it everywhere would make every
+	// deployment ring a doorbell nobody answers - and then roll back a
+	// release that was fine because nothing restarted.
+	if _, err := os.Stat("/etc/tmpfiles.d/crucible-analytic.conf"); err == nil {
+		t.Error("install.sh put the tmpfiles entry into /etc/tmpfiles.d. Enabling the " +
+			"restarter is the operator's decision, and this makes it for them on every " +
+			"machine - including the ones with no restarter installed")
+	}
+	if !strings.Contains(string(out), "not enabled") {
+		t.Errorf("the install did not say the tmpfiles entry is inert:\n%s", out)
+	}
+}

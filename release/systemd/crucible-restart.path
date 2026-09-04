@@ -1,0 +1,50 @@
+# The doorbell.
+#
+# Watches one file. When the upgrader creates or touches it, systemd
+# starts crucible-restart.service - which restarts the four services and
+# nothing else.
+#
+# # Why a file and not a permission
+#
+# The alternative is a sudoers line letting crucible-upgrader run
+# systemctl. That works and it grants the wrong thing: a process that
+# can restart services is a process that can stop them, and the upgrader
+# is the component that fetches archives from an address in a config
+# file.
+#
+# With this, the upgrader can create a file in a directory. That is all.
+# What happens next is decided entirely by crucible-restart.service,
+# whose command was written by whoever installed it. The file's contents
+# are never read - it is a doorbell, not an instruction.
+#
+# # Installing it is a decision
+#
+# Neither unit is enabled by install.sh. A deployment without them
+# updates exactly as before: the binaries are replaced and the panel
+# says a restart is needed. Enabling them is the operator saying "and
+# restart them for me", which is a sentence somebody should say on
+# purpose. install.sh has already put both units and restart.sh in
+# place, so opting in is:
+#
+#   sudo install -m 0644 /opt/crucible-analytic/tmpfiles/crucible-analytic.conf \
+#        /etc/tmpfiles.d/
+#   sudo systemd-tmpfiles --create /etc/tmpfiles.d/crucible-analytic.conf
+#   sudo systemctl enable --now crucible-restart.path
+#
+# The tmpfiles line is not optional and not decoration: it creates
+# /run/crucible-analytic, and the upgrader treats that directory's
+# existence as the answer to "is a restarter listening?". Without it
+# this unit is enabled, correct, and never fires, because the file it
+# watches for can never be created.
+[Unit]
+Description=Crucible Analytic restart request
+Documentation=file:/opt/crucible-analytic/KURULUM.md
+
+[Path]
+# Modified rather than Exists: the upgrader truncates the same path each
+# time, so a unit watching for existence would fire once and then never
+# again until somebody deleted the file.
+PathModified=/run/crucible-analytic/restart-please
+
+[Install]
+WantedBy=multi-user.target
