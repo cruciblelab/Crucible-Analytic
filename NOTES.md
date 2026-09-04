@@ -10773,3 +10773,77 @@ uygulamıştım; tablo postgres'e ait oldu ve uygulayıcı (schema_admin) onu
 ALTER edemedi. Dört applier testi düştü. Kodun kusuru değil, ama gerçek
 bir tehlike: bir şemayı elle superuser'la uygulamak, uygulayıcının bir
 daha dokunamayacağı tablolar bırakır.
+
+---
+
+## V4b — Düğme bir satır yazıyordu, ve o satırı kimse okumuyordu
+
+Kullanıcının sorusu: *"Sürüm güncellemesi yapmak yeterli değil mi
+güncellemeyi tamamlamak için?"*
+
+Bakınca cevap **hayır** çıktı, ve sebebi düşündüğümden kötüydü.
+
+### Beş faz, ve aralarındaki cümle hiç yazılmamış
+
+V2 kuyruğu yazdı. V3 indirip doğruladı. V4 kurdu ve çalışmazsa eskisini
+geri koydu. V5 sayfaya düğmeyi koydu. V6 hangi sürümün geldiğini buldu.
+
+**Hiçbiri `Claim`'i çağırmıyordu.**
+
+Yani düğmeye basmak, hiçbir sürecin okumadığı bir satır yazıyordu. Sayfa
+"Sırada" diyor ve sonsuza kadar öyle diyordu. Çökme değil, ret değil, log
+satırı değil — **bekleme**. Müşterinin "bu yavaş" ile ayıramayacağı tek
+sonuç.
+
+### Neden hayatta kaldı
+
+Paketteki her test **bir halkayı** test ediyordu. `Claim`'in testi var,
+`Fetch`'in testi var, `Install`'ın birkaç tane var. Eksik olan, onları
+birleştiren cümleydi.
+
+*Her halkası test edilmiş bir zincir, test edilmiş bir zincir değildir.*
+
+### Ve mutasyon bunu gösteremiyordu
+
+Bağlantıyı sildim — **derlendi**, ve hiçbir Go testi görmedi. Kusurun
+ilk gün kaçmasının sebebi tam olarak bu: yokluğu derleme hatası değil.
+
+O yüzden değişmez: **her kuyruğun onu boşaltan bir şeyi olacak.**
+Kuyruklar listeden değil, `func Claim(` tanımlayan paketleri arayarak
+bulunuyor — sonradan eklenen bir kuyruk var olduğu anda kapsama giriyor,
+ki bir listenin sağlayamayacağı özellik bu, ve ilkinin kaçmasının sebebi
+de o.
+
+Üç kuyruk buldu: `upgrade`, `rangerefresh`, `relupdate`. Bağlantıyı
+silince yalnız `relupdate` kırmızıya döndü.
+
+### Şemanın yakaladığı kendi hatam
+
+Testi tek bağlantıyla yazmıştım — hem soruyor hem cevaplıyordu. Şema
+reddetti: `panel_release_requests`'e INSERT yalnız `panel_user`'a
+verilmiş, `schema_admin` cevaplar ama soramaz.
+
+Bu ret **özelliğin kendisi**. Tek bağlantı kullanan bir test, bu projenin
+göndermediği bir yetki düzenine karşı koşardı — ve politikalar tamamen
+kaldırılsa bile geçmeye devam ederdi. Test iki havuza çevrildi: panel
+soruyor, yükseltici cevaplıyor.
+
+### Sıra: önce binary, sonra şema
+
+Yeni bir binary yeni bir şema bekliyorsa **başlamayı reddeder** (L2) —
+gürültülü duran bir servis. Tersi sessiz: veritabanı ileride, eski
+binary'ler hâlâ çalışıyor, ve L2 o yönü reddetmiyor.
+
+### Hâlâ eksik olan: yeniden başlatma
+
+Dosyalar değişti, **süreçler değişmedi**. Linux açık inode'u tutar, yani
+servisler yeni binary kurulduktan sonra da eskisini çalıştırmaya devam
+eder. `Installer.Restart` bilerek nil: servisleri yeniden başlatabilen
+bir süreç, onları durdurabilen bir süreçtir.
+
+Yani bugün tam zincir: **düğme → indir → doğrula → kur → (elle yeniden
+başlat) → şema yükseltmesi**. Son iki adım hâlâ insanda.
+
+**İki mutasyon:** `Claim`'i hiç çağırma *(zincir testi yakaladı)*,
+bağlantıyı sil *(derlendi, hiçbir test görmedi — değişmez eklendi, sonra
+yakalandı)*.

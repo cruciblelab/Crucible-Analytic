@@ -138,17 +138,38 @@ func main() {
 	// reads that from the recorded row rather than from a timer here -
 	// so restarting the service does not re-check, and a machine that
 	// restarts twenty times during a deployment still asks once.
-	checker := relupdate.Checker{
+	source := relupdate.Source{
+		BaseURL:   cfg.Release.BaseURL,
+		PublicKey: cfg.Release.Key(),
+	}
+	checker := relupdate.Checker{Pool: pool, Logger: logger, Source: source}
+
+	// And the thing that actually carries a queued request out.
+	//
+	// Missing until now, and that is the defect this wiring closes: V2
+	// wrote the queue, V3 fetched, V4 installed, V5 put a button on the
+	// page - and nothing called Claim. Pressing the button wrote a row
+	// no process ever read, so the page said "Sırada" indefinitely.
+	//
+	// Restart is left nil, deliberately. Replacing the files does not
+	// replace the running processes: Linux keeps the open inode, so the
+	// services go on serving the old binaries until something restarts
+	// them. Granting this process that power is a deployment decision
+	// with a real blast radius - a process that can restart services is
+	// a process that can stop them - so it is granted in a file an
+	// operator writes, or not at all. See internal/relupdate.Installer.
+	runner := relupdate.Runner{
 		Pool:   pool,
+		Source: source,
 		Logger: logger,
-		Source: relupdate.Source{
-			BaseURL:   cfg.Release.BaseURL,
-			PublicKey: cfg.Release.Key(),
+		Name:   name,
+		Install: relupdate.Installer{
+			Prefix: cfg.Release.InstallPrefix(),
 		},
 	}
 
 	if *once {
-		if err := runOnce(ctx, a, checker, logger); err != nil {
+		if err := runOnce(ctx, a, checker, runner, logger); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -157,14 +178,14 @@ func main() {
 	logger.Info("upgrader: watching for requests", "interval", cfg.Interval())
 	ticker := time.NewTicker(cfg.Interval())
 	defer ticker.Stop()
-	_ = runOnce(ctx, a, checker, logger)
+	_ = runOnce(ctx, a, checker, runner, logger)
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("upgrader: stopping")
 			return
 		case <-ticker.C:
-			_ = runOnce(ctx, a, checker, logger)
+			_ = runOnce(ctx, a, checker, runner, logger)
 		}
 	}
 }
@@ -175,7 +196,7 @@ func main() {
 // every run reports, and a line each time would bury the runs that
 // matter under a log of runs that did not.
 func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
-	logger *slog.Logger) error {
+	runner relupdate.Runner, logger *slog.Logger) error {
 
 	// The check first, and its failure does not stop the pass.
 	//
@@ -184,6 +205,21 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 	// and the upgrade is the one somebody is waiting on. RunOnce has
 	// already recorded and logged whatever went wrong.
 	_ = checker.RunOnce(ctx)
+
+	// The binaries, before the schema.
+	//
+	// Order matters and this is the safe one: a new binary expecting a
+	// newer schema refuses to start rather than writing into a table
+	// with no column for it (L2), which is a service that stops loudly.
+	// The reverse - schema first - leaves a database ahead of every
+	// running binary, and an old binary against a new schema is the
+	// case L2 does *not* refuse.
+	//
+	// Its failure does not stop the schema pass: they are independent
+	// requests and somebody may be waiting on either.
+	if _, relErr := runner.RunOnce(ctx); relErr != nil && !errors.Is(relErr, relupdate.ErrNothingToDo) {
+		logger.Error("upgrader: the release update did not finish", "err", relErr)
+	}
 
 	req, err := a.RunOnce(ctx)
 	switch {

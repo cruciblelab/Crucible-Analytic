@@ -37,6 +37,30 @@ Payı bilinmeyen satırda çubuk **hiç çizilmiyor**. Sıfır genişlikte bir
 
 Dar ekranlarda çubuk gizleniyor, sayı kalıyor.
 
+### Sürüm güncellemesi artık gerçekten yapılıyor
+
+Düğmeye basmak bir istek satırı yazıyordu ve **o satırı hiçbir süreç
+okumuyordu**: sayfa "Sırada" diyor ve öyle kalıyordu. Yükseltici artık
+sırayı da boşaltıyor — paketi indiriyor, imzasını doğruluyor, kuruyor,
+çalışmazsa eskisini geri koyuyor, ve sonucu satıra yazıyor.
+
+Sırası önemli: **önce binary, sonra şema.** Yeni bir binary yeni bir şema
+bekliyorsa başlamayı reddeder, yani gürültülü durur; tersi sessizdir.
+
+**Yeniden başlatma hâlâ sizde.** Dosyalar değişse de çalışan süreçler
+eski binary'yi çalıştırmaya devam eder. Kurulum bittikten sonra:
+
+```
+sudo systemctl restart crucible-collector crucible-beacon \
+    crucible-analytics-api crucible-panel
+```
+
+Servisleri yeniden başlatabilen bir sürecin onları durdurabilen bir süreç
+olması sebebiyle bu yetki yükselticiye bilerek verilmedi.
+
+`upgrader.toml` içinde `[release] prefix` ile kurulum kökü
+değiştirilebilir; varsayılan `/opt/crucible-analytic`.
+
 ### Güncellemeleri kontrol et
 
 Sağlık → Sürüm güncellemesi artık **en yeni sürümü de yazıyor**, ve yeni

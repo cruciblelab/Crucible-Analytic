@@ -91,4 +91,11 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 # İkisinden biri yazılıp diğeri yazılmazsa yükseltici açılmaz:
 # imzasız bir güncelleme yolu, biraz daha zayıf bir güncelleme yolu
 # değil, ağdan kod çalıştırma özelliğidir.
+# prefix — kurulum kökü. Binary'ler prefix/bin altındadır.
+# Varsayılan /opt/crucible-analytic, yani install.sh'ın kullandığı yer.
+# Başka bir yere kurduysanız burayı yazın: yanlış dizine kurulan bir
+# güncelleme sessizce başarılı olur, servisler eskisini çalıştırmaya
+# devam eder ve sayfa "kuruldu" der.
+# prefix = "/opt/crucible-analytic"
+
 # public_key = "..."

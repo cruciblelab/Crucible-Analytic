@@ -81,6 +81,27 @@ type ReleaseConfig struct {
 	// feature, so the two are validated together rather than
 	// independently.
 	PublicKey string `toml:"public_key"`
+
+	// Prefix is the installation root; binaries live in Prefix/bin.
+	//
+	// Defaults to /opt/crucible-analytic, which is what install.sh uses.
+	// Configurable because a deployment that installed somewhere else
+	// would otherwise have an update button that replaced binaries in a
+	// directory nothing runs from - and that failure is silent: the
+	// install succeeds, the services keep running the old ones, and the
+	// page says it worked.
+	Prefix string `toml:"prefix"`
+}
+
+// DefaultPrefix is where install.sh puts things.
+const DefaultPrefix = "/opt/crucible-analytic"
+
+// InstallPrefix is Prefix with the default applied.
+func (r ReleaseConfig) InstallPrefix() string {
+	if r.Prefix != "" {
+		return r.Prefix
+	}
+	return DefaultPrefix
 }
 
 // Interval is the poll interval, with the default applied.
