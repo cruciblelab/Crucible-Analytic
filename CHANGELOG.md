@@ -13,18 +13,8 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek
-kuyruğu, indirme ve doğrulama, kurulum ve geri dönüş. Üç kuyrukta rol
-ayrımının aslında uygulanmadığı bulundu ve düzeltildi.
-
-**Şema sürümü: 11.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Dört tablo ekleniyor ve üç tablonun satır
-güvenliği sıkılaştırılıyor; veri değişmiyor, servis durmuyor.
-
-Yükseltmeden önce her şey çalışmaya devam eder. Görünmeyen tek şey
-panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
-güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
-olduğu yazıyor.
+**Şema sürümü: 11.** v0.21.0 ile aynı, yani o sürümü kurup şemayı
+yükselttiyseniz burada **yapmanız gereken bir şey yok.**
 
 ### Yedek düğmesi: Sağlık → Yedek
 
@@ -57,6 +47,21 @@ orada duruyor olabilir.
 `upgrader.toml` içine `[backup] dir` yazılmadıkça bu kurulum yedek
 almaz. Düğmeye basılırsa istek satırına "yedek dizini yapılandırılmamış"
 yazılıp bitiriliyor — sessizce beklemiyor.
+
+## v0.21.0 — 2026-09-04
+
+Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek
+kuyruğu, indirme ve doğrulama, kurulum, geri dönüş ve isteğe bağlı
+otomatik yeniden başlatma. Yanına disk görünümü ve yedeklemenin ilk
+dilimi.
+
+**Şema sürümü: 11.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Dört tablo ekleniyor ve üç tablonun satır
+güvenliği sıkılaştırılıyor; veri değişmiyor, servis durmuyor.
+
+Yükseltmeden önce her şey çalışmaya devam eder. **Ama satır güvenliği
+düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne olduğu
+yazıyor.
 
 ### Yedekleme: ilk dilim, ve pg_dump'ın sessizce boş dosya üretmesi
 
