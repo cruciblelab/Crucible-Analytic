@@ -72,14 +72,52 @@ func (s *Store) StorageFacts(ctx context.Context) ([]StorageFact, error) {
 	// NULL for a table that does not exist, which is how a missing table
 	// arrives as a zero row rather than as an error that loses the other
 	// three.
+	//
+	// # pg_total_relation_size does not measure a hypertable
+	//
+	// It measures the *parent*, and a hypertable's parent holds no rows:
+	// the data is in chunks, in another schema. So the obvious call
+	// returns a small, plausible, wrong number for exactly the two
+	// tables this page exists to report on.
+	//
+	// Measured on a real database with real data:
+	//
+	//   traffic_snapshots   parent 40 KB      hypertable 16 MB
+	//   beacon_events       parent 48 KB      hypertable 18 MB
+	//
+	// Four hundred times out, on the page an operator reads to decide
+	// whether the disk is filling. It shipped that way from B4 until
+	// F1b, and nothing failed - the number was simply the wrong one, and
+	// small numbers do not look like errors.
+	//
+	// It was found while measuring compression for the backup estimator:
+	// the *compressed dump* of a table came out larger than the table
+	// was supposed to be, which is the kind of impossible result that
+	// makes somebody look.
+	//
+	// hypertable_detailed_size sums the chunks. It needs no privilege
+	// panel_user lacks - checked against the real role - and it errors on
+	// a table that is not there, so the CASE below tests to_regclass
+	// first rather than relying on the function to be forgiving.
 	rows, err := s.pool.Query(ctx, `
-		SELECT t.name,
-		       COALESCE(pg_total_relation_size(to_regclass('public.' || t.name)), 0) AS bytes,
-		       EXISTS (SELECT 1 FROM timescaledb_information.hypertables h
-		               WHERE h.hypertable_name = t.name) AS hyper,
+		WITH wanted AS (
+		    SELECT t.name,
+		           to_regclass('public.' || t.name) AS rel,
+		           EXISTS (SELECT 1 FROM timescaledb_information.hypertables h
+		                   WHERE h.hypertable_name = t.name) AS hyper
+		    FROM unnest($1::text[]) AS t(name)
+		)
+		SELECT w.name,
+		       CASE
+		           WHEN w.rel IS NULL THEN 0
+		           WHEN NOT w.hyper THEN COALESCE(pg_total_relation_size(w.rel), 0)
+		           ELSE COALESCE((SELECT sum(total_bytes)
+		                          FROM hypertable_detailed_size(w.rel)), 0)
+		       END AS bytes,
+		       w.hyper,
 		       (SELECT count(*) FROM timescaledb_information.chunks c
-		        WHERE c.hypertable_name = t.name) AS chunks
-		FROM unnest($1::text[]) AS t(name)`, HealthTables)
+		        WHERE c.hypertable_name = w.name) AS chunks
+		FROM wanted w`, HealthTables)
 	if err != nil {
 		return nil, fmt.Errorf("panel: reading storage facts: %w", err)
 	}

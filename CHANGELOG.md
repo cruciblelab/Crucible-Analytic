@@ -26,6 +26,31 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
+### Depolama bölümü hypertable'ları 400 kat küçük gösteriyormuş
+
+`traffic_snapshots` için **40 KB** yazıyordu. Gerçek boyutu **16 MB**.
+`beacon_events` için 48 KB yazıyordu, gerçeği 18 MB.
+
+Sebebi: bir hypertable'ın satırları ana tabloda durmaz, chunk'larda
+durur. `pg_total_relation_size` ana tabloyu ölçer, ve bir hypertable'ın
+ana tablosu her zaman neredeyse boştur — kaç satır girerse girsin.
+
+Yani sayfanın raporladığı iki tablo, yani saklama politikasının ilgili
+olduğu iki tablo, yani büyüyen iki tablo, gerçek boyutlarının binde
+dördüyle gösteriliyordu. Hiçbir şey hata vermedi: sayı oradaydı, küçüktü,
+ve depolama sayfasında küçük sayılar hata gibi görünmez.
+
+B4'ten beri böyleydi. Yedek tahminleri için sıkıştırma oranı ölçülürken
+bulundu: bir tablonun **sıkıştırılmış dökümü**, tablonun kendisinden
+büyük çıktı — insanı baktıran türden bir imkânsızlık.
+
+Artık hypertable'lar `hypertable_detailed_size` ile ölçülüyor, sıradan
+tablolar eskisi gibi. Ve bir test yirmi bin satır yazıp sayının
+kıpırdadığını kontrol ediyor; eski sorguda hiç kıpırdamıyordu.
+
+**Diskiniz sandığınızdan doluysa panelde bir şey değişmedi, sadece doğru
+sayı yazmaya başladı.**
+
 ### Sağlık → Disk
 
 Bu üründe hiçbir sayfa **diski** göstermiyordu. Depolama bölümü dört
