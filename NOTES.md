@@ -11128,3 +11128,112 @@ mount olduğu özel durumu kaldır *(yakalandı)*, cihaz numarasını sıfırla
 *(yakalandı; ilk deneme derlenmedi, yeniden yazıldı)*, ayrılmış payı ayrı
 çizme *(yakalandı)*, ayrılmış payı kendi baytından hesapla *(hayatta
 kaldı — gerekçe düzeltildi, test yeniden yazıldı, sonra yakalandı)*.
+
+## F1b ilk dilim — pg_dump'ın ürettiği geçerli, makul, boş dosya
+
+Yedek almanın tasarımını bir varsayım değil, bir ölçüm belirledi.
+
+### Bariz yolu denedim ve sessizce boş çıktı
+
+`pg_dump --format=custom --table=traffic_snapshots` yazdım. Dosya
+üretti. Dosya geri yüklendi. İçinde sıfır satır vardı.
+
+| Ne | Değer |
+|---|---|
+| Tablodaki satır | 8.050 |
+| Dökümün boyutu | 3.957 bayt |
+| Geri yükleyince gelen | 0 |
+
+Sebebi: bir hypertable'ın satırları o isimdeki tabloda durmuyor,
+`_timescaledb_internal` içindeki chunk'larda duruyor, ve `--table`
+süzgeci onları takip etmiyor.
+
+Geri yüklemeden yapılabilecek her kontrol bu dosyayı geçiyor: var,
+boyutu var, açılıyor, sağlama toplamı tutarlı, manifesti okunuyor. Onu
+yakalayan tek şey satırları geri koyup saymak.
+
+Bu, bir yedek özelliğinin alabileceği en kötü şekil. Yalnız birinin ona
+ihtiyacı olduğu anda başarısız oluyor, ki o an ikinci şansın olmadığı
+tek andır.
+
+`COPY` ile ölçtüm: 8.050 satır çıktı, 8.050 satır geri girdi, 6 chunk
+oluştu. Tasarım orada karara bağlandı.
+
+### Ve o ölçüm sevk edilmiş bir kusuru açtı
+
+Sıkıştırma oranı için ölçerken **sıkıştırılmış döküm, tablonun
+kendisinden büyük** çıktı. İmkânsız bir sonuç, ve insanı baktıran türden.
+
+`pg_total_relation_size('traffic_snapshots')` = 40 KB.
+Gerçek boyutu = 16 MB. Aynı tuzağın diğer yüzü: ana tabloyu ölçüyor.
+
+Sağlık sayfası B4'ten beri iki hypertable'ı 400 kat küçük gösteriyordu.
+Ayrı bir commit'te düzeltildi.
+
+### Testi yazarken iki kez yanlış yazdım
+
+**Birinci:** boyutun büyüdüğünü kontrol etmek için dört bin satır yazdım
+ve boyut hiç kıpırdamadı — satırlar tek chunk'a ve önceki silmelerden
+boşalmış sayfalara sığmıştı. Yirmi bine çıkardım, 2,9 MB büyüdü.
+
+**İkinci:** o hâli de tam takım koşusunda kırıldı, 120 KB büyüdü. Aynı
+sebep, daha fazla churn. Eşiği düşürmek kırılganlığı taşımak olurdu.
+
+Doğru iddia kusurun kendisi: bozuk sorgu **tam olarak**
+`pg_total_relation_size` döndürüyordu. Test artık ikisini birden sorup
+farklı olmalarını istiyor. Yazma yok, vacuum yok, başka neyin koştuğuna
+dair varsayım yok.
+
+*Bir testin doğru şeyi kontrol etmesi, doğru yoldan kontrol ettiği
+anlamına gelmez.*
+
+### Round-trip testi de yarışıyordu
+
+`beacon_events` dökümden önce 11.676 satırdı, geri yükleme sayıldığında
+11.721. Başka bir takım paralel koşuyor ve yazıyordu. Test, tamamen
+doğru bir yedekte kırmızı verdi.
+
+Yarışmayan iki karşılaştırma yerine geçti: manifestin saydığı ile geri
+gelenin eşitliği (dosya kendi içinde bütün mü), ve **bu testin kendi
+yazdığı beş yüz satır** (sayılan şey gerçek satırlar mı, yoksa hiçbir
+şeyin tutarlı sayımı mı).
+
+### Değişmez ilk koşusunda iki uydurma ad yakaladı
+
+Küme tanımlarındaki her tablonun gerçekten var olduğunu, ve ürünün
+yarattığı her tablonun ya bir kümede ya da gerekçesiyle dışlanmış
+olduğunu tutan bir değişmez yazdım. İlk koşuşunda:
+
+- `panel_sites` — böyle bir tablo yok, siteler bir dizeyle
+  adlandırılıyor.
+- `panel_dev_logins` — kaldırılmış bir tablo, dışlama listesinde
+  kalmış.
+
+İkinci yön daha önemli: sonradan eklenen ve hiçbir kümeye konmamış bir
+tablo **sessizce** yedeğin dışında kalır. Dosya üretilir, işlem başarı
+bildirir, ve müşterinin bir tablo dolusu verisi orada değildir.
+
+Docker imajının şema listesi de üçüncü bir aynayla yakalandı.
+
+### Güvenlik kararları
+
+**Kuyrukta yol sütunu yok.** Panelin seçebileceği bir yol, yükselticinin
+her tablonun dökümünü oraya yazacağı bir yol olurdu — root'un dizini,
+başka bir müşterinin ağacı, bir web kökü. Satır *ne dahil edileceğini*
+söylüyor; nereye gideceği isteyen tarafın kararı değil.
+
+**Katalogdaki yol sütunu panele verilmedi**, sütun düzeyinde GRANT ile.
+`SELECT path FROM panel_backups` panelin rolü için veritabanı tarafından
+reddediliyor. "Böyle bir rota yok" cümlesi, "süreç dosyanın nerede
+olduğunu bilmiyor" cümlesinden zayıftır.
+
+**Panel tabloları veritabanının masum yarısı değil.**
+`panel_users.totp_secret` açık metin, kurtarma kodları yanında. Yani
+veri yedeği de kimlik bilgisi taşıyor, ve mod 0600 süs değil.
+
+### Sırada
+
+Kuyruk işlemleri, yükselticinin bunu çalıştırması, boş alan kontrolü ve
+paneldeki düğme. Bu dilimde şema ve üretici var; kuyruğu boşaltan taraf
+yok, o yüzden `Claim` de yok — kuyruk değişmezi ancak o yazıldığında
+anlamlı olur ve o zaman tetiklenecek.

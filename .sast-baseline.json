@@ -2,14 +2,6 @@
   "note": "Triaged gosec findings. Every entry needs a reason - see internal/sast. Regenerate with: go run ./internal/sast/cmd/sastdiff -init",
   "entries": [
     {
-      "fingerprint": "31a7c49723ae72af7c1a531e",
-      "rule": "G304",
-      "file": "cmd/releasesign/main.go",
-      "severity": "MEDIUM",
-      "reason": "The path is this tool's own -sign/-verify argument, typed by whoever is building a release. cmd/releasesign is the maintainer's tool: it is not in the release package (see notShipped in release/release_test.go), no service invokes it, and it has no network surface at all - the only caller is a person at a terminal and release/build.sh. A tool whose whole job is 'sign the file I name' cannot refuse to open the file it was named.",
-      "snippet": "sums, err := os.ReadFile(path)"
-    },
-    {
       "fingerprint": "e148659e986828f0b262c613",
       "rule": "G304",
       "file": "cmd/releasesign/main.go",
@@ -24,6 +16,14 @@
       "severity": "MEDIUM",
       "reason": "The manifest path is this tool's own -manifest argument, typed by whoever is publishing a release - the same argument as the two -sign/-verify entries above and the same tool. cmd/releasesign is the maintainer's, not the product's: it is kept out of the release package by notShipped in release/release_test.go, no service invokes it, and it has no network surface. A tool asked to sign the file it was named cannot refuse to open it.",
       "snippet": "body, err := os.ReadFile(path)"
+    },
+    {
+      "fingerprint": "31a7c49723ae72af7c1a531e",
+      "rule": "G304",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "The path is this tool's own -sign/-verify argument, typed by whoever is building a release. cmd/releasesign is the maintainer's tool: it is not in the release package (see notShipped in release/release_test.go), no service invokes it, and it has no network surface at all - the only caller is a person at a terminal and release/build.sh. A tool whose whole job is 'sign the file I name' cannot refuse to open the file it was named.",
+      "snippet": "sums, err := os.ReadFile(path)"
     },
     {
       "fingerprint": "9e249c02ed966cf88b599d79",
@@ -63,6 +63,38 @@
       "file": "internal/asnlookup/asnlookup.go",
       "severity": "MEDIUM",
       "reason": "The path is built from asn_lookup.local_csv_path in the config file, not from a request. A deployment that can set this can already read the disk as this user.",
+      "snippet": "f, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "b38c8fdb2669468e258c6a55",
+      "rule": "G304",
+      "file": "internal/backup/dump.go",
+      "severity": "MEDIUM",
+      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. This one also fixes the mode at 0600, which is the file protection itself: the four services run as `crucible` and this file holds every row they are not allowed to read.",
+      "snippet": "f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)"
+    },
+    {
+      "fingerprint": "978ceb5f23afab8694a6fe2b",
+      "rule": "G304",
+      "file": "internal/backup/dump.go",
+      "severity": "MEDIUM",
+      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. Opened only to fsync it, so the rename that just happened is durable; nothing is read from it.",
+      "snippet": "d, err := os.Open(dir)"
+    },
+    {
+      "fingerprint": "78912a2a1632741196280961",
+      "rule": "G304",
+      "file": "internal/backup/read.go",
+      "severity": "MEDIUM",
+      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. On the reading side the path comes from the catalogue row, written by the upgrader itself when it created the file - not by the panel, which is not granted that column at all.",
+      "snippet": "f, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "39bd87a4ea23103aabfacf3f",
+      "rule": "G304",
+      "file": "internal/backup/read.go",
+      "severity": "MEDIUM",
+      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. On the reading side the path comes from the catalogue row, written by the upgrader itself when it created the file - not by the panel, which is not granted that column at all.",
       "snippet": "f, err := os.Open(path)"
     },
     {
@@ -130,20 +162,20 @@
       "snippet": "return byte(v) == b && b&0x0f == 0x0a"
     },
     {
-      "fingerprint": "d020082a35a957f24d2196ed",
-      "rule": "G304",
-      "file": "internal/logging/lifecycle.go",
-      "severity": "MEDIUM",
-      "reason": "Same, the read side of compressing a rotated log.",
-      "snippet": "source, err := os.Open(path)"
-    },
-    {
       "fingerprint": "4d6e90ec4cf4f41d2675eb26",
       "rule": "G304",
       "file": "internal/logging/lifecycle.go",
       "severity": "MEDIUM",
       "reason": "Log path derived from logs.dir in the config file. The log tree builds its own names; no component comes from a request.",
       "snippet": "target, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, filePerm)"
+    },
+    {
+      "fingerprint": "d020082a35a957f24d2196ed",
+      "rule": "G304",
+      "file": "internal/logging/lifecycle.go",
+      "severity": "MEDIUM",
+      "reason": "Same, the read side of compressing a rotated log.",
+      "snippet": "source, err := os.Open(path)"
     },
     {
       "fingerprint": "66f5946d5a67d042e4e0b6f7",
@@ -170,20 +202,20 @@
       "snippet": "const mailPasswordLabel = \"panel_smtp.password\""
     },
     {
-      "fingerprint": "624a3104f4a4acfbd694a90d",
-      "rule": "G710",
-      "file": "internal/panel/web/auth.go",
-      "severity": "MEDIUM",
-      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
-      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
-    },
-    {
       "fingerprint": "798c1599668a9329270b6212",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
       "reason": "The redirect target is s.safeNext's return, which sanitises the raw next it is handed in the same call. Written without saying 'the entry above': -accept reorders this file, and a reason that points at a neighbour stops being true the first time it does.",
       "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "624a3104f4a4acfbd694a90d",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "safeNext rejects anything that is not a single-slash-prefixed path, including the //host and /\\\\host forms that browsers read as scheme-relative. gosec's taint analysis does not follow the helper.",
+      "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
       "fingerprint": "350d5279b7410b58d11468f1",
@@ -202,22 +234,6 @@
       "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "905ac286b6fc8f41005416f6",
-      "rule": "G304",
-      "file": "internal/relupdate/fetch.go",
-      "severity": "MEDIUM",
-      "reason": "Writing one member of the archive. This is the line that actually creates files from untrusted bytes, so it is the one the whole check order above exists for. mode is masked to 0755, which keeps the executable bit and drops setuid; the directories around it are 0700 because the tree is the upgrader's private workspace until verification passes. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
-      "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)"
-    },
-    {
-      "fingerprint": "96ee1d329a83e2153705936b",
-      "rule": "G304",
-      "file": "internal/relupdate/fetch.go",
-      "severity": "MEDIUM",
-      "reason": "The package's own checksum list, at a fixed name under a root this code unpacked itself. Nothing from the request row reaches this path: root comes from the archive's single top-level directory inside a temporary directory the caller created. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
-      "snippet": "sums, err := os.ReadFile(filepath.Join(root, \"SHA256SUMS\"))"
-    },
-    {
       "fingerprint": "d0fe3f6802aa0c475118bd52",
       "rule": "G304",
       "file": "internal/relupdate/fetch.go",
@@ -234,20 +250,28 @@
       "snippet": "f, err := os.Open(path)"
     },
     {
+      "fingerprint": "905ac286b6fc8f41005416f6",
+      "rule": "G304",
+      "file": "internal/relupdate/fetch.go",
+      "severity": "MEDIUM",
+      "reason": "Writing one member of the archive. This is the line that actually creates files from untrusted bytes, so it is the one the whole check order above exists for. mode is masked to 0755, which keeps the executable bit and drops setuid; the directories around it are 0700 because the tree is the upgrader's private workspace until verification passes. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)"
+    },
+    {
+      "fingerprint": "96ee1d329a83e2153705936b",
+      "rule": "G304",
+      "file": "internal/relupdate/fetch.go",
+      "severity": "MEDIUM",
+      "reason": "The package's own checksum list, at a fixed name under a root this code unpacked itself. Nothing from the request row reaches this path: root comes from the archive's single top-level directory inside a temporary directory the caller created. This is an unpacker: reading a path it computed is what the function does, and gosec cannot see the check in front of it. What bounds the path is safeJoin, which refuses any \"..\" element outright rather than cleaning one away, refuses absolute paths and NUL bytes, and then checks the joined result is still under the root - two walls, because a single check in front of a path join is one too few when the consequence is a file where systemd looks. Measured rather than argued: TestEveryHostilePackageIsRefused covers climbing paths, absolute paths, symlinks, hard links and device nodes, TestNothingIsWrittenOutsideTheDirectoryEvenOnRefusal checks the disk rather than the return value (refusing after writing is not refusing), and FuzzUnpackNeverEscapesItsDirectory ran 644,598 archives without one entry appearing beside the unpack directory.",
+      "snippet": "sums, err := os.ReadFile(filepath.Join(root, \"SHA256SUMS\"))"
+    },
+    {
       "fingerprint": "835905907ad6233c49bbc30d",
       "rule": "G301",
       "file": "internal/relupdate/install.go",
       "severity": "MEDIUM",
       "reason": "The installation's bin directory, which four services running as a different account must be able to enter and execute out of. 0750 would work only while the group happens to be right and breaks the moment it is not; install.sh creates the same directory with the same mode. This is not the unpack tree - that one is 0700, because nothing but the upgrader has any business in it until verification passes.",
       "snippet": "if err := os.MkdirAll(binDir, 0o755); err != nil {"
-    },
-    {
-      "fingerprint": "79a41af519ee378fbe964f2b",
-      "rule": "G302",
-      "file": "internal/relupdate/install.go",
-      "severity": "MEDIUM",
-      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives.",
-      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
       "fingerprint": "64cb764dfb4f6cdeda21b7c7",
@@ -258,12 +282,12 @@
       "snippet": "if err := os.Chmod(tmp, 0o755); err != nil {"
     },
     {
-      "fingerprint": "da10131660a7df116adea6ee",
-      "rule": "G304",
+      "fingerprint": "79a41af519ee378fbe964f2b",
+      "rule": "G302",
       "file": "internal/relupdate/install.go",
       "severity": "MEDIUM",
-      "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
-      "snippet": "in, err := os.Open(src)"
+      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives.",
+      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
       "fingerprint": "28fecf0323c3567659f60b68",
@@ -274,20 +298,20 @@
       "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
+      "fingerprint": "da10131660a7df116adea6ee",
+      "rule": "G304",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
+      "snippet": "in, err := os.Open(src)"
+    },
+    {
       "fingerprint": "658de25b4b8c155ca39d8462",
       "rule": "G304",
       "file": "internal/relupdate/restart.go",
       "severity": "MEDIUM",
       "reason": "The path is built here from two constants - DefaultDoorbellDir and DoorbellName - with Dir overridable only in-process, by a test. Nothing from a request, a configuration file or the network reaches it. The file is also the one place in this product where nothing is written: it is created empty and its contents are never read by anything, because it is a doorbell rather than an instruction (see internal/relupdate/restart.go and TestTheRequestCarriesNothing). A path that cannot be influenced, opening a file whose contents nobody reads, is not the shape G304 is about.",
       "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)"
-    },
-    {
-      "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
-      "rule": "G304",
-      "file": "internal/sast/cmd/deadcodediff/main.go",
-      "severity": "MEDIUM",
-      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
-      "snippet": "f, err = os.Open(path)"
     },
     {
       "fingerprint": "d6c6a65214f34db19b4fcd2d",
@@ -298,12 +322,12 @@
       "snippet": "body, err := os.ReadFile(path)"
     },
     {
-      "fingerprint": "fa42d02f0b0211ce9728d1b4",
+      "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
       "rule": "G304",
-      "file": "internal/sast/cmd/sastdiff/main.go",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
-      "snippet": "rf, err := os.Open(reportPath)"
+      "snippet": "f, err = os.Open(path)"
     },
     {
       "fingerprint": "15ed33029fa76d5146f7fccb",
@@ -312,6 +336,14 @@
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag; the baseline it reads is a tracked file in the repository.",
       "snippet": "bf, err := os.Open(baselinePath)"
+    },
+    {
+      "fingerprint": "fa42d02f0b0211ce9728d1b4",
+      "rule": "G304",
+      "file": "internal/sast/cmd/sastdiff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
+      "snippet": "rf, err := os.Open(reportPath)"
     },
     {
       "fingerprint": "deef7fcc5a79364178911970",

@@ -34,6 +34,7 @@ package schemafiles
 
 import (
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
@@ -80,6 +81,11 @@ var InOrder = []File{
 	// reader applying these in order meets the smaller version of the
 	// same idea first.
 	{"internal/relupdate/schema.sql", relupdate.SchemaSQL},
+	// The backup queue and its catalogue. After the release queue,
+	// because it is the same shape again and a reader meeting them in
+	// order sees the pattern before the third copy of it - and because
+	// its comments point at the isolation the earlier files set up.
+	{"internal/backup/schema.sql", backup.SchemaSQL},
 	// Last of all: what this records is "everything above was applied".
 	{"internal/schemaver/schema.sql", schemaver.SchemaSQL},
 }

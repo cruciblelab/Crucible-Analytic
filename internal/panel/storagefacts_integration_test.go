@@ -52,83 +52,59 @@ func factFor(t *testing.T, facts []StorageFact, table string) StorageFact {
 }
 
 // TestAHypertableIsMeasuredByItsChunksAndNotItsParent.
+//
+// # Why this compares two queries rather than writing rows
+//
+// The first version inserted twenty thousand rows and asserted the
+// reported size grew. It caught the defect, and it was flaky: run inside
+// the whole suite it grew by 120 KB rather than the 2.9 MB measured on a
+// quiet database, because a database that has seen churn has free space
+// in its existing chunks and most of an insert lands without allocating
+// anything.
+//
+// Lowering the floor would only move the flake. The honest form of the
+// assertion is the defect itself: the broken query returned exactly
+// pg_total_relation_size, so the test asks for both and requires them to
+// differ. That needs no writes, no vacuum, and no assumption about what
+// else is running.
 func TestAHypertableIsMeasuredByItsChunksAndNotItsParent(t *testing.T) {
 	store := newTestStore(t, "storagefacts")
 	ctx := context.Background()
 
-	before, err := store.StorageFacts(ctx)
+	facts, err := store.StorageFacts(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := factFor(t, before, "traffic_snapshots")
-	if !start.Hypertable {
+	got := factFor(t, facts, "traffic_snapshots")
+	if !got.Hypertable {
 		t.Skip("traffic_snapshots is not a hypertable in this database, so there is " +
 			"nothing here to get wrong")
 	}
 
-	// Twenty thousand rows spread over six hours, in one statement.
-	//
-	// Both numbers are measured rather than picked. Four thousand rows
-	// within four seconds of each other moved the reported size by
-	// *zero* bytes: they landed in one chunk and fitted in pages that
-	// earlier deletions had already freed. A test written that way fails
-	// against correct code, on a database that has seen any churn, which
-	// is every database this suite runs on.
-	//
-	// Spread across chunks and past the free space, the same measurement
-	// moved 2.9 MB. So the assertion below is about a number that
-	// actually has to move.
-	writer := testdb.Pool(t, testdb.Collector)
-	if _, err := writer.Exec(ctx, `
-		INSERT INTO traffic_snapshots
-		    (time, site_id, ip, ja4, prev_window_count, curr_window_count,
-		     request_rate, bot_score, is_known_bot_ja4,
-		     country, asn, asn_org, is_known_bot_asn)
-		SELECT now() - (g || ' seconds')::interval,
-		       $1,
-		       ('198.51.100.' || (g % 256))::inet,
-		       't13d1516h2_8daaf6152771_b186095e22b6',
-		       0, 0, 0, 0, false, '', 0, '', false
-		FROM generate_series(1, 20000) AS g`, measurementSite); err != nil {
-		t.Fatalf("writing the measurement rows: %v", err)
-	}
-	// Cleared as schema_admin: the collector may insert and nothing else,
-	// which is the isolation working. A cleanup that ran as the writer
-	// would fail, and a failed cleanup leaves twenty thousand rows in a
-	// shared database for every later test to trip over.
-	t.Cleanup(func() {
-		admin := testdb.Pool(t, testdb.SchemaAdmin)
-		if _, err := admin.Exec(context.Background(),
-			`DELETE FROM traffic_snapshots WHERE site_id = $1`, measurementSite); err != nil {
-			t.Errorf("clearing the measurement rows: %v", err)
-		}
-	})
-
-	after, err := store.StorageFacts(ctx)
-	if err != nil {
+	reader := testdb.Pool(t, testdb.SchemaAdmin)
+	var parentOnly, rows int64
+	if err := reader.QueryRow(ctx,
+		`SELECT pg_total_relation_size('traffic_snapshots'),
+		        (SELECT count(*) FROM traffic_snapshots)`).Scan(&parentOnly, &rows); err != nil {
 		t.Fatal(err)
 	}
-	end := factFor(t, after, "traffic_snapshots")
-
-	if end.Bytes <= start.Bytes {
-		t.Errorf("twenty thousand rows went into traffic_snapshots and the reported size "+
-			"went from %d to %d bytes.\n"+
-			"A hypertable's parent never grows - the rows go into chunks - so a size "+
-			"that does not move is a size being read off the wrong relation. That is "+
-			"the number an operator uses to decide whether the disk is filling",
-			start.Bytes, end.Bytes)
+	if rows == 0 {
+		t.Skip("traffic_snapshots is empty, so the parent and the chunks are both nothing")
 	}
-	// And by the right order of magnitude. Measured at 2.9 MB for this
-	// many rows; a megabyte is a floor well under it and well over
-	// anything that could be noise.
-	if grew := end.Bytes - start.Bytes; grew < 1<<20 {
-		t.Errorf("the reported size grew by only %d bytes for twenty thousand rows", grew)
+
+	if got.Bytes == parentOnly {
+		t.Errorf("traffic_snapshots holds %d rows and is reported as %d bytes, which is "+
+			"exactly pg_total_relation_size of the parent.\n"+
+			"A hypertable's rows are in chunks, in another schema. The parent never "+
+			"grows, so this number never moves however full the disk gets - and it is "+
+			"the number an operator reads to decide whether it is filling",
+			rows, got.Bytes)
+	}
+	if got.Bytes < parentOnly {
+		t.Errorf("the reported size (%d) is smaller than the parent alone (%d)",
+			got.Bytes, parentOnly)
 	}
 }
-
-// measurementSite is the site id the rows above carry, so the cleanup
-// can find exactly them and nothing else in a shared database.
-const measurementSite = "depolama-olcum"
 
 // TestAnOrdinaryTableIsStillMeasured is the other half.
 //

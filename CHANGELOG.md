@@ -17,14 +17,58 @@ Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek
 kuyruğu, indirme ve doğrulama, kurulum ve geri dönüş. Üç kuyrukta rol
 ayrımının aslında uygulanmadığı bulundu ve düzeltildi.
 
-**Şema sürümü: 10.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. İki tablo ekleniyor ve üç tablonun satır
+**Şema sürümü: 11.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Dört tablo ekleniyor ve üç tablonun satır
 güvenliği sıkılaştırılıyor; veri değişmiyor, servis durmuyor.
 
 Yükseltmeden önce her şey çalışmaya devam eder. Görünmeyen tek şey
 panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
+
+### Yedekleme: ilk dilim, ve pg_dump'ın sessizce boş dosya üretmesi
+
+Yedek alma yolunun ilk yarısı: şema, küme tanımları, ve **dosyayı
+üreten** taraf. Panelde henüz düğme yok, sonraki dilimde geliyor.
+
+**pg_dump kullanılmıyor, ve sebebi ölçüldü.** Bariz yol
+`pg_dump --table=traffic_snapshots`. Dosya üretiyor, dosya geri
+yükleniyor, ve içinde **sıfır satır** var — çünkü bir hypertable'ın
+satırları o isimde değil, chunk'larda duruyor ve `--table` süzgeci
+chunk'ları takip etmiyor. Gerçek veriyle ölçüldü:
+
+| Ne | Değer |
+|---|---|
+| traffic_snapshots'taki satır | 8.050 |
+| --table dökümünün boyutu | 3.957 bayt |
+| Geri yükleyince gelen satır | 0 |
+
+Hata yok, uyarı yok, makul boyutta bir dosya, ve içi boş. Bir yedek
+özelliğinin alabileceği en kötü şekil bu: yalnız birinin ona ihtiyacı
+olduğu anda başarısız oluyor.
+
+Onun yerine veri **COPY** ile çıkıyor, tablo tablo. COPY sıradan bir
+sorgu olduğu için hypertable chunk'larıyla cevap veriyor. Aynı veri geri
+yüklendiğinde 8.050 satır ve 6 chunk oluştu.
+
+**Şema dosyanın içinde değil.** Zaten binary'nin içinde: geri yükleme
+tabloları kurulumun kullandığı aynı baytlardan kuruyor. Dosyanın kendi
+DDL'ini taşıması, şemanın ikinci bir tanımı olurdu.
+
+Dosya `tar.gz`, standart kütüphaneyle. Yani yükselticinin
+`postgresql-client`'a veya başka hiçbir harici programa ihtiyacı yok.
+
+**Korumalar dosyanın ilk yazıldığı anda var:** mod 0600, dizin 0700,
+önce geçici ada yazılıp fsync'ten sonra yeniden adlandırılıyor. Yarıda
+kesilen bir yedek **asla** son adını almıyor — böyle bir dosya
+açılabilir, boyutu makuldür ve son tablosu eksiktir.
+
+**Kuyruk tablosunda yol sütunu yok, katalogda var ama panele
+verilmemiş.** Sütun düzeyinde GRANT: `SELECT path FROM panel_backups`
+panelin rolü için veritabanı tarafından reddediliyor. Panel boyutları,
+tarihleri ve içerikleri görüyor; baytların nerede olduğunu göremiyor.
+
+**Şema sürümü 11'e çıktı.** İki tablo daha ekleniyor.
 
 ### Depolama bölümü hypertable'ları 400 kat küçük gösteriyormuş
 

@@ -484,6 +484,7 @@ if [ "${DRY_RUN}" -eq 0 ]; then
              internal/heartbeat/schema.sql internal/retention/schema.sql \
              internal/logsink/schema.sql internal/upgrade/schema.sql \
              internal/rangerefresh/schema.sql internal/relupdate/schema.sql \
+             internal/backup/schema.sql \
              internal/schemaver/schema.sql; do
       psql_db -f "${ROOT}/${f}"
     done

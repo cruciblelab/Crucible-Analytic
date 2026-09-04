@@ -136,7 +136,7 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 		"schema/05-heartbeat.sql", "schema/06-retention.sql",
 		"schema/07-logsink.sql", "schema/08-upgrade.sql",
 		"schema/09-rangerefresh.sql", "schema/10-relupdate.sql",
-		"schema/11-schemaver.sql",
+		"schema/11-backup.sql", "schema/12-schemaver.sql",
 		"systemd/crucible-collector.service", "systemd/crucible-beacon.service",
 		"systemd/crucible-analytics-api.service", "systemd/crucible-panel.service",
 		"systemd/crucible-upgrader.service",
