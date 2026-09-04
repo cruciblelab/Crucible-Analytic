@@ -26,6 +26,38 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
+### Yedek düğmesi: Sağlık → Yedek
+
+Yedek alma yolunun ikinci yarısı. Artık uçtan uca çalışıyor: **Sağlık →
+Yedek**, neyin dahil olacağını seçin, düğmeye basın. Yükseltici otuz
+saniye içinde alıyor ve bölüm kendini yeniliyor.
+
+**Kim basabilir:** sitenin yöneticisi. Sürüm güncellemesinin aksine
+geliştirici parolası istemiyor, ve fark iki düğmenin başkasına ne
+yapabildiğinde: sürüm güncellemesi sitenizin önündeki programı
+değiştirir, yedek ise bir dosya yazar. Yapabileceği tek zarar diski
+doldurmak, o da tek bayt yazılmadan sayılarla reddediliyor.
+
+**Sığmıyorsa hiç başlamıyor.** Yükseltici tabloların gerçek boyutunu
+ölçüyor, dosyanın ne kadar tutacağını kötümser bir oranla tahmin ediyor,
+ve diskte kalacak payı hesaba katıyor. Yetmiyorsa satıra ne kadar eksik
+olduğu yazılıyor. Dolan disk collector'ı durdurur, collector da sitenin
+önündedir — yani bu özelliğin tek başına yaratabileceği kesinti, tam da
+çalışırken yarattığı olurdu.
+
+**Yedekler listede,** tarih, içerik, boyut ve o sırada çalışan sürümle.
+Toplam da yazıyor. Biri kabuktan bir yedeği silerse satır kaldırılmıyor,
+"dosya yok" diye işaretleniyor: "burada bir yedek vardı ve gitti"
+okunması gereken bir cümle.
+
+**Ve listenin altında bir uyarı var:** bir yedek, saklama politikanızın o
+tarihten sonra sildiği veriyi tutar. Sildiğinizi sandığınız satırlar
+orada duruyor olabilir.
+
+`upgrader.toml` içine `[backup] dir` yazılmadıkça bu kurulum yedek
+almaz. Düğmeye basılırsa istek satırına "yedek dizini yapılandırılmamış"
+yazılıp bitiriliyor — sessizce beklemiyor.
+
 ### Yedekleme: ilk dilim, ve pg_dump'ın sessizce boş dosya üretmesi
 
 Yedek alma yolunun ilk yarısı: şema, küme tanımları, ve **dosyayı

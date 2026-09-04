@@ -41,6 +41,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/applier"
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
@@ -179,8 +180,23 @@ func main() {
 		Restart: relupdate.Doorbell{Pool: pool},
 	}
 
+	// The backup runner, which empties the third queue.
+	//
+	// Its directory comes from this config file and never from a
+	// request. Empty means this deployment does not take backups; a
+	// request queued there fails with that sentence on its row rather
+	// than waiting for an upgrader that will never be able to serve it.
+	backups := backup.Runner{
+		Pool:          pool,
+		Dir:           cfg.Backup.Dir,
+		Name:          name,
+		BinaryVersion: buildinfo.Version(version),
+		SchemaVersion: schemaver.Version,
+		Logger:        logger,
+	}
+
 	if *once {
-		if err := runOnce(ctx, a, checker, runner, logger); err != nil {
+		if err := runOnce(ctx, a, checker, runner, backups, logger); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -189,14 +205,14 @@ func main() {
 	logger.Info("upgrader: watching for requests", "interval", cfg.Interval())
 	ticker := time.NewTicker(cfg.Interval())
 	defer ticker.Stop()
-	_ = runOnce(ctx, a, checker, runner, logger)
+	_ = runOnce(ctx, a, checker, runner, backups, logger)
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("upgrader: stopping")
 			return
 		case <-ticker.C:
-			_ = runOnce(ctx, a, checker, runner, logger)
+			_ = runOnce(ctx, a, checker, runner, backups, logger)
 		}
 	}
 }
@@ -207,7 +223,7 @@ func main() {
 // every run reports, and a line each time would bury the runs that
 // matter under a log of runs that did not.
 func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
-	runner relupdate.Runner, logger *slog.Logger) error {
+	runner relupdate.Runner, backups backup.Runner, logger *slog.Logger) error {
 
 	// The check first, and its failure does not stop the pass.
 	//
@@ -230,6 +246,29 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 	// requests and somebody may be waiting on either.
 	if _, relErr := runner.RunOnce(ctx); relErr != nil && !errors.Is(relErr, relupdate.ErrNothingToDo) {
 		logger.Error("upgrader: the release update did not finish", "err", relErr)
+	}
+
+	// Backups, before the schema.
+	//
+	// Order matters here too, and it is the same argument one step
+	// further on: a backup taken before a migration is a backup of the
+	// state somebody would want to go back to. Taken after, it records
+	// the change rather than what preceded it.
+	//
+	// Its failure does not stop the schema pass. They are independent
+	// requests with independent people waiting, and a disk too full for
+	// a backup is not a reason to refuse a migration that needs no room.
+	if _, bErr := backups.RunOnce(ctx); bErr != nil && !errors.Is(bErr, backup.ErrNothingToDo) {
+		logger.Error("upgrader: the backup did not finish", "err", bErr)
+	}
+	// And the catalogue is reconciled with the disk on every pass, so a
+	// file an operator removed with a shell stops being offered as one
+	// that exists.
+	if marked, sErr := backups.Sweep(ctx); sErr != nil {
+		logger.Warn("upgrader: could not check the backups on disk", "err", sErr)
+	} else if marked > 0 {
+		logger.Warn("upgrader: backups the catalogue named are no longer there",
+			"count", marked)
 	}
 
 	req, err := a.RunOnce(ctx)

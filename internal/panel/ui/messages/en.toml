@@ -1036,6 +1036,40 @@ baslik = "Storage"
 okunamadi = "The table information could not be read."
 ipucu = "These are disk sizes, not row counts. The panel's role cannot read rows from the analytics tables - that is not a gap, it is the separation the whole system rests on. Row counts come from the read API, on the site pages."
 
+[metin.saglik.yedek]
+baslik = "Backup"
+aciklama = "The backup file stays on the machine and is served from no address. The file is 0600, the directory 0700, and both belong to the upgrader's account - the account the four services run as cannot read them. A backup holds every row those services are not allowed to read, plus the panel's credential material."
+okunamadi = "The backup information could not be read."
+kume_baslik = "What to include"
+al = "Take a backup"
+istendi = "A backup was requested. The upgrader picks it up within thirty seconds; this section refreshes itself."
+zaten_var = "A backup is already being taken. Wait for it to finish; two dumps at once take twice the disk."
+yetki_yok = "Taking a backup needs the manager role on this site."
+secim_yok = "Nothing was selected. An empty backup file is an installation that believes it has a backup."
+yok = "No backup has been taken yet."
+liste_baslik = "Backups on this machine"
+toplam = "Total"
+eksik = "File missing"
+eksik_aciklama = "The catalogue knows this backup and the file is not on the disk. Somebody may have removed it from a shell; the row is kept, because \"there was a backup here and it is gone\" is a sentence that needs reading."
+saklama_uyarisi = "A backup holds data your retention policy has deleted since that date. Rows you believe are gone may still be in here."
+durum_baslik = "Last request"
+
+[metin.saglik.yedek.sutun]
+tarih = "Date"
+icerik = "Contents"
+boyut = "Size"
+surum = "Version"
+
+[metin.saglik.yedek.kume]
+analitik = "Analytics: traffic and beacon events"
+panel = "Panel: accounts, sites, settings, audit log"
+
+[metin.saglik.yedek.durum]
+pending = "Queued"
+running = "Running"
+succeeded = "Taken"
+failed = "Failed"
+
 [metin.saglik.disk]
 baslik = "Disk"
 aciklama = "The table sizes above say what is stored; these numbers say whether the next write finds room. A full disk stops the collector, and the collector is in front of the site."

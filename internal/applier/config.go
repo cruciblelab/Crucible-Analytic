@@ -51,7 +51,38 @@ type Config struct {
 	// in the database would give it the second. Either alone is enough
 	// to make the button a way to run code.
 	Release ReleaseConfig `toml:"release"`
+
+	// Backup is the [backup] table.
+	Backup BackupConfig `toml:"backup"`
 }
+
+// BackupConfig is the [backup] table.
+//
+// # Why the directory lives here and not in the request
+//
+// A backup is written by this process, to a path this file names. The
+// queue row deliberately carries no path: one that did would be a path a
+// compromised panel could choose, and the upgrader would then write a
+// dump of every table to it - a root-owned directory, another customer's
+// tree, a web root. The row says what to include; where it goes is not
+// the asking side's decision.
+//
+// Unset means backups are not taken on this deployment, which is the
+// state every machine starts in. A request queued there fails with that
+// sentence on the row rather than waiting forever - see
+// internal/backup.Runner.
+type BackupConfig struct {
+	// Dir is where backup files are written.
+	//
+	// Under the state directory by convention, because that is what the
+	// container deployment mounts as a volume: a backup written outside
+	// one is discarded by the next image update, which is exactly the
+	// loss it was taken to insure against.
+	Dir string `toml:"dir"`
+}
+
+// Configured reports whether this deployment takes backups.
+func (b BackupConfig) Configured() bool { return b.Dir != "" }
 
 // ReleaseConfig is the [release] table.
 //

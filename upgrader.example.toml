@@ -99,3 +99,27 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 # prefix = "/opt/crucible-analytic"
 
 # public_key = "..."
+
+# [backup]
+#
+# Yedek dosyalarının yazılacağı dizin. Boş bırakılırsa bu kurulum yedek
+# almaz: paneldeki düğme bir istek satırı yazar, yükseltici onu alır ve
+# satıra "yedek dizini yapılandırılmamış" yazıp bitirir. Sessizce
+# beklemez.
+#
+# Yol **buraya** yazılır, istek satırına değil. İstek satırında bir yol
+# olsaydı, ele geçirilmiş bir panelin seçebileceği bir yol olurdu ve
+# yükseltici her tablonun dökümünü oraya yazardı — root'un dizini, başka
+# bir müşterinin ağacı, bir web kökü. Satır neyin dahil edileceğini
+# söyler; nereye gideceğini söylemez.
+#
+# **Konteynerde volume üzerinde olmalı.** Durum dizininin altı bu yüzden
+# öneriliyor: compose dosyası orayı volume olarak bağlıyor, ve volume
+# dışına yazılan bir yedek bir sonraki imaj güncellemesinde silinir — ki
+# o, yedeğin karşı sigorta olduğu kaybın ta kendisidir.
+#
+# Dizin 0700, dosyalar 0600 olarak oluşturulur ve yükselticinin
+# hesabına aittir. Dört servisin çalıştığı `crucible` hesabı onları
+# okuyamaz: bir yedek, o servislerin okumasına izin verilmeyen her
+# satırı ve panelin parola hash'lerini taşır.
+# dir = "/var/lib/crucible-analytic/yedek"

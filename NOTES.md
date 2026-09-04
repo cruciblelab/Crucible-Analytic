@@ -11237,3 +11237,64 @@ Kuyruk işlemleri, yükselticinin bunu çalıştırması, boş alan kontrolü ve
 paneldeki düğme. Bu dilimde şema ve üretici var; kuyruğu boşaltan taraf
 yok, o yüzden `Claim` de yok — kuyruk değişmezi ancak o yazıldığında
 anlamlı olur ve o zaman tetiklenecek.
+
+## F1b ikinci dilim — kuyruk, düğme, ve testin bulduğu iki şey
+
+İlk dilim şemayı ve dosyayı üreten tarafı bıraktı. Bu dilim kuyruğu,
+yükselticiyi ve paneldeki düğmeyi ekledi, yani yol uçtan uca çalışıyor.
+
+### Kuyruk ve tüketicisi aynı commit'te
+
+`Claim` yazılır yazılmaz değişmez ateşledi: "backup bir kuyruk tanımlıyor
+ve paket dışından hiçbir şey ondan iş almıyor". Tam da tasarlandığı gibi.
+Runner aynı commit'te yazıldı, ve düğme de öyle — üreticisi olmayan bir
+kuyruk, tüketicisi olmayanın aynadaki hâli.
+
+### Tahmin ölçüldü, ama ölçülen sayı kullanılmadı
+
+Gerçek veride sıkıştırma oranı **binde beş** çıktı. O sayıyı kullanmak
+yanlış olurdu: test verisi gerçek trafikten çok daha tekrarlı, ve bu
+oranla yazılmış bir kontrol her makinede geçer, hiçbirini korumaz.
+
+Tahmin bilerek kötümser: tabloların **beşte biri**. Ölçülenden kırk kat
+kötü. Bu yönde yanlış olmak sığacak bir yedeği reddeder ve müşteri bir
+sayı ile sebep görür; öbür yönde yanlış olmak diski doldurur, collector'ı
+durdurur, ve siteyi indirir.
+
+*Bir tahminin ölçülmüş olması, ölçülen şeyin temsil ettiği anlamına
+gelmez.*
+
+### Test, `MkdirAll`'ın yapmadığı şeyi buldu
+
+Dizin modunu kontrol eden bir iddia yazdım ve kırmızı verdi:
+`os.MkdirAll(dir, 0o700)` modu **yalnız oluşturduğu** dizinlere uygular.
+Elle açılmış veya önceki bir kurulumdan kalmış bir yedek dizini eski
+modunda kalıyor — çoğu makinede 0755. Dosyalardaki 0600 içeriği korur,
+ama her yedeğin adı, tarihi ve boyutu hesabı olan herkese okunur kalır.
+
+Fonksiyona bakarak bulunmazdı: `MkdirAll` modu ayarlıyormuş gibi durur,
+ve gerçekten ayarlar — sadece dizinin henüz var olmadığı koşularda.
+
+### Güvenlik kararının testi
+
+Panelin dosya yolunu okuyamadığı, yorumla değil veritabanıyla
+doğrulanıyor: panelin rolüyle `path` sütununu isteyen bir sorgu
+çalıştırılıyor ve **izin hatası** alması bekleniyor. Hata mesajının
+gerçekten izinle ilgili olduğu da kontrol ediliyor — başka bir sebeple
+düşen bir sorgu, sınanmamış bir GRANT'ı sınanmış gibi gösterirdi.
+
+### Dört mutasyon
+
+| Mutasyon | Sonuç |
+|---|---|
+| Panele `path` sütununu da ver | Yakalandı |
+| Boş alan yetmese de yaz | Yakalandı |
+| Var olan dizini sıkılaştırma | Yakalandı |
+| Dosya modunu 0644 yap | İki test yakaladı |
+
+### Gerçek zincir, gerçek binary'lerle
+
+Tarayıcıdan düğmeye basıldı, kuyrukta 42 numaralı satır oluştu, gerçek
+`upgrader` binary'si `-once` ile koşup onu aldı: 458 KB tablo, 91 KB
+tahmin, 6,4 GB boş alan, ve `-rw-------` bir dosya `drwx------` bir
+dizinde. Katalog satırı panelde listelendi.

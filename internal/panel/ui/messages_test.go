@@ -422,6 +422,11 @@ var (
 	// added to the config gets caught here for having no words and there
 	// for not being measured.
 	storagePathKeys = []string{"kayit", "veri"}
+	// backupSets mirrors internal/backup.Sets and backupStates the four
+	// State constants, both joined to a prefix at runtime. The other
+	// direction is in internal/panel/web, against the real values.
+	backupSets   = []string{"analitik", "panel"}
+	backupStates = []string{"pending", "running", "succeeded", "failed"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -460,6 +465,12 @@ func computedKeys() []string {
 	}
 	for _, key := range storagePathKeys {
 		keys = append(keys, "saglik.disk.yol."+key)
+	}
+	for _, set := range backupSets {
+		keys = append(keys, "saglik.yedek.kume."+set)
+	}
+	for _, state := range backupStates {
+		keys = append(keys, "saglik.yedek.durum."+state)
 	}
 	for _, id := range dashboardCards {
 		keys = append(keys, "pano.kart."+id+".baslik", "pano.kart."+id+".aciklama")

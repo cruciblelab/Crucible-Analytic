@@ -226,6 +226,24 @@ const RefreshQueueLock = 0x726566726573680A // "refresh"
 // does, take them in the order they are declared here.
 const ReleaseQueueLock = 0x72656C65617365FF // "release"
 
+// BackupQueueLock serialises the suites that share
+// panel_backup_requests.
+//
+// The fourth queue with a one-in-flight index, and the same collision:
+// any suite's pending request makes another's Ask fail with
+// ErrAlreadyInFlight.
+//
+// It also guards the catalogue. panel_backups has no in-flight index -
+// there can be many backups - but two suites listing it while a third
+// inserts would each see rows they did not write, and the tests here
+// count them.
+//
+// # Ordering
+//
+// Nothing takes this together with the others today. If something ever
+// does, take them in the order they are declared here.
+const BackupQueueLock = 0x796564656B00FF01 // "yedek"
+
 // SchemaApplyLock serialises anything that applies a schema file.
 //
 // Unlike the four above, this one is not a test fixture. The applier

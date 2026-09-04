@@ -4753,7 +4753,7 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | Faz | Ne verir | Durum |
 |---|---|---|
 | F1a | Diskte ne kadar yer var, hangi dosya sisteminde, volume üzerinde mi | ✅ yapıldı |
-| F1b | Yedek alma: kuyruk, üretici, ölçülmüş tahmin, sığmazsa ret, dosya korumaları | |
+| F1b | Yedek alma: kuyruk, üretici, ölçülmüş tahmin, sığmazsa ret, dosya korumaları | ✅ yapıldı |
 | F1c | Yedekler depolama görünümünde, kapladıkları alanla | |
 | F1d | Şema yükseltmesinden önce otomatik yedek | |
 | F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | |

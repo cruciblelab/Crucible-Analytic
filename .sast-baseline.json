@@ -66,6 +66,14 @@
       "snippet": "f, err := os.Open(path)"
     },
     {
+      "fingerprint": "7a19ef5bead84510e438380e",
+      "rule": "G302",
+      "file": "internal/backup/dump.go",
+      "severity": "MEDIUM",
+      "reason": "The mode is the file protection, not a slip. 0700 on the directory is what keeps a backup's name, date and size out of reach of the `crucible` account the four services run as - the files inside are 0600 for the contents, and a directory anybody may list gives away the rest. gosec flags any explicit chmod above 0600; this one is on a directory, where the execute bit is what makes it enterable at all.",
+      "snippet": "if err := os.Chmod(w.Dir, 0o700); err != nil {"
+    },
+    {
       "fingerprint": "b38c8fdb2669468e258c6a55",
       "rule": "G304",
       "file": "internal/backup/dump.go",

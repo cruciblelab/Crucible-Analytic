@@ -1076,6 +1076,40 @@ baslik = "Depolama"
 okunamadi = "Tablo bilgileri okunamadı."
 ipucu = "Buradaki sayılar disk kullanımıdır, satır sayısı değil. Panelin rolü analitik tabloların satırlarını okuyamaz — bu bir eksiklik değil, sistemin dayandığı ayrımın kendisi. Satır sayıları site sayfalarında, okuma API'si üzerinden gelir."
 
+[metin.saglik.yedek]
+baslik = "Yedek"
+aciklama = "Yedek dosyası makinede kalır, hiçbir adresten indirilemez. Dosya 0600, dizin 0700, ve yükselticinin hesabına ait — dört servisin çalıştığı hesap onları okuyamaz. Bir yedek, o servislerin okumasına izin verilmeyen her satırı ve panelin parola bilgilerini taşır."
+okunamadi = "Yedek bilgileri okunamadı."
+kume_baslik = "Neler dahil olsun"
+al = "Yedek al"
+istendi = "Yedek istendi. Yükseltici otuz saniye içinde alıyor; bu bölüm kendini yeniliyor."
+zaten_var = "Zaten bir yedek alınıyor. Bitmesini bekleyin; aynı anda iki döküm diskte iki katı yer tutar."
+yetki_yok = "Yedek almak için bu sitede yönetici olmanız gerekiyor."
+secim_yok = "Hiçbir küme seçilmemiş. Boş bir yedek dosyası, yedeği olduğunu sanan bir kurulum demektir."
+yok = "Henüz yedek alınmamış."
+liste_baslik = "Bu makinedeki yedekler"
+toplam = "Toplam"
+eksik = "Dosya yok"
+eksik_aciklama = "Katalog bu yedeği tanıyor ve dosya diskte değil. Biri kabuktan silmiş olabilir; satır kaldırılmıyor, çünkü \"burada bir yedek vardı ve gitti\" cümlesi okunması gereken bir cümle."
+saklama_uyarisi = "Bir yedek, saklama politikanızın o tarihten sonra sildiği veriyi tutar. Yani sildiğinizi sandığınız satırlar burada duruyor olabilir."
+durum_baslik = "Son istek"
+
+[metin.saglik.yedek.sutun]
+tarih = "Tarih"
+icerik = "İçerik"
+boyut = "Boyut"
+surum = "Sürüm"
+
+[metin.saglik.yedek.kume]
+analitik = "Analitik: trafik ve beacon olayları"
+panel = "Panel: hesaplar, siteler, ayarlar, denetim kaydı"
+
+[metin.saglik.yedek.durum]
+pending = "Sırada"
+running = "Alınıyor"
+succeeded = "Alındı"
+failed = "Başarısız"
+
 [metin.saglik.disk]
 baslik = "Disk"
 aciklama = "Yukarıdaki tablo boyutları neyin saklandığını söyler; buradaki sayılar bir sonraki yazmanın yer bulup bulamayacağını. Dolan disk collector'ı durdurur, collector da sitenin önündedir."

@@ -124,6 +124,16 @@ const (
 	// as the wrong one.
 	ActionReleaseRequested = "release.requested"
 
+	// ActionBackupRequested marks somebody asking for a backup.
+	//
+	// Its own action for the same reason as the two above: after the
+	// fact, "who took a copy of every row in this database" is a
+	// question with its own answer, and it is one somebody asks for
+	// reasons that have nothing to do with upgrades. A backup file is
+	// the most concentrated thing this product produces, and the record
+	// of who asked for one has to survive the request row being swept.
+	ActionBackupRequested = "backup.requested"
+
 	// ActionRangeRefreshRequested marks somebody pressing "refresh the
 	// IP datasets now".
 	//

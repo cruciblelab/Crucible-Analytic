@@ -111,6 +111,25 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 	if err := os.MkdirAll(w.Dir, 0o700); err != nil {
 		return Result{}, fmt.Errorf("backup: preparing %s: %w", w.Dir, err)
 	}
+	// And tightened even when it was already there.
+	//
+	// MkdirAll's mode applies only to directories it creates. A backup
+	// directory the operator made by hand, or one left by an earlier
+	// install, keeps whatever mode it had - 0755 on most machines - and
+	// the 0600 on the files then protects their contents while leaving
+	// every backup's name, date and size readable by anyone with an
+	// account.
+	//
+	// Found by a test asserting the directory's mode, not by reading
+	// this function: MkdirAll looks like it sets the mode, and it does,
+	// on exactly the runs where the directory did not exist yet.
+	//
+	// Tightened rather than refused, because the alternative is a
+	// customer pressing a button and being told to go and chmod
+	// something. Nothing but backups belongs in here.
+	if err := os.Chmod(w.Dir, 0o700); err != nil {
+		return Result{}, fmt.Errorf("backup: restricting %s: %w", w.Dir, err)
+	}
 
 	final := filepath.Join(w.Dir, name)
 	tmp := filepath.Join(w.Dir, "."+name+".tmp")

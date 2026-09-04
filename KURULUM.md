@@ -1093,6 +1093,47 @@ ulaşılamıyor.
 
 ---
 
+### Yedek: Sağlık sayfasındaki Yedek bölümü
+
+**Önce açmanız gerekiyor.** `upgrader.toml` içine:
+
+```toml
+[backup]
+dir = "/var/lib/crucible-analytic/yedek"
+```
+
+Yazılmadıkça bu kurulum yedek almaz: düğmeye basılırsa istek satırına
+"yedek dizini yapılandırılmamış" yazılır ve orada biter. Sessizce
+beklemez.
+
+**Konteynerde volume üzerinde olmalı.** Durum dizininin altı bu yüzden
+öneriliyor: `compose.yml` orayı volume olarak bağlıyor. Volume dışına
+yazılan bir yedek bir sonraki imaj güncellemesinde silinir — ki o,
+yedeğin karşı sigorta olduğu kaybın ta kendisi.
+
+**Dosya makineden çıkmaz.** Hiçbir HTTP yolu yedek baytlarını sunmuyor,
+ve panelin veritabanı rolü dosya yolunu içeren sütunu **okuyamıyor**
+(sütun düzeyinde GRANT). Panel boyutu ve tarihi görür, nerede olduğunu
+göremez. Koruma bu: "böyle bir rota yok" cümlesi, "o süreç dosyanın
+nerede olduğunu bilmiyor" cümlesinden zayıftır.
+
+Dizin 0700, dosyalar 0600, ve ikisi de yükselticinin hesabına ait. Dört
+servisin çalıştığı `crucible` hesabı onları okuyamaz. Bir yedek, o
+servislerin okumasına izin verilmeyen her satırı ve panelin parola
+hash'leriyle TOTP sırlarını taşır — yani bu izinler süs değil.
+
+**Sığmıyorsa hiç başlamaz.** Tabloların gerçek boyutu ölçülür, dosya
+boyutu kötümser bir oranla tahmin edilir, diskte kalacak pay hesaba
+katılır. Yetmiyorsa satırda ne kadar eksik olduğu yazar.
+
+**Bir yedek, saklama politikanızın sildiği veriyi tutar.** Tarihinden
+sonra silinen satırlar o dosyanın içinde durmaya devam eder. Sayfada da
+yazıyor, ama burada bir kez daha: müşteriye "sildik" dediğiniz veri
+yedeklerde duruyor olabilir.
+
+**Geri yükleme henüz yok** (F1f). Şu an alınabiliyor, listelenebiliyor,
+ve doğrulanması ile yan bir veritabanına yüklenmesi sonraki fazda.
+
 ### Disk: Sağlık sayfasındaki Disk bölümü
 
 Yapılandırdığınız her dizinin dosya sistemi, toplam / dolu /

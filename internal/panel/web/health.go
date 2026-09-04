@@ -67,6 +67,7 @@ const (
 	eylemYukselt      = "yukselt"
 	eylemKaynakYenile = "kaynak_yenile"
 	eylemSurum        = "surum"
+	eylemYedek        = "yedek"
 )
 
 // healthPage is Data for the template.
@@ -155,6 +156,13 @@ type healthPage struct {
 	// down with it.
 	RangeRefresh      rangeRefreshSection
 	RangeRefreshError string
+
+	// The backup section: the button, and the catalogue beneath it.
+	// Its own error field like every other part of this page - a
+	// catalogue that cannot be read must not take the disk figures with
+	// it.
+	Backup      backupSection
+	BackupError string
 }
 
 // healthSchema is what the database says its schema is, next to what
@@ -313,6 +321,9 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		case eylemSurum:
 			section, sectionErr := s.releasePost(w, r, lang, access)
 			posted.release, posted.releaseErr = &section, sectionErr
+		case eylemYedek:
+			section, sectionErr := s.backupPost(w, r, lang, access)
+			posted.backup, posted.backupErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
 			return
@@ -378,6 +389,8 @@ type pressed struct {
 	release    *releaseSection
 	releaseErr string
 	refresh    *rangeRefreshSection
+	backup     *backupSection
+	backupErr  string
 	refreshErr string
 }
 
@@ -427,6 +440,11 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 		data.RangeRefresh, data.RangeRefreshError = *posted.refresh, posted.refreshErr
 	} else {
 		data.RangeRefresh, data.RangeRefreshError = s.rangeRefreshStatusFor(r, lang, access)
+	}
+	if posted.backup != nil {
+		data.Backup, data.BackupError = *posted.backup, posted.backupErr
+	} else {
+		data.Backup, data.BackupError = s.backupStatusFor(r, lang, access)
 	}
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))

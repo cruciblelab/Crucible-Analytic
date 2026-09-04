@@ -479,6 +479,78 @@ that is the isolation working, not a gap. */}}
 </section>
 
 <section class="bolum">
+<h2>{{t "saglik.yedek.baslik"}}</h2>
+{{- if .Data.BackupError}}
+<p class="uyari" role="note">{{.Data.BackupError}}</p>
+{{- else}}
+{{- with .Data.Backup}}
+<p class="ipucu">{{t "saglik.yedek.aciklama"}}</p>
+
+{{- if .Notice}}
+<p class="{{if .Failed}}uyari{{else}}bilgi{{end}}" role="note">{{.Notice}}</p>
+{{- end}}
+
+{{- if .Allowed}}
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="yedek">
+<fieldset class="yedek-kumeler">
+<legend>{{t "saglik.yedek.kume_baslik"}}</legend>
+{{- range .Sets}}
+<label class="secim"><input type="checkbox" name="kume-{{.Name}}" value="1"
+  {{if .Checked}}checked{{end}}> {{.Label}}</label>
+{{- end}}
+</fieldset>
+<button type="submit">{{t "saglik.yedek.al"}}</button>
+</form>
+{{- end}}
+
+{{- if .Latest}}
+<p class="ipucu">{{t "saglik.yedek.durum_baslik"}}: {{.LatestState}}
+{{- if .Latest.ErrorChain}} — {{.Latest.ErrorChain}}{{end}}</p>
+{{- end}}
+
+{{- if .Backups}}
+<h3>{{t "saglik.yedek.liste_baslik"}}</h3>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.yedek.sutun.tarih"}}</th>
+<th scope="col">{{t "saglik.yedek.sutun.icerik"}}</th>
+<th scope="col">{{t "saglik.yedek.sutun.boyut"}}</th>
+<th scope="col">{{t "saglik.yedek.sutun.surum"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Backups}}
+<tr class="{{if .Missing}}kaldi{{end}}">
+<th scope="row">{{$.F.DateTime .TakenAt}}</th>
+<td>{{range $i, $s := .Sets}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
+<td class="sayi">
+  {{- if .Missing}}<span class="uyari">{{t "saglik.yedek.eksik"}}</span>
+  {{- else}}{{$.F.Bytes .Bytes}}{{end}}</td>
+<td><code class="ipucu">{{.Version}}</code></td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+<p class="ipucu">{{t "saglik.yedek.toplam"}}: {{$.F.Bytes .TotalBytes}}</p>
+{{- /* Said where the list is, not in a note somebody scrolls past: a
+backup preserves what the retention policy has since deleted, and
+somebody reading a list of backups is exactly the person who needs to
+know that. */}}
+<p class="ipucu">{{t "saglik.yedek.saklama_uyarisi"}}</p>
+{{- range .Backups}}{{if .Missing}}
+<p class="ipucu">{{t "saglik.yedek.eksik_aciklama"}}</p>
+{{- break}}{{end}}{{end}}
+{{- else}}
+<p class="ipucu">{{t "saglik.yedek.yok"}}</p>
+{{- end}}
+{{- end}}
+{{- end}}
+</section>
+
+<section class="bolum">
 <h2>{{t "saglik.disk.baslik"}}</h2>
 <p class="ipucu">{{t "saglik.disk.aciklama"}}</p>
 {{- with .Data.Disk}}
