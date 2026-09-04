@@ -165,3 +165,97 @@ DROP POLICY IF EXISTS release_sweep ON panel_release_requests;
 CREATE POLICY release_sweep ON panel_release_requests
     FOR DELETE TO panel_user
     USING (true);
+
+
+-- What the upgrader found when it last asked "is there a newer version?"
+--
+-- One row for the whole deployment, id fixed at 1, like schema_version.
+-- There is one release source and one answer; a table that could hold
+-- two would need a rule about which one the panel believes, and a rule
+-- like that is one nobody writes down.
+--
+-- # Why this is a table and not a setting
+--
+-- panel_settings holds decisions somebody made. This holds an
+-- observation a machine made, and the two have opposite lifecycles: a
+-- setting survives because it was chosen, an observation is worthless
+-- the moment it is stale. Keeping them apart means "when was this last
+-- checked" has somewhere to live, and means a settings export does not
+-- carry a claim about the world.
+--
+-- # What is in it and what is deliberately not
+--
+-- The version, when the source said it was released, when we last
+-- looked, and the last error. Not the base URL and not the public key:
+-- those stay in upgrader.toml. A key in a table is a key an attacker who
+-- reached the database could replace, and then every signature in this
+-- system would verify against theirs.
+
+CREATE TABLE IF NOT EXISTS panel_release_available (
+    id              smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+
+    -- The latest version the source published, empty when the last check
+    -- did not produce one.
+    version         text        NOT NULL DEFAULT '',
+    -- When the source says that version was released. NULL when the
+    -- manifest did not say, which is allowed.
+    released_at     timestamptz,
+    -- Where a person can read what changed. Empty when absent.
+    notes_url       text        NOT NULL DEFAULT '',
+
+    -- When the upgrader last completed a check, successful or not. This
+    -- is the field that turns the row from a claim into a dated claim,
+    -- and a version with no date beside it is the thing a stale row
+    -- looks exactly like.
+    checked_at      timestamptz NOT NULL DEFAULT now(),
+    -- When a check last succeeded. Separate from checked_at so the page
+    -- can say "we last looked five minutes ago and it failed, the last
+    -- good answer is from Tuesday" rather than having to choose one of
+    -- those two facts to tell.
+    succeeded_at    timestamptz,
+    -- The last failure, empty when the last check worked.
+    error           text        NOT NULL DEFAULT ''
+);
+
+-- The upgrader writes, everybody reads.
+--
+-- FORCE, because the owner of a table is exempt from its own row
+-- security without it - and schema_admin owns this one. Three tables in
+-- this project were found relying on policies that their own owner
+-- silently bypassed.
+ALTER TABLE panel_release_available ENABLE ROW LEVEL SECURITY;
+ALTER TABLE panel_release_available FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS available_read ON panel_release_available;
+CREATE POLICY available_read ON panel_release_available FOR SELECT USING (true);
+
+-- Only the upgrader records an answer. The panel must not be able to
+-- write here: a panel that could would be a panel that could tell itself
+-- a version exists, and the whole point of asking the upgrader is that
+-- it is the component holding the key.
+DROP POLICY IF EXISTS available_record ON panel_release_available;
+CREATE POLICY available_record ON panel_release_available
+    FOR INSERT TO schema_admin
+    WITH CHECK (true);
+
+DROP POLICY IF EXISTS available_update ON panel_release_available;
+CREATE POLICY available_update ON panel_release_available
+    FOR UPDATE TO schema_admin
+    USING (true)
+    WITH CHECK (true);
+
+-- And the upgrader can throw the answer away.
+--
+-- Nothing in normal operation deletes this row; it is upserted forever.
+-- The case it exists for is an operator repointing base_url at a
+-- different publisher: the recorded version then came from a source
+-- this deployment no longer uses, and without a way to clear it the
+-- page would go on offering a version from somebody else's shelf until
+-- the next successful check happened to overwrite it.
+DROP POLICY IF EXISTS available_forget ON panel_release_available;
+CREATE POLICY available_forget ON panel_release_available
+    FOR DELETE TO schema_admin
+    USING (true);
+
+GRANT SELECT ON panel_release_available TO panel_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON panel_release_available TO schema_admin;

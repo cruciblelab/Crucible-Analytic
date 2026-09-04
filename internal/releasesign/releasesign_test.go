@@ -358,3 +358,74 @@ func FuzzParsePublicKeyNeverPanics(f *testing.F) {
 		}
 	})
 }
+
+// TestASumsSignatureDoesNotVerifyAsAManifest is the separator, checked
+// rather than described.
+//
+// One key signs two documents. Without a separator per document they are
+// interchangeable, and the swap is not a hypothetical nuisance: the
+// manifest is what a panel shows a customer as "the version to install",
+// so an attacker who could have an old signed SHA256SUMS read as one
+// would be choosing which release a deployment offers.
+//
+// Both directions, because a separator that only worked one way would
+// look right in whichever test was written first.
+func TestASumsSignatureDoesNotVerifyAsAManifest(t *testing.T) {
+	key, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := key.Public()
+	payload := []byte("v0.21.0\n")
+
+	sumsSig, err := key.Sign(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestSig, err := key.SignIn(ManifestDomain, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(sumsSig) == string(manifestSig) {
+		t.Fatal("the two documents produced the same signature, so the domain " +
+			"separator is not reaching the signer")
+	}
+	if err := pub.VerifyIn(ManifestDomain, payload, sumsSig); err == nil {
+		t.Error("a SHA256SUMS signature verified as a manifest")
+	}
+	if err := pub.Verify(payload, manifestSig); err == nil {
+		t.Error("a manifest signature verified as a SHA256SUMS")
+	}
+
+	// And each still verifies as itself, or the test above passes on a
+	// key that verifies nothing at all.
+	if err := pub.Verify(payload, sumsSig); err != nil {
+		t.Errorf("a sums signature did not verify as itself: %v", err)
+	}
+	if err := pub.VerifyIn(ManifestDomain, payload, manifestSig); err != nil {
+		t.Errorf("a manifest signature did not verify as itself: %v", err)
+	}
+}
+
+// TestAnEmptyDomainIsRefusedRatherThanTreatedAsNoPrefix.
+//
+// The failure mode this stops is the quiet one: an empty separator makes
+// every document in this project verify against every other, and it does
+// so without any error anywhere.
+func TestAnEmptyDomainIsRefusedRatherThanTreatedAsNoPrefix(t *testing.T) {
+	key, err := Generate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := key.SignIn("", []byte("x")); err == nil {
+		t.Error("signing with no domain separator was allowed")
+	}
+	sig, err := key.SignIn(ManifestDomain, []byte("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := key.Public().VerifyIn("", []byte("x"), sig); err == nil {
+		t.Error("verifying with no domain separator was allowed")
+	}
+}

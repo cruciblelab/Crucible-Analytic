@@ -27,23 +27,26 @@ import (
 	"strings"
 
 	"github.com/cruciblelab/crucible-analytic/internal/releasesign"
+	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
 )
 
 func main() {
 	keygen := flag.Bool("keygen", false, "make a new signing key and print both halves")
 	sign := flag.String("sign", "", "path to a SHA256SUMS to sign; writes SHA256SUMS.sig beside it")
 	verify := flag.String("verify", "", "path to a SHA256SUMS to check against CA_RELEASE_PUBKEY")
+	manifest := flag.String("sign-manifest", "",
+		"path to a latest.txt to sign; writes latest.txt.sig beside it")
 	flag.Parse()
 
 	chosen := 0
-	for _, on := range []bool{*keygen, *sign != "", *verify != ""} {
+	for _, on := range []bool{*keygen, *sign != "", *verify != "", *manifest != ""} {
 		if on {
 			chosen++
 		}
 	}
 	switch {
 	case chosen > 1:
-		fail("-keygen, -sign and -verify do different jobs; run one of them")
+		fail("-keygen, -sign, -sign-manifest and -verify do different jobs; run one of them")
 	case *keygen:
 		if err := generate(); err != nil {
 			fail("%v", err)
@@ -54,6 +57,10 @@ func main() {
 		}
 	case *verify != "":
 		if err := verifyFile(*verify); err != nil {
+			fail("%v", err)
+		}
+	case *manifest != "":
+		if err := signManifest(*manifest); err != nil {
 			fail("%v", err)
 		}
 	default:
@@ -122,6 +129,48 @@ public_key = "%s"
 }
 
 // signFile signs a SHA256SUMS and writes the signature beside it.
+// signManifest signs the "which version is current" document.
+//
+// Its own mode rather than a flag on -sign, because the two documents
+// are signed in different domains and the whole point of that is that
+// they cannot be confused. A single mode with a switch would put the
+// choice one typo away from producing a signature that verifies as the
+// wrong kind of thing.
+//
+// The manifest is parsed before it is signed. A publisher who signs a
+// version string this project could never install has produced a
+// document that every deployment will fetch, verify and then refuse -
+// and they will find out from a customer rather than from here.
+func signManifest(path string) error {
+	raw := os.Getenv("CA_RELEASE_KEY")
+	if raw == "" {
+		return errors.New("set CA_RELEASE_KEY to the signing key (releasesign -keygen makes one)")
+	}
+	priv, err := releasesign.ParsePrivateKey(raw)
+	if err != nil {
+		return fmt.Errorf("CA_RELEASE_KEY: %w", err)
+	}
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if _, err := relupdate.ParseManifest(body); err != nil {
+		return fmt.Errorf("%s is not a manifest this project could read: %w", path, err)
+	}
+
+	sig, err := priv.SignIn(releasesign.ManifestDomain, body)
+	if err != nil {
+		return err
+	}
+	out := path + ".sig"
+	if err := os.WriteFile(out, sig, 0o644); err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
+}
+
 func signFile(path string) error {
 	raw := os.Getenv("CA_RELEASE_KEY")
 	if raw == "" {

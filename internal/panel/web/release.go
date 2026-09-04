@@ -58,6 +58,19 @@ type releaseSection struct {
 	// Latest is the most recent request.
 	Latest *relupdate.Request
 
+	// Available is what the upgrader last found. Drawn as four
+	// distinguishable states rather than one - see releaseCheck.
+	Available relupdate.Available
+	// CheckState says which of those four the section is in, so the
+	// template branches on a word rather than on a combination of
+	// timestamps.
+	CheckState checkState
+	// Behind is true when a version is known and it is not the one
+	// running. Computed here rather than in the template because "not
+	// equal" is only the right test while both are exact strings, and
+	// saying so in one place leaves one place to change.
+	Behind bool
+
 	// Notice is the sentence after a press.
 	Notice string
 	Failed bool
@@ -79,13 +92,71 @@ func (s *Server) releaseStatusFor(r *http.Request, lang *ui.Language,
 	}
 
 	out := releaseSection{
-		Current: status.Current,
-		Locked:  status.Locked,
-		Allowed: status.Allowed,
-		Latest:  status.Latest,
+		Current:   status.Current,
+		Locked:    status.Locked,
+		Allowed:   status.Allowed,
+		Latest:    status.Latest,
+		Available: status.Available,
 	}
 	out.AskingForPassword = status.Locked && access.Can(panel.CapManageSettings)
+	out.Behind = status.Available.Known() && status.Available.Version != status.Current
+	out.CheckState = releaseCheck(status.Available, out.Behind)
+
+	// Prefilled with the version worth installing, and only that one.
+	//
+	// The field exists because the panel cannot offer a list. Filling it
+	// with the answer the upgrader verified removes the one real cost of
+	// that - somebody having to know a version number - without the
+	// panel making any claim of its own: what is in the box is what a
+	// signature said, and pressing the button still runs the whole
+	// download-and-verify path against it.
+	if out.Behind {
+		out.Typed = status.Available.Version
+	}
 	return out, ""
+}
+
+// checkState is why the section says what it says about new versions.
+//
+// Four words rather than a boolean, because the states a boolean would
+// collapse are the ones that matter. "We have never asked" and "we asked
+// and you are current" look identical to a reader shown only "no update
+// available" - and the first is the state of every deployment whose
+// upgrader is misconfigured.
+type checkState string
+
+const (
+	// checkNever: no check has ever completed.
+	checkNever checkState = "hic"
+	// checkCurrent: the newest published version is the one running.
+	checkCurrent checkState = "guncel"
+	// checkBehind: a newer version exists.
+	checkBehind checkState = "geride"
+	// checkFailing: the last check failed. A previous answer may still
+	// be shown beside it, and saying both is the point.
+	checkFailing checkState = "basarisiz"
+)
+
+// releaseCheck picks the state.
+//
+// The failing case comes first and outranks the others, deliberately.
+// A deployment whose last check failed but that has an older good
+// answer is *not* "up to date" - it is a deployment whose information
+// is dated, and the difference is the whole reason both timestamps are
+// stored. Ordering "current" above "failing" would produce the one
+// sentence this section must never print by accident: "you have the
+// newest version", said by a machine that could not reach the source.
+func releaseCheck(a relupdate.Available, behind bool) checkState {
+	switch {
+	case a.Error != "":
+		return checkFailing
+	case !a.Known():
+		return checkNever
+	case behind:
+		return checkBehind
+	default:
+		return checkCurrent
+	}
 }
 
 // releasePost handles the button.

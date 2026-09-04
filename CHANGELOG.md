@@ -17,8 +17,8 @@ Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek
 kuyruğu, indirme ve doğrulama, kurulum ve geri dönüş. Üç kuyrukta rol
 ayrımının aslında uygulanmadığı bulundu ve düzeltildi.
 
-**Şema sürümü: 9.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Tablo ekleniyor ve üç tablonun satır
+**Şema sürümü: 10.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. İki tablo ekleniyor ve üç tablonun satır
 güvenliği sıkılaştırılıyor; veri değişmiyor, servis durmuyor.
 
 Yükseltmeden önce her şey çalışmaya devam eder. Görünmeyen tek şey
@@ -36,6 +36,25 @@ Payı bilinmeyen satırda çubuk **hiç çizilmiyor**. Sıfır genişlikte bir
 çubuk "%0" demektir, ve o "bilinmiyor"dan farklı bir iddiadır.
 
 Dar ekranlarda çubuk gizleniyor, sayı kalıyor.
+
+### Güncellemeleri kontrol et
+
+Sağlık → Sürüm güncellemesi artık **en yeni sürümü de yazıyor**, ve yeni
+bir sürüm varsa kurulacak sürüm alanını kendisi dolduruyor. Sürüm
+numarasını ezbere bilmeniz gerekmiyor.
+
+Soruyu **yükseltici** soruyor, panel değil: adres ve imza anahtarı onun
+yapılandırmasında, ve gösterilen sürüm panelin değil imzanın sözü.
+Altı saatte bir bakılıyor; başarısız olursa on beş dakikada bir yeniden
+deneniyor.
+
+Dört ayrı durum var ve dördü ayrı cümle: hiç bakılmadı, günceliz, yeni
+sürüm var, ulaşılamadı. Son bakışı başarısız olan bir kuruluma asla
+"güncelsiniz" denmiyor — bilinen son cevap, tarihiyle birlikte yazılıyor.
+
+**Yayıncı için:** `release/manifest.sh v0.21.0 [notlar-adresi]`, paketler
+yüklendikten sonra, aynı imza anahtarıyla. Ürettiği iki dosya sürüm
+adresinin köküne konur.
 
 ### Panelden sürüm güncellemesi: düğme
 

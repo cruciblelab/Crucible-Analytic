@@ -115,14 +115,24 @@ import (
 // against the answering role at all. An older binary is unaffected -
 // nothing it does needs the permission that was removed - but a database
 // that has not applied this is a database where the split is a comment.
-const Version = 9
+//
+// # 10
+//
+// One table: panel_release_available, the row the upgrader writes when
+// it asks the release source which version is current.
+//
+// Additive, and the panel only reads it. The write policy names
+// schema_admin alone, deliberately: the panel must not be able to tell
+// itself that a version exists, because the reason the upgrader is the
+// one asking is that the upgrader is the one holding the signing key.
+const Version = 10
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "14110bb9eb0ff507ca92dc74d9561017d41e3903556b85952b74e0ee53a6c222"
+const Fingerprint = "5c5c67228ac061360fc4881260e1c0a5d05e0af04527be966aaa6b76f2b8d278"
 
 // FingerprintOf hashes a set of schema files.
 //

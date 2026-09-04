@@ -44,6 +44,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
+	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/upgrade"
 )
@@ -123,8 +124,31 @@ func main() {
 	}
 	a := &applier.Applier{Pool: pool, Logger: logger, Name: name}
 
+	// The "is there a newer version" check rides on the same loop.
+	//
+	// Same process rather than a second timer unit, because it is the
+	// same question of authority: this is the only component holding the
+	// public key, so it is the only one that can turn "the server said
+	// v0.21.0" into something a panel may show. See
+	// internal/relupdate/manifest.go.
+	//
+	// Its own cadence, though. The loop below runs every thirty seconds
+	// so a queued request is picked up while somebody is still looking
+	// at the page; the release check is due every six hours, and Due
+	// reads that from the recorded row rather than from a timer here -
+	// so restarting the service does not re-check, and a machine that
+	// restarts twenty times during a deployment still asks once.
+	checker := relupdate.Checker{
+		Pool:   pool,
+		Logger: logger,
+		Source: relupdate.Source{
+			BaseURL:   cfg.Release.BaseURL,
+			PublicKey: cfg.Release.Key(),
+		},
+	}
+
 	if *once {
-		if err := runOnce(ctx, a, logger); err != nil {
+		if err := runOnce(ctx, a, checker, logger); err != nil {
 			os.Exit(1)
 		}
 		return
@@ -133,14 +157,14 @@ func main() {
 	logger.Info("upgrader: watching for requests", "interval", cfg.Interval())
 	ticker := time.NewTicker(cfg.Interval())
 	defer ticker.Stop()
-	_ = runOnce(ctx, a, logger)
+	_ = runOnce(ctx, a, checker, logger)
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("upgrader: stopping")
 			return
 		case <-ticker.C:
-			_ = runOnce(ctx, a, logger)
+			_ = runOnce(ctx, a, checker, logger)
 		}
 	}
 }
@@ -150,7 +174,17 @@ func main() {
 // "Nothing waiting" is not a failure and says nothing: it is what almost
 // every run reports, and a line each time would bury the runs that
 // matter under a log of runs that did not.
-func runOnce(ctx context.Context, a *applier.Applier, logger *slog.Logger) error {
+func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
+	logger *slog.Logger) error {
+
+	// The check first, and its failure does not stop the pass.
+	//
+	// They are independent jobs sharing a tick: a release host that is
+	// down must not stop a queued schema upgrade from being applied,
+	// and the upgrade is the one somebody is waiting on. RunOnce has
+	// already recorded and logged whatever went wrong.
+	_ = checker.RunOnce(ctx)
+
 	req, err := a.RunOnce(ctx)
 	switch {
 	case errors.Is(err, upgrade.ErrNothingToDo):

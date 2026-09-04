@@ -279,6 +279,29 @@ name another. See internal/panel/releaserequest.go. */}}
 <th scope="row">{{t "saglik.surum.calisan"}}</th>
 <td><code>{{.Data.Release.Current}}</code></td>
 </tr>
+<tr>
+<th scope="row">{{t "saglik.surum.en_yeni"}}</th>
+<td>
+{{- /* Four states, not two. "We have never asked" and "you are current"
+look identical to a reader shown only "no update available" - and the
+first is what every deployment with a misconfigured upgrader looks like.
+A failed check outranks a good old answer for the same reason: dated
+information is not the same fact as up-to-date. */}}
+{{- if eq .Data.Release.CheckState "geride"}}
+<code>{{.Data.Release.Available.Version}}</code> — {{t "saglik.surum.yeni_var"}}
+{{- if .Data.Release.Available.NotesURL}}
+<a href="{{.Data.Release.Available.NotesURL}}" rel="noopener noreferrer" target="_blank">{{t "saglik.surum.notlar"}}</a>
+{{- end}}
+{{- else if eq .Data.Release.CheckState "guncel"}}{{t "saglik.surum.guncelsiniz"}}
+{{- else if eq .Data.Release.CheckState "basarisiz"}}
+{{- if .Data.Release.Available.Known}}{{tf "saglik.surum.bakilamadi_eski" .Data.Release.Available.Version}}
+{{- else}}{{t "saglik.surum.bakilamadi"}}{{end}}
+{{- else}}{{t "saglik.surum.hic_bakilmadi"}}{{end}}
+{{- if not .Data.Release.Available.CheckedAt.IsZero}}
+<span class="ipucu">{{tf "saglik.surum.son_bakis" ($.F.Since .Data.Release.Available.CheckedAt)}}</span>
+{{- end}}
+</td>
+</tr>
 {{- if .Data.Release.Latest}}
 <tr>
 <th scope="row">{{t "saglik.surum.son_istek"}}</th>

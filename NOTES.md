@@ -10691,3 +10691,85 @@ sıfır satır etkiledi, hata dönmedi, ve bir sonraki test hiç ilgisi olmayan
 bir yerde `ErrAlreadyInFlight` ile düştü.
 
 *Hata döndürmeyen bir temizlik, temizlediğini kanıtlamaz.*
+
+---
+
+## V6 — "Güncellemeleri kontrol et", ve anahtarı kimin tuttuğu
+
+V5'te şunu yazmıştım: *panel hangi sürümlerin var olduğunu bilmez, ve bu
+eksiklik değil yapıdır.* Doğruydu ama yarım kalmıştı — bedeli müşterinin
+sürüm numarasını ezbere bilmesiydi.
+
+Kullanıcının önerisi tam da o bedeli kaldırıyor, ve panelin anahtarı
+tutmasına gerek kalmadan.
+
+### Soruyu soran, cevabı doğrulayabilen olmalı
+
+Yükseltici zaten adresi ve açık anahtarı tutuyor. O halde **soran o
+olsun**, imzayı doğrulasın, ve bulduğunu bir satıra yazsın. Panel satırı
+okusun.
+
+Panel ağa hiç çıkmıyor, anahtarı hiç görmüyor, ve gösterdiği sürüm
+panelin sözü değil **imzanın sözü** oluyor.
+
+### Kayıt bir kısayol değil
+
+Satır **neyin önerileceğini** seçer; **neyin kurulacağına** hâlâ imza
+zinciri karar verir. Düğmeye basıldığında paket yine indirilir,
+SHA256SUMS imzası yine doğrulanır, her dosya yine listeye karşı
+kontrol edilir. Yalan söyleyen bir manifest, yanlış bir kurulum değil,
+**doğrulanamayan bir indirme** üretir.
+
+Veritabanındaki bir satırın müşterinin bastığı düğmeyi etkilemesine izin
+vermenin tek güvenlik gerekçesi bu ayrım.
+
+### Aynı anahtar, iki belge — ve alan ayracı
+
+Anahtar hem SHA256SUMS'ı hem manifest'i imzalıyor. Ayrı bir alan ayracı
+olmasa ikisi **birbirinin yerine geçebilirdi**: eski, imzalı bir
+SHA256SUMS manifest olarak sunulabilirdi. Bunu yapabilen biri, bir
+kurulumun müşterisine hangi sürümü önereceğini seçiyor olurdu.
+
+`releasesign.ManifestDomain` eklendi, ve test **iki yönü de** kontrol
+ediyor — tek yönlü bir ayraç, hangi test önce yazıldıysa ona göre doğru
+görünür.
+
+### Dört durum, iki değil
+
+Bir boolean en önemli iki durumu tek cümleye indirirdi:
+
+| durum | ne der |
+|---|---|
+| hiç bakılmadı | "Henüz bakılmadı" |
+| bakıldı, günceliz | "En yeni sürümü kullanıyorsunuz" |
+| yeni sürüm var | sürümü yazar, alanı doldurur |
+| bakılamadı | "ulaşılamıyor" + bilinen son cevap |
+
+"Hiç bakılmadı" ile "günceliz" aynı görünseydi, yükselticisi yanlış
+yapılandırılmış her kurulum sonsuza kadar "güncel" derdi.
+
+Ve **başarısızlık her şeyin üstünde**: son bakışı başarısız olan bir
+kuruluma "en yeni sürümü kullanıyorsunuz" demek, sürüm kaynağını birinin
+kapattığı durumda üretilecek cümledir.
+
+### Mutasyonun bulduğu boşluk
+
+Sıralamayı bozdum — `basarisiz`'ı aşağı aldım — ve **bütün testler yeşil
+kaldı**. Sebep: fark yalnız kurulum *hem geride hem ulaşılamaz* iken
+görünüyor, ve o çifti hiçbir test kurmuyordu. En çok önem taşıyan çift o:
+v99 yayımlanmış ve kaynak düşmüş.
+
+O durumu kuran test eklendi; mutasyon sonra yakalandı.
+
+### Ve kendi elimle bıraktığım iki tuzak
+
+**Silinemeyen satır.** Tabloya DELETE hiç vermemiştim. `base_url`'ü başka
+bir yayıncıya çeviren bir operatör, artık kullanmadığı bir kaynaktan
+gelen sürümü sayfada görmeye devam ederdi. schema_admin'e DELETE
+verildi, gerekçesiyle.
+
+**Elle uygulanmış tablo.** Şemayı test veritabanına `postgres` ile
+uygulamıştım; tablo postgres'e ait oldu ve uygulayıcı (schema_admin) onu
+ALTER edemedi. Dört applier testi düştü. Kodun kusuru değil, ama gerçek
+bir tehlike: bir şemayı elle superuser'la uygulamak, uygulayıcının bir
+daha dokunamayacağı tablolar bırakır.

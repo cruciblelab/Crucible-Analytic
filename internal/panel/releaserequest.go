@@ -83,6 +83,12 @@ type ReleaseStatus struct {
 	// Latest is the most recent request, nil when there has never been
 	// one.
 	Latest *relupdate.Request
+
+	// Available is what the upgrader last found when it asked the
+	// release source which version is current. Its zero value means no
+	// check has ever completed, which the page says out loud rather than
+	// drawing as "up to date".
+	Available relupdate.Available
 }
 
 // ReleaseStatus reads the queue and the lock.
@@ -106,6 +112,18 @@ func (s *Store) ReleaseStatus(ctx context.Context, a Access, current string) (Re
 		return out, fmt.Errorf("panel: release status: %w", err)
 	}
 	out.Latest = latest
+
+	// Read, never written. The policy on panel_release_available grants
+	// INSERT and UPDATE to schema_admin alone, so this is enforced by the
+	// database rather than by this function remembering - which matters,
+	// because a panel that could write here could tell itself a version
+	// exists, and the reason the upgrader does the asking is that the
+	// upgrader is the one holding the key.
+	available, err := relupdate.ReadAvailable(ctx, s.pool)
+	if err != nil {
+		return out, fmt.Errorf("panel: release status: %w", err)
+	}
+	out.Available = available
 	return out, nil
 }
 

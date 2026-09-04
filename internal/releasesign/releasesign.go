@@ -70,6 +70,22 @@ import (
 // verifying rather than being reinterpreted under new rules.
 const domain = "crucible-analytic/release-sums/v1\n"
 
+// ManifestDomain separates the "which version is current" statement from
+// the "these are the files" statement.
+//
+// Two documents, one key, and without this they would be
+// interchangeable: a signed SHA256SUMS presented as a manifest would
+// verify, and so would the reverse. Neither is a plausible accident and
+// both are a plausible attack - the manifest is what a panel shows a
+// customer as "the version to install", so an attacker who could make
+// an old signed document be read as one would be choosing which release
+// a deployment offers to install.
+//
+// Exported because the manifest lives in internal/relupdate rather than
+// here. The two documents are signed by the same key and read by
+// different packages, and the separator has to be nameable from both.
+const ManifestDomain = "crucible-analytic/release-manifest/v1\n"
+
 // Sizes, exported so a caller can say why a key was rejected without
 // importing crypto/ed25519 itself.
 const (
@@ -150,14 +166,31 @@ func (p PublicKey) String() string {
 // and a caller that tidies the input is a caller that will one day tidy
 // it differently from the signer.
 func (p PublicKey) Verify(sums, sig []byte) error {
+	return p.VerifyIn(domain, sums, sig)
+}
+
+// VerifyIn is Verify for a document that is not a SHA256SUMS.
+//
+// The domain is a parameter rather than a second constant read here, so
+// that adding a third kind of signed document is a caller naming its
+// own separator rather than an edit to this file that every existing
+// signature depends on.
+func (p PublicKey) VerifyIn(domain string, payload, sig []byte) error {
 	if !p.IsSet() {
 		return ErrNoKey
+	}
+	if domain == "" {
+		// Refused rather than treated as "no prefix". An empty separator
+		// would make every document in this project verify against every
+		// other, which is precisely what the separator exists to stop -
+		// and it would do so silently.
+		return fmt.Errorf("%w (no domain separator was given)", ErrBadSignature)
 	}
 	if len(sig) != SignatureSize {
 		return fmt.Errorf("%w (the signature is %d bytes, not %d)",
 			ErrBadSignature, len(sig), SignatureSize)
 	}
-	if !ed25519.Verify(p.key, signedBytes(sums), sig) {
+	if !ed25519.Verify(p.key, signedBytes(domain, payload), sig) {
 		return ErrBadSignature
 	}
 	return nil
@@ -244,10 +277,18 @@ func (s PrivateKey) Public() PublicKey {
 
 // Sign produces the signature that goes beside SHA256SUMS.
 func (s PrivateKey) Sign(sums []byte) ([]byte, error) {
+	return s.SignIn(domain, sums)
+}
+
+// SignIn is Sign for a document that is not a SHA256SUMS.
+func (s PrivateKey) SignIn(domain string, payload []byte) ([]byte, error) {
 	if !s.IsSet() {
 		return nil, ErrNoKey
 	}
-	return ed25519.Sign(s.key, signedBytes(sums)), nil
+	if domain == "" {
+		return nil, fmt.Errorf("%w (no domain separator was given)", ErrBadSignature)
+	}
+	return ed25519.Sign(s.key, signedBytes(domain, payload)), nil
 }
 
 // signedBytes is what both halves actually run over.
@@ -255,10 +296,10 @@ func (s PrivateKey) Sign(sums []byte) ([]byte, error) {
 // One function rather than the prefix written twice, because a signer
 // and a verifier that disagree about the domain separator produce a
 // system where nothing verifies and both sides look correct in isolation.
-func signedBytes(sums []byte) []byte {
-	out := make([]byte, 0, len(domain)+len(sums))
+func signedBytes(domain string, payload []byte) []byte {
+	out := make([]byte, 0, len(domain)+len(payload))
 	out = append(out, domain...)
-	return append(out, sums...)
+	return append(out, payload...)
 }
 
 // decode picks hex or base64 by length, like internal/sealed.
