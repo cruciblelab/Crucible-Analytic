@@ -416,6 +416,12 @@ var (
 	healthTables = []string{
 		"traffic_snapshots", "beacon_events", "ip_asn_ranges", "ip_country_ranges",
 	}
+	// storagePathKeys mirrors the keys web.Config.StoragePaths returns,
+	// joined to "saglik.disk.yol." at runtime. The other direction is in
+	// internal/panel/web, against the real function - so a directory
+	// added to the config gets caught here for having no words and there
+	// for not being measured.
+	storagePathKeys = []string{"kayit", "veri"}
 )
 
 // computedKeys lists the keys assembled at runtime, which the template
@@ -451,6 +457,9 @@ func computedKeys() []string {
 	}
 	for _, tbl := range healthTables {
 		keys = append(keys, "saglik.tablo."+tbl)
+	}
+	for _, key := range storagePathKeys {
+		keys = append(keys, "saglik.disk.yol."+key)
 	}
 	for _, id := range dashboardCards {
 		keys = append(keys, "pano.kart."+id+".baslik", "pano.kart."+id+".aciklama")

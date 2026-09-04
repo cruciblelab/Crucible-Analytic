@@ -114,6 +114,14 @@
       "snippet": "_, err := os.Stat(path)"
     },
     {
+      "fingerprint": "37bf7d1a5d416bc9232c2ce2",
+      "rule": "G115",
+      "file": "internal/diskspace/diskspace.go",
+      "severity": "HIGH",
+      "reason": "The conversion is guarded on the line above it. blocksToBytes refuses any block count that would overflow - `blocks > MaxInt64/unit` - and returns MaxInt64 instead, so int64(blocks) is reached only for values that fit. Saturating rather than wrapping is deliberate: the number is bytes free on a disk, it is read off a health page, and a negative figure there is worse than one stuck at the maximum. It needs a filesystem of nine exabytes to reach either. gosec sees the conversion and not the bound three lines up.",
+      "snippet": "return int64(blocks) * unit"
+    },
+    {
       "fingerprint": "6a07b0c48c9632a127c49753",
       "rule": "G115",
       "file": "internal/ja4/grease.go",
@@ -162,14 +170,6 @@
       "snippet": "const mailPasswordLabel = \"panel_smtp.password\""
     },
     {
-      "fingerprint": "12737d4a256ea9fdb0e91ae7",
-      "rule": "G115",
-      "file": "internal/panel/preflight/disk_linux.go",
-      "severity": "HIGH",
-      "reason": "Bsize is a filesystem block size from statfs. A negative one would mean the kernel lied about the filesystem.",
-      "snippet": "return stat.Bavail * uint64(stat.Bsize), nil"
-    },
-    {
       "fingerprint": "624a3104f4a4acfbd694a90d",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
@@ -178,20 +178,20 @@
       "snippet": "http.Redirect(w, r, s.safeNext(next), http.StatusSeeOther)"
     },
     {
-      "fingerprint": "350d5279b7410b58d11468f1",
-      "rule": "G710",
-      "file": "internal/panel/web/auth.go",
-      "severity": "MEDIUM",
-      "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
-      "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
-    },
-    {
       "fingerprint": "798c1599668a9329270b6212",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
       "severity": "MEDIUM",
       "reason": "The redirect target is s.safeNext's return, which sanitises the raw next it is handed in the same call. Written without saying 'the entry above': -accept reorders this file, and a reason that points at a neighbour stops being true the first time it does.",
       "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "350d5279b7410b58d11468f1",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "The redirect target is the SecondFactorPath constant; next is only a query parameter, already rawNext-sanitised where it was read (auth.go:112/267/286) and QueryEscape'd by withNext.",
+      "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
     },
     {
       "fingerprint": "f1393b798a3aaa96ff378e19",

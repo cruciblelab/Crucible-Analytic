@@ -1195,3 +1195,73 @@ code.secret {
     display: none;
   }
 }
+
+/* ---------------------------------------------------------------- disk
+ *
+ * One block per filesystem rather than a table row. The numbers are
+ * four short pairs and a bar, and a four-column table of them reads as
+ * a comparison between filesystems - which is exactly what they are
+ * not: two disks on one machine have nothing to say about each other.
+ */
+.disk {
+  margin-block: 1rem 1.5rem;
+}
+
+.disk-ad {
+  font-size: 1rem;
+  margin-block-end: 0.4rem;
+}
+
+/* Full width, unlike the share bars in the breakdown tables: this one is
+ * not beside a number in a cell, it is the section's own figure, and a
+ * 4rem bar for "the disk is 82% full" reads as a decoration. */
+.disk-cubuk {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  background: var(--vurgu-zemin);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-block-end: 0.5rem;
+}
+
+.disk-dolgu {
+  fill: var(--vurgu);
+  fill-opacity: 0.55;
+}
+
+/* The pairs sit on one line each on a narrow screen and flow on a wide
+ * one. A grid with a fixed column count would put "Reserved" alone on a
+ * second row on exactly the filesystems that have a reserve. */
+.disk-sayilar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.5rem;
+  margin: 0;
+}
+
+.disk-sayilar > div {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.disk-sayilar dt {
+  color: var(--soluk);
+}
+
+.disk-sayilar dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The reserve, drawn after the used part rather than left as empty bar.
+ *
+ * The empty part of a bar reads as "room left". On a filesystem with a
+ * large root reserve that reading is wrong by the size of the reserve,
+ * and it is wrong in the dangerous direction: measured on a real page,
+ * a bar 12% full sat beside "6.7 GB available" out of 252 GB. Hatched
+ * rather than solid so the two segments are not read as one. */
+.disk-ayrilmis {
+  fill: var(--vurgu);
+  fill-opacity: 0.18;
+}

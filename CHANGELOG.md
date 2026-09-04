@@ -26,6 +26,38 @@ panelden güncelleme kuyruğu — ki panel yüzeyi henüz yok. **Ama satır
 güvenliği düzeltmesi yükseltilene kadar uygulanmaz**, ve aşağıda ne
 olduğu yazıyor.
 
+### Sağlık → Disk
+
+Bu üründe hiçbir sayfa **diski** göstermiyordu. Depolama bölümü dört
+tablonun boyutunu yazıyor, hepsi veritabanından geliyor, ve "bu tablo
+4,2 GB" cümlesi bir sonraki yazmanın yer bulup bulamayacağını söylemiyor.
+
+Artık ayrı bir **Disk** bölümü var: yapılandırdığınız her dizinin
+bulunduğu dosya sistemi, toplam / dolu / kullanılabilir, ve bir çubuk.
+Aynı diskteki iki dizin tek satırda birleşiyor — iki kez yazılsalardı
+toplanmaya davet olurdu, ki o da gerçeğin tam iki katı.
+
+**Kullanılabilir alan, "boş" alan değil.** Dosya sistemi bir kısmını
+yalnız root'a ayırır; bu ürünün hiçbir servisi root olarak çalışmaz. Bu
+makinede ölçüldü: çekirdek 222 GB boş diyor, gerçekten yazılabilir olan
+7 GB. Çubuk da ayrılmış payı ayrı çiziyor, çünkü çubuğun boş kısmı
+"kalan yer" diye okunur ve o okuma yanlış olurdu.
+
+**Konteynerde bir uyarı var:** dizin bir volume üzerinde değilse, oraya
+yazılan her şey bir sonraki imaj güncellemesinde silinir. Uyarı yalnız
+ikisi birden doğruyken çıkıyor; sıradan bir sunucuda `/var/lib`'in kök
+dosya sisteminde olması normaldir ve hakkında hiçbir şey denmiyor.
+
+**Veritabanının diski görünmüyor, ve bu yazıyor.** Panel veritabanının
+boyutunu okuyabiliyor ama veri dizinini soramıyor: o, panelin rolünde
+bilerek bulunmayan bir yetki ister. Sayfa tahmin etmek yerine
+söylüyor — veritabanı bu makinedeyse "büyük ihtimalle yukarıdakilerden
+biri, hangisi olduğunu göremiyorum", başka makinedeyse "buradaki
+sayıların onunla ilgisi yok".
+
+Kurulum kontrollerindeki disk ölçümü de artık aynı koda bakıyor. İki
+kopyalı bir ölçüm ayrışır, ve hep bakılmayan kopya yanlış kalır.
+
 ### Kırılım tablolarında oran çubuğu
 
 Her kırılım satırının yüzdesinin yanında artık bir **oran çubuğu** var.

@@ -1093,6 +1093,25 @@ ulaşılamıyor.
 
 ---
 
+### Disk: Sağlık sayfasındaki Disk bölümü
+
+Yapılandırdığınız her dizinin dosya sistemi, toplam / dolu /
+kullanılabilir, ve bir çubuk. Bakılacak sayı **kullanılabilir**;
+"boş"tan farklıdır ve fark küçük olmayabilir. Dosya sistemi bir kısmını
+yalnız root'a ayırır ve bu ürünün hiçbir servisi root olarak çalışmaz.
+
+Dolan disk collector'ı durdurur, collector da sitenin önündedir. Yani
+buradaki sayı, sitenin ayakta kalmasıyla doğrudan ilgili.
+
+**Konteynerde:** bir dizin volume üzerinde değilse sayfa uyarır. Uyarıyı
+görüyorsanız o dizine yazılan her şey bir sonraki `docker compose up -d`
+ile silinir; `compose.yml`'deki `state` volume'unu kontrol edin.
+
+**Veritabanının diski bu bölümde yok.** Panel onu göremiyor: veri
+dizinini sormak, rolünde bilerek bulunmayan bir yetki ister. Bölüm
+veritabanının kapladığı yeri yazıyor, diskini değil. Uzak bir
+veritabanı kullanıyorsanız oranın diskini kendiniz izlemelisiniz.
+
 ## 13.5 Yeni sürüme geçme
 
 **Bu bölüm uzun süre yoktu, ve olmaması bir kusurdu.** Belge sıfırdan

@@ -150,3 +150,28 @@ func (s *Store) attachRetention(ctx context.Context, facts []StorageFact) error 
 	}
 	return nil
 }
+
+// DatabaseBytes is how much disk the database occupies.
+//
+// # Why this is here and the disk is not
+//
+// pg_database_size needs only CONNECT, which the panel's role has, and
+// it answers the one storage question about the database that does not
+// require reaching past the isolation. The *disk* the database sits on
+// is a different question and the panel cannot answer it: that needs
+// data_directory, which needs a privilege panel_user does not have and
+// must not be given.
+//
+// So this is reported and the disk is reported as unknown, rather than
+// showing the panel's own filesystem under a heading that implies it is
+// the database's. On a single-machine install they are usually the same
+// disk; "usually" is not a thing to print next to a number somebody
+// decides on.
+func (s *Store) DatabaseBytes(ctx context.Context) (int64, error) {
+	var bytes int64
+	if err := s.pool.QueryRow(ctx,
+		`SELECT pg_database_size(current_database())`).Scan(&bytes); err != nil {
+		return 0, fmt.Errorf("panel: reading the database size: %w", err)
+	}
+	return bytes, nil
+}

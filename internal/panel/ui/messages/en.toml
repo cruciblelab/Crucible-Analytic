@@ -1036,6 +1036,27 @@ baslik = "Storage"
 okunamadi = "The table information could not be read."
 ipucu = "These are disk sizes, not row counts. The panel's role cannot read rows from the analytics tables - that is not a gap, it is the separation the whole system rests on. Row counts come from the read API, on the site pages."
 
+[metin.saglik.disk]
+baslik = "Disk"
+aciklama = "The table sizes above say what is stored; these numbers say whether the next write finds room. A full disk stops the collector, and the collector is in front of the site."
+yol_yok = "No directory is configured to measure. That is expected when file logging is off."
+olculemedi = "This directory could not be measured."
+toplam = "Total"
+dolu = "Used"
+kullanilabilir = "Available"
+ayrilmis = "Reserved"
+ayrilmis_aciklama = "The share the filesystem keeps for root alone. No service in this product runs as root, so this space is not available to any of them."
+risk = "This directory is not on a volume and this is a container. Everything written here is discarded by the next image update."
+veritabani_baslik = "Database"
+veritabani_boyut = "Space the database occupies"
+veritabani_okunamadi = "The database size could not be read."
+veritabani_yerel = "The database runs on this machine, so its data is most likely on one of the filesystems above. The panel cannot tell which: asking for the data directory needs a privilege its role deliberately does not have."
+veritabani_uzak = "The database is on another machine. Its disk is not visible from here and the numbers above say nothing about it."
+
+[metin.saglik.disk.yol]
+kayit = "Log directory"
+veri = "Data directory"
+
 [metin.saglik.tablo]
 traffic_snapshots = "Traffic snapshots"
 beacon_events = "Beacon events"

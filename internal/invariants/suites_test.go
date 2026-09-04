@@ -49,6 +49,27 @@ var gatedTags = map[string]string{
 // integration is deliberately absent: ci.yml runs it over ./... on every
 // push, so it is gated, not scheduled.
 
+// platformTerms are build constraints that select a machine rather than
+// a suite.
+//
+// The distinction this test got wrong at first. A tag like `network`
+// says "these tests need something the gate cannot promise"; a term like
+// `linux` says "this code only compiles here". The second is not a gate
+// and has no workflow job, and treating it as one reported
+// internal/diskspace - which runs in the ordinary gate, on Linux, on
+// every push - as a suite nothing executes.
+//
+// Left in and the file would have been forced to carry a tag it does not
+// need, or the invariant would have been switched off for it. Both are
+// the shape this whole file argues against: a check bent until it stops
+// complaining is a check that has stopped looking.
+var platformTerms = map[string]bool{
+	"linux": true, "darwin": true, "windows": true, "unix": true,
+	"freebsd": true, "netbsd": true, "openbsd": true, "js": true, "wasip1": true,
+	"amd64": true, "arm64": true, "386": true, "arm": true, "riscv64": true,
+	"cgo": true,
+}
+
 // buildTag matches "//go:build network" and "//go:build e2e || docker".
 var buildTag = regexp.MustCompile(`^//go:build (.+)$`)
 
@@ -162,9 +183,15 @@ func taggedSuites(t *testing.T, root string) map[suite]bool {
 				continue
 			}
 			pkg := packagePath(root, filepath.Dir(path))
-			for _, term := range strings.Split(m[1], "||") {
-				term = strings.TrimSpace(term)
-				if term == "" || term == "integration" {
+			// Split on both operators. A constraint like
+			// "integration && linux" is one gate term and one platform
+			// term, and reading it whole produced a tag no workflow
+			// could ever name because no such tag exists.
+			for _, term := range strings.FieldsFunc(m[1], func(r rune) bool {
+				return r == '|' || r == '&' || r == '(' || r == ')'
+			}) {
+				term = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(term), "!"))
+				if term == "" || term == "integration" || platformTerms[term] {
 					continue
 				}
 				out[suite{tag: term, pkg: pkg}] = true

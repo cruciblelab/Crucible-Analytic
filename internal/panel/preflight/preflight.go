@@ -16,6 +16,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/diskspace"
 )
 
 // Preflight is the list of things that cannot be done from the panel,
@@ -1067,7 +1068,7 @@ func checkFreeSpace(paths map[string]string, minFree uint64) CheckResult {
 	var low []string
 	var measured int
 	for _, name := range sortedKeys(paths) {
-		free, err := freeBytes(paths[name])
+		free, err := availableBytes(paths[name])
 		if err != nil {
 			reports = append(reports, fmt.Sprintf("%s: ölçülemedi (%v)", name, err))
 			continue
@@ -1289,6 +1290,39 @@ func UncheckedSteps() []ManualStep {
 	return out
 }
 
-// errNoPath is what freeBytes returns for an empty path, so both
-// implementations agree on that case.
+// errNoPath is what availableBytes returns for an empty path.
 var errNoPath = errors.New("dizin verilmedi")
+
+// availableBytes is the free-space measurement, now taken from
+// internal/diskspace rather than from this package's own Statfs.
+//
+// # Why the local copy is gone
+//
+// This package used to carry disk_linux.go and disk_other.go: a Statfs
+// reading f_bavail, correctly, with a non-Linux fallback that said so.
+// Nothing was wrong with it. What was wrong was that F1 needed the same
+// syscall with three more answers attached - total, used, and whether
+// the path is its own mount point - and writing that beside this one
+// would have left two Statfs calls in one repository.
+//
+// Two copies of a measurement drift, and they drift in one direction:
+// the one somebody is looking at gets fixed, and the other goes on
+// telling a different operator something else. The same argument this
+// project already made about the GRANT block living in one file.
+//
+// The wrapper stays because this check's shape is its own: it wants one
+// number and an error, and it reports "could not measure" rather than a
+// zero, which is a distinction the caller below is built around.
+func availableBytes(path string) (uint64, error) {
+	if path == "" {
+		return 0, errNoPath
+	}
+	s, err := diskspace.Read(path)
+	if err != nil {
+		return 0, err
+	}
+	if s.AvailBytes < 0 {
+		return 0, errors.New("ölçüm negatif çıktı")
+	}
+	return uint64(s.AvailBytes), nil
+}

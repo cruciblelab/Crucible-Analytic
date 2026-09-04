@@ -60,6 +60,23 @@ type Server struct {
 	// see panel.ConfigFileSettings, which drops them on the entry
 	// itself so a call site cannot pass one by accident.
 	ConfigFileValues map[string]string
+	// StoragePaths are the directories this deployment was configured
+	// with, whose filesystems the health page measures. Derived from the
+	// config by Config.StoragePaths rather than listed at the call site,
+	// so a directory added to the config cannot quietly go unmeasured.
+	//
+	// Empty is survivable and renders as "nothing was configured to
+	// measure", which is true of a panel started by hand with no log
+	// directory.
+	StoragePaths []StoragePath
+	// DatabaseIsLocal is whether the DSN points at this machine.
+	//
+	// It changes nothing that is measured and only which of two honest
+	// sentences the page prints: the panel cannot see the database's
+	// disk in either case, because finding a data directory needs a
+	// privilege its role does not have. What it can say is whether that
+	// disk is one of the ones above or somewhere else entirely.
+	DatabaseIsLocal bool
 	// SecretKey encrypts the stored SMTP password. See internal/sealed.
 	//
 	// A zero Key is a supported state and means no mail password can be

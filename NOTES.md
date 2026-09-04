@@ -11003,3 +11003,128 @@ gidiş-dönüşü — mikrosaniyeler — ve bir servisin yeniden başlaması yü
 milisaniyelerden başlıyor. Yani gerçek bir kusur değil; kodun o farka
 bağlı olmaması gereken bir şey. Test edilemediği için yazılmadı diye
 değil, **yazıldığı için burada söyleniyor**.
+
+## F1a — Diskin kendisi, ve kendime yazdığım yanlış gerekçe
+
+Yedekleme fazının ilk adımı, ve tek başına bir eksiği kapatıyor: bu
+üründe **hiçbir sayfa diski göstermiyordu.** Sağlık sayfasının depolama
+bölümü dört tablonun boyutunu yazıyor, hepsi veritabanından geliyor, ve
+"bu tablo 4,2 GB" cümlesi bir sonraki yazmanın başarılı olup
+olmayacağını söylemiyor. Dolan disk collector'ı durdurur, collector da
+sitenin önündedir.
+
+### Önce iddiamı düzelttim
+
+Paketin ilk yorumuna "bu depoda hiçbir yerde `Statfs` yok" yazmıştım.
+**Yanlıştı.** `internal/panel/preflight/disk_linux.go` içinde vardı,
+üstelik doğru alanı okuyordu. Kurulum kontrollerinde, bir kez, "en az
+şu kadar boş var mı" sorusuna geçti/kaldı cevabı olarak.
+
+Yani F1a'nın gerekçesi "ölçüm yok" değil, "ölçüm var ve yetmiyor":
+toplam kaç, ne kadarı dolu, hangi dosya sisteminde, ve oraya yazılan
+şey bir imaj güncellemesinden sağ çıkıyor mu — bunların hiçbiri yoktu.
+
+Ve bulunca ikinci bir şey daha çıktı: aynı depoda **iki `Statfs`**
+olacaktı. Onun yerine preflight artık bu paketi çağırıyor, kendi kopyası
+silindi. İki kopyalı bir ölçüm ayrışır, ve hep aynı yönde: bakılan
+düzeltilir, öteki başka bir işletmeciye başka bir şey söylemeye devam
+eder.
+
+### `f_bavail`, `f_bfree` değil
+
+ext4 dosya sisteminin bir kısmını yalnız root'a ayırır. `f_bfree` onu
+boş sayar, `f_bavail` saymaz, ve bu üründeki hiçbir süreç root değil.
+
+Bu makinede ölçtüm: çekirdek **222 GB boş** diyor, gerçekten yazılabilir
+olan **7 GB**. Yani yanlış alanı seçmek "sayfada yanlış bir sayı" değil:
+"sığar mı" kontrolünü geçen, dört dakika koşan, ve %96'da yarım dosyayla
+ölen bir yedek demek — hem de diski zaten dolmak üzere olan makinede.
+
+### Çubuk doğruydu ve yalan söylüyordu
+
+İlk hâli tek parça çiziyordu: dolu / toplam. Gerçek sayfayı açtığımda
+**%12 dolu** bir çubuk, yanında "Toplam 252 GB, Kullanılabilir 6,6 GB"
+yazıyordu.
+
+İkisi de doğru, birlikte yalan. Çubuğun boş kısmı "kalan yer" diye
+okunur, ve kalan %2,6'ydı. Aradaki fark ayrılmış paydı.
+
+Şimdi çubuk iki parçalı: dolu, sonra ayrılmış. Boş kalan kısım gerçekten
+yazılabilen kısım. **Bu kusuru test bulmadı, sayfaya bakmak buldu.**
+
+### Ve mutasyonun bana söylettiği şey
+
+İkinci parçanın genişliğini "kullanılamayan kısmın bittiği yer eksi dolu
+kısım" diye hesaplamıştım, gerekçesi olarak da şunu yazmıştım: iki
+yüzdeyi ayrı ayrı yuvarlayıp uç uca çizmek 100'ü geçebilir ve çubuğu
+kutusunun dışına taşırır.
+
+Mutasyonu uyguladım — ayrılmış payı kendi baytından hesapla — ve
+**hayatta kaldı.** Sebebi basit: ikisi de aşağı yuvarlanıyor, toplamları
+bütünü geçemez. Tehlike hiç yoktu.
+
+Test yeşildi, kod doğruydu, ve nedenini açıklayan cümle uydurmaydı. Bu,
+eksik bir testten kötü: birinin güveneceği bir gerekçe.
+
+Gerçek fark uçtaki boşlukta. Her parçayı ayrı yuvarlamak, her birinden
+kaybedilen kesri boşluğa veriyor — yani çubuk var olmayan alanın iki
+puanına kadarını vaat edebiliyor, tek yuvarlamada bir puan. Test artık
+`boş ≤ ceil(kullanılabilir)` diyor, ve mutasyon o cümleyle yakalanıyor.
+
+*Bir testin gerekçesi yanlışsa, yeşil olması onu doğrulamaz.*
+
+### Panelin göremediği şey, ve onu söylemesi
+
+Panel veritabanının **diskini göremiyor** ve bu bir kaza değil: veri
+dizinini sormak `data_directory` okumayı gerektirir, o da panelin
+rolünde bilerek bulunmayan bir yetki. `/var/lib/postgresql` diye tahmin
+etmek Debian'da doğru, her konteynerde yanlış olurdu.
+
+O yüzden sayfa veritabanının **boyutunu** yazıyor — SQL bunu herkese
+söyler — ve diskinin ayrı bir soru olduğunu açıkça belirtiyor. DSN yerel
+mi diye bakıp iki ayrı dürüst cümleden birini seçiyor.
+
+### Konteyner uyarısı iki yarımlı
+
+Konteynerde volume üzerinde olmayan bir dizine yazılan her şey bir
+sonraki imaj güncellemesinde silinir. Sıradan bir sunucuda ise `/var/lib`
+kök dosya sisteminde durur ve bu tamamen normaldir.
+
+Yani "mount noktası değil" tek başına uyarı sebebi olsaydı, elle kurulan
+her makinede, her seferinde, hiçbir şey hakkında yanardı. Uyarı ancak
+**ikisi birden** doğruyken çıkıyor.
+
+Gerçekten doğruladım: `/.dockerenv` oluşturdum (Docker'ın kendi
+oluşturduğu dosya), kayıt dizinine gerçek bir tmpfs bağladım, paneli
+açtım. İki ayrı dosya sistemi bloğu çıktı — volume üzerindeki uyarısız,
+olmayanı uyarılı. Sonra ikisini de temizledim.
+
+### Değişmezler
+
+**Yapılandırmadaki her yol ölçülüyor.** Sayfaya iki yol yazmak bugün
+doğru, üçüncüsü eklendiğinde sessizce yanlış olurdu. Bir test `Config`'i
+yansımayla dolaşıp adı `Dir` veya `Path` ile biten her string alanın
+ölçüldüğünü tutuyor.
+
+**Ve platform etiketi kapı etiketi değil.** `TestEveryGatedSuiteIsRunSomewhere`
+`//go:build linux` taşıyan bu paketi "hiçbir iş akışının koşmadığı
+takım" diye bildirdi — oysa sıradan kapıda, Linux'ta, her push'ta
+koşuyor. Değişmez `&&` ile ayrılmayı ve GOOS/GOARCH terimlerini
+öğrendi. Değişmezi susturmak yerine düzeltmek gerekiyordu: bağıra bağıra
+susturulan bir kontrol, bakmayı bırakmış bir kontroldür.
+
+### Ölçümler
+
+| Ne | Değer |
+|---|---|
+| Çekirdeğin "boş" dediği | 222 GB |
+| Gerçekten yazılabilir | 7 GB |
+| Aradaki fark (root payı) | 214,9 GB |
+| tmpfs testinde istenen boyut | 16 MB |
+| Aynı boyut, paket tarafından ölçülen | 16 MB |
+
+**Dört mutasyon:** `Bavail`→`Bfree` *(iki test yakaladı)*, kök dizinin
+mount olduğu özel durumu kaldır *(yakalandı)*, cihaz numarasını sıfırla
+*(yakalandı; ilk deneme derlenmedi, yeniden yazıldı)*, ayrılmış payı ayrı
+çizme *(yakalandı)*, ayrılmış payı kendi baytından hesapla *(hayatta
+kaldı — gerekçe düzeltildi, test yeniden yazıldı, sonra yakalandı)*.

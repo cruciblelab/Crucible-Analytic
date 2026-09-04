@@ -83,6 +83,12 @@ type healthPage struct {
 
 	Storage      []healthStorage
 	StorageError string
+	// Disk is the filesystems behind the configured directories.
+	//
+	// Beside the table sizes above rather than replacing them: one
+	// answers "how much is stored" and the other "how much room is
+	// left", and only the second says whether the next write lands.
+	Disk healthDisk
 
 	API healthAPI
 
@@ -395,6 +401,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
+	data.Disk = s.healthDiskSection(ctx, lang)
 	data.API = s.healthAPI(ctx)
 
 	// Read fresh unless the press just built it, because the answer a

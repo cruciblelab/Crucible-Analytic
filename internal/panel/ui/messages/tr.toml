@@ -1076,6 +1076,27 @@ baslik = "Depolama"
 okunamadi = "Tablo bilgileri okunamadı."
 ipucu = "Buradaki sayılar disk kullanımıdır, satır sayısı değil. Panelin rolü analitik tabloların satırlarını okuyamaz — bu bir eksiklik değil, sistemin dayandığı ayrımın kendisi. Satır sayıları site sayfalarında, okuma API'si üzerinden gelir."
 
+[metin.saglik.disk]
+baslik = "Disk"
+aciklama = "Yukarıdaki tablo boyutları neyin saklandığını söyler; buradaki sayılar bir sonraki yazmanın yer bulup bulamayacağını. Dolan disk collector'ı durdurur, collector da sitenin önündedir."
+yol_yok = "Ölçülecek bir dizin yapılandırılmamış. Kayıt dizini kapalıysa bu beklenen durumdur."
+olculemedi = "Bu dizin ölçülemedi."
+toplam = "Toplam"
+dolu = "Dolu"
+kullanilabilir = "Kullanılabilir"
+ayrilmis = "Ayrılmış"
+ayrilmis_aciklama = "Dosya sisteminin yalnız root'a bıraktığı pay. Bu ürünün hiçbir servisi root olarak çalışmaz, yani bu alan buradaki hiçbir şey için kullanılabilir değil."
+risk = "Bu dizin bir volume üzerinde değil ve burası bir konteyner. Buraya yazılan her şey bir sonraki imaj güncellemesinde silinir."
+veritabani_baslik = "Veritabanı"
+veritabani_boyut = "Veritabanının kapladığı yer"
+veritabani_okunamadi = "Veritabanının boyutu okunamadı."
+veritabani_yerel = "Veritabanı bu makinede çalışıyor, yani verisi büyük ihtimalle yukarıdaki dosya sistemlerinden birinde. Panel tam olarak hangisi olduğunu göremez: veri dizinini sormak, panelin rolünde bilerek bulunmayan bir yetki ister."
+veritabani_uzak = "Veritabanı başka bir makinede. Onun diski buradan görünmez ve yukarıdaki sayıların onunla ilgisi yoktur."
+
+[metin.saglik.disk.yol]
+kayit = "Kayıt dizini"
+veri = "Veri dizini"
+
 [metin.saglik.tablo]
 traffic_snapshots = "Trafik anlık görüntüleri"
 beacon_events = "Beacon olayları"

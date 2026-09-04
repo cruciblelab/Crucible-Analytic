@@ -39,6 +39,8 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // version is stamped at build time:
@@ -259,7 +261,13 @@ func main() {
 		Gate:             gate,
 		ConfigPath:       *configPath,
 		ConfigFileValues: configFileValues(cfg),
-		Preflight:        preflight.New(store.Pool(), store.IPTokenKeyConfigured()),
+		// Derived from the config rather than listed here, so a
+		// directory added to panel.toml is measured without anybody
+		// remembering to come back to this call site. An invariant in
+		// internal/panel/web holds the two together.
+		StoragePaths:    cfg.StoragePaths(),
+		DatabaseIsLocal: databaseIsLocal(cfg.PanelDSN),
+		Preflight:       preflight.New(store.Pool(), store.IPTokenKeyConfigured()),
 		PreflightConfig: preflight.Config{
 			LogDir:      cfg.Logging.Dir,
 			DataDir:     cfg.Logging.Dir,
@@ -515,4 +523,29 @@ func runHousekeeping(ctx context.Context, store *panel.Store, logger *slog.Logge
 			sweep()
 		}
 	}
+}
+
+// databaseIsLocal reports whether the DSN points at this machine.
+//
+// It changes nothing that is measured. The panel cannot see the
+// database's disk either way - finding a data directory needs a
+// privilege panel_user does not have and must not be given - and this
+// only decides which of two true sentences the health page prints: that
+// the database's files are probably on one of the filesystems shown, or
+// that they are on a machine none of those numbers describe.
+//
+// A unix socket has no host at all, which pgx reports as a path
+// beginning with "/". That is the most local a database can be.
+func databaseIsLocal(dsn string) bool {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		// Unreachable in a running panel: the same DSN was already
+		// parsed to open the pool. Answering "not local" rather than
+		// guessing, because the sentence it selects is the one that
+		// claims less.
+		return false
+	}
+	host := cfg.ConnConfig.Host
+	return strings.HasPrefix(host, "/") ||
+		host == "localhost" || host == "127.0.0.1" || host == "::1" || host == ""
 }

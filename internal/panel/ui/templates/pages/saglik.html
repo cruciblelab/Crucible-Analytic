@@ -479,6 +479,62 @@ that is the isolation working, not a gap. */}}
 </section>
 
 <section class="bolum">
+<h2>{{t "saglik.disk.baslik"}}</h2>
+<p class="ipucu">{{t "saglik.disk.aciklama"}}</p>
+{{- with .Data.Disk}}
+{{- if .Error}}
+<p class="uyari" role="note">{{.Error}}</p>
+{{- else}}
+{{- range .Filesystems}}
+<div class="disk">
+<h3 class="disk-ad">
+{{- range $i, $label := .Labels}}{{if $i}}, {{end}}{{$label}}{{end}}
+{{- range .Paths}} <code class="ipucu">{{.}}</code>{{end}}
+</h3>
+{{- if .Error}}
+<p class="uyari" role="note">{{.Error}}</p>
+{{- else}}
+{{- if .UsedPercent}}
+<svg class="disk-cubuk" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="disk-dolgu" x="0" y="0" height="10" width="{{.UsedPercent}}" />
+{{- if .ReservedPercent}}<rect class="disk-ayrilmis" x="{{.ReservedOffset}}" y="0" height="10" width="{{.ReservedPercent}}" />{{end}}</svg>
+{{- end}}
+<dl class="disk-sayilar">
+<div><dt>{{t "saglik.disk.toplam"}}</dt><dd>{{$.F.Bytes .TotalBytes}}</dd></div>
+<div><dt>{{t "saglik.disk.dolu"}}</dt><dd>{{$.F.Bytes .UsedBytes}}</dd></div>
+<div><dt>{{t "saglik.disk.kullanilabilir"}}</dt><dd>{{$.F.Bytes .AvailBytes}}</dd></div>
+{{- if .ReservedBytes}}
+<div><dt>{{t "saglik.disk.ayrilmis"}}</dt><dd>{{$.F.Bytes .ReservedBytes}}</dd></div>
+{{- end}}
+</dl>
+{{- if .ReservedBytes}}
+<p class="ipucu">{{t "saglik.disk.ayrilmis_aciklama"}}</p>
+{{- end}}
+{{- if .AtRisk}}
+<p class="uyari" role="note">{{t "saglik.disk.risk"}}</p>
+{{- end}}
+{{- end}}
+</div>
+{{- end}}
+
+<h3 class="disk-ad">{{t "saglik.disk.veritabani_baslik"}}</h3>
+{{- if .DatabaseKnown}}
+<dl class="disk-sayilar">
+<div><dt>{{t "saglik.disk.veritabani_boyut"}}</dt><dd>{{$.F.Bytes .DatabaseBytes}}</dd></div>
+</dl>
+{{- else}}
+<p class="uyari" role="note">{{t "saglik.disk.veritabani_okunamadi"}}</p>
+{{- end}}
+{{- /* Said either way, because the panel cannot see the database's disk
+in either case and the two situations need different sentences. */}}
+<p class="ipucu">
+{{- if .DatabaseLocal}}{{t "saglik.disk.veritabani_yerel"}}
+{{- else}}{{t "saglik.disk.veritabani_uzak"}}{{end}}
+</p>
+{{- end}}
+{{- end}}
+</section>
+
+<section class="bolum">
 <h2>{{t "saglik.api.baslik"}}</h2>
 {{- with .Data.API}}
 {{- if not .Configured}}

@@ -4700,16 +4700,72 @@ adımı: G2 kurulacak paketi üretir, F2 onu kurar. Numarası F2 kalıyor
 belgenin numaralandırma konusundaki kuralı, düzeltmek yerine
 açıklamak.
 
-#### F1 — Yedekleme
+#### F1 — Depolama ve yedekleme
 
 **Neden gerekli:** §5 "yedekten dönme"yi SSH gerektiren işler arasında
 sayıyor — ama projede **yedek alma hiç planlanmamış.** Geri yüklenecek
 bir şey olmadan geri yükleme prosedürü anlamsız. Müşterinin analitik
 geçmişi ürünün kendisi; tek diske emanet edilmiş durumda.
 
-**Kapsam:** zamanlanmış `pg_dump`, belgelenmiş geri yükleme adımları,
-panelde `ShowLastBackup()` göstergesi, sağlık sayfasında "son başarılı
-yedek" satırı.
+##### Her şeyi şekillendiren tehlike
+
+Bu ürünün üretebileceği **en tehlikeli tek nesne** bir yedek dosyası.
+Mimarinin tamamı rol ayrımı: panel analitiği okuyamaz, API yazamaz,
+collector paneli göremez. Tek bir döküm hepsini geçersiz kılar.
+
+Özellikle: IP adresleri `ip_hash_key` ile takma adlandırılıyor ve o
+anahtar `collector.toml` içinde. **Aynı dosyada hem veri hem anahtar
+varsa takma adlandırma çözülür.** Ayrıca panel tabloları veritabanının
+"masum kısmı" değil — `panel_users.totp_secret` açık metin, kurtarma
+kodları ve oturum jetonları orada.
+
+Bu yüzden **veri yedeği ile sırlar yedeği ayrı iki dosya**, ve ikincisi
+geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyor.
+
+##### Kararlar
+
+- **Yedeği panel almaz, yükseltici alır.** `panel_user` rolü
+  `traffic_snapshots`'ı okuyamıyor ve okuyabilir hâle gelmemeli.
+  Okuyabilen tek bileşen yükseltici. V4b'nin deseni: panel istek satırı
+  yazar, yükseltici yapar, bayt panele hiç uğramaz.
+- **Boş alanı, dosyayı yazacak bileşen bildirir.** Panel yalnız kendi
+  makinesinin diskini görebilir; veritabanı uzakta olabilir.
+- **Docker'da yedek dizini mutlaka volume üzerinde olmalı**, yoksa yeni
+  imajla `up -d` yedekleri yok eder — yani korunmak istenen kaybın ta
+  kendisi.
+- **Binary'ler kopyalanmaz, sürüm numarası kaydedilir.** Yedekten binary
+  geri yüklemek imza doğrulamasını atlatır; V4b zaten imzalı adresten
+  kurabiliyor.
+- **İndirme yok.** Yedek makinede kalır, hiçbir HTTP yolu baytları
+  sunmaz. Koruma dosyanın makineden çıkmaması.
+- **Geri yüklemede panel gösterir, hazırlar, sorar; takası yapmaz.**
+  Canlı verinin üstüne yazan tek işlem bu, ve panel internete bakan
+  yüzey: çalınmış bir oturum müşterinin geçmişini sessizce eskisiyle
+  değiştirebilirdi. Panelde doğrulama ve **yan bir veritabanına** geri
+  yükleme var; canlıya geçiş kabukta kalıyor ve belgeleniyor. Geri
+  döndürülemeyen tek adım, zaten kabuk gerektiren adım.
+- **Saklama süresi tuzağı:** bir yedek, saklama politikasının sildiği
+  veriyi tutar. Yedeklerin kendi yaş sınırı olacak ve sayfa bunu açıkça
+  yazacak.
+
+##### Fazlar
+
+| Faz | Ne verir | Durum |
+|---|---|---|
+| F1a | Diskte ne kadar yer var, hangi dosya sisteminde, volume üzerinde mi | ✅ yapıldı |
+| F1b | Yedek alma: kuyruk, üretici, ölçülmüş tahmin, sığmazsa ret, dosya korumaları | |
+| F1c | Yedekler depolama görünümünde, kapladıkları alanla | |
+| F1d | Şema yükseltmesinden önce otomatik yedek | |
+| F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | |
+| F1f | Doğrulama ve yan veritabanına geri yükleme | |
+
+F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
+veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
+yedek gönderilmiyor.
+
+**Açık kalan üç karar:** eski şemalı bir yedeğin yeni şemaya nasıl
+döneceği (F1f), yedek alınamazsa şema yükseltmesinin durup durmayacağı
+(F1d), ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
 
 #### F2 — Kurulum betiği ✅ **yapıldı**
 
