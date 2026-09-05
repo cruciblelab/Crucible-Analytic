@@ -1266,6 +1266,20 @@ code.secret {
   fill-opacity: 0.18;
 }
 
+/* This product's own backups, drawn inside the used part rather than
+ * beside it, because that is what they are: a subset of the files
+ * already counted. A segment added alongside would draw a bar wider
+ * than the disk.
+ *
+ * Darker than the fill rather than a different hue. The question it
+ * answers is "how much of what is filling this disk is mine", and two
+ * shades of one colour say "part of that" where two colours would say
+ * "and also this". */
+.disk-yedek {
+  fill: var(--vurgu);
+  fill-opacity: 0.95;
+}
+
 /* -------------------------------------------------------------- yedek */
 .yedek-kumeler {
   border: 1px solid var(--cizgi);

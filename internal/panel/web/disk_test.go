@@ -178,3 +178,143 @@ func TestAnUnmeasurableFilesystemDrawsNothing(t *testing.T) {
 		t.Errorf("a filesystem of zero bytes drew %q/%q/%q", used, at, reserved)
 	}
 }
+
+// The backup segment, drawn inside the used part.
+//
+// # What it is for
+//
+// "The disk is filling up" is followed immediately by "with what", and
+// backups are the only thing on this page a reader can act on: they can
+// delete one. Everything else on the bar is the operating system's
+// business or the database's.
+
+// backupSegmentOf is the segment for one hypothetical filesystem.
+func backupSegmentOf(total, used, avail, backups int64) string {
+	return backupSegment(diskspace.Space{
+		TotalBytes:    total,
+		UsedBytes:     used,
+		AvailBytes:    avail,
+		ReservedBytes: total - used - avail,
+	}, backups)
+}
+
+// TestTheBackupSegmentNeverLeavesTheUsedPart.
+//
+// # What goes wrong without it
+//
+// The two numbers come from different places and are read at different
+// moments: the disk from statfs, the bytes from a catalogue the upgrader
+// wrote. They can disagree - a file deleted from a shell after the sweep
+// last ran is still in the catalogue - and the disagreement is in the
+// direction that matters, with the catalogue larger than the disk.
+//
+// An unclamped segment would then paint backups over the empty part of
+// the bar, which is the one part anybody reads a decision off. The page
+// would say the disk is fuller than it is, on the strength of a file
+// that is not there.
+func TestTheBackupSegmentNeverLeavesTheUsedPart(t *testing.T) {
+	const gb = int64(1) << 30
+	for _, c := range []struct {
+		name                      string
+		total, used, avail, backs int64
+	}{
+		{"catalogue larger than the disk", 100 * gb, 10 * gb, 90 * gb, 80 * gb},
+		{"catalogue larger than the whole disk", 100 * gb, 10 * gb, 90 * gb, 400 * gb},
+		{"backups are everything on the disk", 100 * gb, 40 * gb, 60 * gb, 40 * gb},
+		{"ordinary", 100 * gb, 40 * gb, 60 * gb, 5 * gb},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			used, _, _ := segmentsOf(c.total, c.used, c.avail)
+			got := num(t, backupSegmentOf(c.total, c.used, c.avail, c.backs))
+			if got > num(t, used) {
+				t.Errorf("the backup segment is %d%% and the used part is %s%%.\n"+
+					"The extra is drawn over the empty end of the bar, which is the "+
+					"part somebody reads to decide whether there is room", got, used)
+			}
+			if got < 0 {
+				t.Errorf("a negative width (%d) is not something an SVG can draw", got)
+			}
+		})
+	}
+}
+
+// TestTheBackupSegmentNeverClaimsMoreThanItIs.
+//
+// # The version of this test that was wrong
+//
+// It used to assert the opposite: that a small backup still drew
+// something, on the reasoning that backups are the only thing on this
+// page a reader can act on, so a segment of nothing hides it. The code
+// rounded up to match.
+//
+// Then the page was rendered. 73 KB of backups on a 252 GB filesystem
+// drew one per cent of the bar - about two and a half gigabytes' worth -
+// directly beside the words "Yedekler 73,2 KB". The picture disagreed
+// with its own caption by four orders of magnitude, and the picture is
+// the half people believe.
+//
+// So the property is the honest one: the segment is never wider than the
+// backups' real share, rounded to the same whole percent every other
+// segment uses. A backup too small to draw draws nothing, and the figure
+// in the list carries that case - which is what a figure is for.
+func TestTheBackupSegmentNeverClaimsMoreThanItIs(t *testing.T) {
+	const gb = int64(1) << 30
+	const kb = int64(1) << 10
+	for _, c := range []struct {
+		name                      string
+		total, used, avail, backs int64
+	}{
+		{"a rounding error's worth on a large disk", 252 * gb, 30 * gb, 6 * gb, 73 * kb},
+		{"a tenth of a per cent", 100 * gb, 50 * gb, 50 * gb, 100 * (1 << 20)},
+		{"a third of the disk", 100 * gb, 40 * gb, 60 * gb, 33 * gb},
+		{"the whole used part", 100 * gb, 40 * gb, 60 * gb, 40 * gb},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			drawn := num(t, backupSegmentOf(c.total, c.used, c.avail, c.backs))
+			truth := c.backs * 100 / c.total
+			if drawn > truth {
+				t.Errorf("the bar draws %d%% for backups that are %d%% of the disk.\n"+
+					"The figure beside it says the real size, and a picture that "+
+					"disagrees with its own caption is the half people believe",
+					drawn, truth)
+			}
+		})
+	}
+}
+
+// TestABackupWorthDrawingIsDrawn is the other side of it.
+//
+// Rounding down is right and it must not become "never draws anything".
+// A backup taking a real share of the disk is the case the segment
+// exists for, and it has to show.
+func TestABackupWorthDrawingIsDrawn(t *testing.T) {
+	const gb = int64(1) << 30
+	got := num(t, backupSegmentOf(100*gb, 40*gb, 60*gb, 12*gb))
+	if got < 11 || got > 12 {
+		t.Errorf("12 GB of backups on a 100 GB disk drew %d%%, want 12", got)
+	}
+}
+
+// TestNoBackupsDrawsNoSegment.
+//
+// An empty width rather than a zero one, for the reason barSegments
+// records: the template omits the element entirely, and a rect of width
+// zero is a thing some renderers still draw a hairline for. A hairline
+// on a deployment that has never taken a backup is a picture of a
+// feature nobody used.
+func TestNoBackupsDrawsNoSegment(t *testing.T) {
+	const gb = int64(1) << 30
+	for _, c := range []struct {
+		name  string
+		backs int64
+	}{
+		{"none taken", 0},
+		{"a negative count is not drawn either", -1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := backupSegmentOf(100*gb, 40*gb, 60*gb, c.backs); got != "" {
+				t.Errorf("drew %q", got)
+			}
+		})
+	}
+}

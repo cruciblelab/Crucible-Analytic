@@ -149,8 +149,24 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*
 // the contents would be a name somebody read instead of the catalogue,
 // and the catalogue is the thing that knows - a file renamed by hand
 // would then be lying about itself.
+//
+// # Why it carries milliseconds
+//
+// It did not, and a test written for something else found out why it has
+// to. Two backups taken in the same second got the same name, the second
+// rename replaced the first file, and the catalogue was left with two
+// rows - two dates, two sizes, two checksums - pointing at one file.
+//
+// The customer sees two backups and has one. Nothing reports an error at
+// any point: rename onto an existing name is a silent, atomic success,
+// which is exactly the property that makes it the right call everywhere
+// else in this file.
+//
+// One second is not a hypothetical window. It is how long RunOnce takes
+// on a small deployment, so two requests answered back to back land
+// inside it - which is how the test produced this on the first run.
 func (r Runner) fileName() string {
-	return "yedek-" + r.now().UTC().Format("20060102-150405") + ".tar.gz"
+	return "yedek-" + r.now().UTC().Format("20060102-150405.000") + ".tar.gz"
 }
 
 // Sweep marks catalogue rows whose files are gone.

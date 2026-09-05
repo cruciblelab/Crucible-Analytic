@@ -2,14 +2,6 @@
   "note": "Triaged gosec findings. Every entry needs a reason - see internal/sast. Regenerate with: go run ./internal/sast/cmd/sastdiff -init",
   "entries": [
     {
-      "fingerprint": "e148659e986828f0b262c613",
-      "rule": "G304",
-      "file": "cmd/releasesign/main.go",
-      "severity": "MEDIUM",
-      "reason": "The same argument with a fixed suffix appended, in the same maintainer-only tool. The suffix is written here rather than taken as a second flag precisely so the two names are decided in one place: a signer and a verifier that disagree about where the signature lives is a failure nobody sees until an install is refused.",
-      "snippet": "sig, err := os.ReadFile(path + \".sig\")"
-    },
-    {
       "fingerprint": "92a5f5435a2bcabacc30679e",
       "rule": "G304",
       "file": "cmd/releasesign/main.go",
@@ -24,6 +16,14 @@
       "severity": "MEDIUM",
       "reason": "The path is this tool's own -sign/-verify argument, typed by whoever is building a release. cmd/releasesign is the maintainer's tool: it is not in the release package (see notShipped in release/release_test.go), no service invokes it, and it has no network surface at all - the only caller is a person at a terminal and release/build.sh. A tool whose whole job is 'sign the file I name' cannot refuse to open the file it was named.",
       "snippet": "sums, err := os.ReadFile(path)"
+    },
+    {
+      "fingerprint": "e148659e986828f0b262c613",
+      "rule": "G304",
+      "file": "cmd/releasesign/main.go",
+      "severity": "MEDIUM",
+      "reason": "The same argument with a fixed suffix appended, in the same maintainer-only tool. The suffix is written here rather than taken as a second flag precisely so the two names are decided in one place: a signer and a verifier that disagree about where the signature lives is a failure nobody sees until an install is refused.",
+      "snippet": "sig, err := os.ReadFile(path + \".sig\")"
     },
     {
       "fingerprint": "9e249c02ed966cf88b599d79",
@@ -66,6 +66,14 @@
       "snippet": "f, err := os.Open(path)"
     },
     {
+      "fingerprint": "192cd8cfebc7bbca07f73a61",
+      "rule": "G115",
+      "file": "internal/backup/dump.go",
+      "severity": "HIGH",
+      "reason": "The device number is an opaque key and never a magnitude. It is converted the same way at both ends - the upgrader stores int64(st_dev) and the panel looks up int64(st_dev) - so a value above 2^63 reinterprets to the same negative number on both sides and the lookup still matches. Nothing compares it, adds to it or prints it; BIGINT holds the whole range. See panel_backups.device.",
+      "snippet": "out.Device = int64(space.Device)"
+    },
+    {
       "fingerprint": "7a19ef5bead84510e438380e",
       "rule": "G302",
       "file": "internal/backup/dump.go",
@@ -90,7 +98,7 @@
       "snippet": "d, err := os.Open(dir)"
     },
     {
-      "fingerprint": "78912a2a1632741196280961",
+      "fingerprint": "39bd87a4ea23103aabfacf3f",
       "rule": "G304",
       "file": "internal/backup/read.go",
       "severity": "MEDIUM",
@@ -98,7 +106,7 @@
       "snippet": "f, err := os.Open(path)"
     },
     {
-      "fingerprint": "39bd87a4ea23103aabfacf3f",
+      "fingerprint": "78912a2a1632741196280961",
       "rule": "G304",
       "file": "internal/backup/read.go",
       "severity": "MEDIUM",
@@ -210,14 +218,6 @@
       "snippet": "const mailPasswordLabel = \"panel_smtp.password\""
     },
     {
-      "fingerprint": "798c1599668a9329270b6212",
-      "rule": "G710",
-      "file": "internal/panel/web/auth.go",
-      "severity": "MEDIUM",
-      "reason": "The redirect target is s.safeNext's return, which sanitises the raw next it is handed in the same call. Written without saying 'the entry above': -accept reorders this file, and a reason that points at a neighbour stops being true the first time it does.",
-      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
-    },
-    {
       "fingerprint": "624a3104f4a4acfbd694a90d",
       "rule": "G710",
       "file": "internal/panel/web/auth.go",
@@ -234,12 +234,28 @@
       "snippet": "http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)"
     },
     {
+      "fingerprint": "798c1599668a9329270b6212",
+      "rule": "G710",
+      "file": "internal/panel/web/auth.go",
+      "severity": "MEDIUM",
+      "reason": "The redirect target is s.safeNext's return, which sanitises the raw next it is handed in the same call. Written without saying 'the entry above': -accept reorders this file, and a reason that points at a neighbour stops being true the first time it does.",
+      "snippet": "http.Redirect(w, r, s.safeNext(r.URL.Query().Get(\"next\")), http.StatusSeeOther)"
+    },
+    {
       "fingerprint": "f1393b798a3aaa96ff378e19",
       "rule": "G710",
       "file": "internal/panel/web/chrome.go",
       "severity": "MEDIUM",
       "reason": "Target is the LoginPath constant. Only the path of the current URL is carried, never the query string - deliberately, since that is where a reset token or a search term would be.",
       "snippet": "http.Redirect(w, r, withNext(LoginPath, s.rawNext(r.URL.Path)), http.StatusSeeOther)"
+    },
+    {
+      "fingerprint": "3a99227774afb58073502e69",
+      "rule": "G115",
+      "file": "internal/panel/web/disk.go",
+      "severity": "HIGH",
+      "reason": "The device number is an opaque key and never a magnitude. It is converted the same way at both ends - the upgrader stores int64(st_dev) and the panel looks up int64(st_dev) - so a value above 2^63 reinterprets to the same negative number on both sides and the lookup still matches. Nothing compares it, adds to it or prints it; BIGINT holds the whole range. See panel_backups.device.",
+      "snippet": "BackupBytes:   backups[int64(space.Device)],"
     },
     {
       "fingerprint": "d0fe3f6802aa0c475118bd52",
@@ -282,14 +298,6 @@
       "snippet": "if err := os.MkdirAll(binDir, 0o755); err != nil {"
     },
     {
-      "fingerprint": "64cb764dfb4f6cdeda21b7c7",
-      "rule": "G302",
-      "file": "internal/relupdate/install.go",
-      "severity": "MEDIUM",
-      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives. The Chmod repeats the mode after the write because OpenFile's permission argument is masked by umask, and an upgrader running under umask 077 would otherwise install binaries nothing can run.",
-      "snippet": "if err := os.Chmod(tmp, 0o755); err != nil {"
-    },
-    {
       "fingerprint": "79a41af519ee378fbe964f2b",
       "rule": "G302",
       "file": "internal/relupdate/install.go",
@@ -298,12 +306,12 @@
       "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
-      "fingerprint": "28fecf0323c3567659f60b68",
-      "rule": "G304",
+      "fingerprint": "64cb764dfb4f6cdeda21b7c7",
+      "rule": "G302",
       "file": "internal/relupdate/install.go",
       "severity": "MEDIUM",
-      "reason": "Writing the new binary beside its destination before renaming it into place. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml. Written-then-renamed rather than written in place because Linux refuses to write to a running executable (ETXTBSY) and rename(2) over an open file is fine.",
-      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
+      "reason": "0755 is required here and 0600 would be the bug. These are the service binaries: systemd runs them as the `crucible` account, and this code runs as `crucible-upgrader`. A binary installed 0600 is a binary its own service cannot execute, and the symptom is status=203/EXEC on every unit - the exact failure U1 was written to close. install.sh installs the same files with the same mode for the same reason, and TestAGoodPackageReplacesTheBinaries asserts the executable bit survives. The Chmod repeats the mode after the write because OpenFile's permission argument is masked by umask, and an upgrader running under umask 077 would otherwise install binaries nothing can run.",
+      "snippet": "if err := os.Chmod(tmp, 0o755); err != nil {"
     },
     {
       "fingerprint": "da10131660a7df116adea6ee",
@@ -312,6 +320,14 @@
       "severity": "MEDIUM",
       "reason": "Reading a binary out of the verified package. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml.",
       "snippet": "in, err := os.Open(src)"
+    },
+    {
+      "fingerprint": "28fecf0323c3567659f60b68",
+      "rule": "G304",
+      "file": "internal/relupdate/install.go",
+      "severity": "MEDIUM",
+      "reason": "Writing the new binary beside its destination before renaming it into place. The path is the destination this Installer was configured with, joined to a file name read out of the unpacked package's bin/ directory - and that package has already been fetched over https, unpacked with every hostile shape refused, verified against our Ed25519 signature, and verified file by file against its own SHA256SUMS. Nothing from the request row reaches any of it: the row carries a version, whose shape relupdate.ValidVersion checks, and the address is built from upgrader.toml. Written-then-renamed rather than written in place because Linux refuses to write to a running executable (ETXTBSY) and rename(2) over an open file is fine.",
+      "snippet": "out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)"
     },
     {
       "fingerprint": "658de25b4b8c155ca39d8462",

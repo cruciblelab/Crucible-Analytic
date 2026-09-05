@@ -568,6 +568,7 @@ know that. */}}
 {{- else}}
 {{- if .UsedPercent}}
 <svg class="disk-cubuk" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect class="disk-dolgu" x="0" y="0" height="10" width="{{.UsedPercent}}" />
+{{- if .BackupPercent}}<rect class="disk-yedek" x="0" y="0" height="10" width="{{.BackupPercent}}" />{{end}}
 {{- if .ReservedPercent}}<rect class="disk-ayrilmis" x="{{.ReservedOffset}}" y="0" height="10" width="{{.ReservedPercent}}" />{{end}}</svg>
 {{- end}}
 <dl class="disk-sayilar">
@@ -577,15 +578,32 @@ know that. */}}
 {{- if .ReservedBytes}}
 <div><dt>{{t "saglik.disk.ayrilmis"}}</dt><dd>{{$.F.Bytes .ReservedBytes}}</dd></div>
 {{- end}}
+{{- if .BackupBytes}}
+<div><dt>{{t "saglik.disk.yedekler"}}</dt><dd>{{$.F.Bytes .BackupBytes}}</dd></div>
+{{- end}}
 </dl>
 {{- if .ReservedBytes}}
 <p class="ipucu">{{t "saglik.disk.ayrilmis_aciklama"}}</p>
+{{- end}}
+{{- /* The sentence describes the coloured segment, so it is shown when
+there is one. A backup too small to draw leaves the figure above and no
+caption, rather than a caption pointing at a colour that is not there. */}}
+{{- if .BackupPercent}}
+<p class="ipucu">{{t "saglik.disk.yedekler_aciklama"}}</p>
 {{- end}}
 {{- if .AtRisk}}
 <p class="uyari" role="note">{{t "saglik.disk.risk"}}</p>
 {{- end}}
 {{- end}}
 </div>
+{{- end}}
+
+{{- if .UnplacedBackupBytes}}
+<h3 class="disk-ad">{{t "saglik.disk.yedekler_yersiz"}}</h3>
+<dl class="disk-sayilar">
+<div><dt>{{t "saglik.disk.yedekler"}}</dt><dd>{{$.F.Bytes .UnplacedBackupBytes}}</dd></div>
+</dl>
+<p class="ipucu">{{t "saglik.disk.yedekler_yersiz_aciklama"}}</p>
 {{- end}}
 
 <h3 class="disk-ad">{{t "saglik.disk.veritabani_baslik"}}</h3>

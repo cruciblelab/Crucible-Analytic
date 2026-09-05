@@ -233,6 +233,9 @@ type Backup struct {
 	Version  string
 	SchemaAt int64
 	State    string
+	// Device is the filesystem the file is on, zero when unknown. See
+	// panel_backups.device.
+	Device int64
 
 	// Path is where the file is, and is empty for every reader that is
 	// not the upgrader.
@@ -245,18 +248,18 @@ type Backup struct {
 
 // catalogueColumns is what anybody may read.
 const catalogueColumns = `id, taken_at, sets, bytes, sha256, binary_version,
-	schema_version, state`
+	schema_version, state, device`
 
 // Record writes the catalogue row for a file that now exists.
 func Record(ctx context.Context, pool *pgxpool.Pool, res Result) (int64, error) {
 	var id int64
 	err := pool.QueryRow(ctx, `
 		INSERT INTO panel_backups
-		  (taken_at, sets, bytes, sha256, path, binary_version, schema_version)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		  (taken_at, sets, bytes, sha256, path, binary_version, schema_version, device)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id`,
 		res.Manifest.TakenAt, res.Manifest.Sets, res.Bytes, res.SHA256, res.Path,
-		res.Manifest.BinaryVersion, res.Manifest.SchemaVersion).Scan(&id)
+		res.Manifest.BinaryVersion, res.Manifest.SchemaVersion, res.Device).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("backup: recording the catalogue row: %w", err)
 	}
@@ -281,7 +284,7 @@ func List(ctx context.Context, pool *pgxpool.Pool) ([]Backup, error) {
 	for rows.Next() {
 		var b Backup
 		if err := rows.Scan(&b.ID, &b.TakenAt, &b.Sets, &b.Bytes, &b.SHA256,
-			&b.Version, &b.SchemaAt, &b.State); err != nil {
+			&b.Version, &b.SchemaAt, &b.State, &b.Device); err != nil {
 			return nil, fmt.Errorf("backup: listing: %w", err)
 		}
 		out = append(out, b)
@@ -308,7 +311,7 @@ func ListWithPaths(ctx context.Context, pool *pgxpool.Pool) ([]Backup, error) {
 	for rows.Next() {
 		var b Backup
 		if err := rows.Scan(&b.ID, &b.TakenAt, &b.Sets, &b.Bytes, &b.SHA256,
-			&b.Version, &b.SchemaAt, &b.State, &b.Path); err != nil {
+			&b.Version, &b.SchemaAt, &b.State, &b.Device, &b.Path); err != nil {
 			return nil, fmt.Errorf("backup: listing with paths: %w", err)
 		}
 		out = append(out, b)
@@ -338,4 +341,49 @@ func isUniqueViolation(err error) bool {
 		return pgErr.SQLState() == "23505"
 	}
 	return false
+}
+
+// BytesByDevice is what the backups occupy, per filesystem.
+//
+// # Why the sum happens here rather than over List
+//
+// The panel already reads the catalogue to draw the list, and adding the
+// bytes up in Go would be free. It would also be a second place that
+// decides what counts, and the two would drift: the list shows missing
+// rows deliberately, and a bar must not.
+//
+// Files that are gone are excluded. A bar that included them would be a
+// claim about a disk that the disk disagrees with, made on the one page
+// somebody opens to find out how full the disk is.
+//
+// Rows with device zero are excluded from the map and returned as the
+// second value, so a caller can show them in a total without attributing
+// them to a filesystem. Zero means a backup taken before the column
+// existed, or one whose filesystem could not be read - see
+// panel_backups.device.
+func BytesByDevice(ctx context.Context, pool *pgxpool.Pool) (map[int64]int64, int64, error) {
+	rows, err := pool.Query(ctx, `
+		SELECT device, sum(bytes)::BIGINT
+		FROM panel_backups
+		WHERE state <> 'missing'
+		GROUP BY device`)
+	if err != nil {
+		return nil, 0, fmt.Errorf("backup: summing by filesystem: %w", err)
+	}
+	defer rows.Close()
+
+	out := map[int64]int64{}
+	var unplaced int64
+	for rows.Next() {
+		var device, bytes int64
+		if err := rows.Scan(&device, &bytes); err != nil {
+			return nil, 0, fmt.Errorf("backup: summing by filesystem: %w", err)
+		}
+		if device == 0 {
+			unplaced += bytes
+			continue
+		}
+		out[device] = bytes
+	}
+	return out, unplaced, rows.Err()
 }

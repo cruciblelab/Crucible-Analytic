@@ -43,20 +43,39 @@ func backupQueue(t *testing.T) (asks, answers *pgxpool.Pool) {
 	answers = testdb.Pool(t, testdb.SchemaAdmin)
 	asks = testdb.Pool(t, testdb.Panel)
 	testdb.Lock(t, answers, testdb.BackupQueueLock)
-	t.Cleanup(func() {
-		// Swept by the role the DELETE policy names, which is the
-		// panel's.
-		if _, err := asks.Exec(context.Background(),
-			`DELETE FROM panel_backup_requests`); err != nil {
-			t.Errorf("sweeping the backup queue: %v", err)
-		}
-		// And the catalogue, by the role that owns it.
-		if _, err := answers.Exec(context.Background(),
-			`DELETE FROM panel_backups`); err != nil {
-			t.Errorf("sweeping the catalogue: %v", err)
-		}
-	})
+
+	// Cleared on the way in as well as on the way out.
+	//
+	// Every test in this file counts rows - "one backup produced one
+	// catalogue row" - and a count is only an assertion if the starting
+	// point is known. Clearing only afterwards makes each test depend on
+	// the one before it having run and finished, which holds inside a
+	// single `go test` and holds for nothing else: a run interrupted
+	// half way, a row left by hand, a demo taken on the same database.
+	//
+	// Found that way rather than reasoned about. Two backups taken
+	// outside the suite made the first test here report three rows after
+	// one backup, and the message named the symptom rather than the
+	// cause - which is what a test that arranges nothing can do.
+	clear(t, asks, answers)
+	t.Cleanup(func() { clear(t, asks, answers) })
 	return asks, answers
+}
+
+// clear empties the queue and the catalogue, each by the role that is
+// allowed to.
+func clear(t *testing.T, asks, answers *pgxpool.Pool) {
+	t.Helper()
+	// Swept by the role the DELETE policy names, which is the panel's.
+	if _, err := asks.Exec(context.Background(),
+		`DELETE FROM panel_backup_requests`); err != nil {
+		t.Fatalf("sweeping the backup queue: %v", err)
+	}
+	// And the catalogue, by the role that owns it.
+	if _, err := answers.Exec(context.Background(),
+		`DELETE FROM panel_backups`); err != nil {
+		t.Fatalf("sweeping the catalogue: %v", err)
+	}
 }
 
 // TestPressingTheButtonProducesAFileAndACatalogueRow.

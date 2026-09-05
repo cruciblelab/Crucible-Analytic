@@ -104,6 +104,11 @@ type backupStore interface {
 // the one number it takes from Postgres is how big Postgres is.
 type diskStore interface {
 	DatabaseBytes(ctx context.Context) (int64, error)
+	// BackupBytesByDevice is what the backups occupy on each filesystem,
+	// and what could not be placed on one. It belongs here rather than in
+	// backupReader because the answer is about the disk: the backup
+	// section shows a list and a total, this draws a bar.
+	BackupBytesByDevice(ctx context.Context) (map[int64]int64, int64, error)
 }
 
 // rangeRefreshReader is what drawing the IP-dataset section may ask for.

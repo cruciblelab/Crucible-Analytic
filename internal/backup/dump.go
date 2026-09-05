@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/diskspace"
 )
 
 // ManifestName is the entry every backup carries first.
@@ -75,6 +78,10 @@ type Result struct {
 	Bytes    int64
 	SHA256   string
 	Manifest Manifest
+	// Device is the kernel's number for the filesystem the file landed
+	// on, and zero when it could not be read. See panel_backups.device
+	// for why the panel needs it and why it is a number.
+	Device int64
 }
 
 // Writer produces a backup file.
@@ -230,6 +237,29 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 	if err := f.Close(); err != nil {
 		return Result{}, fmt.Errorf("backup: closing %s: %w", tmp, err)
 	}
+	// Never onto a file that is already there.
+	//
+	// rename replaces an existing name silently and atomically, which is
+	// the property that makes it right for everything above and wrong
+	// for exactly this. A backup landing on the name of an older backup
+	// destroys it, reports success, and leaves the catalogue with two
+	// rows - two dates, two sizes, two checksums - describing one file.
+	// The customer sees two backups and has one.
+	//
+	// Runner.fileName carries milliseconds so this should not be
+	// reachable. "Should not be reachable" is the reason to check rather
+	// than the reason to skip it: the name is a timestamp, and a clock
+	// that steps backwards produces one that has been used before.
+	//
+	// The gap between this and the rename is a race only another writer
+	// could enter, and the queue's one-in-flight index means there is no
+	// other writer. It is not the case being defended against.
+	if _, err := os.Stat(final); err == nil {
+		return Result{}, fmt.Errorf("backup: %s already exists; refusing to write over "+
+			"a backup that is already there", final)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Result{}, fmt.Errorf("backup: checking %s: %w", final, err)
+	}
 	if err := os.Rename(tmp, final); err != nil {
 		return Result{}, fmt.Errorf("backup: naming %s: %w", final, err)
 	}
@@ -237,12 +267,28 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 		return Result{}, err
 	}
 
-	return Result{
+	out := Result{
 		Path:     final,
 		Bytes:    counted.n,
 		SHA256:   hex.EncodeToString(sum.Sum(nil)),
 		Manifest: manifest,
-	}, nil
+	}
+
+	// Which filesystem this landed on, so the panel can draw it into the
+	// right bar. See panel_backups.device.
+	//
+	// Read after the file exists rather than before, because the answer
+	// is about the file: a directory created moments ago on a
+	// filesystem that has since been remounted would give the wrong one.
+	//
+	// A failure here is not a failure of the backup. The file is written,
+	// synced and named; the device is a label for a picture. So it is
+	// left at zero, which the panel reads as "not on any bar I am
+	// drawing" rather than as an error.
+	if space, err := diskspace.Read(final); err == nil {
+		out.Device = int64(space.Device)
+	}
+	return out, nil
 }
 
 // copyTable streams one table into the archive.

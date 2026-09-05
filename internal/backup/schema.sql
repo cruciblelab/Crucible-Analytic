@@ -190,8 +190,35 @@ CREATE TABLE IF NOT EXISTS panel_backups (
     -- a backup here on Tuesday and it is missing" is a sentence somebody
     -- needs to read.
     state TEXT NOT NULL DEFAULT 'present'
-        CHECK (state IN ('present', 'missing'))
+        CHECK (state IN ('present', 'missing')),
+
+    -- Which filesystem the file is on, as the kernel's device number.
+    --
+    -- # Why a number and not the path
+    --
+    -- The panel draws the disk. It groups the directories it was
+    -- configured with by device, because two directories on one disk are
+    -- one bar - and to put the backups into that bar it has to know
+    -- which disk they are on.
+    --
+    -- It cannot find out for itself. The directory is named in
+    -- upgrader.toml, which the panel does not read, and `path` is not
+    -- granted to its role, which is the point of that grant. So the
+    -- component that can see the disk records what it saw, and the panel
+    -- reads a number that means nothing on its own.
+    --
+    -- An opaque device number is the whole of what is shared. It names
+    -- no directory and cannot be turned back into one.
+    --
+    -- Zero means unknown: a row written before this column existed, or
+    -- one whose filesystem could not be read. The panel shows those
+    -- bytes in the total and leaves them out of the bar, because a bar
+    -- is a claim about a specific disk.
+    device BIGINT NOT NULL DEFAULT 0
 );
+
+-- For databases created before the column existed.
+ALTER TABLE panel_backups ADD COLUMN IF NOT EXISTS device BIGINT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_backups_taken_at
     ON panel_backups (taken_at DESC);
@@ -234,6 +261,7 @@ CREATE POLICY backups_forget ON panel_backups
 -- future migration is not granted to the panel until somebody writes it
 -- here, which is the right default for a table whose whole point is
 -- that one of its columns is dangerous.
-GRANT SELECT (id, taken_at, sets, bytes, sha256, binary_version, schema_version, state)
+GRANT SELECT (id, taken_at, sets, bytes, sha256, binary_version, schema_version, state,
+              device)
     ON panel_backups TO panel_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON panel_backups TO schema_admin;

@@ -9,6 +9,51 @@ yapacağım".
 
 ---
 
+## Yayımlanmamış
+
+Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+
+**Şema sürümü: 13.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Tek bir sütun ekleniyor; veri değişmiyor,
+servis durmuyor.
+
+### Yedekler artık disk çubuğunda
+
+**Sağlık → Disk** çubuğunda yedeklerinizin kapladığı yer kendi renginde
+görünüyor, dolu alanın içinde. "Disk doluyor" cümlesinin hemen ardından
+gelen soru "neyle" oluyor, ve bu sayfada doğrudan silebileceğiniz tek şey
+yedekler.
+
+Yedeklerin hangi diskte olduğu artık kaydediliyor. Panel bunu kendisi
+bulamaz: yedek dizini `upgrader.toml` içinde ve panel o dosyayı okumaz,
+dosyaların yolunu da göremez — bu bilerek böyle. Onun yerine diski
+görebilen bileşen gördüğünü kaydediyor, panel de tek başına hiçbir şey
+ifade etmeyen bir numara okuyor.
+
+**Bu sürümden önce alınmış yedeklerin diski kayıtlı değil.** Onlar
+"başka bir yerdeki yedekler" başlığı altında toplamda görünüyor, hiçbir
+çubuğa eklenmiyor. Bir çubuk belirli bir disk hakkında iddiadır ve o
+iddia için elde veri yok.
+
+### Düzeltme: aynı saniyede alınan iki yedek birbirini siliyordu
+
+**Aynı saniye içinde alınan iki yedekten ilki sessizce siliniyordu.**
+Dosya adı saniyeye kadar gidiyordu, ikinci dosya birincinin adını
+alıyordu, ve kayıt listesinde iki tarih, iki boyut ve iki parmak izi
+kalıyordu — tek bir dosyayı gösteren.
+
+Yani müşteri iki yedek görüyor, bir tanesi oluyor, ve ilk uzanacağı
+dosya gitmiş olan oluyordu. Hiçbir aşamada hata verilmiyordu.
+
+Bir saniye varsayımsal bir aralık değil: küçük bir kurulumda iki yedeğin
+alınması bu kadar sürüyor. Başka bir şey için yazılan bir test ilk
+koşuşunda ortaya çıkardı.
+
+İki taraflı düzeltildi. Dosya adı artık milisaniye taşıyor, ve var olan
+bir dosyanın üzerine yazma girişimi hata veriyor.
+
+---
+
 ## v0.22.0 — 2026-09-05
 
 Yedek alma yolunun ikinci yarısı, bir güvenlik düzeltmesi, ve panelin iç

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 )
 
 // The database half of the health page.
@@ -212,4 +214,20 @@ func (s *Store) DatabaseBytes(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("panel: reading the database size: %w", err)
 	}
 	return bytes, nil
+}
+
+// BackupBytesByDevice is what the backups occupy, per filesystem, plus
+// what could not be placed on one.
+//
+// # Why the panel is allowed to know this
+//
+// It is a number and a device id, and the device id is opaque: it names
+// no directory and cannot be turned back into one. `path` stays
+// ungranted, which is the boundary that matters.
+//
+// The panel needs it because it draws the disk and the upgrader does
+// not. See panel_backups.device, which records what the component that
+// can see the filesystem saw.
+func (s *Store) BackupBytesByDevice(ctx context.Context) (map[int64]int64, int64, error) {
+	return backup.BytesByDevice(ctx, s.pool)
 }

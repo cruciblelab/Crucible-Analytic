@@ -126,13 +126,23 @@ func TestAnUnreadableBackupListDrawsNothingRatherThanAnEmptyOne(t *testing.T) {
 	}
 }
 
-// fakeDiskStore answers the one question the storage section asks.
+// fakeDiskStore answers the questions the storage section asks.
 type fakeDiskStore struct {
 	bytes int64
 	err   error
+
+	// backups is what the backups occupy per filesystem, and unplaced is
+	// what could not be attributed to one.
+	backups   map[int64]int64
+	unplaced  int64
+	backupErr error
 }
 
 func (f fakeDiskStore) DatabaseBytes(context.Context) (int64, error) { return f.bytes, f.err }
+
+func (f fakeDiskStore) BackupBytesByDevice(context.Context) (map[int64]int64, int64, error) {
+	return f.backups, f.unplaced, f.backupErr
+}
 
 // TestADatabaseSizeThatCannotBeReadIsNotADatabaseOfZeroBytes.
 //
@@ -247,5 +257,60 @@ func TestOwnerAndViewerDisagreeAboutTheUpgradeButton(t *testing.T) {
 	}
 	if (panel.Access{Role: panel.RoleViewer, Member: true}).Can(panel.CapManageSettings) {
 		t.Error("a viewer can manage settings, so the unentitled cases above test nothing")
+	}
+}
+
+// TestBackupsThatBelongToNoDrawnDiskAreStillCounted.
+//
+// # What goes wrong without it
+//
+// A backup row carries the filesystem it was written to. Three things
+// leave that unknown: a backup taken before the column existed, one
+// whose filesystem could not be read, and one written to a directory the
+// panel was never configured with.
+//
+// Silently dropping those bytes would make this section disagree with
+// the backup section's own total on the same page, for a reason no
+// reader could see. Adding them to a bar would put bytes on a disk that
+// may not hold them.
+//
+// So they are neither: they are a figure of their own, and the page says
+// what it means.
+func TestBackupsThatBelongToNoDrawnDiskAreStillCounted(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+
+	got := s.healthDiskSection(context.Background(), fakeDiskStore{
+		backups:  map[int64]int64{99: 4096},
+		unplaced: 12345,
+	}, lang)
+
+	if got.UnplacedBackupBytes != 12345 {
+		t.Errorf("unplaced backups came back as %d bytes, want 12345",
+			got.UnplacedBackupBytes)
+	}
+}
+
+// TestAnUnreadableBackupTotalCostsOnlyTheSegment.
+//
+// Every part of the health page fails independently, which is the page's
+// whole reason for existing. The backups are one number on top of a
+// measurement; failing to read them must not take the disk figures with
+// them, because the disk figures are what somebody opened the page for.
+func TestAnUnreadableBackupTotalCostsOnlyTheSegment(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+
+	got := s.healthDiskSection(context.Background(), fakeDiskStore{
+		bytes:     8192,
+		backupErr: errors.New("connection refused"),
+	}, lang)
+
+	if !got.DatabaseKnown || got.DatabaseBytes != 8192 {
+		t.Errorf("a failed backup total took the database size with it: known=%v bytes=%d",
+			got.DatabaseKnown, got.DatabaseBytes)
+	}
+	if got.UnplacedBackupBytes != 0 {
+		t.Errorf("a failed read reported %d unplaced bytes", got.UnplacedBackupBytes)
 	}
 }

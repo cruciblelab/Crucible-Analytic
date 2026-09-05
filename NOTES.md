@@ -11576,3 +11576,114 @@ başka her yerde ancak birinin sunucusunda bir satır reddedildiğinde.
 veritabanına henüz uygulanmamıştı. Kısıtı uyguladıktan sonra yeşile
 döndüler. Bu, şema değişikliğinin süs olmadığının kanıtı — testler eski
 kısıtla geçmiyor.
+
+---
+
+## F1c — Yedekler disk çubuğunda, ve panelin göremediği şey
+
+Müşterinin istediği şuydu: *"bu yedek depolama grafiğinde olan kısım
+orada yedeğini kapladığı alanlarda olur."* Yani yedekler diskin
+resminde.
+
+### Panel yedeklerin nerede olduğunu bilemez
+
+Yedek dizini `upgrader.toml` içinde ve panel o dosyayı okumaz.
+`panel_backups.path` sütunu da panelin rolüne verilmemiş — bu F1b'nin
+tasarım kararıydı ve doğru karardı.
+
+Panel diski **cihaz numarasına göre** gruplayarak çiziyor: bir diskteki
+iki dizin tek çubuk. Yedekleri o çubuğa koymak için hangi cihazda
+olduklarını bilmesi gerekiyor.
+
+Üç seçenek vardı:
+
+| Seçenek | Neden değil |
+|---|---|
+| Yedek dizinini `panel.toml`'a da yaz | İki yapılandırma birbiriyle çelişebilir, ve çeliştiğinde panel yanlış diskin çubuğunu çizer |
+| Panelin `path`'i okumasına izin ver | F1b'nin sınırını kaldırmak, tam da resim çizmek için |
+| Diski gören bileşen gördüğünü kaydetsin | ✅ |
+
+`panel_backups.device` eklendi. Yükseltici dosyayı yazdıktan **sonra**
+ölçüyor — cevap dosya hakkında, dizin hakkında değil — ve okuyamazsa
+sıfır bırakıyor: bir yedek dosyası yazılmış, senkronlanmış ve
+adlandırılmışken, resim için bir etiket okunamadı diye başarısız
+sayılamaz.
+
+**Paylaşılan şeyin tamamı opak bir sayı.** Hiçbir dizini adlandırmıyor
+ve geri çevrilemiyor. `path` hâlâ verilmemiş, ve bunu doğrulayan test
+panelin rolüyle bağlanıp `SELECT path` deniyor.
+
+### Sayfaya bakınca kendi gerekçemin yanlış olduğunu gördüm
+
+Segment ilk hâlinde **yukarı** yuvarlıyordu. Gerekçe şuydu: yedekler bu
+sayfada doğrudan silinebilen tek şey, hiç çizilmemesi onu gizler.
+
+Sonra sayfa render edildi. **252 GB'lık bir dosya sisteminde 73 KB
+yedek, çubuğun yüzde birini çizdi** — yaklaşık iki buçuk gigabaytlık bir
+şerit — ve tam yanında "Yedekler 73,2 KB" yazıyordu. Resim kendi
+altyazısıyla dört mertebe çelişiyordu, ve insanların inandığı yarısı
+resim.
+
+Aşağı yuvarlamaya çevrildi, diğer bütün segmentler gibi. Çizilemeyecek
+kadar küçük bir yedek çizilmiyor; o durumu listedeki sayı taşıyor, ki
+sayının işi budur. **Çubuk oranlar içindir, ve olmayan bir oran
+çizilecek bir oran değildir.**
+
+Aynı bakışta ikinci bir şey daha çıktı: segment çizilmediği hâlde onu
+tarif eden cümle duruyordu. Cümle artık segment varsa gösteriliyor.
+
+*Bir tahminin ölçülmüş olması, ölçülen şeyin temsil ettiği anlamına
+gelmez* — ve bir gerekçenin, gerekçelendirdiği şeye bakılmadan önce
+yazılmış olması da.
+
+### Yanında bulunan gerçek kusur: aynı saniyedeki iki yedek
+
+Başka bir şey için yazılan bir test — cihaza göre toplamı ölçen test —
+peş peşe iki yedek aldı ve süpürge bir dosya silindikten sonra **iki**
+satırı kayıp işaretledi.
+
+Sebep: dosya adı saniyeye kadar gidiyordu. İki yedek aynı saniyede aynı
+adı alıyordu, ve `rename` var olan bir adın üzerine **sessizce ve
+atomik** yazıyor — ki bu özellik dosyanın yarım hâlde son adını almasını
+engelleyen şeyin ta kendisi.
+
+Birinci dosya siliniyordu. Katalogda iki tarih, iki boyut, iki parmak
+izi kalıyordu, tek bir dosyayı gösteren. **Müşteri iki yedek görüyor,
+bir tanesi oluyor.** Hiçbir aşamada hata verilmiyordu.
+
+Bir saniye varsayımsal bir aralık değil: küçük bir kurulumda `RunOnce`
+bu kadar sürüyor, yani arka arkaya cevaplanan iki istek onun içine
+düşüyor. Test ilk koşuşunda üretti.
+
+İki taraflı düzeltildi, çünkü ikisi farklı soruya cevap veriyor:
+
+- Ad milisaniye taşıyor, yani çakışma için saatin geriye adım atması
+  gerekiyor.
+- `Write` var olan bir adın üzerine yazmayı reddediyor, yani olan bir
+  çakışma sessizce dosya yok etmek yerine yüksek sesle başarısız oluyor.
+
+Gerçek zincirle doğrulandı: üç yedek aynı saniyede alındı ve üç ayrı
+dosya oldu (`...072554.162`, `.328`, `.495`).
+
+### Testlerin ortaya çıkardığı üçüncü şey
+
+`internal/backup`'ın entegrasyon dosyası satır sayıyor — "bir yedek bir
+katalog satırı üretir" — ama katalogu yalnız **çıkışta** temizliyordu.
+Yani her test kendinden öncekinin koşup bitmiş olmasına bağlıydı; tek
+bir `go test` içinde doğru, başka hiçbir durumda değil.
+
+Ekrandan görüntü almak için elle alınmış iki yedek, ilk testi "bir
+yedekten sonra üç satır" dedirtti. Artık girişte de temizleniyor.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Cihaz hiç kaydedilmesin | Yakalandı |
+| Ad yine saniyeye kadar gitsin | Yakalandı |
+| Üzerine yazma koruması kaldırılsın | Yakalandı |
+| Kayıp dosyalar da toplansın | Yakalandı |
+| Cihaz sıfır da bir dosya sistemi sayılsın | Yakalandı |
+| Segment dolu alanla sınırlanmasın | Yakalandı |
+| Segment yukarı yuvarlasın | Yakalandı |
+| Yersiz baytlar düşürülsün | Yakalandı |
