@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -77,11 +78,15 @@ type releaseSection struct {
 }
 
 // releaseStatusFor builds the section.
-func (s *Server) releaseStatusFor(r *http.Request, lang *ui.Language,
+//
+// Takes the store rather than reading it off the server, and a context
+// rather than a request, so the section can be built with neither a
+// database nor an HTTP request. See stores.go.
+func (s *Server) releaseStatusFor(ctx context.Context, db releaseReader, lang *ui.Language,
 	access panel.Access) (releaseSection, string) {
 
 	current := buildinfo.Version(s.Renderer.Version)
-	status, err := s.Store.ReleaseStatus(r.Context(), access, current)
+	status, err := db.ReleaseStatus(ctx, access, current)
 	if err != nil {
 		// Drawn as absent, not as broken. Every part of this page fails
 		// independently - that is the page's whole reason for existing -
@@ -160,7 +165,7 @@ func releaseCheck(a relupdate.Available, behind bool) checkState {
 }
 
 // releasePost handles the button.
-func (s *Server) releasePost(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+func (s *Server) releasePost(r *http.Request, db releaseStore, lang *ui.Language,
 	access panel.Access) (releaseSection, string) {
 
 	typed := strings.TrimSpace(r.FormValue("surum"))
@@ -168,7 +173,7 @@ func (s *Server) releasePost(w http.ResponseWriter, r *http.Request, lang *ui.La
 	// The operation record opens before the work, so its id reaches the
 	// log lines the work produces - including the upgrader's, which runs
 	// in another process and finds the id on the request row.
-	op, opErr := s.Store.BeginOperation(r.Context(), access,
+	op, opErr := db.BeginOperation(r.Context(), access,
 		panel.ActionReleaseRequested, "release", typed)
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the release", "err", opErr)
@@ -189,9 +194,9 @@ func (s *Server) releasePost(w http.ResponseWriter, r *http.Request, lang *ui.La
 	}
 
 	current := buildinfo.Version(s.Renderer.Version)
-	req, err := s.Store.RequestRelease(r.Context(), access, auth, op.ID(), current, typed)
+	req, err := db.RequestRelease(r.Context(), access, auth, op.ID(), current, typed)
 
-	section, sectionErr := s.releaseStatusFor(r, lang, access)
+	section, sectionErr := s.releaseStatusFor(r.Context(), db, lang, access)
 	if sectionErr != "" {
 		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
 		return section, sectionErr

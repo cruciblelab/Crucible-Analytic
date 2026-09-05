@@ -54,41 +54,73 @@ func dfKB(t *testing.T, path string) (total, used, avail int64) {
 }
 
 // TestTheNumbersAgreeWithDf.
+//
+// # Why df is bracketed rather than compared against once
+//
+// The first version of this test read the filesystem once, ran df, and
+// allowed the two answers to differ by one part in a thousand. It failed
+// on this machine at 6596 KiB of drift against a 6156 KiB tolerance -
+// and the code was right. A `go test ./...` run writes hundreds of
+// megabytes of build cache and test binaries while this test is running,
+// so the free space genuinely changes between the two readings.
+//
+// The fix is not a wider tolerance. A tolerance wide enough for an
+// arbitrarily busy machine is a tolerance wide enough to accept a real
+// mistake, and picking one is guessing at how busy CI will be.
+//
+// So the filesystem is read on both sides of df, and df's answer has to
+// fall inside that interval. On a quiet machine the two readings are
+// identical and this is exact equality. On a busy one the interval is
+// exactly as wide as the disk actually moved, which is the honest
+// allowance - it is derived from the machine rather than chosen.
+//
+// *Bir tahminin ölçülmüş olması, ölçülen şeyin temsil ettiği anlamına
+// gelmez.*
 func TestTheNumbersAgreeWithDf(t *testing.T) {
 	dir := t.TempDir()
-	got, err := Read(dir)
+
+	before, err := Read(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	total, used, avail := dfKB(t, dir)
+	after, err := Read(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Compared in kibibytes, because that is df's unit and rounding it
 	// the other way would invent a disagreement.
 	const kb = 1024
 	for _, c := range []struct {
-		what      string
-		mine, dfs int64
+		what        string
+		lo, hi, dfs int64
 	}{
-		{"total", got.TotalBytes / kb, total},
-		{"used", got.UsedBytes / kb, used},
-		{"available", got.AvailBytes / kb, avail},
+		{"total", before.TotalBytes / kb, after.TotalBytes / kb, total},
+		{"used", before.UsedBytes / kb, after.UsedBytes / kb, used},
+		{"available", before.AvailBytes / kb, after.AvailBytes / kb, avail},
 	} {
-		// A filesystem in use moves between the two calls, so exact
-		// equality would be flaky on a busy machine. One part in a
-		// thousand is far tighter than any of the mistakes this is
-		// looking for: a wrong block size is off by 8x or 4096x, and
-		// f_bfree instead of f_bavail is off by the whole root reserve.
-		diff := c.mine - c.dfs
-		if diff < 0 {
-			diff = -diff
+		lo, hi := c.lo, c.hi
+		if lo > hi {
+			lo, hi = hi, lo
 		}
-		tolerance := c.dfs / 1000
-		if tolerance < 64 {
-			tolerance = 64
+
+		// A check that cannot fail is worse than no check. If the disk
+		// moved by more than a percent while df was running, the interval
+		// is wide enough to swallow the root reserve - which is the
+		// smallest of the mistakes this test exists to catch - so it
+		// says so rather than passing.
+		if hi-lo > c.dfs/100 {
+			t.Skipf("%s moved from %d to %d KiB while df ran, which is too much for this "+
+				"comparison to mean anything. Run it on a quieter machine", c.what, lo, hi)
 		}
-		if diff > tolerance {
-			t.Errorf("%s: this package says %d KiB, df says %d KiB (off by %d)",
-				c.what, c.mine, c.dfs, diff)
+
+		// 64 KiB of slack for the two roundings: this package truncates
+		// bytes to kibibytes and df rounds its own blocks.
+		const slack = 64
+		if c.dfs < lo-slack || c.dfs > hi+slack {
+			t.Errorf("%s: df says %d KiB, and this package read %d..%d KiB around it",
+				c.what, c.dfs, lo, hi)
 		}
 	}
 }

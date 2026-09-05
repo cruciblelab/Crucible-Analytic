@@ -11298,3 +11298,177 @@ Tarayıcıdan düğmeye basıldı, kuyrukta 42 numaralı satır oluştu, gerçek
 `upgrader` binary'si `-once` ile koşup onu aldı: 458 KB tablo, 91 KB
 tahmin, 6,4 GB boş alan, ve `-rw-------` bir dosya `drwx------` bir
 dizinde. Katalog satırı panelde listelendi.
+
+---
+
+## MOD1/MOD2 — Dikiş zaten oradaydı, onu doğru kılan şey yoktu
+
+Müşteri modülerliği kodda istedi: *"testlerde haklısın ama kodda
+özellikle modülerlik olmazsa sadece israf olur ve hata yakalamak
+uzatır."* Doğru bir itiraz, ve önce ölçtüm.
+
+`internal/panel/web` 9.784 satır, 30 dosya; `*Server` üzerinde 142
+metot. `internal/panel` 7.598 satır; `*Store` üzerinde 99 metot. Ama
+belirleyici sayı bu değil:
+
+> **Hiçbir web dosyası Store'un 99 metodunun 11'inden fazlasını
+> kullanmıyor. Ortanca 3. Yedi dosya hiç kullanmıyor.**
+
+Yani dosyalar zaten dardı. Dar *olduklarını söyleyen* bir şey yoktu.
+Alan `*panel.Store` tipinde olduğu için derleyici tam yüzeyi her
+dosyaya veriyordu, ve "yedek sayfası veritabanının hangi kısmına
+dokunuyor" sorusunun mekanik bir cevabı yoktu — dosyayı okuyarak
+cevaplanıyordu.
+
+### Ne yapıldı
+
+`internal/panel/web/stores.go`: alan başına bir arayüz, ve onu veren bir
+erişimci. Beş küçük alan seçildi, çünkü desenin kendini kanıtlaması için
+en ucuz yer orası:
+
+| Dosya | Gördüğü metotlar |
+|---|---|
+| `disk.go` | `DatabaseBytes` |
+| `backup.go` | `BackupStatus`, `RequestBackup`, `BeginOperation` |
+| `rangerefresh.go` | `RangeRefreshStatus`, `RequestRangeRefresh`, `BeginOperation` |
+| `release.go` | `ReleaseStatus`, `RequestRelease`, `BeginOperation` |
+| `upgrade.go` | `UpgradeStatus`, `RequestUpgrade`, `BeginOperation` |
+
+Çalışma zamanında sıfır değişiklik: `*panel.Store` hepsini zaten
+karşılıyor, ve erişimciler bunun derleme zamanı kanıtı (bu yüzden `var
+_` doğrulaması yok — hiçbir şeyin döndürmediği arayüz, hiçbir şeyin
+kontrol etmediği arayüzdür).
+
+### Sunucuda alan değil, parametre
+
+İlk tasarımım `Server`'a alan başına bir "override" alanı koymaktı,
+testler oraya sahte nesne koysun diye. Vazgeçtim: **üretimde hiçbir
+şeyin doldurmadığı alan, kimsenin fark etmeden çürüyen alandır.** Bunun
+yerine store parametre olarak geziyor, ve testler doğrudan alan
+fonksiyonunu çağırıp kendi sahtesini veriyor.
+
+Bu arada dört fonksiyonun **hiç kullanmadığı `http.ResponseWriter`
+parametresi** ortaya çıktı; imza değiştirilirken silindi. Go kullanılmayan
+parametreyi uyarmaz, o yüzden dört yerde sessizce duruyordu.
+
+### GET çizer, POST kuyruğa yazar — ve artık bunu tip söylüyor
+
+Her bölüm GET'te çiziliyor, POST'ta basılıyor. İkisini ayıran kural
+kimsenin göremediği bir kuraldı: **çizmek hiçbir şeyi kuyruğa
+yazmamalı.** Bir bölüm kurucusu yedek isteseydi her sayfa yüklemesi bir
+yedek olurdu — ve sayfa yedek koşarken kendini yeniliyor, yani hiç
+durmazdı.
+
+Şimdi yapısal: `*StatusFor` fonksiyonları `...Reader` arayüzünü alıyor,
+ve o arayüzde kuyruğa yazan hiçbir metot yok. GET yolu yanlışlıkla bile
+yapamaz.
+
+### Testler: veritabanı olmadan koşan gerçek testler
+
+Fazın gerekçesi "hata yakalamak uzatır"dı. Kısaltan şey bu:
+
+| Test | Öncesinde nasıl kurulurdu |
+|---|---|
+| Silinmiş dosya toplamda sayılmaz | Yedek al, dosyayı sil, süpürgeyi koştur |
+| Okunamayan katalog boş katalog değildir | Veritabanını sorgunun ortasında düşür |
+| Okunamayan boyut "sıfır bayt" değildir | `pg_database_size`'ı kırdır |
+| Parola alanı yalnız kapıyı açacaksa sorulur | `schema_version`'ı elle geriye al |
+
+Üçü de artık bir struct alanı. Dördüncüsü bir tablo.
+
+Dördüncüsünün yanına ayrı bir test kondu: `Access{RoleOwner}` gerçekten
+`CapManageSettings` taşıyor mu, ve `RoleViewer` taşımıyor mu. Taşımasaydı
+tablodaki iki satır hiçbir şey sınamıyor olurdu — **varsayımı sınamayan
+bir tablo, yeşil olduğu için doğru sanılan bir tablodur.**
+
+### Değişmez, ve onun kendi kusuru
+
+`internal/invariants/narrowstores_test.go` üç şey tutuyor:
+
+1. Dar arayüz alan bir dosya `s.Store.` ile geniş tipe uzanamaz.
+2. `...Reader` arayüzleri iş kuyruğa yazamaz, ve `*StatusFor` bir Reader
+   almaya devam eder.
+3. Arayüzdeki her metot gerçekten çağrılır.
+
+Üçüncüsünün ilk hâli **mutasyonu geçirdi.** `diskStore`'a `CountUsers`
+ekledim; test yakalamadı, çünkü "bu isim pakette bir yerde çağrılıyor
+mu" diye soruyordu — ve `server.go` `s.Store.CountUsers` çağırıyor. Yani
+test kimsenin sormadığı bir soruyu cevaplıyordu.
+
+Düzeltilmiş hâli **eşleşmeyi** kaydediyor: hangi yerel isim hangi
+arayüzü taşıyor, ve o isim üzerinde hangi metot çağrılıyor.
+`operationStore` hiçbir yerde parametre tipi değil — gömülmek için var —
+o yüzden "onu gömen arayüzler üzerinden" de sayılıyor.
+
+*Bir kontrolün yeşil olması, doğru şeyi kontrol ettiği anlamına gelmez.*
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Silinmiş dosyayı toplama kat | Yakalandı |
+| `Missing` bayrağını hiç kurma | Yakalandı |
+| Okunamayan katalogda formu yine çiz | Yakalandı |
+| Okunamayan boyutu sıfır olarak bildir | Yakalandı |
+| Parola alanını şemadan bağımsız çiz | Yakalandı |
+| Parola alanını yetkiden bağımsız çiz | Yakalandı |
+| Dar dosyadan geniş store'a uzan | Yakalandı |
+| Reader'a `RequestBackup` ekle | Yakalandı |
+| `*StatusFor`'u tam store'a genişlet | Yakalandı |
+| Arayüze kullanılmayan metot ekle (adı başka yerde geçen) | **Geçti → değişmez düzeltildi** |
+| Arayüze kullanılmayan metot ekle (adı hiç geçmeyen) | Yakalandı |
+| `BeginOperation`'a giden tek yolu kes | Yakalandı |
+
+### Yanında düzeltilen bir kırılganlık: `TestTheNumbersAgreeWithDf`
+
+Tam takım koşarken kırmızı verdi: 6.156.452 KiB'lik bir dosya
+sisteminde 6596 KiB sapma, 6156 KiB toleransa karşı. **Kod doğruydu.**
+`go test ./...` koşarken derleme önbelleği ve test binary'leri yüzlerce
+megabayt yazıyor, yani iki okuma arasında boş alan gerçekten değişiyor.
+
+Toleransı genişletmedim. *Keyfi meşgul bir makineye yetecek kadar geniş
+bir tolerans, gerçek bir hataya da yetecek kadar geniştir* — ve CI'ın ne
+kadar meşgul olacağını tahmin etmek zorunda kalırdım.
+
+Bunun yerine `df` **kıskaca alındı**: dosya sistemi iki yanından da
+okunuyor, ve `df`'in cevabı o aralığın içine düşmek zorunda. Sessiz bir
+makinede iki okuma aynı, yani bu tam eşitlik. Meşgul bir makinede aralık
+diskin gerçekten oynadığı kadar geniş — **seçilmiş değil, ölçülmüş bir
+pay.** Aralık toplamın %1'ini aşarsa test atlıyor ve sebebini söylüyor,
+çünkü o noktada kök rezervini yutacak kadar geniş olur: *hiçbir zaman
+başarısız olamayan bir kontrol, kontrol değildir.*
+
+### Refactorün ölçülmüş bedeli: `deadcode` üç fonksiyonu görmez oldu
+
+Değişikliği ittikten önce kapıları yerelde koşturdum, ve **ölü kod kapısı
+kırmızı verdi.** Kendi değişikliğim yüzünden.
+
+`deadcode` hızlı tip analiziyle (RTA) çalışıyor, ve RTA bir tip
+arayüzde saklandığı an o tip hakkında karar vermeyi bırakıyor: bütün
+metotları "dinamik bir çağrı buraya varabilir" hâline geliyor. MOD1 tam
+olarak bunu yapıyor — `*panel.Store` artık `stores.go`'daki dar
+arayüzlere veriliyor.
+
+Ölçüm:
+
+| | Öncesi | Sonrası |
+|---|---|---|
+| Raporda ulaşılmaz fonksiyon | 4 | 1 |
+| Yeni bulgu | — | yok |
+
+Kaybolan üç tanesi: `Authorization.Action`, `Store.RevokeOwnerClaim`,
+`Store.ListUsers`. **Hiçbiri bağlanmadı.** Soru cevaplanabilir olmaktan
+çıktı.
+
+Aracın istediği şey onları listeden silmekti. Silmek "bunlar
+kullanılmaya başlandı" diye kaydetmek olurdu — yanlış — ve yanlarındaki
+yazılı gerekçeleri çöpe atardı. Onun yerine listeye **dördüncü bir
+durum** eklendi: `unseen:`. Gerekçeler duruyor, ve kalan tek yönde hâlâ
+kontrol ediliyorlar — *görünmez olan görünmez kalmalı.* Rapora yeniden
+girerlerse analiz gözünü geri kazanmış demektir, kapı kırmızı verir, ve
+karar devralınmak yerine yeniden verilir.
+
+`deadcodediff` bugüne kadar hiç birim testi olmayan bir `main`
+fonksiyonuydu; kategori eklenirken testleri de yazıldı. Kendi başına
+küçük bir ders: **listeyi okuyan ayrıştırıcı sessizce boş dönerse kapı
+her şeyi geçirir, ve bunu fark edecek başka bir şey yok.**

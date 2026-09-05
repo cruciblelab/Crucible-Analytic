@@ -1,0 +1,251 @@
+package web
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
+	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+)
+
+// What the narrow interfaces in stores.go are for.
+//
+// Every test in this file exercises a section's logic with no database,
+// no HTTP request and no server configuration - a fake with one method
+// and a *Server that has never been near Postgres. Before the seams
+// existed none of these could be written at all: the field was typed
+// *panel.Store, so reaching any of these branches meant arranging a real
+// database into the state that produces it.
+//
+// Two of the three states below cannot be arranged in a real database at
+// all without breaking something on purpose: a size query that fails, and
+// a catalogue row whose file has been deleted underneath it. Those are
+// precisely the branches that decide what a person is told when
+// something has gone wrong, which is when this page is read.
+
+// quietServer is a panel with a logger and nothing else. It is what the
+// area functions are entitled to need.
+func quietServer() *Server {
+	return &Server{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+}
+
+func testLang(t *testing.T) *ui.Language {
+	t.Helper()
+	cats, err := ui.LoadCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cats.Base()
+}
+
+// fakeBackupReader answers the one question the backup section asks.
+type fakeBackupReader struct {
+	status panel.BackupStatus
+	err    error
+}
+
+func (f fakeBackupReader) BackupStatus(context.Context, panel.Access) (panel.BackupStatus, error) {
+	return f.status, f.err
+}
+
+// TestTheBackupTotalLeavesOutFilesThatAreGone.
+//
+// # What goes wrong without it
+//
+// The catalogue keeps a row for a backup whose file has since been
+// deleted - the sweep marks it "missing" rather than removing it, so the
+// history stays honest about what was taken. The section still lists it,
+// and must not add its size to the total.
+//
+// The total is drawn beside the disk figures. A total that counted files
+// the disk no longer holds would be a number about storage that storage
+// disagrees with, and the person reading it is deciding whether there is
+// room for another backup.
+//
+// # Why this could not be tested before
+//
+// Reaching the branch means a panel_backups row in state "missing",
+// which the runner only writes after finding the file gone. Arranging
+// that against a real database meant taking a backup, deleting the file
+// behind it and running the sweep - three moving parts to test one
+// addition.
+func TestTheBackupTotalLeavesOutFilesThatAreGone(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+
+	db := fakeBackupReader{status: panel.BackupStatus{
+		Allowed: true,
+		Backups: []backup.Backup{
+			{TakenAt: time.Now(), Bytes: 1000, State: "ok"},
+			{TakenAt: time.Now(), Bytes: 9_000_000, State: "missing"},
+			{TakenAt: time.Now(), Bytes: 500, State: "ok"},
+		},
+	}}
+
+	section, msg := s.backupStatusFor(context.Background(), db, lang, panel.Access{})
+	if msg != "" {
+		t.Fatalf("the section failed to build: %s", msg)
+	}
+	if len(section.Backups) != 3 {
+		t.Fatalf("the list dropped a row: %d rows, want 3", len(section.Backups))
+	}
+	if !section.Backups[1].Missing {
+		t.Error("the missing file is not marked missing, so nothing tells the reader why")
+	}
+	if section.TotalBytes != 1500 {
+		t.Errorf("total %d bytes, want 1500: a file that is gone is being counted",
+			section.TotalBytes)
+	}
+}
+
+// TestAnUnreadableBackupListDrawsNothingRatherThanAnEmptyOne.
+//
+// An empty catalogue and an unreadable one are the same picture unless
+// the section says which. "There are no backups" said to somebody who has
+// backups is the one sentence this page must never print by accident.
+func TestAnUnreadableBackupListDrawsNothingRatherThanAnEmptyOne(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+
+	db := fakeBackupReader{err: errors.New("connection refused")}
+	section, msg := s.backupStatusFor(context.Background(), db, lang, panel.Access{})
+
+	if msg == "" {
+		t.Fatal("a failed read produced no sentence for the reader")
+	}
+	if msg == "saglik.yedek.okunamadi" {
+		t.Error("the catalog has no entry for this, so the reader gets a key")
+	}
+	if len(section.Sets) != 0 || section.Allowed {
+		t.Error("a failed read still drew a form; the section must be absent, not empty")
+	}
+}
+
+// fakeDiskStore answers the one question the storage section asks.
+type fakeDiskStore struct {
+	bytes int64
+	err   error
+}
+
+func (f fakeDiskStore) DatabaseBytes(context.Context) (int64, error) { return f.bytes, f.err }
+
+// TestADatabaseSizeThatCannotBeReadIsNotADatabaseOfZeroBytes.
+//
+// # What goes wrong without it
+//
+// healthDisk carries DatabaseKnown beside DatabaseBytes precisely so the
+// template can tell "could not read it" from "it is empty". Drop the
+// flag and a failed query renders as a database occupying no space at
+// all - a number somebody would act on, on the page they opened because
+// they suspected something was wrong.
+//
+// # Why this could not be tested before
+//
+// The branch needs pg_database_size to fail. Against a real database
+// that means stopping Postgres mid-test or revoking a grant; here it is
+// a struct field.
+func TestADatabaseSizeThatCannotBeReadIsNotADatabaseOfZeroBytes(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+
+	failed := s.healthDiskSection(context.Background(),
+		fakeDiskStore{err: errors.New("server closed the connection")}, lang)
+	if failed.DatabaseKnown {
+		t.Error("a failed size query reports a known size")
+	}
+	if failed.DatabaseBytes != 0 {
+		t.Errorf("a failed size query produced %d bytes", failed.DatabaseBytes)
+	}
+
+	// The other side of the same distinction: a database that really is
+	// small must be reported as known, or the flag would just mean "the
+	// number is small".
+	read := s.healthDiskSection(context.Background(), fakeDiskStore{bytes: 8192}, lang)
+	if !read.DatabaseKnown || read.DatabaseBytes != 8192 {
+		t.Errorf("a successful read came back as known=%v bytes=%d",
+			read.DatabaseKnown, read.DatabaseBytes)
+	}
+}
+
+// fakeUpgradeReader answers the one question the schema section asks.
+type fakeUpgradeReader struct {
+	status panel.UpgradeStatus
+}
+
+func (f fakeUpgradeReader) UpgradeStatus(context.Context, panel.Access) (panel.UpgradeStatus, error) {
+	return f.status, nil
+}
+
+// TestTheSchemaSectionAsksForThePasswordOnlyWhenItWouldOpenTheButton.
+//
+// # What goes wrong without it
+//
+// AskingForPassword draws a password field. Draw it when the lock is off
+// and somebody types the developer password into a form that does not
+// need it; draw it for a principal with no entitlement and the form
+// promises that a password would let them through, which it would not -
+// panel.RequestUpgrade refuses on the capability before it ever looks at
+// the authorization.
+//
+// A form that asks for a password it will not honour is worse than a
+// refusal: it teaches somebody to type the developer password into
+// places that do not use it.
+//
+// # Why this could not be tested before
+//
+// The three inputs are a schema mismatch, a setting and a role. Reaching
+// the interesting corner - needed, locked, entitled - meant a database
+// whose schema_version had been moved backwards on purpose.
+func TestTheSchemaSectionAsksForThePasswordOnlyWhenItWouldOpenTheButton(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+	owner := panel.Access{Role: panel.RoleOwner, Member: true}
+	viewer := panel.Access{Role: panel.RoleViewer, Member: true}
+
+	cases := []struct {
+		name   string
+		status panel.UpgradeStatus
+		access panel.Access
+		want   bool
+	}{
+		{"behind, locked, entitled", panel.UpgradeStatus{Needed: true, Locked: true}, owner, true},
+		{"behind, unlocked, entitled", panel.UpgradeStatus{Needed: true}, owner, false},
+		{"behind, locked, not entitled", panel.UpgradeStatus{Needed: true, Locked: true}, viewer, false},
+		{"current, locked, entitled", panel.UpgradeStatus{Locked: true}, owner, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			section, msg := s.upgradeStatusFor(context.Background(),
+				fakeUpgradeReader{status: c.status}, lang, c.access)
+			if msg != "" {
+				t.Fatalf("the section failed to build: %s", msg)
+			}
+			if section.AskingForPassword != c.want {
+				t.Errorf("asking for the password = %v, want %v",
+					section.AskingForPassword, c.want)
+			}
+		})
+	}
+}
+
+// TestOwnerAndViewerDisagreeAboutTheUpgradeButton guards the assumption
+// the table above rests on.
+//
+// Both rows for "not entitled" would pass if a viewer happened to have
+// the capability, and the test would then be checking nothing. This
+// states the premise separately so a change to the role table breaks
+// here, with a sentence, rather than quietly turning four cases into
+// two.
+func TestOwnerAndViewerDisagreeAboutTheUpgradeButton(t *testing.T) {
+	if !(panel.Access{Role: panel.RoleOwner, Member: true}).Can(panel.CapManageSettings) {
+		t.Error("an owner cannot manage settings, so the entitled cases above test nothing")
+	}
+	if (panel.Access{Role: panel.RoleViewer, Member: true}).Can(panel.CapManageSettings) {
+		t.Error("a viewer can manage settings, so the unentitled cases above test nothing")
+	}
+}

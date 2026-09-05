@@ -322,20 +322,20 @@
       "snippet": "f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)"
     },
     {
-      "fingerprint": "d6c6a65214f34db19b4fcd2d",
-      "rule": "G304",
-      "file": "internal/sast/cmd/deadcodediff/main.go",
-      "severity": "MEDIUM",
-      "reason": "Development tool; the allowlist it reads is a tracked file in the repository.",
-      "snippet": "body, err := os.ReadFile(path)"
-    },
-    {
       "fingerprint": "4ba3dae8a54c1bc9e1f2bf2e",
       "rule": "G304",
       "file": "internal/sast/cmd/deadcodediff/main.go",
       "severity": "MEDIUM",
       "reason": "Development tool, path from a command-line flag chosen by whoever runs it.",
       "snippet": "f, err = os.Open(path)"
+    },
+    {
+      "fingerprint": "6a8f23082195b09de5710e9a",
+      "rule": "G304",
+      "file": "internal/sast/cmd/deadcodediff/main.go",
+      "severity": "MEDIUM",
+      "reason": "Development tool; the allowlist it reads is a tracked file in the repository, named by a flag whose default points at it. The fingerprint moved when readAllowlist grew its second return value in MOD1; the line and the reason are the same ones.",
+      "snippet": "body, err := os.ReadFile(path)"
     },
     {
       "fingerprint": "15ed33029fa76d5146f7fccb",

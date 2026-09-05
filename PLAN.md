@@ -4767,6 +4767,43 @@ yedek gönderilmiyor.
 döneceği (F1f), yedek alınamazsa şema yükseltmesinin durup durmayacağı
 (F1d), ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
 
+---
+
+### MOD grubu — Kodda modülerlik *(planda yoktu, müşteri istedi)*
+
+*(Müşterinin sözü: "kodda özellikle modülerlik olmazsa sadece israf olur
+ve hata yakalamak uzatır — daha da şişirmeden iyice modülerleşelim.")*
+
+Testler ve paketler zaten ayrık. Ayrık olmayan şey **paketlerin içindeki
+tip yüzeyiydi**, ve bunu tahminle değil ölçerek gördük:
+
+| Paket | Satır | Dosya | Metot |
+|---|---|---|---|
+| `internal/panel/web` | 9.784 | 30 | `*Server` üzerinde 142 |
+| `internal/panel` | 7.598 | 28 | `*Store` üzerinde 99 |
+
+Belirleyici ölçüm: **hiçbir web dosyası Store'un 99 metodunun 11'inden
+fazlasını kullanmıyor; ortanca 3, ve yedi dosya hiç kullanmıyor.**
+Dikişler zaten oradaydı; eksik olan şey onları *doğru kılan* bir şeydi.
+Alan `*panel.Store` tipinde olduğu için derleyici hiçbir şey
+zorlamıyordu.
+
+| Faz | Ne verir | Durum |
+|---|---|---|
+| MOD1 | Dar arayüzler: her alan yalnız kullandığı metotları görsün | ✅ yapıldı |
+| MOD2 | Değişmez: dar arayüz alan bir dosya geniş tipe uzanamasın | ✅ yapıldı |
+| MOD3 | Kalan büyük alanlar (`setup.go` 11, `account.go` 11, `auth.go` 10) | değerlendirilecek |
+
+**MOD3 bilerek koşulludur.** Desen beş küçük alanda kendini kanıtladı; on
+bir metotluk bir alanda kanıtlamadı. Şişirmemek, deseni her yere
+uygulamak değil, kazandığı yerde uygulamaktır.
+
+**Bitmiş sayılma şartı MOD1 ve MOD2 için:** derleyicinin zorladığı bir
+dikiş (arayüz yalnız o alanın metotlarını taşır), dikişin etrafından
+dolanmayı yakalayan bir değişmez, ve **veritabanı olmadan koşan en az
+bir gerçek test** — çünkü fazın gerekçesi "hata yakalamak uzatır"dı, ve
+kısaltan şey tam olarak budur.
+
 #### F2 — Kurulum betiği ✅ **yapıldı**
 
 Postgres + TimescaleDB, **dört veritabanı rolü ve GRANT'ları**, systemd

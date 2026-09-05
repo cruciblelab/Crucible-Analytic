@@ -113,13 +113,16 @@ type healthDisk struct {
 }
 
 // healthDiskSection gathers it.
-func (s *Server) healthDiskSection(ctx context.Context, lang *ui.Language) healthDisk {
+//
+// Takes the store rather than reading it off the server, so the section
+// can be built with no database at all. See stores.go.
+func (s *Server) healthDiskSection(ctx context.Context, db diskStore, lang *ui.Language) healthDisk {
 	out := healthDisk{
 		Container:     diskspace.InContainer(),
 		DatabaseLocal: s.DatabaseIsLocal,
 	}
 
-	if bytes, err := s.Store.DatabaseBytes(ctx); err != nil {
+	if bytes, err := db.DatabaseBytes(ctx); err != nil {
 		s.logger().Error("panel: reading the database size", "err", err)
 	} else {
 		out.DatabaseBytes, out.DatabaseKnown = bytes, true

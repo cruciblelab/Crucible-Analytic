@@ -48,6 +48,18 @@ orada duruyor olabilir.
 almaz. Düğmeye basılırsa istek satırına "yedek dizini yapılandırılmamış"
 yazılıp bitiriliyor — sessizce beklemiyor.
 
+### İç yapı: her bölüm yalnız kullandığı veritabanı metotlarını görüyor
+
+**Davranış değişmedi, yapmanız gereken bir şey yok.** Panelin sağlık
+sayfasındaki beş bölüm — disk, yedek, sürüm, şema, IP kaynakları — artık
+veritabanının tamamına değil, yalnız kendi kullandığı üç-beş metoda
+erişiyor. Derleyici gerisini reddediyor.
+
+Görünür tek etkisi ileriye dönük: bu bölümlerin mantığı artık
+veritabanı olmadan sınanabiliyor, yani "okunamayan bir boyut sıfır bayt
+olarak gösterilmesin" gibi kurallar gerçek bir arıza kurmadan test
+edilebiliyor.
+
 ## v0.21.0 — 2026-09-04
 
 Panelden **güncelleme** yolunun tamamı: imzalı sürüm paketi, istek

@@ -32,8 +32,31 @@
 #      of the surface that will use it, name the phase.
 #
 # What is not an answer is adding the name with no reason.
+#
+# # The fourth state: "unseen:"
+#
+# A line beginning `unseen:` means the function is still unreached and
+# the scanner can no longer tell. deadcode works by rapid type analysis,
+# and RTA stops judging a type the moment that type is stored in an
+# interface - every method it has becomes something a dynamic call might
+# reach.
+#
+# MOD1 did exactly that on purpose: internal/panel/web now hands
+# *panel.Store to the narrow interfaces in stores.go, so that each area
+# of the panel sees only the three or four methods it uses. The price,
+# measured rather than guessed, was this file going from four entries to
+# one. The three that went quiet were not wired up by anybody. The
+# question simply stopped being answerable.
+#
+# Deleting them would have recorded "these got used", which is false, and
+# would have thrown away the reasons written beside them. So they keep
+# their reasons, and they are still checked - in the one direction that
+# is left. An unseen entry must stay unseen: if it turns up in the report
+# again the analysis has got its sight back, the gate goes red, and the
+# decision gets made afresh instead of inherited.
 
-internal/devgate.Authorization.Action                # Getter for the action an authorization was minted for, meant for error text. The messages that would use it are written by the panel, which has the key it asked about already. Kept as part of the type's read surface; delete it if D-group settles without a caller.
 internal/logging.Deadline                            # Duration attribute helper. Its comment used to claim callers it did not have; that is corrected. Available, not established.
-internal/panel.Store.RevokeOwnerClaim                # Withdraws an unaccepted owner invitation, by expiry rather than deletion so the audit trail keeps the fact. The page that offers it is not built; C-group.
-internal/panel.Store.ListUsers                       # Every account, oldest first. The superadmin user-list page is not built; D-group.
+
+unseen: internal/devgate.Authorization.Action        # Getter for the action an authorization was minted for, meant for error text. The messages that would use it are written by the panel, which has the key it asked about already. Kept as part of the type's read surface; delete it if D-group settles without a caller. Unseen since MOD1.
+unseen: internal/panel.Store.RevokeOwnerClaim        # Withdraws an unaccepted owner invitation, by expiry rather than deletion so the audit trail keeps the fact. The page that offers it is not built; C-group. Unseen since MOD1.
+unseen: internal/panel.Store.ListUsers               # Every account, oldest first. The superadmin user-list page is not built; D-group. Unseen since MOD1.

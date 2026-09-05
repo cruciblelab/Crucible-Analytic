@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -56,10 +57,14 @@ type rangeRefreshSection struct {
 }
 
 // rangeRefreshStatusFor builds the section.
-func (s *Server) rangeRefreshStatusFor(r *http.Request, lang *ui.Language,
-	access panel.Access) (rangeRefreshSection, string) {
+//
+// Takes the store rather than reading it off the server, and a context
+// rather than a request, so the section can be built with neither a
+// database nor an HTTP request. See stores.go.
+func (s *Server) rangeRefreshStatusFor(ctx context.Context, db rangeRefreshReader,
+	lang *ui.Language, access panel.Access) (rangeRefreshSection, string) {
 
-	status, err := s.Store.RangeRefreshStatus(r.Context(), access)
+	status, err := db.RangeRefreshStatus(ctx, access)
 	if err != nil {
 		// The section is simply not drawn, and the sentence comes from
 		// the catalog rather than from err. Every part of this page fails
@@ -94,12 +99,12 @@ func (s *Server) rangeRefreshStatusFor(r *http.Request, lang *ui.Language,
 // Returns the section to draw. The handler renders once on every path,
 // for the reason settingsHandler records: a handler with two render
 // sites grows a third.
-func (s *Server) rangeRefreshPost(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+func (s *Server) rangeRefreshPost(r *http.Request, db rangeRefreshStore, lang *ui.Language,
 	access panel.Access) (rangeRefreshSection, string) {
 
 	// The operation record opens before the work, so its id can reach
 	// the log lines the work produces. See internal/panel/operations.go.
-	op, opErr := s.Store.BeginOperation(r.Context(), access,
+	op, opErr := db.BeginOperation(r.Context(), access,
 		panel.ActionRangeRefreshRequested, "ip ranges", "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the refresh", "err", opErr)
@@ -110,9 +115,9 @@ func (s *Server) rangeRefreshPost(w http.ResponseWriter, r *http.Request, lang *
 	// than missing - internal/panel's RequestRangeRefresh says why at
 	// length. In one line: this makes work for nobody, so it is
 	// entitlement rather than password.
-	req, err := s.Store.RequestRangeRefresh(r.Context(), access, op.ID())
+	req, err := db.RequestRangeRefresh(r.Context(), access, op.ID())
 
-	section, sectionErr := s.rangeRefreshStatusFor(r, lang, access)
+	section, sectionErr := s.rangeRefreshStatusFor(r.Context(), db, lang, access)
 	if sectionErr != "" {
 		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
 		return section, sectionErr

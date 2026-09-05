@@ -313,16 +313,16 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		var posted pressed
 		switch r.FormValue("eylem") {
 		case eylemKaynakYenile:
-			section, sectionErr := s.rangeRefreshPost(w, r, lang, access)
+			section, sectionErr := s.rangeRefreshPost(r, s.ranges(), lang, access)
 			posted.refresh, posted.refreshErr = &section, sectionErr
 		case eylemYukselt:
-			section, sectionErr := s.upgradePost(w, r, lang, access)
+			section, sectionErr := s.upgradePost(r, s.upgrades(), lang, access)
 			posted.upgrade, posted.upgradeErr = &section, sectionErr
 		case eylemSurum:
-			section, sectionErr := s.releasePost(w, r, lang, access)
+			section, sectionErr := s.releasePost(r, s.releases(), lang, access)
 			posted.release, posted.releaseErr = &section, sectionErr
 		case eylemYedek:
-			section, sectionErr := s.backupPost(w, r, lang, access)
+			section, sectionErr := s.backupPost(r, s.backups(), lang, access)
 			posted.backup, posted.backupErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
@@ -414,7 +414,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
-	data.Disk = s.healthDiskSection(ctx, lang)
+	data.Disk = s.healthDiskSection(ctx, s.database(), lang)
 	data.API = s.healthAPI(ctx)
 
 	// Read fresh unless the press just built it, because the answer a
@@ -429,22 +429,22 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	if posted.upgrade != nil {
 		data.Upgrade, data.UpgradeError = *posted.upgrade, posted.upgradeErr
 	} else {
-		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(r, lang, access)
+		data.Upgrade, data.UpgradeError = s.upgradeStatusFor(ctx, s.upgrades(), lang, access)
 	}
 	if posted.release != nil {
 		data.Release, data.ReleaseError = *posted.release, posted.releaseErr
 	} else {
-		data.Release, data.ReleaseError = s.releaseStatusFor(r, lang, access)
+		data.Release, data.ReleaseError = s.releaseStatusFor(ctx, s.releases(), lang, access)
 	}
 	if posted.refresh != nil {
 		data.RangeRefresh, data.RangeRefreshError = *posted.refresh, posted.refreshErr
 	} else {
-		data.RangeRefresh, data.RangeRefreshError = s.rangeRefreshStatusFor(r, lang, access)
+		data.RangeRefresh, data.RangeRefreshError = s.rangeRefreshStatusFor(ctx, s.ranges(), lang, access)
 	}
 	if posted.backup != nil {
 		data.Backup, data.BackupError = *posted.backup, posted.backupErr
 	} else {
-		data.Backup, data.BackupError = s.backupStatusFor(r, lang, access)
+		data.Backup, data.BackupError = s.backupStatusFor(ctx, s.backups(), lang, access)
 	}
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))

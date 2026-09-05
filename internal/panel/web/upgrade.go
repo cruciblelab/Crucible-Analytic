@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -56,8 +57,14 @@ type upgradeSection struct {
 }
 
 // upgradeStatusFor builds the section.
-func (s *Server) upgradeStatusFor(r *http.Request, lang *ui.Language, access panel.Access) (upgradeSection, string) {
-	status, err := s.Store.UpgradeStatus(r.Context(), access)
+//
+// Takes the store rather than reading it off the server, and a context
+// rather than a request, so the section can be built with neither a
+// database nor an HTTP request. See stores.go.
+func (s *Server) upgradeStatusFor(ctx context.Context, db upgradeReader, lang *ui.Language,
+	access panel.Access) (upgradeSection, string) {
+
+	status, err := db.UpgradeStatus(ctx, access)
 	if err != nil {
 		// The section is simply not drawn. Every part of this page fails
 		// independently - that is the page's entire reason for existing
@@ -89,12 +96,12 @@ func (s *Server) upgradeStatusFor(r *http.Request, lang *ui.Language, access pan
 // Returns the section to draw. The handler renders once on every path,
 // for the reason settingsHandler records: a handler with two render
 // sites grows a third.
-func (s *Server) upgradePost(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+func (s *Server) upgradePost(r *http.Request, db upgradeStore, lang *ui.Language,
 	access panel.Access) (upgradeSection, string) {
 
 	// The operation record opens before the work, so its id can reach
 	// the log lines the work produces. See internal/panel/operations.go.
-	op, opErr := s.Store.BeginOperation(r.Context(), access,
+	op, opErr := db.BeginOperation(r.Context(), access,
 		panel.ActionUpgradeRequested, "schema", "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the upgrade", "err", opErr)
@@ -114,9 +121,9 @@ func (s *Server) upgradePost(w http.ResponseWriter, r *http.Request, lang *ui.La
 		}
 	}
 
-	req, err := s.Store.RequestUpgrade(r.Context(), access, auth, op.ID())
+	req, err := db.RequestUpgrade(r.Context(), access, auth, op.ID())
 
-	section, sectionErr := s.upgradeStatusFor(r, lang, access)
+	section, sectionErr := s.upgradeStatusFor(r.Context(), db, lang, access)
 	if sectionErr != "" {
 		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
 		return section, sectionErr

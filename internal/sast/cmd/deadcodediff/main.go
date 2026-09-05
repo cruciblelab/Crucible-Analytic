@@ -52,7 +52,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "deadcodediff: %v\n", err)
 		os.Exit(2)
 	}
-	allowed, err := readAllowlist(*allowlist)
+	allowed, unseen, err := readAllowlist(*allowlist)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "deadcodediff: %v\n", err)
 		os.Exit(2)
@@ -63,9 +63,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	var unexplained, stale []string
+	var unexplained, stale, resurfaced []string
 	for name := range found {
-		if _, ok := allowed[name]; !ok {
+		_, isAllowed := allowed[name]
+		_, isUnseen := unseen[name]
+		switch {
+		case isUnseen:
+			resurfaced = append(resurfaced, name)
+		case !isAllowed:
 			unexplained = append(unexplained, name)
 		}
 	}
@@ -76,9 +81,11 @@ func main() {
 	}
 	sort.Strings(unexplained)
 	sort.Strings(stale)
+	sort.Strings(resurfaced)
 
-	if len(unexplained) == 0 && len(stale) == 0 {
-		fmt.Printf("no new unreachable code (%d in the report, all explained)\n", len(found))
+	if len(unexplained) == 0 && len(stale) == 0 && len(resurfaced) == 0 {
+		fmt.Printf("no new unreachable code (%d in the report, all explained; "+
+			"%d more the analysis can no longer see)\n", len(found), len(unseen))
 		return
 	}
 
@@ -115,6 +122,22 @@ Remove them from %s. Either somebody wired it up -
 in which case the exemption has done its job and should go - or the
 function was deleted and its line outlived it. A stale entry is how the
 next function of that name inherits a decision nobody made about it.
+
+`, *allowlist)
+	}
+
+	if len(resurfaced) > 0 {
+		fmt.Fprintf(os.Stderr, "%d entr(y/ies) marked unseen are in the report again:\n\n",
+			len(resurfaced))
+		for _, name := range resurfaced {
+			fmt.Fprintf(os.Stderr, "  %s\n", name)
+		}
+		fmt.Fprintf(os.Stderr, `
+These were marked "unseen" in %s because the
+analysis had stopped being able to tell whether anything reached them.
+It can again - so the note is out of date and the answer has to be made
+afresh: wire it, delete it, or move it to an ordinary entry with the
+reason.
 
 `, *allowlist)
 	}
@@ -163,31 +186,61 @@ func readReport(path string) (map[string]bool, error) {
 	return out, scanner.Err()
 }
 
+// unseenPrefix marks an entry the analysis can no longer judge.
+//
+// # Why the category exists
+//
+// deadcode works by rapid type analysis, and RTA gives up on a type the
+// moment that type is stored in an interface: every method it has
+// becomes something a dynamic call might reach. internal/panel/web now
+// hands *panel.Store to the narrow interfaces in stores.go, which is the
+// point of those interfaces - and the price is that deadcode can no
+// longer tell whether anything calls a Store method.
+//
+// Three entries in this list went quiet on the day that landed. Not
+// because anybody wired them up: because the question stopped being
+// answerable. Deleting them would have recorded "these got used", which
+// is false, and would have thrown away the reasons written beside them.
+//
+// So they keep their reasons and say what happened. The category is
+// still checked, in the one direction that is left: an unseen entry must
+// stay unseen. If it appears in the report again the analysis has got
+// its sight back, and the decision has to be made afresh rather than
+// inherited.
+const unseenPrefix = "unseen:"
+
 // readAllowlist reads the committed list, ignoring comments and blanks.
+//
+// Returns the ordinary entries and the unseen ones separately, because
+// they are checked in opposite directions.
 //
 // An entry with no reason after it is refused rather than accepted: the
 // reason is the only thing that stops this file from becoming a place to
 // make findings go away.
-func readAllowlist(path string) (map[string]string, error) {
+func readAllowlist(path string) (allowed, unseen map[string]string, err error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	out := map[string]string{}
+	allowed, unseen = map[string]string{}, map[string]string{}
 	for n, line := range strings.Split(string(body), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		into := allowed
+		if rest, ok := strings.CutPrefix(line, unseenPrefix); ok {
+			into, line = unseen, strings.TrimSpace(rest)
+		}
 		name, reason, found := strings.Cut(line, "#")
 		name = strings.TrimSpace(name)
 		reason = strings.TrimSpace(reason)
 		if !found || reason == "" {
-			return nil, fmt.Errorf("%s:%d: %q has no reason after it; "+
+			return nil, nil, fmt.Errorf("%s:%d: %q has no reason after it; "+
 				"an entry without one is how this file stops being read", path, n+1, name)
 		}
-		out[name] = reason
+		into[name] = reason
 	}
-	return out, nil
+	return allowed, unseen, nil
 }

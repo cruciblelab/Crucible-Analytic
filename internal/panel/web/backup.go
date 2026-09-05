@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -64,10 +65,14 @@ type backupSection struct {
 }
 
 // backupStatusFor gathers the section.
-func (s *Server) backupStatusFor(r *http.Request, lang *ui.Language,
+//
+// Takes the store rather than reading it off the server, and a context
+// rather than a request, so the section can be built with neither a
+// database nor an HTTP request. See stores.go.
+func (s *Server) backupStatusFor(ctx context.Context, db backupReader, lang *ui.Language,
 	access panel.Access) (backupSection, string) {
 
-	status, err := s.Store.BackupStatus(r.Context(), access)
+	status, err := db.BackupStatus(ctx, access)
 	if err != nil {
 		s.logger().Error("panel: reading the backup status", "err", err)
 		return backupSection{}, lang.T("saglik.yedek.okunamadi")
@@ -113,7 +118,7 @@ func (s *Server) backupStatusFor(r *http.Request, lang *ui.Language,
 }
 
 // backupPost queues one.
-func (s *Server) backupPost(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+func (s *Server) backupPost(r *http.Request, db backupStore, lang *ui.Language,
 	access panel.Access) (backupSection, string) {
 
 	// Only the sets that were ticked, filtered against what this build
@@ -130,16 +135,16 @@ func (s *Server) backupPost(w http.ResponseWriter, r *http.Request, lang *ui.Lan
 		}
 	}
 
-	op, opErr := s.Store.BeginOperation(r.Context(), access,
+	op, opErr := db.BeginOperation(r.Context(), access,
 		panel.ActionBackupRequested, "backup", "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the backup", "err", opErr)
 	}
 	log := s.logger().With(logsink.OperationKey, op.ID())
 
-	req, err := s.Store.RequestBackup(r.Context(), access, op.ID(), chosen)
+	req, err := db.RequestBackup(r.Context(), access, op.ID(), chosen)
 
-	section, sectionErr := s.backupStatusFor(r, lang, access)
+	section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
 	if sectionErr != "" {
 		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
 		return section, sectionErr
