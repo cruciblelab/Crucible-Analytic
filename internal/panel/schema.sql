@@ -109,7 +109,12 @@ CREATE TABLE IF NOT EXISTS panel_audit_log (
     --               is exactly why it needs its own kind rather than
     --               being flattened into a user row
     -- 'system'    - the panel itself (startup, cleanup, first-run setup)
-    actor_kind  TEXT        NOT NULL CHECK (actor_kind IN ('user', 'developer', 'system')),
+    -- 'anonymous' - somebody who is not signed in: a failed sign-in, a
+    --               refusal by the rate limiter. actor_id is NULL and
+    --               actor_label is the address they typed rather than
+    --               one anybody has proved
+    actor_kind  TEXT        NOT NULL
+        CHECK (actor_kind IN ('user', 'developer', 'system', 'anonymous')),
     actor_id    BIGINT      REFERENCES panel_users(id) ON DELETE SET NULL,
     -- A human label captured at the time of the action. Kept alongside
     -- actor_id rather than joined at read time, so the log still says
@@ -125,6 +130,27 @@ CREATE TABLE IF NOT EXISTS panel_audit_log (
     ip          INET,
     user_agent  TEXT        NOT NULL DEFAULT ''
 );
+
+-- The fourth kind, for databases created before it existed.
+--
+-- Dropped and re-added rather than altered: PostgreSQL has no ADD
+-- CONSTRAINT IF NOT EXISTS, and this pair is idempotent - on a fresh
+-- database it replaces the constraint the CREATE above just made with an
+-- identical one, and on an existing database it widens the old three.
+--
+-- Widening only. No row can be invalidated by it, so it needs no
+-- validation pass and cannot fail on a table of any size.
+--
+-- # What this was fixing
+--
+-- Every failed sign-in and every rate-limit refusal wrote an entry with
+-- no actor_kind at all, the three-value constraint refused the row, and
+-- the caller discarded the error. The audit log had 1075 successful
+-- sign-ins on the development database and not one failure. See
+-- panel.PrincipalAnonymous.
+ALTER TABLE panel_audit_log DROP CONSTRAINT IF EXISTS panel_audit_log_actor_kind_check;
+ALTER TABLE panel_audit_log ADD CONSTRAINT panel_audit_log_actor_kind_check
+    CHECK (actor_kind IN ('user', 'developer', 'system', 'anonymous'));
 
 CREATE INDEX IF NOT EXISTS idx_panel_audit_time ON panel_audit_log (time DESC);
 CREATE INDEX IF NOT EXISTS idx_panel_audit_site_time ON panel_audit_log (site_id, time DESC);

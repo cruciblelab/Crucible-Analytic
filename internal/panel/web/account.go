@@ -182,7 +182,7 @@ func (s *Server) regenerateRecoveryCodes(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	id := user.ID
-	_ = s.Store.Record(ctx, panel.AuditEntry{
+	s.audit(ctx, panel.AuditEntry{
 		Action: panel.ActionRecoveryCodesIssued, ActorKind: panel.PrincipalUser,
 		ActorID: &id, ActorLabel: user.Email,
 		Detail: map[string]any{"for": user.Email, "count": len(codes), "self": true},
@@ -212,7 +212,7 @@ func (s *Server) savePassword(ctx context.Context, lang *ui.Language, user panel
 	// The current password, first and always. Everything else on this
 	// page is a preference; this one is the account.
 	if ok, _ := panel.VerifyPassword(user.PasswordHash, current); !ok {
-		_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{
+		s.auditFor(ctx, p, panel.AuditEntry{
 			Action: panel.ActionLoginFailed,
 			Detail: map[string]any{"stage": "password_change"},
 		})
@@ -233,7 +233,7 @@ func (s *Server) savePassword(ctx context.Context, lang *ui.Language, user panel
 		s.logger().Error("panel: setting password", "err", err)
 		return accountPage{Message: lang.T("hesap.hata.kaydedilemedi"), Failed: true}
 	}
-	_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{Action: panel.ActionPasswordChanged})
+	s.auditFor(ctx, p, panel.AuditEntry{Action: panel.ActionPasswordChanged})
 
 	// Deliberately says what this does *not* do. Other sessions on other
 	// machines keep working, because scs stores sessions without a user
@@ -260,7 +260,7 @@ func (s *Server) saveDeveloperMode(ctx context.Context, lang *ui.Language, user 
 	if on {
 		action = panel.ActionDeveloperModeOn
 	}
-	_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{Action: action})
+	s.auditFor(ctx, p, panel.AuditEntry{Action: action})
 	if on {
 		return accountPage{Message: lang.T("hesap.gelistirici.acildi")}
 	}
@@ -333,7 +333,7 @@ func (s *Server) confirmTOTP(ctx context.Context, lang *ui.Language, user panel.
 		return accountPage{Message: lang.T("hesap.hata.kaydedilemedi"), Failed: true}
 	}
 	s.Sessions.ClearPendingTOTP(ctx)
-	_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{Action: panel.ActionTOTPEnabled})
+	s.auditFor(ctx, p, panel.AuditEntry{Action: panel.ActionTOTPEnabled})
 	return accountPage{Message: lang.T("hesap.2fa.acildi")}
 }
 
@@ -347,7 +347,7 @@ func (s *Server) disableTOTP(ctx context.Context, lang *ui.Language, user panel.
 	// stolen session wants to make first, and it is the only account
 	// change that lowers a defence. It costs the password.
 	if ok, _ := panel.VerifyPassword(user.PasswordHash, current); !ok {
-		_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{
+		s.auditFor(ctx, p, panel.AuditEntry{
 			Action: panel.ActionLoginFailed,
 			Detail: map[string]any{"stage": "totp_disable"},
 		})
@@ -357,7 +357,7 @@ func (s *Server) disableTOTP(ctx context.Context, lang *ui.Language, user panel.
 		s.logger().Error("panel: clearing totp secret", "err", err)
 		return accountPage{Message: lang.T("hesap.hata.kaydedilemedi"), Failed: true}
 	}
-	_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{Action: panel.ActionTOTPDisabled})
+	s.auditFor(ctx, p, panel.AuditEntry{Action: panel.ActionTOTPDisabled})
 	return accountPage{Message: lang.T("hesap.2fa.kapandi")}
 }
 

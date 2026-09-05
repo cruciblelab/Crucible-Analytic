@@ -72,6 +72,18 @@ type operationStore interface {
 	BeginOperation(ctx context.Context, a panel.Access, action, target, site string) (*panel.Operation, error)
 }
 
+// auditStore is the audit log, and nothing else.
+//
+// Every part of the panel writes here, so this one is not an area's
+// surface but a single concern's. It exists for the reason audit.go
+// gives: the helper's whole job is that a failed write is logged rather
+// than discarded, and that cannot be tested through a real database
+// without arranging for the database to refuse a write.
+type auditStore interface {
+	Record(ctx context.Context, e panel.AuditEntry) error
+	RecordFor(ctx context.Context, p panel.Principal, e panel.AuditEntry) error
+}
+
 // backupReader is what drawing the backup section may ask for.
 type backupReader interface {
 	BackupStatus(ctx context.Context, a panel.Access) (panel.BackupStatus, error)
@@ -131,6 +143,9 @@ type upgradeStore interface {
 	RequestUpgrade(ctx context.Context, a panel.Access, auth devgate.Authorization,
 		operationID string) (*upgrade.Request, error)
 }
+
+// auditLog narrows the store to the audit log.
+func (s *Server) auditLog() auditStore { return s.Store }
 
 // backups narrows the store to the backup section's surface.
 func (s *Server) backups() backupStore { return s.Store }

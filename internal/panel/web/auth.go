@@ -129,9 +129,10 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 		return
 	}
 	if throttle.Blocked {
-		_ = s.Store.Record(ctx, panel.AuditEntry{
-			Action: panel.ActionLoginThrottled, ActorLabel: email,
-			Detail: map[string]any{"reason": throttle.Reason},
+		s.audit(ctx, panel.AuditEntry{
+			Action: panel.ActionLoginThrottled, ActorKind: panel.PrincipalAnonymous,
+			ActorLabel: email,
+			Detail:     map[string]any{"reason": throttle.Reason},
 		})
 		// A separate sentence from "wrong password", because this one is
 		// actionable: waiting fixes it. It names no account and no
@@ -221,7 +222,7 @@ func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, lang *ui.
 		s.logger().Warn("panel: touching last login", "err", err)
 	}
 	id := user.ID
-	_ = s.Store.Record(ctx, panel.AuditEntry{
+	s.audit(ctx, panel.AuditEntry{
 		Action: panel.ActionLoginSucceeded, ActorKind: panel.PrincipalUser,
 		ActorID: &id, ActorLabel: user.Email,
 		Detail: map[string]any{"two_factor": user.HasTOTP()},
@@ -234,8 +235,9 @@ func (s *Server) recordFailedLogin(r *http.Request, email string, addr netip.Add
 	if err := s.Store.RecordLoginAttempt(ctx, email, addr, false); err != nil {
 		s.logger().Warn("panel: recording login attempt", "err", err)
 	}
-	_ = s.Store.Record(ctx, panel.AuditEntry{
-		Action: panel.ActionLoginFailed, ActorLabel: email,
+	s.audit(ctx, panel.AuditEntry{
+		Action: panel.ActionLoginFailed, ActorKind: panel.PrincipalAnonymous,
+		ActorLabel: email,
 	})
 }
 
@@ -299,9 +301,10 @@ func (s *Server) submitSecondFactor(w http.ResponseWriter, r *http.Request, lang
 		return
 	}
 	if throttle.Blocked {
-		_ = s.Store.Record(ctx, panel.AuditEntry{
-			Action: panel.ActionLoginThrottled, ActorLabel: user.Email,
-			Detail: map[string]any{"reason": throttle.Reason, "stage": "second_factor"},
+		s.audit(ctx, panel.AuditEntry{
+			Action: panel.ActionLoginThrottled, ActorKind: panel.PrincipalAnonymous,
+			ActorLabel: user.Email,
+			Detail:     map[string]any{"reason": throttle.Reason, "stage": "second_factor"},
 		})
 		s.renderSecondFactor(w, r, lang, http.StatusTooManyRequests, loginPage{
 			Next: next, RememberedName: user.Name(),
@@ -364,7 +367,7 @@ func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if p, err := s.Sessions.Principal(ctx); err == nil {
-		_ = s.Store.RecordFor(ctx, p, panel.AuditEntry{Action: panel.ActionLogout})
+		s.auditFor(ctx, p, panel.AuditEntry{Action: panel.ActionLogout})
 	}
 	if err := s.Sessions.LogOut(ctx); err != nil {
 		s.logger().Error("panel: logout", "err", err)

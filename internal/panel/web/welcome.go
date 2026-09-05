@@ -226,7 +226,7 @@ func (s *Server) submitClaim(w http.ResponseWriter, r *http.Request, lang *ui.La
 	}
 
 	id := user.ID
-	_ = s.Store.Record(ctx, panel.AuditEntry{
+	s.audit(ctx, panel.AuditEntry{
 		Action: panel.ActionUserCreated, ActorKind: panel.PrincipalUser,
 		ActorID: &id, ActorLabel: user.Email,
 		Detail: map[string]any{"via": "owner_claim", "sites": len(sites)},

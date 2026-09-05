@@ -7215,6 +7215,28 @@ onun özel hâlleridir.
 | SameSite=Lax + eşzamanlayıcı token | Lax çoğu tarayıcıda yeter; "çoğu" o cümlede gerçek iş yapıyor |
 | Token yokken CSRF **kapalı** başarısız | Doğrulanmamışı kabul etmek yerine yazmayı engeller |
 
+### 3.2b Denetim kaydına yazılamayan satır sessiz kalamaz *(2026-09-05)*
+
+**Bulunan kusur:** denetim kaydı bir tek başarısız giriş denemesi bile
+tutmamış. Başarısız giriş ve üç hız-sınırı reddi `actor_kind` vermeden
+satır yazıyordu, kısıt boşu reddediyordu, ve hata `_ =` ile atılıyordu.
+Ölçüm: 1075 `login.succeeded`, giriş yolundan **0** `login.failed`.
+
+**Kalıcı kural — iki parça:**
+
+1. **Bir denetim satırı, "kim" alanını taşımadan yazılamaz.** `s.audit`'e
+   verilen her girdi `ActorKind` içerir; principal'i olan `s.auditFor`'a
+   gider. Kaynak üzerinden kontrol ediliyor
+   (`internal/panel/web/audit_test.go`), çünkü kusur bir davranış değil
+   bir eksiklik — ve eksikliğin testi olmaz.
+2. **Denetim yazımının başarısızlığı isteği düşürmez ama sessiz de
+   kalamaz.** Panelin her yazımı `s.audit`/`s.auditFor` üzerinden geçer
+   ve hata `Error` seviyesinde günlüğe düşer. `_ = Record(...)` yasak.
+
+**Kimliği ispatlanmamış kişinin kendi kind'ı vardır:** `anonymous`.
+"Kullanıcı" demek, ispatlanmadığı olayın kendisi olan şeyi iddia etmek
+olurdu.
+
 ### 3.3 Tek ifadelik atomik durum geçişleri
 
 Son sahip koruması (`FOR UPDATE`), geliştirici erişimi kullanımı, TOTP

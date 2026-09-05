@@ -13,8 +13,37 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 11.** v0.21.0 ile aynı, yani o sürümü kurup şemayı
-yükselttiyseniz burada **yapmanız gereken bir şey yok.**
+**Şema sürümü: 12.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Tek bir kısıt genişletiliyor; hiçbir satır
+değişmiyor, hiçbir servis durmuyor, ve büyük tablolarda bile anlık.
+
+**Yükseltmeden önce başarısız giriş denemeleri denetim kaydına
+yazılmıyor** — aşağıdaki düzeltme tam olarak bunu gerektiriyor.
+
+### Güvenlik düzeltmesi: başarısız girişler denetim kaydına hiç yazılmamış
+
+**Denetim kaydı bugüne kadar bir tek başarısız giriş denemesi bile
+tutmamış.** Başarılı girişler yazılıyordu, başarısızlar yazılmıyordu — ve
+bu tam olarak ters tarafı: kapıyı deneyen biri hiç iz bırakmıyordu,
+içeri giren bırakıyordu.
+
+Sebebi görünmez bir zincirdi. Kayıt satırı "kim yaptı" sütununu boş
+bırakıyordu, veritabanının kısıtı boş değeri kabul etmiyordu, ve satırı
+yazan kod hatayı sessizce atıyordu. İstek yine doğru cevaplanıyordu —
+401, doğru mesaj — ve bütün testler yeşildi.
+
+Aynı sessizlik hız sınırı reddi için de geçerliydi: peş peşe yanlış
+parola deneyip kilitlenen bir adres, kayıtta hiç görünmüyordu.
+
+**Şimdi dördü de yazılıyor**, ve kayıt bunların hesabı ispatlanmamış
+birinden geldiğini söylüyor: "kullanıcı" demiyor, çünkü demediğinin ta
+kendisi olay.
+
+Bir denetim satırı yazılamazsa artık **hata olarak günlüğe düşüyor.**
+Sessizce kaybolmuyor.
+
+**Yükseltmeden önce alınmış kayıtlar geriye dönük dolmuyor.** Olmayan
+satır olmayan satırdır; yükseltmeden sonrakiler tutuluyor.
 
 ### Yedek düğmesi: Sağlık → Yedek
 

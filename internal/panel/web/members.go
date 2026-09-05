@@ -175,7 +175,7 @@ func (s *Server) addMember(ctx context.Context, lang *ui.Language, access panel.
 		s.logger().Error("panel: adding member", "err", err)
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 	}
-	_ = s.Store.RecordFor(ctx, access.Principal, panel.AuditEntry{
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
 		Action: panel.ActionMemberAdded, SiteID: access.SiteID,
 		Detail: map[string]any{"user": user.Email, "role": string(role)},
 	})
@@ -198,7 +198,7 @@ func (s *Server) changeRole(ctx context.Context, lang *ui.Language, access panel
 	if err := s.Store.SetMemberRole(ctx, access.SiteID, userID, role); err != nil {
 		return s.memberWriteFailed(lang, err, "panel: changing member role")
 	}
-	_ = s.Store.RecordFor(ctx, access.Principal, panel.AuditEntry{
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
 		Action: panel.ActionMemberRerole, SiteID: access.SiteID,
 		Detail: map[string]any{"user_id": userID, "role": string(role)},
 	})
@@ -215,7 +215,7 @@ func (s *Server) removeMember(ctx context.Context, lang *ui.Language, access pan
 	if err := s.Store.RemoveMember(ctx, access.SiteID, userID); err != nil {
 		return s.memberWriteFailed(lang, err, "panel: removing member")
 	}
-	_ = s.Store.RecordFor(ctx, access.Principal, panel.AuditEntry{
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
 		Action: panel.ActionMemberRemoved, SiteID: access.SiteID,
 		Detail: map[string]any{"user_id": userID},
 	})

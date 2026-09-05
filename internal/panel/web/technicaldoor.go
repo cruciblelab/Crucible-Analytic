@@ -72,7 +72,7 @@ func (s *Server) technicalDoorHandler(w http.ResponseWriter, r *http.Request) {
 		// reconfigures a working installation and then cannot explain
 		// what happened is exactly who this line is for, and an entry
 		// written afterwards is one a crash loses.
-		_ = s.Store.RecordFor(r.Context(), p, panel.AuditEntry{
+		s.auditFor(r.Context(), p, panel.AuditEntry{
 			Action: panel.ActionTechnicalDoorOpened,
 		})
 		s.Sessions.OpenTechnicalDoor(r.Context())

@@ -125,14 +125,14 @@ import (
 // schema_admin alone, deliberately: the panel must not be able to tell
 // itself that a version exists, because the reason the upgrader is the
 // one asking is that the upgrader is the one holding the signing key.
-const Version = 11
+const Version = 12
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "d70cf0e45d0aaba77161847506e26f24f03c0250a427da9d2305f318f1bc30cc"
+const Fingerprint = "81142339a0c0d022a34cc8a41d0fd8b906f81689aff2ea235bb214bc228c92fa"
 
 // FingerprintOf hashes a set of schema files.
 //

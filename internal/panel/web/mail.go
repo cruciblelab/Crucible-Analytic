@@ -261,7 +261,7 @@ func (s *Server) saveMail(w http.ResponseWriter, r *http.Request, lang *ui.Langu
 		return
 	}
 
-	_ = s.Store.RecordFor(r.Context(), p, panel.AuditEntry{
+	s.auditFor(r.Context(), p, panel.AuditEntry{
 		Action: panel.ActionMailSaved,
 		Target: in.Host,
 		Detail: map[string]any{
@@ -351,7 +351,7 @@ func (s *Server) verifyMail(w http.ResponseWriter, r *http.Request, lang *ui.Lan
 	// button makes it look like a precondition.
 	page.DNS = s.mailDNS(r.Context(), cfg.From)
 
-	_ = s.Store.RecordFor(r.Context(), p, panel.AuditEntry{
+	s.auditFor(r.Context(), p, panel.AuditEntry{
 		Action: panel.ActionMailVerified,
 		Target: cfg.Host,
 		Detail: map[string]any{
@@ -369,7 +369,7 @@ func (s *Server) deleteMail(w http.ResponseWriter, r *http.Request, lang *ui.Lan
 		s.renderMail(w, r, lang, p, mailPage{Failed: true, Message: lang.T("posta.hata.silinemedi")})
 		return
 	}
-	_ = s.Store.RecordFor(r.Context(), p, panel.AuditEntry{Action: panel.ActionMailDeleted})
+	s.auditFor(r.Context(), p, panel.AuditEntry{Action: panel.ActionMailDeleted})
 	s.renderMail(w, r, lang, p, mailPage{Message: lang.T("posta.silindi")})
 }
 

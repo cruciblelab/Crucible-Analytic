@@ -116,6 +116,26 @@ const (
 	// cleanup, first-run setup. Never authenticates a request; exists so
 	// audit entries with no human behind them are honest about it.
 	PrincipalSystem PrincipalKind = "system"
+	// PrincipalAnonymous is somebody who is not signed in: a failed
+	// sign-in, a rate-limit refusal. actor_id is NULL because there is
+	// no account, and actor_label is the address they typed rather than
+	// one anybody has proved.
+	//
+	// # Why this needed its own kind rather than reusing one
+	//
+	// It went missing for a whole group of phases and the audit log was
+	// the poorer for it. recordFailedLogin wrote an entry with no kind
+	// at all, the check constraint refused the row, and the error was
+	// discarded - so every failed sign-in since the table existed went
+	// unrecorded. Measured on a development database: 1075 successful
+	// sign-ins, and not one failure from that path.
+	//
+	// Neither of the other kinds would have been honest. "user" claims
+	// an account acted, when not proving that is the whole event.
+	// "system" claims the panel did it. What happened is that somebody
+	// nobody can name tried the door, and an audit log that cannot say
+	// so is missing the entry it exists for.
+	PrincipalAnonymous PrincipalKind = "anonymous"
 )
 
 // Principal is who is making a request, resolved once by the

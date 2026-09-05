@@ -11472,3 +11472,107 @@ karar devralınmak yerine yeniden verilir.
 fonksiyonuydu; kategori eklenirken testleri de yazıldı. Kendi başına
 küçük bir ders: **listeyi okuyan ayrıştırıcı sessizce boş dönerse kapı
 her şeyi geçirir, ve bunu fark edecek başka bir şey yok.**
+
+---
+
+## Denetim kaydı hiçbir başarısız girişi tutmamış
+
+CI'da başarısız bir koşuyu incelerken PostgreSQL günlüğünde şu satır
+vardı:
+
+```
+ERROR:  new row for relation "panel_audit_log" violates check constraint
+        "panel_audit_log_actor_kind_check"
+DETAIL: Failing row contains (773, ..., '', null,
+        tarayici-kullanici@..., login.failed, ...)
+```
+
+`actor_kind` boş. Kısıt boşu kabul etmiyor. Satır yazılmıyor. Ve satırı
+yazan kod hatayı `_ =` ile atıyor.
+
+### Ölçüm
+
+Gerçek geliştirme veritabanında:
+
+| Eylem | Satır |
+|---|---|
+| `login.succeeded` | 1075 |
+| Giriş yolundan `login.failed` | **0** |
+
+Veritabanındaki 16 `login.failed` satırının hepsi `account.go`'dan —
+kendi parolanızı değiştirirken yanlış parola girmek. Giriş formunun
+kendi kaydı hiç yazılmamış.
+
+Kodun yaptığı eklemeyi elle denedim, aynı hatayı verdi. Yani tahmin
+değil.
+
+### Dört çağrı yeri, ve hepsi aynı sınıf
+
+`recordFailedLogin`, ve üç hız-sınırı reddi (giriş formu, ikinci faktör,
+kurtarma formu). Dördü de `Record`'u `ActorKind` vermeden çağırıyordu.
+Diğer dört çağrı yeri veriyordu, o yüzden onlar çalışıyordu — ve bu,
+kusuru daha da görünmez yapan şey: denetim sayfası dolu görünüyordu.
+
+**Kaybedilen tam olarak yanlış yarısı.** Kapıyı adres adres deneyen biri
+hiç iz bırakmıyor; içeri giren 1075 satır bırakıyor.
+
+### Neden dördüncü bir "kind"
+
+Kısıt üç değer tanıyordu: `user`, `developer`, `system`. Başarısız bir
+giriş üçü de değil.
+
+- `user` demek "bir hesap bunu yaptı" demek — ispatlanmamış olması olayın
+  ta kendisi.
+- `system` demek "paneli kendisi yaptı" demek.
+
+Şemanın kendi yorumu zaten bu mantığı yazıyordu (`developer` için:
+*"actor_id NULL çünkü arkasında hesap yok, kendi kind'ına ihtiyaç
+duymasının sebebi tam olarak bu"*). `anonymous` aynı gerekçeyle eklendi.
+Şema 11 → 12; kısıt yalnızca **genişliyor**, yani hiçbir satırı
+geçersizleştiremez, doğrulama taraması gerektirmez ve tablo ne kadar
+büyük olursa olsun anlık.
+
+### Sessizliğin kendisi de kapatıldı
+
+Yirmi çağrı yeri `_ = s.Store.Record(...)` yazıyordu. Niyet doğruydu:
+denetim yazımı başarısız olduğu için müşterinin isteği çökmemeli. Ama
+aynı hareket, yazımın **hiç olmadığını** da gizliyordu.
+
+Artık hepsi `s.audit` / `s.auditFor` üzerinden geçiyor: davranış aynı —
+istek yine çökmüyor — ama hata `Error` seviyesinde günlüğe düşüyor.
+
+### MOD1'in bedelini ilk çıkardığı yer
+
+`writeAudit` store'u parametre olarak alıyor, çünkü *"hatayı günlüğe
+düşürüyor"* iddiası ancak yazma reddedildiğinde sınanabilir — ve bu tam
+da aylarca kimsenin kolayca üretemediği koşul. Sahte bir store üç satır.
+Dar arayüzler bir faz önce eklenmişti; ilk gerçek kusur bir faz sonra
+geldi ve testi mümkün kılan şey oydu.
+
+### Değişmez
+
+`internal/panel/web/audit_test.go` kaynağı okuyor: `s.audit`'e verilen
+her `AuditEntry` `ActorKind` içermeli, ve `s.auditFor`'a verilen hiçbiri
+içermemeli (principal zaten üzerine yazıyor).
+
+Entegrasyon testi beşinci çağrı yerini yakalayamaz — çünkü o çağrı
+yerinin de kendi testi olmayacak, tıpkı bozulan dördünün olmadığı gibi.
+**Kusur bir davranış değil, bir eksiklik**; eksiklik kaynakta görünür,
+başka her yerde ancak birinin sunucusunda bir satır reddedildiğinde.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Başarısız giriş kaydından `ActorKind`'ı çıkar | Yakalandı |
+| `ActorKind`'ı yanlış-ama-geçerli bir değere çevir | Yakalandı |
+| Hatayı yine `_ =` ile at | Yakalandı |
+| `Error` yerine `Warn` ile günlüğe düş | Yakalandı |
+| Başarılı yazımda da günlüğe düş | Yakalandı |
+
+### Testlerin göç etmemiş veritabanında düşmesi
+
+Üç entegrasyon testi önce **kırmızı** verdi: şema değişikliği koşan
+veritabanına henüz uygulanmamıştı. Kısıtı uyguladıktan sonra yeşile
+döndüler. Bu, şema değişikliğinin süs olmadığının kanıtı — testler eski
+kısıtla geçmiyor.

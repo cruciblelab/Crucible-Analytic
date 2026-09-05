@@ -100,9 +100,10 @@ func (s *Server) submitRecovery(w http.ResponseWriter, r *http.Request, lang *ui
 		return
 	}
 	if throttle.Blocked {
-		_ = s.Store.Record(ctx, panel.AuditEntry{
-			Action: panel.ActionLoginThrottled, ActorLabel: email,
-			Detail: map[string]any{"reason": throttle.Reason, "form": "recovery"},
+		s.audit(ctx, panel.AuditEntry{
+			Action: panel.ActionLoginThrottled, ActorKind: panel.PrincipalAnonymous,
+			ActorLabel: email,
+			Detail:     map[string]any{"reason": throttle.Reason, "form": "recovery"},
 		})
 		refuse(http.StatusTooManyRequests, s.throttleMessage(ctx, lang, throttle))
 		return
@@ -135,7 +136,7 @@ func (s *Server) submitRecovery(w http.ResponseWriter, r *http.Request, lang *ui
 	// more than most: who, from where, whether the second factor went
 	// with it, and how much of the escape route is left.
 	id := result.User.ID
-	_ = s.Store.Record(ctx, panel.AuditEntry{
+	s.audit(ctx, panel.AuditEntry{
 		Action: panel.ActionRecoveryCodeUsed, ActorKind: panel.PrincipalUser,
 		ActorID: &id, ActorLabel: result.User.Email,
 		Detail: map[string]any{

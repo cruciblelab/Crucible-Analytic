@@ -838,7 +838,7 @@ func (s *Server) handOver(r *http.Request, lang *ui.Language, access panel.Acces
 		return
 	}
 
-	_ = s.Store.RecordFor(ctx, access.Principal, panel.AuditEntry{
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
 		Action: panel.ActionSetupCompleted,
 		Detail: map[string]any{"invited": claim.Email, "claim_id": claim.ID},
 	})
