@@ -414,3 +414,88 @@ func TestTheUpgradeSectionCoversEveryInstallPath(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryTagPointsAtSomethingOnTheDefaultBranch.
+//
+// # What happened
+//
+// v0.22.0 was cut and pushed, and it landed on a commit 203 behind, on a
+// line of history that is not on main at all. The release note was
+// right, the version number was right, and the ref pointed at work from
+// weeks earlier.
+//
+// Nothing said so. TestEveryReleaseNoteHasATagAndEveryTagHasANote
+// compares *names*: the changelog says v0.22.0 and a tag called v0.22.0
+// exists, so both sides agreed and neither was looking at where it
+// pointed. `git checkout v0.22.0` would have produced a tree without the
+// feature its own note describes, and the first person to notice would
+// have been somebody installing it.
+//
+// # Why "ancestor of main" is the right question
+//
+// A tag in this repository is cut on main - the branch is fast-forwarded
+// into it before the tag goes on. So a tag that is not reachable from
+// main is not a release of this product's history, whatever it is named.
+//
+// It is asked of origin/main rather than the checked-out branch, because
+// this runs on a feature branch too and a tag cut on main is not
+// reachable from a branch that has not been merged yet.
+func TestEveryTagPointsAtSomethingOnTheDefaultBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH; this test asks git where the tags point")
+	}
+	root := repoRoot(t)
+
+	out, err := exec.Command("git", "-C", root, "tag", "--list", "v*").Output()
+	if err != nil {
+		t.Skipf("git tag failed: %v", err)
+	}
+	var tags []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			tags = append(tags, line)
+		}
+	}
+	if len(tags) == 0 {
+		// The same reason the note-and-tag check gives: a checkout
+		// without tags cannot answer this, and saying so is not the same
+		// as passing.
+		t.Skip("this checkout has no tags, so any answer here would be about the " +
+			"checkout rather than the repository. Fetch them (git fetch --tags) to " +
+			"run this check")
+	}
+
+	// Whichever of these exists. A clone has origin/main; a checkout that
+	// somebody made the branch in directly has main.
+	var base string
+	for _, ref := range []string{"origin/main", "main"} {
+		if err := exec.Command("git", "-C", root, "rev-parse", "--verify",
+			"--quiet", ref+"^{commit}").Run(); err == nil {
+			base = ref
+			break
+		}
+	}
+	if base == "" {
+		t.Skip("neither origin/main nor main is in this checkout, so there is " +
+			"nothing to measure the tags against")
+	}
+
+	for _, tag := range tags {
+		err := exec.Command("git", "-C", root, "merge-base", "--is-ancestor",
+			tag+"^{commit}", base).Run()
+		if err == nil {
+			continue
+		}
+		at, _ := exec.Command("git", "-C", root, "log", "--format=%h %s",
+			"-1", tag+"^{commit}").Output()
+		t.Errorf("%s points at a commit that is not on %s:\n    %s\n"+
+			"A tag is cut on the default branch, after the branch is merged into "+
+			"it. One that is not reachable from there checks out a tree that is "+
+			"not this product's history at that version - and the release note "+
+			"beside it still reads as correct, because a note and a tag agree on "+
+			"the name without either one looking at where it points.\n"+
+			"Fix: git tag -d %s && git push origin :refs/tags/%s, then cut it "+
+			"again on the right commit.",
+			tag, base, strings.TrimSpace(string(at)), tag, tag)
+	}
+}

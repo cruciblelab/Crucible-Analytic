@@ -163,6 +163,24 @@ ve sürüm notunda **KIRICI** diye işaretleniyor.
    Ölçüldü: `v0.14.2`'nin notu yazıldı, etiketi kesilmedi, ve sonraki not
    (`v0.15.0+N6`) eklenince kapı `unit (-race)` işinde düştü. Tek
    kontrol, doğru sebep.
+
+   **Etiketin nereye kesildiği de kontrol ediliyor.** `v0.22.0` bir kez
+   203 commit geriye, `main` üzerinde olmayan bir commit'e kesildi. Not
+   doğruydu, numara doğruydu, ve `git checkout v0.22.0` kendi notunun
+   anlattığı özelliği taşımayan bir ağaç veriyordu — çünkü not ile
+   etiket *ad* üzerinde anlaşıyor, ikisi de nereyi gösterdiğine
+   bakmadan. `TestEveryTagPointsAtSomethingOnTheDefaultBranch` artık
+   soruyor.
+
+   Yanlış yere kesilmiş bir etiketi düzeltmenin yolu silip yeniden
+   kesmektir:
+
+   ```
+   git tag -d v0.22.0
+   git push origin :refs/tags/v0.22.0
+   git tag -a v0.22.0 <dogru-commit> -m "..."
+   git push origin v0.22.0
+   ```
 4. `release/build.sh` gerisini yapıyor: `git describe --tags` etiketi
    bulur, altı binary'ye `-X main.version` ile basar, paketi
    `crucible-analytic-v0.9.0+L3` diye adlandırır ve SHA256SUMS üretir.
