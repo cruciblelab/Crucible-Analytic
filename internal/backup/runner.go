@@ -90,6 +90,54 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 	return req, nil
 }
 
+// ErrNotConfigured means this deployment has no backup directory.
+//
+// A sentinel rather than a sentence, because two callers need to tell it
+// apart from every other failure and they want opposite things. A queued
+// request must *fail with the reason on the row* - the page is where
+// somebody is waiting and "nothing is configured" is the answer they
+// need. A backup taken automatically before a schema upgrade must let
+// the upgrade go ahead: a deployment that never configured backups is
+// not one that just lost one.
+var ErrNotConfigured = errors.New("backup: no directory is configured; set dir in " +
+	"upgrader.toml's [backup] section")
+
+// Take writes one backup and records it, without going through the
+// queue.
+//
+// # Why this is not RunOnce
+//
+// RunOnce answers a request somebody made. This is for a backup nobody
+// asked for by name: the one taken automatically before a schema
+// upgrade, where the trigger is the upgrade and there is no row in the
+// queue to claim, finish or show.
+//
+// Everything else is identical, and deliberately so - same estimate,
+// same refusal when it will not fit, same file, same catalogue row. A
+// backup taken by the machine that a person could not find beside the
+// ones they took themselves would be a backup they do not know they
+// have.
+// # Why it takes no logger
+//
+// It did, and the first test written for it segfaulted: the parameter
+// went straight to write, write calls log.Info, and a nil *slog.Logger
+// panics on the first call. The caller that would have crashed is the
+// applier, mid schema upgrade, which is the worst place in this product
+// to panic - the claim is taken, the request is in flight, and the
+// process dies without recording anything.
+//
+// The Runner already carries a Logger with a nil-safe accessor, so the
+// parameter was a second way to say the same thing and only one of them
+// was safe. Callers who want a line saying why a backup happened copy
+// the Runner with a decorated logger; it is a value, and that is one
+// statement. See cmd/upgrader.
+func (r Runner) Take(ctx context.Context, sets []string) (*int64, error) {
+	if r.Dir == "" {
+		return nil, ErrNotConfigured
+	}
+	return r.write(ctx, sets, r.logger())
+}
+
 // carryOut is the estimate, then the copy. Separated so RunOnce always
 // records an outcome, whatever happens in here.
 func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*int64, error) {
@@ -99,11 +147,18 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*
 		// end up *failed with a reason on the row*: the page is where
 		// somebody is waiting, and "nothing is configured" is exactly
 		// the answer they need.
-		return nil, fmt.Errorf("the upgrader has no backup directory configured; " +
-			"set dir in upgrader.toml's [backup] section")
+		//
+		// Wrapped rather than returned bare, so the row carries the
+		// sentence and errors.Is still finds the sentinel.
+		return nil, fmt.Errorf("%w", ErrNotConfigured)
 	}
+	return r.write(ctx, req.Sets, log)
+}
 
-	est, err := Measure(ctx, r.Pool, r.Dir, req.Sets)
+// write is the estimate, the copy and the catalogue row - the part both
+// callers share.
+func (r Runner) write(ctx context.Context, sets []string, log *slog.Logger) (*int64, error) {
+	est, err := Measure(ctx, r.Pool, r.Dir, sets)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +181,7 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*
 		BinaryVersion: r.BinaryVersion,
 		SchemaVersion: r.SchemaVersion,
 	}
-	res, err := w.Write(ctx, r.fileName(), req.Sets)
+	res, err := w.Write(ctx, r.fileName(), sets)
 	if err != nil {
 		return nil, err
 	}

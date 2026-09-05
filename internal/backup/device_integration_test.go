@@ -17,6 +17,7 @@ package backup_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -304,5 +305,82 @@ func TestWritingOntoAnExistingBackupIsRefused(t *testing.T) {
 	}
 	if string(body) != "onceki yedek" {
 		t.Errorf("the existing file was changed: %q", body)
+	}
+}
+
+// TestTakeRefusesWhenNoDirectoryIsConfigured.
+//
+// # Why this needs its own test
+//
+// carryOut has the same guard and a test for it, and for a moment that
+// looked like enough. It is not: the two paths reach the same condition
+// and want opposite things from it. A queued request must end up failed
+// with the reason on the row, because somebody is watching the page.
+// Take is called by the schema upgrade, which reads the sentinel and
+// carries on - a deployment that never configured backups is not one
+// that just lost one.
+//
+// A mutation removing Take's guard survived the queue's test, which is
+// exactly what a shared condition with two callers does when only one of
+// them is asserted.
+func TestTakeRefusesWhenNoDirectoryIsConfigured(t *testing.T) {
+	_, answers := backupQueue(t)
+
+	// No Dir, which is what a deployment with no [backup] section has.
+	r := backup.Runner{Pool: answers, Name: "test-upgrader"}
+	id, err := r.Take(context.Background(), []string{backup.SetPanel})
+
+	if !errors.Is(err, backup.ErrNotConfigured) {
+		t.Fatalf("Take returned %v, want ErrNotConfigured.\n"+
+			"The schema upgrade tells this apart from every other failure to "+
+			"decide whether to go ahead, and it can only do that through the "+
+			"sentinel", err)
+	}
+	if id != nil {
+		t.Errorf("Take named catalogue row %d while refusing", *id)
+	}
+}
+
+// TestTakeWritesTheSameKindOfBackupAsTheButton.
+//
+// The automatic copy and the one somebody presses for have to end up in
+// the same catalogue, with the same shape. A backup taken by the machine
+// that a person could not find beside their own would be a backup they
+// do not know they have - and the page is the only place they can look.
+func TestTakeWritesTheSameKindOfBackupAsTheButton(t *testing.T) {
+	_, answers := backupQueue(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	r := backup.Runner{Pool: answers, Dir: dir, Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+	id, err := r.Take(ctx, []string{backup.SetPanel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id == nil {
+		t.Fatal("Take succeeded and named no catalogue row, so nothing on the page " +
+			"will ever mention this backup")
+	}
+
+	rows, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("the catalogue has %d rows after one automatic backup", len(rows))
+	}
+	if rows[0].ID != *id {
+		t.Errorf("Take named row %d and the catalogue has %d", *id, rows[0].ID)
+	}
+	if info, err := os.Stat(rows[0].Path); err != nil {
+		t.Errorf("the catalogue names %s and it is not there: %v", rows[0].Path, err)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Errorf("the file is mode %v; an automatic backup is not less private "+
+			"than one somebody asked for", info.Mode().Perm())
+	}
+	if rows[0].Device == 0 {
+		t.Error("no filesystem was recorded, so the panel cannot draw these bytes " +
+			"onto the disk they are on")
 	}
 }

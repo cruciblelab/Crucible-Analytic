@@ -4755,7 +4755,7 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1a | Diskte ne kadar yer var, hangi dosya sisteminde, volume üzerinde mi | ✅ yapıldı |
 | F1b | Yedek alma: kuyruk, üretici, ölçülmüş tahmin, sığmazsa ret, dosya korumaları | ✅ yapıldı |
 | F1c | Yedekler depolama görünümünde, kapladıkları alanla | ✅ yapıldı |
-| F1d | Şema yükseltmesinden önce otomatik yedek | |
+| F1d | Şema yükseltmesinden önce otomatik yedek | ✅ yapıldı |
 | F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | |
 | F1f | Doğrulama ve yan veritabanına geri yükleme | |
 
@@ -4763,9 +4763,20 @@ F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
 yedek gönderilmiyor.
 
-**Açık kalan üç karar:** eski şemalı bir yedeğin yeni şemaya nasıl
-döneceği (F1f), yedek alınamazsa şema yükseltmesinin durup durmayacağı
-(F1d), ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
+**Açık kalan iki karar:** eski şemalı bir yedeğin yeni şemaya nasıl
+döneceği (F1f) ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
+
+**F1d'de verilen karar: rıza.** Yedek dizini yapılandırılmamış bir
+kurulum hiç yedek almamıştı ve şimdi de bir şey kaybetmiyor — eskisi
+gibi yükseltiliyor. Yapılandırmış bir kurulum ise "riskli şeylerden önce
+kopya isterim" demiş demektir, ve orada bir yedeğin başarısız olması
+gerçek bir sinyaldir: dolu disk, yazılamayan dizin. O yükseltme
+duruyor, sebep satırda yazıyor, ve veritabanına tek bir ifade
+uygulanmamış oluyor.
+
+Katı tarafın bedeli de ölçüldü ve hafife alınmadı: L2 şema geride
+kaldığında servisleri durduruyor, yani "yükseltilemiyor" bekleyen bir
+kurulum değil, duran bir kurulumdur.
 
 ---
 

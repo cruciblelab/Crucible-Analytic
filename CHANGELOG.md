@@ -17,6 +17,30 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 **Sağlık → Şema yükseltmesi**. Tek bir sütun ekleniyor; veri değişmiyor,
 servis durmuyor.
 
+### Şema yükseltmesinden önce otomatik yedek
+
+**Sağlık → Şema yükseltmesi'ne bastığınızda, veritabanına dokunulmadan
+önce panel tablolarınızın bir kopyası alınıyor.** Hesaplar, üyelikler,
+ayarlar, denetim kaydı, kuyruklar — yani bir göç sırasında değişen ve
+başka hiçbir yerden yeniden üretilemeyen her şey.
+
+Yedek listede görünüyor, kendi aldıklarınızın yanında.
+
+**Trafik tabloları dahil değil.** Onlar gigabaytlar ve bir göç onları
+yeniden yazmıyor; dahil etmek otuz saniyelik bir yükseltmeyi kimsenin
+sonunu beklemeyeceği kadar uzatırdı, ve bitmesine izin verilmeyen bir
+yedek yedek değildir. Tam yedeği sayfadan istediğiniz zaman
+alabilirsiniz.
+
+**Yedek alınamazsa yükseltme başlamıyor.** Sebep satırda yazıyor,
+sayılarla — "şu kadar yer lazım, şu kadar var, şu kadar eksik" — ve
+veritabanına tek bir ifade uygulanmamış oluyor. Durmanın bedeli sıfır,
+çünkü kopya ilk komuttan hemen önce alınıyor.
+
+**Yedek dizini yapılandırmamış kurulumlar eskisi gibi yükseltiliyor.**
+Hiç yedeği olmayan bir kurulum bir şey kaybetmiyor, ve yükseltmeyi
+engellemek bir önlem kılığında gelen bir gerileme olurdu.
+
 ### Yedekler artık disk çubuğunda
 
 **Sağlık → Disk** çubuğunda yedeklerinizin kapladığı yer kendi renginde

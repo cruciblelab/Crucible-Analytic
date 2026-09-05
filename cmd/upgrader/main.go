@@ -195,6 +195,35 @@ func main() {
 		Logger:        logger,
 	}
 
+	// The copy taken before a schema upgrade, wired here rather than
+	// inside the applier so both halves are in one place: what is
+	// copied, and what a failure means.
+	//
+	// # Only the panel set
+	//
+	// The panel tables are what a schema upgrade touches and the ones
+	// that cannot be rebuilt from anywhere: accounts, memberships,
+	// settings, the audit log, the queues. The traffic tables are
+	// gigabytes and a migration does not rewrite them, so including them
+	// would turn a thirty-second upgrade into a wait long enough that
+	// somebody kills it - and a backup nobody lets finish is not a
+	// backup.
+	//
+	// The customer can still take a full one from the page whenever they
+	// want, which is the difference between what this does automatically
+	// and what they choose.
+	//
+	// A copy of the runner with a decorated logger, so every line the
+	// automatic backup writes says why it happened. Runner is a value,
+	// so this is one statement and shares nothing with the queued one.
+	beforeUpgrade := backups
+	beforeUpgrade.Logger = logger.With("reason", "upgrade")
+	a.BackupFirst = func(ctx context.Context) (*int64, error) {
+		return beforeUpgrade.Take(ctx, []string{backup.SetPanel})
+	}
+
+	a.BackupOptional = backupOptional
+
 	if *once {
 		if err := runOnce(ctx, a, checker, runner, backups, logger); err != nil {
 			os.Exit(1)
@@ -284,4 +313,30 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 	}
 	logger.Info("upgrader: done", "request", req.ID, "state", req.State)
 	return nil
+}
+
+// backupOptional is the one backup failure that lets a schema upgrade go
+// ahead anyway.
+//
+// # The decision
+//
+// A deployment with no backup directory never had a backup and has not
+// just lost one, so it upgrades exactly as it did before this existed.
+// Every other failure - a full disk, a directory nobody can write -
+// stops the upgrade, because a deployment that configured a backup
+// directory has said it wants a copy before risky things, and a schema
+// upgrade is the risky thing.
+//
+// The cost of getting this wrong runs both ways, which is why it is a
+// named function with a test rather than a closure inside main. Too
+// strict and every deployment that never configured backups stops
+// upgrading - and L2 stops the services while the schema is behind, so
+// that is not a deployment waiting, it is a deployment down. Too loose
+// and the copy is skipped at the one moment it was worth taking.
+//
+// It was a closure, and a mutation walked straight through it: flipping
+// it to "nothing is optional" changed nothing anywhere, because nothing
+// called it but the applier and the applier's tests bring their own.
+func backupOptional(err error) bool {
+	return errors.Is(err, backup.ErrNotConfigured)
 }

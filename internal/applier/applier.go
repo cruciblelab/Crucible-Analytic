@@ -27,6 +27,14 @@ import (
 // wrong schema is not.
 var ErrNotThisBinary = errors.New("upgrade: this applier does not carry the requested schema")
 
+// ErrBackupFailed means the upgrade stopped because the copy it takes
+// first did not happen.
+//
+// The database is untouched. That is the whole point of the ordering:
+// the backup is the last thing before the first DDL statement, so a
+// failure here costs nothing but the wait.
+var ErrBackupFailed = errors.New("upgrade: stopped because the backup before it failed")
+
 // ErrBusy is returned when a table was locked and the upgrade gave way.
 //
 // A separate error rather than a plain failure because the two ask
@@ -86,6 +94,46 @@ type Applier struct {
 	// Name identifies this applier in claimed_by. The hostname, so a
 	// two-host deployment's rows say which one took it.
 	Name string
+
+	// BackupFirst, when set, is called after a request is claimed and
+	// before any DDL runs. It returns the catalogue id of what it wrote.
+	//
+	// # Why a function rather than a backup package
+	//
+	// internal/applier imports schemafiles, schemaver, upgrade and
+	// dblock. Adding internal/backup would make the component that
+	// migrates the database depend on the one that copies it, in a
+	// package whose whole job is to be the only thing allowed to run
+	// DDL. A function field keeps the dependency at the wiring - see
+	// cmd/upgrader - where somebody can read both halves at once.
+	//
+	// Nil means this build takes no backup, which is what every applier
+	// did before F1d and what a test that is not about backups still
+	// wants.
+	BackupFirst func(ctx context.Context) (*int64, error)
+
+	// BackupOptional reports whether a failed backup should let the
+	// upgrade proceed. It is called only when BackupFirst failed, with
+	// the error it returned.
+	//
+	// # The decision this field carries
+	//
+	// A schema upgrade is the moment a backup is worth most, and it is
+	// also the moment where refusing to proceed has a cost: L2 stops the
+	// services when the schema is behind, so an upgrade that will not
+	// run is a deployment that stays down.
+	//
+	// The line drawn is consent. A deployment with no backup directory
+	// configured never had a backup and has not just lost one, so it
+	// upgrades exactly as it did before. A deployment that *did*
+	// configure one has said it wants a copy before risky things, and a
+	// backup that fails there is a real signal - a full disk, a
+	// permission - arriving at the worst possible moment to ignore it.
+	// That one stops, with the reason on the row.
+	//
+	// A predicate rather than a boolean, because the answer depends on
+	// which failure it was and only the caller knows how to tell.
+	BackupOptional func(err error) bool
 }
 
 func (a *Applier) logger() *slog.Logger {
@@ -133,6 +181,16 @@ func (a *Applier) RunOnce(ctx context.Context) (*upgrade.Request, error) {
 		if finishErr := upgrade.Finish(ctx, a.Pool, req.ID, upgrade.StateFailed, nil, err.Error()); finishErr != nil {
 			return req, errors.Join(err, finishErr)
 		}
+		return req, err
+	}
+
+	// The backup before the DDL, and this is the last point where the
+	// upgrade can still be stopped harmlessly.
+	//
+	// After the claim, so a deployment with nothing queued never copies
+	// its database on a timer. After the fingerprint check, so a request
+	// this binary is about to refuse does not cost a backup first.
+	if err := a.backUp(ctx, req, log); err != nil {
 		return req, err
 	}
 
@@ -338,4 +396,46 @@ func short(fingerprint string) string {
 		return fingerprint
 	}
 	return fingerprint[:12] + "…"
+}
+
+// backUp takes the pre-upgrade copy, and decides what a failure means.
+//
+// Returns nil when the upgrade should go ahead - including when the
+// backup failed in a way the caller called optional. Returns an error
+// only when the request has already been recorded as failed, so the
+// caller's job is to stop.
+func (a *Applier) backUp(ctx context.Context, req *upgrade.Request, log *slog.Logger) error {
+	if a.BackupFirst == nil {
+		return nil
+	}
+
+	id, err := a.BackupFirst(ctx)
+	if err == nil {
+		if id != nil {
+			log.Info("upgrade: backed up before applying", "backup", *id)
+		}
+		return nil
+	}
+
+	if a.BackupOptional != nil && a.BackupOptional(err) {
+		// Said out loud rather than passed over. The upgrade is about to
+		// change the database with nothing to go back to, and that is a
+		// fact worth being in the journal whether or not anybody chose
+		// it deliberately.
+		log.Warn("upgrade: applying without a backup", "err", err)
+		return nil
+	}
+
+	log.Error("upgrade: stopped before applying, because the backup failed", "err", err)
+	stopped := fmt.Errorf("%w: %w", ErrBackupFailed, err)
+	// Failed rather than requeued. A requeue would retry on the next
+	// tick, and every one of the reasons a backup fails here - a full
+	// disk, a directory nobody can write - is a reason that does not
+	// clear by itself. Retrying would fill the log with the same line
+	// every thirty seconds while the customer's page said "Sırada".
+	if finishErr := upgrade.Finish(ctx, a.Pool, req.ID, upgrade.StateFailed, nil,
+		stopped.Error()); finishErr != nil {
+		return errors.Join(stopped, finishErr)
+	}
+	return stopped
 }

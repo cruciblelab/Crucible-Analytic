@@ -11782,3 +11782,135 @@ değişirse test bulamıyor ve bunu söylüyor — sessizce geçmiyor.
 
 `go test -tags release ./release/` yeşil (148 sn), tarball uçtan uca
 yeşil — ikisi de gerçek `install.sh`'ı koşturuyor.
+
+---
+
+## F1d — Şema yükseltmesinden önce yedek, ve "durmalı mı" sorusunun cevabı
+
+Şema yükseltmesi bu üründe müşterinin sayfadan geri alamadığı tek işlem.
+DDL koşuyor, hem de bunu yapmasına izin verilen tek rolle, ve bir şey
+ters giderse dürüst tavsiye "yedeği geri yükleyin" — ki bu ancak yedek
+varsa tavsiyedir.
+
+### Nereye konduğu
+
+`Applier.RunOnce` içine, **istek alındıktan ve parmak izi kontrolünden
+sonra, ilk ifadeden önce.**
+
+- Talepten sonra: kuyruğu boş bir kurulum zamanlayıcıyla veritabanını
+  kopyalamıyor.
+- Parmak izi kontrolünden sonra: bu binary'nin zaten reddedeceği bir
+  istek önce bir yedeğe mal olmuyor. Test bunu ayrıca tutuyor.
+- İlk ifadeden önce: durmanın bedeli sıfır olduğu son an.
+
+### Bağımlılık yönü
+
+`internal/applier` bugüne kadar `schemafiles`, `schemaver`, `upgrade` ve
+`dblock` içeriyordu. `internal/backup` eklemek, veritabanını **göç
+ettiren** bileşeni **kopyalayan** bileşene bağlardı — hem de tek işi DDL
+koşmaya izin verilen tek yer olmak olan bir pakette.
+
+Onun yerine fonksiyon alanı: `BackupFirst func(ctx) (*int64, error)`.
+Bağımlılık `cmd/upgrader`'da, yani iki yarının bir arada okunduğu yerde.
+
+### Verilen karar: rıza
+
+Plandaki açık soru "yedek alınamazsa yükseltme durmalı mı" idi.
+
+| Durum | Karar | Neden |
+|---|---|---|
+| Yedek dizini yapılandırılmamış | Yükseltme sürüyor | Hiç yedeği yoktu, şimdi de bir şey kaybetmiyor |
+| Yapılandırılmış, yedek başarısız | Yükseltme duruyor | Müşteri "riskli şeylerden önce kopya" demiş; bu riskli şey |
+
+Katı tarafın bedelini hafife almadım: **L2 şema geride kaldığında
+servisleri durduruyor**, yani "yükseltilemiyor" bekleyen bir kurulum
+değil, duran bir kurulumdur. Yapılandırmamış kurulumu engellemek, bir
+önlem kılığında gelen bir gerileme olurdu.
+
+### Gerçek zincirle doğrulandı
+
+Gerçek `upgrader` binary'si, gerçek veritabanı, gerçek dosya sistemi.
+
+**Başarılı tur** — günlük sırayı kendisi söylüyor:
+
+```
+backup: copying            reason=upgrade
+upgrade: backed up before applying   backup=121
+upgrade: applying
+upgrade: applied
+```
+
+**Sığmayan disk** — 64 KB'lık gerçek bir tmpfs:
+
+```
+upgrade: stopped before applying, because the backup failed
+```
+
+Şema 1'de kaldı. İstek satırı `failed`, ve müşterinin göreceği cümle:
+
+> bu yedek yaklaşık 181862 bayt istiyor, diskte 49152 bayt var, 6553
+> pay bırakılıyor. 139263 bayt eksik. Hiçbir şey yazılmadı; daha az
+> küme seçin, saklama süresini kısaltın veya diski büyütün.
+
+### Bu arada bulunan iki şey
+
+**Panik.** `Take` çağıranın logger'ını doğrudan `write`'a veriyordu ve
+`write` `log.Info` çağırıyor. `nil` bir `*slog.Logger` ilk çağrıda
+panikliyor — ve çağıran, şema yükseltmesinin ortasındaki applier.
+Talep alınmış, istek uçuşta, ve süreç hiçbir şey kaydetmeden ölüyor.
+
+Parametre kaldırıldı. `Runner` zaten nil-güvenli bir `logger()`
+taşıyordu, yani aynı şeyi söylemenin iki yolu vardı ve yalnız biri
+güvenliydi. Sebebi günlüğe yazmak isteyen çağıran Runner'ı kopyalıyor —
+değer tipi, tek satır.
+
+**Beklentimin yanlış olduğu bir yer.** 8 MB'lık bir tmpfs'te yedeğin
+reddedileceğini sanmıştım; sığdı. Pay "1 GB **veya diskin onda biri,
+hangisi küçükse**" — 8 MB'ta pay 800 KB. Kod doğruydu, ben okumadan
+tahmin etmiştim.
+
+### İki mutasyon boşluk gösterdi, ikisi de kapatıldı
+
+- `cmd/upgrader`'daki karar bir kapalı fonksiyondu (closure). "Hiçbir
+  şey isteğe bağlı değil" diye değiştirildiğinde takımda hiçbir şey
+  kırmızı vermedi: tek çağıran applier ve applier'ın testleri kendi
+  yüklemlerini getiriyor. Adlandırıldı ve kendi testi yazıldı.
+- `Take`'in "dizin yok" koruması kaldırıldığında kuyruk testi bunu
+  görmedi, çünkü kuyruk `carryOut`'tan geçiyor. Aynı koşulu iki çağıran
+  paylaşıyor ve yalnız biri sınanmıştı.
+
+*Her halkası test edilmiş bir zincir, test edilmiş bir zincir değildir* —
+ve iki çağıranı olan bir koşulun bir çağırandan sınanması da öyle.
+
+### Bağlantının kendisi de değişmezle tutuluyor
+
+`internal/invariants/hooks_test.go`: `applier.Applier` üzerindeki her
+fonksiyon alanı `cmd/upgrader` tarafından atanmalı. Nil bir hook hiçbir
+yerde kırmızı vermez — applier'ın kendi testleri bilerek nil bırakıyor —
+ve yükseltme sessizce yedek almayı bırakır. Kimsenin bağlamadığı bir
+hook, kimsenin sahip olmadığı bir özelliktir.
+
+### Var olan bir değişmez beni yakaladı
+
+Yeni test dosyası `schema_version` yazıyor ve `testdb.SchemaVersionLock`
+adını hiç anmıyordu. Kilit ortak fixture'da alınıyor, yani dosya
+güvenliydi — ama başka bir dosyadaki bir satır sayesinde.
+
+Yoruma yazıp geçmek hem okuyucuyu hem taramayı memnun eder, hiçbir şey
+kanıtlamazdı. Onun yerine `pg_locks`'a soruluyor: fixture kilidi almayı
+bırakırsa bu testler burada söylüyor, başka bir paket başka bir şeyi
+başka bir yerde söylemek yerine.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Yedek DDL'den sonra alınsın | Yakalandı |
+| Başarısız yedek artık durdurmasın | Yakalandı |
+| Yapılandırılmamış kurulum da engellensin | Yakalandı |
+| Her başarısızlık isteğe bağlı sayılsın | Yakalandı |
+| Binary hook'u atamayı bıraksın | Yakalandı |
+| `Take`'in dizin koruması kalksın | Yakalandı |
+| `Take` katalog satırı yazmasın | Yakalandı |
+| Fixture kilidi almayı bıraksın | Yakalandı |
+| Reddedilen şema önce yedeğe mal olsun | Yakalandı |
