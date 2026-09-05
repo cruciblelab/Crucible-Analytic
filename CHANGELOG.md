@@ -9,9 +9,10 @@ yapacağım".
 
 ---
 
-## Yayımlanmamış
+## v0.22.0 — 2026-09-05
 
-Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+Yedek alma yolunun ikinci yarısı, bir güvenlik düzeltmesi, ve panelin iç
+yapısında derleyicinin zorladığı sınırlar.
 
 **Şema sürümü: 12.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Tek bir kısıt genişletiliyor; hiçbir satır
