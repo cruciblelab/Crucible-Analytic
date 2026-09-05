@@ -11687,3 +11687,98 @@ yedekten sonra üç satır" dedirtti. Artık girişte de temizleniyor.
 | Segment dolu alanla sınırlanmasın | Yakalandı |
 | Segment yukarı yuvarlasın | Yakalandı |
 | Yersiz baytlar düşürülsün | Yakalandı |
+
+---
+
+## Gecelik hattın iki gecedir kırmızı olması: iş yapmayan bir chmod
+
+Müşteri "run failed" dedi. `ci` yeşildi; kırmızı olan **gecelik**ti, ve
+kırmızı olan tek iş konteyner uçtan uca sınamasıydı.
+
+```
+--- FAIL: TestTheStackWorksFromItsOwnComposeFile
+service "init" didn't complete successfully: exit 1
+
+init-1 | == binaries
+init-1 | chmod: /opt/crucible-analytic: Operation not permitted
+init-1 | chmod: /opt/crucible-analytic/bin: Operation not permitted
+```
+
+### Ne zaman başladığı ölçüldü, tahmin edilmedi
+
+| Gecelik | Commit | Sonuç |
+|---|---|---|
+| #10 (09-03) | `de19649` | yeşil |
+| #11 (09-04) | `0bd2207` | kırmızı |
+| #12 (09-05) | `756fa3e` | kırmızı |
+
+Yani F1c'den değil. `git log -S` ile o satırı ekleyen iki commit bulundu:
+`a19ba7f` (U grubu) ve `ab376e5` (V4c). İkisi de son yeşil geceliğin
+**sonrasında**, ve ikisi de **v0.21.0'ın içinde.**
+
+Yani kırık bir konteyner kurulumu yayımlanmış.
+
+### Kusur
+
+`chmod`, dizinin sahibi olmayan biri için EPERM veriyor — **kip zaten
+istenen kip olsa bile.** Konteynerde `/opt/crucible-analytic` imaja
+gömülü, root'un, ve zaten 0755; init konteyneri başka bir kullanıcı. Yani
+`set -e` altında kurulum, hiçbir şeyi değiştirmeyecek bir çağrı yüzünden
+bitiyordu.
+
+Bunu `chmod`'u ilk yazdığımda düşünmemiştim, ve gerekçem doğruydu:
+`mkdir -p`'nin kipi yalnız kendi yarattığı dizinlere uygulanır, yani var
+olan bir dizin yanlış kipte kalır. Aynı ders yedek dizininde de
+öğrenilmişti. Eksik olan şey ikinci yarısıydı: **kurulumu koşturan hesap
+o dizinin sahibi olmayabilir**, ve olmadığında doğru kip bile hata
+verir.
+
+### Düzeltme, ve neden "hiç chmod etme" değil
+
+Betik kipi önce okuyor:
+
+- Zaten doğruysa dokunmuyor — sahibi kim olursa olsun.
+- Yanlışsa ve düzeltilebiliyorsa düzeltiyor.
+- Yanlışsa ve düzeltilemiyorsa **duruyor**, kipin ne olduğunu ve ne
+  olması gerektiğini söyleyerek.
+
+Üçüncüsü olmadan "hiç chmod etme" derdik, ve servislerin kendi
+binary'lerine ulaşamadığı bir kurulum sessizce üretilirdi. O hata daha
+sonra `status=203/EXEC` olarak çıkar, ki bu belirtiyi söyler sebebi
+söylemez.
+
+### Yerelde birebir üretildi
+
+Docker bu makinede yok, ama koşul var: root'un olan 0755 bir dizin, ve
+`nobody` olarak koşan bir `chmod`.
+
+```
+chmod: changing permissions of '/tmp/ca-prefix-test': Operation not permitted
+```
+
+Üç yol da ayrı ayrı sınandı: sahibi olmayan + kip doğru (geçiyor),
+sahibi olmayan + kip yanlış (1 ile duruyor), sahibi olan + kip yanlış
+(düzeltiyor).
+
+### Testin ikinci kullanıcıya ihtiyacı yok
+
+"Başkası sahibi" durumunu üretmek iki hesap ister ve CI'ın bir tane
+kullanılabilir hesabı var. Ama kusurun asıl olduğu şey daha dar:
+**değiştirecek bir şey yokken çağrılan bir chmod.** O yüzden test
+`chmod`'u PATH'te her zaman düşen bir taklitle değiştiriyor. Ona ulaşan
+her çağrı görünür oluyor, ve soru bash'in tek başına cevaplayabileceği
+bir soruya dönüyor.
+
+Test fonksiyonu `install.sh`'tan **adıyla ve şekliyle** çekiyor. Adı
+değişirse test bulamıyor ve bunu söylüyor — sessizce geçmiyor.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Eski koşulsuz chmod geri gelsin | Yakalandı |
+| Yanlış kip sessizce kabul edilsin | Yakalandı |
+| 0755 ile 755 farklı kipler sayılsın | Yakalandı |
+
+`go test -tags release ./release/` yeşil (148 sn), tarball uçtan uca
+yeşil — ikisi de gerçek `install.sh`'ı koşturuyor.

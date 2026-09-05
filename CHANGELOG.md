@@ -35,6 +35,33 @@ ifade etmeyen bir numara okuyor.
 çubuğa eklenmiyor. Bir çubuk belirli bir disk hakkında iddiadır ve o
 iddia için elde veri yok.
 
+### Düzeltme: konteyner kurulumu hiç tamamlanmıyordu
+
+**v0.21.0'ı Docker ile kuran hiç kimse kuramadı.** Init konteyneri
+şurada duruyordu:
+
+```
+== binaries
+chmod: /opt/crucible-analytic: Operation not permitted
+chmod: /opt/crucible-analytic/bin: Operation not permitted
+```
+
+Kurulum betiği binary'leri kopyalamadan önce dizinlerin kipini
+ayarlıyordu. `chmod`, dizinin sahibi olmayan biri için **hiçbir şeyi
+değiştirmeyecek olsa bile** hata veriyor — ve konteynerde dizin imaja
+gömülü, root'un, ve zaten doğru kipte; init konteyneri ise başka bir
+kullanıcı olarak koşuyor.
+
+Yani kurulum, yapacak işi olmayan bir çağrı yüzünden bitiyordu.
+
+Betik artık kipi önce okuyor. Zaten doğruysa kimin olduğuna bakmadan
+dokunmuyor; yanlışsa ve düzeltemiyorsa kipin ne olduğunu, ne olması
+gerektiğini ve neden önemli olduğunu söyleyerek duruyor — çünkü o durum
+gerçekten servislerin kendi binary'lerine ulaşamadığı bir kurulum
+üretir.
+
+Tarball ile kuranlar etkilenmedi.
+
 ### Düzeltme: aynı saniyede alınan iki yedek birbirini siliyordu
 
 **Aynı saniye içinde alınan iki yedekten ilki sessizce siliniyordu.**

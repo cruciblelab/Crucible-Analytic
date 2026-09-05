@@ -119,6 +119,46 @@ done
 say() { printf '== %s\n' "$*"; }
 die() { printf 'install: %s\n' "$*" >&2; exit 1; }
 
+# ensure_mode <mode> <dir>... sets a directory's mode, and does nothing
+# when it is already that.
+#
+# # Why not just chmod
+#
+# chmod fails with EPERM for anybody who does not own the directory,
+# even when it would have changed nothing. That is the ordinary case in
+# a container: the image bakes /opt/crucible-analytic in, root-owned and
+# already 0755, and the init container runs as somebody else. `set -e`
+# then ends the install over a call that had no work to do.
+#
+# It broke the nightly container run for two nights. The message named
+# the symptom - "Operation not permitted" - and not the fact that the
+# permission was already correct.
+#
+# So the mode is read first. A directory that is already right is left
+# alone whoever owns it, and one that is wrong and cannot be fixed stops
+# the install with what it is, what it needs, and why - because that one
+# really does produce a deployment where the services cannot reach their
+# own binaries.
+#
+# stat missing entirely leaves `have` empty, which never matches, so the
+# chmod is attempted exactly as before.
+ensure_mode() {
+  _want="$1"; shift
+  for _dir in "$@"; do
+    _have="$(stat -c %a "${_dir}" 2>/dev/null || printf '')"
+    # 0755 and 755 are the same mode written two ways.
+    case "${_want}" in 0*) _short="${_want#0}" ;; *) _short="${_want}" ;; esac
+    if [ "${_have}" = "${_want}" ] || [ "${_have}" = "${_short}" ]; then
+      continue
+    fi
+    chmod "${_want}" "${_dir}" 2>/dev/null || die \
+      "${_dir} is mode ${_have:-unknown} and has to be ${_want}, and this account \
+cannot change it. The services read their binaries through this directory, so an \
+install that carried on here would leave them unable to start. Either run the \
+install as the owner of ${_dir}, or set the mode yourself and run it again."
+  done
+}
+
 psql_super() {
   if [ -n "${SUPERUSER_DSN}" ]; then
     ${PSQL} "${SUPERUSER_DSN}" "$@"
@@ -1077,7 +1117,7 @@ say "binaries"
 if [ "${DRY_RUN}" -eq 0 ]; then
   if [ -d "${BIN_DIR}" ]; then
     mkdir -p "${PREFIX}/bin"
-    chmod 0755 "${PREFIX}" "${PREFIX}/bin"
+    ensure_mode 0755 "${PREFIX}" "${PREFIX}/bin"
     installed_any=0
     for src in "${BIN_DIR}"/*; do
       [ -f "${src}" ] || continue
@@ -1172,7 +1212,7 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   # then failed with "No such file or directory" on a path nobody had
   # asked about. Found by the release test, which runs the real script.
   mkdir -p "${PREFIX}/bin"
-  chmod 0755 "${PREFIX}" "${PREFIX}/bin"
+  ensure_mode 0755 "${PREFIX}" "${PREFIX}/bin"
   restart_script=""
   for candidate in "${HERE}/restart.sh" "${ROOT}/release/restart.sh"; do
     if [ -f "${candidate}" ]; then
