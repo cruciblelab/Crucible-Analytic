@@ -271,3 +271,50 @@ func (r Runner) logger() *slog.Logger {
 	}
 	return slog.Default()
 }
+
+// Writable reports whether backups can actually be written here.
+//
+// # Why a probe and not a permission check
+//
+// The condition that broke every systemd install is invisible to any
+// check short of writing: ProtectSystem=strict leaves the directory's
+// mode and owner exactly as they were and remounts the filesystem
+// read-only underneath. Mode 0700, owned by this account, on a
+// filesystem nothing may write to. Anything that reads metadata says
+// "writable".
+//
+// Found the same way internal/botdata found its own version of this,
+// which is why this is written the same way: create a file, remove it,
+// report what happened.
+//
+// # Why at startup rather than at the first press
+//
+// Because of who is standing there. A backup that fails when the button
+// is pressed fails in front of the customer, with a sentence about a
+// read-only filesystem that is not theirs to fix. Worse since the schema
+// upgrade started taking one first: a directory that cannot be written
+// stops upgrades too.
+//
+// At startup it is a line in the journal, addressed to the operator, at
+// the moment they installed or reconfigured the thing.
+//
+// Returns nil when no directory is configured. That deployment takes no
+// backups and needs no warning about a feature it did not turn on.
+func (r Runner) Writable() error {
+	if r.Dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(r.Dir, 0o700); err != nil {
+		return fmt.Errorf("backup: creating %s: %w", r.Dir, err)
+	}
+	probe, err := os.CreateTemp(r.Dir, ".yedek-yoklama-*")
+	if err != nil {
+		return fmt.Errorf("backup: writing to %s: %w", r.Dir, err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	if err := os.Remove(name); err != nil {
+		return fmt.Errorf("backup: removing %s: %w", name, err)
+	}
+	return nil
+}

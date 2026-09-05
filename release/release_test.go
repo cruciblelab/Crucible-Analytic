@@ -516,11 +516,19 @@ var unitExpectations = map[string]struct {
 		// A panel that could read that file could rewrite its own
 		// database.
 		user: "crucible-upgrader",
-		// Nothing writable, on purpose: it runs for a second at a time
-		// and logs to the journal, so the whole filesystem stays
-		// read-only for it.
-		writes: false,
-		why:    "one-shot; logs to the journal and writes only to the database over TCP",
+		// It writes backups under the state directory.
+		//
+		// This said false, with the reason "logs to the journal and
+		// writes only to the database over TCP". That was true when it
+		// was written and stopped being true the day the upgrader
+		// started writing backup files - and nothing noticed, because
+		// the reason is prose and prose does not go stale loudly.
+		//
+		// The cost: every backup on every systemd install failed with
+		// "read-only file system", and once the upgrade started taking
+		// one first, schema upgrades stopped too.
+		writes: true,
+		why:    "one-shot; logs to the journal, and writes backups under the state directory",
 	},
 
 	"crucible-restart.service": {

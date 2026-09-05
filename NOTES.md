@@ -11914,3 +11914,110 @@ başka bir yerde söylemek yerine.
 | `Take` katalog satırı yazmasın | Yakalandı |
 | Fixture kilidi almayı bıraksın | Yakalandı |
 | Reddedilen şema önce yedeğe mal olsun | Yakalandı |
+
+---
+
+## Yedek alma systemd kurulumunda hiç çalışmamış
+
+F1e'ye başlamak için yükseltici biriminin ne okuyabildiğine bakıyordum.
+Birimde şu yazıyordu:
+
+```
+# No ReadWritePaths, unlike the other four, and it is a decision.
+# ...
+# So ProtectSystem=strict leaves the whole filesystem read-only for this
+# unit, which is exactly right for a process whose only writes are to a
+# database over TCP.
+```
+
+Doğruydu. **F1b'ye kadar.** O gün yükseltici dosya yazmaya başladı ve bu
+cümle yanlış oldu.
+
+### Ölçüm
+
+systemd yöneticisi bu makinede yok, o yüzden `ProtectSystem=strict`'in
+yaptığı şeyi elle kurdum: özel bir mount namespace'inde yedek dizinini
+salt-okunur bağladım ve **gerçek upgrader binary'sini** kuyrukta bir
+istekle koşturdum.
+
+```
+backup: starting
+backup: copying
+backup: failed
+err: chmod ...: read-only file system
+```
+
+Müşteri sayfada bunu görüyor. Yapabileceği bir şey yok.
+
+### Neden hiçbir şey söylemedi
+
+İki koruma vardı ve ikisi de doğru çalıştı, yanlış şeyi kontrol ederek:
+
+- `unitExpectations` tablosunda yükselticinin girdisi var ve `writes:
+  false` diyor, gerekçesiyle: *"logs to the journal and writes only to
+  the database over TCP"*. İki yönlü ayna tam da bunun için var — ama
+  aynanın bir yüzü **düzyazı**, ve düzyazı sesli bayatlamaz.
+- Entegrasyon testleri yedeği `t.TempDir()`'e yazıyor, ki orası her
+  zaman yazılabilir. Sandbox'ı hiçbir test kurmuyordu.
+
+### F1d bunu ağırlaştırmıştı
+
+Dün eklediğim şey: yedek yapılandırılmışsa ve alınamıyorsa şema
+yükseltmesi durur. Yani bu kusurla birlikte, `[backup] dir` yazmış bir
+systemd kurulumunda **yükseltme de duruyordu.** Kendi eklediğim güvenlik
+önlemi, var olan bir kusurun yarıçapını büyütmüş.
+
+### Düzeltme, üç parça
+
+1. Birim durum dizinini yazılabilir tanımlıyor (`ReadWritePaths=-`).
+   Baştaki `-`, o dizini hiç kullanmayacak bir kurulumda birimin
+   başlamamasını engelliyor.
+2. Yedek dizini o dizinin altında olmak **zorunda**, ve belgeler artık
+   bunu öneri değil gereklilik olarak yazıyor. systemd `upgrader.toml`'u
+   okuyamaz; yazılabilir yol birimde sabit, dizin yapılandırmada
+   seçiliyor, ve ikisini uzlaştıran şey bu.
+3. `Runner.Writable()`: açılışta bir dosya yaratıp siliyor.
+
+### Neden yoklama, neden izin kontrolü değil
+
+Bu kusuru hiçbir metadata kontrolü göremez. `ProtectSystem=strict`
+dizinin kipini ve sahibini olduğu gibi bırakıp altındaki dosya sistemini
+salt-okunur bağlıyor. Kip 0700, sahip doğru hesap, dosya sistemi
+yazılamaz. **Yazmaktan kısa her kontrol "yazılabilir" der.**
+
+`internal/botdata` aynı dersi daha önce öğrenmişti ve `Writable`
+oradakiyle aynı şekilde yazıldı.
+
+### Neden açılışta, neden ilk basışta değil
+
+Kimin orada durduğu yüzünden. Düğmeye basıldığında başarısız olan bir
+yedek, müşterinin karşısında ve onun düzeltemeyeceği bir cümleyle
+başarısız oluyor. Açılışta ise operatörün, tam kurduğu ya da ayarı
+değiştirdiği anda okuduğu bir günlük satırı.
+
+Başlamayı reddetmiyor, uyarıyor. Bu binary'nin birinci işi şema
+yükseltmesi uygulamak, ve yedek dizini yanlış olan bir kurulumun da buna
+ihtiyacı var; hiç koşmamak, yanlış yapılandırılmış bir ekstrayı kesintiye
+çevirmek olurdu.
+
+### Test gerçek koşulu kuruyor
+
+`t.TempDir()` her zaman yazılabilir, o yüzden test kendi mount
+namespace'ini açıp dizini salt-okunur bağlıyor — systemd'nin kullandığı
+mekanizmanın aynısı. Kontrol o namespace'in **içinde** koşmalı, ve bir Go
+testi kendi sürecini götürmeden oraya giremez; test binary'si kendini
+yeniden çağırıyor.
+
+Testin boş yere geçmediği ayrıca doğrulanıyor: namespace gerçekten
+salt-okunur olmadıysa test onu söyleyip duruyor.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| `Writable` her zaman evet desin | Yakalandı |
+| Birim yazılabilir yolu yine kaybetsin | Yakalandı |
+| Tablo "hiçbir şey yazmıyor" desin | Yakalandı |
+
+*Bir kontrolün gerekçesi düzyazıysa, o gerekçe bayatladığında hiçbir şey
+kırmızı vermez.*

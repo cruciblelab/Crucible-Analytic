@@ -113,8 +113,21 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 # bir müşterinin ağacı, bir web kökü. Satır neyin dahil edileceğini
 # söyler; nereye gideceğini söylemez.
 #
+# **systemd altında /var/lib/crucible-analytic altında olmalı.** Öneri
+# değil, gereklilik: birim dosyası ProtectSystem=strict taşıyor, yani
+# dosya sisteminin tamamı bu servis için salt-okunur, ve yazılabilir tek
+# yol ReadWritePaths ile o dizin. systemd upgrader.toml'u okuyamaz, o
+# yüzden yazılabilir yol orada sabit, dizin ise burada seçiliyor; ikisini
+# uzlaştıran şey bu.
+#
+# Başka bir yere işaret ederseniz yükseltici açılışta günlüğe hata
+# yazıyor ("dizin yazılamıyor"). Sessizce beklemiyor, çünkü bu ayarın
+# yanlış olması yalnız yedeği değil şema yükseltmesini de durduruyor:
+# yedeği yapılandırmış bir kurulumda kopya alınamazsa yükseltme
+# başlamıyor.
+#
 # **Konteynerde volume üzerinde olmalı.** Durum dizininin altı bu yüzden
-# öneriliyor: compose dosyası orayı volume olarak bağlıyor, ve volume
+# de öneriliyor: compose dosyası orayı volume olarak bağlıyor, ve volume
 # dışına yazılan bir yedek bir sonraki imaj güncellemesinde silinir — ki
 # o, yedeğin karşı sigorta olduğu kaybın ta kendisidir.
 #

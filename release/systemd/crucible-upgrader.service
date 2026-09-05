@@ -58,17 +58,42 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
-# No ReadWritePaths, unlike the other four, and it is a decision.
+# The state directory, and nothing else.
 #
-# They name /var/log/crucible-analytic because they run for months and an
-# operator has to be able to read yesterday's errors. This runs for a
-# second at a time and its natural home is the journal:
-# `journalctl -u crucible-upgrader` is one place to look instead of two.
-# The lines a *customer* needs do not go to either - they go to the panel
-# through the log sink, which is a database table.
+# # Why this line was missing, and what it cost
 #
-# So ProtectSystem=strict leaves the whole filesystem read-only for this
-# unit, which is exactly right for a process whose only writes are to a
-# database over TCP.
+# It used to say "no ReadWritePaths, and it is a decision", because this
+# unit logs to the journal rather than to a file: `journalctl -u
+# crucible-upgrader` is one place to look instead of two. That was
+# true, and it stopped being true the day the upgrader started writing
+# backups.
+#
+# Nothing noticed. ProtectSystem=strict makes the whole filesystem
+# read-only for this unit, so every backup on every systemd install
+# failed with "read-only file system" - a message the customer cannot
+# act on, on a page where they had just pressed a button. Measured with
+# the real binary in a mount namespace that reproduces the sandbox.
+#
+# It got worse before it was found: the upgrade now takes a backup
+# before touching the schema and stops when one fails, so a deployment
+# that configured a backup directory could no longer upgrade either.
+#
+# # Why the state directory and not the configured path
+#
+# systemd cannot read upgrader.toml, so the writable path has to be
+# fixed here while the backup directory is chosen there. The two are
+# reconciled by putting the directory under this one - which is what
+# the configuration already recommends, for the container's sake, and
+# is now what it requires.
+#
+# The upgrader checks at startup that its backup directory is actually
+# writable and says so if it is not, so an operator who points it
+# somewhere else learns from the journal rather than from a customer.
+#
+# The leading `-` keeps a machine that has no state directory yet from
+# failing to start the unit: a deployment with no backups configured
+# never needs the path, and refusing to run the schema upgrader over a
+# directory it was not going to use would be the cure being worse.
+ReadWritePaths=-/var/lib/crucible-analytic
 
 CapabilityBoundingSet=

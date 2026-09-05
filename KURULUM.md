@@ -1106,8 +1106,25 @@ Yazılmadıkça bu kurulum yedek almaz: düğmeye basılırsa istek satırına
 "yedek dizini yapılandırılmamış" yazılır ve orada biter. Sessizce
 beklemez.
 
+**systemd altında `/var/lib/crucible-analytic` altında olmalı.** Öneri
+değil, gereklilik. Yükseltici birimi `ProtectSystem=strict` taşıyor:
+dosya sisteminin tamamı o servis için salt-okunur, ve yazılabilir tek yol
+`ReadWritePaths` ile o dizin. systemd `upgrader.toml`'u okuyamaz, o
+yüzden yazılabilir yol birimde sabit, dizin ise yapılandırmada seçiliyor.
+
+Başka bir yere işaret ederseniz yükseltici **açılışta** günlüğe hata
+yazar:
+
+```
+journalctl -u crucible-upgrader | grep "cannot be written"
+```
+
+Bunu okumadan bırakmayın: bu ayar yanlışsa yalnız yedek değil **şema
+yükseltmesi de durur.** Yedeği yapılandırmış bir kurulumda kopya
+alınamazsa yükseltme hiç başlamaz.
+
 **Konteynerde volume üzerinde olmalı.** Durum dizininin altı bu yüzden
-öneriliyor: `compose.yml` orayı volume olarak bağlıyor. Volume dışına
+de öneriliyor: `compose.yml` orayı volume olarak bağlıyor. Volume dışına
 yazılan bir yedek bir sonraki imaj güncellemesinde silinir — ki o,
 yedeğin karşı sigorta olduğu kaybın ta kendisi.
 

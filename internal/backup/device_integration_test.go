@@ -18,8 +18,11 @@ package backup_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
@@ -384,3 +387,91 @@ func TestTakeWritesTheSameKindOfBackupAsTheButton(t *testing.T) {
 			"onto the disk they are on")
 	}
 }
+
+// TestWritableSaysNoWhenTheFilesystemIsReadOnly.
+//
+// # The condition this is about
+//
+// ProtectSystem=strict remounts the filesystem read-only inside the
+// unit's mount namespace. The directory keeps its mode and its owner, so
+// every check that reads metadata says "writable" and the write fails
+// anyway. That is what made every backup on every systemd install fail,
+// with a message the customer could not act on.
+//
+// Reproduced rather than described: the test creates its own mount
+// namespace and remounts the directory read-only, which is the same
+// mechanism systemd uses.
+func TestWritableSaysNoWhenTheFilesystemIsReadOnly(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to create a mount namespace; this is what CI's " +
+			"container gives and a developer's laptop does not")
+	}
+	dir := t.TempDir()
+
+	// The directory itself is fine - this is the whole point.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := backup.Runner{Dir: dir}
+	if err := r.Writable(); err != nil {
+		t.Fatalf("a writable directory was reported as not: %v", err)
+	}
+
+	// Now the same directory, on a read-only mount, in a namespace of
+	// this test's own so nothing else on the machine sees it.
+	script := `set -e
+mount --bind "$1" "$1"
+mount -o remount,ro,bind "$1"
+touch "$1/deneme" 2>/dev/null && echo WRITABLE || echo READONLY`
+	out, err := exec.Command("unshare", "-m", "sh", "-c", script, "sh", dir).CombinedOutput()
+	if err != nil {
+		t.Skipf("could not build the read-only mount here: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "READONLY") {
+		t.Fatalf("the mount namespace did not make the directory read-only, so this "+
+			"test would prove nothing:\n%s", out)
+	}
+
+	// And Writable, run inside that namespace, has to agree. The test
+	// binary re-execs itself as the child; see TestWritableProbeHelper.
+	probe := `set -e
+mount --bind "$1" "$1"
+mount -o remount,ro,bind "$1"
+exec "$2" -test.run=TestWritableProbeHelper`
+	child := exec.Command("unshare", "-m", "sh", "-c", probe, "sh", dir, os.Args[0])
+	child.Env = append(os.Environ(), writableProbeEnv+"="+dir)
+	out, err = child.CombinedOutput()
+	if err == nil {
+		t.Fatalf("Writable said yes on a read-only filesystem.\n"+
+			"The directory's mode and owner are untouched by the remount, so "+
+			"anything short of writing says the same - which is how this shipped:\n%s",
+			out)
+	}
+	if !strings.Contains(string(out), "read-only") {
+		t.Errorf("the refusal does not mention the filesystem, so an operator "+
+			"reading the journal would not know what to fix:\n%s", out)
+	}
+}
+
+// TestWritableProbeHelper is the child half of the test above.
+//
+// # Why a child process at all
+//
+// The check has to run *inside* a mount namespace, and a Go test cannot
+// enter one without taking the rest of its own process with it. The
+// standard answer is to re-exec the test binary with a marker in the
+// environment, which is what this is: skipped in an ordinary run, and
+// the whole program when the parent sets the variable.
+func TestWritableProbeHelper(t *testing.T) {
+	dir := os.Getenv(writableProbeEnv)
+	if dir == "" {
+		t.Skip("the child half of TestWritableSaysNoWhenTheFilesystemIsReadOnly")
+	}
+	if err := (backup.Runner{Dir: dir}).Writable(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+const writableProbeEnv = "CA_WRITABLE_PROBE_DIR"

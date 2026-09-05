@@ -212,6 +212,25 @@ func main() {
 	// The customer can still take a full one from the page whenever they
 	// want, which is the difference between what this does automatically
 	// and what they choose.
+	// Said at startup, not at the first press.
+	//
+	// ProtectSystem=strict leaves a directory's mode and owner alone and
+	// remounts the filesystem read-only underneath, so nothing short of
+	// writing can tell. The version of this file without a
+	// ReadWritePaths line made every backup on every systemd install
+	// fail in front of the customer - and, once the schema upgrade
+	// started taking one first, stopped upgrades as well.
+	//
+	// A warning rather than a refusal to start. This binary's first job
+	// is applying schema upgrades, and a deployment whose backup
+	// directory is wrong still needs that done; refusing to run at all
+	// would turn a misconfigured extra into an outage.
+	if err := backups.Writable(); err != nil {
+		logger.Error("upgrader: backups are configured and the directory cannot be "+
+			"written; the button will fail and schema upgrades will stop",
+			"dir", cfg.Backup.Dir, "err", err)
+	}
+
 	//
 	// A copy of the runner with a decorated logger, so every line the
 	// automatic backup writes says why it happened. Runner is a value,

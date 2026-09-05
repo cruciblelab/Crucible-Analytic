@@ -17,6 +17,32 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 **Sağlık → Şema yükseltmesi**. Tek bir sütun ekleniyor; veri değişmiyor,
 servis durmuyor.
 
+### Düzeltme: systemd kurulumunda yedek alma hiç çalışmıyordu
+
+**v0.21.0 ve v0.22.0'da, systemd ile kurulmuş her sistemde yedek alma
+düğmesi çalışmıyordu.** Basınca istek satırına şu yazılıyordu:
+
+```
+read-only file system
+```
+
+Yükseltici biriminin sertleştirmesi dosya sisteminin tamamını o servis
+için salt-okunur yapıyor, ve yazılabilir bir yol tanımlanmamıştı. Birimin
+içindeki yorum "yalnız veritabanına yazar" diyordu — yedekleme
+eklenmeden önce doğruydu, sonrasında değil, ve bunu fark eden bir şey
+yoktu.
+
+Birim artık durum dizinini yazılabilir tanımlıyor, ve **yedek dizini o
+dizinin altında olmak zorunda.** Öneri değil, gereklilik: systemd
+`upgrader.toml`'u okuyamaz, o yüzden yazılabilir yol birimde sabit.
+
+Başka bir yere işaret edilirse yükseltici **açılışta** günlüğe hata
+yazıyor. Müşteri düğmeye basana kadar beklemiyor, çünkü bu ayarın yanlış
+olması artık şema yükseltmesini de durduruyor.
+
+Tarball ve konteyner kurulumlarında `/var/lib/crucible-analytic/yedek`
+zaten önerilen yoldu; o yolu kullananlar etkilenmedi.
+
 ### Şema yükseltmesinden önce otomatik yedek
 
 **Sağlık → Şema yükseltmesi'ne bastığınızda, veritabanına dokunulmadan
