@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/cruciblelab/crucible-analytic/internal/devseal"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/releasesign"
 )
@@ -79,10 +81,46 @@ type BackupConfig struct {
 	// one is discarded by the next image update, which is exactly the
 	// loss it was taken to insure against.
 	Dir string `toml:"dir"`
+
+	// Recipient is the public key a secrets backup is sealed to.
+	//
+	// # Why a public key is in a config file and not a password
+	//
+	// A secrets backup is this directory's own contents: five config
+	// files carrying the database passwords for every role, the session
+	// key, and `ip_hash_key` - the value that makes stored addresses
+	// pseudonyms rather than addresses. It has to be encrypted, and it
+	// cannot be encrypted to anything that is also on this machine,
+	// because a key beside the file is a key whoever took the file has.
+	//
+	// So it is encrypted to the developer password, which is not here -
+	// only this public half is. The upgrader can write a secrets backup
+	// and cannot read one back, and neither can root. See
+	// internal/devseal.
+	//
+	// Produced by `devpass -recipient`. Empty means this deployment
+	// does not take secrets backups; the button says so rather than
+	// producing a file nobody could open.
+	Recipient string `toml:"recipient"`
 }
 
 // Configured reports whether this deployment takes backups.
 func (b BackupConfig) Configured() bool { return b.Dir != "" }
+
+// Recipient parses the configured recipient.
+//
+// Returns the zero Recipient and no error when nothing is configured:
+// that is a deployment which does not take secrets backups, and it must
+// start normally. A recipient that is present and wrong is an error,
+// for the reason devgate.New gives about a mistyped hash - a fault and
+// a state need to be distinguishable, and finding out at the moment
+// somebody presses the button is finding out too late.
+func (b BackupConfig) Parsed() (devseal.Recipient, error) {
+	if strings.TrimSpace(b.Recipient) == "" {
+		return devseal.Recipient{}, nil
+	}
+	return devseal.ParseRecipient(b.Recipient)
+}
 
 // ReleaseConfig is the [release] table.
 //
@@ -166,7 +204,32 @@ func (c Config) Validate() error {
 			"(the fifth role, which owns the tables; install.sh creates it and writes " +
 			"its password into this file)")
 	}
+	if err := c.Backup.Validate(); err != nil {
+		return err
+	}
 	return c.Release.Validate()
+}
+
+// Validate checks the backup settings.
+//
+// A recipient with no directory is refused for the same reason a
+// release public key with no base_url is: somebody believed they had
+// configured something and had not, and the place they would find out
+// is the button.
+//
+// A directory with no recipient is *not* refused. That is the ordinary
+// deployment: it takes data backups and does not take secrets backups,
+// and the page says which. Refusing it would make a feature nobody
+// asked for a condition of a feature they did.
+func (b BackupConfig) Validate() error {
+	if b.Recipient != "" && b.Dir == "" {
+		return errors.New("upgrader: [backup] recipient is set and dir is not, so there " +
+			"is nowhere to write a secrets backup. Set both or neither")
+	}
+	if _, err := b.Parsed(); err != nil {
+		return fmt.Errorf("upgrader: [backup] recipient: %w", err)
+	}
+	return nil
 }
 
 // Validate checks the release settings, which are all-or-nothing.

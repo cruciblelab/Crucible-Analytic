@@ -136,3 +136,34 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 # okuyamaz: bir yedek, o servislerin okumasına izin verilmeyen her
 # satırı ve panelin parola hash'lerini taşır.
 # dir = "/var/lib/crucible-analytic/yedek"
+#
+# Sırlar yedeğinin kapatılacağı açık anahtar.
+#
+# Boş bırakılırsa bu kurulum sırlar yedeği almaz: panelde kutu görünür,
+# istek satırı yazılır, ve yükseltici satıra "alıcı yapılandırılmamış"
+# yazıp bitirir. Veri yedekleri bundan etkilenmez.
+#
+# Üretmek için, geliştirici parolasıyla:
+#
+#     devpass -recipient
+#
+# Aynı parolayı kullanın: `[developer] password_hash` ile bu satır aynı
+# parolanın iki ayrı türevidir ve birbirlerinden üretilemezler.
+#
+# **Bu satır açık anahtardır.** Sırlar yedeğini kapatmaya yarar, açmaya
+# yaramaz. Açan tek şey parolanın kendisidir ve o parola sunucuda hiçbir
+# yerde yazılı değildir — ne bu dosyada, ne diskte, hiçbir yerde. Yani
+# bu makine bir sırlar yedeği üretebilir ve üretttiğini okuyamaz; root
+# da okuyamaz. Yedek dizini kopyalanmış, disk imajı alınmış, sanal
+# makine hurdaya çıkmış olsun: parola olmadan hepsi işe yaramaz.
+#
+# Bunun bedeli açıkça yazılmalı: parolayı kaybederseniz o güne kadar
+# alınmış bütün sırlar yedekleri açılamaz hâle gelir. Tasarım budur.
+# Yeni bir parola üretip bu satırı değiştirmek yalnız bundan sonrakileri
+# kurtarır.
+#
+# Sırlar yedeğinin içinde bu dizindeki yapılandırma dosyaları vardır:
+# beş rolün veritabanı parolaları, panelin oturum anahtarı ve
+# `ip_hash_key`. Veri yedeğiyle aynı dosyaya asla girmezler — ikisi bir
+# aradaysa takma adlandırma çözülür.
+# recipient = "cadev1.131072.3.4.<tuz>.<açık anahtar>"

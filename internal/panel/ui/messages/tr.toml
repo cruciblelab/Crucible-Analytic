@@ -1093,6 +1093,11 @@ eksik = "Dosya yok"
 eksik_aciklama = "Katalog bu yedeği tanıyor ve dosya diskte değil. Biri kabuktan silmiş olabilir; satır kaldırılmıyor, çünkü \"burada bir yedek vardı ve gitti\" cümlesi okunması gereken bir cümle."
 saklama_uyarisi = "Bir yedek, saklama politikanızın o tarihten sonra sildiği veriyi tutar. Yani sildiğinizi sandığınız satırlar burada duruyor olabilir."
 durum_baslik = "Son istek"
+sirlar_ipucu = "Sırlar yedeği ayrı bir dosyadır ve veriyle aynı dosyaya asla girmez: yapılandırma \"ip_hash_key\" anahtarını taşır, ikisi bir arada olsaydı takma adlandırma çözülürdü. Aynı anda ikisini birden seçemezsiniz."
+parola = "Geliştirici parolası"
+parola_ipucu = "Yalnız sırlar yedeği için gerekli. Dosya bu parolaya kapatılır: makinede onu açabilecek hiçbir şey yoktur, root bile açamaz. Parolayı kaybederseniz alınmış sırlar yedekleri de kaybolur."
+parola_gerekli = "Sırlar yedeği için geliştirici parolası gerekiyor. Parola veritabanında değil, sunucudaki yapılandırma dosyasında — kendinize bu yetkiyi veremezsiniz."
+ayri_dosya = "Yapılandırma ile veri aynı dosyaya girmez. Yapılandırma \"ip_hash_key\" anahtarını taşıyor; ikisi tek dosyada olsaydı o dosyayı ele geçiren herkes takma adlandırmayı çözerdi. İki ayrı yedek alın."
 
 [metin.saglik.yedek.sutun]
 tarih = "Tarih"
@@ -1103,6 +1108,7 @@ surum = "Sürüm"
 [metin.saglik.yedek.kume]
 analitik = "Analitik: trafik ve beacon olayları"
 panel = "Panel: hesaplar, siteler, ayarlar, denetim kaydı"
+sirlar = "Sırlar: yapılandırma dosyaları — ayrı dosya, geliştirici parolasıyla şifreli"
 
 [metin.saglik.yedek.durum]
 pending = "Sırada"

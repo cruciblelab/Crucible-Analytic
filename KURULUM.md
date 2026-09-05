@@ -1151,6 +1151,70 @@ yedeklerde duruyor olabilir.
 **Geri yükleme henüz yok** (F1f). Şu an alınabiliyor, listelenebiliyor,
 ve doğrulanması ile yan bir veritabanına yüklenmesi sonraki fazda.
 
+### Sırlar yedeği: yapılandırmanın kendisi
+
+Yukarıdaki yedek **veriyi** kopyalar. Makineyi geri getiren şey o değil:
+veritabanı geri yüklendiğinde beş rolün parolaları, panelin oturum
+anahtarı ve `ip_hash_key` hâlâ eksiktir, ve `ip_hash_key` eksikse
+saklanmış her adres artık hiçbir şeyle eşleşmez.
+
+O yüzden ikinci bir yedek türü var: `/etc/crucible-analytic` dizininin
+kendisi. **Veri yedeğiyle aynı dosyaya asla girmez.** İkisi bir aradaysa
+o dosyayı ele geçiren herkes hem veriyi hem anahtarı alır ve takma
+adlandırma çözülür — yani ürünün tamamının dayandığı ayrım tek bir
+dosyayla geçersiz olur. Panelde ikisini birden seçemezsiniz, ve seçmiş
+gibi bir satır yazılsa bile yükseltici onu reddeder.
+
+**Açmak için iki satır.** Önce alıcıyı üretin — geliştirici parolasıyla,
+`password_hash` için kullandığınızın **aynısıyla**:
+
+```
+devpass -recipient
+```
+
+Çıkan satırı `upgrader.toml` içine koyun:
+
+```toml
+[backup]
+dir       = "/var/lib/crucible-analytic/yedek"
+recipient = "cadev1.131072.3.4.…"
+```
+
+**Bu satır açık anahtardır.** Sırlar yedeğini kapatmaya yarar, açmaya
+yaramaz. Açan tek şey parolanın kendisidir ve o parola sunucuda hiçbir
+yerde yazılı değildir — ne bu dosyada, ne diskte, hiçbir yerde. Sonuç:
+
+> Makine bir sırlar yedeği üretebilir ve ürettiğini okuyamaz. Root da
+> okuyamaz.
+
+Yedek dizini kopyalanmış, disk imajı alınmış, hurdaya çıkan sanal
+makinenin diski birinin eline geçmiş olsun — parola olmadan hepsi işe
+yaramaz bayt yığınıdır. Dosyanın açık kısmı yalnız şunu söyler: ne zaman
+alındığı, hangi sürümün aldığı, ve hangi alıcıya kapatıldığı. İçindeki
+dosyaların **adları bile** açıkta değil.
+
+**Bedeli açıkça:** parolayı kaybederseniz o güne kadar alınmış bütün
+sırlar yedekleri açılamaz hâle gelir. Tasarım budur; kurtarma yolu
+yoktur. Yeni bir parola üretip satırı değiştirmek yalnız bundan
+sonrakileri kurtarır.
+
+**Almak için geliştirici parolası gerekir.** Veri yedeği müşterinindir
+ve parola istemez; bu istemektedir. Fark, dosyanın ne olduğunda: yalnız
+bizim açabileceğimiz bir dosyanın, kimsenin seçmediği bir anda,
+müşterinin diskinde belirmesi bir kaldıraçtır.
+
+**Açmak** — makinenin olmadığı gün, elinizde yalnız dosya ve parola
+varken:
+
+```
+devpass -open /yol/sirlar-20260905-105509.967.tar.gz -into ./kurtarma
+```
+
+Kurulum, yapılandırma dosyası, veritabanı gerekmez: dosya kendi
+alıcısını taşıyor. Hedef dizin **boş olmak zorunda**; canlı bir
+`/etc/crucible-analytic` üzerine yazmayı reddeder. Dosya kipleri
+arşivden geri gelir, sahiplikleri gelmez — `chgrp`/`chown` sizde.
+
 ### Disk: Sağlık sayfasındaki Disk bölümü
 
 Yapılandırdığınız her dizinin dosya sistemi, toplam / dolu /
@@ -1366,18 +1430,29 @@ go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 ```
 
 Güvenlik denetiminin en yüksek önemli iki bulgusu bağımlılıklardaydı ve
-hiçbir kod incelemesi onları bulamazdı. Bu depoda **CI yok** — çalışmayı
-hatırlamak şu an bir insana bağlı, ve bu bilinen bir eksik.
+hiçbir kod incelemesi onları bulamazdı. `.github/workflows/ci.yml` her
+itmede, `nightly.yml` her gece koşuyor — ama kendi makinenizde de
+çalıştırın: CI kırmızı verdiğinde okumak, yükseltmeden sonra okumaktan
+iyidir.
 
-**Yedek alın.** Yedeği yapılandıran şey bu yazılım değil; kurulum
-kontrolü yalnız "yapılandırılmış mı" diye sorar.
+**Yedek alın.** Panelin kendi yedeği var (§ Yedek ve § Sırlar yedeği) ve
+iki dosya üretiyor: tabloların kopyası, ve yapılandırmanın geliştirici
+parolasına kapatılmış kopyası. Düzenli çalışan bir zamanlayıcı **yok**;
+düğmeye basılıyor.
+
+Bunun dışında kalanlar için, kabuktan:
 
 ```bash
 pg_dump -Fc analytics > /yedek/analytics-$(date +%F).dump
 ```
 
-Yedeklenmesi gerekenler: veritabanı, `/etc/crucible-analytic/*.toml` (parolalar
-ve anahtarlar orada), ve `/var/lib/crucible-analytic/known_bots.json`.
+Panelin yedeği kümelere göre `COPY` ile çalışıyor; `pg_dump -Fc` ise
+veritabanının tamamını alır ve tanıdık bir araçtır. İkisi birbirinin
+yerine geçmez.
+
+Panelin yedeğinin **kapsamadığı** tek şey
+`/var/lib/crucible-analytic/known_bots.json` — indirilebilir bir veri
+kümesi olduğu için kasıtlı olarak dışarıda.
 
 ---
 

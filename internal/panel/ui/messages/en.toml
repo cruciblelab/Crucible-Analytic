@@ -1053,6 +1053,11 @@ eksik = "File missing"
 eksik_aciklama = "The catalogue knows this backup and the file is not on the disk. Somebody may have removed it from a shell; the row is kept, because \"there was a backup here and it is gone\" is a sentence that needs reading."
 saklama_uyarisi = "A backup holds data your retention policy has deleted since that date. Rows you believe are gone may still be in here."
 durum_baslik = "Last request"
+sirlar_ipucu = "A secrets backup is a separate file and never shares one with the data: the configuration carries \"ip_hash_key\", and a file holding both would undo the pseudonymisation. The two cannot be selected together."
+parola = "Developer password"
+parola_ipucu = "Needed only for the secrets backup. The file is sealed to this password: nothing on the machine can open it, not even root. Lose the password and every secrets backup already taken is lost with it."
+parola_gerekli = "A secrets backup needs the developer password. That password is not in the database - it is in a configuration file on the server, so you cannot grant yourself this."
+ayri_dosya = "The configuration and the data do not go into one file. The configuration carries \"ip_hash_key\"; together in one file, whoever obtained it would undo the pseudonymisation. Take two separate backups."
 
 [metin.saglik.yedek.sutun]
 tarih = "Date"
@@ -1063,6 +1068,7 @@ surum = "Version"
 [metin.saglik.yedek.kume]
 analitik = "Analytics: traffic and beacon events"
 panel = "Panel: accounts, sites, settings, audit log"
+sirlar = "Secrets: the configuration files - a separate file, sealed to the developer password"
 
 [metin.saglik.yedek.durum]
 pending = "Queued"

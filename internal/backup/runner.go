@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/devseal"
 )
 
 // The half that empties the queue.
@@ -35,6 +37,18 @@ type Runner struct {
 	// Dir is where backups are written, from upgrader.toml. Never from
 	// the request: see schema.sql.
 	Dir string
+	// ConfDir is the directory a secrets backup collects, and it is
+	// derived from the path of this process's own config file rather
+	// than configured.
+	//
+	// Nothing to set means nothing to point at the wrong place, and
+	// nothing a request could name. The panel writes what to include;
+	// where it is read from is no more the asking side's decision than
+	// where it is written to.
+	ConfDir string
+	// Recipient is who can open a secrets backup. Unset means this
+	// deployment does not take them - see ErrNoRecipient.
+	Recipient devseal.Recipient
 	// Name identifies this upgrader in the claim, so two of them are
 	// distinguishable in the row.
 	Name string
@@ -61,6 +75,27 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 	switch {
 	case errors.Is(err, ErrNothingToDo):
 		return nil, ErrNothingToDo
+	case err != nil && req != nil:
+		// Claimed, and then refused by the check Claim runs on the way
+		// out: the row names something this build cannot carry out.
+		//
+		// Recorded here rather than returned bare, and that is a defect
+		// this closes. The UPDATE already happened, so the row is
+		// `running` with nobody working on it. Returning without
+		// finishing it left it that way until ExpireStale released it
+		// - into the next run, which claimed it and failed the same
+		// check, forever, while the page said "Alınıyor".
+		//
+		// Reachable exactly where Claim says it is: a row written by a
+		// panel of a different version, naming a set this build
+		// renamed. That is the case the check exists for, and a check
+		// whose only outcome is a wedged queue is not one.
+		r.logger().Error("backup: claimed a request this build cannot carry out",
+			"request", req.ID, "sets", req.Sets, "err", err)
+		if finErr := Finish(ctx, r.Pool, req.ID, StateFailed, err, nil); finErr != nil {
+			r.logger().Error("backup: could not record the outcome", "err", finErr)
+		}
+		return req, err
 	case err != nil:
 		return nil, err
 	case req == nil:
@@ -158,6 +193,19 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*
 // write is the estimate, the copy and the catalogue row - the part both
 // callers share.
 func (r Runner) write(ctx context.Context, sets []string, log *slog.Logger) (*int64, error) {
+	// Which of the two artifacts this is, decided here and not by the
+	// caller. Both entry points - the queue and the pre-upgrade copy -
+	// come through this function, so the refusal to put the
+	// configuration and the traffic in one file is on the path every
+	// backup takes rather than on the paths somebody remembered.
+	kind, err := KindOf(sets)
+	if err != nil {
+		return nil, err
+	}
+	if kind == KindSecrets {
+		return r.writeSecrets(ctx, log)
+	}
+
 	est, err := Measure(ctx, r.Pool, r.Dir, sets)
 	if err != nil {
 		return nil, err
@@ -198,6 +246,63 @@ func (r Runner) write(ctx context.Context, sets []string, log *slog.Logger) (*in
 	return &id, nil
 }
 
+// writeSecrets is the same three steps for the other artifact.
+//
+// Separate from write's body rather than folded into it with
+// conditionals, because almost nothing is shared: different sizes,
+// different source, different file. What is shared is that both refuse
+// before writing when the disk cannot take it, and both record what
+// they made - and those two are the reason this is here rather than in
+// a package of its own.
+func (r Runner) writeSecrets(ctx context.Context, log *slog.Logger) (*int64, error) {
+	w := SecretsWriter{
+		Pool:          r.Pool,
+		ConfDir:       r.ConfDir,
+		Dir:           r.Dir,
+		Recipient:     r.Recipient,
+		BinaryVersion: r.BinaryVersion,
+		SchemaVersion: r.SchemaVersion,
+	}
+	if !w.Recipient.IsSet() {
+		return nil, fmt.Errorf("%w", ErrNoRecipient)
+	}
+
+	// Collected before the estimate because the estimate is of these
+	// bytes. The data backup can ask Postgres how big its tables are
+	// without reading them; there is no equivalent question to ask a
+	// directory that does not involve opening the files.
+	files, _, err := CollectSecrets(w.ConfDir)
+	if err != nil {
+		return nil, err
+	}
+	est, err := MeasureSecrets(r.Dir, files)
+	if err != nil {
+		return nil, err
+	}
+	if !est.Fits() {
+		return nil, fmt.Errorf("this backup needs about %d bytes and the disk has %d "+
+			"available, keeping %d spare. It is short by %d. Nothing was written",
+			est.FileBytes, est.AvailBytes, est.Margin, est.Short())
+	}
+	log.Info("backup: sealing the configuration",
+		"files", len(files), "estimate", est.FileBytes, "available", est.AvailBytes)
+
+	res, err := w.Write(ctx, r.secretsFileName())
+	if err != nil {
+		return nil, err
+	}
+	id, err := Record(ctx, r.Pool, res)
+	if err != nil {
+		return nil, fmt.Errorf("the secrets backup was written to %s and the catalogue row "+
+			"could not be added (%w). The file is there and nothing on the page will "+
+			"mention it", res.Path, err)
+	}
+	// Deliberately no line naming the files. The journal is read by
+	// whoever has the machine, and "which configuration files exist" is
+	// the one thing about this backup that is worth not saying twice.
+	return &id, nil
+}
+
 // fileName is the name a backup takes on disk.
 //
 // The timestamp is in it, and the sets are not. A name that described
@@ -222,6 +327,17 @@ func (r Runner) write(ctx context.Context, sets []string, log *slog.Logger) (*in
 // inside it - which is how the test produced this on the first run.
 func (r Runner) fileName() string {
 	return "yedek-" + r.now().UTC().Format("20060102-150405.000") + ".tar.gz"
+}
+
+// secretsFileName is the same shape with a different word.
+//
+// Different, because the two files must never be confused for one
+// another by anybody sorting a directory: they have different contents,
+// different protections and different restore procedures, and the one
+// thing somebody does with a backup directory before anything else is
+// look at the names.
+func (r Runner) secretsFileName() string {
+	return "sirlar-" + r.now().UTC().Format("20060102-150405.000") + ".tar.gz"
 }
 
 // Sweep marks catalogue rows whose files are gone.

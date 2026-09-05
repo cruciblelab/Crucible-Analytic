@@ -4756,7 +4756,7 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1b | Yedek alma: kuyruk, üretici, ölçülmüş tahmin, sığmazsa ret, dosya korumaları | ✅ yapıldı |
 | F1c | Yedekler depolama görünümünde, kapladıkları alanla | ✅ yapıldı |
 | F1d | Şema yükseltmesinden önce otomatik yedek | ✅ yapıldı |
-| F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | |
+| F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | ✅ yapıldı |
 | F1f | Doğrulama ve yan veritabanına geri yükleme | |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
@@ -4777,6 +4777,42 @@ uygulanmamış oluyor.
 Katı tarafın bedeli de ölçüldü ve hafife alınmadı: L2 şema geride
 kaldığında servisleri durduruyor, yani "yükseltilemiyor" bekleyen bir
 kurulum değil, duran bir kurulumdur.
+
+**F1e'de verilen karar: dosya parolaya kapatılır, izne değil.**
+
+"Ayrı dosya" tek başına bir şey satın almıyor. İki dosya aynı dizinde,
+aynı hesabın, aynı kipte duruyorsa birini okuyan öbürünü de okur; ayrım
+dosya adlarına dair bir olgu olur. Ve "sırlar yedeği geliştirici
+parolasında" cümlesi bir dosya kipiyle kurulamaz — bir dosyayı parolanın
+arkasına koyan tek şey, o parolanın anahtar türetmesidir.
+
+Bu yüzden dosya, geliştirici parolasından türetilen bir X25519 alıcısına
+kapatılıyor: açık yarısı `upgrader.toml` içinde, kapalı yarısı hiçbir
+yerde. Kazanılan özellik tek cümle — **makine bir sırlar yedeği
+üretebilir ve ürettiğini okuyamaz** — ve root için de geçerli.
+
+Bunun bedeli açıkça yazıldı, çünkü gerçek: parola kaybolursa o güne
+kadar alınmış bütün sırlar yedekleri kaybolur. Kurtarma yolu yok, ve
+olması da özelliği ortadan kaldırırdı.
+
+**İkinci karar: açık kısım içerik hakkında hiçbir şey söylemez.** İlk
+tasarımda manifest, veri yedeğinin manifesti gibi, her dosyayı boyutu ve
+SHA-256'sıyla listeliyordu. Bu tam bir felaket olurdu: yapılandırma
+dosyası birkaç sırrın etrafındaki kalıptır, yani düz metnin özeti bir
+doğrulayıcıdır — yedeği eline geçiren biri bir parola alanını tahmin
+edip tahminini tek bir SHA-256 maliyetiyle sınayabilir, argon2id
+bedelini hiç ödemeden. Boyut daha azını sızdırır ve yine sızdırır.
+Şimdi açık kısımda yalnız tarih, sürüm ve alıcı var; dosya adları bile
+kapalı tarafta.
+
+**Ölçülen izin açığı.** F1e'yi kurarken yükselticinin dört servis
+yapılandırmasını **okuyamadığı** görüldü: `install.sh` onları `crucible`
+grubuna 0640 veriyor, yükseltici `crucible-upgrader` olarak koşuyor ve
+ikisi kasten hiçbir grupta bir arada değildi. Her sırlar yedeği yalnız
+`upgrader.toml` ve dört "izin yok" satırı içerecekti — ve **başarılı**
+diyecekti, çünkü okunamayan dosya kaydedilip atlanıyor. Ortak bir
+`crucible-conf` grubu açıldı; `upgrader.toml` bilerek dışarıda, çünkü
+paneli ondan uzak tutmak bu dosyanın var oluş sebebi.
 
 ---
 

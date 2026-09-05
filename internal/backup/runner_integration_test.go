@@ -383,3 +383,80 @@ func tinyFilesystem(t *testing.T) string {
 	})
 	return dir
 }
+
+// TestARequestThisBuildCannotCarryOutIsFinishedRatherThanLeftRunning.
+//
+// # The wedge this closes
+//
+// Claim checks the row's sets on the way out, because the row was
+// written by a process this one does not trust to have been honest and
+// by a build that may not be this one. That check was right and its
+// only outcome was wrong: it returned an error *after* the UPDATE had
+// already moved the row to `running`, and RunOnce returned without
+// finishing it.
+//
+// So the row sat in `running` with nobody working on it. ExpireStale
+// released it into the next run, which claimed it, failed the same
+// check, and left it again - every thirty seconds, forever, while the
+// page said "Alınıyor" and the queue's one in-flight slot stayed taken.
+// No backup could be requested again on that deployment.
+//
+// Reachable exactly where Claim says it is: a row written by a panel of
+// a different version, naming a set this build renamed. Which is not
+// hypothetical - a set was renamed in the commit that found this.
+func TestARequestThisBuildCannotCarryOutIsFinishedRatherThanLeftRunning(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+
+	// Written with SQL, because backup.Ask refuses it - which is the
+	// first of the two checks and not the one under test. This is the
+	// row a panel of another version leaves behind.
+	if _, err := asks.Exec(ctx, `
+		INSERT INTO panel_backup_requests (actor_kind, actor_label, sets)
+		VALUES ('user', 'test', $1)`, []string{"analitik-eski"}); err != nil {
+		t.Fatalf("writing the row this test needs: %v", err)
+	}
+
+	r := backup.Runner{Pool: answers, Dir: t.TempDir(), Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+	if _, err := r.RunOnce(ctx); err == nil {
+		t.Fatal("the runner carried out a request naming a set this build does not know")
+	}
+
+	latest, err := backup.Latest(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != backup.StateFailed {
+		t.Fatalf("the request is in state %q. A row left running is a queue nobody can "+
+			"use again: the in-flight index refuses every later request, and the page "+
+			"goes on saying a backup is being taken", latest.State)
+	}
+	if !strings.Contains(latest.ErrorChain, "analitik-eski") {
+		t.Errorf("the row says %q and does not name what it could not do",
+			latest.ErrorChain)
+	}
+	// And it was refused at the door rather than part-way through.
+	//
+	// Only Claim's check produces this phrase. write checks the sets
+	// again and would reach the same outcome, so without this the two
+	// are indistinguishable - and a redundant defence no test can tell
+	// apart from its backstop is one that gets deleted as dead. Found
+	// by mutation: removing Claim's validation entirely was green.
+	//
+	// The difference is real. Claim refuses before the runner measures
+	// the database and before it touches the disk, and the row an
+	// operator reads names the request it could not carry out.
+	if !strings.Contains(latest.ErrorChain, "claimed as request") {
+		t.Errorf("the row says %q. That is the backstop in write speaking, not the "+
+			"check Claim runs on the way out - so a row this build cannot obey now "+
+			"gets as far as the estimate before anything refuses it", latest.ErrorChain)
+	}
+
+	// And the slot is free again: the whole cost of the wedge was that
+	// it was not.
+	if _, err := backup.Ask(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		[]string{backup.SetPanel}); err != nil {
+		t.Fatalf("a later request was refused after the failure: %v", err)
+	}
+}

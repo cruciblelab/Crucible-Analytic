@@ -484,6 +484,31 @@ engellediği net: **veritabanının yapılandırma dosyası olmadan ele
 geçmesi** — gecelik yedek, hazırlık ortamına geri yükleme. Neyi
 engellemediği de net: panel sürecine erişen biri.
 
+**veri yedeği** (`internal/backup`) — Tabloların kopyası: analitik
+kümesi, panel kümesi, ya da ikisi. Paneli **isteyebilir, alamaz** —
+`panel_user` `traffic_snapshots`'ı okuyamaz, o yüzden satır yazar,
+yükseltici alır, baytlar panele hiç uğramaz. `pg_dump` yerine `COPY`
+ile, çünkü `pg_dump --table` hypertable'ın parçalarını izlemiyor:
+ölçüldü, 8050 satırlık tablodan 0 satırlık dosya çıktı.
+
+**sırlar yedeği** (`internal/backup`, `sirlar` kümesi) — Yapılandırma
+dizininin kopyası: beş rolün parolaları, panelin oturum anahtarı ve
+`ip_hash_key`. **Veri yedeğiyle asla aynı dosyada olmaz** — ikisi bir
+aradaysa `ip_hash_key` ile takma adlandırma çözülür, yani ürünün
+tamamının dayandığı ayrım tek dosyayla geçersiz olur. `KindOf` bunu iki
+uçta birden reddediyor: panel satırı yazmadan önce, yükseltici satırı
+okuduktan sonra.
+
+**geliştiriciye kapatma (devseal)** (`internal/devseal`) — Sırlar
+yedeğinin şifrelenme biçimi. Geliştirici parolasından argon2id ile
+türetilen bir X25519 alıcısı: **açık yarısı** `upgrader.toml` içinde,
+kapalı yarısı yalnız parolayı bilenin kafasında. Sonucu tek cümleyle:
+**makine sırlar yedeği üretebilir, ürettiğini okuyamaz** — root da
+okuyamaz. Yedek dizini kopyalanmış, disk imajı alınmış, sanal makine
+hurdaya çıkmış olsun; parola olmadan hiçbiri işe yaramaz. Bedeli de tek
+cümle: parola kaybolursa o güne kadarki bütün sırlar yedekleri kaybolur.
+Açan komut `devpass -open`, çünkü açıldığı gün ortada kurulum yoktur.
+
 ---
 
 ## 8. Panel kavramları

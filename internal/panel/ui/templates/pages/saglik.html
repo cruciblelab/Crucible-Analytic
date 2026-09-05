@@ -501,6 +501,12 @@ that is the isolation working, not a gap. */}}
   {{if .Checked}}checked{{end}}> {{.Label}}</label>
 {{- end}}
 </fieldset>
+{{- if .AskingForPassword}}
+<p class="ipucu">{{t "saglik.yedek.sirlar_ipucu"}}</p>
+<label for="yedek-parola">{{t "saglik.yedek.parola"}}</label>
+<input type="password" id="yedek-parola" name="developer_password" autocomplete="off">
+<p class="ipucu">{{t "saglik.yedek.parola_ipucu"}}</p>
+{{- end}}
 <button type="submit">{{t "saglik.yedek.al"}}</button>
 </form>
 {{- end}}

@@ -35,6 +35,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -186,9 +187,31 @@ func main() {
 	// request. Empty means this deployment does not take backups; a
 	// request queued there fails with that sentence on its row rather
 	// than waiting for an upgrader that will never be able to serve it.
+	// Validate already refused a recipient it could not parse, so this
+	// error cannot be reached from a config file that got this far. It
+	// is checked rather than discarded because "cannot be reached" is a
+	// property of today's call order, and the value it produces on the
+	// error path - a zero Recipient - seals nothing.
+	recipient, err := cfg.Backup.Parsed()
+	if err != nil {
+		logger.Error("upgrader: config", "err", err)
+		os.Exit(1)
+	}
+
 	backups := backup.Runner{
-		Pool:          pool,
-		Dir:           cfg.Backup.Dir,
+		Pool: pool,
+		Dir:  cfg.Backup.Dir,
+		// Where the configuration is read from, derived from where this
+		// process was told its own configuration is.
+		//
+		// Not a setting. A [backup] conf_dir would be one more line to
+		// point at the wrong directory, and it would be a line that
+		// decides which files a customer's button copies into an
+		// encrypted archive. The upgrader reads its own config from
+		// somewhere; that somewhere is the configuration directory, by
+		// definition rather than by agreement.
+		ConfDir:       filepath.Dir(*configPath),
+		Recipient:     recipient,
 		Name:          name,
 		BinaryVersion: buildinfo.Version(version),
 		SchemaVersion: schemaver.Version,

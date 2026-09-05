@@ -109,10 +109,17 @@ func scanRequest(row pgx.Row) (*Request, error) {
 // set this build does not know can never be carried out, and it should
 // not occupy the one in-flight slot while somebody waits for an upgrader
 // run to be told so.
+//
+// KindOf rather than TablesFor, because there are two artifacts now and
+// only one of them resolves to tables. It refuses everything TablesFor
+// refused - an unknown name, an empty list - and one thing more: a
+// request naming the configuration alongside the data. That refusal
+// belongs here as much as anywhere, because this is the last point
+// before the row exists, and a row is what the upgrader obeys.
 func Ask(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
 	sets []string) (*Request, error) {
 
-	if _, err := TablesFor(sets); err != nil {
+	if err := validateSets(sets); err != nil {
 		return nil, err
 	}
 
@@ -177,10 +184,29 @@ func Claim(ctx context.Context, pool *pgxpool.Pool, by string) (*Request, error)
 	case err != nil:
 		return nil, fmt.Errorf("backup: claim: %w", err)
 	}
-	if _, err := TablesFor(r.Sets); err != nil {
+	if err := validateSets(r.Sets); err != nil {
 		return r, fmt.Errorf("%w (claimed as request %d)", err, r.ID)
 	}
 	return r, nil
+}
+
+// validateSets is what both ends of the queue check, and it is one
+// function so that they cannot drift apart.
+//
+// KindOf says the names are real and that the request does not name the
+// configuration and the data together. TablesFor says a data request
+// resolves to something to copy - a check that does not apply to the
+// other artifact, whose contents are a directory rather than tables.
+func validateSets(sets []string) error {
+	kind, err := KindOf(sets)
+	if err != nil {
+		return err
+	}
+	if kind != KindData {
+		return nil
+	}
+	_, err = TablesFor(sets)
+	return err
 }
 
 // Finish records how it went.
@@ -258,8 +284,8 @@ func Record(ctx context.Context, pool *pgxpool.Pool, res Result) (int64, error) 
 		  (taken_at, sets, bytes, sha256, path, binary_version, schema_version, device)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		RETURNING id`,
-		res.Manifest.TakenAt, res.Manifest.Sets, res.Bytes, res.SHA256, res.Path,
-		res.Manifest.BinaryVersion, res.Manifest.SchemaVersion, res.Device).Scan(&id)
+		res.TakenAt, res.Sets, res.Bytes, res.SHA256, res.Path,
+		res.BinaryVersion, res.SchemaVersion, res.Device).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("backup: recording the catalogue row: %w", err)
 	}

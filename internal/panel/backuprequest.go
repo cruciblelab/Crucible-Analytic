@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 )
 
 // The panel's end of the backup queue.
@@ -27,9 +28,43 @@ import (
 //
 // *Kaynak yetersizse engelleriz; onun dışında en iyi serbestliği
 // veririz.*
+//
+// # And the one backup that is not like that
+//
+// The paragraph above is about the data. The configuration is a second
+// artifact with a second answer, and it does need the developer
+// password - see SecretsGateAction for why the reasoning above does not
+// carry over to it.
 
 // ErrBackupInFlight is returned when one is already queued or running.
 var ErrBackupInFlight = errors.New("panel: a backup is already in flight")
+
+// ErrSecretsPasswordRequired means the developer password was not
+// supplied for a secrets backup.
+var ErrSecretsPasswordRequired = errors.New(
+	"panel: a secrets backup needs the developer password")
+
+// SecretsGateAction is what an authorization must be minted for.
+//
+// # Why the configuration is the one backup with a second lock
+//
+// The paragraph above says the customer may take a backup because the
+// data is theirs and the worst it can do is fill a disk. Both halves
+// are still true of a data backup and neither is true of this one.
+//
+// A secrets backup is the deployment's credentials: the DSN for every
+// role, the session key, and `ip_hash_key`. It is encrypted to the
+// developer password, so producing one is not the risk - nobody can
+// read it without that password anyway. What the password stops is a
+// different thing: a file that only we can open, appearing on the
+// customer's disk, taken by whoever got into the panel, at a moment
+// nobody chose. That is a lever, and levers get pulled.
+//
+// So it is behind the password for the reason every other guarded
+// operation is - the customer cannot grant it to themselves, because
+// the password does not come from the database. *İstemciye güvenme,
+// sadece sunucuya güven.*
+const SecretsGateAction = "backup:secrets"
 
 // BackupStatus is what the health page needs to draw the section.
 type BackupStatus struct {
@@ -65,11 +100,24 @@ func (s *Store) BackupStatus(ctx context.Context, a Access) (BackupStatus, error
 }
 
 // RequestBackup queues one.
-func (s *Store) RequestBackup(ctx context.Context, a Access, operationID string,
-	sets []string) (*backup.Request, error) {
+func (s *Store) RequestBackup(ctx context.Context, a Access, auth devgate.Authorization,
+	operationID string, sets []string) (*backup.Request, error) {
 
 	if !a.Can(CapManageSettings) {
 		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	}
+
+	// Which artifact this is, before anything else. KindOf is also what
+	// refuses a request naming the configuration alongside the traffic
+	// - the two may never share a file - and it runs again in the
+	// upgrader, because a check only the asking side performs is a
+	// check a compromised asking side skips.
+	kind, err := backup.KindOf(sets)
+	if err != nil {
+		return nil, err
+	}
+	if kind == backup.KindSecrets && !auth.Authorizes(SecretsGateAction) {
+		return nil, ErrSecretsPasswordRequired
 	}
 
 	// Checked here as well as in backup.Ask, and the duplication is
@@ -77,8 +125,10 @@ func (s *Store) RequestBackup(ctx context.Context, a Access, operationID string,
 	// in the queue is the guarantee that no row can exist naming a set
 	// nothing could ever copy. A check only at the surface is a check a
 	// second caller does not get.
-	if _, err := backup.TablesFor(sets); err != nil {
-		return nil, err
+	if kind == backup.KindData {
+		if _, err := backup.TablesFor(sets); err != nil {
+			return nil, err
+		}
 	}
 
 	req, err := backup.Ask(ctx, s.pool, backupActorFor(a.Principal), operationID, sets)

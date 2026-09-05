@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
@@ -312,5 +314,117 @@ func TestAnUnreadableBackupTotalCostsOnlyTheSegment(t *testing.T) {
 	}
 	if got.UnplacedBackupBytes != 0 {
 		t.Errorf("a failed read reported %d unplaced bytes", got.UnplacedBackupBytes)
+	}
+}
+
+// The configuration set is offered only where there is a password to
+// ask for.
+//
+// # Why the gate decides whether the box exists
+//
+// A secrets backup needs the developer password, and that password
+// comes from a config file rather than the database - so a deployment
+// with no [developer] section cannot ever produce one. A checkbox whose
+// only possible outcome is a refusal is worse than no checkbox: it
+// tells the customer the feature is theirs and then says no.
+//
+// The direction matters more than the tidiness. This is the fail-closed
+// half of the gate: with no gate configured, the panel does not offer
+// the one backup that carries every credential this deployment has.
+func TestTheConfigurationIsOfferedOnlyWhenThereIsAPasswordToAskFor(t *testing.T) {
+	lang := testLang(t)
+	db := fakeBackupReader{status: panel.BackupStatus{Allowed: true}}
+
+	// The gate this deployment has, built from a real argon2id hash so
+	// nothing here stands in for the mechanism.
+	hash, err := argon2id.Hash("test-gelistirici-sifresi-uzun")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, err := devgate.New(devgate.Config{PasswordHash: hash}, devgate.Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// And one with no password at all, which is what every machine
+	// starts as.
+	shut, err := devgate.New(devgate.Config{}, devgate.Options{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		gate *devgate.Gate
+		want bool
+	}{
+		{name: "a developer password is configured", gate: gate, want: true},
+		{name: "no developer password", gate: shut, want: false},
+		{name: "no gate at all", gate: nil, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := quietServer()
+			s.Gate = tc.gate
+
+			section, msg := s.backupStatusFor(context.Background(), db, lang, panel.Access{})
+			if msg != "" {
+				t.Fatalf("the section failed to build: %s", msg)
+			}
+			if section.AskingForPassword != tc.want {
+				t.Errorf("AskingForPassword is %v, want %v", section.AskingForPassword, tc.want)
+			}
+
+			var offered []string
+			for _, set := range section.Sets {
+				if set.Secrets {
+					offered = append(offered, set.Name)
+				}
+			}
+			if tc.want && len(offered) != 1 {
+				t.Errorf("the configuration is not offered (%d sets, none of them it), "+
+					"so a deployment that can take one cannot ask", len(section.Sets))
+			}
+			if !tc.want && len(offered) != 0 {
+				t.Errorf("the configuration is offered as %v on a deployment whose gate "+
+					"is shut; pressing it could only ever be refused", offered)
+			}
+			// The data sets are offered either way. The gate decides
+			// one box, not the section: a deployment with no developer
+			// password still takes backups, and always has.
+			if len(section.Sets) < 2 {
+				t.Errorf("only %d sets offered; the data backup belongs to the customer "+
+					"and is not behind this gate", len(section.Sets))
+			}
+		})
+	}
+}
+
+// The person who ticked the box must not be shown an unticked one after
+// a refusal. Worth pinning because the echo loop runs over the sets the
+// section offers, and the configuration set is now sometimes absent
+// from that list.
+func TestARefusedChoiceIsEchoedBack(t *testing.T) {
+	lang := testLang(t)
+	s := quietServer()
+	db := fakeBackupReader{status: panel.BackupStatus{Allowed: true}}
+
+	section, msg := s.backupStatusFor(context.Background(), db, lang, panel.Access{})
+	if msg != "" {
+		t.Fatalf("the section failed to build: %s", msg)
+	}
+	// Default: the panel set, which is what a first press should take.
+	var checked []string
+	for _, set := range section.Sets {
+		if set.Checked {
+			checked = append(checked, set.Name)
+		}
+	}
+	if len(checked) != 1 || checked[0] != backup.SetPanel {
+		t.Errorf("the default choice is %v, want [%s]. The small set is the one that "+
+			"cannot be rebuilt, and a default including the traffic makes the first "+
+			"press on a large deployment the one refused for space", checked, backup.SetPanel)
 	}
 }

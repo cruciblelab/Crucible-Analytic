@@ -61,6 +61,16 @@ type Set struct {
 	Name string
 	// Tables are the tables in it, in the order they are dumped.
 	Tables []string
+	// Secrets marks the one set that is not tables at all: the
+	// configuration files, sealed to the developer password.
+	//
+	// A field rather than "Tables is empty", although that would be
+	// derivable. A table set that lost its tables in an edit would then
+	// silently become a secrets set - a backup that reported success,
+	// contained the configuration, and contained none of the data
+	// somebody asked for. The field says which kind this is, and
+	// TestExactlyOneSetIsSecrets checks the two never disagree.
+	Secrets bool
 }
 
 // Set names. A closed list, because a request naming a set this build
@@ -94,6 +104,15 @@ var Sets = []Set{
 			"panel_dev_access",
 			"panel_owner_claims",
 		},
+	},
+	{
+		// The configuration, not the database. See secrets.go for why
+		// it is a set at all rather than a separate button: it goes
+		// through the same queue, the same catalogue and the same page,
+		// and the one thing it may never do is share a file with the
+		// two above.
+		Name:    SetSirlar,
+		Secrets: true,
 	},
 }
 
@@ -174,6 +193,19 @@ func TablesFor(sets []string) ([]string, error) {
 		s, err := SetByName(name)
 		if err != nil {
 			return nil, err
+		}
+		if s.Secrets {
+			// Refused rather than contributing nothing.
+			//
+			// Without this, a request naming only the secrets set would
+			// resolve to an empty table list, and the data writer would
+			// produce a valid archive with a manifest, a checksum and a
+			// catalogue row - containing nothing. Callers route on
+			// KindOf and should never reach here; this is what makes
+			// "should never" produce an error rather than an empty
+			// backup.
+			return nil, fmt.Errorf("backup: %q is not a set of tables; it is the "+
+				"configuration, and it is written to its own file", s.Name)
 		}
 		for _, table := range s.Tables {
 			if seen[table] {

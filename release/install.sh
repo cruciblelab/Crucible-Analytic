@@ -49,6 +49,45 @@ RUN_AS="${RUN_AS:-crucible}"
 # rewrites its own database - undoing with one file permission the whole
 # reason there are five database roles.
 RUN_AS_UPGRADER="${RUN_AS_UPGRADER:-crucible-upgrader}"
+# CONF_GROUP is the group that may read the four service configurations.
+#
+# # Why a third name, when there were already two
+#
+# Because two accounts have to read those files and a file has one
+# group. ${RUN_AS} reads its own configuration to start; ${RUN_AS_UPGRADER}
+# reads all four to produce a secrets backup - a sealed copy of this
+# directory, which is the only backup that can restore a machine rather
+# than a database.
+#
+# The alternative was putting the upgrader into the ${RUN_AS} group,
+# which an earlier version of this script explicitly refused to do and
+# was right to: that group also owns ${LOG_DIR} and ${STATE_DIR}, so it
+# would have handed the upgrader far more than the four files it needs.
+# A group that names exactly the thing being shared shares exactly that.
+#
+# # What this costs, said plainly
+#
+# The upgrader can now read ip_hash_key, and it already holds
+# schema_admin, which reads every row of traffic_snapshots. So one
+# compromised account holds both halves of the pseudonymisation, where
+# before it held one.
+#
+# That is a real reduction and it is smaller than it looks: this account
+# installs release packages, which means it writes the collector's
+# binary. Anything that owns it could already replace the collector with
+# one that stores addresses in the clear and wait a day. The split
+# protects against a compromised *panel*, which cannot install anything,
+# and it still does.
+#
+# What it buys is that a secrets backup contains the current
+# configuration rather than whatever was on disk the last time each
+# service restarted. Freshness is not a nicety here: restoring a stale
+# ip_hash_key orphans every pseudonym ever stored.
+#
+# upgrader.toml is deliberately NOT in this group - see the systemd
+# stage. The panel must never read it, and that is the boundary this
+# whole file exists to keep.
+CONF_GROUP="${CONF_GROUP:-crucible-conf}"
 # SYSTEMD_DIR is where the unit files go.
 #
 # The last member of the PREFIX / CONF_DIR / LOG_DIR / STATE_DIR family,
@@ -1277,40 +1316,64 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   # --no-systemd, so nothing had ever run the stage the defect was in.
   # See TestTheServicesCanReadWhatInstallWrote.
   #
+  # The shared group, and both accounts in it. See CONF_GROUP at the top
+  # for what it costs and what it buys.
+  #
+  # getent before groupadd, because groupadd fails when the group is
+  # there and a re-run of this script must not stop on it. usermod -aG
+  # is already additive and is safe to repeat.
+  getent group "${CONF_GROUP}" >/dev/null 2>&1 || groupadd --system "${CONF_GROUP}"
+  usermod -aG "${CONF_GROUP}" "${RUN_AS}"
+  usermod -aG "${CONF_GROUP}" "${RUN_AS_UPGRADER}"
+
   # Group, not owner. The service reads its configuration and must never
   # rewrite it: a compromised panel that could edit panel.toml could
   # point the next restart at a database of its choosing. root stays the
-  # owner and the account gets read access, which is the whole of what a
+  # owner and the group gets read access, which is the whole of what a
   # service needs.
-  chgrp "${RUN_AS}" "${CONF_DIR}"
-  # 0751, and the last digit is the one worth explaining.
+  chgrp "${CONF_GROUP}" "${CONF_DIR}"
+  # 0750 now, where it used to be 0751.
   #
-  # Two accounts have to reach files in here: ${RUN_AS} for the four
-  # services, and ${RUN_AS_UPGRADER} for upgrader.toml. They are
-  # deliberately in no group together - that is the point of the second
-  # account - so the upgrader reaches its file through the "other" bit.
+  # The last digit was there because the two accounts were in no group
+  # together: the upgrader reached upgrader.toml through the "other"
+  # bit, being allowed to open a file whose name it already knew without
+  # being allowed to look around. That was a workaround for a traversal
+  # problem, and ${CONF_GROUP} removes the problem rather than the
+  # workaround's need for a comment.
   #
-  # x without r is "you may open a file in here if you already know its
-  # name", not "you may look around": the upgrader can open
-  # upgrader.toml and cannot list the directory, and the file modes below
-  # are what actually decide who reads what. The alternative was putting
-  # the upgrader in the ${RUN_AS} group, which would have handed it read
-  # access to all four service configurations to solve a traversal
-  # problem.
-  chmod 0751 "${CONF_DIR}"
+  # Both accounts are in the group, so both traverse and both list.
+  # Nothing else does, which is what 0 in the last place says.
+  chmod 0750 "${CONF_DIR}"
   for f in collector.toml beacon.toml analytics-api.toml panel.toml; do
     [ -f "${CONF_DIR}/${f}" ] || continue
-    chgrp "${RUN_AS}" "${CONF_DIR}/${f}"
+    chgrp "${CONF_GROUP}" "${CONF_DIR}/${f}"
     chmod 0640 "${CONF_DIR}/${f}"
   done
 
-  # ip_hash_key is deliberately not in that list. No service reads it -
-  # the key lives inside collector.toml and beacon.toml, and this file
-  # exists so that a re-run of this script can find the key it already
-  # generated rather than rotating it and orphaning every stored
-  # pseudonym. It stays root-only.
+  # ip_hash_key is in the group too, and it used to be root-only.
+  #
+  # No service reads it - the key lives inside collector.toml and
+  # beacon.toml, and this file exists so that a re-run of this script
+  # finds the key it already generated rather than rotating it and
+  # orphaning every stored pseudonym.
+  #
+  # Which is exactly why it has to be in a secrets backup, and therefore
+  # readable by the account that takes one. Restore collector.toml and
+  # beacon.toml without this file and the next run of this script draws
+  # a new key: no error, no warning, and every address stored under the
+  # old one stops matching anything.
+  #
+  # The mode change gives away nothing. The value is already inside two
+  # files at 0640 in this same group, so root-only on the third copy was
+  # protecting a duplicate rather than a secret - which
+  # TestTheIPKeyIsNoMoreExposedThanTheFilesThatAlreadyCarryIt measures
+  # rather than assumes.
+  if [ -f "${CONF_DIR}/ip_hash_key" ]; then
+    chgrp "${CONF_GROUP}" "${CONF_DIR}/ip_hash_key"
+    chmod 0640 "${CONF_DIR}/ip_hash_key"
+  fi
 
-  # And upgrader.toml is deliberately not in it either, for the opposite
+  # And upgrader.toml is deliberately not in it, for the opposite
   # reason: it goes to the *other* account.
   #
   # This is the file that must not be readable by ${RUN_AS}. It carries
@@ -1318,7 +1381,7 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   # read it could connect as the role that rewrites the database the
   # panel is forbidden to even SELECT from.
   #
-  # ${CONF_DIR} is now group ${RUN_AS} and mode 0750, so ${RUN_AS} can
+  # ${CONF_DIR} is group ${CONF_GROUP} and mode 0750, so ${RUN_AS} can
   # list the directory and see that this file exists. That is fine and
   # it is not an oversight: the *name* is in KURULUM.md, in the example
   # configuration and in this script. What must not leak is the

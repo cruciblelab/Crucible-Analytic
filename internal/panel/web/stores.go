@@ -93,7 +93,8 @@ type backupReader interface {
 type backupStore interface {
 	backupReader
 	operationStore
-	RequestBackup(ctx context.Context, a panel.Access, operationID string, sets []string) (*backup.Request, error)
+	RequestBackup(ctx context.Context, a panel.Access, auth devgate.Authorization,
+		operationID string, sets []string) (*backup.Request, error)
 }
 
 // diskStore is what the storage section may ask for.

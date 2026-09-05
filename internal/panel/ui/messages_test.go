@@ -425,7 +425,7 @@ var (
 	// backupSets mirrors internal/backup.Sets and backupStates the four
 	// State constants, both joined to a prefix at runtime. The other
 	// direction is in internal/panel/web, against the real values.
-	backupSets   = []string{"analitik", "panel"}
+	backupSets   = []string{"analitik", "panel", "sirlar"}
 	backupStates = []string{"pending", "running", "succeeded", "failed"}
 )
 

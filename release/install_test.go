@@ -16,12 +16,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 )
 
@@ -1335,6 +1337,177 @@ func TestOnlyTheUpgraderCanReadTheDDLCredential(t *testing.T) {
 		t.Errorf("%s can read upgrader.toml. That account runs the panel, and the file "+
 			"holds schema_admin's DSN - the panel could connect as the role that owns "+
 			"every table it is forbidden to read", runAs)
+	}
+}
+
+// TestTheUpgraderCanReadWhatASecretsBackupNeeds.
+//
+// # The gap this was written for
+//
+// A secrets backup is a sealed copy of the configuration directory,
+// taken by the upgrader because it is the component that can write to
+// the backup directory. It was designed, built and wired before anybody
+// asked whether the account it runs as can open the files.
+//
+// It could not. install.sh put the four service configurations in group
+// `crucible` at 0640, the upgrader runs as `crucible-upgrader`, and the
+// two were deliberately in no group together. Every secrets backup on
+// every systemd install would have contained upgrader.toml and four
+// lines saying "permission denied" - and would have reported success,
+// because a file this account cannot read is recorded and skipped
+// rather than being fatal. That is the shape of failure this whole
+// package is written against: found on the day somebody needs it.
+//
+// So the question is asked here, as the account, against the files
+// install.sh actually wrote. TestOnlyTheUpgraderCanReadTheDDLCredential
+// is the other half and stays separate: this one measures a permission
+// that must be wide enough, that one measures a permission that must
+// not be wider.
+func TestTheUpgraderCanReadWhatASecretsBackupNeeds(t *testing.T) {
+	const db = "ca_install_secretsperms_test"
+
+	if os.Geteuid() != 0 {
+		t.Skip("the systemd stage needs root (it creates system accounts)")
+	}
+	for _, tool := range []string{"useradd", "groupadd", "usermod", "su"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s is not on PATH; this test runs as the service accounts", tool)
+		}
+	}
+
+	const runAs = "crucible"
+	const runAsUpgrader = "crucible-upgrader"
+	const confGroup = "crucible-conf"
+	for _, account := range []string{runAs, runAsUpgrader} {
+		if _, err := exec.Command("id", "-u", account).Output(); err != nil {
+			t.Cleanup(func() { _ = exec.Command("userdel", account).Run() })
+		}
+	}
+	if err := exec.Command("getent", "group", confGroup).Run(); err != nil {
+		t.Cleanup(func() { _ = exec.Command("groupdel", confGroup).Run() })
+	}
+
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	confDir := t.TempDir()
+	for dir := confDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o711); err != nil {
+			t.Fatalf("opening the temp chain: %v", err)
+		}
+	}
+
+	cmd := exec.Command("./release/install.sh") // no --no-systemd: that is the point
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+		"DB_NAME="+db,
+		"CONF_DIR="+confDir,
+		"SYSTEMD_DIR="+t.TempDir(),
+		"PREFIX="+t.TempDir(),
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	// What a secrets backup collects, derived from internal/backup
+	// rather than listed here, against the directory as installed. A
+	// name added to the pattern or to SecretsAlso is covered without
+	// this test being edited; a config file the installer starts
+	// writing is covered by the mirror test in that package.
+	entries, err := os.ReadDir(confDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wanted []string
+	for _, entry := range entries {
+		name := entry.Name()
+		match, err := filepath.Match(backup.SecretsPattern, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if match || slices.Contains(backup.SecretsAlso, name) {
+			wanted = append(wanted, name)
+		}
+	}
+	// Six on a full install: four services, the upgrader, and
+	// ip_hash_key. Asserted so that a run which found nothing is a
+	// failure rather than a pass.
+	if len(wanted) < 6 {
+		t.Fatalf("only %v would go into a secrets backup; the install wrote less than "+
+			"this test can measure anything against", wanted)
+	}
+
+	for _, name := range wanted {
+		path := filepath.Join(confDir, name)
+		out, err := exec.Command("su", "-s", "/bin/sh", runAsUpgrader, "-c",
+			"cat "+path+" >/dev/null").CombinedOutput()
+		if err != nil {
+			t.Errorf("%s cannot read %s, so every secrets backup this deployment takes "+
+				"would record it as skipped and restore without it.\n%s",
+				runAsUpgrader, name, strings.TrimSpace(string(out)))
+		}
+	}
+
+	// And the one file that must still be one-way. The upgrader reading
+	// the four service configs is the change; the panel reading
+	// upgrader.toml is not, and a group applied one file too widely
+	// would be silent.
+	if err := exec.Command("su", "-s", "/bin/sh", runAs, "-c",
+		"cat "+filepath.Join(confDir, "upgrader.toml")+" >/dev/null").Run(); err == nil {
+		t.Errorf("%s can read upgrader.toml. The shared configuration group was applied "+
+			"to the one file it must never cover", runAs)
+	}
+}
+
+// TestTheIPKeyIsNoMoreExposedThanTheFilesThatAlreadyCarryIt.
+//
+// install.sh used to keep ip_hash_key root-only and now gives it the
+// same group and mode as the service configurations, so that a secrets
+// backup can contain it - without it, a restore is followed by the next
+// install run drawing a fresh key and orphaning every pseudonym ever
+// stored.
+//
+// The claim that made the change safe is that this is a copy: the same
+// value is inside collector.toml and beacon.toml, which have always
+// been 0640 in that group. A claim like that is exactly the kind that
+// is true when written and false two phases later, so it is measured
+// here against the files rather than asserted in a comment.
+func TestTheIPKeyIsNoMoreExposedThanTheFilesThatAlreadyCarryIt(t *testing.T) {
+	const db = "ca_install_ipkeymode_test"
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	confDir := t.TempDir()
+	out, ok := runInstall(t, db, "CONF_DIR="+confDir)
+	if !ok {
+		t.Fatalf("install.sh failed:\n%s", out)
+	}
+
+	key, err := os.ReadFile(filepath.Join(confDir, "ip_hash_key"))
+	if err != nil {
+		t.Fatalf("install.sh wrote no ip_hash_key: %v", err)
+	}
+	value := strings.TrimSpace(string(key))
+	if value == "" {
+		t.Fatal("ip_hash_key is empty, so nothing below is measuring an exposure")
+	}
+
+	// The value really is in both, or the reasoning that justified the
+	// mode change does not apply.
+	for _, name := range []string{"collector.toml", "beacon.toml"} {
+		body, err := os.ReadFile(filepath.Join(confDir, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if !strings.Contains(string(body), value) {
+			t.Fatalf("%s does not carry the key, so ip_hash_key is not a duplicate of "+
+				"anything and loosening its mode gives something away that nothing "+
+				"else does. Put it back to 0600 root-only and give the secrets backup "+
+				"another way to reach it", name)
+		}
 	}
 }
 

@@ -12021,3 +12021,193 @@ salt-okunur olmadıysa test onu söyleyip duruyor.
 
 *Bir kontrolün gerekçesi düzyazıysa, o gerekçe bayatladığında hiçbir şey
 kırmızı vermez.*
+
+---
+
+## F1e — Sırlar yedeği: dosyayı parolaya kapatmak
+
+Yedek almanın ikinci yarısı: veritabanı değil, `/etc/crucible-analytic`
+dizininin kendisi. Beş rolün parolaları, panelin oturum anahtarı,
+`ip_hash_key`. Veritabanını geri yükleyip bunları geri yüklemezseniz
+makine geri gelmez — ve `ip_hash_key` eksikse saklanmış her adres artık
+hiçbir şeyle eşleşmez.
+
+### "Ayrı dosya" tek başına hiçbir şey satın almıyor
+
+Plan "veri yedeği ile sırlar yedeği ayrı iki dosya" diyor ve gerekçesi
+doğru: bir dosyada hem veri hem anahtar varsa takma adlandırma çözülür.
+Ama iki dosya aynı dizinde, aynı hesabın, aynı 0600 kipinde durursa
+birini okuyan öbürünü de okur. Ayrım, dosya adlarına dair bir olgu olur.
+
+Ve planın öbür cümlesi — "ikincisi geliştirici parolasında" — bir dosya
+kipiyle **kurulamaz**. Bir dosyayı parolanın arkasına koyan tek şey, o
+parolanın anahtar türetmesidir. Yoksa "parola" yalnız istemenin önünde
+durur, dosyanın önünde değil.
+
+### Türetme, ve neden asimetrik
+
+Dosyayı yazan bileşen (yükseltici) onu açabilecek anahtarı **tutmamalı**
+— tutsaydı makineyi ele geçiren dosyayı da açardı, ve korumanın tamamı
+buharlaşırdı. Yani yazan tarafın elinde yalnız açık anahtar olmalı.
+
+```
+seed    = argon2id(parola, tuz, 128 MiB / 3 geçiş / 4 iş parçacığı)
+private = seed'den X25519 skaleri
+public  = X25519 açık anahtarı        → upgrader.toml
+```
+
+Kapatırken tek kullanımlık bir çift çiziliyor, alıcıyla ECDH yapılıyor,
+HKDF-SHA256 ile AEAD anahtarı türetiliyor, ve **geçici özel anahtar
+kapsam dışına çıkıp kayboluyor.** Kapatan sürecin bir dakika sonra aynı
+paylaşılan sırrı yeniden türetememesini sağlayan şey bu.
+
+AEAD'in kendisi `internal/sealed`, sarmalanmadan: bu kod tabanında tek
+bir AES-256-GCM ve nonce sorusunun cevaplandığı tek bir yer.
+
+**Kazanılan özellik tek cümle:**
+
+> Makine bir sırlar yedeği üretebilir ve ürettiğini okuyamaz. Root da
+> okuyamaz.
+
+**Bedeli de tek cümle, ve yazıldı:** parola kaybolursa o güne kadarki
+bütün sırlar yedekleri kaybolur. Kurtarma yolu yok; olsaydı özellik de
+olmazdı.
+
+### argon2 parametreleri neden girişinkinden çok daha ağır
+
+`internal/argon2id` 19 MiB / 2 geçiş kullanıyor ve gerekçesi yerinde:
+collector'la aynı makinede koşuyor, ve her denemede 64 MiB ayıran bir
+giriş fırtınası korunan sitenin kendisine karşı bir hizmet reddi.
+
+Buranın hiçbiri öyle değil. Bu türetme bir kurulumun ömründe **iki kez**
+çalışıyor: `devpass -recipient` üretirken, ve yedeği açan makinede. Hiç
+istek işleyicisinde değil. Tehdit de ters yönde: giriş çevrimiçi, hız
+sınırlayıcıdan, kilitlenen bir hesaba karşı tahmin edilir. Bu dosya
+**çevrimdışı**, dosyayı elinde tutan biri tarafından, donanımı ne kadar
+hızlıysa o kadar. Tahmin başına maliyet savunmanın tamamı.
+
+Ölçüldü: 128 MiB / 3 / 4 → 378 ms.
+
+### Açık kısım içerik hakkında hiçbir şey söylemez
+
+İlk tasarımda manifest her dosyayı boyutu ve SHA-256'sıyla listeliyordu —
+veri yedeğinin manifesti tabloları satır sayısıyla listelediği gibi.
+
+Bu tam bir felaket olurdu. Yapılandırma dosyası birkaç sırrın etrafındaki
+kalıptır, yani **düz metnin özeti bir doğrulayıcıdır**: yedeği eline
+geçiren biri bir parola alanını tahmin edip tahminini tek bir SHA-256
+maliyetiyle sınayabilir, argon2id bedelini hiç ödemeden. Yani savunmanın
+tamamını atlayabilir. Boyut daha azını sızdırır ve yine sızdırır: bir
+parolanın uzunluğu gerçek bir daraltmadır.
+
+Şimdi açık kısımda yalnız şunlar var: ne zaman alındığı, hangi sürümün
+aldığı, hangi alıcıya kapatıldığı, ve geçici açık anahtar. İçindeki
+dosyaların **adları bile** kapalı tarafta. Testi bir alan listesi değil,
+**anahtar kümesinin tamamı** üzerine yazıldı — sonradan eklenen bir alan
+testi kırar, yani düşünmesi gereken birinin önüne çıkar.
+
+### Ölçülen izin açığı: yükseltici dosyaları okuyamıyordu
+
+Özellik tasarlanmış, kurulmuş ve bağlanmıştı; kimse hesabın dosyaları
+açabildiğini sormamıştı. Açamıyordu.
+
+`install.sh` dört servis yapılandırmasını `crucible` grubuna 0640
+veriyor, yükseltici `crucible-upgrader` olarak koşuyor, ve ikisi
+**kasten** hiçbir grupta bir arada değildi. Her systemd kurulumundaki her
+sırlar yedeği yalnız `upgrader.toml`'u ve dört "izin yok" satırını
+içerecekti — ve **başarılı** diyecekti, çünkü okunamayan bir dosya
+kaydedilip atlanıyor. Yani ihtiyaç duyulan gün öğrenilecekti.
+
+Çözüm ortak bir `crucible-conf` grubu: her iki hesap da üye, dört
+yapılandırma ve `ip_hash_key` o grupta. `upgrader.toml` bilerek dışarıda
+— paneli ondan uzak tutmak bu ayrımın var oluş sebebi ve o sınır yerinde
+duruyor.
+
+**Bedeli açıkça yazıldı.** Yükseltici artık `ip_hash_key`'i okuyabiliyor
+ve `schema_admin`'i zaten tutuyor, yani tek bir ele geçirilmiş hesap
+takma adlandırmanın iki yarısını birden tutuyor. Bu gerçek bir daralma
+ve göründüğünden küçük: bu hesap sürüm paketi kuruyor, yani collector'ın
+binary'sini yazıyor. Onu ele geçiren zaten collector'ı adresleri açık
+saklayan bir sürümle değiştirip bir gün bekleyebilirdi. Ayrım
+**panele** karşı gerçek bir sınırdı ve öyle kalıyor.
+
+Karşılığında alınan şey tazelik: yedek, her servisin en son ne zaman
+yeniden başladığına değil, diskteki hâline bakıyor. Burada tazelik bir
+incelik değil — bayat bir `ip_hash_key` geri yüklemek saklanmış her
+takma adı öksüz bırakır.
+
+`ip_hash_key` dosyası da 0600 root-only'den aynı gruba geçti. Verdiği
+hiçbir şey yok ve test bunu iddia etmiyor, **ölçüyor**: aynı değer
+zaten aynı gruptaki iki dosyanın içinde, yani root-only üçüncü kopya bir
+sırrı değil bir kopyayı koruyordu.
+
+### Yol boyunca bulunan kusur: kilitlenen kuyruk
+
+`Claim` satırın kümelerini çıkışta bir kez daha kontrol ediyor — doğru,
+çünkü satırı yazan süreç bu değil. Ama tek sonucu yanlıştı: hata
+`UPDATE`'ten **sonra** dönüyordu, yani satır `running`'de kalıyor ve
+`RunOnce` onu bitirmeden çıkıyordu.
+
+Sonuç: satır `running`'de, üzerinde çalışan yok. `ExpireStale` otuz
+saniye sonra serbest bırakıyor, bir sonraki koşu talep ediyor, aynı
+kontrolde düşüyor, tekrar bırakıyor — sonsuza kadar, sayfa "Alınıyor"
+derken. Ve kuyruğun tek uçuş yuvası dolu olduğu için o kurulumda bir
+daha hiç yedek istenemiyor.
+
+Ulaşılabilir olduğu yer `Claim`'in kendi yorumunda yazıyor: başka
+sürümdeki bir panelin yazdığı, bu build'in adını değiştirdiği bir kümeyi
+adlandıran satır. Varsayımsal değil — bu commit'te bir küme adı eklendi.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| `Reopen` parolayı alıcıyla karşılaştırmasın | Yakalandı |
+| HKDF tuzunun sırası yalnız kapatan tarafta değişsin | Yakalandı |
+| Alıcıdaki maliyet sınırları kalksın | Yakalandı |
+| Başlık AAD olarak kullanılmasın | Yakalandı |
+| Manifest'e içerik hakkında bir alan eklensin | Yakalandı |
+| Dosya kipleri arşive yazılmasın | Yakalandı |
+| `KindOf` karışık isteği reddetmesin | Yakalandı |
+| Sembolik bağlar izlensin (`Lstat` → `Stat`) | Yakalandı |
+| Dosya boyutu tavanı kalksın | Yakalandı |
+| Boş dizin kabul edilsin | Yakalandı |
+| Panel geliştirici parolasını istemesin | Yakalandı |
+| Başka bir eylem için kesilmiş yetki kabul edilsin | Yakalandı |
+| `Claim` satırı doğrulamasın | Yakalandı |
+| Talep edilip düşen satır yine `running` kalsın | Yakalandı |
+| İki yedek aynı adı alsın | Yakalandı |
+| `devpass` dolu dizine yazsın | Yakalandı |
+| `install.sh` yapılandırmaları eski gruba versin | Yakalandı |
+| **Alan ayırıcı (domain) düşsün — iki tarafta birden** | **Hayatta kaldı** |
+| **HKDF tuz sırası iki tarafta birden değişsin** | **Hayatta kaldı** |
+| **`Current` maliyeti düşürülsün** | **Hayatta kaldı** |
+| **`derive` parametreleri yok saysın** | **Hayatta kaldı** |
+
+Son dördü gerçek boşluklardı ve dördü de kapatıldı.
+
+İlk ikisi aynı sınıf: gidiş-dönüş testleri iki tarafı **birlikte**
+değiştiren her şeyi geçirir. Ve o sınıfın arızası en kötüsü: hiçbir şey
+kırmızı vermez, hiçbir şey yanlış görünmez, ve değişiklikten önce
+alınmış bütün sırlar yedekleri açılmaz olur. Kimse ihtiyaç duyduğu güne
+kadar öğrenmez.
+
+Cevap bir fikstür: eski bir build'in kapattığı bir dosya, teste yazılmış,
+bugünkü build'in açması gereken. Kırıldığında yenilenecek bir değer
+değil; sorduğu soru "bu kasıtlı mı" — kasıtlıysa `domain` ve `prefix`
+içindeki sürüm numarası da değişir, ve yeni fikstür eskisinin **yanına**
+eklenir.
+
+Üçüncüsü daha basit bir ders: kontrol, kontrol ettiği değişkenin
+kendisiyle karşılaştırıyordu. `Current`'ı düşürmek yeşil kalıyordu.
+Sayılar artık teste yazılı.
+
+Dördüncüsü en sinsisi. Parametrelerini yok sayıp hep en ucuz maliyeti
+kullanan bir türetme buradaki her testi geçer: gidiş-dönüşler çalışır,
+fikstür açılır. Tek belirti her kurulumun anahtarının 128 MiB yerine
+8 MiB'de türetilmesi — yani savunmanın tamamı, sessizce yok. Cevap iki
+farklı maliyetin iki farklı anahtar vermesi: yalnız sayılar gerçekten
+kullanılıyorsa doğru olabilecek en ucuz cümle.
+
+*Bir gidiş-dönüş testi, iki tarafı birlikte bozan hiçbir şeyi
+göremez.*

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -26,6 +27,10 @@ type backupSet struct {
 	Name    string
 	Label   string
 	Checked bool
+	// Secrets marks the one that is the configuration rather than
+	// tables, so the page can say that it is a separate file and that
+	// it needs the password.
+	Secrets bool
 }
 
 // backupRow is one catalogue entry as the page shows it.
@@ -59,6 +64,16 @@ type backupSection struct {
 	// TotalBytes is what they occupy together.
 	TotalBytes int64
 
+	// AskingForPassword is whether the form shows the developer
+	// password field, which is what the configuration set needs.
+	//
+	// False on a deployment with no developer password configured, and
+	// the configuration set is then not offered at all: the gate is
+	// shut, so a request for it could only be refused. Saying that on
+	// the page is better than a checkbox whose only outcome is a
+	// refusal.
+	AskingForPassword bool
+
 	// Notice is what to say after a press.
 	Notice string
 	Failed bool
@@ -82,6 +97,8 @@ func (s *Server) backupStatusFor(ctx context.Context, db backupReader, lang *ui.
 		Allowed: status.Allowed,
 		Latest:  status.Latest,
 		Running: status.Latest.InFlight(),
+		// Only where there is a password to ask for. See the field.
+		AskingForPassword: status.Allowed && s.Gate != nil && s.Gate.Configured(),
 	}
 	// Every set this build knows, with the panel one ticked.
 	//
@@ -90,10 +107,14 @@ func (s *Server) backupStatusFor(ctx context.Context, db backupReader, lang *ui.
 	// the traffic tables would make the first press on a large
 	// deployment the one that gets refused for space.
 	for _, set := range backup.Sets {
+		if set.Secrets && !section.AskingForPassword {
+			continue
+		}
 		section.Sets = append(section.Sets, backupSet{
 			Name:    set.Name,
 			Label:   lang.T("saglik.yedek.kume." + set.Name),
 			Checked: set.Name == backup.SetPanel,
+			Secrets: set.Secrets,
 		})
 	}
 	if status.Latest != nil {
@@ -142,7 +163,21 @@ func (s *Server) backupPost(r *http.Request, db backupStore, lang *ui.Language,
 	}
 	log := s.logger().With(logsink.OperationKey, op.ID())
 
-	req, err := db.RequestBackup(r.Context(), access, op.ID(), chosen)
+	// Verified whatever was ticked, for the reason releasePost gives:
+	// reading the password only when the configuration set is chosen
+	// would leak, through timing, which sets a request named. An empty
+	// field costs no argon2 work and is not counted as a failure, so
+	// the ordinary data backup pays nothing for this.
+	var auth devgate.Authorization
+	if s.Gate != nil {
+		result := s.Gate.Verify(r.Context(), devgate.RequestFrom(r,
+			access.Principal.Label, panel.SecretsGateAction))
+		if result.OK() {
+			auth = result.For(panel.SecretsGateAction)
+		}
+	}
+
+	req, err := db.RequestBackup(r.Context(), access, auth, op.ID(), chosen)
 
 	section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
 	if sectionErr != "" {
@@ -190,6 +225,14 @@ func backupErrorText(lang *ui.Language, err error) string {
 		return lang.T("saglik.yedek.zaten_var")
 	case errors.Is(err, panel.ErrSettingNotWritable):
 		return lang.T("saglik.yedek.yetki_yok")
+	case errors.Is(err, panel.ErrSecretsPasswordRequired):
+		return lang.T("saglik.yedek.parola_gerekli")
+	case errors.Is(err, backup.ErrMixedRequest):
+		// Its own sentence, because it is the one refusal here that is
+		// about the product's design rather than about this press. A
+		// person who ticked both boxes did something reasonable and has
+		// to be told why it is two operations.
+		return lang.T("saglik.yedek.ayri_dosya")
 	default:
 		// An unknown set, or nothing ticked at all. The queue's message
 		// names which, and it is the only one here written for a person

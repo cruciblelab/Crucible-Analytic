@@ -99,6 +99,20 @@ func TestEverySetNamesATableThatExists(t *testing.T) {
 	}
 
 	for _, s := range backup.Sets {
+		if s.Secrets {
+			// The one set that is not tables: the configuration files,
+			// sealed to the developer password and written to their own
+			// file. Skipped by the field rather than by name, so a
+			// second one would be covered by the same line - and so
+			// that a table set which lost its tables still fails below
+			// instead of quietly looking like this one.
+			if len(s.Tables) > 0 {
+				t.Errorf("the set %q is the configuration and also names tables (%v). "+
+					"Those tables are in no data set and would never be copied",
+					s.Name, s.Tables)
+			}
+			continue
+		}
 		if len(s.Tables) == 0 {
 			t.Errorf("the set %q names no tables, so choosing it would produce an empty "+
 				"backup that reports success", s.Name)
