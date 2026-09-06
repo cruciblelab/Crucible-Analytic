@@ -2,7 +2,8 @@ package logging
 
 import (
 	"strings"
-	"unicode/utf8"
+
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // Log lines are written from values this project does not control: user
@@ -59,22 +60,13 @@ func IsSecretKey(key string) bool {
 // parse as a record of its own. That is log injection: an attacker
 // forging entries in the file the operator reads to find out what an
 // attacker did.
+// The UTF-8 and control-character passes are in internal/textsafe, which
+// is where they were moved when a third caller turned out to need them
+// and not have them. What stays here is the bound and the ellipsis: a
+// log value that was cut should say so, and a stored one must not gain a
+// character it never had.
 func SanitizeValue(s string) string {
-	if s == "" {
-		return ""
-	}
-	if !utf8.ValidString(s) {
-		s = strings.ToValidUTF8(s, "")
-	}
-	s = strings.Map(func(r rune) rune {
-		// The ASCII control range plus the Unicode line separators,
-		// which some JSON readers treat as line breaks.
-		if r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029 {
-			return -1
-		}
-		return r
-	}, s)
-	return truncateRunes(s, maxValueLen)
+	return truncateRunes(textsafe.Storable(s), maxValueLen)
 }
 
 func truncateRunes(s string, max int) string {

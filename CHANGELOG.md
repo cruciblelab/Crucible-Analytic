@@ -76,6 +76,30 @@ Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
 sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
 yükleme o tabloda adını söyleyerek durur.
 
+### Düzeltme: indirilen adres verisindeki bozuk bir satır kayıt tutmayı durdurabiliyordu
+
+Ülke ve ASN tabloları haftalık olarak kamuya açık bir veri kümesinden
+indiriliyor. O dosyadaki tek bir bozuk alan, **hem collector'ın hem
+beacon'ın** yazdığı satırları toplu hâlde kaybettirebiliyordu — çünkü o
+alan tablo yüklü olduğu sürece her satıra iliştiriliyor ve PostgreSQL
+yazılamayan bir değerle karşılaşınca ifadenin tamamını reddediyor.
+
+Beş ayrı yoldan olabiliyordu, ve beşi de kapatıldı:
+
+- Ülke kodu kontrolü **bayt** sayıyordu, harf değil. İki NUL baytı ve tek
+  bir çok baytlı harf bu kontrolden geçiyordu.
+- Kurum adı hiç temizlenmiyordu, yani içindeki bir NUL ya da bozuk
+  karakter doğrudan satıra gidiyordu.
+- Kurum adının hiçbir uzunluk sınırı yoktu.
+- AS numarası sütuna sığmıyor olabiliyordu, ve daha kötüsü: aynı satırın
+  kabul edilip edilmemesi sunucunun 32-bit mi 64-bit mi olduğuna
+  bağlıydı.
+
+Hiçbiri gerçek veri kümesinde bugün bulunmuyor. Kapatılma sebepleri
+bulunmaları değil, dosyanın bizim olmaması.
+
+**Kuran kişinin yapması gereken:** bir şey yok.
+
 ### Yedek alırken disk dolmaya başlarsa yazma duruyor
 
 Yedeğin sığıp sığmadığı eskiden yalnız **başlamadan önce** tahmin

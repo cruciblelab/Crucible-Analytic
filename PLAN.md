@@ -90,7 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **3/5** | H1 (ja4 yapıldı, üç ayrıştırıcı kaldı), H3 |
+| **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
 | **N** Kurulumun ikinci yolu | ✅ **7/7** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -3917,7 +3917,7 @@ diğerlerinin yaptığı bir şeyi unutması*ydı. Bu yüzden H4 var.
 
 ---
 
-#### H1 — Saldırgan baytlarını okuyan ayrıştırıcıları fuzz'la 🟡 **ja4 yapıldı**
+#### H1 — Saldırgan baytlarını okuyan ayrıştırıcıları fuzz'la ✅ **yapıldı**
 
 **Kapsam.** Doğrulanmamış, kimliklendirilmemiş, şifresi çözülmemiş
 baytları okuyan her ayrıştırıcı. `internal/ja4` bugün yapıldı:
@@ -3979,6 +3979,47 @@ mutasyoncu sürekli **yeni kod yolu** buluyordu.
 yapıldı)*; gecelik işte korpus biriktirerek koşuyor; bulunan her çökme
 `testdata/fuzz/` altına commit'leniyor (Go bunu kendisi yapar ve o dosya
 kalıcı bir regresyon testine dönüşür).
+
+##### Kalan üç ayrıştırıcı yapıldı, ve **beş gerçek kusur** çıkardı
+
+Beacon'ın JSON gövdesi, `asnlookup`'ın iki CSV'si, `botdata`'nın JSON'u.
+Altı hedef yazıldı ve toplam **~10 milyon çalıştırma**. ja4 ve
+`StripComments` sıfır bulguyla dönmüştü; bunlar dönmedi.
+
+**Dördü `asnlookup`'ta, ve dördü de tohum korpusunda — mutasyoncu daha
+koşmadan.** Ortak sebep: kontroller ölçülen şeyi değil, yazan kişinin
+kafasındaki şeyi ölçüyordu.
+
+| Kusur | Neydi | Sonucu |
+|---|---|---|
+| `country` iki NUL kabul ediyordu | `len(c) != 2` **baytları** sayıyor | PostgreSQL ifadeyi reddeder, satır **toplu** yazıldığı için yanındaki her satır da gider |
+| `country` tek çok baytlı harf kabul ediyordu | aynı kontrol, aynı sebep | "Ü" ülke kodu; kimsenin gruplayamadığı bir değer |
+| `asn_org` hiç temizlenmiyordu | yalnız `TrimSpace` | NUL ya da geçersiz UTF-8 → aynı toplu yazma kaybı |
+| `asn_org` sınırsızdı | hiçbir tavan yok | Boyutu yukarı akışın belirlediği bir alan, her satırda |
+| ASN sütuna sığmıyordu | `strconv.Atoi`, sonra yalnız `asn <= 0` | 7000000000 `INTEGER`'a yazılamaz; **64-bit makinede geçiyor, 32-bit'te eleniyor** |
+
+Beşincisi ayrıca mimari bir kusurdu: aynı satırın kabul edilip
+edilmemesi **makinenin kelime genişliğine** bağlıydı.
+
+**Yarıçap farkı önemli ve kayda geçti.** Beacon'ın gövdesi kendi satırını
+bozar. Bu iki CSV'nin değerleri **her satıra** iliştiriliyor — hem
+collector'ın hem beacon'ın, tablo yüklü olduğu sürece. Yani buradaki tek
+bozuk alan bir ziyaretçiyi değil, bir sonraki tazelemeye kadar herkesi
+kaybettiriyor.
+
+**Kural üçüncü kez yazılacaktı; paket oldu.** `internal/beacon` ve
+`internal/logging` aynı temizleyicinin birer kopyasını taşıyordu ve
+`asnlookup`'ta hiç yoktu. Üçüncü kopya yerine `internal/textsafe`, ve
+kesme politikası her çağıranda kaldı — biri kırpar, öbürü "…" ekler,
+ikisi de bilerek.
+
+**`botdata`'da bulunan şey kusur değil, eksik testti.** Mutasyon
+`labelsOf`'un boş-parmak-izi korumasını kaldırdığında hiçbir şey
+kırmızıya dönmedi: `filterArchive` o girdileri zaten eliyor. Ama
+`labelsOf`'un ikinci çağıranı `Load` ve onun girdisi diskteki bir dosya.
+İki çağıran, iki hedef.
+
+**Ölçüm:** 12 mutasyon, üçü hayatta kaldı, üçü de kapatıldı.
 
 ---
 

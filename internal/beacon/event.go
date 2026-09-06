@@ -26,7 +26,8 @@ import (
 
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // Event types. The wire format admits exactly these two; anything else
@@ -290,23 +291,12 @@ func clampScreen(px int) int {
 // otherwise take down the entire batch it landed in - every other
 // visitor's events included. Stripping here means a malformed event
 // degrades only itself.
+// The UTF-8 and control-character passes are in internal/textsafe, which
+// is where they were moved when a third caller turned out to need them
+// and not have them. What stays here is the trim and the bound, because
+// those are this package's policy rather than the shared rule.
 func sanitizeText(s string, maxRunes int) string {
-	if s == "" {
-		return ""
-	}
-	if !utf8.ValidString(s) {
-		s = strings.ToValidUTF8(s, "")
-	}
-	s = strings.Map(func(r rune) rune {
-		// Unicode line/paragraph separators are stripped alongside the
-		// ASCII control range: they are invisible in a panel but break
-		// line-oriented log and CSV output downstream.
-		if r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029 {
-			return -1
-		}
-		return r
-	}, s)
-	return truncateRunes(strings.TrimSpace(s), maxRunes)
+	return truncateRunes(strings.TrimSpace(textsafe.Storable(s)), maxRunes)
 }
 
 // truncateRunes cuts s to at most maxRunes runes, never mid-rune - a

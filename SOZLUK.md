@@ -814,9 +814,34 @@ tutmanın yolu.
 **yarış dedektörü (race detector)** — `go test -race`. İki goroutine'in
 aynı belleğe kilitsiz eriştiğini yakalar.
 
-**fuzz** — Ayrıştırıcıya rastgele ve bozuk girdi verip çökertmeye
-çalışmak. Saldırganın baytını okuyan ayrıştırıcılar için
-(`internal/ja4`, beacon JSON) gecelik koşuyor.
+**fuzz** — Ayrıştırıcıya rastgele ve bozuk girdi verip **bir özelliğin
+bozulup bozulmadığına** bakmak. "Çökmedi" bu projede yeterli sayılmıyor:
+hedeflerin çoğu çökmeyi değil, çıkan değerin saklanabilir olmasını ya da
+doğru olmasını sınıyor. Saldırganın baytını okuyan her ayrıştırıcıda bir
+hedef var (`internal/ja4`, beacon JSON, `asnlookup`'ın iki CSV'si,
+`botdata`'nın JSON'u, `internal/textsafe`) ve hepsi gecelik koşuyor —
+hangi hedefin koştuğunu bir değişmez denetliyor, yani listeye girmemiş
+yeni bir hedef kapıyı kırmızıya çevirir.
+
+**toplu yazma zehirlenmesi** — Bu projenin saklanabilirlik kuralının
+sebebi. PostgreSQL `TEXT` sütunu ne NUL baytı ne de geçersiz UTF-8 tutar
+ve böyle bir değer gördüğünde **ifadenin tamamını** reddeder. Satırlar
+toplu yazıldığı için, yazılamayan tek bir değer kendi satırını değil,
+aynı partideki her satırı kaybettirir — yani bir ziyaretçinin bozuk
+isteği başka ziyaretçilerin kayıtlarını siler.
+
+**saklanabilir metin (textsafe)** (`internal/textsafe`) — Kendi
+yazmadığımız her katara uygulanan tek kural: geçerli UTF-8 olacak ve
+kontrol karakteri taşımayacak. İki yarısının iki ayrı sonucu var —
+birincisi yukarıdaki toplu yazma kaybı, ikincisi **günlük enjeksiyonu**:
+değerin içindeki bir satır sonu bir günlük kaydını ikiye böler ve ikinci
+yarıyı isteği gönderen kişi yazmış olur.
+
+Paket olması bir kusurun sonucu: kural beacon'ın olay ayrıştırıcısında ve
+günlük yazıcısında birer kopya hâlinde duruyordu, ve üçüncü çağıranda —
+indirilen adres verisini okuyan ayrıştırıcıda — **hiç yoktu**. Kesme
+politikası taşınmadı: saklanan bir başlık sahip olmadığı bir karakteri
+kazanmamalı, kırpılan bir günlük değeri ise kırpıldığını söylemeli.
 
 **mutasyon testi (mutation testing)** — Kodu bilerek bozup testin
 kırmızıya dönüp dönmediğine bakmak. Bu projede her yeni doğrulama böyle

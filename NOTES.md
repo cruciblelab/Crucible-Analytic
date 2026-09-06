@@ -12673,3 +12673,129 @@ tahmin kibar yönde yanlıştır, ve yine de yanlıştır.
 
 *Bir gerekçenin ölçülmüş bir sayı içermesi, o sayının gerekçeyi
 desteklediği anlamına gelmez.*
+
+---
+
+## H1 kalanı — Üç ayrıştırıcı, beş gerçek kusur
+
+ja4 ve `StripComments` fuzz'landığında sıfır bulguyla dönmüşlerdi. Bu üç
+ayrıştırıcı dönmedi, ve dördü **tohum korpusunda** çıktı — mutasyoncu
+henüz bir kez bile koşmadan.
+
+### Neden hepsi aynı biçimde kaçmıştı
+
+Beşinin de ortak sebebi tek cümle: **kontrol, ölçtüğünü sandığı şeyi
+ölçmüyordu.**
+
+```go
+country := strings.ToUpper(strings.TrimSpace(record[2]))
+if len(country) != 2 { continue }
+```
+
+Bu satırı okuyan herkes "iki harf" görüyor. `len` **bayt** sayıyor. İki
+bayt, tek bir `Ü` harfidir; iki bayt, iki NUL baytıdır da. İkisi de
+geçiyordu.
+
+Kod okuyarak bulunmayacak sınıf tam olarak bu, ve H grubu bunun için
+kurulmuştu. Testler de bulmamıştı, çünkü testler birinin **aklına gelen**
+katarları deniyor — ve kafasındaki kural "iki harf" olan kimsenin aklına
+"iki NUL" gelmiyor.
+
+### Bulunan beş şey
+
+| Kusur | Sonucu |
+|---|---|
+| `country` iki NUL kabul ediyordu | Yazılamayan değer; satır **toplu** yazıldığı için yanındaki her satır da kayboluyor |
+| `country` tek çok baytlı harfi kabul ediyordu | Kimsenin gruplayamayacağı bir ülke kodu |
+| `asn_org` hiç temizlenmiyordu | Aynı toplu yazma kaybı, bu kez adın içinden |
+| `asn_org` sınırsızdı | Boyutunu yukarı akışın belirlediği bir alan, her satırda |
+| ASN sütuna sığmıyordu | `INTEGER`'a yazılamayan sayı — ve **kabul edilip edilmemesi makinenin kelime genişliğine bağlıydı** |
+
+Sonuncusu ayrıca kendi başına bir mimari kusur. `strconv.Atoi`'nin
+genişliği platformun `int`'i: 64-bit'te 7000000000 sorunsuz ayrıştırılıp
+satıra giriyor ve `INSERT` düşüyor, 32-bit'te aynı satır sessizce
+eleniyor. "Bu veri satırı kullanılabilir mi" sorusuna mimariye göre cevap
+veren bir ayrıştırıcı, cevap vermiyor.
+
+### Yarıçap: neden bu iki dosya beacon'ın gövdesinden ağır
+
+Beacon'a gelen bozuk bir olay kendi satırını bozar; bu, `sanitizeText`'in
+zaten sağladığı şey.
+
+Bu iki CSV'den gelen bir değer **her satıra** iliştiriliyor — hem
+collector'ın hem beacon'ın yazdığı her satıra, tablo yüklü olduğu sürece.
+Yani buradaki tek bozuk alan bir ziyaretçiyi değil, bir sonraki
+tazelemeye kadar **herkesi** kaybettiriyor. Ve dosya haftalık değişiyor,
+kimseye haber verilmeden.
+
+*Bir kaynağın HTTPS üzerinden gelmesi, içeriğinin doğru olduğunu
+söylemez.*
+
+### Kural üçüncü kez yazılacaktı
+
+`internal/beacon` ve `internal/logging` aynı temizleyicinin birer
+kopyasını taşıyordu — alt alta konduğunda satır satır aynı. `asnlookup`
+üçüncü çağırandı ve **hiç kopyası yoktu**.
+
+Üçüncü kopyayı yazmak, aynı gün `backup.MarginFor`'da düzelttiğim kusuru
+bilerek tekrar etmek olurdu: iki yazımı olan bir kural, bakılmayan
+yazımdan ayrılır. `internal/textsafe` oldu.
+
+Kesme politikası taşınmadı ve bu bilinçli: saklanan bir başlık sahip
+olmadığı bir karakteri kazanmamalı, kırpılmış bir günlük değeri ise
+kırpıldığını söylemeli. İkisini tek fonksiyona sokmak bir bayrak
+isterdi, ve bir bayrak tek isim taşıyan iki fonksiyondur.
+
+### `botdata`'da bulunan şey kusur değildi, eksik testti
+
+Mutasyon `labelsOf`'un boş-parmak-izi korumasını kaldırdı ve hiçbir şey
+kırmızıya dönmedi. İlk okuyuşta koruma gereksiz görünüyor: `filterArchive`
+o girdileri zaten eliyor.
+
+Gereksiz değil. `labelsOf`'un **ikinci** bir çağıranı var ve onun girdisi
+arşivden gelmiyor — `Load` diskteki bir dosyayı okuyor, ve o dosya bir
+operatörün düzenleyebileceği düz bir JSON. Araya `filterArchive`
+girmiyor.
+
+Yani hayatta kalan mutasyon "koruma gereksiz" demiyordu, "onu deneyen
+test yanlış yoldan geliyor" diyordu. İki çağıran, iki hedef.
+
+*Bir korumanın gereksiz görünmesi, onu deneyen testin yanlış yoldan
+geldiği anlamına gelebilir.*
+
+### Kendi testimde bir kusur
+
+`Save`/`Load` gidiş-dönüşünde geçersiz UTF-8'i atlamak için
+`json.Valid([]byte("\"" + s + "\""))` yazmıştım. `json.Valid` UTF-8
+**doğrulamıyor**. Fuzzer `"\xc0"` verdi, kontrol "geçerli" dedi, ve
+gidiş-dönüş `encoding/json`'un baytı U+FFFD ile değiştirmesinde düştü.
+
+O değiştirme kodlayıcının belgelenmiş davranışı, bu paketin kusuru değil.
+Kusur, testin sorduğu soruydu.
+
+### Neyin ölçüldüğü, neyin ölçülmediği
+
+Beacon hedefi her alanı **yansımayla** dolaşıyor, adıyla değil: `Row`'a
+yirmi birinci bir alan eklendiği gün, adları sayan bir test yeşil kalır
+ve o gün tam da birinin temizlemeyi unuttuğu gündür. Yansımanın kendisi
+de sınanıyor — 23 alana sırayla NUL konup her birinin yakalandığı
+gösteriliyor, çünkü hiçbir şeye bakmayan bir fuzz hedefi milyonlarca kez
+koşar ve hiçbir şey kanıtlamaz.
+
+Ölçülmeyen bir şey de var ve yazıyorum: 8 KB'lık gövde sınırında en kötü
+`BuildRow` maliyeti **140 µs** çıktı. Algoritmik bir patlama aranmıştı,
+bulunamadı.
+
+### Mutasyonlar
+
+12 mutasyon, üçü hayatta kaldı:
+
+| Hayatta kalan | Neden | Ne yapıldı |
+|---|---|---|
+| `maxOrgLen` bir gigabayt olsun | Test sınırı üretimden okuyordu, sınır büyüyünce beklenti de büyüdü | Sabiti okumayan bir tavan testi |
+| Boş yol kök olmasın | Tohum korpusunda boş yolla **ayrıştırılan** bir URL yoktu | İki tohum: `?a=1` ve şemalı ana sayfa |
+| Boş parmak izi haritaya girsin | Hedef yanlış çağırandan geliyordu | `Load` için ayrı hedef |
+
+Üçü de kapatıldı; ikisi eksik kontrol, biri eksik tohumdu.
+
+*Bir alanı adıyla sınayan test, eklenen alanı hiç görmez.*
