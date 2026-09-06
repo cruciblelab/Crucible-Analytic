@@ -520,6 +520,17 @@ her şey silinir. Canlı veritabanına işaret etmesi reddedilir, ve reddeden
 kapsandığı için, kilit denemesi yalnız ikisi aynı veritabanıysa
 başarısız olur.
 
+**disk muhafızı (spaceGuard)** (`internal/backup/container.go`) — Yedek
+**yazılırken** dosya sistemini ölçen, boş alan paya inerse yazmayı
+durduran ve yarım dosyayı silen sarmalayıcı. Ön tahminden ayrı bir şey ve
+onun yerine geçmiyor: tahmin ucuz olanı reddeder, muhafız geri kalanı
+umutsuz hâle geldiği anda durdurur. **Bir tahmin, tahmin olduğu için
+garanti olamaz** — dosyanın tablolara oranı satırların ne taşıdığına
+bağlı (ölçüldü: gerçekçi veride 1/9, en kötü hâlde 1/3), ve yedek
+alınırken veritabanı da aynı diske yazıyor. Bakma aralığı payın dörtte
+biri, tavanı 8 MB: küçük bir birim üzerinde 8 MB'lık bir adım payın
+kendisinden büyük olurdu.
+
 **geliştiriciye kapatma (devseal)** (`internal/devseal`) — Sırlar
 yedeğinin şifrelenme biçimi. Geliştirici parolasından argon2id ile
 türetilen bir X25519 alıcısı: **açık yarısı** `upgrader.toml` içinde,

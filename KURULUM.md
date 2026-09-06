@@ -1143,6 +1143,19 @@ hash'leriyle TOTP sırlarını taşır — yani bu izinler süs değil.
 boyutu kötümser bir oranla tahmin edilir, diskte kalacak pay hesaba
 katılır. Yetmiyorsa satırda ne kadar eksik olduğu yazar.
 
+**Ve sığar sanılıp sığmazsa, yazarken durur.** Tahmin tahmindir: dosyanın
+tablolara oranı satırların ne taşıdığına bağlı, ve o ölçüldü — gerçekçi
+veride tabloların dokuzda biri, uydurulabilecek en kötü veride üçte biri.
+Ayrıca yedek alınırken veritabanı da aynı diske yazmaya devam ediyor,
+yani düğmeye basıldığında yeri olan bir makinenin yirmi dakika sonra yeri
+olmayabilir — tahminin bunda hiçbir hatası olmadan.
+
+Bu yüzden yazan taraf, yazarken diski ölçüyor. Boş alan bırakılması
+gereken payın altına inerse yedek orada durur, yarım dosya silinir, ve
+satırda ne kadar kaldığı yazar. Disk dolmaz; **dolan bir disk, bu
+özelliğin kendi başına sebep olabileceği tek kesintidir** — collector
+yazamaz, ve collector müşterinin sitesinin önünde.
+
 **Bir yedek, saklama politikanızın sildiği veriyi tutar.** Tarihinden
 sonra silinen satırlar o dosyanın içinde durmaya devam eder. Sayfada da
 yazıyor, ama burada bir kez daha: müşteriye "sildik" dediğiniz veri

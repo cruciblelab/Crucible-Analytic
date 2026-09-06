@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devseal"
-	"github.com/cruciblelab/crucible-analytic/internal/diskspace"
 )
 
 // The second artifact: the configuration, encrypted to the developer
@@ -648,19 +647,15 @@ func MeasureSecrets(dir string, files []SecretFile) (Estimate, error) {
 	for _, f := range files {
 		total += int64(len(f.Bytes))
 	}
-	space, err := diskspace.Read(parentOf(dir))
+	space, err := spaceFor(dir)
 	if err != nil {
-		return Estimate{}, fmt.Errorf("backup: reading free space for %s: %w", dir, err)
-	}
-	margin := int64(FreeMargin)
-	if space.TotalBytes > 0 && space.TotalBytes/10 < margin {
-		margin = space.TotalBytes / 10
+		return Estimate{}, err
 	}
 	return Estimate{
 		TableBytes: total,
 		FileBytes:  total * 2,
 		AvailBytes: space.AvailBytes,
-		Margin:     margin,
+		Margin:     MarginFor(space.TotalBytes),
 	}, nil
 }
 

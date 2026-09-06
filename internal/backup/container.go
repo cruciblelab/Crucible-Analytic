@@ -40,6 +40,100 @@ import (
 //
 // So the contents are a callback and the container is not.
 
+// ErrDiskFilling is returned when a backup was stopped because the
+// filesystem it was being written to ran down to its margin.
+var ErrDiskFilling = errors.New("backup: stopped to keep the disk from filling")
+
+// GuardEvery is the most that is written between two free-space
+// readings.
+//
+// Eight megabytes. The reading is one statfs, so the cost of checking is
+// not what sets this; what sets it is how far past the margin a write
+// can get before anybody looks.
+//
+// It is a ceiling and not the interval, because on a small filesystem it
+// would be larger than the thing it is protecting. The margin is a tenth
+// of the filesystem when that is under a gigabyte, so a 64 MB volume -
+// which is what a container's backup mount can be - has a 6.4 MB margin,
+// and checking every 8 MB could step over it between two readings. The
+// interval is therefore a quarter of the margin when that is smaller,
+// which makes the worst overshoot a quarter of the margin by
+// construction rather than by the filesystem happening to be big.
+const GuardEvery = 8 << 20
+
+// spaceGuard stops a write before the filesystem fills.
+//
+// # Why an estimate is not enough
+//
+// Measure predicts the file's size from the tables' size, and that
+// prediction was wrong by a factor of two in the direction that matters
+// on one of three measured kinds of data. It will be wrong again: the
+// ratio depends on what the rows contain, and this code does not know
+// what the rows contain until it has read them.
+//
+// There is also a second writer to the same disk that no estimate can
+// see. The database keeps running while the backup is taken. A machine
+// with room for the file when the button was pressed can be out of room
+// twenty minutes later without the backup having been wrong about
+// anything.
+//
+// So the estimate refuses the hopeless cases cheaply, and this refuses
+// the rest at the moment they become hopeless. container removes the
+// temporary file on the way out, so a stopped backup gives back every
+// byte it took.
+//
+// *Bir tahmin, tahmin olduğu için garanti olamaz.*
+type spaceGuard struct {
+	w   io.Writer
+	dir string
+
+	// margin is what must stay free, and every is how often to look.
+	// Both come from the filesystem's size, which does not change while
+	// the file is being written; the free space does, and that is what
+	// gets re-read.
+	//
+	// Zero every means this filesystem could not be measured at all, and
+	// the guard passes everything through. Read fails on anything but
+	// Linux, and a backup that refused to run wherever it could not
+	// measure would be a backup that refuses to run on a developer's
+	// machine.
+	margin int64
+	every  int64
+
+	since int64
+}
+
+// newSpaceGuard measures the filesystem once and returns a guard for it.
+func newSpaceGuard(w io.Writer, dir string) *spaceGuard {
+	g := &spaceGuard{w: w, dir: dir}
+	space, err := diskspace.Read(dir)
+	if err != nil {
+		return g
+	}
+	g.margin = MarginFor(space.TotalBytes)
+	g.every = GuardEvery
+	if quarter := g.margin / 4; quarter > 0 && quarter < g.every {
+		g.every = quarter
+	}
+	return g
+}
+
+func (g *spaceGuard) Write(p []byte) (int, error) {
+	if g.every > 0 {
+		g.since += int64(len(p))
+		if g.since >= g.every {
+			g.since = 0
+			if space, err := diskspace.Read(g.dir); err == nil &&
+				space.AvailBytes < g.margin {
+				return 0, fmt.Errorf("%w: %s has %d bytes free and %d must stay "+
+					"free. The partial file has been removed",
+					ErrDiskFilling, g.dir, space.AvailBytes, g.margin)
+			}
+		}
+	}
+	return g.w.Write(p)
+}
+
 // container writes one tar.gz into dir under name and reports what it
 // made.
 //
@@ -94,7 +188,7 @@ func container(dir, name string, fill func(tw *tar.Writer) error) (Result, error
 	// checksum is of what went to the disk, and a second pass could hash
 	// a file something else had changed in between.
 	sum := sha256.New()
-	counted := &countingWriter{w: io.MultiWriter(f, sum)}
+	counted := &countingWriter{w: io.MultiWriter(newSpaceGuard(f, dir), sum)}
 	gz := gzip.NewWriter(counted)
 	tw := tar.NewWriter(gz)
 

@@ -76,6 +76,44 @@ Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
 sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
 yükleme o tabloda adını söyleyerek durur.
 
+### Yedek alırken disk dolmaya başlarsa yazma duruyor
+
+Yedeğin sığıp sığmadığı eskiden yalnız **başlamadan önce** tahmin
+ediliyordu. Artık yazarken de ölçülüyor: boş alan bırakılması gereken
+payın altına inerse yedek orada duruyor, yarım dosya siliniyor, ve
+satırda ne kadar kaldığı yazıyor.
+
+Sebep iki tane. Birincisi, tahmin tahmindir — dosyanın tablolara oranı
+satırların ne taşıdığına bağlı ve o oran şimdi ölçüldü: gerçekçi veride
+tabloların dokuzda biri, uydurulabilecek en kötü veride üçte biri.
+Kullanılan kötümser oran beşte birdi, yani en kötü durumda **yetersiz**;
+üçte bire çekildi. İkincisi, yedek alınırken veritabanı da aynı diske
+yazmaya devam ediyor: düğmeye basıldığında yeri olan bir makinenin yirmi
+dakika sonra yeri olmayabilir, ve bunda tahminin hiçbir hatası yoktur.
+
+Dolan bir disk, bu özelliğin kendi başına sebep olabileceği tek
+kesintidir — collector yazamaz hâle gelir, ve collector sitenin önünde.
+
+**Kuran kişinin yapması gereken:** bir şey yok.
+
+### Düzeltme: sırlar yedeği "sığar mı" sorusunu yanlış diske soruyormuş
+
+Yalnız **yedek dizini kendi mount'u olan** kurulumları etkiliyordu — ki
+Docker için önerilen düzen tam olarak budur, çünkü volume dışına yazılan
+bir yedek bir sonraki imaj güncellemesinde silinir.
+
+Sırlar yedeğinin disk kontrolü, dizinin kendisi yerine **üstündeki**
+dizini ölçüyordu. Yani 32 MB'lık bir volume üzerine yazarken 252 GB'lık
+kök dosya sisteminin boş alanına bakıyordu; sayfada gösterilen boş alan
+da o diskin boş alanıydı. Sırlar dosyası birkaç kilobayt olduğu için
+muhtemelen hiçbir kurulumda yanlış karar vermedi, ama gösterdiği sayı
+yanlıştı.
+
+Veri yedeği bundan etkilenmiyordu; o zaten doğru dizini ölçüyordu. İkisi
+artık aynı fonksiyonu çağırıyor.
+
+**Kuran kişinin yapması gereken:** bir şey yok.
+
 ### Düzeltme: systemd kurulumunda yedek alma hiç çalışmıyordu
 
 **v0.21.0 ve v0.22.0'da, systemd ile kurulmuş her sistemde yedek alma

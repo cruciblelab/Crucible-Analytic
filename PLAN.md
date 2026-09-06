@@ -4759,13 +4759,32 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | ✅ yapıldı |
 | F1f | Doğrulama: dosya gerçekten o dosya mı | ✅ yapıldı |
 | F1g | Yan veritabanına geri yükleme | ✅ yapıldı |
+| F1h | Sıkıştırma oranı gerçek veride, ve yazarken disk muhafızı | ✅ yapıldı |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
 yedek gönderilmiyor.
 
-**Açık kalan bir karar:** sıkıştırma oranının gerçek veride ölçülmesi
-(F1b).
+**F1b'nin açık kalan kararı kapandı — ve bir sayıyı değil bir gerekçeyi
+düzeltti.** Oran üç kolda, 50 000 satırda, gerçek `Measure` ve gerçek
+yazıcıyla ölçüldü: tekrarlı veride 1/60, gerçekçi veride 1/9, kötücül
+veride 1/3. Yani `estimate.go`'nun "beşte bir, ölçülenden kırk kat kötü"
+cümlesi gerçekçi veride **iki kat**tı ve üçüncü kolda beşte bir
+**aşılıyordu**.
+
+Oran 1/3 oldu. Ama asıl karar şu: **koruma tahminde olamaz.** Bir tahmin,
+tahmin olduğu için garanti değildir, ve yedek alınırken veritabanı da
+aynı diske yazmaya devam ediyor — düğmeye basıldığında yeri olan bir
+makine yirmi dakika sonra yersiz kalabilir, tahminin hiçbir hatası
+olmadan. Bu yüzden `spaceGuard` dosyayı **yazarken** diski ölçüyor, pay
+aşılırsa duruyor, ve yarım dosya siliniyor. Tahmin ucuz olanı reddediyor,
+muhafız geri kalanını umutsuz hâle geldiği anda durduruyor.
+
+Yol boyunca ikinci bir kusur çıktı: `MeasureSecrets` koşulsuz üst dizini
+ölçüyordu, `Measure` ise dizinin kendisini. Ayrıldıkları tek yer, yedek
+dizininin kendi mount'u olduğu yer — ki bu belgenin Docker için şart
+koştuğu düzen. Ölçüldü: 32 MB'lık mount ile 252 GB'lık kök. Sırlar
+tahmini, dosyanın gitmediği diskin boş alanını sayfaya yazıyormuş.
 
 **F1g'de verilen karar: eski şemalı yedek denenir, reddedilmez.**
 Tablolar bu build'in gömdüğü şemadan kuruluyor — kurulabilecek başka bir

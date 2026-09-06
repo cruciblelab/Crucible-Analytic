@@ -11264,6 +11264,14 @@ durdurur, ve siteyi indirir.
 *Bir tahminin ölçülmüş olması, ölçülen şeyin temsil ettiği anlamına
 gelmez.*
 
+> **Sonradan düzeltildi — bkz. "F1h".** Yukarıdaki paragraf kendi
+> cümlesini ihlal ediyor. "Kırk kat kötü" yalnız o tekrarlı test
+> verisine göre doğru; gerçekçi satırlarda pay kırk kat değil **iki
+> kat**, ve uydurulabilecek en kötü veride beşte bir **aşılıyor**.
+> Ölçüm gerçekti, ondan çıkarılan sonuç değildi. Silmiyorum, çünkü o
+> gün inanılan şey buydu ve nasıl yanlış olduğu düzeltilmiş hâlinden
+> daha öğretici.
+
 ### Test, `MkdirAll`'ın yapmadığı şeyi buldu
 
 Dizin modunu kontrol eden bir iddia yazdım ve kırmızı verdi:
@@ -12546,3 +12554,122 @@ restore_dsn = ".../baskasinin"   (içinde onemli_veri tablosu)
 `onemli_veri` yerinde duruyor.
 
 *Hiçbir zaman denenmemiş bir yedek gönderilmiyor.*
+
+---
+
+## F1h — Açık kalan ölçüm: sıkıştırma oranı, ve gerekçenin kendisi
+
+F1b'nin açık bıraktığı tek şey "oran gerçek veride ölçülsün" idi.
+Ölçüldü, ve ölçüm bir sayıyı değil **bir gerekçeyi** çürüttü.
+
+### Ne yazıyordu
+
+`estimate.go` iki ölçülmüş sayı ve onlardan çıkarılmayan bir sonuç
+taşıyordu:
+
+```
+traffic_snapshots   16.4 MB on disk   68 KB compressed   0.4%
+beacon_events       18.1 MB on disk   97 KB compressed   0.5%
+
+[...] tahmin bilerek kötümser: tabloların beşte biri, ki ölçülenden
+kırk kat kötü.
+```
+
+Sayılar gerçekti. Ölçülen şey ise "bir yedek ne kadar yer kaplar" değil,
+"gzip tekrarı ne kadar sıkıştırır" idi: o satırlar birbirinin
+neredeyse aynısıydı.
+
+Ve müşteri satırları o sütunda tekrarlı değil. `ip_hash` her satırda 32
+baytlık bir SHA-256 ve **hiçbir şey onu sıkıştırmıyor** — dosyaya
+hükmeden sütun tam olarak o.
+
+### Üç kol, 50 000 satır, gerçek Measure ve gerçek yazıcı
+
+```
+tekrarlı    102 MB diskte    1.7 MB dosya    1/60
+gerçekçi    142 MB diskte   15.3 MB dosya    1/9
+kötücül     194 MB diskte   62.2 MB dosya    1/3
+```
+
+**Gerçekçi**, her satırda ayrı bir takma ad ve birkaç satırda bir ayrı
+ziyaretçi kimliği — bunu her kurulum üretiyor — artı küçük bir havuzdan
+çekilen açıklayıcı sütunlar; bunu da her kurulum üretiyor. **Kötücül**,
+metin sütunlarının da yüksek entropili olması; bunu hiçbir şey
+üretmiyor.
+
+Yani "kırk kat" diye anlatılan pay gerçekçi veride **iki kat**, ve
+üçüncü kolda beşte bir **aşılıyor**: tahmin 38.7 MB söz verirdi, dosya
+62.2 MB oldu.
+
+### İki karar
+
+**Oran 1/3 oldu.** Ölçülen en kötü kol. Kanıtlanmış bir üst sınır değil,
+üç kolun en kötüsü — ve farkı açıkça yazmak, "kırk kat" cümlesinin nasıl
+kurulduğunu bir daha kurmamanın tek yolu.
+
+**Asıl koruma tahminde değil.** Bir tahmin, tahmin olduğu için garanti
+olamaz; üstelik yedek alınırken **veritabanı da aynı diske yazıyor**,
+yani düğmeye basıldığında yeri olan makinenin yirmi dakika sonra yeri
+olmayabilir — tahminin hiçbir hatası olmadan.
+
+Bu yüzden `spaceGuard`: dosya yazılırken diski ölçüyor, boş alan payın
+altına inerse duruyor, ve `container` yarım dosyayı zaten siliyor. Yani
+durdurulan bir yedek aldığı her baytı geri veriyor. Ölçüldü: 16 MB'lık
+gerçek bir tmpfs, 4 MB boşla başlayan bir yazma, 3 MB istek — durdu, ve
+disk yazmadan önceki bayta kadar aynı yerde.
+
+Bakma aralığı payın dörtte biri, tavanı 8 MB. Tavanın tek başına yanlış
+olduğu yer küçük birim: 64 MB'lık bir mount'ta pay 6.4 MB, ve 8 MB'lık
+bir adım payın üstünden atlayabilir.
+
+### Yol boyunca ikinci bir kusur: sırlar tahmini yanlış diski ölçüyormuş
+
+`MeasureSecrets` koşulsuz `parentOf(dir)` okuyordu; `Measure` ise dizinin
+kendisini okuyup yalnız yoksa üsttekine düşüyordu. `MeasureSecrets`'in
+kendi yorumu "Measure ile aynı şekil, aynı sebeple" diyordu. Değildi.
+
+Sıradan bir kurulumda ikisi aynı dosya sistemi, o yüzden hiçbir şey
+görünmüyordu. Ayrıldıkları yer, yedek dizininin **kendi mount'u**
+olduğu yer — ki KURULUM.md Docker için bunu şart koşuyor, çünkü volume
+dışına yazılan yedek bir sonraki imaj güncellemesinde siliniyor.
+Ölçüldü:
+
+```
+dir     /.../yedek    32 MB toplam    pay 3.3 MB
+parent  /...         252 GB toplam    pay 1.0 GB
+```
+
+Yani belgelerin istediği kurulumda sırlar tahmini "sığar mı" sorusunu
+**dosyanın gitmediği diske** soruyordu, ve o diskin boş alanını sayfaya
+yazıyordu. Dosya birkaç KB olduğu için muhtemelen hiç yanlış
+reddetmedi — ama "muhtemelen ısırmıyor" ile "doğru" aynı şey değil.
+
+`spaceFor` tek fonksiyon oldu. Aynı ailenin üçüncüsü olarak `MarginFor`
+de: pay kuralı iki yerde yazılıydı ve **kopyalar birbirinden ayrılmıştı**
+— ikisi de bir gigabayt ile onda birin küçüğünü alıyordu, ama yalnız
+biri boyutun bilinip bilinmediğini soruyordu. Boyutu sıfır okunan bir
+dosya sisteminde veri yedeği hiç pay bırakmıyordu, sırlar yedeği bir
+gigabayt. İkisi de seçilmiş değildi.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Oran eski değerine dönsün (1/5) | Yakalandı |
+| Muhafız hiç olmasın | Yakalandı |
+| Muhafız hiç tetiklenmesin | Yakalandı |
+| Karşılaştırma tersine dönsün | Yakalandı |
+| Aralık hep 8 MB olsun | Yakalandı |
+| Yarım dosya silinmesin | Yakalandı |
+| Sırlar tahmini yine üst dizini ölçsün | Yakalandı |
+| `spaceFor` hep üst dizini ölçsün | Yakalandı |
+| Ölçülemeyen dosya sisteminde pay sıfır olsun | İlkin hayatta kaldı |
+| Tahmin tablo boyutunun tamamı olsun | İlkin hayatta kaldı |
+
+Son ikisi eksik kontroldü ve ikisi de kapatıldı. İkincisi öğreticiydi:
+bütün kontroller **dosyanın** ne kadar tuttuğunu ölçüyordu ve hiçbiri
+**tahminin** işe yarayıp yaramadığını ölçmüyordu. Her yedeği reddeden bir
+tahmin kibar yönde yanlıştır, ve yine de yanlıştır.
+
+*Bir gerekçenin ölçülmüş bir sayı içermesi, o sayının gerekçeyi
+desteklediği anlamına gelmez.*
