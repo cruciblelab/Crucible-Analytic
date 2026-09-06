@@ -23,8 +23,10 @@ import (
 // which is refused before a byte is written, with the numbers, by the
 // component that can see the disk. See internal/backup.Measure.
 //
-// Restoring is the other way round and always will be: it writes over
-// live data, and the panel does not do it at all. See PLAN.md F1f.
+// Restoring is the other way round *when it writes over live data*, and
+// the panel never does that: it prepares a restore into a side database
+// and stops. Swapping one in front of the services stays in the shell.
+// See internal/backup/restore.go and RestoreBackup below.
 //
 // *Kaynak yetersizse engelleriz; onun dışında en iyi serbestliği
 // veririz.*
@@ -189,6 +191,45 @@ func (s *Store) VerifyBackup(ctx context.Context, a Access, operationID string,
 	// index refused.
 	if _, auditErr := s.recordForReturningID(ctx, a.Principal, AuditEntry{
 		Action: ActionBackupVerified,
+		Target: fmt.Sprintf("yedek-%d", backupID),
+		Detail: map[string]any{"request_id": req.ID, "backup_id": backupID},
+	}); auditErr != nil {
+		return req, nil
+	}
+	return req, nil
+}
+
+// RestoreBackup queues a restore of one backup into the side database.
+//
+// # Why this needs no developer password either
+//
+// The reason the release button has one is what it can do to somebody
+// else: replace the program in front of the customer's website. This
+// writes into a database that exists for nothing but being written
+// into, and the live one is refused by the upgrader - see
+// internal/backup.RestoreInto for what refuses it.
+//
+// So it is the customer's rehearsal of their own recovery, and a
+// rehearsal they have to ask us to run is one nobody runs. What it
+// costs is the queue's one in-flight slot for as long as it takes, which
+// is why it is behind the same entitlement as the other two.
+func (s *Store) RestoreBackup(ctx context.Context, a Access, operationID string,
+	backupID int64) (*backup.Request, error) {
+
+	if !a.Can(CapManageSettings) {
+		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	}
+
+	req, err := backup.AskRestore(ctx, s.pool, backupActorFor(a.Principal), operationID, backupID)
+	switch {
+	case errors.Is(err, backup.ErrAlreadyInFlight):
+		return nil, ErrBackupInFlight
+	case err != nil:
+		return nil, err
+	}
+
+	if _, auditErr := s.recordForReturningID(ctx, a.Principal, AuditEntry{
+		Action: ActionBackupRestored,
 		Target: fmt.Sprintf("yedek-%d", backupID),
 		Detail: map[string]any{"request_id": req.ID, "backup_id": backupID},
 	}); auditErr != nil {

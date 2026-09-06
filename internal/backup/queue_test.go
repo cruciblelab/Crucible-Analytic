@@ -26,8 +26,15 @@ import (
 // Measured rather than assumed: with the default branch returning nil,
 // every other test in this package stayed green.
 func TestARequestNamingWorkThisBuildDoesNotKnowIsRefused(t *testing.T) {
+	// The value here has to be one *this* build does not know, which
+	// means it changes as the build learns more. It was "geri_yukle"
+	// when this was written, and the very next phase added that kind -
+	// so this test went red on the commit its own comment predicted.
+	// That is the check working: the value is a stand-in for whatever
+	// the next version adds, and the day it stops being unknown is the
+	// day somebody has to pick another one.
 	for name, work := range map[string]Work{
-		"a kind from a later version": "geri_yukle",
+		"a kind from a later version": "canliya_gec",
 		"a kind from nowhere":         "sil",
 		"no kind at all":              "",
 	} {

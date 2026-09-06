@@ -73,6 +73,9 @@ const (
 	WorkTake Work = "al"
 	// WorkVerify is "check the one I am pointing at".
 	WorkVerify Work = "dogrula"
+	// WorkRestore is "put the one I am pointing at into the side
+	// database". Never the live one - see restore.go.
+	WorkRestore Work = "geri_yukle"
 )
 
 // Request is one row of the queue.
@@ -100,6 +103,9 @@ type Request struct {
 
 	// BackupID is the catalogue row this produced, nil until it has.
 	BackupID *int64
+	// Result is what the work produced, in the words the page shows.
+	// Empty for work whose whole outcome is "it happened".
+	Result string
 }
 
 // InFlight reports whether this request is still going.
@@ -109,14 +115,14 @@ func (r *Request) InFlight() bool {
 
 const requestColumns = `id, requested_at, actor_kind, actor_id, actor_label,
 	operation_id, kind, sets, target_id, state, claimed_at, claimed_by,
-	finished_at, error_chain, backup_id`
+	finished_at, error_chain, result, backup_id`
 
 func scanRequest(row pgx.Row) (*Request, error) {
 	var r Request
 	var state, kind string
 	err := row.Scan(&r.ID, &r.RequestedAt, &r.Actor.Kind, &r.Actor.ID, &r.Actor.Label,
 		&r.OperationID, &kind, &r.Sets, &r.TargetID, &state, &r.ClaimedAt, &r.ClaimedBy,
-		&r.FinishedAt, &r.ErrorChain, &r.BackupID)
+		&r.FinishedAt, &r.ErrorChain, &r.Result, &r.BackupID)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +151,22 @@ func Ask(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
 		return nil, err
 	}
 	return write(ctx, pool, a, operationID, WorkTake, Normalise(sets), nil)
+}
+
+// AskRestore records that somebody wants one put into the side
+// database.
+//
+// The same shape as AskVerify and deliberately so: both name a file
+// that already exists and neither chooses any sets. What separates them
+// is what the upgrader does, and where - see restore.go on why the
+// destination is a config file and never this row.
+func AskRestore(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
+	targetID int64) (*Request, error) {
+
+	if targetID <= 0 {
+		return nil, fmt.Errorf("backup: no backup was named to restore")
+	}
+	return write(ctx, pool, a, operationID, WorkRestore, nil, &targetID)
 }
 
 // AskVerify records that somebody wants one checked.
@@ -259,7 +281,7 @@ func validateRequest(r *Request) error {
 	switch r.Work {
 	case WorkTake:
 		return validateSets(r.Sets)
-	case WorkVerify:
+	case WorkVerify, WorkRestore:
 		return nil
 	default:
 		return fmt.Errorf("backup: %q is not work this build knows how to do", r.Work)
@@ -285,18 +307,34 @@ func validateSets(sets []string) error {
 	return err
 }
 
-// Finish records how it went.
-func Finish(ctx context.Context, pool *pgxpool.Pool, id int64, state State,
-	cause error, backupID *int64) error {
+// Outcome is everything a finished request records.
+//
+// A struct rather than five positional arguments, and it grew into one
+// the moment a restore needed to say something on success: State, Cause
+// and BackupID read the same way round and a fourth string beside them
+// would be a call nobody could check by eye.
+type Outcome struct {
+	State State
+	// Cause is what went wrong, nil on success.
+	Cause error
+	// Result is what the work produced, in the words the page shows.
+	// Empty for work whose whole outcome is "it happened".
+	Result string
+	// BackupID is the catalogue row this produced, for a take.
+	BackupID *int64
+}
 
+// Finish records how it went.
+func Finish(ctx context.Context, pool *pgxpool.Pool, id int64, o Outcome) error {
 	chain := ""
-	if cause != nil {
-		chain = cause.Error()
+	if o.Cause != nil {
+		chain = o.Cause.Error()
 	}
 	_, err := pool.Exec(ctx, `
 		UPDATE panel_backup_requests
-		   SET state = $2, finished_at = now(), error_chain = $3, backup_id = $4
-		 WHERE id = $1`, id, string(state), chain, backupID)
+		   SET state = $2, finished_at = now(), error_chain = $3, result = $4,
+		       backup_id = $5
+		 WHERE id = $1`, id, string(o.State), chain, o.Result, o.BackupID)
 	if err != nil {
 		return fmt.Errorf("backup: finish: %w", err)
 	}

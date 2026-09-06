@@ -47,6 +47,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
+	"github.com/cruciblelab/crucible-analytic/internal/schemafiles"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/upgrade"
 )
@@ -198,9 +199,35 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The side database, when one is configured.
+	//
+	// Opened here rather than inside the runner so that a DSN that
+	// cannot be parsed stops this process at startup, in front of the
+	// operator who just wrote it, rather than at the moment somebody
+	// presses restore. Nil when nothing is configured, which is the
+	// state every deployment starts in.
+	//
+	// Not connected to yet: pgxpool.New is lazy, and a side database
+	// that is down must not stop the upgrader from applying schema
+	// upgrades. The restore itself reports it.
+	var restorePool *pgxpool.Pool
+	if cfg.Backup.RestoreDSN != "" {
+		restorePool, err = pgxpool.New(ctx, cfg.Backup.RestoreDSN)
+		if err != nil {
+			logger.Error("upgrader: [backup] restore_dsn", "err", err)
+			os.Exit(1)
+		}
+		defer restorePool.Close()
+	}
+
 	backups := backup.Runner{
 		Pool: pool,
 		Dir:  cfg.Backup.Dir,
+		// The side database and the schema to build in it. Both nil on
+		// a deployment that has not configured one, and a queued
+		// restore then fails with that sentence on the row.
+		RestorePool: restorePool,
+		Schema:      schemaFiles(),
 		// Where the configuration is read from, derived from where this
 		// process was told its own configuration is.
 		//
@@ -381,4 +408,24 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 // called it but the applier and the applier's tests bring their own.
 func backupOptional(err error) bool {
 	return errors.Is(err, backup.ErrNotConfigured)
+}
+
+// schemaFiles is internal/schemafiles in the shape internal/backup can
+// take.
+//
+// The conversion exists because internal/schemafiles embeds
+// internal/backup's own schema.sql, so that package cannot import this
+// one back. Rather than break the embedding, the list is carried across
+// here - which is also the only place in the program where "the schema"
+// and "the thing that rebuilds a database from it" are both in view.
+//
+// TestTheRestoreSchemaIsTheWholeSchema checks that nothing is dropped
+// on the way: a restore into a database missing one table is a restore
+// that fails on that table, in front of somebody rehearsing a disaster.
+func schemaFiles() []backup.SchemaFile {
+	out := make([]backup.SchemaFile, 0, len(schemafiles.InOrder))
+	for _, f := range schemafiles.InOrder {
+		out = append(out, backup.SchemaFile{Path: f.Path, SQL: f.SQL})
+	}
+	return out
 }

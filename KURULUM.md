@@ -1177,8 +1177,61 @@ yapılandırılmış olan karşılaştırılıyor. Geliştirici parolasını
 değiştirdiyseniz eski sırlar yedekleri sapasağlamdır ve bugünkü parolayla
 açılmaz — bunu ihtiyaç duyduğunuz gün değil, şimdi öğrenirsiniz.
 
-**Geri yükleme henüz yok** (F1g). Şu an alınabiliyor, listelenebiliyor
-ve doğrulanabiliyor; yan bir veritabanına yüklenmesi sonraki fazda.
+### Geri yükleme provası: yan veritabanına yükle
+
+Doğrulama dosyanın bozulmadığını söyler. Söylemediği şey, o dosyanın
+gerçekten bir veritabanına **dönüp dönmediği** — ve bunu ancak deneyerek
+öğrenirsiniz.
+
+Listede her satırın yanında **Yan veritabanına yükle** var. Yükseltici
+hedef veritabanını boşaltıyor, bu sürümün şemasını kuruyor, satırları
+COPY ile geri koyuyor, ve isteğin satırında ne olduğunu yazıyor: hangi
+tablo kaç satırla döndü, hangi şemadan, ne kadar sürede.
+
+**Canlı veriye dokunulmuyor ve bu sayfadan dokunulamıyor.** Geri yüklenen
+veritabanını servislerin önüne almak kabukta kalan bir adım, ve öyle
+kalacak: canlının üstüne yazan tek işlem odur, ve panel internete bakan
+yüzeydir.
+
+**Önce yan veritabanını siz oluşturursunuz.** Yükseltici oluşturamaz ve
+oluşturamaması kasıtlı: `schema_admin` rolünde `CREATEDB` yok.
+
+```sql
+CREATE DATABASE analitik_dogrulama OWNER schema_admin;
+```
+
+Sonra `upgrader.toml` içine:
+
+```toml
+[backup]
+restore_dsn = "postgres://schema_admin:PAROLA@127.0.0.1/analitik_dogrulama"
+```
+
+**O veritabanının içindeki her şey her denemede silinir.** Adı burada
+durur, istek satırında değil — ele geçirilmiş bir panelin seçebileceği
+bir ad olsaydı, seçtiği veritabanı silinirdi.
+
+**Canlı veritabanına işaret ederse reddedilir**, ve reddeden şey adların
+karşılaştırılması değil. Yükseltici canlı bağlantıda bir advisory lock
+tutup hedefte aynı anahtarı deniyor; PostgreSQL bu kilidi veritabanına
+göre kapsıyor, yani deneme yalnız ikisi aynı veritabanıysa başarısız
+oluyor. `localhost` ile `127.0.0.1` yazmış olmanız cevabı değiştirmez.
+
+İkinci koruma asıl uygulayan olan: içinde tablo olan ve bu özelliğin
+bıraktığı `panel_restore_target` işaretini taşımayan bir veritabanı
+reddediliyor. Yanlışlıkla başka bir gerçek veritabanına işaret etmek de
+silinmesine yol açmıyor.
+
+**Eski şemalı bir yedek denenir, reddedilmez.** Tablolar bu sürümün
+şemasından kurulur ve satırlar manifestin kaydettiği sütun adlarıyla
+konur. Yedekten sonra **eklenmiş** bir sütun listede olmaz ve
+varsayılanını alır: yükleme çalışır. **Kaldırılmış ya da adı değişmiş**
+bir sütun listede olur ve tabloda olmaz: yükleme o tabloda, adını
+söyleyerek durur. Eskiliği için önden reddedilen bir şey yok — deneme
+ölçümün kendisi, ve tek işi silinmek olan bir veritabanında oluyor.
+
+**Sırlar yedeği bu düğmeyle yüklenmez.** İçinde satır değil dosya var;
+düğme reddeder ve nereye gideceğinizi söyler: `devpass -open`.
 
 ### Sırlar yedeği: yapılandırmanın kendisi
 

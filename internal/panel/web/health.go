@@ -75,6 +75,7 @@ const (
 	// looking at which field arrived would be a handler that can be
 	// made to decide wrongly.
 	eylemYedekDogrula = "yedek_dogrula"
+	eylemYedekYukle   = "yedek_yukle"
 )
 
 // healthPage is Data for the template.
@@ -333,6 +334,9 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 			posted.backup, posted.backupErr = &section, sectionErr
 		case eylemYedekDogrula:
 			section, sectionErr := s.backupVerifyPost(r, s.backups(), lang, access)
+			posted.backup, posted.backupErr = &section, sectionErr
+		case eylemYedekYukle:
+			section, sectionErr := s.backupRestorePost(r, s.backups(), lang, access)
 			posted.backup, posted.backupErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)

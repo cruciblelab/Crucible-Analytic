@@ -508,6 +508,18 @@ bir dosya kanıt değildir. Verdiği cevap iki yerde: isteğin satırında
 **hiç açılmadığını** da söylüyor. "Hiç bakılmadı" ile "sağlam" ayrı iki
 durum; ikisini aynı gösteren bir sütun süs olurdu.
 
+**yan veritabanına geri yükleme** (`internal/backup`, `geri_yukle` işi)
+— Yedeğin gerçekten geri döndüğünü *deneyerek* göstermek: hedef
+veritabanı boşaltılır, bu sürümün şeması kurulur, satırlar COPY ile geri
+konur, ve sonuç isteğin satırına yazılır. **Canlı veriye dokunulmaz ve
+panelden dokunulamaz** — servislerin önüne almak kabukta kalan adımdır,
+çünkü canlının üstüne yazan tek işlem odur. Hedefin adı `upgrader.toml`
+içindedir, istek satırında değil: her denemede o veritabanının içindeki
+her şey silinir. Canlı veritabanına işaret etmesi reddedilir, ve reddeden
+şey adların karşılaştırılması değil — advisory lock veritabanına göre
+kapsandığı için, kilit denemesi yalnız ikisi aynı veritabanıysa
+başarısız olur.
+
 **geliştiriciye kapatma (devseal)** (`internal/devseal`) — Sırlar
 yedeğinin şifrelenme biçimi. Geliştirici parolasından argon2id ile
 türetilen bir X25519 alıcısı: **açık yarısı** `upgrader.toml` içinde,

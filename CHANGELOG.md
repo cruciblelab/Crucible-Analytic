@@ -13,7 +13,7 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 14.** **Kuran kişinin yapması gereken:** panelde
+**Şema sürümü: 15.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Birkaç sütun ekleniyor; veri değişmiyor,
 servis durmuyor.
 
@@ -40,6 +40,41 @@ Sırlar yedeği için ölçülen daha az, ve kasten: bu makine o dosyayı
 açamaz. Baytların bozulmadığı ve iki parçanın yerinde olduğu
 doğrulanıyor; içeriğin açılıp açılmadığını `devpass -open` söyler, ve
 onu parolası olan kişi çalıştırır.
+
+### Geri yükleme provası: yedek gerçekten geri dönüyor mu
+
+Doğrulama dosyanın bozulmadığını söyler. Söylemediği şey o dosyanın
+gerçekten bir veritabanına **dönüp dönmediği** — ve bunu ancak
+deneyerek öğrenirsiniz.
+
+Listede her satırın yanında **Yan veritabanına yükle** var. Yükseltici
+hedef veritabanını boşaltıyor, bu sürümün şemasını kuruyor, satırları
+geri koyuyor, ve isteğin satırında ne olduğunu yazıyor: hangi tablo kaç
+satırla döndü, hangi şemadan, ne kadar sürede.
+
+**Canlı veriye dokunulmuyor ve bu sayfadan dokunulamıyor.** Geri
+yüklenen veritabanını servislerin önüne almak kabukta kalan bir adım.
+
+**Kuran kişinin yapması gereken (isteğe bağlı):** yan veritabanını bir
+kez oluşturup adını `upgrader.toml`'a yazmak. Yapılmazsa düğme "yan
+veritabanı yapılandırılmamış" der ve başka hiçbir şey değişmez.
+
+```sql
+CREATE DATABASE analitik_dogrulama OWNER schema_admin;
+```
+
+```toml
+[backup]
+restore_dsn = "postgres://schema_admin:PAROLA@127.0.0.1/analitik_dogrulama"
+```
+
+**O veritabanının içindeki her şey her denemede silinir.** Canlı
+veritabanına işaret ederse reddedilir; içinde başkasının tabloları olan
+bir veritabanına işaret ederse de reddedilir.
+
+Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
+sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
+yükleme o tabloda adını söyleyerek durur.
 
 ### Düzeltme: systemd kurulumunda yedek alma hiç çalışmıyordu
 

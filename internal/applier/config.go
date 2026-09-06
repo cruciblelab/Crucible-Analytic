@@ -102,6 +102,32 @@ type BackupConfig struct {
 	// does not take secrets backups; the button says so rather than
 	// producing a file nobody could open.
 	Recipient string `toml:"recipient"`
+
+	// RestoreDSN is the side database a backup is put back into, to see
+	// whether it restores.
+	//
+	// # Why an operator makes this database and this file names it
+	//
+	// Because restoring **destroys everything in the target**, and the
+	// two safe ways to say which database that is are "one somebody
+	// created for it" and "not one anything else uses". A queue row
+	// could not be trusted with that decision, and neither could this
+	// process creating the database itself: schema_admin holds no
+	// CREATEDB and giving it one would hand a compromised upgrader the
+	// ability to fill the cluster.
+	//
+	// So it is a line in a file only root can edit, exactly like
+	// `dir` - and the operator makes the database once:
+	//
+	//	CREATE DATABASE analitik_dogrulama OWNER schema_admin;
+	//
+	// Empty means this deployment cannot restore, and the button says
+	// so rather than failing later.
+	//
+	// Pointing it at the live database is refused - see
+	// internal/backup.RestoreInto for what refuses it and which of the
+	// two checks is the enforcement.
+	RestoreDSN string `toml:"restore_dsn"`
 }
 
 // Configured reports whether this deployment takes backups.

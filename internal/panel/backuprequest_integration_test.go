@@ -238,3 +238,55 @@ func TestCheckingNothingIsRefused(t *testing.T) {
 		t.Errorf("a refused check left a row in state %q", latest.State)
 	}
 }
+
+// Restoring into the side database takes no developer password either.
+//
+// The reason the release button has one is what it can do to somebody
+// else. This writes into a database that exists for nothing but being
+// written into, and the live one is refused by the upgrader - so a
+// rehearsal the customer has to ask us to run is one nobody runs.
+func TestRestoringABackupNeedsNoDeveloperPassword(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	req, err := store.RestoreBackup(ctx, backupOwner(), "", 42)
+	if err != nil {
+		t.Fatalf("a restore was refused without a password: %v", err)
+	}
+	if req.Work != backup.WorkRestore {
+		t.Errorf("the row says work=%q", req.Work)
+	}
+	if req.TargetID == nil || *req.TargetID != 42 {
+		t.Errorf("the row names target %v, want 42", req.TargetID)
+	}
+}
+
+func TestAViewerCannotRestoreABackup(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	viewer := Access{Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "izleyici"},
+		Role: RoleViewer, Member: true}
+
+	if _, err := store.RestoreBackup(ctx, viewer, "", 42); !errors.Is(err, ErrSettingNotWritable) {
+		t.Fatalf("got %v, want ErrSettingNotWritable", err)
+	}
+}
+
+// A restore naming no backup is refused before the row exists, so the
+// one in-flight slot is not spent on a request the upgrader could only
+// fail.
+func TestRestoringNothingIsRefused(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	for _, id := range []int64{0, -1} {
+		if _, err := store.RestoreBackup(ctx, backupOwner(), "", id); err == nil {
+			t.Fatalf("a restore naming backup %d was queued", id)
+		}
+	}
+	latest, err := backup.Latest(ctx, store.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != nil {
+		t.Errorf("a refused restore left a row in state %q", latest.State)
+	}
+}

@@ -144,6 +144,17 @@ const (
 	// would answer the first one wrongly every time the second happened.
 	ActionBackupVerified = "backup.verified"
 
+	// ActionBackupRestored marks somebody asking for one to be put into
+	// the side database.
+	//
+	// Its own action again, and the most important of the three to have
+	// separately. A restore is the operation that reads every row of a
+	// backup back out and writes them somewhere - and although that
+	// somewhere is never the live database, "who asked for a copy of the
+	// customer's history to be reconstructed, and when" is a question
+	// with its own answer.
+	ActionBackupRestored = "backup.restored"
+
 	// ActionRangeRefreshRequested marks somebody pressing "refresh the
 	// IP datasets now".
 	//

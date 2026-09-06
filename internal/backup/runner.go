@@ -50,6 +50,20 @@ type Runner struct {
 	// Recipient is who can open a secrets backup. Unset means this
 	// deployment does not take them - see ErrNoRecipient.
 	Recipient devseal.Recipient
+	// RestorePool is the side database a backup is put back into, from
+	// `[backup] restore_dsn`. Nil means this deployment cannot restore,
+	// and a queued request fails with that sentence on the row.
+	//
+	// Never the live pool. Everything that makes that true is in
+	// restore.go, and none of it is this field being named carefully.
+	RestorePool *pgxpool.Pool
+	// Schema is what the side database's tables are built from.
+	//
+	// Supplied rather than imported: internal/schemafiles embeds this
+	// package's own schema.sql, so importing it back would be a cycle.
+	// cmd/upgrader is where the two halves are put together, which is
+	// the same answer internal/applier's backup hook uses.
+	Schema []SchemaFile
 	// Name identifies this upgrader in the claim, so two of them are
 	// distinguishable in the row.
 	Name string
@@ -93,7 +107,8 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 		// whose only outcome is a wedged queue is not one.
 		r.logger().Error("backup: claimed a request this build cannot carry out",
 			"request", req.ID, "sets", req.Sets, "err", err)
-		if finErr := Finish(ctx, r.Pool, req.ID, StateFailed, err, nil); finErr != nil {
+		if finErr := Finish(ctx, r.Pool, req.ID,
+			Outcome{State: StateFailed, Cause: err}); finErr != nil {
 			r.logger().Error("backup: could not record the outcome", "err", finErr)
 		}
 		return req, err
@@ -110,13 +125,14 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 	log := r.logger().With("request", req.ID, "work", string(req.Work), "sets", req.Sets)
 	log.Info("backup: starting")
 
-	id, runErr := r.carryOut(ctx, req, log)
+	done, runErr := r.carryOut(ctx, req, log)
 
-	state := StateSucceeded
+	done.State = StateSucceeded
 	if runErr != nil {
-		state = StateFailed
+		done.State = StateFailed
 	}
-	if finErr := Finish(ctx, r.Pool, req.ID, state, runErr, id); finErr != nil {
+	done.Cause = runErr
+	if finErr := Finish(ctx, r.Pool, req.ID, done); finErr != nil {
 		// The work already happened. Reporting the write failure rather
 		// than the work's own outcome would lose the more important of
 		// the two.
@@ -126,7 +142,7 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 		log.Error("backup: failed", "err", runErr)
 		return req, runErr
 	}
-	log.Info("backup: done", "backup", id)
+	log.Info("backup: done", "backup", done.BackupID)
 	return req, nil
 }
 
@@ -180,13 +196,16 @@ func (r Runner) Take(ctx context.Context, sets []string) (*int64, error) {
 
 // carryOut is the estimate, then the copy. Separated so RunOnce always
 // records an outcome, whatever happens in here.
-func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*int64, error) {
-	if req.Work == WorkVerify {
-		// Checked before the directory, because a verification does not
-		// need one: it opens a file the catalogue already names. A
-		// deployment whose [backup] dir was cleared can still check the
-		// files it took while it had one.
-		return nil, r.check(ctx, req, log)
+func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (Outcome, error) {
+	switch req.Work {
+	case WorkVerify:
+		// Checked before the directory, because neither of these needs
+		// one: they open a file the catalogue already names. A
+		// deployment whose [backup] dir was cleared can still check and
+		// restore the files it took while it had one.
+		return Outcome{}, r.check(ctx, req, log)
+	case WorkRestore:
+		return r.putBack(ctx, req, log)
 	}
 	if r.Dir == "" {
 		// Checked after the claim rather than before, deliberately. A
@@ -197,9 +216,10 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*
 		//
 		// Wrapped rather than returned bare, so the row carries the
 		// sentence and errors.Is still finds the sentinel.
-		return nil, fmt.Errorf("%w", ErrNotConfigured)
+		return Outcome{}, fmt.Errorf("%w", ErrNotConfigured)
 	}
-	return r.write(ctx, req.Sets, log)
+	id, err := r.write(ctx, req.Sets, log)
+	return Outcome{BackupID: id}, err
 }
 
 // write is the estimate, the copy and the catalogue row - the part both
@@ -326,6 +346,78 @@ func (r Runner) check(ctx context.Context, req *Request, log *slog.Logger) error
 	log.Info("backup: checked", "backup", row.ID,
 		"bytes", result.Bytes, "rows", result.RowsFound(), "sealed", result.Secrets)
 	return nil
+}
+
+// putBack restores one backup into the side database.
+//
+// # Why the outcome is a paragraph and not a state
+//
+// Because "it worked" is not what somebody who pressed this wants to
+// know. They want which tables came back, with how many rows, from
+// which schema version, and how long it took - the whole point of a
+// rehearsal is the numbers it produces. So the report goes on the
+// request row and the page shows it, and a restore that succeeded says
+// more than one that failed.
+//
+// A failure part-way through still reports what got in before it
+// stopped. That is deliberate: "beacon_events stopped at column X and
+// the four tables before it are all there" is the sentence that tells
+// somebody how bad it is.
+func (r Runner) putBack(ctx context.Context, req *Request, log *slog.Logger) (Outcome, error) {
+	if req.TargetID == nil {
+		// Unreachable through the queue, for the reason check gives:
+		// the table's CHECK refuses a restore with no target. Kept
+		// because this is where it is dereferenced.
+		return Outcome{}, errors.New("backup: this request names no backup to restore")
+	}
+	if r.RestorePool == nil {
+		return Outcome{}, fmt.Errorf("%w", ErrNoRestoreTarget)
+	}
+	row, err := WithPath(ctx, r.Pool, *req.TargetID)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if len(row.Sets) == 1 && row.Sets[0] == SetSirlar {
+		// The configuration is not rows and there is nowhere to put it.
+		// Refused with the sentence that says what to do instead,
+		// because somebody pressing this on the wrong row has a
+		// reasonable expectation and needs redirecting rather than
+		// stopping.
+		return Outcome{}, errors.New("backup: this is a secrets backup, not data. It " +
+			"holds configuration files, so there is no database to put it into - open " +
+			"it with `devpass -open` on a machine where you have the developer password")
+	}
+
+	report, err := RestoreInto(ctx, r.Pool, r.RestorePool, row.Path, r.Schema, log)
+	out := Outcome{Result: restoreSummary(report)}
+	if err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+// restoreSummary is the report in the words the page shows.
+//
+// Built even for a failed restore, because a partial one is the case
+// worth reading: it says how far it got. Empty only when nothing was
+// attempted at all, which is what a refusal before the wipe looks like.
+func restoreSummary(rep RestoreReport) string {
+	if rep.Database == "" {
+		return ""
+	}
+	lines := []string{fmt.Sprintf("veritabanı: %s", rep.Database)}
+	if rep.SchemaOfFile != 0 && rep.SchemaOfFile != rep.SchemaOfBuild {
+		lines = append(lines, fmt.Sprintf("yedeğin şeması %d, kurulan şema %d",
+			rep.SchemaOfFile, rep.SchemaOfBuild))
+	}
+	if len(rep.Tables) > 0 {
+		lines = append(lines, fmt.Sprintf("%d satır, %d tablo: %s",
+			rep.Rows(), len(rep.Tables), rep.Summary()))
+	}
+	if rep.Took > 0 {
+		lines = append(lines, fmt.Sprintf("süre: %s", rep.Took.Round(time.Millisecond)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // writeSecrets is the same three steps for the other artifact.

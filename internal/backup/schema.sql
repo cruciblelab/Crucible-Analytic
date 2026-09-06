@@ -86,7 +86,7 @@ CREATE TABLE IF NOT EXISTS panel_backup_requests (
     -- 'al' is the default so that every row written before this column
     -- existed reads as what it was.
     kind TEXT NOT NULL DEFAULT 'al'
-        CHECK (kind IN ('al', 'dogrula')),
+        CHECK (kind IN ('al', 'dogrula', 'geri_yukle')),
 
     -- Which sets to include, from the closed list in internal/backup.
     --
@@ -126,6 +126,18 @@ CREATE TABLE IF NOT EXISTS panel_backup_requests (
     -- What went wrong, in the words the page shows. Empty on success.
     error_chain TEXT NOT NULL DEFAULT '',
 
+    -- What the work produced, in the words the page shows.
+    --
+    -- Separate from error_chain, which is what went wrong. A restore
+    -- succeeds and still has something to say - which tables came back
+    -- and with how many rows - and putting that in the error column
+    -- would make every successful restore look like a failure to
+    -- anything reading the row rather than the page.
+    --
+    -- Empty for work whose whole outcome is "it happened". Taking a
+    -- backup is that: the catalogue row is the result.
+    result TEXT NOT NULL DEFAULT '',
+
     -- The catalogue row this produced, so the page can link a request to
     -- its file. Null while running and after a failure.
     --
@@ -164,13 +176,15 @@ ALTER TABLE panel_backup_requests
 ALTER TABLE panel_backup_requests
     ADD COLUMN IF NOT EXISTS target_id BIGINT;
 ALTER TABLE panel_backup_requests
+    ADD COLUMN IF NOT EXISTS result TEXT NOT NULL DEFAULT '';
+ALTER TABLE panel_backup_requests
     ALTER COLUMN sets SET DEFAULT '{}';
 
 ALTER TABLE panel_backup_requests
     DROP CONSTRAINT IF EXISTS panel_backup_requests_kind_check;
 ALTER TABLE panel_backup_requests
     ADD CONSTRAINT panel_backup_requests_kind_check
-    CHECK (kind IN ('al', 'dogrula'));
+    CHECK (kind IN ('al', 'dogrula', 'geri_yukle'));
 
 ALTER TABLE panel_backup_requests
     DROP CONSTRAINT IF EXISTS panel_backup_requests_kind_fields;

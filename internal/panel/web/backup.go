@@ -261,11 +261,8 @@ func (s *Server) backupPost(r *http.Request, db backupStore, lang *ui.Language,
 func (s *Server) backupVerifyPost(r *http.Request, db backupStore, lang *ui.Language,
 	access panel.Access) (backupSection, string) {
 
-	// Parsed rather than trusted, and refused rather than defaulted: a
-	// zero id is not a backup and asking for one would write a row the
-	// upgrader could only fail.
-	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("yedek")), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := s.backupIDFrom(r)
+	if !ok {
 		section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
 		if sectionErr != "" {
 			return section, sectionErr
@@ -305,9 +302,80 @@ func (s *Server) backupVerifyPost(r *http.Request, db backupStore, lang *ui.Lang
 	section.Running = true
 	log.Info("panel: backup check requested", "request", req.ID, "backup", id)
 	op.Step("istek yaz", true, "")
-	ok := false
-	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, &ok)
+	rolledBack := false
+	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, &rolledBack)
 	return section, ""
+}
+
+// backupRestorePost queues a restore of one backup into the side
+// database.
+//
+// The same shape as backupVerifyPost and sharing its parsing, because
+// the two forms carry the same field and differ only in what the
+// upgrader then does. What is *not* shared is the action name: the
+// dispatch in health.go decides between them, so a form that named the
+// wrong one cannot be turned into the other by anything here.
+func (s *Server) backupRestorePost(r *http.Request, db backupStore, lang *ui.Language,
+	access panel.Access) (backupSection, string) {
+
+	id, ok := s.backupIDFrom(r)
+	if !ok {
+		section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
+		if sectionErr != "" {
+			return section, sectionErr
+		}
+		section.Notice = lang.T("saglik.yedek.dogrula_secim_yok")
+		section.Failed = true
+		return section, ""
+	}
+
+	op, opErr := db.BeginOperation(r.Context(), access,
+		panel.ActionBackupRestored, "backup", strconv.FormatInt(id, 10))
+	if opErr != nil {
+		s.logger().Warn("panel: could not open an operation record for the restore", "err", opErr)
+	}
+	log := s.logger().With(logsink.OperationKey, op.ID())
+
+	req, err := db.RestoreBackup(r.Context(), access, op.ID(), id)
+
+	section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
+	if sectionErr != "" {
+		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
+		return section, sectionErr
+	}
+
+	if err != nil {
+		section.Notice = backupErrorText(lang, err)
+		section.Failed = true
+		log.Warn("panel: backup restore refused", "err", err, "backup", id)
+		op.Step("istek yaz", false, "")
+		notRolledBack := false
+		_ = op.Finish(r.Context(), outcomeFor(err), err, &notRolledBack)
+		return section, ""
+	}
+
+	section.Notice = lang.T("saglik.yedek.yukleniyor")
+	section.Latest = req
+	section.Running = true
+	log.Info("panel: backup restore requested", "request", req.ID, "backup", id)
+	op.Step("istek yaz", true, "")
+	rolledBack := false
+	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, &rolledBack)
+	return section, ""
+}
+
+// backupIDFrom reads which backup a row's button named.
+//
+// Parsed rather than trusted, and refused rather than defaulted: a zero
+// id is not a backup, and asking for one would write a row the upgrader
+// could only fail. Shared by the two buttons because a badly formed id
+// means the same thing to both.
+func (s *Server) backupIDFrom(r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("yedek")), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
 }
 
 // backupErrorText turns a refusal into the sentence somebody reads.
@@ -322,6 +390,8 @@ func backupErrorText(lang *ui.Language, err error) string {
 		return lang.T("saglik.yedek.yetki_yok")
 	case errors.Is(err, panel.ErrSecretsPasswordRequired):
 		return lang.T("saglik.yedek.parola_gerekli")
+	case errors.Is(err, backup.ErrNoRestoreTarget):
+		return lang.T("saglik.yedek.yukleme_yok")
 	case errors.Is(err, backup.ErrMixedRequest):
 		// Its own sentence, because it is the one refusal here that is
 		// about the product's design rather than about this press. A

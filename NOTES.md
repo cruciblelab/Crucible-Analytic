@@ -12371,3 +12371,178 @@ the checksum does not match the catalogue (4f5f9971… on disk, 3b7fe76e… reco
 ```
 
 *Kendisiyle uyuşan bir dosya kanıt değildir.*
+
+---
+
+## F1g — Yan veritabanına geri yükleme
+
+Doğrulama dosyanın bozulmadığını söylüyor. Söylemediği şey o dosyanın
+gerçekten bir veritabanına **dönüp dönmediği**, ve bunu ancak deneyerek
+öğrenirsiniz.
+
+### Neden yan bir veritabanı
+
+PLAN.md'nin cümlesi: *"Geri yüklemede panel gösterir, hazırlar, sorar;
+takası yapmaz."* Canlı verinin üstüne yazmak bu ürünün yapabileceği tek
+geri döndürülemez şey, ve panel internete bakan yüzey — çalınmış bir
+oturum müşterinin geçmişini sessizce eskisiyle değiştirebilirdi.
+
+Yani panel yan bir veritabanına yüklemeyi hazırlıyor, ne döndüğünü
+gösteriyor, ve duruyor. Servislerin önüne almak kabukta kalıyor. Geri
+alınamayan tek adım, zaten kabuk gerektiren adım.
+
+### Hedefi kim seçiyor, ve neden yükseltici seçmiyor
+
+Geri yükleme **hedefin içindeki her şeyi yok ediyor.** Bu kararı
+güvenle söylemenin iki yolu var: "bunun için oluşturulmuş bir
+veritabanı" ve "başka hiçbir şeyin kullanmadığı bir veritabanı".
+
+İstek satırı bu kararı taşıyamaz — `[backup] dir` ile aynı sebep. Ve
+yükselticinin veritabanını kendisinin oluşturması da olmaz:
+`schema_admin`'de `CREATEDB` yok, ve vermek ele geçirilmiş bir
+yükselticiye kümeyi doldurma yeteneği verirdi.
+
+Yani yalnız root'un düzenleyebildiği bir dosyada bir satır, ve operatör
+veritabanını bir kez oluşturuyor:
+
+```sql
+CREATE DATABASE analitik_dogrulama OWNER schema_admin;
+```
+
+### Canlı veritabanını silmeyi ne engelliyor
+
+İki şey, ve yalnız ikincisi uygulayan.
+
+**İşaret tablosu uygulayan olan.** İçinde tablo olan ve bu özelliğin
+bıraktığı `panel_restore_target` işaretini taşımayan bir hedef
+reddediliyor. Canlı veritabanında 26 tablo var ve işaret yok, yani
+reddediliyor — ve yanlışlıkla işaret edilen başka her gerçek veritabanı
+da. Hiçbir yetki istemiyor ve operatörden hiçbir şey beklemiyor.
+
+**Aynı-veritabanı yoklaması yalnız daha iyi cümle için.** "Bu canlı
+veritabanı" demek, "bu veritabanında benim koymadığım tablolar var"
+demekten iyi. Yük taşımıyor: hiç koşamasa bile işaret kontrolü yine
+reddediyor. Bunu açıkça yazdım, çünkü garanti gibi görünen ama olmayan
+bir kontrol, hiç olmamasından kötüdür.
+
+### Yoklama neden dizeleri karşılaştırmıyor
+
+Çünkü dizeler farklı yazılıp aynı şeyi gösterebilir: `localhost` ile
+`127.0.0.1`, soket ile port, varsayılanı yazılmış ile yazılmamış ad.
+İki yazım tutmadığı için canlı veritabanını silen bir geri yükleme, bu
+ürünün yapabileceği en kötü şey.
+
+Onun yerine: canlı bağlantıda bir advisory lock tutulup hedefte aynı
+anahtar deneniyor.
+
+**Ve buradaki gerekçeyi ters yazmıştım.** İlk hâli "advisory kilitler
+küme genelindedir" diyordu. Ölçüm hayır dedi:
+
+```
+same cluster, other database: pg_try_advisory_lock = t
+same cluster, same database:  pg_try_advisory_lock = f
+```
+
+PostgreSQL bu kilidi **veritabanına göre** kapsıyor. Yani başarısız bir
+deneme "öbür oturum tam da bu veritabanında" demek — ki sorulan soru
+zaten bu. Yoklama tek başına kesin cevap veriyor, ve bu yüzden önüne
+koyduğum ad karşılaştırması **kaldırıldı**: aynı sorunun ikinci bir
+cevabı, ve mutasyon hiçbir şey değiştirmediğini gösterdi.
+
+Yanlış cümleyi sessizce düzeltmek yerine yazıyorum, çünkü üzerine ikinci
+bir kontrol kurulabilecek türden bir yanlıştı.
+
+### Eski şemalı yedek: açık kalan kararın cevabı
+
+**Denenir, reddedilmez.** Tablolar bu build'in gömdüğü şemadan kuruluyor
+— kurulabilecek başka şema yok — ve satırlar manifestin kaydettiği sütun
+adlarıyla COPY'leniyor. Yani:
+
+- Yedekten **sonra eklenmiş** sütun COPY listesinde yok, varsayılanını
+  alıyor: çalışıyor.
+- **Kaldırılmış ya da adı değişmiş** sütun listede var, tabloda yok: o
+  tabloda, adını söyleyerek duruyor.
+
+İkisi de doğru, ikisi de tahmin değil. Eskiliği için önden reddedilen
+bir şey yok: **deneme ölçümün kendisi**, tek işi silinmek olan bir
+veritabanında oluyor, ve "2024 yedeğiniz beacon_events'teki bir sütun
+dışında dönüyor" cümlesi "çok eski"den kat kat yararlı.
+
+### Yol boyunca bulunan kusur: ikinci geri yükleme çalışmıyordu
+
+Birincisi geçti, ikincisi geçmedi:
+
+```
+extension "timescaledb" has already been loaded with another version
+(SQLSTATE 42710)
+```
+
+Şemayı düşürmek eklentiyi de düşürüyor, ve PostgreSQL timescaledb
+kütüphanesini bir kez yüklemiş bir backend'in onu yeniden oluşturmasına
+izin vermiyor — kısıt bağlantı başına, veritabanı başına değil. Birinci
+geri yükleme onu hiç görmemiş bir bağlantıda koştu; ikincisi görmüş
+olanı yeniden kullandı.
+
+Havuz artık boşaltma ile kurma arasında sıfırlanıyor. **İki kez geri
+yükleyerek bulundu** — ki felaket provası yapan biri tam olarak bunu
+yapar.
+
+### Sonuç nerede duruyor
+
+İsteğin satırında, `error_chain`'in yanındaki yeni `result` sütununda.
+Ayrı, çünkü biri neyin yanlış gittiğini söylüyor: başarılı bir geri
+yükleme söyleyecek bir şeyi olan tek iş, ve onu hata sütununa koymak her
+başarılı geri yüklemeyi satıra bakan her şeye başarısız gösterirdi.
+
+Yarıda kalan bir geri yükleme de o ana kadar gireni yazıyor.
+"beacon_events bir sütunda durdu ve ondan önceki dört tablo tamam"
+cümlesi, durumun ne kadar kötü olduğunu söyleyen cümle.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Canlı veritabanı reddi kalksın | Yakalandı |
+| İşaret kontrolü kalksın | Yakalandı |
+| İşaret kontrolü hep geçsin | Yakalandı |
+| Yoklama hiç koşmasın | Yakalandı |
+| Yoklama tersten cevap versin | Yakalandı |
+| Havuz sıfırlanmasın | Yakalandı |
+| Sırlar yedeği veri gibi geri yüklensin | İlkin hayatta kaldı |
+| Boş şema kabul edilsin | İlkin hayatta kaldı |
+| Adlar karşılaştırılmasın | Hayatta kaldı — kontrol gereksizmiş |
+
+Son üçünün ikisi eksik testti ve yazıldı. Üçüncüsü gerçek bir bulgu:
+yoklama kesin olduğu için ad karşılaştırması hiçbir şey yapmıyordu, ve
+kaldırıldı.
+
+### Gerçek ikililerle ölçüldü
+
+Gerçek yükseltici, gerçek iki veritabanı, gerçek dosya.
+
+```
+35936 satır, 11 tablo — süre: 780ms
+traffic_snapshots  canlı=15157  geri=15157  AYNI
+beacon_events      canlı=17644  geri=17644  AYNI
+panel_audit_log    canlı=3121   geri=3121   AYNI
+panel_settings     canlı=13     geri=13     AYNI
+```
+
+Ve iki ret, gerçek binary ile:
+
+```
+restore_dsn = "postgres://postgres@localhost:5432/analytics"
+  → the restore database is the live database (analytics). Nothing was touched
+```
+
+`localhost` yazılmıştı, canlı DSN'de `127.0.0.1` vardı. Dizeler farklı,
+cevap doğru.
+
+```
+restore_dsn = ".../baskasinin"   (içinde onemli_veri tablosu)
+  → it holds 1 tables and no panel_restore_target. Nothing was touched
+```
+
+`onemli_veri` yerinde duruyor.
+
+*Hiçbir zaman denenmemiş bir yedek gönderilmiyor.*

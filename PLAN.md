@@ -4758,14 +4758,27 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1d | Şema yükseltmesinden önce otomatik yedek | ✅ yapıldı |
 | F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | ✅ yapıldı |
 | F1f | Doğrulama: dosya gerçekten o dosya mı | ✅ yapıldı |
-| F1g | Yan veritabanına geri yükleme | |
+| F1g | Yan veritabanına geri yükleme | ✅ yapıldı |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
 yedek gönderilmiyor.
 
-**Açık kalan iki karar:** eski şemalı bir yedeğin yeni şemaya nasıl
-döneceği (F1g) ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
+**Açık kalan bir karar:** sıkıştırma oranının gerçek veride ölçülmesi
+(F1b).
+
+**F1g'de verilen karar: eski şemalı yedek denenir, reddedilmez.**
+Tablolar bu build'in gömdüğü şemadan kuruluyor — kurulabilecek başka bir
+şema yok — ve satırlar manifestin kaydettiği sütun adlarıyla COPY'leniyor.
+Yani yedekten sonra **eklenmiş** bir sütun COPY listesinde yok ve
+varsayılanını alıyor: geri yükleme çalışıyor. **Kaldırılmış ya da adı
+değişmiş** bir sütun listede var ve tabloda yok: geri yükleme o tabloda,
+adını söyleyerek duruyor. İkisi de doğru ve ikisi de tahmin değil.
+
+Eskiliği için önden reddedilen bir şey yok. **Deneme ölçümün kendisi**,
+tek işi silinmek olan bir veritabanında oluyor, ve "2024 yedeğiniz
+beacon_events'teki bir sütun dışında dönüyor" cümlesi "çok eski"den çok
+daha yararlı.
 
 **F1f ikiye ayrıldı.** Tek satırdı ve iki ayrı şey içeriyordu:
 "dosyayı aç ve ölç" ile "yan bir veritabanına gerçekten yükle". Birincisi

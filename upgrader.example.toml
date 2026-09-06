@@ -167,3 +167,34 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 # `ip_hash_key`. Veri yedeğiyle aynı dosyaya asla girmezler — ikisi bir
 # aradaysa takma adlandırma çözülür.
 # recipient = "cadev1.131072.3.4.<tuz>.<açık anahtar>"
+#
+# Yedeğin gerçekten geri döndüğünü sınamak için kullanılan **yan
+# veritabanı**.
+#
+# Boş bırakılırsa bu kurulum geri yükleme provası yapamaz: paneldeki
+# düğme "yan veritabanı yapılandırılmamış" der. Veri yedeği almak ve
+# doğrulamak bundan etkilenmez.
+#
+# **Bu veritabanının içindeki her şey her denemede silinir.** Adı burada
+# durur, istek satırında değil — ele geçirilmiş bir panelin
+# seçebileceği bir ad olsaydı, seçtiği veritabanı silinirdi.
+#
+# Veritabanını bir kez siz oluşturursunuz; yükseltici oluşturamaz ve
+# oluşturamaması kasıtlıdır (schema_admin'de CREATEDB yok):
+#
+#     CREATE DATABASE analitik_dogrulama OWNER schema_admin;
+#
+# Canlı veritabanına işaret ederse reddedilir, ve reddeden şey adların
+# karşılaştırılması değil: yükseltici canlı bağlantıda bir advisory lock
+# tutup hedefte aynı anahtarı deniyor. PostgreSQL bu kilidi
+# veritabanına göre kapsıyor, yani deneme yalnız ikisi aynı
+# veritabanıysa başarısız oluyor. Yazımlar farklı olabilir, cevap
+# değişmez.
+#
+# İkinci koruma asıl uygulayan: içinde tablo olan ve bu özelliğin
+# bıraktığı `panel_restore_target` işaretini taşımayan bir veritabanı
+# reddedilir. Yani yanlışlıkla başka bir gerçek veritabanına işaret
+# etmek de silinmesine yol açmaz.
+#
+# Canlıya geçiş burada yok ve olmayacak — o adım kabukta kalıyor.
+# restore_dsn = "postgres://schema_admin:PAROLA@127.0.0.1/analitik_dogrulama"

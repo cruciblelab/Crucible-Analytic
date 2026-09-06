@@ -514,6 +514,13 @@ that is the isolation working, not a gap. */}}
 {{- if .Latest}}
 <p class="ipucu">{{t "saglik.yedek.durum_baslik"}}: {{.LatestState}}
 {{- if .Latest.ErrorChain}} — {{.Latest.ErrorChain}}{{end}}</p>
+{{- /* What the work produced, which for a restore is the whole point:
+which tables came back, with how many rows, from which schema. Shown
+separately from ErrorChain because a restore that succeeded has more to
+say than one that failed. */}}
+{{- if .Latest.Result}}
+<pre class="ipucu">{{.Latest.Result}}</pre>
+{{- end}}
 {{- end}}
 
 {{- if .Backups}}
@@ -552,6 +559,12 @@ silent: an unopened backup is the object this whole section is about. */}}
 <input type="hidden" name="yedek" value="{{.ID}}">
 <button type="submit">{{t "saglik.yedek.dogrula"}}</button>
 </form>
+<form method="post" action="" class="satirici">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="yedek_yukle">
+<input type="hidden" name="yedek" value="{{.ID}}">
+<button type="submit">{{t "saglik.yedek.yukle"}}</button>
+</form>
 {{- end}}
 {{- if .Problems}}<pre class="uyari">{{.Problems}}</pre>{{end}}
 </td>
@@ -561,6 +574,7 @@ silent: an unopened backup is the object this whole section is about. */}}
 </table>
 <p class="ipucu">{{t "saglik.yedek.toplam"}}: {{$.F.Bytes .TotalBytes}}</p>
 <p class="ipucu">{{t "saglik.yedek.dogrulama_aciklama"}}</p>
+<p class="ipucu">{{t "saglik.yedek.yukleme_aciklama"}}</p>
 {{- /* Said where the list is, not in a note somebody scrolls past: a
 backup preserves what the retention policy has since deleted, and
 somebody reading a list of backups is exactly the person who needs to

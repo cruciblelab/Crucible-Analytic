@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/schemafiles"
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
@@ -51,5 +52,39 @@ func TestOnlyAnUnconfiguredDirectoryLetsAnUpgradeSkipItsBackup(t *testing.T) {
 					got, c.want)
 			}
 		})
+	}
+}
+
+// The restore builds the whole schema, not most of it.
+//
+// # Why this needs saying
+//
+// internal/backup cannot import internal/schemafiles - that package
+// embeds backup's own schema.sql, so the dependency only points one way
+// - and the list is therefore copied across in schemaFiles above. A
+// copy is a place for something to go missing.
+//
+// The failure would be quiet in the worst way. A restore into a
+// database missing one table stops on that table, in front of somebody
+// rehearsing a disaster recovery, and what they conclude is that their
+// backup is broken. It is not: the thing that rebuilt the database is.
+//
+// Both directions, because a list can be wrong by dropping an entry or
+// by inventing one.
+func TestTheRestoreSchemaIsTheWholeSchema(t *testing.T) {
+	got := schemaFiles()
+	if len(got) != len(schemafiles.InOrder) {
+		t.Fatalf("the restore builds %d files and the schema has %d",
+			len(got), len(schemafiles.InOrder))
+	}
+	for i, want := range schemafiles.InOrder {
+		if got[i].Path != want.Path {
+			t.Errorf("file %d is %s, want %s. The order is load-bearing: a schema "+
+				"applied in a different sequence is the least debuggable failure this "+
+				"could have", i, got[i].Path, want.Path)
+		}
+		if got[i].SQL != want.SQL {
+			t.Errorf("%s: the SQL differs from what the build embeds", want.Path)
+		}
 	}
 }
