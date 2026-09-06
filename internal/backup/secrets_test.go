@@ -576,3 +576,70 @@ func decompress(t *testing.T, raw []byte) []byte {
 	}
 	return out
 }
+
+// A secrets backup taken before the developer password was changed.
+//
+// # The sentence somebody needs before they need it
+//
+// The file is intact. Every byte is where it was, the checksum matches,
+// both members are present. And nobody at this deployment can open it,
+// because the password it was sealed to is not the password anybody
+// has any more.
+//
+// That is discovered on the day the machine is gone, unless a check
+// says it first. So it is reported as a problem - the wording carries
+// the nuance that the bytes are fine and the key is not.
+func TestASecretsBackupSealedToAnOlderPasswordIsFlagged(t *testing.T) {
+	conf := confDir(t)
+	res := writeSecrets(t, conf, t.TempDir(), testRecipient())
+
+	// The password was changed: a new recipient, a different key.
+	rotated, err := devseal.Generate("yeni-gelistirici-parolasi-uzun")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Verify(res.Path, Backup{Bytes: res.Bytes, SHA256: res.SHA256},
+		rotated.Recipient())
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if got.OK() {
+		t.Fatal("a file sealed to a key nobody has any more passed without a word")
+	}
+	joined := strings.Join(got.Problems, "\n")
+	if !strings.Contains(joined, "password that was in use when it was taken") {
+		t.Errorf("the problem does not say what to do about it: %v", got.Problems)
+	}
+	// And it does not claim the bytes are wrong, because they are not.
+	if strings.Contains(joined, "checksum") {
+		t.Errorf("a rotated key was reported as corruption: %v", got.Problems)
+	}
+}
+
+// The same file, checked on the deployment that took it, passes.
+func TestASecretsBackupSealedToTheCurrentKeyPasses(t *testing.T) {
+	conf := confDir(t)
+	res := writeSecrets(t, conf, t.TempDir(), testRecipient())
+
+	got, err := Verify(res.Path, Backup{Bytes: res.Bytes, SHA256: res.SHA256}, testRecipient())
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !got.OK() {
+		t.Fatalf("a sealed file this deployment just wrote did not pass: %v", got.Problems)
+	}
+	if !got.Secrets {
+		t.Error("a sealed file was not recognised as one, so it was checked as a data backup")
+	}
+	// Nothing is compared when no recipient is configured, and that is
+	// not a problem: the deployment has no current key to disagree with.
+	unconfigured, err := Verify(res.Path, Backup{Bytes: res.Bytes, SHA256: res.SHA256},
+		devseal.Recipient{})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !unconfigured.OK() {
+		t.Errorf("a deployment with no recipient reported problems: %v", unconfigured.Problems)
+	}
+}

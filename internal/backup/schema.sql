@@ -68,6 +68,26 @@ CREATE TABLE IF NOT EXISTS panel_backup_requests (
     -- The operation this belongs to, for the log tree.
     operation_id TEXT NOT NULL DEFAULT '',
 
+    -- What is being asked for.
+    --
+    -- # Why one queue and not a second one
+    --
+    -- Taking a backup and checking one are the same shape: the panel
+    -- cannot do either, the upgrader does both, and both are heavy
+    -- reads of the same disk. A second queue would be a second copy of
+    -- Ask, Claim, Finish and ExpireStale - and this project has already
+    -- paid for a queue whose Claim nobody called.
+    --
+    -- Sharing the queue also shares the one-in-flight index, which is
+    -- the right answer rather than a side effect: a verification that
+    -- ran while a backup was being written would be two processes
+    -- reading the same disk to do the customer's least urgent work.
+    --
+    -- 'al' is the default so that every row written before this column
+    -- existed reads as what it was.
+    kind TEXT NOT NULL DEFAULT 'al'
+        CHECK (kind IN ('al', 'dogrula')),
+
     -- Which sets to include, from the closed list in internal/backup.
     --
     -- An array of names rather than a column per set: the sets are a
@@ -76,7 +96,24 @@ CREATE TABLE IF NOT EXISTS panel_backup_requests (
     -- against a constant, and a name this build does not know is
     -- refused rather than ignored - a request naming "analitik" on a
     -- build that renamed it must not quietly take a backup of nothing.
-    sets TEXT[] NOT NULL,
+    --
+    -- Empty for a verification, which is about a file that already
+    -- exists and has no sets to choose.
+    sets TEXT[] NOT NULL DEFAULT '{}',
+
+    -- Which catalogue row this is about, for the kinds that are about
+    -- one.
+    --
+    -- Deliberately not the same column as backup_id below, which means
+    -- the opposite thing: this is the row the request names going in,
+    -- that is the row the request produced coming out. One column
+    -- carrying both meanings is the kind of saving that costs somebody
+    -- a day.
+    --
+    -- Not a foreign key, for the same reason backup_id is not: a
+    -- backup can be deleted, and "somebody checked this backup on
+    -- Tuesday" stays true afterwards.
+    target_id BIGINT,
 
     -- pending -> running -> succeeded | failed
     state TEXT NOT NULL DEFAULT 'pending'
@@ -96,8 +133,52 @@ CREATE TABLE IF NOT EXISTS panel_backup_requests (
     -- whose file is gone is still a true record of a backup having been
     -- taken - which is the thing somebody is looking for when they ask
     -- "did the pre-upgrade backup run".
-    backup_id BIGINT
+    backup_id BIGINT,
+
+    -- Each kind needs exactly the fields it needs, and the database is
+    -- what says so.
+    --
+    -- Not a comment and not a check in Go. Go already refuses a
+    -- malformed request in two places - the panel before the row exists
+    -- and the upgrader after it reads one - and both of those are
+    -- programs that can be wrong. This one is the statement the row
+    -- itself cannot violate: a verification with no target is a row
+    -- nothing could ever carry out, and a take with no sets is a backup
+    -- of nothing that would report success.
+    CONSTRAINT panel_backup_requests_kind_fields CHECK (
+        (kind =  'al' AND cardinality(sets) >  0 AND target_id IS NULL) OR
+        (kind <> 'al' AND cardinality(sets) =  0 AND target_id IS NOT NULL)
+    )
 );
+
+-- For databases created before the columns existed.
+--
+-- Written as separate idempotent statements rather than folded into the
+-- CREATE TABLE above, because CREATE TABLE IF NOT EXISTS does nothing at
+-- all on a database that already has the table - including nothing about
+-- its new columns. Every column added here has to be added twice, and
+-- internal/panel's startup column check is what fails loudly when one of
+-- the two is forgotten.
+ALTER TABLE panel_backup_requests
+    ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'al';
+ALTER TABLE panel_backup_requests
+    ADD COLUMN IF NOT EXISTS target_id BIGINT;
+ALTER TABLE panel_backup_requests
+    ALTER COLUMN sets SET DEFAULT '{}';
+
+ALTER TABLE panel_backup_requests
+    DROP CONSTRAINT IF EXISTS panel_backup_requests_kind_check;
+ALTER TABLE panel_backup_requests
+    ADD CONSTRAINT panel_backup_requests_kind_check
+    CHECK (kind IN ('al', 'dogrula'));
+
+ALTER TABLE panel_backup_requests
+    DROP CONSTRAINT IF EXISTS panel_backup_requests_kind_fields;
+ALTER TABLE panel_backup_requests
+    ADD CONSTRAINT panel_backup_requests_kind_fields CHECK (
+        (kind =  'al' AND cardinality(sets) >  0 AND target_id IS NULL) OR
+        (kind <> 'al' AND cardinality(sets) =  0 AND target_id IS NOT NULL)
+    );
 
 -- One request in flight at a time.
 --
@@ -214,11 +295,35 @@ CREATE TABLE IF NOT EXISTS panel_backups (
     -- one whose filesystem could not be read. The panel shows those
     -- bytes in the total and leaves them out of the bar, because a bar
     -- is a claim about a specific disk.
-    device BIGINT NOT NULL DEFAULT 0
+    device BIGINT NOT NULL DEFAULT 0,
+
+    -- When somebody last checked this file, and what the check found.
+    --
+    -- # Why the verdict lives on the backup and not only on the request
+    --
+    -- The request row answers "what happened when I pressed the
+    -- button", and it is swept. The question people actually have is
+    -- the other one: *which of these backups do I know is good.* A
+    -- verdict recorded on the request would answer that only for as
+    -- long as nobody tidied up.
+    --
+    -- Null means nobody has ever checked it. That is not the same as
+    -- "it is fine" and the page says so, because an unchecked backup is
+    -- exactly the object this whole phase exists about: a file with a
+    -- plausible name that nobody has ever opened.
+    verified_at TIMESTAMPTZ,
+    -- Empty means the check found nothing wrong. Non-empty is what it
+    -- found, in the words the page shows - several lines, because
+    -- somebody checking a file wants everything wrong with it rather
+    -- than the first thing.
+    verify_problems TEXT NOT NULL DEFAULT ''
 );
 
--- For databases created before the column existed.
+-- For databases created before the columns existed.
 ALTER TABLE panel_backups ADD COLUMN IF NOT EXISTS device BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE panel_backups ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ;
+ALTER TABLE panel_backups
+    ADD COLUMN IF NOT EXISTS verify_problems TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_backups_taken_at
     ON panel_backups (taken_at DESC);
@@ -262,6 +367,6 @@ CREATE POLICY backups_forget ON panel_backups
 -- here, which is the right default for a table whose whole point is
 -- that one of its columns is dangerous.
 GRANT SELECT (id, taken_at, sets, bytes, sha256, binary_version, schema_version, state,
-              device)
+              device, verified_at, verify_problems)
     ON panel_backups TO panel_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON panel_backups TO schema_admin;

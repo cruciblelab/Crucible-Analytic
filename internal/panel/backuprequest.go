@@ -154,6 +154,49 @@ func (s *Store) RequestBackup(ctx context.Context, a Access, auth devgate.Author
 	return req, nil
 }
 
+// VerifyBackup queues a check of one backup.
+//
+// # Why this needs no developer password
+//
+// It reads a file and writes nothing but a verdict. The reasoning at
+// the top of this file applies exactly: the data is the customer's, and
+// the worst this can do is occupy the queue for as long as it takes to
+// read one file. Putting it behind the password would make "is my
+// backup any good" a question the customer has to ask us, which is the
+// opposite of what a backup is for.
+//
+// The one thing it costs is a disk read, which is why it goes through
+// the same queue as taking one: two of these at once, or one of these
+// beside a backup being written, would be the machine doing its least
+// urgent work twice over.
+func (s *Store) VerifyBackup(ctx context.Context, a Access, operationID string,
+	backupID int64) (*backup.Request, error) {
+
+	if !a.Can(CapManageSettings) {
+		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	}
+
+	req, err := backup.AskVerify(ctx, s.pool, backupActorFor(a.Principal), operationID, backupID)
+	switch {
+	case errors.Is(err, backup.ErrAlreadyInFlight):
+		return nil, ErrBackupInFlight
+	case err != nil:
+		return nil, err
+	}
+
+	// After the row exists, for the same reason RequestBackup records
+	// after Ask: the audit log must never claim a request the in-flight
+	// index refused.
+	if _, auditErr := s.recordForReturningID(ctx, a.Principal, AuditEntry{
+		Action: ActionBackupVerified,
+		Target: fmt.Sprintf("yedek-%d", backupID),
+		Detail: map[string]any{"request_id": req.ID, "backup_id": backupID},
+	}); auditErr != nil {
+		return req, nil
+	}
+	return req, nil
+}
+
 // backupActorFor turns a principal into the shape the queue records.
 func backupActorFor(p Principal) backup.Actor {
 	a := backup.Actor{Kind: string(p.Kind), Label: p.Label}

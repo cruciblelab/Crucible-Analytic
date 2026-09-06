@@ -428,3 +428,75 @@ func TestARefusedChoiceIsEchoedBack(t *testing.T) {
 			"press on a large deployment the one refused for space", checked, backup.SetPanel)
 	}
 }
+
+// The three states a backup's check can be in, and the one that must
+// not be silent.
+//
+// "Nobody has ever opened this file" is the state every backup starts
+// in and the one this whole section exists about. Drawing it the same
+// as "checked and fine" would turn the column into decoration.
+func TestABackupsVerdictHasThreeStatesAndNoOthers(t *testing.T) {
+	at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+
+	for name, tc := range map[string]struct {
+		row  backupRow
+		want string
+	}{
+		"never checked":         {backupRow{}, "bakilmadi"},
+		"checked and intact":    {backupRow{Checked: &at}, "saglam"},
+		"checked and damaged":   {backupRow{Checked: &at, Problems: "checksum"}, "bozuk"},
+		"problems but no check": {backupRow{Problems: "checksum"}, "bakilmadi"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.row.Verdict(); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// The verdict reaches the page from the catalogue, and the id with it.
+//
+// The id is what the button sends back, and it is the only thing about
+// the file the panel is allowed to know: its role is not granted the
+// path column, so a page that needed one could not be drawn at all.
+func TestTheCheckVerdictReachesTheSection(t *testing.T) {
+	s := quietServer()
+	lang := testLang(t)
+	at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+
+	db := fakeBackupReader{status: panel.BackupStatus{
+		Allowed: true,
+		Backups: []backup.Backup{
+			{ID: 7, TakenAt: at, Bytes: 10, State: "present"},
+			{ID: 8, TakenAt: at, Bytes: 20, State: "present", VerifiedAt: &at},
+			{ID: 9, TakenAt: at, Bytes: 30, State: "present", VerifiedAt: &at,
+				VerifyProblems: "the checksum does not match the catalogue"},
+		},
+	}}
+
+	section, msg := s.backupStatusFor(context.Background(), db, lang, panel.Access{})
+	if msg != "" {
+		t.Fatalf("the section failed to build: %s", msg)
+	}
+	if len(section.Backups) != 3 {
+		t.Fatalf("got %d rows", len(section.Backups))
+	}
+	want := []struct {
+		id      int64
+		verdict string
+	}{{7, "bakilmadi"}, {8, "saglam"}, {9, "bozuk"}}
+	for i, w := range want {
+		if section.Backups[i].ID != w.id {
+			t.Errorf("row %d has id %d, want %d. The button sends this back, so a row "+
+				"that lost it is a button that checks the wrong file",
+				i, section.Backups[i].ID, w.id)
+		}
+		if got := section.Backups[i].Verdict(); got != w.verdict {
+			t.Errorf("row %d is %q, want %q", i, got, w.verdict)
+		}
+	}
+	if section.Backups[2].Problems == "" {
+		t.Error("the damaged row carries no problems, so the page cannot say what is wrong")
+	}
+}

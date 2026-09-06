@@ -61,6 +61,20 @@ type Actor struct {
 	Label string
 }
 
+// Work is what a request asks the upgrader to do.
+//
+// A closed set, and the database carries the same list in a CHECK: a
+// row naming work this build does not know is one no process could ever
+// carry out, and it must not reach the queue at all.
+type Work string
+
+const (
+	// WorkTake is "make me a backup".
+	WorkTake Work = "al"
+	// WorkVerify is "check the one I am pointing at".
+	WorkVerify Work = "dogrula"
+)
+
 // Request is one row of the queue.
 type Request struct {
 	ID          int64
@@ -68,7 +82,14 @@ type Request struct {
 	Actor       Actor
 	OperationID string
 
+	// Work says which of the two things this row is. Empty is not a
+	// state a row can be in - the column has a default and a CHECK - so
+	// a zero value here means a scan that did not happen.
+	Work Work
 	Sets []string
+	// TargetID is the catalogue row this is about, for the kinds that
+	// are about one. Nil for a take.
+	TargetID *int64
 
 	State State
 
@@ -87,19 +108,20 @@ func (r *Request) InFlight() bool {
 }
 
 const requestColumns = `id, requested_at, actor_kind, actor_id, actor_label,
-	operation_id, sets, state, claimed_at, claimed_by, finished_at,
-	error_chain, backup_id`
+	operation_id, kind, sets, target_id, state, claimed_at, claimed_by,
+	finished_at, error_chain, backup_id`
 
 func scanRequest(row pgx.Row) (*Request, error) {
 	var r Request
-	var state string
+	var state, kind string
 	err := row.Scan(&r.ID, &r.RequestedAt, &r.Actor.Kind, &r.Actor.ID, &r.Actor.Label,
-		&r.OperationID, &r.Sets, &state, &r.ClaimedAt, &r.ClaimedBy,
+		&r.OperationID, &kind, &r.Sets, &r.TargetID, &state, &r.ClaimedAt, &r.ClaimedBy,
 		&r.FinishedAt, &r.ErrorChain, &r.BackupID)
 	if err != nil {
 		return nil, err
 	}
 	r.State = State(state)
+	r.Work = Work(kind)
 	return &r, nil
 }
 
@@ -122,13 +144,41 @@ func Ask(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
 	if err := validateSets(sets); err != nil {
 		return nil, err
 	}
+	return write(ctx, pool, a, operationID, WorkTake, Normalise(sets), nil)
+}
 
+// AskVerify records that somebody wants one checked.
+//
+// Its own function rather than a `kind` argument on Ask, because the
+// two take different things and the database refuses a row that mixes
+// them: a take names sets and no target, a verification names a target
+// and no sets. Two functions is how that becomes a compiler question
+// rather than a runtime one.
+func AskVerify(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
+	targetID int64) (*Request, error) {
+
+	if targetID <= 0 {
+		return nil, fmt.Errorf("backup: no backup was named to check")
+	}
+	return write(ctx, pool, a, operationID, WorkVerify, nil, &targetID)
+}
+
+// write is the INSERT both entry points share.
+func write(ctx context.Context, pool *pgxpool.Pool, a Actor, operationID string,
+	work Work, sets []string, targetID *int64) (*Request, error) {
+
+	if sets == nil {
+		// Not null: the column is NOT NULL and its CHECK counts the
+		// elements. An explicit empty array is what "this request is
+		// not about sets" looks like in the row.
+		sets = []string{}
+	}
 	row := pool.QueryRow(ctx, `
 		INSERT INTO panel_backup_requests
-		  (actor_kind, actor_id, actor_label, operation_id, sets)
-		VALUES ($1,$2,$3,$4,$5)
+		  (actor_kind, actor_id, actor_label, operation_id, kind, sets, target_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		RETURNING `+requestColumns,
-		a.Kind, a.ID, a.Label, operationID, Normalise(sets))
+		a.Kind, a.ID, a.Label, operationID, string(work), sets, targetID)
 
 	r, err := scanRequest(row)
 	if err != nil {
@@ -184,10 +234,36 @@ func Claim(ctx context.Context, pool *pgxpool.Pool, by string) (*Request, error)
 	case err != nil:
 		return nil, fmt.Errorf("backup: claim: %w", err)
 	}
-	if err := validateSets(r.Sets); err != nil {
+	if err := validateRequest(r); err != nil {
 		return r, fmt.Errorf("%w (claimed as request %d)", err, r.ID)
 	}
 	return r, nil
+}
+
+// validateRequest is what the answering side checks about a row it just
+// claimed.
+//
+// One question, and it is the one SQL cannot ask: are the *names* in
+// this row ones this build knows. A row written by a panel of a
+// different version - naming a set that has since been renamed, or work
+// this build does not do - satisfies every constraint on the table and
+// is still something this process cannot carry out.
+//
+// Deliberately not repeating what the database already refuses. A
+// verification with no target cannot be inserted at all
+// (panel_backup_requests_kind_fields), so a check for it here would be
+// a branch nothing can reach - measured by mutation: removing it left
+// every test green. The nil is still checked where it is
+// *dereferenced*, in Runner.check, which is a different reason.
+func validateRequest(r *Request) error {
+	switch r.Work {
+	case WorkTake:
+		return validateSets(r.Sets)
+	case WorkVerify:
+		return nil
+	default:
+		return fmt.Errorf("backup: %q is not work this build knows how to do", r.Work)
+	}
 }
 
 // validateSets is what both ends of the queue check, and it is one
@@ -263,6 +339,14 @@ type Backup struct {
 	// panel_backups.device.
 	Device int64
 
+	// VerifiedAt is when this file was last checked, nil when it never
+	// has been. Nil is not "fine": it is the state every backup starts
+	// in and the one this phase exists about.
+	VerifiedAt *time.Time
+	// VerifyProblems is what that check found, empty when it found
+	// nothing. Several lines when it found several things.
+	VerifyProblems string
+
 	// Path is where the file is, and is empty for every reader that is
 	// not the upgrader.
 	//
@@ -274,7 +358,7 @@ type Backup struct {
 
 // catalogueColumns is what anybody may read.
 const catalogueColumns = `id, taken_at, sets, bytes, sha256, binary_version,
-	schema_version, state, device`
+	schema_version, state, device, verified_at, verify_problems`
 
 // Record writes the catalogue row for a file that now exists.
 func Record(ctx context.Context, pool *pgxpool.Pool, res Result) (int64, error) {
@@ -309,13 +393,23 @@ func List(ctx context.Context, pool *pgxpool.Pool) ([]Backup, error) {
 	var out []Backup
 	for rows.Next() {
 		var b Backup
-		if err := rows.Scan(&b.ID, &b.TakenAt, &b.Sets, &b.Bytes, &b.SHA256,
-			&b.Version, &b.SchemaAt, &b.State, &b.Device); err != nil {
+		if err := rows.Scan(backupTargets(&b)...); err != nil {
 			return nil, fmt.Errorf("backup: listing: %w", err)
 		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// backupTargets is where catalogueColumns lands, in that order.
+//
+// One function rather than the same list written out at each call site.
+// There are three of them now, and adding a column meant editing three
+// Scan calls in lockstep - where getting it wrong lands every value one
+// field to the left, silently, in types that mostly accept each other.
+func backupTargets(b *Backup) []any {
+	return []any{&b.ID, &b.TakenAt, &b.Sets, &b.Bytes, &b.SHA256,
+		&b.Version, &b.SchemaAt, &b.State, &b.Device, &b.VerifiedAt, &b.VerifyProblems}
 }
 
 // ListWithPaths is List for the one caller that may see where the files
@@ -336,13 +430,50 @@ func ListWithPaths(ctx context.Context, pool *pgxpool.Pool) ([]Backup, error) {
 	var out []Backup
 	for rows.Next() {
 		var b Backup
-		if err := rows.Scan(&b.ID, &b.TakenAt, &b.Sets, &b.Bytes, &b.SHA256,
-			&b.Version, &b.SchemaAt, &b.State, &b.Device, &b.Path); err != nil {
+		if err := rows.Scan(append(backupTargets(&b), &b.Path)...); err != nil {
 			return nil, fmt.Errorf("backup: listing with paths: %w", err)
 		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// WithPath is one catalogue row, for the caller that may see where the
+// file is.
+//
+// Its own query rather than filtering ListWithPaths in Go: the row a
+// verification names is one row, and reading every backup on the
+// machine to find it would be a query whose cost grows with a number
+// nobody bounded.
+func WithPath(ctx context.Context, pool *pgxpool.Pool, id int64) (Backup, error) {
+	var b Backup
+	err := pool.QueryRow(ctx,
+		`SELECT `+catalogueColumns+`, path FROM panel_backups WHERE id = $1`, id).
+		Scan(append(backupTargets(&b), &b.Path)...)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return Backup{}, fmt.Errorf("backup: there is no backup %d in the catalogue", id)
+	case err != nil:
+		return Backup{}, fmt.Errorf("backup: reading catalogue row %d: %w", id, err)
+	}
+	return b, nil
+}
+
+// MarkVerified records what a check found.
+//
+// Written even when the check found problems - especially then. The
+// point of the column is that somebody can look at the list and see
+// which files have been opened and what happened, and a verdict only
+// recorded on success would leave a bad backup looking like an
+// unchecked one.
+func MarkVerified(ctx context.Context, pool *pgxpool.Pool, id int64, problems string) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE panel_backups SET verified_at = now(), verify_problems = $2 WHERE id = $1`,
+		id, problems)
+	if err != nil {
+		return fmt.Errorf("backup: recording the check of backup %d: %w", id, err)
+	}
+	return nil
 }
 
 // MarkMissing records that a file the catalogue names is no longer on

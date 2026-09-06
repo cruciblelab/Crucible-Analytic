@@ -1058,12 +1058,23 @@ parola = "Developer password"
 parola_ipucu = "Needed only for the secrets backup. The file is sealed to this password: nothing on the machine can open it, not even root. Lose the password and every secrets backup already taken is lost with it."
 parola_gerekli = "A secrets backup needs the developer password. That password is not in the database - it is in a configuration file on the server, so you cannot grant yourself this."
 ayri_dosya = "The configuration and the data do not go into one file. The configuration carries \"ip_hash_key\"; together in one file, whoever obtained it would undo the pseudonymisation. Take two separate backups."
+dogrula = "Check"
+dogrulaniyor = "A check was requested. The upgrader is opening the file and measuring it; this section refreshes itself."
+dogrula_secim_yok = "It is not clear which backup to check. Use the button beside one in the list."
+dogrulama_aciklama = "A check opens the file and compares it with the catalogue: size, SHA-256, and the row count of every table the manifest names. The rows are counted out of the file rather than read from the manifest - a file that agrees with itself is not evidence. Less is measured for a secrets backup, and deliberately so: this machine cannot open that file, only confirm its bytes are intact."
+
+[metin.saglik.yedek.dogrulama]
+bakilmadi = "Never checked"
+saglam = "Intact"
+bozuk = "Damaged"
+
 
 [metin.saglik.yedek.sutun]
 tarih = "Date"
 icerik = "Contents"
 boyut = "Size"
 surum = "Version"
+dogrulama = "Checked"
 
 [metin.saglik.yedek.kume]
 analitik = "Analytics: traffic and beacon events"

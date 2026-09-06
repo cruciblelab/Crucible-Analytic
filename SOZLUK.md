@@ -499,6 +499,15 @@ tamamının dayandığı ayrım tek dosyayla geçersiz olur. `KindOf` bunu iki
 uçta birden reddediyor: panel satırı yazmadan önce, yükseltici satırı
 okuduktan sonra.
 
+**yedek doğrulama** (`internal/backup`, `dogrula` işi) — Dosyayı açıp
+katalogdakiyle karşılaştırma: boyut, SHA-256, ve manifestin saydığı her
+tablonun satır sayısı. **Satırlar dosyadan sayılıyor, manifestten
+okunmuyor** — manifest de dosyanın parçası, ve kendi kendisiyle uyuşan
+bir dosya kanıt değildir. Verdiği cevap iki yerde: isteğin satırında
+(hemen) ve kataloğun kendisinde (kalıcı), yani liste hangi yedeklerin
+**hiç açılmadığını** da söylüyor. "Hiç bakılmadı" ile "sağlam" ayrı iki
+durum; ikisini aynı gösteren bir sütun süs olurdu.
+
 **geliştiriciye kapatma (devseal)** (`internal/devseal`) — Sırlar
 yedeğinin şifrelenme biçimi. Geliştirici parolasından argon2id ile
 türetilen bir X25519 alıcısı: **açık yarısı** `upgrader.toml` içinde,

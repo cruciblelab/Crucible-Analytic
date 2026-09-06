@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/backup"
@@ -35,12 +37,43 @@ type backupSet struct {
 
 // backupRow is one catalogue entry as the page shows it.
 type backupRow struct {
+	// ID is what the Doğrula button sends back. It is the catalogue
+	// row's id and nothing else: the panel is not granted the path
+	// column and must not learn where the file is.
+	ID      int64
 	TakenAt time.Time
 	Sets    []string
 	Bytes   int64
 	Version string
 	// Missing means the file the row names is not on the disk any more.
 	Missing bool
+
+	// Checked is when this file was last opened and measured, nil when
+	// it never has been.
+	Checked *time.Time
+	// Problems is what that check found, empty when it found nothing.
+	//
+	// A nil Checked and an empty Problems are not the same state and
+	// the page must not draw them the same way: "nobody has ever
+	// looked" is the answer this whole section exists to stop being the
+	// answer.
+	Problems string
+}
+
+// Verdict is what the page says about this row, as one of three words.
+//
+// A method rather than three booleans, so the template cannot render a
+// combination that does not exist - "checked and unchecked" is not a
+// state, and a template with two independent flags can draw it.
+func (r backupRow) Verdict() string {
+	switch {
+	case r.Checked == nil:
+		return "bakilmadi"
+	case r.Problems != "":
+		return "bozuk"
+	default:
+		return "saglam"
+	}
 }
 
 // backupSection is the panel on the health page.
@@ -122,11 +155,14 @@ func (s *Server) backupStatusFor(ctx context.Context, db backupReader, lang *ui.
 	}
 	for _, b := range status.Backups {
 		section.Backups = append(section.Backups, backupRow{
-			TakenAt: b.TakenAt,
-			Sets:    b.Sets,
-			Bytes:   b.Bytes,
-			Version: b.Version,
-			Missing: b.State == "missing",
+			ID:       b.ID,
+			TakenAt:  b.TakenAt,
+			Sets:     b.Sets,
+			Bytes:    b.Bytes,
+			Version:  b.Version,
+			Missing:  b.State == "missing",
+			Checked:  b.VerifiedAt,
+			Problems: b.VerifyProblems,
 		})
 		// Only what is still there is counted. A total that included
 		// files somebody deleted would be a number about the disk that
@@ -209,6 +245,65 @@ func (s *Server) backupPost(r *http.Request, db backupStore, lang *ui.Language,
 	section.Latest = req
 	section.Running = true
 	log.Info("panel: backup requested", "request", req.ID, "sets", chosen)
+	op.Step("istek yaz", true, "")
+	ok := false
+	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, &ok)
+	return section, ""
+}
+
+// backupVerifyPost queues a check of one backup.
+//
+// Its own handler rather than a branch inside backupPost, because the
+// two take different things from the form and mean different things: a
+// take is a choice of sets, a check is a choice of file. Sharing a
+// handler would mean a request that named both, and the first line of
+// either would have to decide which one the person meant.
+func (s *Server) backupVerifyPost(r *http.Request, db backupStore, lang *ui.Language,
+	access panel.Access) (backupSection, string) {
+
+	// Parsed rather than trusted, and refused rather than defaulted: a
+	// zero id is not a backup and asking for one would write a row the
+	// upgrader could only fail.
+	id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("yedek")), 10, 64)
+	if err != nil || id <= 0 {
+		section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
+		if sectionErr != "" {
+			return section, sectionErr
+		}
+		section.Notice = lang.T("saglik.yedek.dogrula_secim_yok")
+		section.Failed = true
+		return section, ""
+	}
+
+	op, opErr := db.BeginOperation(r.Context(), access,
+		panel.ActionBackupVerified, "backup", strconv.FormatInt(id, 10))
+	if opErr != nil {
+		s.logger().Warn("panel: could not open an operation record for the check", "err", opErr)
+	}
+	log := s.logger().With(logsink.OperationKey, op.ID())
+
+	req, err := db.VerifyBackup(r.Context(), access, op.ID(), id)
+
+	section, sectionErr := s.backupStatusFor(r.Context(), db, lang, access)
+	if sectionErr != "" {
+		_ = op.Finish(r.Context(), panel.OutcomeFailed, errors.New(sectionErr), nil)
+		return section, sectionErr
+	}
+
+	if err != nil {
+		section.Notice = backupErrorText(lang, err)
+		section.Failed = true
+		log.Warn("panel: backup check refused", "err", err, "backup", id)
+		op.Step("istek yaz", false, "")
+		notRolledBack := false
+		_ = op.Finish(r.Context(), outcomeFor(err), err, &notRolledBack)
+		return section, ""
+	}
+
+	section.Notice = lang.T("saglik.yedek.dogrulaniyor")
+	section.Latest = req
+	section.Running = true
+	log.Info("panel: backup check requested", "request", req.ID, "backup", id)
 	op.Step("istek yaz", true, "")
 	ok := false
 	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, &ok)

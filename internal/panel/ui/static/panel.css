@@ -1300,3 +1300,34 @@ code.secret {
   display: block;
   margin-block: 0.3rem;
 }
+
+/* The check button beside each backup row.
+ *
+ * A form inside a table cell, which is the only shape that works here:
+ * the button has to carry a CSRF token and the row's id, and a link
+ * cannot do either without putting the id in a URL somebody can share.
+ *
+ * Inline and small, because the column it lives in is mostly a word -
+ * "Sağlam", "Hiç bakılmadı" - and a full-width form in there would make
+ * the verdict harder to read than the button. */
+.satirici {
+  display: inline-block;
+  margin-inline-start: 0.5rem;
+}
+
+.satirici button {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85em;
+}
+
+/* What a check found, under the row it is about.
+ *
+ * pre, because the problems arrive as several lines and each one is a
+ * separate finding: a check that reported everything wrong with a file
+ * on one line would be a check somebody reads the first clause of. */
+td > pre.uyari {
+  margin-block: 0.4rem 0;
+  padding: 0.4rem 0.6rem;
+  white-space: pre-wrap;
+  font-size: 0.85em;
+}

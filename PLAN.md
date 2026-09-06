@@ -4757,14 +4757,23 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1c | Yedekler depolama görünümünde, kapladıkları alanla | ✅ yapıldı |
 | F1d | Şema yükseltmesinden önce otomatik yedek | ✅ yapıldı |
 | F1e | Sırlar yedeği, ayrı dosya ve ayrı yetki | ✅ yapıldı |
-| F1f | Doğrulama ve yan veritabanına geri yükleme | |
+| F1f | Doğrulama: dosya gerçekten o dosya mı | ✅ yapıldı |
+| F1g | Yan veritabanına geri yükleme | |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
 yedek gönderilmiyor.
 
 **Açık kalan iki karar:** eski şemalı bir yedeğin yeni şemaya nasıl
-döneceği (F1f) ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
+döneceği (F1g) ve sıkıştırma oranının gerçek veride ölçülmesi (F1b).
+
+**F1f ikiye ayrıldı.** Tek satırdı ve iki ayrı şey içeriyordu:
+"dosyayı aç ve ölç" ile "yan bir veritabanına gerçekten yükle". Birincisi
+veritabanı istemiyor, saniyeler sürüyor ve müşterinin haftada bir
+basacağı bir düğme; ikincisi ayrı bir veritabanı, şema kurulumu ve
+dakikalar istiyor. Bir fazın altında toplamak, ucuz olanı pahalı olanın
+arkasında bekletmek olurdu. Numaralandırma düzeltilmiyor, açıklanıyor —
+bu belgenin kuralı bu.
 
 **F1d'de verilen karar: rıza.** Yedek dizini yapılandırılmamış bir
 kurulum hiç yedek almamıştı ve şimdi de bir şey kaybetmiyor — eskisi

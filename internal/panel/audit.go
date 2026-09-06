@@ -134,6 +134,16 @@ const (
 	// of who asked for one has to survive the request row being swept.
 	ActionBackupRequested = "backup.requested"
 
+	// ActionBackupVerified marks somebody asking for one to be checked.
+	//
+	// Separate from the line above rather than folded into it, because
+	// the two mean opposite things to whoever reads the log later.
+	// "Somebody took a copy of every row" is a question about what left
+	// the database. "Somebody opened the copy and looked" is a question
+	// about diligence, and an audit log that could not tell them apart
+	// would answer the first one wrongly every time the second happened.
+	ActionBackupVerified = "backup.verified"
+
 	// ActionRangeRefreshRequested marks somebody pressing "refresh the
 	// IP datasets now".
 	//

@@ -1098,12 +1098,23 @@ parola = "Geliştirici parolası"
 parola_ipucu = "Yalnız sırlar yedeği için gerekli. Dosya bu parolaya kapatılır: makinede onu açabilecek hiçbir şey yoktur, root bile açamaz. Parolayı kaybederseniz alınmış sırlar yedekleri de kaybolur."
 parola_gerekli = "Sırlar yedeği için geliştirici parolası gerekiyor. Parola veritabanında değil, sunucudaki yapılandırma dosyasında — kendinize bu yetkiyi veremezsiniz."
 ayri_dosya = "Yapılandırma ile veri aynı dosyaya girmez. Yapılandırma \"ip_hash_key\" anahtarını taşıyor; ikisi tek dosyada olsaydı o dosyayı ele geçiren herkes takma adlandırmayı çözerdi. İki ayrı yedek alın."
+dogrula = "Doğrula"
+dogrulaniyor = "Doğrulama istendi. Yükseltici dosyayı açıp ölçüyor; bu bölüm kendini yeniliyor."
+dogrula_secim_yok = "Hangi yedeğin doğrulanacağı anlaşılmadı. Listeden birinin yanındaki düğmeyi kullanın."
+dogrulama_aciklama = "Doğrulama dosyayı açar ve katalogdakiyle karşılaştırır: boyut, SHA-256, ve manifestin saydığı her tablonun satır sayısı. Satırlar dosyadan sayılır, manifestten okunmaz — kendi kendisiyle uyuşan bir dosya kanıt değildir. Sırlar yedeğinde daha azı ölçülür ve bu kasten: bu makine o dosyayı açamaz, yalnız baytlarının bozulmadığını doğrulayabilir."
+
+[metin.saglik.yedek.dogrulama]
+bakilmadi = "Hiç bakılmadı"
+saglam = "Sağlam"
+bozuk = "Bozuk"
+
 
 [metin.saglik.yedek.sutun]
 tarih = "Tarih"
 icerik = "İçerik"
 boyut = "Boyut"
 surum = "Sürüm"
+dogrulama = "Doğrulama"
 
 [metin.saglik.yedek.kume]
 analitik = "Analitik: trafik ve beacon olayları"

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -102,7 +103,11 @@ func (r Runner) RunOnce(ctx context.Context) (*Request, error) {
 		return nil, ErrNothingToDo
 	}
 
-	log := r.logger().With("request", req.ID, "sets", req.Sets)
+	// The work is in the line as well as the sets, because a
+	// verification has no sets and a journal that only said "sets=[]"
+	// would leave somebody guessing which of the two things this run
+	// was.
+	log := r.logger().With("request", req.ID, "work", string(req.Work), "sets", req.Sets)
 	log.Info("backup: starting")
 
 	id, runErr := r.carryOut(ctx, req, log)
@@ -176,6 +181,13 @@ func (r Runner) Take(ctx context.Context, sets []string) (*int64, error) {
 // carryOut is the estimate, then the copy. Separated so RunOnce always
 // records an outcome, whatever happens in here.
 func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (*int64, error) {
+	if req.Work == WorkVerify {
+		// Checked before the directory, because a verification does not
+		// need one: it opens a file the catalogue already names. A
+		// deployment whose [backup] dir was cleared can still check the
+		// files it took while it had one.
+		return nil, r.check(ctx, req, log)
+	}
 	if r.Dir == "" {
 		// Checked after the claim rather than before, deliberately. A
 		// request queued on a deployment with no backup directory has to
@@ -244,6 +256,76 @@ func (r Runner) write(ctx context.Context, sets []string, log *slog.Logger) (*in
 			res.Path, err)
 	}
 	return &id, nil
+}
+
+// check opens one backup and reports whether it is what the catalogue
+// says it is.
+//
+// # Why a bad file fails the request rather than succeeding with a note
+//
+// Because of what the person pressing the button is asking. "Doğrula"
+// is a yes-or-no question, and the answer has to arrive where they are
+// looking - which is the request's line on the page, not a column in a
+// table further down.
+//
+// So the verdict lands in two places on purpose, and they agree because
+// they come from one Verification: the request fails with the problems
+// on its row, and the catalogue row records the same problems against
+// the file. The first is for the person standing there now; the second
+// is for whoever asks next month which backups have ever been opened.
+//
+// A file that could not be read at all is a different outcome and says
+// so: the catalogue is left alone rather than being marked with a
+// verdict nobody reached.
+func (r Runner) check(ctx context.Context, req *Request, log *slog.Logger) error {
+	if req.TargetID == nil {
+		// Unreachable through the queue: the table's CHECK refuses a
+		// verification with no target, so no such row can exist.
+		//
+		// Kept because this is the line that dereferences it, and the
+		// alternative to a sentence here is a nil dereference in the
+		// upgrader - which takes the process down mid-claim, leaving a
+		// row running that nothing will finish. "Cannot happen" is the
+		// reason to check cheaply, not the reason to skip it.
+		return errors.New("backup: this request names no backup to check")
+	}
+	row, err := WithPath(ctx, r.Pool, *req.TargetID)
+	if err != nil {
+		return err
+	}
+
+	result, err := Verify(row.Path, row, r.Recipient)
+	if err != nil {
+		// The file could not be opened or decompressed. Nothing about
+		// its contents was measured, so nothing is written to the
+		// catalogue: "checked and unreadable" and "never checked" are
+		// different states and the second must not be overwritten by a
+		// verdict that was never reached.
+		//
+		// Except for the one case where it is a finding rather than an
+		// accident: a file the catalogue names and the disk does not
+		// have. Sweep already marks those, and saying it here as well
+		// costs a sentence and answers the question that was asked.
+		log.Error("backup: could not check", "backup", row.ID, "err", err)
+		return err
+	}
+
+	problems := strings.Join(result.Problems, "\n")
+	if markErr := MarkVerified(ctx, r.Pool, row.ID, problems); markErr != nil {
+		// The check happened and its result could not be stored.
+		// Reported as itself: what is broken is the record, and the
+		// file's verdict is in the error below either way.
+		log.Error("backup: could not record the check", "backup", row.ID, "err", markErr)
+	}
+
+	if !result.OK() {
+		log.Error("backup: the file is not what the catalogue says it is",
+			"backup", row.ID, "problems", len(result.Problems))
+		return fmt.Errorf("this backup did not pass:\n%s", problems)
+	}
+	log.Info("backup: checked", "backup", row.ID,
+		"bytes", result.Bytes, "rows", result.RowsFound(), "sealed", result.Secrets)
+	return nil
 }
 
 // writeSecrets is the same three steps for the other artifact.

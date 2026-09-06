@@ -1148,8 +1148,37 @@ sonra silinen satırlar o dosyanın içinde durmaya devam eder. Sayfada da
 yazıyor, ama burada bir kez daha: müşteriye "sildik" dediğiniz veri
 yedeklerde duruyor olabilir.
 
-**Geri yükleme henüz yok** (F1f). Şu an alınabiliyor, listelenebiliyor,
-ve doğrulanması ile yan bir veritabanına yüklenmesi sonraki fazda.
+### Doğrulama: dosya gerçekten o dosya mı
+
+Listede her satırın yanında **Doğrula** var. Yükseltici dosyayı açıp
+ölçüyor:
+
+- Boyutu ve SHA-256'sı katalogdakiyle aynı mı. Dolu diskte kesilmiş ya
+  da altındaki depolamada bozulmuş bir dosya, bir yedeğin yedek olmayı
+  bırakmasının olağan yolu — ve bunu başka hiçbir şey fark etmezdi,
+  çünkü hiçbir şey bir yedeği ihtiyaç duyulana kadar okumuyor.
+- Manifestin saydığı her tablonun verisi dosyada var mı, ve satır
+  sayıları tutuyor mu. **Sayılar dosyadan sayılıyor, manifestten
+  okunmuyor:** manifest de dosyanın parçası, ve kendi kendisiyle uyuşan
+  bir dosya kanıt değildir.
+- Dosya, manifestinde yazmayan bir şey taşıyor mu — geri yüklemenin
+  sessizce atlayacağı şey.
+
+Sonuç iki yerde birden: bastığınız isteğin satırında (hemen) ve
+kataloğun kendisinde (kalıcı). Yani liste **hangi yedeklerin hiç
+açılmadığını** da söylüyor. "Hiç bakılmadı" ile "sağlam" ayrı iki şey ve
+sayfa ikisini ayrı gösteriyor — hiç açılmamış bir yedek, bu bölümün
+tamamının hakkında olduğu nesnedir.
+
+Sırlar yedeğinde daha azı ölçülür, ve bu kasten: bu makine o dosyayı
+açamaz. Baytların bozulmadığı ve iki parçanın yerinde olduğu
+doğrulanıyor. Bir de şu: dosya **hangi anahtara kapatıldığı** ile şu an
+yapılandırılmış olan karşılaştırılıyor. Geliştirici parolasını
+değiştirdiyseniz eski sırlar yedekleri sapasağlamdır ve bugünkü parolayla
+açılmaz — bunu ihtiyaç duyduğunuz gün değil, şimdi öğrenirsiniz.
+
+**Geri yükleme henüz yok** (F1g). Şu an alınabiliyor, listelenebiliyor
+ve doğrulanabiliyor; yan bir veritabanına yüklenmesi sonraki fazda.
 
 ### Sırlar yedeği: yapılandırmanın kendisi
 

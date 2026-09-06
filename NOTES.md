@@ -12211,3 +12211,163 @@ kullanılıyorsa doğru olabilecek en ucuz cümle.
 
 *Bir gidiş-dönüş testi, iki tarafı birlikte bozan hiçbir şeyi
 göremez.*
+
+---
+
+## F1f — Doğrulama: dosya gerçekten o dosya mı
+
+Bir yedeğin bozulduğunu öğrenmenin olağan yolu, ona ihtiyaç duyduğunuz
+gün. Bu fazın tamamı o cümleyi bozmak için.
+
+### Ne ölçülüyor, ve neden her biri
+
+- **Boyut ve SHA-256, katalogdaki satıra karşı.** Dolu diskte kesilmiş
+  ya da altındaki depolamada bozulmuş bir dosya, bir yedeğin yedek olmayı
+  bırakmasının sıradan yolu — ve bu üründe başka hiçbir şey fark etmezdi,
+  çünkü hiçbir şey bir yedeği ihtiyaç duyulana kadar okumuyor.
+- **Manifestin saydığı her tablonun verisi var mı, ve satır sayısı
+  tutuyor mu.** Bu paketin var oluş sebebi olan `pg_dump` arızasının öbür
+  yüzü: manifesti olan, makul görünen, içi boş bir dosya.
+- **Dosya, manifestinde yazmayan bir şey taşıyor mu.** Ters yön, ve geri
+  yüklemenin sessizce atlayacağı şeyi yakalayan taraf.
+
+### Satır sayısı neden dosyadan sayılıyor
+
+Manifest de dosyanın parçası. Kendisiyle uyuşan bir dosya kanıt değil.
+Sayılar arşivden sayılıyor, iddia manifestten okunuyor — karşılaştırmayı
+anlamlı kılan tek şey bu ikisinin **ayrı yerlerden** gelmesi.
+
+Saymak yeni satır baytlarını saymak, ve bu yaklaşık değil tam: COPY
+metin biçimi bir değerin içindeki yeni satırı `\` ve `n` olarak yazar,
+yani akıştaki gerçek bir yeni satır baytı her zaman satır sonudur.
+Yorumlanması gereken bir kontrol, eninde sonunda elle geçilen bir
+kontroldür.
+
+### Verdiğin cevap iki yerde
+
+İsteğin satırında (hemen, basan kişinin baktığı yer) ve kataloğun
+kendisinde (kalıcı). İkisi aynı `Verification`'dan geldiği için
+uyuşuyorlar.
+
+Katalogda olmasının sebebi ayrı bir soru: insanların gerçekten sorduğu
+şey "bu düğmeye bastığımda ne oldu" değil, **"hangi yedeğimin sağlam
+olduğunu biliyorum"**. Yalnız istek satırında duran bir hüküm, o soruya
+istek satırları silinene kadar cevap verir.
+
+Ve "hiç bakılmadı" ile "sağlam" ayrı iki durum. Sayfa ikisini ayrı
+gösteriyor, çünkü hiç açılmamış bir yedek bu fazın tamamının hakkında
+olduğu nesnedir. Üç durum tek bir metottan (`Verdict`) geliyor, yani
+şablon "hem bakılmış hem bakılmamış" gibi var olmayan bir bileşimi
+çizemiyor.
+
+### Sırlar yedeğinde ölçülen daha az, ve bir şey fazla
+
+Daha az, çünkü bu makine o dosyayı açamaz — tasarım bu. Baytların
+bozulmadığı ve iki parçanın yerinde olduğu doğrulanıyor, içerik
+doğrulanmıyor.
+
+Fazlası şu: dosyanın **hangi alıcıya kapatıldığı** ile şu an
+yapılandırılmış olan karşılaştırılıyor. Geliştirici parolası
+değiştiyse eski sırlar yedekleri sapasağlamdır ve bugünkü parolayla
+açılmaz. Bu, ihtiyaç duyulduğu gün öğrenilecek bir cümle; sorun olarak
+raporlanıyor ama metni baytların değil anahtarın sorunu olduğunu
+söylüyor.
+
+### Kuyruk neden ikinci bir kuyruk değil
+
+Yedek almak ile yedek kontrol etmek aynı şekle sahip: panel ikisini de
+yapamaz, yükseltici ikisini de yapar, ikisi de aynı diskin ağır
+okumaları. İkinci bir kuyruk, `Ask`/`Claim`/`Finish`/`ExpireStale`'in
+ikinci bir kopyası olurdu — ve bu proje, `Claim`'ini kimsenin çağırmadığı
+bir kuyruğun bedelini zaten ödedi.
+
+Tek uçuş yuvasını paylaşmak da yan etki değil doğru cevap: yedek
+yazılırken koşan bir doğrulama, makinenin en acil olmayan işini iki kez
+yapması olurdu.
+
+Satırın hangi iş olduğu `kind` sütununda, ve **hangi alanların dolu
+olması gerektiğini veritabanı söylüyor**:
+
+```sql
+CHECK (
+    (kind =  'al' AND cardinality(sets) >  0 AND target_id IS NULL) OR
+    (kind <> 'al' AND cardinality(sets) =  0 AND target_id IS NOT NULL)
+)
+```
+
+Go tarafında zaten iki yerde kontrol var — panel satırı yazmadan önce,
+yükseltici satırı okuduktan sonra — ve ikisi de yanılabilen programlar.
+Bu, satırın kendisinin ihlal edemediği ifade.
+
+### Yol boyunca: iddia ettiğim ama ölçmediğim bir cümle
+
+`Verify` dosyanın kuyruğunu hash'e ayrı olarak geçiriyor, ve ilk yazdığım
+yorum "önce yanlış yazılmıştı, sağlama tutmayınca yakalandı" diyordu.
+**Bu doğru değildi.** Öyle bir ölçüm yapmamıştım; düzeltmeyi ve gerekçeyi
+birlikte yazmıştım.
+
+Mutasyon söyledi: iki biçim de bugün aynı sağlamayı üretiyor, her
+boyutta. Go'nun gzip okuyucusu kaynağını `bufio.Reader` ile sarıyor ve
+EOF bildirmeden önce deflate kuyruğunu tüketiyor, yani tar durduğunda
+dosyada okunmamış bayt kalmıyor.
+
+Kod öyle kaldı — çalışan öbür biçim, hiçbir zaman söz verilmemiş bir
+ileri-okumaya dayanarak çalışıyor — ama yorum artık ne olduğunu
+söylüyor, ve testin adı da: bu bir boyut testi, bir kuyruk-hash'leme
+testi değil.
+
+*Yapılmamış bir ölçümü anlatan gerekçe, kontrolün kendisinden daha
+tehlikelidir: okuyan kişi ona güvenmeyi öğrenir.*
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Sağlama katalogla karşılaştırılmasın | Yakalandı |
+| Satır sayıları karşılaştırılmasın | Yakalandı |
+| Manifestte olup dosyada olmayan tablo görülmesin | İlkin hayatta kaldı |
+| Manifestte olmayan girdi görülmesin | Yakalandı |
+| Satırlar yeni satır yerine ters bölü ile sayılsın | Yakalandı |
+| Yükseltici doğrulama isteğini alma yoluna düşürsün | Yakalandı |
+| Hüküm kataloğa hiç yazılmasın | Yakalandı |
+| Yedek kontrolünü herkes isteyebilsin | Yakalandı |
+| Hiçbir yedek adlandırmayan istek kuyruğa girsin | Yakalandı |
+| `Claim` bilinmeyen işi kabul etsin | İlkin hayatta kaldı |
+| `Claim` alma isteğinin kümelerini kontrol etmesin | Yakalandı |
+| Dosyanın kuyruğu hash'lenmesin | Hayatta kaldı — gerçek değil |
+
+**"Manifestte olup dosyada olmayan tablo"** hayatta kaldı çünkü test
+yanlış şeye bakıyordu: eksik girdi sıfır satır sayılıyor, yani satır
+sayısı kontrolü de aynı tabloyu adlandıran bir sorun üretiyor. Testin
+iddiası tablo adıydı, ve iki kontrol de o adı söylüyordu. Şimdi cümleye
+bakıyor — okuyan kişi için de fark bu: "verisi yok" dosyaya baktırır,
+"3 satır olmalı 0 var" veritabanına.
+
+**"Bilinmeyen iş"** hayatta kaldı çünkü veritabanı kısıtı öyle bir satırı
+zaten reddediyor — bugünkü veritabanında. Ama fonksiyonun var oluş
+sebebi tam da bugünkü olmayan durum: *sonraki* sürümün paneli, kısıtı
+genişletilmiş bir veritabanına üçüncü bir tür yazıyor ve *önceki*
+sürümün yükselticisi onu talep ediyor. F1g tam olarak öyle bir tür
+ekliyor. Cevap birim testi: satır kurulamıyorsa fonksiyon doğrudan
+çağrılır.
+
+Ve `Claim`'den `target_id` kontrolünü **çıkardım**: veritabanı onu
+imkânsız kılıyor, `Runner.check` zaten kontrol ediyor, ve ikisinin
+arasında hiçbir şeyin ulaşamayacağı bir dal kalmıştı. Değeri çözen
+satırdaki kontrol duruyor — orada "olamaz" ucuza kontrol etmenin sebebi,
+atlamanın değil.
+
+### Gerçek ikililerle ölçüldü
+
+Gerçek yükseltici, gerçek veritabanı, gerçek dosya. Aldığı yedek: 52798
+bayt, 2745 satır, doğrulama geçti ve katalog hükmü kaydetti.
+
+Sonra dosyanın sonuna **tek bir sıfır bayt** eklendi. İki sorun birden,
+sayılarıyla, hem istek satırında hem katalogda:
+
+```
+the catalogue says 52798 bytes and the file is 52799
+the checksum does not match the catalogue (4f5f9971… on disk, 3b7fe76e… recorded)
+```
+
+*Kendisiyle uyuşan bir dosya kanıt değildir.*

@@ -68,6 +68,13 @@ const (
 	eylemKaynakYenile = "kaynak_yenile"
 	eylemSurum        = "surum"
 	eylemYedek        = "yedek"
+	// eylemYedekDogrula is its own action rather than a field inside
+	// eylemYedek, for the reason the block above gives: the two take
+	// different things from the form - one a choice of sets, the other
+	// a choice of file - and a handler that decided between them by
+	// looking at which field arrived would be a handler that can be
+	// made to decide wrongly.
+	eylemYedekDogrula = "yedek_dogrula"
 )
 
 // healthPage is Data for the template.
@@ -323,6 +330,9 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 			posted.release, posted.releaseErr = &section, sectionErr
 		case eylemYedek:
 			section, sectionErr := s.backupPost(r, s.backups(), lang, access)
+			posted.backup, posted.backupErr = &section, sectionErr
+		case eylemYedekDogrula:
+			section, sectionErr := s.backupVerifyPost(r, s.backups(), lang, access)
 			posted.backup, posted.backupErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)

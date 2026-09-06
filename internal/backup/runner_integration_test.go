@@ -460,3 +460,250 @@ func TestARequestThisBuildCannotCarryOutIsFinishedRatherThanLeftRunning(t *testi
 		t.Fatalf("a later request was refused after the failure: %v", err)
 	}
 }
+
+// The whole check, from the row somebody writes to the verdict on the
+// catalogue.
+//
+// Takes a real backup first rather than building a file by hand: the
+// unit tests in verify_test.go do that, because they need files the
+// writer cannot produce. What is measured here is the other half - that
+// a file this program actually wrote passes its own check, and that the
+// queue, the runner and the catalogue are wired to each other.
+func TestCheckingABackupRecordsAVerdictOnTheCatalogue(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	r := backup.Runner{Pool: answers, Dir: dir, Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+
+	if _, err := backup.Ask(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		[]string{backup.SetPanel}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err != nil {
+		t.Fatalf("taking the backup this test checks: %v", err)
+	}
+
+	rows, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("the catalogue has %d rows after one backup", len(rows))
+	}
+	// A fresh backup has never been checked, and that is a state the
+	// page shows rather than hides.
+	if rows[0].VerifiedAt != nil {
+		t.Errorf("a backup nobody has checked reports having been checked at %v",
+			rows[0].VerifiedAt)
+	}
+
+	if _, err := backup.AskVerify(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err != nil {
+		t.Fatalf("the file this program just wrote did not pass its own check: %v", err)
+	}
+
+	latest, err := backup.Latest(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != backup.StateSucceeded {
+		t.Fatalf("the check is in state %q: %s", latest.State, latest.ErrorChain)
+	}
+	if latest.Work != backup.WorkVerify {
+		t.Errorf("the row says work=%q", latest.Work)
+	}
+
+	checked, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked[0].VerifiedAt == nil {
+		t.Fatal("the check succeeded and the catalogue does not record it, so the list " +
+			"still says nobody has ever looked")
+	}
+	if checked[0].VerifyProblems != "" {
+		t.Errorf("a good file was recorded with problems: %q", checked[0].VerifyProblems)
+	}
+}
+
+// And the case the whole feature exists for: the file was fine when it
+// was written and is not fine now.
+//
+// Corrupted after the catalogue row was recorded, which is how this
+// actually happens - a disk that filled, storage that lost a block, a
+// copy that went wrong. Nothing in this product would notice, because
+// nothing reads a backup until somebody needs it.
+func TestAFileThatChangedSinceItWasTakenFailsTheCheck(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	r := backup.Runner{Pool: answers, Dir: dir, Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+
+	if _, err := backup.Ask(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		[]string{backup.SetPanel}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// One byte, appended. Small enough that nothing about the file
+	// looks wrong: it still decompresses, still carries its manifest,
+	// still holds every row. Only the checksum knows.
+	f, err := os.OpenFile(rows[0].Path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte{0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := backup.AskVerify(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err == nil {
+		t.Fatal("a file that no longer matches the catalogue passed its check")
+	}
+
+	latest, err := backup.Latest(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != backup.StateFailed {
+		t.Fatalf("the check is in state %q, want failed", latest.State)
+	}
+	if !strings.Contains(latest.ErrorChain, "checksum") {
+		t.Errorf("the row says %q and does not say what is wrong", latest.ErrorChain)
+	}
+
+	// And the verdict is on the catalogue too, or the list would go on
+	// showing an unchecked backup as if nobody had looked.
+	checked, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked[0].VerifiedAt == nil {
+		t.Fatal("a failed check left the catalogue row looking unchecked")
+	}
+	if !strings.Contains(checked[0].VerifyProblems, "checksum") {
+		t.Errorf("the catalogue row says %q", checked[0].VerifyProblems)
+	}
+}
+
+// A check of a backup whose file is gone must say so rather than
+// recording a verdict nobody reached.
+func TestCheckingAMissingFileSaysSoAndRecordsNothing(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	r := backup.Runner{Pool: answers, Dir: dir, Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+
+	if _, err := backup.Ask(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		[]string{backup.SetPanel}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(rows[0].Path); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := backup.AskVerify(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.RunOnce(ctx); err == nil {
+		t.Fatal("checking a file that is not there reported success")
+	}
+
+	checked, err := backup.ListWithPaths(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// "Checked and unreadable" and "never checked" are different
+	// states, and the second must not be overwritten by a verdict that
+	// was never reached: nothing about the contents was measured.
+	if checked[0].VerifiedAt != nil {
+		t.Errorf("a check that could not open the file recorded a verdict at %v",
+			checked[0].VerifiedAt)
+	}
+}
+
+// A check naming a backup the catalogue does not have fails on the row
+// rather than anywhere else.
+func TestCheckingABackupThatIsNotInTheCatalogueFails(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+
+	if _, err := backup.AskVerify(ctx, asks, backup.Actor{Kind: "user", Label: "test"}, "",
+		999_999); err != nil {
+		t.Fatal(err)
+	}
+	r := backup.Runner{Pool: answers, Dir: t.TempDir(), Name: "test-upgrader",
+		BinaryVersion: "v0.0.0-test", SchemaVersion: 99}
+	if _, err := r.RunOnce(ctx); err == nil {
+		t.Fatal("checking a backup that does not exist reported success")
+	}
+
+	latest, err := backup.Latest(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != backup.StateFailed {
+		t.Fatalf("the check is in state %q, want failed", latest.State)
+	}
+}
+
+// The database refuses a row whose fields do not match its kind.
+//
+// Not a Go check and not a comment: this one is the statement the row
+// itself cannot violate, and it is the last line of defence for a queue
+// the panel writes into.
+func TestTheDatabaseRefusesAMalformedRequest(t *testing.T) {
+	asks, _ := backupQueue(t)
+	ctx := context.Background()
+
+	for name, sql := range map[string]string{
+		"a check with no target": `INSERT INTO panel_backup_requests
+			(actor_kind, actor_label, kind, sets) VALUES ('user','t','dogrula','{}')`,
+		"a check that also names sets": `INSERT INTO panel_backup_requests
+			(actor_kind, actor_label, kind, sets, target_id)
+			VALUES ('user','t','dogrula','{panel}',1)`,
+		"a take with no sets": `INSERT INTO panel_backup_requests
+			(actor_kind, actor_label, kind, sets) VALUES ('user','t','al','{}')`,
+		"a take that also names a target": `INSERT INTO panel_backup_requests
+			(actor_kind, actor_label, kind, sets, target_id)
+			VALUES ('user','t','al','{panel}',1)`,
+		"work this build does not know": `INSERT INTO panel_backup_requests
+			(actor_kind, actor_label, kind, sets, target_id)
+			VALUES ('user','t','sil','{}',1)`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := asks.Exec(ctx, sql); err == nil {
+				t.Fatal("the database accepted a row no process could carry out")
+			}
+		})
+	}
+}

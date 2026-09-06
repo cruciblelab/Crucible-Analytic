@@ -164,3 +164,77 @@ func TestThePanelRefusesTheConfigurationAndTheDataTogether(t *testing.T) {
 			"to put ip_hash_key in the same file as the traffic", err)
 	}
 }
+
+// Checking a backup takes no developer password.
+//
+// The reasoning at the top of backuprequest.go applies exactly: it
+// reads a file and writes nothing but a verdict. Putting it behind the
+// password would make "is my backup any good" a question the customer
+// has to ask us, which is the opposite of what a backup is for.
+func TestCheckingABackupNeedsNoDeveloperPassword(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	req, err := store.VerifyBackup(ctx, backupOwner(), "", 42)
+	if err != nil {
+		t.Fatalf("a check was refused without a password: %v", err)
+	}
+	if req.Work != backup.WorkVerify {
+		t.Errorf("the row says work=%q", req.Work)
+	}
+	if req.TargetID == nil || *req.TargetID != 42 {
+		t.Errorf("the row names target %v, want 42", req.TargetID)
+	}
+	if len(req.Sets) != 0 {
+		t.Errorf("a check named sets: %v", req.Sets)
+	}
+}
+
+// It is still the manager's button, not everybody's. Reading a backup
+// is cheap and writing a verdict is small, but both occupy the one
+// in-flight slot the whole queue shares - and a viewer who could fill
+// it could stop the owner taking a backup.
+func TestAViewerCannotCheckABackup(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	viewer := Access{Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "izleyici"},
+		Role: RoleViewer, Member: true}
+
+	if _, err := store.VerifyBackup(ctx, viewer, "", 42); !errors.Is(err, ErrSettingNotWritable) {
+		t.Fatalf("got %v, want ErrSettingNotWritable", err)
+	}
+}
+
+// The queue holds one thing at a time, and a check is one of them: two
+// heavy reads of the same disk at once is the machine doing the
+// customer's least urgent work twice over.
+func TestACheckAndATakeCannotBeInFlightTogether(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	if _, err := store.RequestBackup(ctx, backupOwner(), devgate.Authorization{}, "",
+		[]string{backup.SetPanel}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.VerifyBackup(ctx, backupOwner(), "", 42); !errors.Is(err, ErrBackupInFlight) {
+		t.Fatalf("got %v, want ErrBackupInFlight", err)
+	}
+}
+
+// A check names a backup, and "no backup" is not one. Refused before
+// the row exists, so the in-flight slot is not spent on a request the
+// upgrader could only fail.
+func TestCheckingNothingIsRefused(t *testing.T) {
+	store, _, ctx := backupStore(t)
+
+	for _, id := range []int64{0, -1} {
+		if _, err := store.VerifyBackup(ctx, backupOwner(), "", id); err == nil {
+			t.Fatalf("a check naming backup %d was queued", id)
+		}
+	}
+	latest, err := backup.Latest(ctx, store.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest != nil {
+		t.Errorf("a refused check left a row in state %q", latest.State)
+	}
+}

@@ -13,9 +13,33 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 13.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Tek bir sütun ekleniyor; veri değişmiyor,
+**Şema sürümü: 14.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Birkaç sütun ekleniyor; veri değişmiyor,
 servis durmuyor.
+
+### Yedek doğrulama: dosya gerçekten o dosya mı
+
+Yedekler listesinde her satırın yanında **Doğrula** var. Basınca
+yükseltici dosyayı açıyor ve şunları ölçüyor:
+
+- Boyutu ve SHA-256'sı katalogdaki satırla aynı mı — dolu diskte kesilmiş
+  ya da altındaki depolamada bozulmuş bir dosya, bir yedeğin yedek olmayı
+  bırakmasının olağan yolu, ve bunu başka hiçbir şey fark etmezdi.
+- Manifestin saydığı her tablonun verisi dosyada var mı, ve **satır
+  sayıları tutuyor mu**. Sayılar dosyadan sayılıyor, manifestten
+  okunmuyor: kendi kendisiyle uyuşan bir dosya kanıt değildir.
+- Dosya, manifestinde yazmayan bir şey taşıyor mu — geri yüklemenin
+  sessizce atlayacağı şey.
+
+Sonuç iki yerde birden: bastığınız isteğin satırında (hemen), ve
+kataloğun kendisinde (kalıcı). Yani liste artık **hangi yedeklerin hiç
+açılmadığını** da söylüyor — ki hiç açılmamış bir yedek, bu fazın
+tamamının hakkında olduğu nesnedir.
+
+Sırlar yedeği için ölçülen daha az, ve kasten: bu makine o dosyayı
+açamaz. Baytların bozulmadığı ve iki parçanın yerinde olduğu
+doğrulanıyor; içeriğin açılıp açılmadığını `devpass -open` söyler, ve
+onu parolası olan kişi çalıştırır.
 
 ### Düzeltme: systemd kurulumunda yedek alma hiç çalışmıyordu
 

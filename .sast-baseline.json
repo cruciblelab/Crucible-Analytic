@@ -106,6 +106,14 @@
       "snippet": "f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)"
     },
     {
+      "fingerprint": "978ceb5f23afab8694a6fe2b",
+      "rule": "G304",
+      "file": "internal/backup/dump.go",
+      "severity": "MEDIUM",
+      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. Opened only to fsync it, so the rename that just happened is durable; nothing is read from it.",
+      "snippet": "d, err := os.Open(dir)"
+    },
+    {
       "fingerprint": "39bd87a4ea23103aabfacf3f",
       "rule": "G304",
       "file": "internal/backup/read.go",
@@ -146,12 +154,28 @@
       "snippet": "body, err := os.ReadFile(filepath.Join(dir, name))"
     },
     {
-      "fingerprint": "978ceb5f23afab8694a6fe2b",
-      "rule": "G304",
-      "file": "internal/backup/dump.go",
+      "fingerprint": "9b6a601f038105558e31f17a",
+      "rule": "G110",
+      "file": "internal/backup/verify.go",
       "severity": "MEDIUM",
-      "reason": "Every path in internal/backup is built from the upgrader's configured backup directory joined to a file name this package chose. Nothing from a request row reaches it: the queue deliberately has no path column, and the schema comment says why - a path a compromised panel could choose would be a path the upgrader would write a dump of every table to. The directory comes from upgrader.toml, which the panel cannot open. Opened only to fsync it, so the rename that just happened is durable; nothing is read from it.",
-      "snippet": "d, err := os.Open(dir)"
+      "reason": "Bounded by the file, not by a limit, and a limit here would be the bug. This counts the bytes of an archive entry into io.Discard - nothing is kept, so memory does not grow with the input and the only cost is time proportional to a file this machine wrote. Capping it would truncate exactly the deployments that most need this check: a customer with years of traffic has a backup of gigabytes, and a check that refused to read past a cap would report their largest and most valuable file as damaged. The input is not hostile either: the backup directory is 0700 and owned by the upgrader's own account, so a decompression bomb in there is a machine that has already been taken.",
+      "snippet": "n, err := io.Copy(io.Discard, tr)"
+    },
+    {
+      "fingerprint": "4484e757213e2c4338549944",
+      "rule": "G304",
+      "file": "internal/backup/verify.go",
+      "severity": "MEDIUM",
+      "reason": "The path comes out of panel_backups.path, which only schema_admin may read - the panel's role has no grant on that column at all, so nothing internet-facing can even learn it. The value was written by this same package when it created the file, from the directory named in upgrader.toml joined to a name this package chose; the queue deliberately has no path column, so no request row reaches it. See internal/backup/schema.sql on why that grant is the enforcement rather than a convention.",
+      "snippet": "f, err := os.Open(path)"
+    },
+    {
+      "fingerprint": "fe0ad0cfbcafbc161226ea27",
+      "rule": "G304",
+      "file": "internal/backup/verify.go",
+      "severity": "MEDIUM",
+      "reason": "The path comes out of panel_backups.path, which only schema_admin may read - the panel's role has no grant on that column at all, so nothing internet-facing can even learn it. The value was written by this same package when it created the file, from the directory named in upgrader.toml joined to a name this package chose; the queue deliberately has no path column, so no request row reaches it. See internal/backup/schema.sql on why that grant is the enforcement rather than a convention.",
+      "snippet": "f, err := os.Open(path)"
     },
     {
       "fingerprint": "e90a2cfcf1385ff0740f226d",

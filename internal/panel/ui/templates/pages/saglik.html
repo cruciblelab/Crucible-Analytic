@@ -525,6 +525,7 @@ that is the isolation working, not a gap. */}}
 <th scope="col">{{t "saglik.yedek.sutun.icerik"}}</th>
 <th scope="col">{{t "saglik.yedek.sutun.boyut"}}</th>
 <th scope="col">{{t "saglik.yedek.sutun.surum"}}</th>
+<th scope="col">{{t "saglik.yedek.sutun.dogrulama"}}</th>
 </tr>
 </thead>
 <tbody>
@@ -536,11 +537,30 @@ that is the isolation working, not a gap. */}}
   {{- if .Missing}}<span class="uyari">{{t "saglik.yedek.eksik"}}</span>
   {{- else}}{{$.F.Bytes .Bytes}}{{end}}</td>
 <td><code class="ipucu">{{.Version}}</code></td>
+<td>
+{{- /* Three states, from one method, so "checked" and "unchecked"
+cannot both be drawn for one row. Never-checked is deliberately not
+silent: an unopened backup is the object this whole section is about. */}}
+{{- if eq .Verdict "bozuk"}}<span class="uyari">{{t "saglik.yedek.dogrulama.bozuk"}}</span>
+{{- else if eq .Verdict "saglam"}}{{t "saglik.yedek.dogrulama.saglam"}}
+  <span class="ipucu">{{$.F.DateTime .Checked}}</span>
+{{- else}}<span class="ipucu">{{t "saglik.yedek.dogrulama.bakilmadi"}}</span>{{end}}
+{{- if $.Data.Backup.Allowed}}
+<form method="post" action="" class="satirici">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="yedek_dogrula">
+<input type="hidden" name="yedek" value="{{.ID}}">
+<button type="submit">{{t "saglik.yedek.dogrula"}}</button>
+</form>
+{{- end}}
+{{- if .Problems}}<pre class="uyari">{{.Problems}}</pre>{{end}}
+</td>
 </tr>
 {{- end}}
 </tbody>
 </table>
 <p class="ipucu">{{t "saglik.yedek.toplam"}}: {{$.F.Bytes .TotalBytes}}</p>
+<p class="ipucu">{{t "saglik.yedek.dogrulama_aciklama"}}</p>
 {{- /* Said where the list is, not in a note somebody scrolls past: a
 backup preserves what the retention policy has since deleted, and
 somebody reading a list of backups is exactly the person who needs to

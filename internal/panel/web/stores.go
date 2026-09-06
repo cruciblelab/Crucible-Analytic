@@ -95,6 +95,8 @@ type backupStore interface {
 	operationStore
 	RequestBackup(ctx context.Context, a panel.Access, auth devgate.Authorization,
 		operationID string, sets []string) (*backup.Request, error)
+	VerifyBackup(ctx context.Context, a panel.Access, operationID string,
+		backupID int64) (*backup.Request, error)
 }
 
 // diskStore is what the storage section may ask for.
