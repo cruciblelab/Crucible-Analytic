@@ -134,6 +134,40 @@ func TestARealBackupRestoresIntoARealDatabase(t *testing.T) {
 	ctx := context.Background()
 	target := sideDatabase(t, "ca_restore_test")
 
+	// Rows this test wrote, under a label no other suite uses.
+	//
+	// # Why not "the live table still holds at least what came back"
+	//
+	// Because that was the first version of this check and it was a
+	// race, which CI found twice after passing here three times:
+	//
+	//	panel_users: 1 rows restored from a table that holds 0.
+	//	The backup cannot contain more than was there
+	//
+	// The backup was correct. `go test ./...` runs packages in parallel
+	// against one database, and another suite deleted its fixture user
+	// between the dump and the count - so the live side shrank while the
+	// restored side, taken from a file, did not.
+	//
+	// roundtrip_integration_test.go had already met this exact failure
+	// and written down the answer; this file was the same mistake made
+	// again three weeks later. A count nothing else writes is the only
+	// count two goroutines cannot disagree about.
+	const marker = "geri-yukleme-isareti"
+	const seeded = 7
+	if _, err := answers.Exec(ctx, `
+		INSERT INTO panel_audit_log (actor_kind, actor_label, action, target)
+		SELECT 'system', $1, 'yedek_testi', 'satir-' || g
+		FROM generate_series(1, $2) AS g`, marker, seeded); err != nil {
+		t.Fatalf("seeding the rows this test counts: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := answers.Exec(context.Background(),
+			`DELETE FROM panel_audit_log WHERE actor_label = $1`, marker); err != nil {
+			t.Errorf("clearing the seeded rows: %v", err)
+		}
+	})
+
 	row := takeBackup(t, asks, answers, t.TempDir())
 
 	report, err := backup.RestoreInto(ctx, answers, target, row.Path,
@@ -148,15 +182,11 @@ func TestARealBackupRestoresIntoARealDatabase(t *testing.T) {
 		t.Fatal("nothing was restored, and it reported success")
 	}
 
-	// Row by row, against the database the backup came from. Comparing
-	// the report with itself would prove nothing: the manifest's counts
-	// and the restored counts both come out of the same file.
+	// What the report claims arrived, against what the target actually
+	// holds. Two different places - a struct the restore built and a
+	// database somebody else can count - so this one cannot race and
+	// cannot agree with itself.
 	for _, tbl := range report.Tables {
-		var live int64
-		if err := answers.QueryRow(ctx,
-			fmt.Sprintf(`SELECT count(*) FROM %q`, tbl.Table)).Scan(&live); err != nil {
-			t.Fatalf("counting %s in the live database: %v", tbl.Table, err)
-		}
 		var restored int64
 		if err := target.QueryRow(ctx,
 			fmt.Sprintf(`SELECT count(*) FROM %q`, tbl.Table)).Scan(&restored); err != nil {
@@ -166,10 +196,20 @@ func TestARealBackupRestoresIntoARealDatabase(t *testing.T) {
 			t.Errorf("%s: the report says %d rows arrived and the database holds %d",
 				tbl.Table, tbl.Rows, restored)
 		}
-		if restored > live {
-			t.Errorf("%s: %d rows restored from a table that holds %d. The backup cannot "+
-				"contain more than was there", tbl.Table, restored, live)
-		}
+	}
+
+	// And the seven rows this test wrote, which say the numbers above
+	// are of real rows rather than a consistent count of nothing.
+	var mine int64
+	if err := target.QueryRow(ctx,
+		`SELECT count(*) FROM panel_audit_log WHERE actor_label = $1`,
+		marker).Scan(&mine); err != nil {
+		t.Fatal(err)
+	}
+	if mine != seeded {
+		t.Errorf("%d rows were written before the backup and %d came out of it.\n"+
+			"A restore that agreed with its own manifest about zero rows would "+
+			"pass every check above", seeded, mine)
 	}
 
 	// And the marker, which is what makes a second restore possible.

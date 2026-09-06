@@ -12799,3 +12799,55 @@ bulunamadı.
 Üçü de kapatıldı; ikisi eksik kontrol, biri eksik tohumdu.
 
 *Bir alanı adıyla sınayan test, eklenen alanı hiç görmez.*
+
+---
+
+## CI kırmızısı — kendi yazdığım uyarıyı kendim çiğnedim
+
+F1h ve H1 commit'leri yerelde yeşil geçti ve CI'da kırmızı döndü. Kusur
+ikisinde de değildi: F1g'de yazdığım bir testte, ve F1g'nin kendi CI
+koşusunda **şansla** geçmişti.
+
+```
+--- FAIL: TestARealBackupRestoresIntoARealDatabase
+    panel_users: 1 rows restored from a table that holds 0.
+    The backup cannot contain more than was there
+```
+
+Yedek doğruydu. Test, geri yüklenen tabloyu **canlı** tablonun satır
+sayısıyla karşılaştırıyordu, ve `go test ./...` paketleri tek
+veritabanına karşı paralel koşuyor: başka bir paket kendi fikstür
+kullanıcısını dökümle sayım arasında sildi. Dosyadan gelen taraf
+küçülmedi, canlı taraf küçüldü.
+
+### Aynı dosyanın komşusu bunu zaten yazmıştı
+
+`roundtrip_integration_test.go`, üç hafta önce, aynı yarışı yaşayıp
+cevabını yazmış:
+
+> Because that is a race, and it lost one: `go test ./...` runs packages
+> in parallel against one database, and beacon_events went from 11676
+> rows before the dump to 11721 by the time the restore was counted.
+
+Ben o dosyayı F1g'yi yazarken okudum — `scratchDatabase` yardımcısını
+oradan aldım. Uyarıyı okuyup yanındaki hatayı yazdım.
+
+### Neden yerel kapı yakalamadı
+
+Yakalayamaz. Kapı da aynı komutu koşuyor, ama yarış zamanlamaya bağlı:
+yerelde üç kez yeşil, CI'da iki kez kırmızı. **Bir yarışın üç kez
+geçmesi, olmadığı anlamına gelmiyor** — ve bunu "yerelde yeşildi" diye
+raporlamak, ölçümün söylemediği bir şeyi söylemek olurdu.
+
+### Düzeltme
+
+Canlı tabloyla karşılaştırma kaldırıldı. Yerine iki karşılaştırma, ve
+ikisi de yarışamaz:
+
+- Raporun "geldi" dediği sayı ile hedef veritabanının tuttuğu sayı. İki
+  ayrı yer, ve ikisi de dosyadan gelmiyor.
+- Bu testin kendi yazdığı yedi satır, başka hiçbir paketin kullanmadığı
+  bir `actor_label` altında. Manifestiyle sıfır konusunda anlaşan bir
+  geri yükleme yukarıdaki kontrolü geçerdi; bunu geçemez.
+
+*Bir yarışın üç kez geçmesi, olmadığı anlamına gelmez.*
