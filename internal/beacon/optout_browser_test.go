@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -83,11 +84,6 @@ func TestTheVisitorSwitchInARealBrowser(t *testing.T) {
 	mux.HandleFunc("/iki", page)
 	mux.HandleFunc("/uc", page)
 	mux.HandleFunc("/dort", page)
-	// Served rather than left to 404, so the console-error assertion can
-	// stay strict. A browser asks for this on every navigation and a
-	// missing one is a fact about this fixture, not about the snippet -
-	// but an assertion that has to make an exception for one message is
-	// an assertion that will be taught to make a second.
 	// A page whose script runs with storage that throws.
 	//
 	// sandbox without allow-same-origin gives the frame an opaque
@@ -99,19 +95,50 @@ func TestTheVisitorSwitchInARealBrowser(t *testing.T) {
 		fmt.Fprint(w, `<!doctype html><html><body>`+
 			`<iframe sandbox="allow-scripts" src="/bir"></iframe></body></html>`)
 	})
+	// Served rather than left to 404, so the console-error assertion can
+	// stay strict. A browser asks for this on every navigation and a
+	// missing one is a fact about this fixture, not about the snippet -
+	// but an assertion that has to make an exception for one message is
+	// an assertion that will be taught to make a second.
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/x-icon")
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// Under a mutex, because a browser is not one caller.
+	//
+	// The first version appended to a bare slice from the handler and
+	// read it from the test, and `go test -race ./...` said so:
+	//
+	//	WARNING: DATA RACE
+	//	Read at ... by goroutine 388: ...optout_browser_test.go:109
+	//	Previous write at ... by goroutine 391: ...optout_browser_test.go:109
+	//
+	// Chromium fetches the page, the script and the favicon on separate
+	// connections, so net/http serves them on separate goroutines - and
+	// the POST can land while a GET is still being written. Every
+	// assertion in the test passed on the run that reported this; the
+	// transcript was right and the log that produced it was undefined
+	// behaviour.
+	//
+	// The read is guarded too, and that is the half worth naming.
+	// Deferred calls run last-registered-first, so the log below runs
+	// *before* server.Close() - the one call that waits for outstanding
+	// handlers. Ordering the defers the other way would have fixed the
+	// read and left the appends racing each other.
+	var mu sync.Mutex
 	var seen []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		seen = append(seen, r.Method+" "+r.URL.Path)
+		mu.Unlock()
 		mux.ServeHTTP(w, r)
 	}))
 	defer server.Close()
 	defer func() {
 		a, d, r := srv.Counters()
+		mu.Lock()
+		defer mu.Unlock()
 		t.Logf("requests: %v | accepted=%d dropped=%d rejected=%d", seen, a, d, r)
 	}()
 

@@ -13528,3 +13528,30 @@ tarafındaki kullanıyordu. Ölmüş bir koşudan kalan ya da boşta bir
 bağlantının hâlâ tutunduğu bir kazıma veritabanı, bir sonraki koşuyu
 **fikstüründe** düşürüyor — ait olduğu test hiçbir şey iddia etmeden.
 Depodaki dört drop'un üçü zorlusuz kalmıştı; hepsi zorlu yapıldı.
+
+**Ve bugünkü P1 testimde gerçek bir veri yarışı varmış.** Doğrulama
+koşularının ikisinde birden:
+
+```
+WARNING: DATA RACE
+Read at ... optout_browser_test.go:109
+Previous write at ... optout_browser_test.go:109
+```
+
+İstek kütüğünü çıplak bir dilimde biriktiriyordum. Chromium sayfayı,
+betiği ve favicon'u ayrı bağlantılardan çekiyor, yani net/http onları
+ayrı goroutine'lerde servis ediyor, ve POST bir GET hâlâ yazılırken
+düşebiliyor.
+
+O koşuda testin bütün iddiaları geçmişti: döküm doğruydu, `accepted=4`
+doğruydu. Yalnız o dökümü üreten kod tanımsız davranıştı.
+
+Okuma tarafı da kilitlendi, ve asıl anlatılmaya değer yarı bu:
+`defer`'ler ters sırayla koşuyor, yani kütüğü basan defer
+`server.Close()`'dan **önce** çalışıyor — ki Close, sürmekte olan
+işleyicileri bekleyen tek çağrı. Yalnız defer sırasını düzeltmek okumayı
+kurtarır ve eklemeleri birbiriyle yarışır hâlde bırakırdı.
+
+Beş koşu `-race` altında temiz.
+
+*Bütün iddiaları geçen bir test, tanımsız davranışla geçmiş olabilir.*
