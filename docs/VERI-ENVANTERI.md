@@ -441,10 +441,25 @@ unutulabilecek ikinci bir metin kopyası yoktur.
 kalkmaz, **kendisine ve elle** geçer; panel bunu kapatma anahtarının
 yanında açıkça yazar ve talep için bir iletişim adresi ister.
 
-**Devre dışı bırakma zaten mevcuttur.** Ziyaretçi kendi tarayıcısında
-`localStorage.setItem('crucible.disabled', '1')` ayarladığında beacon
-hiçbir veri göndermez. Bu özellik **bugün kodda vardır** ve
-çalışmaktadır; eksik olan, bunu ziyaretçiye sunan arayüzdür.
+**Devre dışı bırakma ziyaretçinin elinde.** `crucible.optOut()` çağrısı
+beacon'ı o tarayıcıda susturur, `crucible.optIn()` geri açar, ve
+`crucible.status()` hangi durumda olunduğunu söyler. Altta yatan bayrak
+`localStorage`'daki `crucible.disabled`; elle ayarlamak da hep çalıştığı
+gibi çalışıyor.
+
+Bunlar bizim çizdiğimiz bir bant değil, **çağrı**: sitede zaten bir çerez
+bandı ya da onay platformu var, ve yanına ikinci bir kutu koymak kimseye
+yaramaz. Müşteri kendi anahtarını bu üçüne bağlar.
+
+`optOut()` ve `optIn()` seçimin **saklanıp saklanamadığını** döndürüyor —
+kum havuzundaki bir çerçevede ya da site verisini engelleyen bir
+tarayıcıda `false`. O durumda seçim yine de o sayfanın ömrü boyunca
+uygulanıyor: ziyaretçi şimdi istedi.
+
+*(Bayrak okuma özelliği baştan beri vardı. Yaptığı şey, `window.crucible`
+tanımlanmadan bütün betikten çıkmaktı — yani devre dışı bırakmış bir
+ziyaretçinin çağırabileceği bir `optIn()` yoktu ve durumu soran bir onay
+bandı hata alıyordu. Girilebilen ve çıkılamayan bir özellik.)*
 
 ---
 

@@ -96,7 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | ⬜ **0/5** | hepsi — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **1/5** | P2–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -6072,7 +6072,7 @@ de yok.
 
 ---
 
-#### P1 — `optOut` / `optIn` / `status`
+#### P1 — `optOut` / `optIn` / `status` ✅ **yapıldı**
 
 **Ne:** `beacon.js`'in bugün açtığı `window.crucible(type, name)`
 fonksiyonunun yanına üç çağrı. Üçü de saf `localStorage`; hiçbiri istek
@@ -6095,6 +6095,31 @@ müşterilerin sayfalarında öyle duruyor. Üç çağrı ona **özellik olarak*
 eklenecek, yerine geçerek değil. Go'da fonksiyonlara alan eklenemez ama
 JavaScript'te eklenir, ve bunu bilerek yazmak ile fark etmeden bozmak
 arasındaki fark tek satır. *(Bitti ölçütünde ayrı madde.)*
+
+##### Yapılırken çıkan asıl iş: özelliğe girilebiliyor, çıkılamıyordu
+
+Bayrak okuma zaten vardı ve **erken dönüş**tü: `window.crucible`
+tanımlanmadan bütün betikten çıkıyordu. Yani devre dışı bırakmış bir
+ziyaretçinin çağırabileceği bir `optIn()` yoktu, ve durumu soran bir onay
+bandı **tam da cevabın önemli olduğu tarayıcılarda** `TypeError`
+alıyordu.
+
+Betik artık her koşulda yükleniyor ve fonksiyonunu tanımlıyor; seçimin
+belirlediği tek şey **gönderilip gönderilmediği**. Kapı `send`'in içinde,
+her çağıranda değil: dört koruma, beşinci çağıranın unutulacağı dört yer
+demek.
+
+**Üçüncü bir dönüş değeri gerekmedi, ikisi ayrıldı.** `status()`
+davranışı söylüyor — bu sayfa gönderecek mi — ve `optOut()`/`optIn()`
+kalıcılığı: kum havuzundaki bir çerçevede `false`. Tek bir değer ikisini
+birden taşımaya çalışsaydı birinde yanlış olurdu. Ve depolayamayan bir
+tarayıcıda seçim yine de o sayfanın ömrü boyunca uygulanıyor: ziyaretçi
+şimdi istedi.
+
+**`optIn()` bir şey göndermiyor.** Bir sonraki gezinme sayılıyor, bu
+değil: buradan bir pageview atmak, ziyaretçinin daha az önce bildirmeyi
+reddettiği ziyareti kaydetmek olurdu. Mevcut sayfayı saydırmak isteyen
+site için `crucible('pageview')` zaten var.
 
 **Bitti ölçütü:** gerçek Chromium'da (`internal/browsertest`) —
 `optOut()` çağrıldıktan sonraki gezinme **satır yazmıyor**; `optIn()`

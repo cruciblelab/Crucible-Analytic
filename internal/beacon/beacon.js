@@ -11,7 +11,19 @@
  * anything to configure.
  *
  * Opt out on a single browser with:
- *   localStorage.setItem('crucible.disabled', '1')
+ *   crucible.optOut()      // stops sending, remembers the choice
+ *   crucible.optIn()       // undoes it
+ *   crucible.status()      // 'out' or 'in'
+ *
+ * The underlying flag is localStorage's 'crucible.disabled', which is
+ * what it has always been - setting it by hand still works and still
+ * means the same thing. The three calls exist because that sentence was
+ * only ever written in this comment, in the README and in the data
+ * inventory, and a visitor to somebody's shop reads none of the three.
+ *
+ * They are calls rather than a banner of our own on purpose: the site
+ * already has a cookie banner or a consent platform, and a second box
+ * beside it helps nobody. The site wires its own switch to these.
  *
  * Deliberately written in conservative ES5 with no build step: it is
  * served verbatim from the Go binary (go:embed), so what ships is what
@@ -31,11 +43,43 @@
     script.getAttribute('data-host') ||
     script.src.replace(/[^/]*$/, '') + 'event';
 
-  /* localStorage throws outright in sandboxed iframes and in browsers
-   * with storage disabled, so never let it break the page. */
+  /* The opt-out state, and the reason this is a variable rather than an
+   * early return.
+   *
+   * It used to be one: the whole script stopped before defining
+   * window.crucible. That worked for the flag and cannot work for the
+   * calls - a visitor who had opted out would have no optIn() to call,
+   * and a consent banner asking status() would get a TypeError on
+   * exactly the browsers where the answer matters most. So the script
+   * always finishes loading, always defines its function, and what the
+   * choice decides is whether anything is *sent*.
+   *
+   * localStorage throws outright in sandboxed iframes and in browsers
+   * with storage disabled, so no read or write of it is unguarded. A
+   * browser that cannot store the choice still honours it for the life
+   * of the page; see optOut. */
+  var disabled = false;
   try {
-    if (localStorage.getItem('crucible.disabled')) return;
+    disabled = !!localStorage.getItem('crucible.disabled');
   } catch (e) {}
+
+  /* remember writes the choice, and says whether it stuck.
+   *
+   * The return value is the honest half of this pair: a banner that
+   * drew a switch needs to know the switch will still be there
+   * tomorrow, and in a sandboxed iframe it will not be. status() stays
+   * a statement about behaviour - what this page will do - and this
+   * stays a statement about durability. One value trying to carry both
+   * would be wrong about one of them. */
+  function remember(on) {
+    try {
+      if (on) localStorage.setItem('crucible.disabled', '1');
+      else localStorage.removeItem('crucible.disabled');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
   function currentURL() {
     return location.pathname + location.search;
@@ -71,6 +115,13 @@
   }
 
   function send(body) {
+    /* The one gate, and it is here rather than at each caller for the
+     * reason this project applies everywhere else: four guards are four
+     * places for the fifth caller to be forgotten. Every path that
+     * reaches the network - the load pageview, the history hooks, the
+     * popstate listener, crucible('event') - comes through here. */
+    if (disabled) return;
+
     var json = JSON.stringify(body);
 
     /* text/plain, not application/json, on purpose: application/json is
@@ -139,6 +190,47 @@
       lastURL = null;
       pageview();
     }
+  };
+
+  /* The three visitor-facing calls, added as properties of the function
+   * rather than replacing it.
+   *
+   * crucible is a *function* in every site that already embeds this, and
+   * crucible('event', 'signup') sits in their pages today. JavaScript
+   * lets a function carry properties; using that is the difference
+   * between adding three calls and breaking every existing embed, and it
+   * is one line either way. */
+
+  /* status() is what this page will do, not what is stored.
+   *
+   * A banner asks it to draw its switch in the right position, so the
+   * answer has to be about behaviour: in a browser that cannot store
+   * anything, a visitor who pressed the switch is opted out for this
+   * page and status() says so. */
+  window.crucible.status = function () {
+    return disabled ? 'out' : 'in';
+  };
+
+  /* optOut() takes effect immediately and returns whether the choice
+   * was persisted.
+   *
+   * Immediately, because the visitor asked now: a browser that cannot
+   * remember the decision must still stop sending for the rest of this
+   * page rather than doing nothing at all. */
+  window.crucible.optOut = function () {
+    disabled = true;
+    return remember(true);
+  };
+
+  /* optIn() undoes it, and does not send anything by itself.
+   *
+   * The next navigation is counted; this one is not. Firing a pageview
+   * from here would record a visit the visitor had already declined to
+   * report, and a site that does want the current page counted has
+   * crucible('pageview') for exactly that. */
+  window.crucible.optIn = function () {
+    disabled = false;
+    return remember(false);
   };
 
   if (document.readyState === 'loading') {

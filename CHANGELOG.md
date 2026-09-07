@@ -76,6 +76,30 @@ Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
 sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
 yükleme o tabloda adını söyleyerek durur.
 
+### Ziyaretçi ölçümü kendi tarayıcısında kapatabiliyor
+
+`beacon.js` üç çağrı açıyor:
+
+```js
+crucible.optOut()   // durdurur ve hatırlar
+crucible.optIn()    // geri açar
+crucible.status()   // 'out' ya da 'in'
+```
+
+Bunlar bizim çizdiğimiz bir bant değil. Sitenizde zaten bir çerez bandı
+ya da onay platformu varsa, onun anahtarını bu üçüne bağlarsınız;
+yoksa hiçbir şey görünmez. `optOut()` ve `optIn()` seçimin
+saklanabildiğini döndürüyor, ki bandınız anahtarı doğru konumda
+çizebilsin.
+
+Kapatma özelliği aslında baştan beri vardı — `localStorage`'daki
+`crucible.disabled` bayrağı — ama yalnız belgelerde yazılıydı, ve bir
+sitenin ziyaretçisi belgeleri okumuyor. Elle ayarlamak eskisi gibi
+çalışmaya devam ediyor.
+
+**Kuran kişinin yapması gereken:** bir şey yok. Sitesinde onay bandı olan
+müşterileriniz varsa bu üç çağrıyı onlara söyleyebilirsiniz.
+
 ### Toplanmayan veri artık sıfır olarak gösterilmiyor
 
 Kurulumunuz **Hafif** profilde çalışıyorsa ülke ve ASN bilgisi hiç

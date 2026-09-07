@@ -12995,3 +12995,104 @@ kendi testini aldı, ve o test profil listesinden türüyor, yani dördüncü
 bir profil eklendiği gün kimse dosyayı açmadan kapsanıyor.
 
 *Bilinmeyen bir şey, yok sayılmaz.*
+
+---
+
+## P1 — Ziyaretçinin anahtarı: girilebilen ve çıkılamayan bir özellik
+
+Devre dışı bırakma zaten yazılıydı. `beacon.js` her yüklenişte
+`localStorage`'daki `crucible.disabled` bayrağına bakıyordu, ve
+bakıyorsa hiçbir şey göndermiyordu.
+
+Nerede yazılı olduğu: aynı dosyanın yorumunda, README'de, ve veri
+envanterinde. **Bir sitenin ziyaretçisi bu üçünden hiçbirini okumuyor.**
+
+### Asıl kusur, bulunabilirlik değildi
+
+Bayrak kontrolü bir **erken dönüş**tü:
+
+```js
+try {
+  if (localStorage.getItem('crucible.disabled')) return;
+} catch (e) {}
+```
+
+O `return` bütün IIFE'den çıkıyor, yani `window.crucible` **hiç
+tanımlanmıyor**. Sonuçları:
+
+- Devre dışı bırakmış bir ziyaretçinin çağırabileceği bir `optIn()` yok.
+  Özelliğe girilebiliyor, çıkılamıyordu.
+- Durumu soran bir onay bandı `TypeError` alıyor — ve tam da cevabın
+  önemli olduğu tarayıcılarda.
+
+Yani P1 "üç çağrı ekle" değilmiş; betiğin yapısını çevirmekmiş. Betik
+artık her koşulda yükleniyor ve fonksiyonunu tanımlıyor. Seçimin
+belirlediği tek şey gönderim.
+
+### Kapı tek yerde
+
+`send`'in içinde. Yükleme pageview'ı, iki history kancası, `popstate`
+dinleyicisi ve `crucible('event')` — hepsi oradan geçiyor. Dört ayrı
+koruma, beşinci çağıranın unutulacağı dört yer demek.
+
+### İki soru, iki dönüş değeri
+
+`status()` **davranışı** söylüyor: bu sayfa gönderecek mi. `optOut()` ve
+`optIn()` **kalıcılığı** söylüyor: seçim saklanabildi mi.
+
+Ayrı olmaları gerekiyor. Depolamanın fırlattığı bir çerçevede ziyaretçi
+anahtarı çevirdiğinde seçim o sayfanın ömrü boyunca uygulanıyor — çünkü
+ziyaretçi şimdi istedi — ama yarın hatırlanmayacak. Tek bir değer ikisini
+birden taşısaydı birinde yanlış olurdu, ve bandın çizdiği anahtar
+yarınki hâli hakkında sessiz kalırdı.
+
+### `optIn()` bir şey göndermiyor
+
+Bir sonraki gezinme sayılıyor, bu değil. Buradan bir pageview atmak,
+ziyaretçinin az önce bildirmeyi reddettiği ziyareti kaydetmek olurdu.
+Mevcut sayfayı saydırmak isteyen site için `crucible('pageview')` zaten
+var.
+
+### Ölçüm: gerçek tarayıcı, gerçek sunucu, gerçek tablo
+
+İstek günlüğü iddianın kendisi:
+
+```
+GET /bir  GET /_ca/ca.js  POST /_ca/event      ← gönderdi
+GET /iki                                        ← devre dışı: hiç POST yok
+GET /uc                  POST /_ca/event        ← geri açıldı
+                         POST /_ca/event        ← özel olay
+```
+
+Ve dört satır tabloya düştü; `/iki` **adıyla** soruldu ve yok. Yalnız
+sayı sorulsaydı, devre dışıyken yazılan bir satır ile başka bir satırın
+kaybolması aynı toplamı verirdi — aynı sayı, karşıt anlam.
+
+Kum havuzundaki çerçeve de ölçüldü: `sandbox="allow-scripts"`, opak
+köken, her `localStorage` erişimi fırlatıyor. Betik tanımlanıyor,
+`status()` "in" diyor (okunamayan bir depoyu "devre dışı" saymak, site
+verisini engelleyen her ziyaretçi için sessizce toplamayı durdururdu),
+`optOut()` `false` döndürüyor ve seçim yine de uygulanıyor.
+
+### Yol boyunca kendi testimde bir kusur
+
+`optIn()`'in anahtarı **sildiğini** iddia ediyordum ve kontrolüm
+`getItem(...) || ''` idi — anahtar yokken de, anahtar boş katarken de
+`''`. Anahtarı silmek yerine boş katara ayarlayan bir mutasyon düz
+geçti.
+
+Fark önemli: bizim betiğimiz değeri doğruluk için okuyor ve ikisinde de
+memnun, ama belgelenmiş elle devre dışı bırakma anahtarın **varlığı** —
+ve varlığa bakan her şey, sitenin kendi kodu dâhil, hâlâ birini devre
+dışı görürdü. Kontrol artık `String(getItem(...))` okuyor: yoksa
+`"null"`.
+
+### Mutasyonlar
+
+8 mutasyon, biri hayatta kaldı (yukarıdaki) ve kapatıldı. Diğerleri:
+gönderim kapısı kalksın, `status` hep "in" desin, `optOut` bu sayfada
+etkisiz olsun, kayıtlı seçim okunmasın, depolama patlayınca "kaydedildi"
+densin, `crucible` fonksiyon olmaktan çıksın, depolama okuması korumasız
+olsun — yedisi de yakalandı.
+
+*Bir ayarın var olması, ziyaretçinin ona ulaşabildiği anlamına gelmez.*

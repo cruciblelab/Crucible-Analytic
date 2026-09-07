@@ -681,8 +681,26 @@ a browser's view-source is worth more than the ~1 KB.
 It sends an automatic pageview on load, follows SPA navigation by hooking
 `history.pushState`/`replaceState` and `popstate`, and exposes
 `crucible('event', 'name')` for custom events. Same-origin referrers are
-dropped in the browser, before they are ever sent. Opt out on one browser
-with `localStorage.setItem('crucible.disabled', '1')`.
+dropped in the browser, before they are ever sent.
+
+A visitor can switch collection off for their own browser:
+
+```js
+crucible.optOut()   // stops sending, remembers the choice
+crucible.optIn()    // undoes it
+crucible.status()   // 'out' or 'in'
+```
+
+These are calls rather than a banner of ours, because the site already
+has a consent banner or platform and a second box beside it helps nobody:
+wire the existing switch to these three. `optOut()` and `optIn()` return
+whether the choice could be stored, which is `false` in a sandboxed frame
+or a browser blocking site data — and in that case the choice is still
+honoured for the life of the page.
+
+The underlying flag is `localStorage`'s `crucible.disabled`, so
+`localStorage.setItem('crucible.disabled', '1')` still works and still
+means the same thing.
 
 ## Design notes
 
