@@ -1095,6 +1095,11 @@ running = "Running"
 succeeded = "Taken"
 failed = "Failed"
 
+[metin.saglik.yedek.saklama]
+bilinmiyor = "Nobody has said yet how long backups are kept. The upgrader writes this; if it has not run once since this version was installed, the line looks like this."
+sinirsiz = "Backups are kept indefinitely - there is no age limit. Worth knowing: a backup still holds rows the retention period has since deleted, so the retention period does not apply inside the backup directory. To set a limit, use keep_days in upgrader.toml's [backup] section."
+gun = "Backups are kept for %d days. Older ones are deleted by the upgrader; the newest data backup and every secrets backup are never deleted."
+
 [metin.saglik.disk]
 baslik = "Disk"
 aciklama = "The table sizes above say what is stored; these numbers say whether the next write finds room. A full disk stops the collector, and the collector is in front of the site."

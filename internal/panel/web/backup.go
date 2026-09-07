@@ -97,6 +97,22 @@ type backupSection struct {
 	// TotalBytes is what they occupy together.
 	TotalBytes int64
 
+	// KeepNote is the sentence about the age limit, always present.
+	//
+	// Always, and that is the requirement rather than a nicety. A backup
+	// holds rows the retention policy has since deleted, so a backup
+	// directory is the one place that number quietly does not apply -
+	// and a customer reading a retention promise on one page and an
+	// unbounded pile of backups on another has been told two things
+	// that cannot both be true.
+	//
+	// Three sentences, because there are three states and only one of
+	// them is about a number. A limit is in force; no limit is in force;
+	// or nobody has said, which happens between installing this version
+	// and the first upgrader pass and is a fact about the upgrader
+	// rather than about backups.
+	KeepNote string
+
 	// AskingForPassword is whether the form shows the developer
 	// password field, which is what the configuration set needs.
 	//
@@ -171,7 +187,25 @@ func (s *Server) backupStatusFor(ctx context.Context, db backupReader, lang *ui.
 			section.TotalBytes += b.Bytes
 		}
 	}
+	section.KeepNote = keepNote(lang, status.Policy)
 	return section, ""
+}
+
+// keepNote turns the recorded policy into the sentence the page shows.
+//
+// Its own function so the three states are visible together. Written as
+// a switch on the policy rather than as a template condition, because a
+// template that decided this would put the reasoning in the one place
+// nothing can test it.
+func keepNote(lang *ui.Language, p backup.Policy) string {
+	switch {
+	case !p.Known():
+		return lang.T("saglik.yedek.saklama.bilinmiyor")
+	case p.KeepsForever():
+		return lang.T("saglik.yedek.saklama.sinirsiz")
+	default:
+		return lang.Tf("saglik.yedek.saklama.gun", p.KeepDays)
+	}
 }
 
 // backupPost queues one.

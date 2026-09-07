@@ -384,3 +384,74 @@ GRANT SELECT (id, taken_at, sets, bytes, sha256, binary_version, schema_version,
               device, verified_at, verify_problems)
     ON panel_backups TO panel_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON panel_backups TO schema_admin;
+
+-- ---------------------------------------------------------------------
+-- panel_backup_policy: what the age limit is, right now.
+--
+-- # Why a table for one integer
+--
+-- Because the page has to say it and the panel cannot read the file it
+-- is in. `[backup] keep_days` lives in upgrader.toml, which carries the
+-- only DSN in this deployment that can run DDL - so the panel's account
+-- cannot read that file, must not be able to, and there is no version of
+-- this feature where it does.
+--
+-- The same shape F1c hit with the device number: the component that can
+-- see a thing records what it saw, and the page reads the record.
+--
+-- # The two channels that were measured and rejected
+--
+-- The service heartbeat carries a JSONB counters column and would have
+-- needed no schema change at all. It was rejected on a measurement: the
+-- health page draws one card per heartbeat row, and the upgrader runs
+-- under a systemd timer - it does its pass and exits. A row from it
+-- would go stale between firings and put a red card on a deployment
+-- where nothing is wrong. A channel that carries a liveness claim the
+-- writer cannot honour is the wrong channel.
+--
+-- A column on panel_backups would say "the limit when this backup was
+-- taken", which is a different sentence from the one the page needs, and
+-- it would say nothing at all on a deployment with no backups yet -
+-- which is exactly where "these are kept forever" most needs saying.
+--
+-- # Why the panel cannot write it
+--
+-- The limit is the operator's decision, in a file only root edits. A
+-- panel that could write this row could tell the customer a limit that
+-- is not in force, which is worse than telling them nothing.
+CREATE TABLE IF NOT EXISTS panel_backup_policy (
+    -- One row, the same way schema_version does it.
+    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+
+    -- Days, and zero means backups are kept indefinitely.
+    --
+    -- Zero rather than NULL: "no limit" is a state the operator chose,
+    -- not a value nobody supplied, and a NULL would have to be read as
+    -- one or the other by every reader separately.
+    keep_days INTEGER NOT NULL DEFAULT 0 CHECK (keep_days >= 0),
+
+    -- When an upgrader last said so.
+    --
+    -- Here because the row is only as true as the last pass that wrote
+    -- it: an upgrader that has been stopped for a month leaves a limit
+    -- nothing is enforcing, and a page that showed it without a date
+    -- would be quoting a promise nobody is keeping.
+    noted_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE panel_backup_policy ENABLE ROW LEVEL SECURITY;
+ALTER TABLE panel_backup_policy FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS backup_policy_read ON panel_backup_policy;
+CREATE POLICY backup_policy_read ON panel_backup_policy
+    FOR SELECT TO panel_user, schema_admin
+    USING (true);
+
+DROP POLICY IF EXISTS backup_policy_note ON panel_backup_policy;
+CREATE POLICY backup_policy_note ON panel_backup_policy
+    FOR ALL TO schema_admin
+    USING (true)
+    WITH CHECK (true);
+
+GRANT SELECT ON panel_backup_policy TO panel_user;
+GRANT SELECT, INSERT, UPDATE ON panel_backup_policy TO schema_admin;

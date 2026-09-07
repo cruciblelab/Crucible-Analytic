@@ -151,6 +151,12 @@ var Excluded = map[string]string{
 	"schema_version":    "recorded by the applier; a restored row would claim a state",
 	"panel_logs":        "the log sink; large, and about the machine rather than the customer",
 	"panel_backups":     "the catalogue of backups on the old machine's disk",
+	// What a config file on the old machine said, recorded so the page
+	// could quote it. The upgrader rewrites it from upgrader.toml on
+	// every pass, so a restored row would be replaced within one tick -
+	// and until it was, it would show the customer a limit from a
+	// machine that no longer exists.
+	"panel_backup_policy": "what the old machine's upgrader.toml said; rewritten every pass",
 }
 
 // SetByName finds a set, or says the name is not one.

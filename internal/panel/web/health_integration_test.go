@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
@@ -791,5 +792,64 @@ func TestAWedgedDatabaseDoesNotHoldTheWholeHealthPage(t *testing.T) {
 	}
 	if !strings.Contains(body, "traffic_snapshots") {
 		t.Error("the storage section is missing")
+	}
+}
+
+// TestTheHealthPageSaysHowLongBackupsAreKept.
+//
+// # Why this is asserted on the rendered page
+//
+// Because the requirement is about a sentence a customer reads, and
+// every layer under it can be right while the page says nothing: the
+// upgrader can record the limit, the store can read it, the section can
+// carry it, and a template that never prints the field is the whole
+// feature missing with every test green.
+//
+// # And why the deployment here has no backups
+//
+// That is the case the note exists for. A deployment with no backups yet
+// is exactly where "these are kept forever" most needs saying, and the
+// first version of this put the note inside the branch that only runs
+// when a list exists - so it appeared for everybody who already knew.
+func TestTheHealthPageSaysHowLongBackupsAreKept(t *testing.T) {
+	srv, client, store := healthServer(t)
+
+	admin := testdb.Pool(t, testdb.SchemaAdmin)
+	before, err := backup.ReadPolicy(context.Background(), admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := backup.NotePolicy(context.Background(), admin, before.KeepDays); err != nil {
+			t.Errorf("restoring the policy: %v", err)
+		}
+	})
+	_ = store
+
+	for _, tc := range []struct {
+		name string
+		days int
+		want string
+	}{
+		{"a limit is in force", 90, "90"},
+		{"no limit is in force", 0, "süresiz"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := backup.NotePolicy(context.Background(), admin, tc.days); err != nil {
+				t.Fatal(err)
+			}
+			status, body := get(t, client, srv.URL+HealthPath)
+			if status != http.StatusOK {
+				t.Fatalf("the health page answered %d", status)
+			}
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("the backups section does not say how long backups are kept "+
+					"(looking for %q with keep_days = %d).\n"+
+					"A backup holds rows the retention policy has since deleted, so a "+
+					"customer reading a retention promise on one page and an unbounded "+
+					"pile of backups on another has been told two things that cannot "+
+					"both be true", tc.want, tc.days)
+			}
+		})
 	}
 }

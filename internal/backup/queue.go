@@ -554,6 +554,68 @@ func Forget(ctx context.Context, pool *pgxpool.Pool, id int64) error {
 	return nil
 }
 
+// NotePolicy records the age limit in force, so the panel can say it.
+//
+// Written by the upgrader on every pass rather than once at startup: the
+// row is only as true as the last process that wrote it, and an operator
+// who edits upgrader.toml and restarts the timer should see the page
+// change without anybody clearing a cache.
+//
+// The panel cannot write this. See panel_backup_policy in schema.sql for
+// why that is the point rather than an omission.
+func NotePolicy(ctx context.Context, pool *pgxpool.Pool, keepDays int) error {
+	if keepDays < 0 {
+		keepDays = 0
+	}
+	_, err := pool.Exec(ctx, `
+		INSERT INTO panel_backup_policy (id, keep_days, noted_at)
+		VALUES (1, $1, now())
+		ON CONFLICT (id) DO UPDATE SET keep_days = $1, noted_at = now()`, keepDays)
+	if err != nil {
+		return fmt.Errorf("backup: recording the age limit: %w", err)
+	}
+	return nil
+}
+
+// Policy is what the panel reads back.
+type Policy struct {
+	// KeepDays is zero when backups are kept indefinitely.
+	KeepDays int
+	// NotedAt is when an upgrader last said so, and the zero time when
+	// none ever has - which is a deployment whose upgrader has not run
+	// since this version was installed, not one with no limit.
+	NotedAt time.Time
+}
+
+// KeepsForever reports whether no age limit is in force.
+func (p Policy) KeepsForever() bool { return p.KeepDays <= 0 }
+
+// Known reports whether an upgrader has ever written the row.
+//
+// Separate from KeepsForever because the two are different sentences and
+// only one of them is about backups: an unwritten row means nobody has
+// told the panel anything, and a page that read it as "kept forever"
+// would be making a promise on behalf of a process that has not run.
+func (p Policy) Known() bool { return !p.NotedAt.IsZero() }
+
+// ReadPolicy returns the age limit the panel may show.
+//
+// A missing row is not an error: it is every deployment between
+// installing this version and the first upgrader pass.
+func ReadPolicy(ctx context.Context, pool *pgxpool.Pool) (Policy, error) {
+	var p Policy
+	err := pool.QueryRow(ctx,
+		`SELECT keep_days, noted_at FROM panel_backup_policy WHERE id = 1`).
+		Scan(&p.KeepDays, &p.NotedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Policy{}, nil
+	}
+	if err != nil {
+		return Policy{}, fmt.Errorf("backup: reading the age limit: %w", err)
+	}
+	return p, nil
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr interface{ SQLState() string }
 	if errors.As(err, &pgErr) {

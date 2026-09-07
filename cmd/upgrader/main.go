@@ -370,6 +370,20 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 		logger.Warn("upgrader: backups the catalogue named are no longer there",
 			"count", marked)
 	}
+	// The age limit is recorded first, whether or not one is set.
+	//
+	// Written on every pass rather than at startup: the row is only as
+	// true as the last process that wrote it, and it is what the panel's
+	// backups section quotes to the customer. An operator who edits
+	// upgrader.toml should see the page change without clearing
+	// anything.
+	//
+	// Before the sweep rather than after, so a deployment whose sweep
+	// fails still tells the page what the limit is. The two are separate
+	// claims and the page is allowed to know one without the other.
+	if err := backup.NotePolicy(ctx, backups.Pool, backups.KeepDays); err != nil {
+		logger.Warn("upgrader: could not record the backup age limit", "err", err)
+	}
 	// Then the age limit, if this deployment set one.
 	//
 	// After Sweep rather than before: a file an operator removed by hand

@@ -13731,3 +13731,111 @@ Bir hatayı artık doğru olmayan bir gerekçeyle açıklayan mesaj, okuyanı
 olmayan bir arızayı aramaya gönderir.
 
 *Ölçtüğü şeyi aç bırakan bir yük üreteci, kendi yükünü ölçüyordur.*
+
+---
+
+## F1j — Sayfanın sınırı yazması, ve bir ölçümün elediği kanal
+
+F1i'nin ikinci cümlesi: *sayfa bunu açıkça yazacak.* Kanal kararı bana
+bırakıldı.
+
+### Sorun
+
+`[backup] keep_days` `upgrader.toml`'da, ve panel o dosyayı okuyamaz —
+okuyabilir hâle de gelmemeli: o dosya bu kurulumdaki DDL koşabilen tek
+DSN'i taşıyor. F1c'de birebir aynı sorun vardı (panel yedeklerin hangi
+diskte olduğunu bilemiyordu) ve cevabı "gören bileşen gördüğünü kaydeder"
+olmuştu.
+
+### Kalp atışını bir ölçüm eledi
+
+En ucuz görünen yol buydu: `service_heartbeat`'in JSONB sayaç sütunu
+zaten "servis ne sayıyorsa" için var, yani şema hiç değişmezdi. Ve D5'te
+profil tam olarak bu kanaldan gelmişti.
+
+Sağlık sayfasının kodunu okudum:
+
+```go
+out := make([]healthService, 0, len(beats))
+```
+
+**Her kalp atışı satırı bir kart çiziyor.** Yükseltici systemd altında bir
+zamanlayıcıyla koşuyor: geçişini yapıyor ve çıkıyor. Yazacağı satır
+atışlar arasında bayatlar, ve hiçbir şeyin yanlış olmadığı bir kurulumda
+sağlık sayfasına kırmızı bir kart koyardı.
+
+*Yazarının yerine getiremeyeceği bir canlılık iddiası taşıyan kanal,
+yanlış kanaldır.*
+
+### Katalog sütunu da elendi
+
+`panel_backups`'a bir sütun "alındığı andaki sınır"ı taşırdı — sayfanın
+ihtiyaç duyduğundan başka bir cümle, çünkü sınır kurulumun özelliği,
+yedeğin değil. Ve hiç yedeği olmayan bir kurulumda hiçbir şey diyemezdi:
+oysa "süresiz saklanıyor" en çok orada söylenmeli.
+
+### Kalan: tek satırlık tablo
+
+`panel_backup_policy`, `schema_version`'ın deseniyle (`id = 1`, CHECK ile).
+Yükseltici her geçişte yazıyor, panel okuyor, **panel yazamıyor** — ve o
+sonuncusu bu tablonun varlık sebebi: sınır operatörün kararı, yalnız
+root'un düzenlediği bir dosyada, ve yürürlükte olmayan bir sınırı müşteriye
+söyleyebilen bir panel hiçbir şey söylemeyenden kötüdür.
+
+Şema 15 → 16.
+
+### Üç cümle, üç durum
+
+Sınır kaç gün; süresiz saklandıkları (yanında saklama süresinin yedek
+dizininde geçerli olmadığı); ya da **henüz bildirilmediği.** Üçüncüsü bir
+yükseltici hakkında, yedekler hakkında değil: bu sürüme geçilmiş ama
+yükseltici bir kez bile koşmamışsa öyle görünür, ve kendiliğinden düzelir.
+`Known()` ile `KeepsForever()` ayrı iki metot, çünkü ayrı iki cümle.
+
+### Parmak izi kımıldamadı, ve ayna testi yakaladı
+
+Tabloyu ekledim, `panel -schema-version` hâlâ eski parmak izini yazdı.
+Sebep: parmak izi hesaplanmıyor, `schemaver.go`'da bir sabit — ve yanında
+onu diskteki dosyalarla karşılaştıran bir ayna testi duruyor. Kırmızı
+verdi ve ne yapılacağını satır satır yazdı:
+
+```
+const Version     = 16   ->  17
+const Fingerprint = ...  ->  "b92a2fdb..."
+```
+
+Sürümü zaten 16'ya çekmiştim, yani doğru son hâl 16 + yeni parmak izi.
+Elle tutulan iki sabit, ve ikisinin birlikte hareket etmesini zorlayan bir
+test: tam olarak L1'in bunun için yazdığı şey.
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Şablondaki satır silinsin | Yakalandı |
+| Sınırsız da "0 gün" diye yazılsın | Yakalandı |
+| Not yalnız yedek varken gösterilsin | Yakalandı |
+| Panel satırı yazabilsin (politika kaldırılsın) | Yakalandı — ve hangi hatanın geldiği kontrol ediliyor, "err != nil" değil |
+
+Üçüncüsü, testin **hiç yedeği olmayan** bir kurulum kullanması sayesinde
+yakalandı. Notu listenin içine koymak, onu yalnız zaten bilenlere
+göstermek olurdu.
+
+### Kapı iki şey daha yakaladı
+
+**Yeni tablo hiçbir yedek kümesine konmamıştı.**
+`TestEveryTableIsInASetOrExplicitlyExcluded`: *"A table nobody placed is
+one that quietly is not in the file: the backup is taken, it reports
+success, and the rows are gone."* `panel_backup_policy` bilerek dışlandı,
+gerekçesiyle — eski makinenin `upgrader.toml`'unun ne dediğini taşıyor,
+ve yükseltici onu her geçişte yeniden yazıyor; geri yüklenmiş bir satır
+bir tık içinde değişirdi, o tıka kadar da müşteriye artık var olmayan bir
+makinenin sınırını gösterirdi.
+
+**Ve tablonun sahibi yanlıştı** — ama yalnız benim makinemde.
+`must be owner of table panel_backup_policy`. Sebebi kısayolum: şemayı
+`postgres` olarak uygulayıp `release/sql/grants.sql`'i atlamıştım, oysa o
+dosya her tablonun sahipliğini `schema_admin`'e devrediyor. Gerçek
+kurulumda install.sh ikisini birlikte koşuyor, yükseltme yolunda da tabloyu
+zaten `schema_admin` yaratıyor. Yani kusur üründe değil, benim yarım
+uyguladığım şemadaydı — ve onu da beş entegrasyon testi aynı anda söyledi.

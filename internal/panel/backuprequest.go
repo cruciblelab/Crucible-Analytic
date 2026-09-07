@@ -81,6 +81,18 @@ type BackupStatus struct {
 	// see internal/backup/schema.sql. The page shows sizes and dates,
 	// which is what somebody deciding whether to take another one needs.
 	Backups []backup.Backup
+
+	// Policy is the age limit the upgrader last recorded.
+	//
+	// Read here rather than from a config file, because the panel cannot
+	// read the file it is in and must not be able to: upgrader.toml
+	// carries the only DSN that can run DDL. See panel_backup_policy.
+	//
+	// Its zero value is a deployment whose upgrader has not run since
+	// this version was installed, which the page has to say differently
+	// from "there is no limit" - one is a fact about backups and the
+	// other is a fact about the upgrader.
+	Policy backup.Policy
 }
 
 // BackupStatus reads it.
@@ -98,6 +110,18 @@ func (s *Store) BackupStatus(ctx context.Context, a Access) (BackupStatus, error
 		return out, fmt.Errorf("panel: backup status: %w", err)
 	}
 	out.Backups = list
+
+	// The age limit, and its failure is not this call's failure.
+	//
+	// A page that refused to list the backups because it could not read
+	// one integer would lose the more important half over the less
+	// important one. The zero Policy says "not known", which is what the
+	// page shows.
+	policy, err := backup.ReadPolicy(ctx, s.pool)
+	if err != nil {
+		return out, fmt.Errorf("panel: backup status: %w", err)
+	}
+	out.Policy = policy
 	return out, nil
 }
 

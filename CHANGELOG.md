@@ -13,8 +13,10 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 15** (değişmedi). **Kuran kişinin yapması gereken:** bir
-şey yok — aşağıdaki ayar yazılmazsa hiçbir davranış değişmiyor.
+**Şema sürümü: 16.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Tek bir küçük tablo ekleniyor; veri
+değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayar
+yazılmazsa başka hiçbir davranış değişmiyor.
 
 ### Yedeklerin artık kendi yaş sınırı olabiliyor
 
@@ -35,9 +37,19 @@ sınırdan eski olsa bile: tek yedeği dört yüz gün önce alınmış bir kuru
 ile "yedek yok" aynı şey değil. **Sırlar yedekleri de süpürülmüyor** —
 içlerinde ziyaretçi verisi yok, ve bir makineyi geri getiren dosya odur.
 
+**Ve sayfa bunu yazıyor.** Yedekler bölümünde, liste olsun olmasın, üç
+cümleden biri duruyor: sınır kaç gün, ya da süresiz saklandıkları — ki o
+durumda yanına saklama süresinin yedek dizininde geçerli olmadığı da
+yazılıyor — ya da henüz bildirilmediği. Sonuncusu bu sürüme geçildikten
+sonra yükseltici bir kez bile çalışmamış kurulumlarda görünür ve
+kendiliğinden düzelir.
+
+Sınırı panel yazamaz, ve bu kasıtlı: karar `upgrader.toml`'da, yalnız
+root'un düzenlediği bir dosyada. Paneli ele geçiren biri müşteriye
+yürürlükte olmayan bir sınır söyleyemez.
+
 **Kuran kişinin yapması gereken (isteğe bağlı):** `upgrader.toml`'a
 `keep_days` yazmak. Tavan 730 gün, saklama politikasınınkiyle aynı.
-Panelin bu sınırı ekranda yazması ayrı bir iş olarak duruyor.
 
 ---
 

@@ -523,6 +523,12 @@ say than one that failed. */}}
 {{- end}}
 {{- end}}
 
+{{- /* The age limit, said whether or not there are backups yet.
+Outside the branch below on purpose: a deployment with no backups is
+exactly where "these are kept forever" most needs saying, and a note
+that only appears once a list exists is a note nobody reads before
+their first one. */}}
+<p class="ipucu">{{.KeepNote}}</p>
 {{- if .Backups}}
 <h3>{{t "saglik.yedek.liste_baslik"}}</h3>
 <table class="liste">

@@ -4875,7 +4875,7 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1g | Yan veritabanına geri yükleme | ✅ yapıldı |
 | F1h | Sıkıştırma oranı gerçek veride, ve yazarken disk muhafızı | ✅ yapıldı |
 | F1i | Yedeklerin kendi yaş sınırı | ✅ yapıldı |
-| F1j | Sayfanın sınırı yazması | ⬜ kaldı — kanal kararı, aşağıda |
+| F1j | Sayfanın sınırı yazması | ✅ yapıldı |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
@@ -4914,8 +4914,24 @@ var ve üçü de aynı ucuz değil:
 | Katalog satırına yazılsın | şema 16 | her yedek "alındığı andaki sınır"ı taşır; anlamı tuhaf, çünkü sınır kurulumun özelliği, yedeğin değil |
 | Tek satırlık ayrı bir tablo | şema 16 | en açık anlam, en çok yeni yüzey |
 
-Karar verilmeden yazılmadı. Yarısı yazılmış bir kanal, hiç yazılmamış
-bir kanaldan daha pahalıdır.
+**Karar: tek satırlık ayrı tablo** (`panel_backup_policy`, şema 16), ve
+bir ölçüm bir seçeneği eledi.
+
+Kalp atışı en ucuzu görünüyordu — JSONB sayaç sütunu zaten var, şema
+değişmezdi. Sağlık sayfasının kodu okundu: `out := make([]healthService,
+0, len(beats))`, yani **her kalp atışı satırı bir kart çiziyor.**
+Yükseltici systemd altında zamanlayıcıyla koşup çıkıyor, dolayısıyla
+satırı atışlar arasında bayatlar ve hiçbir şeyin yanlış olmadığı bir
+kurulumda kırmızı kart çıkardı. *Yazarının yerine getiremeyeceği bir
+canlılık iddiası taşıyan kanal, yanlış kanaldır.*
+
+Katalog sütunu da elendi: "alındığı andaki sınır" sayfanın ihtiyaç
+duyduğundan başka bir cümle, ve hiç yedeği olmayan kurulumda hiçbir şey
+diyemezdi — oysa "süresiz saklanıyor" en çok orada söylenmeli.
+
+Üç mutasyon: şablondaki satır silinsin, sınırsız da gün olarak yazılsın,
+not yalnız yedek varken gösterilsin. Üçü de yakalandı; sonuncusu, testin
+hiç yedeği olmayan bir kurulumu kullanması sayesinde.
 
 **F1b'nin açık kalan kararı kapandı — ve bir sayıyı değil bir gerekçeyi
 düzeltti.** Oran üç kolda, 50 000 satırda, gerçek `Measure` ve gerçek

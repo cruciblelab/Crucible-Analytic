@@ -1135,6 +1135,11 @@ running = "Alınıyor"
 succeeded = "Alındı"
 failed = "Başarısız"
 
+[metin.saglik.yedek.saklama]
+bilinmiyor = "Yedeklerin ne kadar saklanacağı henüz bildirilmedi. Bunu yükseltici yazar; bu sürüme geçildikten sonra henüz bir kez bile çalışmamışsa bu satır böyle görünür."
+sinirsiz = "Yedekler süresiz saklanıyor — hiçbir yaş sınırı yok. Dikkat edilecek nokta: bir yedek, saklama süresi dolduğu için silinmiş satırları hâlâ taşır, yani saklama süresi yedek dizininde geçerli değildir. Sınır koymak için upgrader.toml'da [backup] keep_days."
+gun = "Yedekler %d gün saklanıyor. Bundan eskiler yükseltici tarafından siliniyor; en yeni veri yedeği ve sırlar yedekleri hiçbir zaman silinmiyor."
+
 [metin.saglik.disk]
 baslik = "Disk"
 aciklama = "Yukarıdaki tablo boyutları neyin saklandığını söyler; buradaki sayılar bir sonraki yazmanın yer bulup bulamayacağını. Dolan disk collector'ı durdurur, collector da sitenin önündedir."
