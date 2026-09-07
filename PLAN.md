@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
-| **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
+| **F** Ertelenen | 🟡 **1/3** | F1 yedekleme *(a–h bitti, F1i kaldı)*, F3 filo — bilerek sonraya |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
@@ -4874,10 +4874,25 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1f | Doğrulama: dosya gerçekten o dosya mı | ✅ yapıldı |
 | F1g | Yan veritabanına geri yükleme | ✅ yapıldı |
 | F1h | Sıkıştırma oranı gerçek veride, ve yazarken disk muhafızı | ✅ yapıldı |
+| F1i | Yedeklerin kendi yaş sınırı, ve sayfanın bunu yazması | ⬜ kaldı |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
 yedek gönderilmiyor.
+
+**F1i tabloya sonradan girdi, ve nasıl kaybolduğu kayda değer.** Şart bu
+bölümün düzyazısında baştan beri yazılıydı — *"bir yedek, saklama
+politikasının sildiği veriyi tutar; yedeklerin kendi yaş sınırı olacak ve
+sayfa bunu açıkça yazacak"* — ama faz tablosunda bir satırı yoktu. Sekiz
+alt faz bitince F1 bitmiş gibi göründü.
+
+Bulunma şekli de tesadüf değildi: grup tablosunu 2/3 diye düzeltmeye
+kalktım, `TestPlan_TheGroupTableMatchesThePhaseHeadings` kırmızı verdi,
+ve şartı aramaya gidince ortaya çıktı. Saklama politikasının sildiği
+veriyi süresiz saklayan bir yedek dizini, bu ürünün müşteriye verdiği
+sözün karşı tarafı.
+
+*Yalnız düzyazıda duran bir şart, bitti sayımına hiç girmez.*
 
 **F1b'nin açık kalan kararı kapandı — ve bir sayıyı değil bir gerekçeyi
 düzeltti.** Oran üç kolda, 50 000 satırda, gerçek `Measure` ve gerçek
