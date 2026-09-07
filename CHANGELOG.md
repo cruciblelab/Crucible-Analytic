@@ -9,13 +9,27 @@ yapacağım".
 
 ---
 
-## Yayımlanmamış
+## v0.23.0 — 2026-09-07
 
-Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+Yedekleme yolunun tamamı: alma, doğrulama, ve **gerçekten geri dönüp
+dönmediğini deneme**. Ziyaretçinin ölçümü kendi tarayıcısında
+kapatabilmesi. Ve konteynerle kuran herkesi etkileyen bir kurulum
+düzeltmesi.
 
-**Şema sürümü: 15.** **Kuran kişinin yapması gereken:** panelde
+**Konteyner yolunu kullanıyorsanız bu sürüm zorunlu.** v0.21.0 ve
+v0.22.0'da `docker compose up -d` komutu `init` konteynerinde 1 ile
+duruyor, dolayısıyla dört servisin hiçbiri başlamıyor. Ayrıntısı
+aşağıda, *"Düzeltme: konteynerle kurulum ilk koşuda duruyordu"*
+başlığında.
+
+**Şema sürümü: 15** (v0.22.0'da 12'ydi, yani üç adım).
+**Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Birkaç sütun ekleniyor; veri değişmiyor,
 servis durmuyor.
+
+Bu sürümün üç yeni yeteneğinden ikisi yedekle ilgili, ve ikisi de aynı
+sorunun iki yarısı: bir yedek dosyasının bozulmamış olduğunu bilmekle,
+onun bir veritabanına gerçekten döndüğünü bilmek ayrı şeyler.
 
 ### Yedek doğrulama: dosya gerçekten o dosya mı
 
