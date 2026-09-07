@@ -116,6 +116,18 @@ type diskStore interface {
 	BackupBytesByDevice(ctx context.Context) (map[int64]int64, int64, error)
 }
 
+// collectingReader is what a breakdown needs in order to know whether
+// the data it draws is being gathered at all.
+//
+// One method, and it is not on the dashboard's own store surface for a
+// reason: this answers a question about the *services*, not about a
+// site's numbers, and a section that could reach the analytics store
+// through it would be able to ask a second question with the same
+// handle.
+type collectingReader interface {
+	Collecting(ctx context.Context) (panel.Collecting, error)
+}
+
 // rangeRefreshReader is what drawing the IP-dataset section may ask for.
 type rangeRefreshReader interface {
 	RangeRefreshStatus(ctx context.Context, a panel.Access) (panel.RangeRefreshStatus, error)
@@ -162,6 +174,9 @@ func (s *Server) backups() backupStore { return s.Store }
 
 // database narrows the store to the storage section's surface.
 func (s *Server) database() diskStore { return s.Store }
+
+// collection narrows the store to "what are the services gathering".
+func (s *Server) collection() collectingReader { return s.Store }
 
 // ranges narrows the store to the refresh section's surface.
 func (s *Server) ranges() rangeRefreshStore { return s.Store }

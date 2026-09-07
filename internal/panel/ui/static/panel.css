@@ -816,6 +816,13 @@ code.secret {
   color: var(--uyari);
 }
 
+/* durum-toplanmiyor deliberately has no rule and takes the muted default
+   above. A section whose data is not being collected is reporting a
+   choice somebody made, not a fault: the snippet is missing in
+   durum-kurulmamis and that is worth acting on, whereas a profile set to
+   Hafif is working exactly as configured. Colouring it as a warning
+   would tell a customer to fix something they decided. */
+
 .sayfalama {
   display: flex;
   align-items: baseline;

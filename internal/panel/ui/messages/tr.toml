@@ -742,6 +742,10 @@ trafik = "Okunamadı."
 beacon = "Erişim reddedildi."
 trafik = "Erişim reddedildi."
 
+[metin.pano.bos.toplanmiyor]
+beacon = "Bu bilgi şu anda toplanmıyor, yani burada gösterilecek bir ölçüm yok — sıfır değil, yokluk. Beacon servisinin IP zekâsı kapalı ya da yalnız ülke düzeyinde çalışıyor. Değiştirmek beacon.toml içindeki [asn_lookup] bölümüyle ve servisin yeniden başlatılmasıyla oluyor; bu ayar panelden değiştirilemiyor çünkü açmak yüz megabayttan fazla veri yüklüyor."
+trafik = "Bu bilgi şu anda toplanmıyor, yani burada gösterilecek bir ölçüm yok — sıfır değil, yokluk. Trafik toplayıcının IP zekâsı kapalı ya da yalnız ülke düzeyinde çalışıyor. Değiştirmek collector.toml içindeki [asn_lookup] bölümüyle ve servisin yeniden başlatılmasıyla oluyor; bu ayar panelden değiştirilemiyor çünkü açmak yüz megabayttan fazla veri yüklüyor."
+
 [metin.kurtarma]
 baslik = "Kurtarma kodlarınız"
 ilk = "Hesabınız hazır. Aşağıdaki kodları saklayın — parolanızı unutur ya da telefonunuzu kaybederseniz, kimseyi beklemeden panele geri girmenizi sağlarlar."

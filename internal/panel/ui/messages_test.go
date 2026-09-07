@@ -336,7 +336,7 @@ var (
 	dashboardCards = []string{
 		"ziyaretci", "goruntuleme", "oturum", "hemen_cikma", "insan", "bot",
 	}
-	dashboardEmptiness = []string{"kurulmamis", "bos", "ulasilamiyor", "reddedildi"}
+	dashboardEmptiness = []string{"kurulmamis", "bos", "ulasilamiyor", "reddedildi", "toplanmiyor"}
 	dashboardSources   = []string{"beacon", "trafik"}
 
 	// dashboardBreakdowns mirrors the breakdown registry, for the same

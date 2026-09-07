@@ -710,6 +710,10 @@ trafik = "Could not be read."
 beacon = "Access refused."
 trafik = "Access refused."
 
+[metin.pano.bos.toplanmiyor]
+beacon = "This is not being collected right now, so there is nothing here to measure - an absence, not a zero. The beacon's IP intelligence is off, or set to countries only. Changing it means editing [asn_lookup] in beacon.toml and restarting the service; the panel cannot offer this as a control because switching it on loads over a hundred megabytes of data."
+trafik = "This is not being collected right now, so there is nothing here to measure - an absence, not a zero. The traffic collector's IP intelligence is off, or set to countries only. Changing it means editing [asn_lookup] in collector.toml and restarting the service; the panel cannot offer this as a control because switching it on loads over a hundred megabytes of data."
+
 [metin.kurtarma]
 baslik = "Your recovery codes"
 ilk = "Your account is ready. Keep the codes below — if you forget your password or lose your phone, they get you back into the panel without waiting for anybody."

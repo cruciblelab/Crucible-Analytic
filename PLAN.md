@@ -87,7 +87,7 @@ gerekçe değil bahane olur.
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
-| **D** Dashboard | 🟡 **5/9** | D4b, D5–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
+| **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -3567,7 +3567,7 @@ açar, sonra kapanır. İki düzeltme:
 > yani müşterinin kendine veremeyeceği tek şey. SOZLUK §3'teki ilke
 > çalışıyor.
 
-#### D5 — Profil, veriyi çıkarır; sayfayı asla
+#### D5 — Profil, veriyi çıkarır; sayfayı asla ✅ **yapıldı**
 
 Panel tam ürüne göre yazılır. Hafif profiller **veri** kaldırır, sayfa
 değil. Her görünüm her profilde vardır. Mevcut profil bir görünümün
@@ -3588,6 +3588,30 @@ ayara bağlantı verir:
   **Sıfır, baktık ve bulamadık demektir. Yokluk, bakmadık demektir.**
 - **Profil, etkilediği her görünümde belirtilir**, böylece bir sayının
   ekran görüntüsü onu okumak için gereken bağlamı hep taşır.
+
+##### Yapıldığında ortaya çıkan iki şey
+
+**Panelin profili nereden öğrendiği bir karardı, ve iki aday ölçülerek
+elendi.** Panel `collector.toml`'u okuyamaz ve okuyabilir hâle
+gelmemeli — o dosya servisin veritabanı parolasını taşıyor. Aday olan
+`ip_country_ranges`/`ip_asn_ranges` tabloları da cevap değil: çözümleyici
+aralıkları CSV'den belleğe yüklüyor, o tablolar yalnız sonradan yazılan
+bir kopya, ve beacon'ı collector'ın yanında koşturan bir kurulum
+`SkipRangePersistence` ile onları hiç yazmıyor. Boş bir tablo orada
+"kimse yazmadı" demek.
+
+Cevap servisin kendi beyanı: profil zaten her kalp atışında geliyor
+(`service_heartbeat.profile`, şema 8) ve panel onu sağlık sayfasında
+gösteriyordu. Dosya değil, koşan süreç — ve daha doğrusu da o: yeniden
+başlatılmadan düzenlenmiş bir dosya henüz hiçbir şeyi anlatmıyor.
+
+**Beacon profilini hiç bildirmiyormuş.** Yalnız collector bildiriyordu.
+Ama beacon kendi `[asn_lookup]` bölümüyle kendi çözümleyicisini
+koşturuyor, yani bir kurulum collector'ı Tam Crucible'da, beacon'ı kapalı
+çalıştırabilir — ve o zaman `beacon_events`'te ülke yok, trafik
+tablosunda var. Collector'ın profilinden beacon hakkında sonuç çıkarmak,
+bir servisin yapılandırmasını başka bir servis hakkında kanıt saymak
+olurdu. Beacon artık kendi seviyesini bildiriyor.
 
 **Ayrımı düz tutmak gerek: profil neyin *toplandığına*, geliştirici modu
 neyin *gösterildiğine* karar verir.** Geliştirici modu kapalı bir Tam

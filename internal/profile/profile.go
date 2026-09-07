@@ -270,3 +270,53 @@ func sourceInTurkish(s memlimit.Source) string {
 		return "bilinmiyor"
 	}
 }
+
+// rank orders the levels by how much they collect.
+//
+// A number rather than a comparison written out at each caller: "does
+// this deployment collect what that view needs" is asked from several
+// places, and three copies of a switch is how two of them come to
+// disagree about whether country-only covers a country breakdown.
+func (l Level) rank() int {
+	switch l {
+	case LevelCountry:
+		return 1
+	case LevelFull:
+		return 2
+	default:
+		// LevelOff and anything this build does not recognise. An
+		// unknown level collecting nothing is the safe reading: the
+		// caller then says "not collected" about data that might be
+		// there, rather than drawing a zero for data that is not.
+		return 0
+	}
+}
+
+// Covers reports whether a service running at this level collects what
+// want needs.
+//
+// The question the panel asks before it draws a section: a country
+// breakdown needs LevelCountry, an ASN breakdown needs LevelFull, and a
+// deployment at LevelOff collects neither.
+//
+// Not the same question as "are these equal". A Tam Crucible install
+// covers a country view, and comparing levels for equality would tell a
+// customer their country breakdown is unavailable on the profile that
+// collects the most.
+func (l Level) Covers(want Level) bool { return l.rank() >= want.rank() }
+
+// Known reports whether this is a level some service actually declared.
+//
+// The distinction the panel turns on. A service that has never written a
+// heartbeat, or one older than the profile column, reports "", and ""
+// must not read as LevelOff: "nothing has told us" and "it collects
+// nothing" lead to opposite sentences on a page, and only one of them is
+// ever true at a time.
+func (l Level) Known() bool {
+	switch l {
+	case LevelOff, LevelCountry, LevelFull:
+		return true
+	default:
+		return false
+	}
+}

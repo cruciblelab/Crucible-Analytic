@@ -76,6 +76,29 @@ Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
 sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
 yükleme o tabloda adını söyleyerek durur.
 
+### Toplanmayan veri artık sıfır olarak gösterilmiyor
+
+Kurulumunuz **Hafif** profilde çalışıyorsa ülke ve ASN bilgisi hiç
+toplanmıyor; **Dengeli** profilde ülke toplanıyor, ASN toplanmıyor. Panel
+bu bölümleri şimdiye kadar boş tablo olarak gösteriyordu, ki bu "hiç
+ziyaretçiniz yok" demekle aynı şeye benziyor — oysa söylenmesi gereken
+"biz bakmıyoruz".
+
+Artık bölüm yerinde duruyor ve ne olduğunu yazıyor: bu veri şu anda
+toplanmıyor, hangi servisin ayarı olduğu, ve nereden değiştirileceği.
+Bölüm gizlenmiyor: profilini yükselten müşterinin ne kazandığını
+görebilmesi gerekiyor.
+
+Ayrıca beacon ile trafik toplayıcı ayrı ayrı değerlendiriliyor. İkisinin
+`[asn_lookup]` ayarı ayrı olduğu için, biri açıkken diğeri kapalı
+olabiliyor ve panel artık ikisini karıştırmıyor.
+
+Eski satırlarınız etkilenmiyor: profili düşürmüş bir kurulumda geçmiş
+dönemin ülkeleri hâlâ tabloda ve hâlâ gösteriliyor. Profil yeni satırların
+ne taşıyacağına karar veriyor, eskilerin ne taşıdığına değil.
+
+**Kuran kişinin yapması gereken:** bir şey yok.
+
 ### Düzeltme: kullanımdayken alınan bir yedek geri yüklenemeyebiliyordu
 
 Yedek alınırken her tablo ayrı bir veritabanı bağlantısından

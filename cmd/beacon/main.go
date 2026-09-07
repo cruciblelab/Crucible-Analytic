@@ -226,6 +226,12 @@ func main() {
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    writer.Pool(),
 		Version: buildinfo.Version(version),
+		// The beacon resolves addresses through its own [asn_lookup]
+		// section, so its level is its own. Reporting it is what lets
+		// the panel say "this column is not being collected" about a
+		// beacon breakdown instead of inferring it from the collector,
+		// which may be configured differently.
+		Profile: beaconProfileID(cfg),
 		Logger:  logger,
 		Counters: func() map[string]int64 {
 			accepted, serverDropped, rejected := srv.Counters()
@@ -458,4 +464,13 @@ func samePrefixes(a, b []netip.Prefix) bool {
 		}
 	}
 	return true
+}
+
+// beaconProfileID is what this process reports as its profile, empty
+// when this build recognises no profile for the configuration it has.
+func beaconProfileID(cfg beacon.Config) string {
+	if p, ok := cfg.Profile(); ok {
+		return p.ID
+	}
+	return ""
 }

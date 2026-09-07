@@ -12921,3 +12921,77 @@ veritabanından okunuyor — iki listenin de bakımı gerekmiyor. 12 anahtar,
 hepsi sırasında.
 
 *Kazayla doğru olan bir sıra, sıra değildir.*
+
+---
+
+## D5 — Profil veriyi çıkarır, sayfayı asla
+
+Kural planın kendi cümlesi: **sıfır, baktık ve bulamadık demektir;
+yokluk, bakmadık demektir.** Hafif profilde koşan bir kurulumda ASN
+kırılımının boş tablo göstermesi, müşteriye "hiç ASN yok" demek — ve o,
+bu ürünün başka her yerde reddettiği türden kendinden emin bir yanlış.
+
+Artık altıncı bir boşluk durumu var: `toplanmiyor`. Bölüm gizlenmiyor —
+gizlenen bir bölüm, profilini yükselten müşterinin ne satın aldığını hiç
+keşfetmemesi demek.
+
+### Panel profili nereden biliyor: iki aday elendi
+
+**Yapılandırma dosyası olamaz.** Panel `collector.toml`'u okuyamaz ve
+okuyabilir hâle gelmemeli; o dosya servisin veritabanı parolasını
+taşıyor.
+
+**Aralık tabloları da olamaz, ve bu ilk bakışta öyle görünmüyor.**
+`ip_country_ranges` boşsa lookup kapalıdır diye düşünmek makul. Değil:
+çözümleyici aralıkları indirilen CSV'lerden **belleğe** yüklüyor, o
+tabloları sonradan bir kopya olarak yazıyor, ve beacon'ı collector'ın
+yanında koşturan bir kurulum `SkipRangePersistence` ile o kopyayı hiç
+yazmıyor. Boş bir tablo orada "kimse yazmadı" demek, "toplanmıyor"
+değil.
+
+**Cevap zaten oradaydı.** Profil her kalp atışında geliyor ve panel onu
+sağlık sayfasında bir sütun olarak gösteriyor. Yani soru "panel bunu
+nasıl öğrenir" değilmiş, "panelin zaten bildiği şeyi kim soruyor"muş.
+
+Ve bu kaynak daha doğru: dosya değil, **koşan süreç**. Yeniden
+başlatılmadan düzenlenmiş bir dosya henüz hiçbir şeyi anlatmıyor.
+
+### Yol boyunca bulunan eksik: beacon profilini hiç bildirmiyormuş
+
+Yalnız collector bildiriyordu. Ama beacon kendi `[asn_lookup]` bölümüyle
+kendi `asnlookup.Resolver`'ını koşturuyor, yani bir kurulum collector'ı
+Tam Crucible'da ve beacon'ı kapalı çalıştırabilir — o zaman beacon'ın
+yazdığı satırlarda ülke yok, collector'ınkilerde var.
+
+Bu eksik olmasaydı panel tek bir profile bakıp beacon kırılımı hakkında
+konuşacaktı, yani **bir servisin yapılandırmasını başka bir servis
+hakkında kanıt** sayacaktı. Beacon'a `ProfileLevel` eklendi ve kalp
+atışında bildiriyor.
+
+### Bilinmeyen, yok sayılmaz
+
+Kalp atışı yazmamış bir servis, düşmüş bir collector, profil sütunundan
+eski bir binary — üçü de boş bildiriyor. Bunu "hiçbir şey toplamıyor"
+diye okumak, verisi normal akan bir bölümün altına yanlış bir cümle
+koyardı. Bilinmeyen, bu özellik yokken sayfanın yaptığı şeye düşüyor.
+
+`profile.Level.Known()` bu ayrımı taşıyor, ve `Covers` eşitlik değil
+sıralama: Tam Crucible bir ülke kırılımını karşılıyor, ve eşitlikle
+karşılaştırmak müşteriye en çok toplayan profilde "bu veri yok" derdi.
+
+### Mutasyonlar
+
+11 mutasyon, üçü hayatta kaldı:
+
+| Hayatta kalan | Neydi |
+|---|---|
+| `Needs == LevelOff` erken dönüşü kalksın | Gereksizmiş: her seviye `LevelOff`'u kapsıyor |
+| Boş id kontrolü kalksın | Gereksizmiş: hiçbir profilin id'si boş değil |
+| Bilinmeyen id boş seviye olarak yazılsın | Davranış aynı; ama eşleme testsizmiş |
+
+İlk ikisi gerçekten ölü daldı ve kaldırıldı — F1g'de ad
+karşılaştırmasına yapılanın aynısı. Üçüncüsü eksik testti: `levelOf`
+kendi testini aldı, ve o test profil listesinden türüyor, yani dördüncü
+bir profil eklendiği gün kimse dosyayı açmadan kapsanıyor.
+
+*Bilinmeyen bir şey, yok sayılmaz.*

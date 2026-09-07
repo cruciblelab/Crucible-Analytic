@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/profile"
 )
 
 // siteWith builds a Site whose beacon summary and one breakdown are set.
@@ -139,7 +141,7 @@ func TestTheNeverDeterminedGroupIsANamedRow(t *testing.T) {
 					{Key: "", Empty: true, Count: 40, Visitors: 20},
 				},
 			})
-			view := srv.section(lang, f, def, site, sourcePresence{})
+			view := srv.section(lang, f, def, site, sourcePresence{}, panel.Collecting{})
 			if len(view.Rows) != 2 {
 				t.Fatalf("got %d rows, want 2 - the flagged group must not be dropped", len(view.Rows))
 			}
@@ -179,7 +181,7 @@ func TestAShareWithNoDenominatorIsNotZero(t *testing.T) {
 		Kind: analytics.BreakdownPages, Total: 1,
 		Rows: []analytics.Row{{Key: "/", Count: 9, Visitors: 4}},
 	})
-	view := srv.section(lang, f, def, site, sourcePresence{})
+	view := srv.section(lang, f, def, site, sourcePresence{}, panel.Collecting{})
 	if len(view.Rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(view.Rows))
 	}
@@ -208,7 +210,8 @@ func TestTheShareUsesTheBreakdownsOwnMetric(t *testing.T) {
 		Kind: analytics.BreakdownEvents, Total: 1,
 		Rows: []analytics.Row{{Key: "kayit", Count: 25, Visitors: 10}},
 	})
-	view := srv.section(lang, f, breakdownDefs[analytics.BreakdownEvents], site, sourcePresence{})
+	view := srv.section(lang, f, breakdownDefs[analytics.BreakdownEvents], site,
+		sourcePresence{}, panel.Collecting{})
 	if len(view.Rows) != 1 {
 		t.Fatalf("got %d rows, want 1", len(view.Rows))
 	}
@@ -274,7 +277,7 @@ func TestASectionSaysWhichKindOfNothing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			site := analytics.Site{Dashboard: tc.board}
-			if got := breakdownEmptiness(def, tc.b, site, tc.presence); got != tc.want {
+			if got := breakdownEmptiness(def, tc.b, site, tc.presence, panel.Collecting{}); got != tc.want {
 				t.Errorf("breakdownEmptiness = %q, want %q", got, tc.want)
 			}
 		})
@@ -288,7 +291,8 @@ func TestASectionFailureNeverReadsAsZero(t *testing.T) {
 	live := analytics.Dashboard{Beacon: analytics.BeaconSummary{Pageviews: 40}}
 	for _, err := range []error{analytics.ErrUnavailable, analytics.ErrRefused, errors.New("other")} {
 		b := analytics.Breakdown{Err: err}
-		got := breakdownEmptiness(def, b, analytics.Site{Dashboard: live}, sourcePresence{known: true})
+		got := breakdownEmptiness(def, b, analytics.Site{Dashboard: live},
+			sourcePresence{known: true}, panel.Collecting{})
 		if got == hasData || got == nothingInRange || got == neverInstalled {
 			t.Errorf("%v produced %q; a list that was never fetched is not an empty one", err, got)
 		}
@@ -322,7 +326,8 @@ func TestTheMoreLinkAppearsOnlyWhenThereIsMore(t *testing.T) {
 				analytics.BreakdownPages: {Kind: analytics.BreakdownPages, Rows: rows, Total: tc.total},
 			},
 		}
-		views := srv.sections(lang, f, "site", site, sourcePresence{}, 7, defaultBreakdowns)
+		views := srv.sections(lang, f, "site", site, sourcePresence{},
+			panel.Collecting{}, 7, defaultBreakdowns)
 		var pages breakdownView
 		for _, v := range views {
 			if v.Kind == analytics.BreakdownPages {
@@ -411,5 +416,114 @@ func TestABreakdownPathEscapesTheSiteID(t *testing.T) {
 	}
 	if breakdownPath("", analytics.BreakdownPages) != "" {
 		t.Error("an empty site id produced a path")
+	}
+}
+
+// TestASectionSaysNotCollectedRatherThanDrawingAZero.
+//
+// D5's rule, and the one it is easiest to get backwards: a deployment
+// that is not gathering a column must not be told it has none of that
+// thing. "No visitors from any country" and "we are not recording
+// countries" are opposite sentences, and only one of them is ever true.
+func TestASectionSaysNotCollectedRatherThanDrawingAZero(t *testing.T) {
+	site := analytics.Site{}
+	empty := analytics.Breakdown{}
+	seen := sourcePresence{known: true, traffic: true, bacon: true}
+
+	for _, tc := range []struct {
+		name       string
+		kind       analytics.BreakdownKind
+		collecting panel.Collecting
+		want       emptiness
+		why        string
+	}{
+		{
+			name: "asn kapali toplayicida", kind: analytics.BreakdownASNs,
+			collecting: panel.Collecting{Collector: profile.LevelOff},
+			want:       notCollected,
+			why:        "the collector reports gathering neither country nor ASN",
+		},
+		{
+			name: "asn ulke-modunda toplayicida", kind: analytics.BreakdownASNs,
+			collecting: panel.Collecting{Collector: profile.LevelCountry},
+			want:       notCollected,
+			why: "Dengeli resolves countries and no ASNs at all, which is the " +
+				"whole point of that profile - so an ASN section on it is empty " +
+				"by configuration, not by measurement",
+		},
+		{
+			name: "asn tam profilde", kind: analytics.BreakdownASNs,
+			collecting: panel.Collecting{Collector: profile.LevelFull},
+			want:       nothingInRange,
+			why: "the data is being collected and this period holds none of it, " +
+				"which is a measurement and has to read as one",
+		},
+		{
+			name: "sunucu ulkeleri ulke-modunda", kind: analytics.BreakdownServerCountries,
+			collecting: panel.Collecting{Collector: profile.LevelCountry},
+			want:       nothingInRange,
+			why: "country-only covers a country breakdown. Comparing levels for " +
+				"equality instead of coverage would call this unavailable on a " +
+				"profile that collects it",
+		},
+		{
+			name: "beacon ulkeleri beacon kapaliyken", kind: analytics.BreakdownCountries,
+			collecting: panel.Collecting{Collector: profile.LevelFull, Beacon: profile.LevelOff},
+			want:       notCollected,
+			why: "the beacon has its own [asn_lookup] section. Reading the " +
+				"collector's level here would use one service's configuration " +
+				"as evidence about another's",
+		},
+		{
+			name: "beacon ulkeleri toplayici kapaliyken", kind: analytics.BreakdownCountries,
+			collecting: panel.Collecting{Collector: profile.LevelOff, Beacon: profile.LevelFull},
+			want:       nothingInRange,
+			why:        "and the same the other way round",
+		},
+		{
+			name: "profil bilinmiyorken", kind: analytics.BreakdownASNs,
+			collecting: panel.Collecting{},
+			want:       nothingInRange,
+			why: "nothing has reported a profile - a fresh install, a collector " +
+				"that is down, a binary older than the column. Unknown is not " +
+				"'collects nothing', and claiming it would put a wrong sentence " +
+				"under a section whose data is arriving normally",
+		},
+		{
+			name: "profil gerektirmeyen bolum", kind: analytics.BreakdownPages,
+			collecting: panel.Collecting{Beacon: profile.LevelOff},
+			want:       nothingInRange,
+			why: "pages come out of the beacon's own payload and no profile " +
+				"touches them",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			def := breakdownDefs[tc.kind]
+			got := breakdownEmptiness(def, empty, site, seen, tc.collecting)
+			if got != tc.want {
+				t.Errorf("got %q, want %q.\n%s", got, tc.want, tc.why)
+			}
+		})
+	}
+}
+
+// TestRowsOutrankTheProfile.
+//
+// A deployment that lowered its profile last week still holds last
+// month's countries, and showing them is right. The profile decides what
+// new rows carry, not what old ones do - so rows that exist beat any
+// claim about configuration.
+func TestRowsOutrankTheProfile(t *testing.T) {
+	withRows := analytics.Breakdown{
+		Rows: []analytics.Row{{Key: "TR", Count: 12}},
+	}
+	got := breakdownEmptiness(breakdownDefs[analytics.BreakdownASNs], withRows,
+		analytics.Site{}, sourcePresence{known: true, traffic: true},
+		panel.Collecting{Collector: profile.LevelOff})
+	if got != hasData {
+		t.Errorf("a section with rows reported %q.\n"+
+			"The rows are in the table and the customer can read them. A "+
+			"profile that stopped collecting yesterday does not make "+
+			"yesterday's data disappear", got)
 	}
 }

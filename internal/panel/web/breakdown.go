@@ -11,6 +11,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/profile"
 )
 
 // The breakdowns: why a number is what it is.
@@ -85,6 +86,15 @@ type breakdownDef struct {
 	// and no jargon, because the person who had the site built cannot act
 	// on a JA4 hash. These sections exist for the person who can.
 	Technical bool
+	// Needs is the IP-intelligence level this section's data requires,
+	// and the zero value - LevelOff - means it needs none.
+	//
+	// In the table rather than in a switch, so the requirement is
+	// visible beside the section it belongs to. A switch elsewhere is a
+	// second list, and a section added without a line in it would draw a
+	// confident empty table on a deployment that never collected its
+	// column.
+	Needs profile.Level
 	// Bots is whether the row's second column is the bot count rather
 	// than the visitor count.
 	//
@@ -121,6 +131,7 @@ var breakdownDefs = map[analytics.BreakdownKind]breakdownDef{
 	analytics.BreakdownCountries: {
 		Kind: analytics.BreakdownCountries, Source: sourceBeacon,
 		Metric: metricPageviews, NamedGroup: true,
+		Needs: profile.LevelCountry,
 	},
 	analytics.BreakdownEvents: {
 		Kind: analytics.BreakdownEvents, Source: sourceBeacon,
@@ -139,10 +150,15 @@ var breakdownDefs = map[analytics.BreakdownKind]breakdownDef{
 	analytics.BreakdownASNs: {
 		Kind: analytics.BreakdownASNs, Source: sourceTraffic,
 		Metric: metricAddresses, NamedGroup: true, Technical: true, Bots: true,
+		// The only one that needs the whole dataset. A Dengeli
+		// deployment resolves countries and no ASNs at all, which is
+		// exactly what that profile is for.
+		Needs: profile.LevelFull,
 	},
 	analytics.BreakdownServerCountries: {
 		Kind: analytics.BreakdownServerCountries, Source: sourceTraffic,
 		Metric: metricAddresses, NamedGroup: true, Technical: true, Bots: true,
+		Needs: profile.LevelCountry,
 	},
 }
 
@@ -293,8 +309,8 @@ func breakdownPath(siteID string, kind analytics.BreakdownKind) string {
 
 // sections builds the six section views for the site page.
 func (s *Server) sections(lang *ui.Language, f *ui.Formatter, siteID string,
-	site analytics.Site, presence sourcePresence, days int,
-	shown []analytics.BreakdownKind) []breakdownView {
+	site analytics.Site, presence sourcePresence, collecting panel.Collecting,
+	days int, shown []analytics.BreakdownKind) []breakdownView {
 
 	out := make([]breakdownView, 0, len(shown))
 	for _, kind := range shown {
@@ -302,7 +318,7 @@ func (s *Server) sections(lang *ui.Language, f *ui.Formatter, siteID string,
 		if !ok {
 			continue
 		}
-		view := s.section(lang, f, def, site, presence)
+		view := s.section(lang, f, def, site, presence, collecting)
 		if view.Total > len(view.Rows) {
 			view.MoreURL = breakdownPath(siteID, kind) + "?gun=" + strconv.Itoa(days)
 			view.MoreText = lang.Tf("pano.kirilim.tumu", f.Number(int64(view.Total)))
@@ -314,7 +330,8 @@ func (s *Server) sections(lang *ui.Language, f *ui.Formatter, siteID string,
 
 // section shapes one breakdown for display.
 func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
-	site analytics.Site, presence sourcePresence) breakdownView {
+	site analytics.Site, presence sourcePresence,
+	collecting panel.Collecting) breakdownView {
 
 	key := "pano.kirilim." + string(def.Kind)
 	view := breakdownView{
@@ -334,7 +351,7 @@ func (s *Server) section(lang *ui.Language, f *ui.Formatter, def breakdownDef,
 	// six concurrent calls, six independent answers - and saying "no
 	// data" for a call that never returned would report a timeout as a
 	// measurement of zero.
-	if empty := breakdownEmptiness(def, b, site, presence); empty != hasData {
+	if empty := breakdownEmptiness(def, b, site, presence, collecting); empty != hasData {
 		view.Empty = empty
 		view.EmptyText = lang.T("pano.bos." + string(empty) + "." + string(def.Source))
 		return view
@@ -416,7 +433,7 @@ func shareDenominator(def breakdownDef, site analytics.Site) int64 {
 // lookup, and answering it twice in two places is how the two come to
 // disagree.
 func breakdownEmptiness(def breakdownDef, b analytics.Breakdown,
-	site analytics.Site, presence sourcePresence) emptiness {
+	site analytics.Site, presence sourcePresence, collecting panel.Collecting) emptiness {
 
 	board := site.Dashboard
 	// The breakdown's own transport failure outranks the summary's
@@ -425,7 +442,16 @@ func breakdownEmptiness(def breakdownDef, b analytics.Breakdown,
 	case b.Err != nil:
 		board.BeaconErr, board.TrafficErr = b.Err, b.Err
 	case len(b.Rows) > 0:
+		// Rows win over everything below, including "not collected".
+		//
+		// Not a contradiction: a deployment that lowered its profile
+		// last week still has last month's countries in the table, and
+		// showing them is right. What the profile decides is whether new
+		// rows carry the column, and rows that exist are evidence that
+		// beats any claim about configuration.
 		return hasData
+	case notBeingCollected(def, collecting):
+		return notCollected
 	default:
 		// No rows and no error. Fall through to the card rule, which
 		// distinguishes a source that never wrote from a period that is
@@ -552,7 +578,8 @@ func (s *Server) detailData(ctx context.Context, lang *ui.Language, siteID strin
 	site := s.Analytics.FetchSite(ctx, siteID, from, to, req)
 
 	presence := s.presence(ctx, summaries, site.Dashboard, siteID)
-	data.Section = s.section(lang, f, def, site, presence)
+	data.Section = s.section(lang, f, def, site, presence,
+		s.collecting(ctx, s.collection()))
 
 	b := site.Breakdowns[def.Kind]
 	switch {
@@ -608,4 +635,66 @@ func detailPageFrom(r *http.Request) int {
 		return 1
 	}
 	return n
+}
+
+// notBeingCollected reports whether this deployment is not gathering
+// what this section shows.
+//
+// # A section that needs nothing is never "not collected"
+//
+// Pages, referrers and events come out of the beacon's own payload and
+// no profile touches them. That is not enforced here and does not need
+// to be: their Needs is LevelOff, every level covers LevelOff, and the
+// answer falls out of the comparison below.
+//
+// It used to be an early return. A mutation deleted it and nothing went
+// red, which was the honest report - the branch could not change an
+// answer. Left as a sentence rather than as a guard, because a check
+// that looks like it enforces something and enforces nothing is the kind
+// somebody later builds a second check on top of.
+//
+// # What it refuses to guess
+//
+// A level nobody has declared is not an answer. A service that has
+// never written a heartbeat - a fresh install, a collector that is down,
+// a binary older than the profile column - reports nothing, and reading
+// that as "collects nothing" would put "this data is not being
+// collected" under a section whose data is arriving normally. Unknown
+// falls through to the ordinary empty-state rule, which is what the page
+// did before this existed.
+//
+// *Bilinmeyen bir şey, yok sayılmaz.*
+func notBeingCollected(def breakdownDef, collecting panel.Collecting) bool {
+	have := collecting.Collector
+	if def.Source == sourceBeacon {
+		// The beacon has its own [asn_lookup] section and its own
+		// resolver, so its columns are its own business. Reading the
+		// collector's level here would be one service's configuration
+		// used as evidence about another's.
+		have = collecting.Beacon
+	}
+	if !have.Known() {
+		return false
+	}
+	return !have.Covers(def.Needs)
+}
+
+// collecting is what the services report gathering, or the zero value
+// when the question cannot be answered.
+//
+// A failure here is not a failure of the page. Every section this feeds
+// falls back to the empty-state rule it used before D5 existed, which is
+// the same fallback an unknown profile takes - and for the same reason:
+// a panel that cannot reach the heartbeat table knows less than one that
+// can, and knowing less is never grounds for a more confident sentence.
+//
+// Logged rather than swallowed, because a heartbeat table the panel
+// cannot read is worth an operator seeing even when no page breaks.
+func (s *Server) collecting(ctx context.Context, db collectingReader) panel.Collecting {
+	c, err := db.Collecting(ctx)
+	if err != nil {
+		s.logger().Warn("panel: could not read what the services collect", "err", err)
+		return panel.Collecting{}
+	}
+	return c
 }

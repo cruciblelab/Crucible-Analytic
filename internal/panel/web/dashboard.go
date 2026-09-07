@@ -163,6 +163,28 @@ const (
 	unreachable emptiness = "ulasilamiyor"
 	// refused means it answered and would not serve this token.
 	refused emptiness = "reddedildi"
+	// notCollected means this deployment is not gathering what the view
+	// shows, so there is nothing to be empty.
+	//
+	// # Why this is not nothingInRange
+	//
+	// Both draw no rows, and they mean opposite things. nothingInRange
+	// is a measurement - we looked and the period holds nothing.
+	// notCollected is the absence of a measurement, and telling a
+	// customer "no visitors from any country" when the country lookup is
+	// switched off is the kind of confident wrong number this whole
+	// product is written against.
+	//
+	// D5's rule, in the plan's own words: *sıfır, baktık ve bulamadık
+	// demektir; yokluk, bakmadık demektir.* The same distinction the API
+	// makes by flagging its never-determined group rather than dropping
+	// it, and that internal/asnlookup makes by returning "" for an
+	// address it could not resolve.
+	//
+	// The view is still drawn. A section hidden because of the profile
+	// is a feature the customer who raised their profile would never
+	// discover they had bought.
+	notCollected emptiness = "toplanmiyor"
 )
 
 // cardView is one card as the template receives it.
@@ -402,7 +424,8 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		}
 		data.Cards = append(data.Cards, view)
 	}
-	data.Sections = s.sections(lang, f, siteID, site, presence, days, shown.Breakdowns)
+	data.Sections = s.sections(lang, f, siteID, site, presence,
+		s.collecting(ctx, s.collection()), days, shown.Breakdowns)
 	data.Chart, data.ChartEmpty = s.chart(lang, f, req, site, presence, now, from, to)
 	if data.ChartEmpty != hasData {
 		data.ChartEmptyText = lang.T("pano.bos." + string(data.ChartEmpty) + "." + string(sourceBeacon))
