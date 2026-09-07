@@ -13474,13 +13474,18 @@ koşuyor, bir paketin dosyaları koşmuyor — yani dürüst granülerlik paket.
 
 ### Ölçüm
 
-Yerelde `-tags integration -race ./...` ile üretildi: düzeltmeden önceki
-ilk koşu `internal/panel/web` içinde kırmızı verdi.
+Yerelde `-tags integration -race ./...` ile ölçüldü, ve rakam ikisinin
+arasındaki fark:
 
-Düzeltmeden sonraki doğrulama koşusu **yeni bir şey buldu** ve o da
-aşağıda: kazıma veritabanının zorlusuz drop'u. Yani bu bölüm yazıldığında
-temiz bir tam süit koşusu henüz ölçülmemişti; bu cümle o ölçüm gelene
-kadar burada duruyor ki "koştu" sanılmasın.
+| | koşu | sonuç |
+|---|---|---|
+| düzeltmeden önce | 3 | **3 kırmızı** — `TestSetupWizardInABrowser`, sonra iki kez `TestTheVisitorSwitchInARealBrowser` |
+| düzeltmeden sonra | 3 | **3 yeşil** |
+
+Aradaki üç koşu boşuna geçmedi: ilk doğrulama koşusu iki şey daha buldu,
+ikisi de aşağıda — kazıma veritabanının zorlusuz drop'u ve P1 testindeki
+veri yarışı. Yani "düzeltmeden sonra" satırı, o ikisi de kapandıktan
+sonraki ağaç.
 
 Mutasyon: `internal/backup`'ın aldığı kilidi geri çıkar → değişmez
 yakaladı, ve mesaj paketi, dosyayı, tabloyu, kilidi ve bedeli birlikte
