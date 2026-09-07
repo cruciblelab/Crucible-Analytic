@@ -13391,3 +13391,140 @@ sonra 5 dakika, **24 milyon çalıştırma**, yeni bulgu yok. Kapı yeşil.
 
 *Bir tarayıcı ile onun normalleştiricisi aynı şeye boşluk demiyorsa,
 ikisi birlikte hiçbir şeyi tanımlamıyordur.*
+
+---
+
+## İki süitin bir koşulu koruması, o koşulun korunduğu anlamına gelmiyor
+
+Etiket kesildikten sonra `main`'de CI kırmızı yandı, ve düşen test benim
+o gün dokunduğum hiçbir şeyle ilgili değildi:
+
+```
+--- FAIL: TestStore_RealDB_BootstrapLinkDiesWhenAnAccountAppears
+    expected an auto-approved request, got {... AutoApproved:false ...}
+```
+
+Geliştirici erişim bağlantısı yalnız **kurulumu kimse sahiplenmemişken**
+kendiliğinden onaylanır. Test önce bütün hesapları siliyor, sonra bir
+bağlantı istiyor, ve otomatik onay bekliyor. Otomatik onay gelmemiş —
+yani o iki satır arasında biri hesap yaratmış.
+
+### Kilit zaten vardı, ve gerekçesi yazılıydı
+
+`panelDatabaseLock`, `internal/panel` ile `internal/panel/web` arasında
+tam olarak bunun için duruyordu. Yorumu, olan şeyi kelimesi kelimesine
+anlatıyor:
+
+> "this deployment has no accounts" ... Checking the count and then
+> asserting is a gap another package can write into, and it did —
+> intermittently, which is the worst way for a test to fail.
+
+Ürün kodu da doğru: otomatik onay kararı `INSERT`'in içinde bir
+`NOT EXISTS (SELECT 1 FROM panel_users)` alt sorgusuyla veriliyor, tam da
+aynı milisaniyede yaratılan bir hesabın kontrol ile yazma arasına
+düşmemesi için. Ürünün yarışı kapalı.
+
+Kapalı olmayan, **tabloyu boşaltıp boşluğa karşı iddiada bulunan bir
+süitin** yarışıydı.
+
+### Eksik olan üçüncü yazar
+
+Kilidi iki paket alıyordu. Üçüncüsü almıyordu:
+`internal/backup/restore_integration_test.go`, yedek alınırken
+veritabanını meşgul eden yazarıyla — ki o yazarın yaptığı iş **hesap
+yaratmak**.
+
+O testi ben yazmıştım, ve gerekçesi hâlâ doğru: sessiz bir veritabanında
+alınan yedek, meşgul bir veritabanında alınabileceğini söylemez. Ama
+meşguliyeti üretmek için seçtiği şey, başka iki süitin üzerine iddia
+kurduğu global koşuldu.
+
+Sabit iki kopya hâlinde duruyordu, her paketin kendi test dosyasında, ve
+iki sayının aynı kaldığını kontrol eden birer test vardı. O testler
+doğru şeyi koruyordu ve yetmedi: **korudukları şey iki kopyanın
+birbirinden ayrılması, olan şey ise üçüncü bir yazarın ortaya
+çıkmasıydı.**
+
+### Düzeltme
+
+Sabit `internal/testdb`'ye taşındı — `AccountsLock`. Orada zaten altı
+benzeri var, yani "iki paket arasında paylaşılan bir yer yok" gerekçesi
+bir süredir geçerli değilmiş. İki kopya ve onları karşılaştıran iki test
+silindi; yerine tek bir sabit ve üç çağrı yeri.
+
+`internal/backup` artık aynı kilidi alıyor.
+
+### Değişmez genişletildi, ve tanımı da düzeltildi
+
+`TestEverySuiteThatWritesASharedRowTakesItsLock` zaten vardı ve
+`schema_version` için koşuyordu. Yorumunda "sıradaki bir satır" yazıyordu;
+gerçekten bir satır oldu.
+
+Ama tanımı dardı: "veritabanı başına tek satır tutan tablolar".
+`panel_users` çok satırlı, ve global olan herhangi bir satır değil
+**hiç olmaması**. Tanım genişletildi.
+
+Bir şey daha değişti: kontrol dosya başına bakıyordu, artık paket başına
+bakıyor. Bir süit kilidi bir kez alır — mağazayı kurduğu yerde — ve
+sonra istediği dosyadan yazar; `internal/panel` beş dosyadan
+`panel_users`'a yazıyor ve kilidi `newTestStore`'da alıyor. Dosya başına
+kontrol bunların dördünü ihlal diye bildirirdi, ve hiçbir şey ifade
+etmeyen bir mesaj insana mesajı okumamayı öğretir. Paketler paralel
+koşuyor, bir paketin dosyaları koşmuyor — yani dürüst granülerlik paket.
+
+### Ölçüm
+
+Yerelde `-tags integration -race ./...` ile üretildi: düzeltmeden önceki
+ilk koşu `internal/panel/web` içinde kırmızı verdi.
+
+Düzeltmeden sonraki doğrulama koşusu **yeni bir şey buldu** ve o da
+aşağıda: kazıma veritabanının zorlusuz drop'u. Yani bu bölüm yazıldığında
+temiz bir tam süit koşusu henüz ölçülmemişti; bu cümle o ölçüm gelene
+kadar burada duruyor ki "koştu" sanılmasın.
+
+Mutasyon: `internal/backup`'ın aldığı kilidi geri çıkar → değişmez
+yakaladı, ve mesaj paketi, dosyayı, tabloyu, kilidi ve bedeli birlikte
+adlandırdı.
+
+Silinen iki `TestSuiteLockConstantMatches` için karşılık yazılmadı, ve
+sebebi şu: korudukları şey iki kopyanın ayrışmasıydı, kopya kalmadı.
+Geriye kalan sessiz kusur, `internal/testdb`'deki iki sabitin aynı sayıyı
+taşıması olurdu — bugün öyle bir kontrol yok, ve bunu yazıyorum ki
+"kontrol ediliyor" sanılmasın.
+
+*İki süitin bir koşulu koruması, o koşulun korunduğu anlamına gelmez.*
+
+### Yol boyunca iki şey daha
+
+**Web süitinin kullanıcı temizliği hiç çalışmıyormuş.** Denetim kaydını
+panelin kendi havuzuyla silmeye çalışıyordu; `panel_user` rolünde o
+tabloda DELETE yok, ve olmaması kasıtlı — "kimse denetim kaydını
+silemez" `release/sql/verify.sql`'in iddialarından biri. Dönen hata
+`_, _ =` ile atılıyordu, yani hiç çalışmayan bir temizlik çalışıyor gibi
+duruyordu. Başka bir sebeple kırmızı olan bir CI kütüğünde onlarca kez
+görünüyor:
+
+```
+ERROR: permission denied for table panel_audit_log
+STATEMENT: DELETE FROM panel_audit_log WHERE actor_label = $1
+```
+
+Kardeş paket bunu çoktan öğrenip `newTestStore`'un yorumuna yazmış. Bu
+devralmamış. Artık şema sahibiyle siliyor ve hatayı okuyor.
+
+*Silemeyen bir temizlik, temizlik değildir; ve cevabı atılan bir çağrı,
+silemediğini söyleyemez.*
+
+**`DROP DATABASE` bir uçta zorlu, öbür uçta değildi.** Doğrulama
+koşusunda çıktı:
+
+```
+DROP DATABASE IF EXISTS ca_ratio_kotucul: ERROR: database
+"ca_ratio_kotucul" is being accessed by other users (SQLSTATE 55006)
+```
+
+Kurulum tarafındaki drop `WITH (FORCE)` kullanmıyordu, temizlik
+tarafındaki kullanıyordu. Ölmüş bir koşudan kalan ya da boşta bir
+bağlantının hâlâ tutunduğu bir kazıma veritabanı, bir sonraki koşuyu
+**fikstüründe** düşürüyor — ait olduğu test hiçbir şey iddia etmeden.
+Depodaki dört drop'un üçü zorlusuz kalmıştı; hepsi zorlu yapıldı.

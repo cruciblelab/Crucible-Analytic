@@ -171,10 +171,10 @@ func scratchDatabase(t *testing.T, name string) {
 			t.Fatalf("%s: %v", sql, err)
 		}
 	}
-	exec("DROP DATABASE IF EXISTS " + name)
+	exec("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)")
 	exec("CREATE DATABASE " + name)
 	t.Cleanup(func() {
-		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name)
+		_, _ = admin.Exec(context.Background(), "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)")
 	})
 }
 

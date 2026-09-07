@@ -21,6 +21,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 // The whole first-run flow, against a real database.
@@ -101,7 +102,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(store.Close)
-	lockPanelDatabase(t, store.Pool())
+	testdb.Lock(t, store.Pool(), testdb.AccountsLock)
 	clearLoopbackThrottle(t, store)
 
 	hash, err := argon2id.Hash(testDevPassword)

@@ -301,11 +301,17 @@ func sortedSuiteKeys(m map[suite]bool) []suite {
 	return out
 }
 
-// sharedRows are the single-row-per-database tables, and the lock a
-// suite must hold before writing one.
+// sharedRows are the tables whose contents are global to the database,
+// and the lock a suite must hold before writing one.
 //
 // A table rather than a second copy of the test below: the schema
-// version row came first, and the next one is a line.
+// version row came first, and the next one is a line. It was a line.
+//
+// "Single row" is how this started and it turned out to be too narrow.
+// panel_users has as many rows as a deployment has accounts, and what is
+// global about it is not any row but whether there are none - two of
+// this product's behaviours turn on that, and a suite that empties the
+// table is asserting against a condition any other package can break.
 var sharedRows = []struct {
 	table string
 	lock  string
@@ -324,6 +330,20 @@ var sharedRows = []struct {
 			"mid-assertion. Three suites write this row; two took the lock and one " +
 			"did not, and the overlap stayed narrow enough to hide until " +
 			"internal/panel/web grew by twenty seconds",
+	},
+	{
+		table: "panel_users",
+		lock:  "AccountsLock",
+		cost: "It cost a red main on 2026-09-07. internal/panel and " +
+			"internal/panel/web had taken turns over this table for weeks, with the " +
+			"lock and its reasoning written out on both sides - and internal/backup's " +
+			"restore suite later began creating accounts while a backup ran, which " +
+			"neither copy of the constant had anything to say about. " +
+			"TestStore_RealDB_BootstrapLinkDiesWhenAnAccountAppears failed with " +
+			"\"expected an auto-approved request\": a link auto-approves only while " +
+			"nobody owns the deployment, and somebody owned it for a few milliseconds " +
+			"in another package. Two suites guarding a condition is not the same as " +
+			"the condition being guarded",
 	},
 }
 
@@ -358,8 +378,19 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 			write := regexp.MustCompile(
 				`(?is)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+` + shared.table + `\b`)
 
-			var missing []string
-			found := 0
+			// Grouped by package rather than by file.
+			//
+			// A suite takes its lock once, where it builds the store,
+			// and then writes from wherever it likes: internal/panel
+			// locks in newTestStore and writes panel_users from five
+			// files. Per-file would report four of them as violations
+			// and teach the next person that the message means nothing.
+			//
+			// What is being asserted is a property of the *suite* -
+			// packages run in parallel, files inside one do not - so
+			// the package is the honest granularity.
+			writers := map[string][]string{} // package dir -> files that write
+			locks := map[string]bool{}       // package dir -> somebody names the lock
 			err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
 					return nil
@@ -378,13 +409,13 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 				if err != nil {
 					return nil
 				}
-				if !write.MatchString(sqlLiterals(path)) {
-					return nil
+				dir := filepath.Dir(path)
+				if strings.Contains(string(body), shared.lock) {
+					locks[dir] = true
 				}
-				found++
-				if !strings.Contains(string(body), shared.lock) {
+				if write.MatchString(sqlLiterals(path)) {
 					rel, _ := filepath.Rel(root, path)
-					missing = append(missing, filepath.ToSlash(rel))
+					writers[dir] = append(writers[dir], filepath.ToSlash(rel))
 				}
 				return nil
 			})
@@ -392,20 +423,31 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if found == 0 {
+			if len(writers) == 0 {
 				t.Fatalf("no test file writes %s, so this check is looking at nothing. "+
 					"Either the table was renamed or the pattern stopped matching how "+
 					"these writes are spelled", shared.table)
 			}
+
+			var missing []string
+			for dir, files := range writers {
+				if locks[dir] {
+					continue
+				}
+				rel, _ := filepath.Rel(root, dir)
+				sort.Strings(files)
+				missing = append(missing, filepath.ToSlash(rel)+
+					" ("+strings.Join(files, ", ")+")")
+			}
 			sort.Strings(missing)
-			for _, f := range missing {
-				t.Errorf("%s writes %s and never mentions testdb.%s.\n\n"+
-					"%s is one row for the whole database, and `go test ./...` runs "+
+			for _, pkg := range missing {
+				t.Errorf("%s writes %s and nothing in that package mentions testdb.%s.\n\n"+
+					"%s is shared by the whole database, and `go test ./...` runs "+
 					"packages in parallel - so this does not fail here, it makes "+
 					"another package fail somewhere else with a message that names "+
 					"neither.\n\n%s.\n\nTake the lock, and take it in the order "+
 					"internal/testdb declares.",
-					f, shared.table, shared.lock, shared.table, shared.cost)
+					pkg, shared.table, shared.lock, shared.table, shared.cost)
 			}
 		})
 	}

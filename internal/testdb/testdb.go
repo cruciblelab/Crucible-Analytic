@@ -244,6 +244,55 @@ const ReleaseQueueLock = 0x72656C65617365FF // "release"
 // does, take them in the order they are declared here.
 const BackupQueueLock = 0x796564656B00FF01 // "yedek"
 
+// AccountsLock serialises the suites that write panel_users.
+//
+// # What is global here
+//
+// Not a row and not a queue: an *emptiness*. Two of this product's
+// behaviours are decided by whether the deployment has any account at
+// all, and both are load-bearing.
+//
+//   - The first-run page exists only while nobody owns the deployment.
+//   - A developer access link auto-approves only in that same window,
+//     because before an account exists there is nobody to ask.
+//
+// The second is decided inside the INSERT, by a
+// `NOT EXISTS (SELECT 1 FROM panel_users)` subquery, precisely so that
+// an account created in the same millisecond cannot land between a
+// check and a write. That closes the product's race. It does nothing
+// for a *suite* that empties the table and then asserts against the
+// emptiness: another package's INSERT lands in between, and the failure
+// surfaces in whichever suite happened to be reading.
+//
+// # Why this constant moved here
+//
+// It did not start here. internal/panel and internal/panel/web each
+// carried a copy, with a test on each side asserting the two numbers
+// matched, and a comment saying a shared package for one test helper
+// would be worse than the duplication.
+//
+// That reasoning was sound when it was written and had quietly expired:
+// this package now holds six such keys, so the shared place exists. And
+// what the duplication could not survive was not drift between the two
+// copies - it was a *third* writer. internal/backup's restore suite
+// began inserting accounts on the shared database while a backup ran,
+// took no lock, and neither copy of the constant had anything to say
+// about it.
+//
+// Measured, on 2026-09-07:
+//
+//	--- FAIL: TestStore_RealDB_BootstrapLinkDiesWhenAnAccountAppears
+//	    expected an auto-approved request, got {... AutoApproved:false}
+//
+// A test that had passed for weeks, failing on main, naming neither the
+// package that wrote the row nor the reason.
+//
+// # Ordering
+//
+// Nothing takes this together with the others today. If something ever
+// does, take them in the order they are declared here.
+const AccountsLock = 0x6372756369626c65 // "crucible"
+
 // SchemaApplyLock serialises anything that applies a schema file.
 //
 // Unlike the four above, this one is not a test fixture. The applier

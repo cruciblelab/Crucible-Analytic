@@ -25,6 +25,7 @@ import (
 	"github.com/pquerna/otp/totp"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 // testAccountPassword is long enough to pass ValidatePassword and is
@@ -49,15 +50,45 @@ func makeUser(t *testing.T, store *panel.Store, local string, superadmin bool) p
 	if err != nil {
 		t.Fatalf("CreateUser(%s): %v", email, err)
 	}
+	// Cleared through the schema's owner, not the panel's own pool, and
+	// the errors are read rather than discarded.
+	//
+	// The first version did both the other way round, and the two
+	// mistakes hid each other. panel_user holds SELECT and INSERT on
+	// panel_audit_log and no DELETE - "nobody can erase the audit log"
+	// is an assertion in release/sql/verify.sql - so on a correctly
+	// installed database this cleanup could never remove an audit row.
+	// It reported nothing, because `_, _ =` throws the answer away.
+	//
+	// Visible in the CI log of a run that failed for something else
+	// entirely, dozens of times over:
+	//
+	//	ERROR: permission denied for table panel_audit_log
+	//	STATEMENT: DELETE FROM panel_audit_log WHERE actor_label = $1
+	//
+	// internal/panel's own suite learned this and wrote it down; this
+	// one is the sibling that did not inherit it.
+	//
+	// *Silemeyen bir temizlik, temizlik değildir; ve cevabı atılan bir
+	// çağrı, silemediğini söyleyemez.*
+	admin := testdb.Admin(t)
 	t.Cleanup(func() {
-		pool := store.Pool()
 		bg := context.Background()
 		// Audit rows outlive their actor by design (ON DELETE SET NULL),
 		// so they need removing explicitly rather than by cascade.
-		_, _ = pool.Exec(bg, `DELETE FROM panel_audit_log WHERE actor_label = $1`, email)
-		_, _ = pool.Exec(bg, `DELETE FROM panel_login_attempts WHERE email = $1`, email)
-		_, _ = pool.Exec(bg, `DELETE FROM panel_site_members WHERE user_id = $1`, user.ID)
-		_, _ = pool.Exec(bg, `DELETE FROM panel_users WHERE id = $1`, user.ID)
+		for _, d := range []struct {
+			sql string
+			arg any
+		}{
+			{`DELETE FROM panel_audit_log WHERE actor_label = $1`, email},
+			{`DELETE FROM panel_login_attempts WHERE email = $1`, email},
+			{`DELETE FROM panel_site_members WHERE user_id = $1`, user.ID},
+			{`DELETE FROM panel_users WHERE id = $1`, user.ID},
+		} {
+			if _, err := admin.Exec(bg, d.sql, d.arg); err != nil {
+				t.Errorf("cleanup %q: %v", d.sql, err)
+			}
+		}
 	})
 	return user
 }

@@ -50,8 +50,21 @@ func scratchDatabase(t *testing.T, name string) *pgxpool.Pool {
 	admin := testdb.Admin(t)
 	ctx := context.Background()
 
+	// WITH (FORCE) on the way in as well as on the way out.
+	//
+	// The cleanup below has always used it; this one did not, and the
+	// asymmetry is what broke:
+	//
+	//	DROP DATABASE IF EXISTS ca_ratio_kotucul: ERROR: database
+	//	"ca_ratio_kotucul" is being accessed by other users (SQLSTATE 55006)
+	//
+	// A scratch database left behind by a run that died, or one an idle
+	// backend is still attached to, makes the *next* run fail in its
+	// fixture - before the test it belongs to has asserted anything. The
+	// cleanup already knew that. Setting up is the same problem read
+	// from the other end.
 	for _, sql := range []string{
-		`DROP DATABASE IF EXISTS ` + name,
+		`DROP DATABASE IF EXISTS ` + name + ` WITH (FORCE)`,
 		`CREATE DATABASE ` + name,
 	} {
 		if _, err := admin.Exec(ctx, sql); err != nil {

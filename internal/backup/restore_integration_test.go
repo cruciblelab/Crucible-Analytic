@@ -70,7 +70,7 @@ func sideDatabase(t *testing.T, name string) *pgxpool.Pool {
 			name); err != nil {
 			t.Logf("terminating connections to %s: %v", name, err)
 		}
-		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name); err != nil {
+		if _, err := admin.Exec(ctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`); err != nil {
 			t.Errorf("dropping %s: %v", name, err)
 		}
 	}
@@ -508,9 +508,28 @@ func TestARestoreWithNoSchemaIsRefusedBeforeAnythingIsTouched(t *testing.T) {
 //
 // *Sessiz bir veritabanında alınan yedek, meşgul bir veritabanında
 // alınabileceğini söylemez.*
+// # And why it takes the accounts lock
+//
+// The writer below creates real accounts on the shared database, which
+// makes this the third package to write panel_users - and the only one
+// that was not taking the lock that guards how many of them exist.
+//
+// Two of this product's behaviours are decided by that count being
+// zero: the first-run page, and whether a developer access link
+// auto-approves. Both are asserted by suites in internal/panel and
+// internal/panel/web, which take turns with each other and had no way
+// to know about a third writer.
+//
+// It cost a red main on 2026-09-07:
+//
+//	--- FAIL: TestStore_RealDB_BootstrapLinkDiesWhenAnAccountAppears
+//	    expected an auto-approved request, got {... AutoApproved:false}
+//
+// - a test in another package, failing on a row this one wrote.
 func TestABackupTakenWhileTheDatabaseIsBeingWrittenStillRestores(t *testing.T) {
 	asks, answers := backupQueue(t)
 	ctx := context.Background()
+	testdb.Lock(t, answers, testdb.AccountsLock)
 	target := sideDatabase(t, "ca_restore_busy_test")
 
 	const prefix = "yazarken-"

@@ -52,7 +52,7 @@ func newTestStore(t *testing.T, ns string) *Store {
 		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(store.Close)
-	lockPanelDatabase(t, store.Pool())
+	testdb.Lock(t, store.Pool(), testdb.AccountsLock)
 
 	// Cleared through the schema's owner, not the panel's own pool.
 	//
