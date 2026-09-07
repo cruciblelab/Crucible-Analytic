@@ -123,6 +123,35 @@ ne taşıyacağına karar veriyor, eskilerin ne taşıdığına değil.
 
 **Kuran kişinin yapması gereken:** bir şey yok.
 
+### Düzeltme: konteynerle kurulum ilk koşuda duruyordu
+
+`docker compose up -d` diyen bir kurulumda `init` konteyneri 1 ile
+çıkıyor, dolayısıyla dört servisin hiçbiri başlamıyordu. **v0.21.0 ve
+v0.22.0 bu kusuru taşıyor.**
+
+Sebep kurulum betiğinin ikilileri yerleştirme adımı. İmajda ikililer
+zaten `/opt/crucible-analytic/bin` içinde ve betik onları oradan alıp
+oraya kopyalamaya çalışıyordu — yani kendi üstlerine. İmajın içinde bu
+yalnız gereksiz değil, izinle de mümkün değil: o dizin imaja root'un
+olarak gömülü ve init konteyneri ayrı bir hesapla koşuyor, ki güvenlik
+için doğrusu bu.
+
+Artık kaynak ile hedef aynı dizinse adım kopyalamıyor, "zaten yerinde"
+diyor ve geçiyor. Ayrı dizinlerse hiçbir şey değişmedi: yeni sürüme
+geçerken ikililer eskisiyle değiştirilmeye devam ediyor.
+
+Yanında iki şey daha: hedef dizin yazılamıyorsa kurulum ilk dosyayı
+taşımadan önce, ne olduğunu söyleyen bir cümleyle duruyor; ve
+konteyner sınaması bir servis düştüğünde artık o servisin kendi
+çıktısını basıyor. İkincisi bu kusurun üç gece boyunca teşhis
+edilememesinin sebebiydi.
+
+**Kuran kişinin yapması gereken:** konteyner yolunu kullanıyor ve
+kurulum `init` konteynerinde durduysa, bu sürüme geçip
+`docker compose up -d` komutunu tekrar verin. Veritabanına hiçbir şey
+yazılmamıştı; baştan kurulum gibi çalışır. Elle kurulum yapanları
+etkilemiyor.
+
 ### Düzeltme: kullanımdayken alınan bir yedek geri yüklenemeyebiliyordu
 
 Yedek alınırken her tablo ayrı bir veritabanı bağlantısından

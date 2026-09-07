@@ -198,6 +198,26 @@ install as the owner of ${_dir}, or set the mode yourself and run it again."
   done
 }
 
+# same_dir <a> <b> is true when two paths name one directory, however
+# they are spelled.
+#
+# Spelling is the whole point. A container's init reaches this script at
+# /opt/crucible-analytic/release/install.sh, so ROOT is the prefix and
+# BIN_DIR defaults to ${ROOT}/bin - which is the very directory the
+# binaries step copies *into*. Two different strings, one directory, and
+# nothing to do.
+#
+# `cd` and `pwd -P` rather than string comparison: a/bin, a/release/../bin
+# and a symlink to a/bin are the same place and only one of the three
+# looks like it. A path that cannot be entered is not the same as
+# anything, so the caller goes on to the ordinary copy and fails there
+# with its own message.
+same_dir() {
+  _a="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  _b="$(cd "$2" 2>/dev/null && pwd -P)" || return 1
+  [ -n "${_a}" ] && [ "${_a}" = "${_b}" ]
+}
+
 psql_super() {
   if [ -n "${SUPERUSER_DSN}" ]; then
     ${PSQL} "${SUPERUSER_DSN}" "$@"
@@ -1152,11 +1172,71 @@ fi
 # Nothing is restarted here. Replacing a binary under a running service
 # and restarting it are two decisions, and the second one belongs to
 # whoever knows what else is happening on that machine.
+#
+# # And the case where there is nothing to copy
+#
+# An image bakes the binaries in. The init container then runs this
+# script from inside that image, so the place it reads from and the
+# place it writes to are one directory - and the copy is not merely
+# redundant, it cannot be done: /opt/crucible-analytic is root-owned in
+# the image and the init runs as `crucible`, which is the right way
+# round.
+#
+# That is what has been ending the nightly container run. The first
+# spelling of it stopped at a chmod, which ensure_mode now steps over;
+# what was left underneath was `install` writing its temporary file into
+# a directory this account does not own:
+#
+#   install: cannot create regular file
+#            '/opt/crucible-analytic/bin/.analytics-api.new.7': Permission denied
+#
+# Reproduced outside Docker, against a real database, with the image's
+# directory layout and a non-root account, which is also how the message
+# above was read at all - `docker compose logs` had been printing the
+# database's forty lines instead.
 say "binaries"
 if [ "${DRY_RUN}" -eq 0 ]; then
-  if [ -d "${BIN_DIR}" ]; then
+  if [ ! -d "${BIN_DIR}" ]; then
+    # Not a failure. Somebody running this from a source checkout has no
+    # bin/ yet, and the message names the one command that makes one -
+    # because "no binaries" with no instruction is how a person ends up
+    # at systemctl with nothing to run.
+    say "   no ${BIN_DIR} here; build first:"
+    say "     VERSION=\$(git describe --tags --always) ./release/build.sh"
+    say "   or unpack a release package, which carries bin/ already"
+  elif same_dir "${BIN_DIR}" "${PREFIX}/bin"; then
+    # Said out loud rather than passed over in silence. "binaries" with
+    # no line under it reads like a step that did nothing, and the
+    # question this answers - are the executables where the units look
+    # for them - has the answer yes.
+    say "   already at ${PREFIX}/bin; nothing to copy"
+  else
     mkdir -p "${PREFIX}/bin"
     ensure_mode 0755 "${PREFIX}" "${PREFIX}/bin"
+    # Probed, not deduced from the mode.
+    #
+    # ensure_mode has just satisfied itself that the directory is 0755,
+    # and 0755 says nothing about whether *this* account may write to
+    # it: that depends on who owns it, and the whole failure above
+    # happened underneath a mode that was already correct. So the
+    # question is asked the only way that answers it, and asked before
+    # the first binary is moved rather than half way through.
+    probe="${PREFIX}/bin/.write-probe.$$"
+    # 2>/dev/null before the redirection it silences, not after.
+    # Redirections are applied left to right, so `: >f 2>/dev/null`
+    # fails on `>f` while stderr is still the terminal and bash prints
+    # its own "Permission denied" above the sentence written to explain
+    # it. Measured, in exactly this branch.
+    if ! : 2>/dev/null >"${probe}"; then
+      die "${PREFIX}/bin cannot be written to by $(id -un).
+    The binaries are read from ${BIN_DIR} and copied there, and every
+    service unit runs one out of it, so an install that carried on here
+    would finish and leave four services with nothing to start.
+    Either run this as the owner of that directory, or - if the
+    binaries are already in place - point --bin-dir at it, which is
+    the case this step skips."
+    fi
+    rm -f "${probe}"
     installed_any=0
     for src in "${BIN_DIR}"/*; do
       [ -f "${src}" ] || continue
@@ -1170,14 +1250,6 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     if [ "${installed_any}" -eq 0 ]; then
       say "   ${BIN_DIR} is empty; nothing to install"
     fi
-  else
-    # Not a failure. Somebody running this from a source checkout has no
-    # bin/ yet, and the message names the one command that makes one -
-    # because "no binaries" with no instruction is how a person ends up
-    # at systemctl with nothing to run.
-    say "   no ${BIN_DIR} here; build first:"
-    say "     VERSION=\$(git describe --tags --always) ./release/build.sh"
-    say "   or unpack a release package, which carries bin/ already"
   fi
 else
   say "   dry run: would install ${BIN_DIR}/* into ${PREFIX}/bin"

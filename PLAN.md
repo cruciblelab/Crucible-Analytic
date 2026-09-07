@@ -92,7 +92,7 @@ gerekçe değil bahane olur.
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **1/3** | F1 yedekleme, F3 filo — bilerek sonraya |
-| **N** Kurulumun ikinci yolu | ✅ **7/7** | — |
+| **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
@@ -4375,6 +4375,7 @@ bir yerde geçerli olmayan şeyleri iddia etti.
 | **N5** | Konteynerin şema listesi altıda kalmıştı | gecelik #4; listenin kısalığı, yanlışlığı değil |
 | **N6** | `/var/lib` bölünmesi + yanlış teşhis koyan mesaj | N1'in aynısı bir dizin ötede |
 | **N7** | Konteyner sınaması panoyu tek seferde okuyordu | gecelik #5; ikinci kardeş, birincinin öğrendiğini devralmadı |
+| **N8** | Kurulum ikilileri kendi üstlerine kopyalıyordu | gecelik #11–#13; ilk düşen çağrı, düşen adım değildi |
 
 ---
 
@@ -4751,6 +4752,52 @@ tahminidir.*
 tutuyor: türetilen taraf kaynaktan okunuyor, elle taraf her dosya için
 neden güvenli olduğunu yazıyor, ve biri diğeri olmadan kımıldarsa
 kırmızı. Üç mutasyonla sınandı.
+
+---
+
+#### N8 — Kurulum ikilileri kendi üstlerine kopyalıyordu ✅ **yapıldı** *(2026-09-07)*
+
+**Ne:** `install.sh`'ın "binaries" adımı `${BIN_DIR}` içeriğini
+`${PREFIX}/bin`'e kopyalıyor. Konteynerde ikisi **aynı dizin**: betik
+`/opt/crucible-analytic/release/` içinden koşuyor, `ROOT` önek oluyor,
+`BIN_DIR` varsayılanı `${ROOT}/bin`. Adım her ikiliyi kendi üstüne
+kopyalamaya çalışıyordu — imajda root'un olan bir dizine, root olmayan
+bir hesapla, yani hiç olamayacak bir yazma.
+
+**Neden N grubuna giriyor:** aynı desen. Gecelik kırmızı verdi, ilk
+düşen çağrı (`chmod`) düzeltildi, ve **düzeltme doğru olduğu hâlde
+gecelik yine kırmızı yandı** — çünkü düzeltilen şey adımın kendisi
+değil, adımın ilk düşen satırıydı.
+
+| Gecelik | Commit | Arkasından çıkan |
+|---|---|---|
+| #11 (09-04) | `0bd2207` | iş yapmayan `chmod` |
+| #12 (09-05) | `756fa3e` | aynısı (düzeltme 51 dakika sonra girdi) |
+| #13 (09-06) | `f96a1fa` | **N8** — kopyalamanın kendisi |
+
+**Üç gece boyunca teşhis edilememesinin sebebi ayrı bir kusurdu.**
+`composeUp` düşen servisin kendi çıktısını basmıyordu: her servisin son
+iki yüz satırını basan iyi bir döküm vardı ve `up` çağrısının *altında*
+duruyordu. `up` düşen adım, `t.Fatalf` fonksiyonu bitiriyor, ve altındaki
+`t.Cleanup` hiç kaydedilmiyor. Geriye kalan satır içi döküm bütün
+servislerin çıktısını birleştirip son kırk satırı alıyordu, ve o yığında
+en konuşkan konteyner veritabanı.
+
+*Bir teşhis, ona ulaşamayan bir yol için yok demektir.*
+
+**Kim etkileniyor:** `docker compose up -d` diyen herkes. Yalnız CI
+değil: **v0.21.0 ve v0.22.0 kırık konteyner kurulumuyla yayımlandı.**
+
+**Bitti ölçütü:** kaynak ile hedef aynı dizinken kurulum 0 ile bitiyor ve
+ikilileri **değiştirmiyor** (`os.SameFile`); ayrı dizinlerken hâlâ
+değiştiriyor — ikinci yarısı olmadan mutasyon ilk yarıdan geçiyor, ve
+o mutasyonun ürettiği şey sessizce eski sürümde kalan bir yükseltme.
+Ayrıca konteyner sınamasının log dökümü `up`'tan önce kaydedilmiş
+olmalı; bunu bir yapısal değişmez sözdizim ağacından okuyor.
+
+**Açık kalan:** bu makinede Docker yok. Kurulum imajın dizin düzeniyle ve
+imajın hesabıyla birebir üretilip düzeltildi, ama `docker compose up`'ın
+tamamı bir sonraki gecelik koşuya kadar doğrulanmamış.
 
 ---
 

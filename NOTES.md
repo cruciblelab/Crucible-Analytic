@@ -13096,3 +13096,180 @@ densin, `crucible` fonksiyon olmaktan çıksın, depolama okuması korumasız
 olsun — yedisi de yakalandı.
 
 *Bir ayarın var olması, ziyaretçinin ona ulaşabildiği anlamına gelmez.*
+
+---
+
+## Gecelik üçüncü gece de kırmızı: chmod'un altında duran şey
+
+İki gece önce aynı işi düzelttim ve düzelttiğim şey doğruydu. Gecelik
+yine kırmızı yandı.
+
+| Gecelik | Commit | Sonuç |
+|---|---|---|
+| #10 (09-03) | `de19649` | yeşil |
+| #11 (09-04) | `0bd2207` | kırmızı — chmod |
+| #12 (09-05) | `756fa3e` | kırmızı — chmod |
+| #13 (09-06) | `f96a1fa` | kırmızı — **başka bir şey** |
+
+`b92a8bb` (chmod düzeltmesi) 5 Eylül 08:29'da girdi; #12 07:38'de koştu,
+yani onu görmedi. #13 gördü ve yine düştü.
+
+Düzelttiğim şey, **ilk düşen çağrıydı**. Düşen adım değildi.
+
+### Kusur
+
+`install.sh`'ın "binaries" adımı `${BIN_DIR}` içindekileri
+`${PREFIX}/bin`'e kopyalıyor. Konteynerde:
+
+```
+HERE    = /opt/crucible-analytic/release      (betiğin yeri)
+ROOT    = /opt/crucible-analytic
+BIN_DIR = ${ROOT}/bin                          (varsayılan)
+PREFIX  = /opt/crucible-analytic               (entrypoint veriyor)
+```
+
+`BIN_DIR` ile `${PREFIX}/bin` **aynı dizin**. İki farklı katar, tek yer.
+Adım her ikiliyi kendi üstüne kopyalıyordu: yanına geçici bir dosya, sonra
+rename. İmajın içinde bu yalnız gereksiz değil, **imkânsız** —
+`/opt/crucible-analytic` imaja root'un olarak gömülü ve init konteyneri
+`crucible` olarak koşuyor, ki doğrusu bu.
+
+```
+install: cannot create regular file
+         '/opt/crucible-analytic/bin/.analytics-api.new.7': Permission denied
+```
+
+chmod da aynı sebepten düşüyordu. `ensure_mode` onu adımladı; altındaki
+`install` çağrısı olduğu yerde kaldı.
+
+*Bir belirtiyi düzeltmek, onu üreten adımı düzeltmez.*
+
+### Üç gecedir görünmeyen tanı
+
+Rapor her gece şunu diyordu:
+
+```
+docker_test.go:73: docker compose up failed: exit status 1
+Container ca-e2e-init-1  service "init" didn't complete successfully: exit 1
+--- logs ---
+db-1    | wal_buffers = 16MB
+db-1    | min_wal_size = 512MB
+...
+```
+
+Kırk satırın kırkı da veritabanının açılış gürültüsü. Init'in kendi
+cümlesi bir kez bile görünmedi.
+
+Sebebi `--tail` değil. `docker compose logs --tail 40` servis **başına**
+kırk satır verir; kesen şey Go tarafındaki `lastLines(details, 40)` —
+bütün servislerin çıktısını birleştirip son kırk satırı alıyor, ve bu
+yığında en konuşkan konteyner veritabanı.
+
+Asıl olan ikinci yarısı. İyi bir döküm zaten vardı: her servisin son iki
+yüz satırını basan bir `t.Cleanup`, daha önce altmışın yetmediği bir
+geceden sonra yazılmış. `up` çağrısının **altında** duruyordu. `up`
+düşen adım, `t.Fatalf` fonksiyonu bitiriyor, ve altındaki `t.Cleanup`
+**hiç kaydedilmiyor** — çalışıp atlanmıyor, kaydedilmiyor. Yani iyi
+teşhis üç gece boyunca oradaydı ve ona ulaşan yol yoktu.
+
+*Bir teşhis, ona ulaşamayan bir yol için yok demektir.*
+
+### Yerelde, bu sefer kurulumun tamamı
+
+Önceki gece `chmod`'u tek başına ürettim; o yüzden altındaki `install`
+çağrısını göremedim. Bu sefer düzenek imajın kendisi kadar yakın:
+
+- `/opt/crucible-analytic` root'un, imajın dizin düzeniyle (bin, schema,
+  release, ornek-yapilandirma, entrypoint.sh)
+- `crucible` sistem hesabı, `/etc/crucible-analytic` 0750 onun
+- gerçek PostgreSQL 16 + TimescaleDB 2.17.2
+- alpine'da `/etc/systemd/system` olmadığı için `SYSTEMD_DIR` var olmayan
+  bir yola konuldu — betiğin gördüğü durum birebir aynı
+- ve çalıştırılan şey `docker/entrypoint.sh init`'in kendisi
+
+Kırmızı birebir çıktı. Düzeltmeden sonra iki koşu da 0 ile bitti, beş
+yapılandırma dosyası yazıldı, `site_id`, `backend_addr`, `0.0.0.0` bağı
+ve `analytics_api_url` hepsi yerine oturdu.
+
+### Düzeltme
+
+**`same_dir`** — kaynak ile hedef aynı dizinse kopyalama yok. Karşılaştırma
+katar üzerinden değil, `cd` + `pwd -P` ile: `a/bin`, `a/release/../bin` ve
+`a/bin`'e bir sembolik bağ aynı yer, ve üçünden yalnız biri öyle görünüyor.
+
+**Yazma yoklaması** — ayrı dizinlerde, ilk ikiliyi taşımadan önce hedefe
+bir dosya açmayı deniyor. `ensure_mode` kipin 0755 olduğunu doğrulamış
+olabilir ve 0755 bu hesabın yazabildiğini söylemez; kusurun tamamı zaten
+doğru bir kipin altında oldu. Düşerse coreutils'in cümlesi yerine ne
+olduğunu söyleyen bir cümle veriyor, ve **hiçbir ikili taşınmadan** önce
+düşüyor.
+
+**Döküm yukarı taşındı** — `t.Cleanup` artık `up`'tan önce kaydediliyor,
+`down`'dan sonra (temizlikler ters sırayla koşar, yani döküm önce). `up`
+düştüğünde satır içi kısaltılmış kopya yok; tam döküm zaten basılıyor.
+
+**`TestTheComposeLogDumpIsRegisteredBeforeTheStackStarts`** — sözdizim
+ağacından okuyor: compose projesini başlatan her fonksiyonda log dökümü
+`up`'tan önce kaydedilmiş olmalı. İki taraf da kaynaktan türetiliyor —
+fonksiyonlar `up` çağrısıyla bulunuyor, döküm de çalıştırdığı `logs`
+komutuyla, adıyla ya da yorumuyla değil.
+
+### Testin ilk hâli yarımdı, ve mutasyon bunu söyledi
+
+`TestTheBinariesStepKnowsWhenThereIsNothingToCopy` önce tek durumluydu:
+aynı dizin, ve dosyaların inode'u değişmemeli. `os.SameFile`, iznin yalnız
+vekili olduğu soruyu doğrudan soruyor — bu dosyalar değiştirildi mi.
+(İznin kendisiyle sınanamıyor: bu süit geliştirici makinesinde root
+koşuyor, root 0555 bir dizine yazar, kipi düşürürsen de betiğin kendi
+`ensure_mode`'u onu geri koyar — haklı olarak, çünkü dizinin sahibi
+çağıran.)
+
+Sonra `same_dir` hep "evet" desin diye mutasyon uyguladım ve test **yeşil
+kaldı**. Çünkü o test hiçbir zaman kopyalama istemiyor.
+
+Oysa o mutasyonun ürettiği kurulum çok daha kötüsü: bu betiğin her ikinci
+koşusu birinin yeni sürüme geçmesidir, ve "yapacak iş yok" diyen bir adım
+başarı bildirir, hiçbir şeyi yeniden başlatmaz, ve eski ikilileri olduğu
+yerde bırakır. İkinci durum eklendi: iki gerçek dizin, birinde yeni
+baytlar, ötekinde eski, ve sonunda eskisinin kalmamış olması şartı.
+
+*Bir kısayolun doğru olduğunu, yalnızca kısayolun alındığı durumu
+sınayarak gösteremezsiniz.*
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| Log dökümü tekrar `up`'ın altına insin | Yakalandı (değişmez, konumu adlandırarak) |
+| Log dökümü tamamen silinsin | Yakalandı (değişmez, "hiç kaydetmiyor") |
+| `same_dir` dalı hiç çalışmasın | Yakalandı (inode değişti) |
+| `same_dir` her iki dizin için evet desin | **İlk hâlinde hayatta kaldı**, ikinci durum eklendi, yakalandı |
+| Yazma yoklaması kaldırılsın | **Hayatta kaldı** — aşağıya bakınız |
+
+Beşincisi bilerek açık bırakıldı. Yoklamanın satın aldığı şey davranış
+değil cümle: hedef yazılamazken kurulum ikisinde de duruyor, biri
+coreutils'in mesajıyla, öteki ne olduğunu söyleyerek. Onu otomatik
+sınamak hedefin **başkasının** olmasını ister, yani iki hesap ve root —
+ve CI root değil, geliştirici makinesi ise root olduğu için izni umursamaz.
+Elle ölçüldü: `crucible` hesabıyla, root'un olan bir hedefe karşı, doğru
+cümle çıktı. Yazıya geçiyor ki "sınandı" sanılmasın.
+
+### Ölçüm ve sınır
+
+`./release/gate.sh --all` yeşil: `go test -race ./...`, `-tags release`
+(94 sn, gerçek install.sh'ı on kez koşuyor), `-tags integration` gerçek
+TimescaleDB'de.
+
+**Sınır, ve açıkça:** bu makinede Docker yok. Konteyner yarısı yerel
+olarak koşturulamıyor. Kurulumun kendisi imajın düzeniyle ve imajın
+hesabıyla birebir üretildi ve düzeltildi; `docker compose up`'ın tamamı
+bir sonraki gecelik koşuya kadar doğrulanmamış kalıyor.
+
+### Yayımlanmış hâli
+
+`a19ba7f` her iki kusuru da taşıyordu ve **v0.21.0 ile v0.22.0'ın
+içinde**. Yani yayımlanmış iki sürümde konteyner kurulumu ilk koşuda
+1 ile duruyor. `docker compose up -d` diyen bir müşteri init konteynerinin
+başarısız olduğunu görür ve dört servis hiç başlamaz.
+
+*Bir kırmızının altındaki ilk kusur, tek kusur değildir.*

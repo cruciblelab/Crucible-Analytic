@@ -230,30 +230,51 @@ func composeUp(t *testing.T, root, envFile string, panelPort int) stack {
 	down() // in case a previous run died before its own cleanup
 	t.Cleanup(down)
 
-	if out, err := s.command("up", "-d", "--wait").CombinedOutput(); err != nil {
-		details, _ := s.command("logs", "--tail", "40").CombinedOutput()
-		t.Fatalf("docker compose up failed: %v\n%s\n--- logs ---\n%s",
-			err, lastLines(string(out), 20), lastLines(string(details), 40))
-	}
-
+	// Registered before anything can fail, which is the whole point.
+	//
+	// This used to sit below the `up` call, and `up` is the step that
+	// actually fails: three nightly runs died there, and every one of
+	// them reported the failure through a smaller inline dump instead,
+	// because t.Fatalf ends the function and a t.Cleanup below it is
+	// never registered at all. The better diagnostic existed the whole
+	// time and the failing path could not reach it.
+	//
+	// What the inline dump showed was forty lines chosen by
+	// lastLines - the last forty of every service's output run
+	// together - and the database is by far the chattiest container
+	// here, so all forty were TimescaleDB's start-up chatter. The init
+	// container's own message, which named the fault in one sentence,
+	// was above the cut on all three nights.
+	//
+	// Cleanups run last-registered-first, so this is registered after
+	// `down` and therefore runs before it: reading the logs of a project
+	// that has already been torn down returns nothing.
+	//
+	// Deep enough that the poll cannot bury what went wrong. --tail is
+	// per service, so the collector's handful of lines were never at
+	// risk. The panel's were: reading the dashboard is a poll, up to
+	// sixty requests, and the panel logs every one of them. Measured on
+	// a deliberately broken run at --tail 60 - all sixty of the panel's
+	// surviving lines were this test's own traffic, and everything it
+	// had said at startup was gone.
+	//
+	// Only ever printed on a failure, so the cost of the larger number
+	// is paid exactly when the detail is wanted.
 	t.Cleanup(func() {
 		if !t.Failed() {
 			return
 		}
-		// Deep enough that the poll cannot bury what went wrong.
-		//
-		// --tail is per service, so the collector's handful of lines were
-		// never at risk. The panel's were: reading the dashboard is now a
-		// poll, up to sixty requests, and the panel logs every one of
-		// them. Measured on a deliberately broken run at --tail 60 - all
-		// sixty of the panel's surviving lines were this test's own
-		// traffic, and everything it had said at startup was gone.
-		//
-		// Only ever printed on a failure, so the cost of the larger
-		// number is paid exactly when the detail is wanted.
 		out, _ := s.command("logs", "--tail", "200").CombinedOutput()
 		t.Logf("--- compose logs ---\n%s", out)
 	})
+
+	if out, err := s.command("up", "-d", "--wait").CombinedOutput(); err != nil {
+		// No logs here. The cleanup above prints them in full, and a
+		// second truncated copy beside it is what taught three nights of
+		// readers that the full one did not exist.
+		t.Fatalf("docker compose up failed: %v\n%s", err, lastLines(string(out), 20))
+	}
+
 	return s
 }
 

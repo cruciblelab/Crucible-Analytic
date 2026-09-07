@@ -2328,6 +2328,186 @@ func TestEveryUnitRunsSomethingTheInstallerPutsThere(t *testing.T) {
 	}
 }
 
+// TestTheBinariesStepKnowsWhenThereIsNothingToCopy.
+//
+// # The arrangement that broke the nightly for three nights
+//
+// An image bakes the binaries in at /opt/crucible-analytic/bin and the
+// init container runs this script out of that same image. HERE is then
+// /opt/crucible-analytic/release, so ROOT is the prefix and BIN_DIR
+// defaults to ${ROOT}/bin - the very directory the binaries step writes
+// into. Source and destination are one place, spelled two ways.
+//
+// The step copied anyway: a temporary file beside each binary, then a
+// rename over it. Inside the image that cannot be done at all -
+// /opt/crucible-analytic is root-owned and the init runs as `crucible`,
+// which is the right way round - so every nightly container run ended
+// with
+//
+//	install: cannot create regular file
+//	         '/opt/crucible-analytic/bin/.analytics-api.new.7': Permission denied
+//
+// # Why this test cannot use the permission and uses identity instead
+//
+// The obvious test - make the directory unwritable and require the
+// install to survive - cannot be written here. This suite runs as root
+// on a developer's machine, and root writes into a 0555 directory; drop
+// the mode instead of the ownership and the script's own ensure_mode
+// puts it back, correctly, because the caller owns it.
+//
+// So what is measured is identity. os.SameFile answers the question the
+// permission was only a proxy for: were these files replaced. A step
+// that copies each binary onto itself leaves a new inode at every path,
+// and one that recognises it has nothing to do leaves the inode it
+// found. The second is what the container needs and the first is what
+// it cannot have.
+//
+// *Kopyalanacak bir şey olmadığını fark etmek, kopyalamayı denemekten
+// başka bir şeydir.*
+//
+// # Both directions, because only one of them is the harmless one
+//
+// The first version of this test had the same-directory case alone, and
+// a mutation walked straight through it: make the comparison answer yes
+// for any two directories at all, and the test stayed green - it never
+// asks the installer to copy anything. What that mutation produces is
+// the far worse deployment. Every re-run of this script is somebody
+// moving to a new version, and a binaries step that decides there is
+// nothing to do would report success, restart nothing, and leave the
+// old executables exactly where they were.
+//
+// So the second case is an ordinary upgrade: two real directories, new
+// bytes in one, old bytes in the other, and the requirement that the
+// old ones are gone afterwards.
+//
+// *Bir kısayolun doğru olduğunu, yalnızca kısayolun alındığı durumu
+// sınayarak gösteremezsiniz.*
+func TestTheBinariesStepKnowsWhenThereIsNothingToCopy(t *testing.T) {
+	root := repoRoot(t)
+	names := []string{"collector", "panel"}
+
+	// runInstallWith runs the script with one bin dir and one prefix.
+	runInstallWith := func(t *testing.T, db, binDir, prefix string) {
+		t.Helper()
+		scratchDatabase(t, db)
+		cmd := exec.Command("./release/install.sh", "--no-systemd",
+			"--bin-dir", binDir, "--prefix", prefix)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(),
+			"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+			"DB_NAME="+db,
+			"CONF_DIR="+t.TempDir(),
+			"PREFIX="+prefix,
+			"LOG_DIR="+t.TempDir(),
+			"STATE_DIR="+t.TempDir(),
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("install.sh --bin-dir %s --prefix %s: %v\n%s", binDir, prefix, err, out)
+		}
+	}
+
+	// noLeftovers fails on a half-written copy. The step names its
+	// temporary file .<binary>.new.<pid>, so one surviving is a copy that
+	// started and did not finish - which is also how the destination ends
+	// up holding a file no unit will ever run.
+	noLeftovers := func(t *testing.T, dir string) {
+		t.Helper()
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), ".") {
+				t.Errorf("install.sh left %s behind in %s", e.Name(), dir)
+			}
+		}
+	}
+
+	t.Run("the source is the destination", func(t *testing.T) {
+		prefix := t.TempDir()
+		binDir := filepath.Join(prefix, "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		before := map[string]os.FileInfo{}
+		for _, name := range names {
+			path := filepath.Join(binDir, name)
+			if err := os.WriteFile(path, []byte("#!/bin/sh\necho stub\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before[name] = info
+		}
+
+		// --bin-dir pointed at the prefix's own bin, which is what the
+		// image arrives at by default rather than by being told.
+		runInstallWith(t, "ca_install_binaries_in_place_test", binDir, prefix)
+
+		for _, name := range names {
+			path := filepath.Join(binDir, name)
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Errorf("install.sh finished and %s is gone: %v", path, err)
+				continue
+			}
+			if !os.SameFile(before[name], after) {
+				t.Errorf("%s was replaced by an install that had nothing to copy it from - "+
+					"the source directory is this directory.\nInside the image that write "+
+					"cannot happen at all, and the init container exits 1 on it", path)
+			}
+			if after.Mode().Perm()&0o111 == 0 {
+				t.Errorf("%s is mode %v, which systemd cannot execute", path, after.Mode().Perm())
+			}
+		}
+		noLeftovers(t, binDir)
+	})
+
+	t.Run("a second run replaces what is there", func(t *testing.T) {
+		prefix := t.TempDir()
+		dest := filepath.Join(prefix, "bin")
+		source := t.TempDir()
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		// The destination is already populated, which is what makes this
+		// an upgrade rather than a first install - and what a
+		// too-eager "nothing to copy" would silently preserve.
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(dest, name),
+				[]byte("#!/bin/sh\necho old\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, name),
+				[]byte("#!/bin/sh\necho new\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		runInstallWith(t, "ca_install_binaries_upgrade_test", source, prefix)
+
+		for _, name := range names {
+			path := filepath.Join(dest, name)
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Errorf("install.sh finished and %s is gone: %v", path, err)
+				continue
+			}
+			if !strings.Contains(string(body), "echo new") {
+				t.Errorf("%s still holds the previous version after an install that had "+
+					"a new one to give it.\nThis is how a version upgrade reports success, "+
+					"restarts nothing, and leaves the old binaries running: %q",
+					path, string(body))
+			}
+		}
+		noLeftovers(t, dest)
+	})
+}
+
 // TestInstallingFromAPackageWritesEverythingAPackageCarries.
 //
 // # The layout nothing ran against
