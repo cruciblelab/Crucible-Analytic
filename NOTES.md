@@ -13660,3 +13660,74 @@ PLAN'da F1j olarak duruyor, üç yolun maliyetiyle birlikte.
 
 *Bir dosyada duran ayarı, o dosyayı okuyamayan bir sayfaya söyletmenin
 bedeli, ayarın kendisinden büyük olabilir.*
+
+---
+
+## Aynı commit, iki koşu: biri yeşil biri kırmızı
+
+Müşteri yine "run failed" dedi. `main` yeşildi, **dal kırmızıydı — aynı
+SHA ile.** Yani ağaçta bir kusur yok, koşuda bir şey var.
+
+Düşen: `TestNoServiceStopsWhileTheSchemaIsApplied`. Bu testi oturumun
+başında "yük duyarlı, CI'da hiç düşmedi" diye dürüstçe bildirmiştim. CI'da
+düştü.
+
+### Düşme sebebi gecikme değil, kendi taban kontrolü
+
+```
+collector insert    43 queries (20 during) | worst at rest 280.9ms
+beacon insert       42 queries (20 during) | worst at rest 280.7ms
+api read         25967 queries            | worst at rest  15.9ms
+panel read       33188 queries            | worst at rest  11.3ms
+
+collector insert ran 43 queries in total, which is too few to have
+measured anything (floor 100)
+```
+
+Taban kontrolü tam olarak işini yaptı: gecikmeyi göremeyecek kadar küçük
+bir örneklemden "servis kesilmedi" sonucu çıkarmayı reddetti.
+
+### Sebep testin kendi yükü
+
+Dört saniyede elli dokuz bin okuma, servis konteynerini alıyor; iki yazar
+aralarında kırk üç sorgu yapabiliyor.
+
+Neden geliştirici makinesinde görünmüyor: o iki okuma orada **bedava
+değil.** Aylardır biriken satırlar onları bir insert'ten pahalı yapıyor,
+yani kendi kendilerini duraklatıyorlar. CI'ın veritabanı boş, okumalar
+neredeyse bedava, ve duraksız döngü makineyi tüketiyor.
+
+### Gerekçe doğruydu, uygulandığı yer yanlıştı
+
+Dosyada yazılıydı: *"Zero for the four that model a firehose, because that
+is what they are: a collector and a beacon really do write continuously."*
+
+Bu cümle doğru — ve **yazarlar hakkında.** İki okuyucuya gerekçesiz
+genişletilmiş: bir okuma API'si istek cevaplar, ve hiçbir kurulum saniyede
+sekiz bin pano okuması yapmaz.
+
+İki okuyucuya 5 ms duraklama kondu. Ölçüldü, beş koşu:
+
+| sonda | önce | sonra |
+|---|---|---|
+| collector insert | 1.980–2.705 | 2.852–3.482 |
+| beacon insert | 1.826–2.439 | 2.721–3.300 |
+| api read | 839–1.965 | 159–224 |
+| panel read | 13.687–14.275 | 282–301 |
+
+Yazarlar %40 arttı, okuyucular elli kat azaldı, hepsi tabanın üstünde.
+`panel read` her iki yerde de aynı davranıyor (`count(*) FROM
+panel_users`, boş da olsa dolu da olsa ucuz) — yani CI'da 33 bin yapan
+sonda, yerelde 14 binden 285'e indi. Ölçülen tam olarak o.
+
+### Ve bir cümle artık yanlıştı
+
+Sıfır örtüşme hatası şöyle diyordu: *"It loops without pause, so that
+cannot happen while it is running."* Duraklatılmış bir sonda için bu doğru
+değil — kısa bir pencereyi aritmetikle kaçırabilir. Mesaj ikiye ayrıldı;
+duraklatılmış sondanınki penceresini ve kendi duraklamasını yazıyor.
+
+Bir hatayı artık doğru olmayan bir gerekçeyle açıklayan mesaj, okuyanı
+olmayan bir arızayı aramaya gönderir.
+
+*Ölçtüğü şeyi aç bırakan bir yük üreteci, kendi yükünü ölçüyordur.*

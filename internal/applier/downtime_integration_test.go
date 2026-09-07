@@ -239,9 +239,13 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 	load := []struct {
 		name string
 		role string
-		// pause between this probe's queries. Zero for the four that
-		// model a firehose, because that is what they are: a collector
-		// and a beacon really do write continuously.
+		// pause between this probe's queries. Zero for the two writers
+		// that model a firehose, because that is what they are: a
+		// collector and a beacon really do write continuously.
+		//
+		// It was zero for the two readers as well, and that was this
+		// sentence being applied to probes it was not about - see the
+		// api read probe for what it cost.
 		pause time.Duration
 		run   func(context.Context, *pgxpool.Pool) error
 	}{
@@ -274,6 +278,34 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 		{
 			name: "api read",
 			role: testdb.Reader,
+			// Paced, and the reason is the same finding as the panel
+			// write probe below arrived at from the other direction.
+			//
+			// The comment above says zero pause models a firehose,
+			// "because that is what they are: a collector and a beacon
+			// really do write continuously". That argument is true and
+			// it is about *writers*. It was extended to the two readers
+			// without one: a read API answers requests, and no
+			// deployment issues eight thousand dashboard reads a second.
+			//
+			// What it cost, on CI, on a database with no rows in it -
+			// which is what makes these two queries nearly free:
+			//
+			//	collector insert    43 queries | worst at rest 280.9ms
+			//	beacon insert       42 queries | worst at rest 280.7ms
+			//	api read         25967 queries | worst at rest  15.9ms
+			//	panel read       33188 queries | worst at rest  11.3ms
+			//
+			// Fifty-nine thousand reads in four seconds took the service
+			// container, and the two writers got forty-three queries
+			// between them - under minimumQueriesOverall, so the test
+			// refused to report anything, correctly. The floor did its
+			// job; what produced the condition was this test's own load.
+			//
+			// It does not show on a developer's database because these
+			// two reads are not free there: months of rows make them
+			// cost more than an insert, so they pace themselves.
+			pause: 5 * time.Millisecond,
 			run: func(ctx context.Context, p *pgxpool.Pool) error {
 				var n int64
 				return p.QueryRow(ctx, `
@@ -284,6 +316,8 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 		{
 			name: "panel read",
 			role: testdb.Panel,
+			// Paced for the reason written out above.
+			pause: 5 * time.Millisecond,
 			run: func(ctx context.Context, p *pgxpool.Pool) error {
 				var n int64
 				return p.QueryRow(ctx, `SELECT count(*) FROM panel_users`).Scan(&n)
@@ -505,9 +539,27 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 			continue
 		}
 		if duringCount == 0 {
-			t.Errorf("%s had no query in flight during the upgrade window. It loops "+
-				"without pause, so that cannot happen while it is running - the probe "+
-				"stopped, and the worst case it would have seen went unmeasured", l.name)
+			// Two sentences, because there are now two kinds of probe
+			// and only one of them can say "that cannot happen".
+			//
+			// An unpaced probe always has a query in flight, so zero
+			// overlaps means the goroutine stopped. A paced one can
+			// miss a short window by arithmetic, and telling its reader
+			// "it loops without pause" would hand them a reason that is
+			// not true and send them looking for a stall that is not
+			// there.
+			why := "It loops without pause, so that cannot happen while it is " +
+				"running - the probe stopped, and the worst case it would have " +
+				"seen went unmeasured"
+			if l.pause > 0 {
+				why = fmt.Sprintf("It pauses %v between queries, so a window "+
+					"shorter than that can be missed without anything being "+
+					"wrong - but a window this test measured was %v, and a probe "+
+					"that missed it either stopped or is pacing slower than it "+
+					"was told to", l.pause, upgradeTook)
+			}
+			t.Errorf("%s had no query in flight during the upgrade window. %s",
+				l.name, why)
 			continue
 		}
 
