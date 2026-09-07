@@ -155,6 +155,12 @@ ve sürüm notunda **KIRICI** diye işaretleniyor.
    `git checkout` edilemez; iki tanesi, birinin unutulduğu anlamına
    gelir.
 
+   **`git push --dry-run` bunu ölçmez.** Ölçüldü: `refs/tags/v0.23.0`
+   için deneme koşusu `* [new tag]` dedi, gerçek itme aynı saniyede
+   `HTTP 403` verdi. Deneme koşusu nesneleri göndermiyor, dolayısıyla
+   sunucunun yazma iznini hiç sormuyor — yani "deneme geçti" ile "itme
+   geçecek" ayrı iki cümle. Yetkiyi öğrenmenin tek yolu itmek.
+
    Yani 2 ve 3 birlikte gider. Etiketi başkası kesecekse (bu depoda
    olduğu gibi: bazı oturumların kimlik bilgileri `refs/tags/` yazamıyor,
    HTTP 403 alır) not ile etiket arasında geçen süre boyunca kapı
