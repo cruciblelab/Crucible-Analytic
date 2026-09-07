@@ -76,6 +76,27 @@ Eski şemalı bir yedek denenir, reddedilmez: yedekten sonra eklenmiş bir
 sütun varsayılanını alır ve yükleme çalışır, kaldırılmış bir sütun varsa
 yükleme o tabloda adını söyleyerek durur.
 
+### Düzeltme: kullanımdayken alınan bir yedek geri yüklenemeyebiliyordu
+
+Yedek alınırken her tablo ayrı bir veritabanı bağlantısından
+okunuyordu. Yani bir dosyadaki tablolar farklı anlara aitti, ve panel o
+sırada kullanılıyorsa aralarında tutarsızlık oluşabiliyordu: örneğin
+denetim kaydı, kullanıcılar tablosunun kopyasında bulunmayan bir
+kullanıcıyı gösterebiliyordu.
+
+Böyle bir dosya sorunsuz görünüyor. Yazılıyor, sağlaması tutuyor, ve
+**Doğrula düğmesi geçiyor** — çünkü doğrulama satır sayıyor ve satır
+sayıları tutarlı. Fark ancak geri yüklemeye çalışınca çıkıyordu, yani
+ihtiyaç duyulduğu gün.
+
+Artık bütün tablolar tek bir anlık görüntüden okunuyor. Yedek dosyası
+veritabanının gerçekten bulunduğu bir anı anlatıyor.
+
+**Kuran kişinin yapması gereken:** bir şey yok. Ama daha önce alınmış
+yedekleriniz varsa, paneldeki **Geri Yükle** düğmesiyle bir prova
+yapmakta fayda var: bu kusurdan etkilenmiş bir dosya ancak orada belli
+olur.
+
 ### Düzeltme: indirilen adres verisindeki bozuk bir satır kayıt tutmayı durdurabiliyordu
 
 Ülke ve ASN tabloları haftalık olarak kamuya açık bir veri kümesinden

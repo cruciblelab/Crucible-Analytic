@@ -12851,3 +12851,73 @@ ikisi de yarışamaz:
   geri yükleme yukarıdaki kontrolü geçerdi; bunu geçemez.
 
 *Bir yarışın üç kez geçmesi, olmadığı anlamına gelmez.*
+
+---
+
+## Yedek tutarlı değilmiş — tabloların her biri ayrı bir ana bakıyordu
+
+Yarış düzeltmesinden sonra CI ikinci kez kırmızı döndü, ve bu sefer test
+değil **ürün** kusurluydu:
+
+```
+restoring panel_audit_log: insert or update on table "panel_audit_log"
+violates foreign key constraint "panel_audit_log_actor_id_fkey"
+```
+
+`Writer.copyTable` her tabloyu havuzdan aldığı **ayrı bir bağlantıda**,
+ayrı bir örtük işlemde kopyalıyordu. Yani bir yedekteki yedi tablo yedi
+ayrı ana ait, ve kullanılan bir veritabanı o anlar arasında değişiyor.
+
+`panel_users` birinci, `panel_audit_log` yedinci kopyalanıyor. İkisinin
+arasında oluşturulan bir kullanıcı, denetim kaydının kopyasına giriyor ve
+kullanıcılar tablosunun kopyasına girmiyor. Ortaya çıkan dosya,
+veritabanının **hiç bulunmadığı** bir durumu anlatıyor, ve PostgreSQL onu
+kurmayı reddediyor.
+
+### Neden bu, bu paketin en kötü kusur şekli
+
+Dosya yazılıyor. Sağlaması kararlı. **Doğrulama geçiyor** — çünkü F1f
+satır sayıyor, ve tutarsız bir dosyanın tutarlı olan tek yanı tam olarak
+satır sayıları.
+
+Yani F1f'in bütün kontrolleri bu dosyaya "sağlam" diyor. Onu yakalayan
+tek şey satırları geri koymak — yani F1g. Faz sırasının kendisi bu
+kusuru buldu, ve bulduğu yer sessiz bir geliştirici makinesi değil,
+paralel yazan bir CI koşusuydu.
+
+### Düzeltme
+
+Tek bağlantı, tek `REPEATABLE READ` işlemi, bütün tablolar. `pg_dump`
+tam olarak bunu yapıyor ve tam olarak bu sebeple.
+
+Bedeli açıkça yazıldı: döküm boyunca açık kalan bir anlık görüntü,
+vacuum'un o sırada güncellenen satırları geri almasını engelliyor.
+Tutarlı bir döküm başka türlü yok.
+
+Sütun listesi de aynı işlemden okunuyor. Döküm sürerken eklenen bir
+sütun, bir tablonun başlığında olup yanındaki veride olmamalı.
+
+### Testi ölçüldü, tarif edilmedi
+
+`TestABackupTakenWhileTheDatabaseIsBeingWrittenStillRestores`: bir
+goroutine sürekli kullanıcı ve onu gösteren denetim satırı yazarken altı
+yedek alınıp altısı da geri yükleniyor. Olasılıklı ve bunu kendi yorumunda
+söylüyor.
+
+Değerli olduğu **ölçüldü**: yalıtım seviyesi `READ COMMITTED`'a
+çekildiğinde — yani her ifade kendi anlık görüntüsünü aldığında — test
+kırmızıya dönüyor.
+
+### Ve aynı tehlikenin öbür yarısı
+
+Geri yükleme tabloları manifestteki sırayla COPY'liyor, ve yabancı
+anahtarlar satır satır kontrol ediliyor: ebeveyninden önce yüklenen bir
+çocuk tablo düşer. Bugün sıra doğru, ama **kazayla** doğru —
+`panel_users` `sets.go`'da ilk sırada, çünkü orada iyi okunuyor.
+
+Artık bir test soruyor: yedeklenen iki tablo arasındaki her yabancı
+anahtar için, gösterilen tablo sırada önce mi. Sıra kümelerden, anahtarlar
+veritabanından okunuyor — iki listenin de bakımı gerekmiyor. 12 anahtar,
+hepsi sırasında.
+
+*Kazayla doğru olan bir sıra, sıra değildir.*

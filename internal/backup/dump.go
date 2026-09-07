@@ -11,8 +11,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgxQuerier is the read surface these helpers need, so each can be
+// handed either the pool or the snapshot's transaction. Narrow on
+// purpose: a helper that took a *pgxpool.Pool could not be given a
+// transaction, and that is how the tables came to be read at seven
+// different instants.
+type pgxQuerier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // ManifestName is the entry every backup carries first.
 const ManifestName = "manifest.json"
@@ -123,7 +134,56 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 	if err != nil {
 		return Result{}, err
 	}
-	takenAt, err := databaseNow(ctx, w.Pool)
+
+	// One connection, one snapshot, every table.
+	//
+	// # The defect this replaces
+	//
+	// Each table used to be copied on its own pooled connection, in its
+	// own implicit transaction. Every table was therefore read at a
+	// different instant, and a database somebody is using changes
+	// between them. CI found what that produces:
+	//
+	//	restoring panel_audit_log: insert or update on table
+	//	"panel_audit_log" violates foreign key constraint
+	//	"panel_audit_log_actor_id_fkey"
+	//
+	// The audit log was read while a user existed and panel_users was
+	// read after that user was deleted. Neither read was wrong. The file
+	// they produced together describes a database that never existed,
+	// and PostgreSQL refuses to build it.
+	//
+	// What makes this the worst shape of defect in this package: the
+	// backup is written, its checksum is stable, and verification passes
+	// - F1f counts rows and rows are exactly what is consistent about
+	// it. The only thing that catches it is putting the rows back, which
+	// is what F1g exists to do and what found this.
+	//
+	// # The cost, which is real and accepted
+	//
+	// A repeatable-read transaction held for the length of the dump
+	// keeps a snapshot alive, so vacuum cannot reclaim rows updated
+	// while it runs. pg_dump does exactly this and for exactly this
+	// reason: there is no consistent dump without one.
+	//
+	// Read-only, so the transaction is rolled back rather than
+	// committed. Nothing in it can have changed anything, and a rollback
+	// has no failure worth reporting over the file that was written.
+	conn, err := w.Pool.Acquire(ctx)
+	if err != nil {
+		return Result{}, fmt.Errorf("backup: taking a connection for the snapshot: %w", err)
+	}
+	defer conn.Release()
+	tx, err := conn.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return Result{}, fmt.Errorf("backup: opening the snapshot: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	takenAt, err := databaseNow(ctx, tx)
 	if err != nil {
 		return Result{}, err
 	}
@@ -151,7 +211,7 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 		// arrive" unanswerable - which is the question the whole file
 		// exists to be able to answer.
 		for _, table := range tables {
-			entry, err := w.copyTable(ctx, tw, table)
+			entry, err := copyTable(ctx, tw, conn, tx, table)
 			if err != nil {
 				return err
 			}
@@ -180,8 +240,13 @@ func (w Writer) Write(ctx context.Context, name string, sets []string) (Result, 
 // see the package comment. COPY is an ordinary query, so a hypertable
 // answers it with the rows in its chunks; pg_dump's --table filter does
 // not follow chunks and produces an empty file.
-func (w Writer) copyTable(ctx context.Context, tw *tar.Writer, table string) (Table, error) {
-	cols, err := columnsOf(ctx, w.Pool, table)
+// Both the column list and the rows come off the snapshot, so a column
+// added while the dump runs cannot appear in one table's header and not
+// in the data beside it.
+func copyTable(ctx context.Context, tw *tar.Writer, conn *pgxpool.Conn,
+	tx pgx.Tx, table string) (Table, error) {
+
+	cols, err := columnsOf(ctx, tx, table)
 	if err != nil {
 		return Table{}, err
 	}
@@ -201,21 +266,18 @@ func (w Writer) copyTable(ctx context.Context, tw *tar.Writer, table string) (Ta
 	// same numbers - so the first deployment where this matters is one
 	// where the estimate already refused.
 	var buf sizedBuffer
-	// AcquireFunc rather than the pool's own Query: CopyTo is on the
-	// underlying connection, and it has to be the same one for the whole
-	// stream.
-	if err := w.Pool.AcquireFunc(ctx, func(c *pgxpool.Conn) error {
-		sql := fmt.Sprintf("COPY (SELECT %s FROM %s) TO STDOUT",
-			quoteAll(cols), quoteIdent(table))
-		tag, err := c.Conn().PgConn().CopyTo(ctx, &buf, sql)
-		if err != nil {
-			return err
-		}
-		buf.rows = tag.RowsAffected()
-		return nil
-	}); err != nil {
+	// The snapshot's own connection, not one from the pool. CopyTo is on
+	// the underlying connection and has to be the one the transaction is
+	// open on - a COPY on any other connection reads a different
+	// instant, which is the whole defect this function was changed to
+	// close.
+	sql := fmt.Sprintf("COPY (SELECT %s FROM %s) TO STDOUT",
+		quoteAll(cols), quoteIdent(table))
+	tag, err := conn.Conn().PgConn().CopyTo(ctx, &buf, sql)
+	if err != nil {
 		return Table{}, fmt.Errorf("backup: copying %s: %w", table, err)
 	}
+	buf.rows = tag.RowsAffected()
 
 	if err := writeEntry(tw, "data/"+table+".copy", buf.b); err != nil {
 		return Table{}, err
@@ -229,8 +291,8 @@ func (w Writer) copyTable(ctx context.Context, tw *tar.Writer, table string) (Ta
 }
 
 // columnsOf reads a table's columns in their declared order.
-func columnsOf(ctx context.Context, pool *pgxpool.Pool, table string) ([]string, error) {
-	rows, err := pool.Query(ctx, `
+func columnsOf(ctx context.Context, q pgxQuerier, table string) ([]string, error) {
+	rows, err := q.Query(ctx, `
 		SELECT column_name
 		FROM information_schema.columns
 		WHERE table_schema = 'public' AND table_name = $1
@@ -251,9 +313,9 @@ func columnsOf(ctx context.Context, pool *pgxpool.Pool, table string) ([]string,
 }
 
 // databaseNow reads the clock the rest of this product is timed by.
-func databaseNow(ctx context.Context, pool *pgxpool.Pool) (time.Time, error) {
+func databaseNow(ctx context.Context, q pgxQuerier) (time.Time, error) {
 	var at time.Time
-	if err := pool.QueryRow(ctx, `SELECT now()`).Scan(&at); err != nil {
+	if err := q.QueryRow(ctx, `SELECT now()`).Scan(&at); err != nil {
 		return time.Time{}, fmt.Errorf("backup: reading the database's clock: %w", err)
 	}
 	return at, nil

@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -473,4 +474,215 @@ func TestARestoreWithNoSchemaIsRefusedBeforeAnythingIsTouched(t *testing.T) {
 		t.Error("the schema check runs after the target is inspected; it has to be first, " +
 			"or a build with this defect gets as far as looking at a database")
 	}
+}
+
+// TestABackupTakenWhileTheDatabaseIsBeingWrittenStillRestores.
+//
+// # The defect this was written against
+//
+// Every table used to be copied on its own pooled connection, so the
+// tables in one backup were read at seven different instants. A database
+// somebody is using changes between them, and the file that comes out
+// describes a state the database was never in.
+//
+// CI found it, twice, in a shape no unit test would have chosen:
+//
+//	restoring panel_audit_log: violates foreign key constraint
+//	"panel_audit_log_actor_id_fkey"
+//
+// panel_users is copied first and panel_audit_log seventh. A user
+// created between the two lands in the audit log's copy and not in the
+// users' copy, and PostgreSQL refuses to build the result.
+//
+// # Why this test writes while it reads
+//
+// Because the defect is invisible to a quiet database, which is what
+// every other test in this file uses. The backup was correct, its
+// checksum was stable, and F1f's verification passed - row counts are
+// exactly what stays consistent about an inconsistent file. Only a
+// restore catches it, and only under a writer.
+//
+// It is probabilistic and says so. What makes it worth having is
+// measured rather than assumed: with the snapshot removed it fails, and
+// the failure is the sentence above.
+//
+// *Sessiz bir veritabanında alınan yedek, meşgul bir veritabanında
+// alınabileceğini söylemez.*
+func TestABackupTakenWhileTheDatabaseIsBeingWrittenStillRestores(t *testing.T) {
+	asks, answers := backupQueue(t)
+	ctx := context.Background()
+	target := sideDatabase(t, "ca_restore_busy_test")
+
+	const prefix = "yazarken-"
+	t.Cleanup(func() {
+		bg := context.Background()
+		if _, err := answers.Exec(bg,
+			`DELETE FROM panel_audit_log WHERE actor_label LIKE $1`, prefix+"%"); err != nil {
+			t.Errorf("clearing the seeded audit rows: %v", err)
+		}
+		if _, err := answers.Exec(bg,
+			`DELETE FROM panel_users WHERE email LIKE $1`, prefix+"%"); err != nil {
+			t.Errorf("clearing the seeded users: %v", err)
+		}
+	})
+
+	// A writer doing the one thing that makes two tables disagree:
+	// creating a user and, in the same breath, a log row that points at
+	// it. Nothing here is exotic - it is what the panel does on every
+	// invitation.
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			var id int64
+			if err := answers.QueryRow(context.Background(), `
+				INSERT INTO panel_users (email, password_hash)
+				VALUES ($1, 'x') RETURNING id`,
+				fmt.Sprintf("%s%d-%d@ornek.test", prefix, time.Now().UnixNano(), i),
+			).Scan(&id); err != nil {
+				return // the test is finishing, or the cleanup already ran
+			}
+			if _, err := answers.Exec(context.Background(), `
+				INSERT INTO panel_audit_log (actor_kind, actor_id, actor_label, action)
+				VALUES ('user', $1, $2, 'yazarken_testi')`,
+				id, prefix+"kullanici"); err != nil {
+				return
+			}
+		}
+	}()
+
+	// Several backups, because one may happen to fall in a quiet gap.
+	// Each is restored on its own: a file that cannot be restored is the
+	// failure, whichever of them it is.
+	var restored int
+	for i := range 6 {
+		// Back to one row in the catalogue before each, because
+		// takeBackup asserts that a backup produced exactly one - which
+		// is the right assertion for it and means this loop has to put
+		// the starting point back itself.
+		clear(t, asks, answers)
+		row := takeBackup(t, asks, answers, t.TempDir())
+		if _, err := backup.RestoreInto(ctx, answers, target, row.Path,
+			schemaForRestore(), quiet()); err != nil {
+			close(stop)
+			<-done
+			t.Fatalf("backup %d of 6, taken while the database was being written, "+
+				"does not restore: %v\n"+
+				"The file was written, its checksum is stable and verification "+
+				"passes. Every check this package has short of a restore says it "+
+				"is a good backup", i+1, err)
+		}
+		restored++
+	}
+	close(stop)
+	<-done
+
+	if restored != 6 {
+		t.Fatalf("only %d backups were restored", restored)
+	}
+}
+
+// TestATableIsRestoredAfterEverythingItPointsAt.
+//
+// # Why this is worth a test rather than a comment
+//
+// A restore COPYs the tables in the order the manifest lists them, which
+// is the order the sets declare. Foreign keys are checked per row as it
+// arrives, so a child restored before its parent fails - and it fails on
+// the customer's machine, on the day they needed the backup.
+//
+// Today the order is right. It is right by accident: panel_users happens
+// to be written first in sets.go because it reads well there, not
+// because anybody chose it against this constraint. A table added in the
+// wrong place, or a foreign key added between two existing tables, turns
+// every backup this product takes into one that cannot be restored, and
+// nothing else in the suite would say so.
+//
+// The order is read from the sets and the keys from the database, so
+// this needs neither list to be maintained.
+//
+// *Kazayla doğru olan bir sıra, sıra değildir.*
+func TestATableIsRestoredAfterEverythingItPointsAt(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Pool(t, testdb.SchemaAdmin)
+
+	position := map[string]int{}
+	for _, set := range backup.Sets {
+		if set.Secrets {
+			continue
+		}
+		tables, err := backup.TablesFor([]string{set.Name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range tables {
+			if _, seen := position[table]; !seen {
+				position[table] = len(position)
+			}
+		}
+	}
+	if len(position) == 0 {
+		t.Fatal("no tables are in any set, so this test compared nothing")
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT tc.table_name, ccu.table_name
+		FROM information_schema.table_constraints tc
+		JOIN information_schema.constraint_column_usage ccu
+		  ON tc.constraint_name = ccu.constraint_name
+		 AND tc.table_schema = ccu.table_schema
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+		  AND tc.table_schema = 'public'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var checked int
+	for rows.Next() {
+		var child, parent string
+		if err := rows.Scan(&child, &parent); err != nil {
+			t.Fatal(err)
+		}
+		childAt, inChild := position[child]
+		parentAt, inParent := position[parent]
+		switch {
+		case !inChild:
+			// The child is not backed up, so its keys are nobody's
+			// problem here.
+			continue
+		case !inParent:
+			t.Errorf("%s is in a backup set and points at %s, which is in none.\n"+
+				"Restoring the child into an empty database has nothing to "+
+				"satisfy the key against", child, parent)
+			continue
+		case child == parent:
+			// Self-referential, so ordering cannot help and PostgreSQL
+			// checks it within the one COPY.
+			continue
+		}
+		checked++
+		if parentAt >= childAt {
+			t.Errorf("%s is restored at position %d and points at %s at position %d.\n"+
+				"The rows arrive before the ones they reference, so the COPY "+
+				"fails and the backup cannot be restored at all. Move %s earlier "+
+				"in internal/backup/sets.go",
+				child, childAt, parent, parentAt, parent)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("no foreign key between two backed-up tables was found, so this " +
+			"test passed by looking at nothing. panel_audit_log.actor_id " +
+			"references panel_users and both are in the panel set")
+	}
+	t.Logf("%d foreign keys between backed-up tables, all in order", checked)
 }
