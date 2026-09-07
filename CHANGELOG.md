@@ -9,6 +9,38 @@ yapacağım".
 
 ---
 
+## Yayımlanmamış
+
+Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+
+**Şema sürümü: 15** (değişmedi). **Kuran kişinin yapması gereken:** bir
+şey yok — aşağıdaki ayar yazılmazsa hiçbir davranış değişmiyor.
+
+### Yedeklerin artık kendi yaş sınırı olabiliyor
+
+Saklama süresi analitik satırları yaşına göre siler. Ondan **önce**
+alınmış bir yedek o satırları hâlâ taşır — yani yedek dizini, saklama
+süresinin sessizce geçerli olmadığı tek yerdi.
+
+`upgrader.toml`'daki `[backup] keep_days` bunu kapatıyor. Yükseltici her
+geçişte sınırdan eski veri yedeklerini siliyor: önce dosyayı, sonra
+katalog satırını.
+
+**Yazılmazsa hiçbir şey değişmez** ve yedekler süresiz saklanır, yani bu
+sürüme geçmek kimsenin yedeğini silmiyor. Sınırı siz koyarsınız.
+
+İki şeye dokunmuyor. **En yeni veri yedeği hiçbir zaman silinmiyor**,
+sınırdan eski olsa bile: tek yedeği dört yüz gün önce alınmış bir kurulum
+üç yüz günlük bir sınır yüzünden hiç yedeksiz kalırdı, ve "eski bir yedek"
+ile "yedek yok" aynı şey değil. **Sırlar yedekleri de süpürülmüyor** —
+içlerinde ziyaretçi verisi yok, ve bir makineyi geri getiren dosya odur.
+
+**Kuran kişinin yapması gereken (isteğe bağlı):** `upgrader.toml`'a
+`keep_days` yazmak. Tavan 730 gün, saklama politikasınınkiyle aynı.
+Panelin bu sınırı ekranda yazması ayrı bir iş olarak duruyor.
+
+---
+
 ## v0.23.0 — 2026-09-07
 
 Yedekleme yolunun tamamı: alma, doğrulama, ve **gerçekten geri dönüp

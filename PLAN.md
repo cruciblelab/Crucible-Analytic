@@ -4874,7 +4874,8 @@ geliştirici parolasında. Hiçbiri tek başına takma adlandırmayı çözmüyo
 | F1f | Doğrulama: dosya gerçekten o dosya mı | ✅ yapıldı |
 | F1g | Yan veritabanına geri yükleme | ✅ yapıldı |
 | F1h | Sıkıştırma oranı gerçek veride, ve yazarken disk muhafızı | ✅ yapıldı |
-| F1i | Yedeklerin kendi yaş sınırı, ve sayfanın bunu yazması | ⬜ kaldı |
+| F1i | Yedeklerin kendi yaş sınırı | ✅ yapıldı |
+| F1j | Sayfanın sınırı yazması | ⬜ kaldı — kanal kararı, aşağıda |
 
 F1b'nin bitmiş sayılma şartı gerçek bir geri yükleme: ayrı bir
 veritabanına, satır satır karşılaştırmalı. Hiçbir zaman denenmemiş bir
@@ -4893,6 +4894,28 @@ veriyi süresiz saklayan bir yedek dizini, bu ürünün müşteriye verdiği
 sözün karşı tarafı.
 
 *Yalnız düzyazıda duran bir şart, bitti sayımına hiç girmez.*
+
+**F1i bitti, ve ikiye ayrıldı.** Yaş sınırının kendisi yazıldı:
+`upgrader.toml`'da `keep_days`, yükselticide her geçişte koşan bir
+süpürme, önce dosya sonra satır, ve en yeni veri yedeğini asla silmeyen
+bir güvence. Sırlar yedeklerine dokunmuyor, gerekçesi ayarın yanında
+yazılı. Beş mutasyon, beşi de yakalandı — biri ancak testin düzeneği
+düzeltildikten sonra.
+
+**Sayfanın sınırı yazması ayrıldı, çünkü bir kanal kararı istiyor.**
+Panel `upgrader.toml`'u okuyamaz ve okuyabilir hâle gelmemeli: o dosya
+DDL koşabilen tek DSN'i taşıyor. F1c'de aynı sorun vardı (panel diski
+göremiyordu) ve cevabı "gören bileşen gördüğünü kaydeder" olmuştu. Üç yol
+var ve üçü de aynı ucuz değil:
+
+| yol | maliyet | not |
+|---|---|---|
+| Yükseltici kalp atışı yazsın, `keep_days` sayaçlarda | şema değişikliği yok | ama yükseltici systemd altında tek atışlık, Docker'da döngü — `Reporter` yalnız ikincisine uyuyor, ve "yükseltici sağlık sayfasında görünsün mü" kendi başına bir karar |
+| Katalog satırına yazılsın | şema 16 | her yedek "alındığı andaki sınır"ı taşır; anlamı tuhaf, çünkü sınır kurulumun özelliği, yedeğin değil |
+| Tek satırlık ayrı bir tablo | şema 16 | en açık anlam, en çok yeni yüzey |
+
+Karar verilmeden yazılmadı. Yarısı yazılmış bir kanal, hiç yazılmamış
+bir kanaldan daha pahalıdır.
 
 **F1b'nin açık kalan kararı kapandı — ve bir sayıyı değil bir gerekçeyi
 düzeltti.** Oran üç kolda, 50 000 satırda, gerçek `Measure` ve gerçek

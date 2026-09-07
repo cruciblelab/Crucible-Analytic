@@ -70,6 +70,14 @@ type Runner struct {
 	// BinaryVersion and SchemaVersion are stamped into the manifest.
 	BinaryVersion string
 	SchemaVersion int
+	// KeepDays is the age limit from `[backup] keep_days`, zero when
+	// this deployment keeps its backups indefinitely.
+	//
+	// Here rather than a parameter to Expire, for the same reason Dir
+	// is here rather than a parameter to RunOnce: it is read from the
+	// same file at the same moment as the rest, and a value that
+	// travels separately is one a second caller can pass differently.
+	KeepDays int
 	// Now names the file, so a test can place it on the clock.
 	Now    func() time.Time
 	Logger *slog.Logger
@@ -539,6 +547,107 @@ func (r Runner) Sweep(ctx context.Context) (int64, error) {
 		marked++
 	}
 	return marked, nil
+}
+
+// Expire deletes data backups older than KeepDays and forgets their
+// rows, and returns how many went.
+//
+// KeepDays <= 0 does nothing at all, which is the default and the
+// behaviour every deployment has today. See applier.BackupConfig for
+// why that is the default rather than a number.
+//
+// # What this is actually for
+//
+// The retention policy deletes analytics rows past their age. A backup
+// taken before that day still holds them. So a backup directory is the
+// one place the retention number quietly does not apply, and a
+// deployment that keeps backups forever keeps the data forever - past
+// the promise made to the customer and to their visitors.
+//
+// # The newest one is never deleted
+//
+// Not even when it is older than the limit. A deployment whose last
+// backup was taken four hundred days ago, under a three-hundred-day
+// limit, would otherwise be swept to *no backup at all* - and "an old
+// backup" and "no backup" are not points on the same scale. The limit
+// exists to stop data outliving its retention, and the last file is the
+// one whose deletion costs more than it saves.
+//
+// It is a guard rather than a config option because there is no
+// deployment that wants the other behaviour, and an option would be a
+// way to ask for it by accident.
+//
+// # Secrets backups are not touched
+//
+// They carry no visitor data, so the sentence above does not reach
+// them, and they are what restores a machine rather than a database.
+// See applier.BackupConfig.KeepDays.
+//
+// # The file goes first
+//
+// Delete, then forget. The other order leaves a file on disk that
+// nothing knows about, which is a backup nobody will ever verify and
+// nobody will ever delete. A file this cannot remove keeps its row, so
+// the next sweep tries again and the page still lists it.
+func (r Runner) Expire(ctx context.Context) (int64, error) {
+	if r.KeepDays <= 0 {
+		return 0, nil
+	}
+	rows, err := ListWithPaths(ctx, r.Pool)
+	if err != nil {
+		return 0, err
+	}
+
+	cutoff := r.now().Add(-time.Duration(r.KeepDays) * 24 * time.Hour)
+
+	// The newest data backup, found before anything is deleted rather
+	// than by relying on the list's order. ListWithPaths is ordered
+	// today; a function that quietly depends on that is one that breaks
+	// when somebody adds a second caller who wants a different order.
+	var newest int64
+	var newestAt time.Time
+	for _, b := range rows {
+		if !r.isData(b) {
+			continue
+		}
+		if newest == 0 || b.TakenAt.After(newestAt) {
+			newest, newestAt = b.ID, b.TakenAt
+		}
+	}
+
+	var gone int64
+	for _, b := range rows {
+		if !r.isData(b) || b.ID == newest {
+			continue
+		}
+		if !b.TakenAt.Before(cutoff) {
+			continue
+		}
+		// A row already marked missing has no file to delete; the row
+		// is still forgotten, because the sentence it was keeping -
+		// "there was a backup here" - is about a file that is now past
+		// the age at which this deployment keeps them anyway.
+		if b.State == "present" {
+			if err := os.Remove(b.Path); err != nil && !os.IsNotExist(err) {
+				return gone, fmt.Errorf("backup: removing %s: %w", b.Path, err)
+			}
+		}
+		if err := Forget(ctx, r.Pool, b.ID); err != nil {
+			return gone, err
+		}
+		gone++
+	}
+	return gone, nil
+}
+
+// isData reports whether a catalogue row is a data backup.
+//
+// A row whose sets cannot be read at all is treated as *not* data,
+// which is the safe direction: this function decides what to delete,
+// and a row nobody can classify is a row to leave alone.
+func (r Runner) isData(b Backup) bool {
+	kind, err := KindOf(b.Sets)
+	return err == nil && kind == KindData
 }
 
 func (r Runner) name() string {

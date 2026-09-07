@@ -530,6 +530,30 @@ func MarkMissing(ctx context.Context, pool *pgxpool.Pool, id int64) error {
 	return nil
 }
 
+// Forget removes a catalogue row whose file this process has just
+// deleted.
+//
+// # Why this one deletes where MarkMissing marks
+//
+// The difference is who removed the file. A backup an operator deleted
+// with a shell leaves a row saying "there was one here and it is gone",
+// because that sentence is the only trace of a thing somebody may not
+// have meant to do. A backup this process deleted on purpose, because
+// the configured age limit came round, leaves nothing: the row would
+// say a file is missing, which is true and misleading - it went where
+// the setting said it should.
+//
+// Only schema_admin may run it. panel_backups carries a DELETE policy
+// naming that role alone, and the reason is in the schema: forgetting
+// the row is the half that follows deleting the file, and only the
+// upgrader can do that.
+func Forget(ctx context.Context, pool *pgxpool.Pool, id int64) error {
+	if _, err := pool.Exec(ctx, `DELETE FROM panel_backups WHERE id = $1`, id); err != nil {
+		return fmt.Errorf("backup: forgetting %d: %w", id, err)
+	}
+	return nil
+}
+
 func isUniqueViolation(err error) bool {
 	var pgErr interface{ SQLState() string }
 	if errors.As(err, &pgErr) {

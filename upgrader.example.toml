@@ -198,3 +198,39 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 #
 # Canlıya geçiş burada yok ve olmayacak — o adım kabukta kalıyor.
 # restore_dsn = "postgres://schema_admin:PAROLA@127.0.0.1/analitik_dogrulama"
+#
+# Bir yedeğin ne kadar süre saklanacağı, gün olarak.
+#
+# **Yazılmazsa yedekler süresiz saklanır**, ve bugünkü davranış budur.
+# Varsayılanın silme olmamasının sebebi şu: bir sürüme geçen müşterinin
+# yedekleri o gün silinseydi, istemedikleri bir şeyi istedikleri başka bir
+# şeyin yan etkisi olarak yapmış olurduk.
+#
+# Ama sınırsız olması sessiz kalmasın diye değil. Kapatmak istediği tuzak
+# şu: **saklama politikası analitik satırları yaşına göre siler, ondan
+# önce alınmış bir yedek o satırları hâlâ taşır.** Yani yedek dizini,
+# saklama süresinin sessizce geçerli olmadığı tek yer — ve müşteriye de
+# ziyaretçilerine de verilen söz o sayıdır.
+#
+# Uygulayan yükselticidir: önce dosyayı siler, sonra katalog satırını
+# unutur. Ters sıra, kimsenin bilmediği bir dosya bırakırdı — hiç
+# doğrulanmayacak, hiç listelenmeyecek, hiç silinmeyecek bir yedek.
+#
+# **En yeni veri yedeği hiçbir zaman silinmez**, sınırdan eski olsa bile.
+# Dört yüz gün önce alınmış tek yedeği olan bir kurulum, üç yüz günlük bir
+# sınır yüzünden hiç yedeksiz kalırdı; "eski bir yedek" ile "yedek yok"
+# aynı ölçeğin iki noktası değil. Bu bir ayar değil, güvence: öbür
+# davranışı isteyen bir kurulum yok, ve ayar olsaydı yanlışlıkla
+# istenebilirdi.
+#
+# **Sırlar yedeklerine dokunmaz.** İçlerinde ziyaretçi verisi yok —
+# yapılandırma dizininin kapatılmış hâli — yani yukarıdaki cümle onlara
+# ulaşmıyor. Ve bir makineyi geri getiren dosya odur: son sırlar yedeği
+# süpürülmüş bir kurulumun geri yükleyebileceği bir veritabanı vardır ve
+# ip_hash_key'i yoktur, ki o olmadan saklanmış her takma ad anlamsızdır.
+# Onları budamak farklı şekilde bir karar ve operatörde kalıyor.
+#
+# Tavan 730 gün, saklama politikasının tavanıyla aynı. Negatif sayı
+# reddedilir: "sınırsız" demenin yolu 0'dır, ve -30 yazıp otuz gün
+# kastetmiş birine sınırsız vermek yalnız bir kez nazik olurdu.
+# keep_days = 90

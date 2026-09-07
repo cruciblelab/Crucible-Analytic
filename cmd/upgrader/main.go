@@ -242,7 +242,9 @@ func main() {
 		Name:          name,
 		BinaryVersion: buildinfo.Version(version),
 		SchemaVersion: schemaver.Version,
-		Logger:        logger,
+		// The age limit, zero on every deployment that has not set one.
+		KeepDays: cfg.Backup.KeepDays,
+		Logger:   logger,
 	}
 
 	// The copy taken before a schema upgrade, wired here rather than
@@ -367,6 +369,22 @@ func runOnce(ctx context.Context, a *applier.Applier, checker relupdate.Checker,
 	} else if marked > 0 {
 		logger.Warn("upgrader: backups the catalogue named are no longer there",
 			"count", marked)
+	}
+	// Then the age limit, if this deployment set one.
+	//
+	// After Sweep rather than before: a file an operator removed by hand
+	// should be reported as missing on the pass that finds it, not
+	// silently forgotten because it was also old. The two answer
+	// different questions and an operator reading the log needs both.
+	//
+	// INFO rather than WARN. Deleting a backup the configuration said to
+	// delete is the feature working; a warning there would teach
+	// somebody to ignore the ones that matter.
+	if gone, eErr := backups.Expire(ctx); eErr != nil {
+		logger.Warn("upgrader: could not apply the backup age limit", "err", eErr)
+	} else if gone > 0 {
+		logger.Info("upgrader: backups past the age limit were deleted",
+			"count", gone, "keep_days", backups.KeepDays)
 	}
 
 	req, err := a.RunOnce(ctx)

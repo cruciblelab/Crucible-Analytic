@@ -13560,3 +13560,103 @@ kurtarır ve eklemeleri birbiriyle yarışır hâlde bırakırdı.
 Beş koşu `-race` altında temiz.
 
 *Bütün iddiaları geçen bir test, tanımsız davranışla geçmiş olabilir.*
+
+---
+
+## F1i — Yedeklerin kendi yaş sınırı
+
+Bu şart F1 bölümünün düzyazısında baştan beri yazılıydı ve faz tablosunda
+bir satırı yoktu, o yüzden sekiz alt faz bitince F1 bitmiş göründü. Bugün
+grup tablosunu düzeltmeye kalkınca ortaya çıktı.
+
+### Kapattığı tuzak
+
+Saklama politikası analitik satırları yaşına göre siler. Ondan **önce**
+alınmış bir yedek o satırları hâlâ taşır.
+
+Yani yedek dizini, saklama süresinin sessizce geçerli olmadığı tek yer —
+ve müşteriye de ziyaretçilerine de verilen söz o sayıdır. Bugüne kadar
+hiçbir yaş sınırı yoktu; yedekler diskin ömrü boyunca birikiyordu.
+
+### Şema hazırmış
+
+`panel_backups` üzerinde `schema_admin` için bir `backups_forget` DELETE
+politikası duruyordu ve hiçbir şey onu kullanmıyordu. Yorumu da şunu
+diyordu: *"forgetting the row is the half that follows deleting the file
+— and only the upgrader can do that."* Yani tasarım bu adımı bekliyormuş.
+
+### Kararlar, ve neden
+
+**Varsayılan silmemek.** `keep_days` yazılmazsa yedekler süresiz
+saklanır. Öbür varsayılan, bir sürüme geçen müşterinin yedeklerini o gün
+silerdi — istemedikleri bir şeyi, istedikleri başka bir şeyin yan etkisi
+olarak.
+
+**Önce dosya, sonra satır.** Ters sıra, kimsenin bilmediği bir dosya
+bırakırdı: hiç doğrulanmayacak, hiç listelenmeyecek, hiç silinmeyecek bir
+yedek. Silinemeyen bir dosya satırını koruyor, yani bir sonraki geçiş
+tekrar deniyor ve sayfa onu listelemeye devam ediyor.
+
+**En yeni veri yedeği asla silinmez.** Dört yüz gün önce alınmış tek
+yedeği olan bir kurulum, üç yüz günlük bir sınır yüzünden **hiç yedeksiz**
+kalırdı. "Eski bir yedek" ile "yedek yok" aynı ölçeğin iki noktası değil:
+biri müşteriyi geçen yıla döndürür, öbürü hiçbir yere.
+
+Bu bir ayar değil güvence, ve kasten: öbür davranışı isteyen bir kurulum
+yok, ayar olsaydı yanlışlıkla istenebilirdi.
+
+**Sırlar yedeklerine dokunmuyor.** İçlerinde ziyaretçi verisi yok, yani
+yukarıdaki gerekçe onlara ulaşmıyor. Ve bir makineyi geri getiren dosya
+odur: son sırlar yedeği süpürülmüş bir kurulumun geri yükleyebileceği bir
+veritabanı vardır ve `ip_hash_key`'i yoktur — ki o olmadan saklanmış her
+takma ad anlamsızdır.
+
+**Negatif reddediliyor.** "Sınırsız" demenin yolu sıfır. `-1` yazıp
+sınırsız kastetmiş birine onu vermek yalnız bir kez nazik olurdu: aynı
+kişi `-30` yazıp otuz gün kastedebilir ve her şeyi saklayan bir kurulum
+alırdı, budadığını sanarak.
+
+### Mutasyonlar, ve biri yine testin düzeneğini gösterdi
+
+| Mutasyon | Sonuç |
+|---|---|
+| En yeni koruması kalksın | Yakalandı |
+| Sırlar yedekleri de silinsin | Yakalandı |
+| Dosya silinmesin, satır unutulsun | Yakalandı |
+| Satır unutulmasın, dosya silinsin | Yakalandı |
+| `KeepDays <= 0` yerine `< 0` | **İlk hâlinde hayatta kaldı** |
+
+Beşincisi ilginç. `keep_days = 0` sınırsız demek; mutasyon onu "sıfır
+günden eski olan her şeyi sil"e çevirdi. Test tek bir on yıllık yedek
+kaydediyordu — ve o tek satır aynı zamanda **en yenisiydi**, yani onu
+koruyan güvence kurtardı ve test yeşil kaldı.
+
+Yani testin düzeneği, mutasyonun görünemeyeceği tek düzenekti. İki satır
+oldu: koruması olmayan eski bir tane, ve onu son olmaktan çıkaran yeni bir
+tane.
+
+*Bir korumanın arkasına saklanan bir test, koruduğu şeyi sınamaz.*
+
+### Sayfa yarısı ayrıldı, ve neden
+
+Şart iki cümle: yaş sınırı olacak, **ve sayfa bunu açıkça yazacak.**
+İkincisi yazılmadı, çünkü bir kanal kararı istiyor ve karar verilmeden
+yarısını yazmak, hiç yazmamaktan pahalı.
+
+Panel `upgrader.toml`'u okuyamaz ve okuyabilir hâle gelmemeli — o dosya
+DDL koşabilen tek DSN'i taşıyor. F1c'de birebir aynı sorun vardı: panel
+yedeklerin hangi diskte olduğunu bilemiyordu, ve cevap "gören bileşen
+gördüğünü kaydeder" olmuştu.
+
+Üç yol var ve üçü de aynı ucuz değil. Yükselticinin kalp atışı yazması
+şema değiştirmez ama yükseltici systemd altında tek atışlık, Docker'da
+döngü — `Reporter` yalnız ikincisine uyuyor, ve "yükseltici sağlık
+sayfasında görünsün mü" kendi başına bir karar. Katalog satırına yazmak
+her yedeğe "alındığı andaki sınır"ı taşıtır, ki sınır kurulumun özelliği,
+yedeğin değil. Ayrı tek satırlık bir tablo en açık anlamı verir ve en çok
+yeni yüzeyi.
+
+PLAN'da F1j olarak duruyor, üç yolun maliyetiyle birlikte.
+
+*Bir dosyada duran ayarı, o dosyayı okuyamayan bir sayfaya söyletmenin
+bedeli, ayarın kendisinden büyük olabilir.*

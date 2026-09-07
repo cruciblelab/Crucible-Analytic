@@ -13,6 +13,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/devseal"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/releasesign"
+	"github.com/cruciblelab/crucible-analytic/internal/retention"
 )
 
 // Config is the applier's own TOML file.
@@ -128,10 +129,50 @@ type BackupConfig struct {
 	// internal/backup.RestoreInto for what refuses it and which of the
 	// two checks is the enforcement.
 	RestoreDSN string `toml:"restore_dsn"`
+
+	// KeepDays is how long a data backup is kept before the upgrader
+	// deletes the file and forgets the row.
+	//
+	// # The trap this closes
+	//
+	// The retention policy deletes analytics rows past their age. A
+	// backup taken before that day still holds them, so a deployment
+	// that keeps backups forever keeps the data forever - and the
+	// promise made to the customer's visitors, and to the customer, is
+	// the retention number. A backup directory is the one place that
+	// number quietly does not apply.
+	//
+	// # Why zero means "keep them"
+	//
+	// Because the other default deletes a customer's backups on the day
+	// they install an upgrade, which is not a thing this product may do
+	// by surprise. An unset limit is today's behaviour and stays it.
+	//
+	// What is not silent about it is the page: the backups section says
+	// which limit is in force, and says it is unlimited when it is. A
+	// setting nobody is told about is a setting nobody has.
+	//
+	// # Why data backups only
+	//
+	// A secrets backup carries no visitor data - it is the
+	// configuration directory, sealed - so the sentence above does not
+	// reach it. And it is the file that restores a *machine*: a
+	// deployment whose last secrets backup was swept has a database it
+	// can restore and an ip_hash_key it cannot, which makes every
+	// stored pseudonym meaningless. Pruning those is a decision with a
+	// different shape and it stays in the operator's hands.
+	KeepDays int `toml:"keep_days"`
 }
 
 // Configured reports whether this deployment takes backups.
 func (b BackupConfig) Configured() bool { return b.Dir != "" }
+
+// KeepsForever reports whether no age limit is in force.
+//
+// Named for what it means to a reader of the page rather than for the
+// zero value, because "keep_days = 0" and "backups are kept forever"
+// are the same fact and only one of them is a sentence.
+func (b BackupConfig) KeepsForever() bool { return b.KeepDays <= 0 }
 
 // Recipient parses the configured recipient.
 //
@@ -254,6 +295,31 @@ func (b BackupConfig) Validate() error {
 	}
 	if _, err := b.Parsed(); err != nil {
 		return fmt.Errorf("upgrader: [backup] recipient: %w", err)
+	}
+	// Negative is refused rather than read as "forever".
+	//
+	// -1 is what somebody types when they mean "no limit", and reading
+	// it that way would be kind exactly once: the same person could
+	// type -30 meaning thirty days and get a deployment that keeps
+	// everything while believing it prunes. Zero is the documented way
+	// to say forever, and it is the default, so nothing is lost by
+	// refusing the other spelling.
+	if b.KeepDays < 0 {
+		return fmt.Errorf("upgrader: [backup] keep_days is %d. Use 0 to keep "+
+			"backups indefinitely; a negative number is not a way of saying that",
+			b.KeepDays)
+	}
+	// The same ceiling the retention policy has, and for the same
+	// reason: a number this large is a typo more often than a decision,
+	// and the failure it produces is a disk that fills in a year.
+	if b.KeepDays > retention.MaxDays {
+		return fmt.Errorf("upgrader: [backup] keep_days is %d, and the most this "+
+			"accepts is %d - the same ceiling the retention policy has",
+			b.KeepDays, retention.MaxDays)
+	}
+	if b.KeepDays > 0 && b.Dir == "" {
+		return errors.New("upgrader: [backup] keep_days is set and dir is not, so " +
+			"there are no backups for it to apply to. Set both or neither")
 	}
 	return nil
 }
