@@ -238,7 +238,84 @@ func stripComments(sql string) (string, bool) {
 	// ending, which is what PostgreSQL does too. Every other state means
 	// something was left open.
 	complete := state == stateCode || state == stateLineComment
-	return strings.Join(strings.Fields(out.String()), " "), complete
+	return collapseSpace(out.String()), complete
+}
+
+// collapseSpace reduces runs of ASCII whitespace to one space and trims
+// the ends. It is what `strings.Join(strings.Fields(s), " ")` does,
+// minus the part that made this function disagree with itself.
+//
+// # The defect, found by the nightly fuzzer on 2026-09-07
+//
+//	in:  "$$ $$--"
+//	out: "$$ $$--"
+//	2:   "$$ $$"
+//
+// Running the scanner twice gave a different answer than running it
+// once, which for a function whose whole job is to produce a stable
+// fingerprint is a contradiction in terms.
+//
+// The two halves of this file were using two different definitions of
+// whitespace. The scanner works on bytes, and identByte deliberately
+// counts every byte >= 0x80 as part of an identifier - that is what
+// keeps `$` after an accented name from looking like a token boundary.
+// strings.Fields uses unicode.IsSpace, which counts U+0085 and U+00A0
+// as whitespace.
+//
+// So U+0085 was an identifier byte to the scanner and a space to the
+// normaliser. In the input above the scanner therefore refused to read
+// `$$` as a dollar quote - it looked like a `$` inside a name - and
+// left the trailing `--` alone; the normaliser then deleted the U+0085,
+// and on the next pass the same `$$` *was* a dollar quote, so the `--`
+// became a comment and went.
+//
+// # Why this is worth fixing rather than asserting around
+//
+// The non-idempotence is the symptom. The defect underneath is that one
+// non-ASCII space in a schema file changes how everything after it is
+// tokenised - and this scanner's stated risk is exactly that: "not
+// availability but silence: a shape that makes it drop DDL it should
+// keep." A `$$ ... $$` function body preceded by a non-breaking space
+// is not recognised as a literal, so a `--` inside that body truncates
+// the rest of the file out of the fingerprint. Nothing reports it.
+//
+// # Why ASCII and not "PostgreSQL's exact set"
+//
+// The rule that has to hold is an internal one, and stating it that way
+// keeps it checkable: the scanner treats no byte >= 0x80 as
+// whitespace, so neither may this. Which of \v or \f some PostgreSQL
+// version happens to fold is beside the point; every one of them is
+// ASCII, and no schema file in this repository contains any of them.
+//
+// Measured: no schema file carries a non-ASCII space, so no fingerprint
+// changed. `panel -schema-version` reports the same 15 and the same
+// 631cbb42dacd… before and after.
+func collapseSpace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	gap := true // leading run, so nothing is written before the first byte
+	for i := 0; i < len(s); i++ {
+		if asciiSpace(s[i]) {
+			gap = true
+			continue
+		}
+		if gap && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		gap = false
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// asciiSpace reports whether c is one of the six whitespace bytes, and
+// is the exact complement of the >= 0x80 case in identByte.
+func asciiSpace(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\v', '\f', '\r':
+		return true
+	}
+	return false
 }
 
 // identByte reports whether c can appear inside an unquoted identifier.

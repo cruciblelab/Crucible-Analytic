@@ -317,6 +317,10 @@ func FuzzStripComments(f *testing.F) {
 	for _, seed := range []string{
 		"", "--", "/*", "'", `"`, "$$", "$a$", "E'\\'",
 		"CREATE TABLE t (id INT); -- x\n",
+		// Every byte the scanner calls whitespace, in one seed. Without
+		// it nothing exercised \t, \v or \f: only one schema file
+		// contains a tab and no hand-written seed carried any of them.
+		"a\tb\vc\fd\re f",
 		"DO $$ BEGIN RAISE '-- x'; END; $$;",
 		"SELECT a$b$c;",
 		"/* a /* b */ c */ SELECT 1;",
@@ -333,11 +337,64 @@ func FuzzStripComments(f *testing.F) {
 		if len(out) > len(in) {
 			t.Errorf("output grew: %d -> %d\n in: %q\nout: %q", len(in), len(out), in, out)
 		}
+		// Collapsing holds for every input, comment markers or not, so
+		// it is asserted outside the guard below.
+		//
+		// It was inside it once, and a mutation walked through: drop
+		// '\t' from the scanner's whitespace set and every test stayed
+		// green. One schema file really does contain tabs - and every
+		// schema file is also full of `--`, so the guard excluded the
+		// only seeds that could have shown it.
+		//
+		// *Bir iddiayı, onu sınayabilecek tek girdiyi dışarıda bırakan
+		// bir koşulun içine koymak, iddiayı hiç yazmamaktır.*
+		if strings.HasPrefix(out, " ") || strings.HasSuffix(out, " ") ||
+			strings.Contains(out, "  ") {
+			t.Errorf("whitespace was not collapsed\n in: %q\nout: %q", in, out)
+		}
+		for _, c := range []byte{'\t', '\n', '\v', '\f', '\r'} {
+			if strings.IndexByte(out, c) >= 0 {
+				t.Errorf("output still carries %q\n in: %q\nout: %q", c, in, out)
+			}
+		}
+
 		if !strings.Contains(in, "--") && !strings.Contains(in, "/*") {
-			if want := strings.Join(strings.Fields(in), " "); out != want {
-				t.Errorf("input carries no comment marker and bytes went missing\n"+
-					" in: %q\nout: %q\nwant: %q", in, out, want)
+			// Nothing but whitespace may go missing, and this does not
+			// re-run the implementation.
+			//
+			// It used to compare against
+			// strings.Join(strings.Fields(in), " ") - a second spelling
+			// of the same idea, which is fine until the two spellings
+			// disagree about what a space is. They did: strings.Fields
+			// counts U+0085 and U+00A0, the scanner's byte rules do
+			// not, and the property could not say which side was wrong
+			// because it *was* one of the sides.
+			//
+			// Deleting every space from both and comparing asks the
+			// same question without borrowing the answer: deleting runs
+			// is not replacing them, so the two functions agree about
+			// which bytes are whitespace and about nothing else.
+			if dropSpace(in) != dropSpace(out) {
+				t.Errorf("input carries no comment marker and a non-space byte moved\n"+
+					" in: %q\nout: %q", in, out)
 			}
 		}
 	})
+}
+
+// dropSpace removes every ASCII whitespace byte.
+//
+// The complement of what StripComments does to whitespace, not a copy of
+// it: this deletes runs, that one replaces each run with a single space.
+// Two functions that agree only about which bytes are whitespace.
+func dropSpace(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case ' ', '\t', '\n', '\v', '\f', '\r':
+		default:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }

@@ -13279,3 +13279,115 @@ içinde**. Yani yayımlanmış iki sürümde konteyner kurulumu ilk koşuda
 başarısız olduğunu görür ve dört servis hiç başlamaz.
 
 *Bir kırmızının altındaki ilk kusur, tek kusur değildir.*
+
+---
+
+## Gecelik fuzz'ı kendi parmak izimizde bir çelişki buldu
+
+Gecelik #14'ün konteyner yarısı yeşildi; kırmızı olan fuzz işiydi, ve
+bulduğu şey gerçekti.
+
+```
+--- FAIL: FuzzStripComments
+    ddl_test.go: not idempotent
+     in: "$$ $$--"
+    out: "$$ $$--"
+      2: "$$ $$"
+```
+
+Tarayıcıyı iki kez koşturmak, bir kez koşturmaktan farklı cevap veriyor.
+İşi kararlı bir parmak izi üretmek olan bir fonksiyon için bu, tanımı
+gereği bir çelişki.
+
+### Kusur: dosyanın iki yarısı "boşluk"u farklı tanımlıyordu
+
+`stripComments` bayt üzerinde çalışıyor ve `identByte` **0x80 ve üstü her
+baytı** tanımlayıcı parçası sayıyor — aksanlı bir addan sonra gelen `$`'ın
+belirteç sınırı gibi görünmesini engelleyen şey bu, ve doğru.
+
+Sonundaki normalleştirme ise `strings.Fields` idi, yani Go'nun
+`unicode.IsSpace`'i, yani U+0085 ve U+00A0 **boşluk**.
+
+Aynı bayt tarayıcıya göre harf, normalleştiriciye göre boşluk.
+
+Yukarıdaki girdide olan tam olarak buydu: U+0085'ten sonra gelen `$$`
+tarayıcıya bir adın içindeki dolar gibi göründü, dolayısıyla dolar
+tırnağı açılmadı ve sondaki `--` yorum sayılmadı. Sonra normalleştirici
+U+0085'i sildi. İkinci koşuda aynı `$$` artık **dolar tırnağıydı**, `--`
+yorum oldu ve gitti.
+
+### Asıl mesele idempotentlik değil
+
+O belirti. Altındaki şey şu: bir şema dosyasındaki tek bir ASCII olmayan
+boşluk, kendisinden **sonraki her şeyin** nasıl belirteçlere ayrıldığını
+değiştiriyor. Ve bu dosyanın kendi yorumunda yazılı olan risk zaten
+buydu:
+
+> the risk here is not availability but silence: a shape that makes it
+> drop DDL it should keep.
+
+Önüne bölünmez boşluk gelmiş bir `$$ ... $$` gövdesi literal sayılmaz;
+o gövdedeki bir `--` dosyanın geri kalanını parmak izinden siler, ve
+hiçbir şey bunu bildirmez.
+
+### Düzeltme, ve neden ASCII
+
+`collapseSpace`: yalnız altı ASCII boşluk baytında ayırıyor.
+
+Kuralı "PostgreSQL'in kümesi" diye değil, **iç tutarlılık** diye
+yazdım, çünkü kontrol edilebilir olan bu: tarayıcı 0x80 ve üstünü asla
+boşluk saymıyor, o hâlde normalleştirici de saymamalı. Dikey sekmeyi ya
+da sayfa başını hangi PostgreSQL sürümünün katladığı burada konu değil —
+hepsi ASCII.
+
+**Ölçüldü: hiçbir şema dosyası ASCII olmayan boşluk taşımıyor**, yani
+hiçbir parmak izi değişmedi. `panel -schema-version` öncesinde de
+sonrasında da `15 631cbb42dacd…`. Şema sürümü artmıyor, hiçbir kurulumdan
+yükseltme istenmiyor.
+
+### Testin kendisi de iddianın bir tarafıydı
+
+Üçüncü fuzz özelliği `strings.Join(strings.Fields(in), " ")` ile
+karşılaştırıyordu — yani aynı fikrin ikinci bir yazılışı. İki yazılış
+boşluğun ne olduğunda anlaşmazlığa düşene kadar sorun yok; düştüler, ve
+özellik hangi tarafın yanlış olduğunu söyleyemedi çünkü **taraflardan
+biriydi**.
+
+Yerine iki ayrı iddia: `in` ile `out`'tan bütün boşlukları **silip**
+karşılaştırmak (boşluk dışında hiçbir bayt kımıldamadı), ve çıktının
+gerçekten katlanmış olması. Silmek katlamak değil, yani ikisi de
+uygulamanın ikinci kopyası değil.
+
+### Mutasyon bir tohum eksiği gösterdi
+
+Sekmeyi boşluk kümesinden çıkardım ve **bütün testler yeşil kaldı.**
+
+Sebep: katlanma iddiası "girdide yorum işareti yok" koşulunun içindeydi.
+Sekme taşıyan tek dosya `internal/asnlookup/schema.sql`, ve her şema
+dosyası yorum işaretiyle dolu — yani o koşul, iddiayı sınayabilecek tek
+girdiyi dışarıda bırakıyordu.
+
+İki düzeltme: katlanma iddiası koşulun dışına çıktı (her girdi için
+doğru), ve altı boşluk baytını birden taşıyan bir tohum eklendi.
+
+*Bir iddiayı, onu sınayabilecek tek girdiyi dışarıda bırakan bir koşulun
+içine koymak, iddiayı hiç yazmamaktır.*
+
+### Mutasyonlar
+
+| Mutasyon | Sonuç |
+|---|---|
+| `strings.Fields`'e geri dön | Yakalandı (korpustaki çöken girdi) |
+| U+0085 boşluk sayılsın | Yakalandı |
+| Sekme boşluk sayılmasın | **İlk hâlinde hayatta kaldı**, iddia koşuldan çıkarıldı + tohum eklendi, yakalandı |
+| Dikey sekme / satır başı / sayfa başı sayılmasın | Üçü de yakalandı |
+| Baştaki boşluk kırpılmasın | Yakalandı ("output grew") |
+
+### Ölçüm
+
+Çöken girdi `testdata/fuzz/FuzzStripComments/5f3fe09bb6b67fff` olarak
+korpusa girdi; düzeltmeden önce yerelde birebir çöküyor. Düzeltmeden
+sonra 5 dakika, **24 milyon çalıştırma**, yeni bulgu yok. Kapı yeşil.
+
+*Bir tarayıcı ile onun normalleştiricisi aynı şeye boşluk demiyorsa,
+ikisi birlikte hiçbir şeyi tanımlamıyordur.*
