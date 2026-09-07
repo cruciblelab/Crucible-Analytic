@@ -13263,7 +13263,13 @@ TimescaleDB'de.
 **Sınır, ve açıkça:** bu makinede Docker yok. Konteyner yarısı yerel
 olarak koşturulamıyor. Kurulumun kendisi imajın düzeniyle ve imajın
 hesabıyla birebir üretildi ve düzeltildi; `docker compose up`'ın tamamı
-bir sonraki gecelik koşuya kadar doğrulanmamış kalıyor.
+yerelde doğrulanamıyor.
+
+**Gecelik #14 (09-07, `228a0f3`, elle tetiklendi):** *"tarball'dan ve
+imajdan"* işi yeşil — tarball yarısı 43 sn, **imaj yarısı 73 sn**. 3
+Eylül'den beri ilk kez. Sürüm paketi işi de yeşil (`-tags release`,
+gerçek `install.sh`). Yani yerelde üretilen kusurun kapandığı, üretildiği
+yerde değil, gerçekten koştuğu yerde ölçüldü.
 
 ### Yayımlanmış hâli
 

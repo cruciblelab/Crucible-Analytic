@@ -4795,9 +4795,11 @@ o mutasyonun ürettiği şey sessizce eski sürümde kalan bir yükseltme.
 Ayrıca konteyner sınamasının log dökümü `up`'tan önce kaydedilmiş
 olmalı; bunu bir yapısal değişmez sözdizim ağacından okuyor.
 
-**Açık kalan:** bu makinede Docker yok. Kurulum imajın dizin düzeniyle ve
-imajın hesabıyla birebir üretilip düzeltildi, ama `docker compose up`'ın
-tamamı bir sonraki gecelik koşuya kadar doğrulanmamış.
+**Ölçüldü:** gecelik **#14** (09-07, `228a0f3`) — *"tarball'dan ve
+imajdan"* işinin imaj yarısı yeşil, 3 Eylül'den beri ilk kez. Kurulum
+ayrıca yerelde, imajın dizin düzeniyle ve imajın hesabıyla, gerçek
+TimescaleDB'ye karşı üretilip düzeltildi; bu makinede Docker olmadığı
+için `docker compose up`'ın tamamını doğrulayan tek yer gecelik hat.
 
 ---
 
