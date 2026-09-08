@@ -125,13 +125,14 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 
 	// The live-settings poll, shortened for one assertion below.
 	//
-	// A customer's beacon re-reads the settings table every minute,
+	// A customer's services re-read the settings table every minute,
 	// which is the right period for a running service and the wrong one
 	// for a test: waiting a minute to see a switch take effect would
-	// make this suite a minute longer for one line. Two seconds is the
-	// same mechanism at a different rate - the example file documents
+	// make this suite a minute longer for each one. Two seconds is the
+	// same mechanism at a different rate - the example files document
 	// the setting, and this is what it is for.
 	setConfig(t, pkg, "beacon.toml", `^# interval_seconds = 60$`, `interval_seconds = 2`)
+	setConfig(t, pkg, "collector.toml", `^# interval_seconds = 60$`, `interval_seconds = 2`)
 
 	start(t, pkg, "collector", "collector.toml")
 	start(t, pkg, "beacon", "beacon.toml")
@@ -236,6 +237,18 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// off has to be able to switch it back on, and a one-way test would
 	// pass against a process that had simply stopped serving.
 	checkTheDisclosureSwitchTravels(t, ctx, pool, beaconAddr)
+
+	// ---- and the same for the other service, and the other kind of
+	// setting ----
+	//
+	// The disclosure switch proved that one line in one apply loop runs.
+	// It did not prove there is a second loop: the collector has its
+	// own, in its own process, reading its own keys, and the same
+	// deletion there would be just as invisible. So this changes a
+	// limit - the one setting whose own comment says it can stop
+	// traffic reaching the customer's site - and watches the installed
+	// collector start refusing connections, then stop.
+	checkTheCollectorsLimitTravels(t, ctx, pool, collectorAddr, origin)
 
 	var events int
 	deadline = time.Now().Add(flushWait)
@@ -711,4 +724,114 @@ func checkTheDisclosureSwitchTravels(t *testing.T, ctx context.Context, pool *pg
 
 	set(true)
 	waitFor(http.StatusOK, "switching it back on")
+}
+
+// checkTheCollectorsLimitTravels writes the panel's rows and watches the
+// installed collector obey them.
+//
+// The second apply loop. A5.1 gave every service the same shape - read
+// the table, hand each value to the running object - and the shape is
+// the risk: the read is unit-tested, the setter is unit-tested, and the
+// call between them is a line in a main package that only an
+// installation runs. One loop proved is one loop; this is the other
+// process, the other keys and the other kind of value.
+//
+// The limit rather than one of the collector's four other live settings
+// because of what it does. Its own log line in cmd/collector says it:
+// this is the one setting here that can stop traffic reaching the
+// customer's site. A deployment that sets it and does not get it is
+// either unprotected or, in the other direction, refusing traffic it was
+// told to stop refusing.
+func checkTheCollectorsLimitTravels(t *testing.T, ctx context.Context, pool *pgxpool.Pool, collectorAddr string, origin *originServer) {
+	t.Helper()
+
+	keys := []string{"collector.limits.max_requests_per_second", "collector.limits.overload_policy"}
+
+	// One request per connection, and no reuse: see proxyClient.
+	client := proxyClient(t, collectorAddr, origin, false)
+	attempt := func() error {
+		resp, err := client.Get("https://127.0.0.1/")
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.Body.Close()
+	}
+	// burst opens several connections back to back and says whether any
+	// of them was refused. Several rather than one because the limit is
+	// a rate: the first connection in a window is admitted whatever the
+	// ceiling is, and a test that sent one request would be reading the
+	// ceiling as absent.
+	burst := func() error {
+		for i := 0; i < 4; i++ {
+			if err := attempt(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// panel_settings.value is JSON, which is what the panel writes and
+	// what the setting source reads back. A number goes in bare and a
+	// string goes in quoted; the column refuses anything else, which is
+	// how the first draft of this test found out.
+	set := func(perSecond, policy string) {
+		t.Helper()
+		for i, value := range []string{perSecond, policy} {
+			if _, err := pool.Exec(ctx, `
+				INSERT INTO panel_settings (scope, site_id, key, value)
+				VALUES ('global', '', $1, $2)
+				ON CONFLICT (scope, site_id, key) DO UPDATE SET value = EXCLUDED.value`,
+				keys[i], value); err != nil {
+				t.Fatalf("writing %s: %v", keys[i], err)
+			}
+		}
+	}
+	clear := func() {
+		t.Helper()
+		if _, err := pool.Exec(ctx,
+			`DELETE FROM panel_settings WHERE site_id = '' AND key = ANY($1)`, keys); err != nil {
+			t.Fatalf("clearing the limit settings: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE site_id = '' AND key = ANY($1)`, keys)
+	})
+
+	// waitUntil polls a burst until it behaves the way this step
+	// expects, keeping the last thing it saw for the failure message.
+	const patience = 30 * time.Second
+	waitUntil := func(wantRefused bool, what string) {
+		t.Helper()
+		deadline := time.Now().Add(patience)
+		var last error
+		for time.Now().Before(deadline) {
+			last = burst()
+			if (last != nil) == wantRefused {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if wantRefused {
+			t.Fatalf("%s: after %s the collector still forwards every connection.\n"+
+				"The limit reached the database; what did not happen is the running "+
+				"collector applying it - the line between the setting source and the "+
+				"limiter, which nothing but an installation runs", what, patience)
+		}
+		t.Fatalf("%s: after %s the collector still refuses connections: %v.\n"+
+			"A customer who lowers a limit has to be able to raise it again", what, patience, last)
+	}
+
+	// One connection per second, and refuse the rest. Both keys
+	// together: the ceiling alone would change nothing, because the
+	// installed default is fail_open, which forwards the excess and
+	// only stops fingerprinting it. That default is deliberate - the
+	// collector is never by default the reason a site goes down - and
+	// it is also why this test has to set the policy to see anything.
+	set("1", `"fail_closed"`)
+	waitUntil(true, "lowering the limit")
+
+	clear()
+	waitUntil(false, "removing it again")
 }

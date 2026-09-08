@@ -14,7 +14,7 @@ import (
 // The rule used to be a switch inline in the measurement, which meant
 // the only way to learn what it would say about a given run was to
 // produce that run - and the runs that matter are the ones a development
-// machine does not reproduce. Two of them are below, and both were
+// machine does not reproduce. Three of them are below, and all three were
 // failures of the *rule* rather than of the code it watches.
 //
 // A threshold nobody can exercise except by getting lucky is a threshold
@@ -98,6 +98,30 @@ func TestTheStallRuleAgreesWithWhatWasMeasured(t *testing.T) {
 			why: "the other side of the same line, so the minimum is a threshold " +
 				"rather than a number nothing ever crosses",
 		},
+		{
+			// Measured 2026-09-08, in a container running the whole
+			// integration suite in parallel. Three probes reported this
+			// same shape, and the third observation that made the rule
+			// what it is.
+			name:   "a machine already over the ceiling at rest",
+			during: 4*time.Second + 370*ms, baseline: 3*time.Second + 957*ms,
+			upgrade: 4*time.Second + 383*ms,
+			want:    stallCeilingUnmeasurable,
+			why: "1.1x the at-rest worst and inside the upgrade window: nothing " +
+				"was blocked. The old rule fired the absolute ceiling and printed " +
+				"a diagnosis about a heavy lock in the schema files, which was " +
+				"not there - the machine was",
+		},
+		{
+			name:   "a real lock regression on that same starved machine",
+			during: 30 * time.Second, baseline: 3*time.Second + 957*ms,
+			upgrade: 4*time.Second + 383*ms,
+			want:    stallDisproportionate,
+			why: "the case that stops the line above from being a way to pass. " +
+				"Where the ceiling cannot speak the ratio still can, and 7.6x " +
+				"the at-rest worst - far outside the window - is a lock, not a " +
+				"slow container",
+		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := judgeStall(c.during, c.baseline, c.upgrade)
@@ -115,6 +139,8 @@ func (v stallVerdict) String() string {
 		return "over the ceiling"
 	case stallDisproportionate:
 		return "disproportionate"
+	case stallCeilingUnmeasurable:
+		return "the ceiling could not apply"
 	default:
 		return "fine"
 	}

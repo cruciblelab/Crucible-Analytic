@@ -171,6 +171,15 @@ const (
 	// upgrade that supposedly caused it, and several times this machine's
 	// own at-rest worst.
 	stallDisproportionate
+	// stallCeilingUnmeasurable is a machine whose at-rest worst is
+	// already over the ceiling. Nothing is wrong with the schema and
+	// nothing here can say whether anything is: the absolute half has
+	// been answered by the machine before the upgrade was asked.
+	//
+	// Reported rather than silently swallowed. A run where half the rule
+	// did not apply must not read the same as a run where both halves
+	// passed.
+	stallCeilingUnmeasurable
 )
 
 // judgeStall is the rule, extracted so it can be tested against numbers
@@ -181,12 +190,31 @@ const (
 // that matter are the ones a laptop does not reproduce. The measurements
 // in TestTheStallRuleAgreesWithWhatWasMeasured are real observations,
 // including the two that made this rule what it is.
+// # The ceiling needs a machine that can honour it - measured
+//
+// The absolute half asks "did a query wait long enough for a person to
+// notice". That question has an answer only where the same query at rest
+// does not. Measured 2026-09-08 in a container running the whole
+// integration suite in parallel: three probes waited 4.37s during the
+// upgrade against 3.96s at rest, and the upgrade itself took 4.38s.
+// Nothing was blocked - the ratio is 1.1 and the wait is inside the
+// window - but the ceiling fired on all three and the message it printed
+// named a heavy lock in the schema files, which was not there.
+//
+// A diagnosis that arrives on a starved machine is a diagnosis pointed at
+// the wrong thing. So the ceiling applies only where the baseline is
+// under it, and a run where it could not apply says so.
 func judgeStall(during, baseline, upgradeTook time.Duration) stallVerdict {
 	switch {
-	case during > worstAcceptableStall:
+	case during > worstAcceptableStall && baseline < worstAcceptableStall:
 		return stallOverCeiling
 	case during > effectiveFloor(upgradeTook) && during > comparedToRest*baseline:
 		return stallDisproportionate
+	case baseline >= worstAcceptableStall:
+		// Ordered after the ratio deliberately: a real regression on a
+		// starved machine is still a regression, and it is the ratio
+		// that can see it.
+		return stallCeilingUnmeasurable
 	default:
 		return stallFine
 	}
@@ -590,6 +618,22 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"not queueing behind it",
 				l.name, during, baseline, comparedToRest, effectiveFloor(upgradeTook),
 				worstAcceptableStall)
+
+		case stallCeilingUnmeasurable:
+			// Logged, not failed. A container running the whole
+			// integration suite at once is not a product defect, and a
+			// test that went red for it would be a test people learn to
+			// re-run rather than read.
+			//
+			// But it is said out loud, because half the rule did not
+			// apply: the ratio below passed, the ceiling was never
+			// asked. A reader who sees only green would otherwise
+			// believe both halves held.
+			t.Logf("%s: the %v ceiling did not apply on this machine - at rest the "+
+				"same query's worst was already %v. The proportion held (%v during "+
+				"against %v at rest, upgrade %v), which is the half that can still "+
+				"see a lock regression here",
+				l.name, worstAcceptableStall, baseline, during, baseline, upgradeTook)
 		}
 	}
 }

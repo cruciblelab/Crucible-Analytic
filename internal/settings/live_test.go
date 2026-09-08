@@ -211,6 +211,59 @@ func TestSource_PicksUpAChangeWithoutRestarting(t *testing.T) {
 		src.Int("test.settings.logs.retention_days", "", 14, 1, 3650))
 }
 
+// TestSource_ADeletedSettingGoesBackToTheDefault.
+//
+// The other direction of the test above, and not the same test. A
+// customer who lowers a limit has to be able to raise it again, and
+// "raise it again" in this product is usually "clear the field" - the
+// panel deletes the row rather than storing a value that means default.
+// A Refresh that merged its result into the cache instead of replacing
+// it would pass every assertion in this file: every value it was ever
+// told is still there, and only the one nobody told it about any more is
+// wrong.
+//
+// It is deliberately close to TestSource_KeepsLastKnownValuesWhenThe-
+// DatabaseGoesAway and must not be read as contradicting it. That one is
+// about a refresh that *failed*: no answer, so keep the last one. This
+// one is about a refresh that succeeded and came back with fewer rows,
+// which is an answer - the setting is gone.
+//
+// Measured: the merge bug survives this package's whole suite,
+// internal/beacon's and internal/collector's. Until this test it was
+// visible only from the end-to-end run, which is nightly rather than in
+// the gate.
+func TestSource_ADeletedSettingGoesBackToTheDefault(t *testing.T) {
+	pool := testPool(t)
+	const key = "test.settings.logs.retention_days"
+	write(t, pool, key, "", "10")
+
+	src := New(context.Background(), pool, Config{Interval: 50 * time.Millisecond})
+	if got := src.Int(key, "", 14, 1, 3650); got != 10 {
+		t.Fatalf("got %d, want the stored 10", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go src.Run(ctx)
+
+	// The panel clears the field.
+	if _, err := pool.Exec(context.Background(),
+		`DELETE FROM panel_settings WHERE key = $1 AND site_id = ''`, key); err != nil {
+		t.Fatalf("deleting %s: %v", key, err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if src.Int(key, "", 14, 1, 3650) == 14 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Errorf("the setting was deleted and the service still reads %d rather than "+
+		"falling back to 14; a customer cannot undo a setting",
+		src.Int(key, "", 14, 1, 3650))
+}
+
 func TestSource_StringsReturnsACopy(t *testing.T) {
 	pool := testPool(t)
 	write(t, pool, "test.settings.logs.level", "", `["a","b"]`)

@@ -160,6 +160,18 @@ func (s *Source) Refresh(ctx context.Context) error {
 		return fmt.Errorf("settings: read: %w", err)
 	}
 
+	// Replaced, never merged, and never guarded by a count. A successful
+	// read that came back with fewer rows - or none - is an answer: the
+	// panel deletes the row rather than storing a value that means
+	// "default", so a setting that has gone away has to go away here
+	// too. Merging would mean a customer could lower a limit and never
+	// raise it again; skipping an empty result would mean the same for
+	// the last setting a deployment clears, which is the ordinary shape
+	// of changing one's mind.
+	//
+	// This is not the same question as a refresh that failed. That one
+	// returns above without touching the cache, and the test named for
+	// it says why.
 	s.mu.Lock()
 	s.values = fresh
 	s.loadedAt = s.now()

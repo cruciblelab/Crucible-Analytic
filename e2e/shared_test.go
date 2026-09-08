@@ -101,8 +101,14 @@ func startOriginOn(t *testing.T, bind string) *originServer {
 	return &originServer{addr: ln.Addr().String(), cert: cert}
 }
 
-// throughProxy makes a real HTTPS request through the collector.
-func throughProxy(t *testing.T, collectorAddr string, origin *originServer) string {
+// proxyClient dials the collector and speaks TLS to the origin behind
+// it.
+//
+// keepAlive is false for a caller that measures the collector's own
+// limits: those are consulted once per connection, so a pooled one is
+// paid for once and then reused for free - a burst down a single socket
+// would show a limit as not working when it is.
+func proxyClient(t *testing.T, collectorAddr string, origin *originServer, keepAlive bool) *http.Client {
 	t.Helper()
 
 	leaf, err := x509.ParseCertificate(origin.cert.Certificate[0])
@@ -112,9 +118,10 @@ func throughProxy(t *testing.T, collectorAddr string, origin *originServer) stri
 	pool := x509.NewCertPool()
 	pool.AddCert(leaf)
 
-	client := &http.Client{
+	return &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
+			DisableKeepAlives: !keepAlive,
 			// Every request goes to the collector's address; the
 			// certificate is the origin's. Verification stays on and
 			// trusts the origin's own authority, so the handshake this
@@ -125,6 +132,13 @@ func throughProxy(t *testing.T, collectorAddr string, origin *originServer) stri
 			TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "127.0.0.1", MinVersion: tls.VersionTLS12},
 		},
 	}
+}
+
+// throughProxy makes a real HTTPS request through the collector.
+func throughProxy(t *testing.T, collectorAddr string, origin *originServer) string {
+	t.Helper()
+
+	client := proxyClient(t, collectorAddr, origin, true)
 
 	resp, err := client.Get("https://127.0.0.1/")
 	if err != nil {

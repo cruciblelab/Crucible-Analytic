@@ -6389,6 +6389,21 @@ sayfanın 404 verdiğini görüyor, sonra geri alıp döndüğünü görüyor.
 Mutasyon (`SetDisclosure` çağrısını sil) yakalandı. *Ayrı ayrı sınanmış
 iki parçanın arasındaki satır, sınanmamış bir satırdır.*
 
+**Ve ikinci uygulama döngüsü.** Bir döngüyü ölçmek ikinci bir döngünün
+var olduğunu ölçmüyor: toplayıcının kendi süreci, kendi anahtarları ve
+kendi döngüsü var. E2E artık toplayıcının sınırını da değiştiriyor —
+saniyede bir bağlantı, gerisi reddedilsin — ve bağlantıların gerçekten
+reddedildiğini, sonra ayar kaldırılınca geri geldiğini görüyor.
+`lim.SetConfig` çağrısını silen mutasyon yakalandı.
+
+Asıl bulgu ikinci mutasyondan çıktı: `Source.Refresh`'i haritayı
+değiştirmek yerine üzerine ekler hâle getirmek — yani *müşteri bir ayarı
+silince eski değerin sonsuza kadar kalması* — `internal/settings`,
+`internal/beacon` ve `internal/collector` süitlerinin tamamından sağ
+çıkıyordu. Kapıda görünmeyen, yalnız gecelik e2e'de görünen bir kusur
+şekli. Hızlı kanala `TestSource_ADeletedSettingGoesBackToTheDefault`
+eklendi. Ayrıntı ve kapanmayan üçüncü mutasyonun gerekçesi NOTES.md'de.
+
 ---
 
 #### P4 — Belgeler

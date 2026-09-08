@@ -14266,3 +14266,122 @@ saniyelik pencerede söyledi.
 
 *Ayrı ayrı sınanmış iki parçanın arasındaki satır, sınanmamış bir
 satırdır.*
+
+## İkinci uygulama döngüsü, ve ondan çıkan gerçek kusur
+
+Önceki not bir satırı ölçtü: `cmd/beacon`'ın açıklama anahtarını sunucuya
+veren satırı. Bir döngüyü ölçmek, ikinci bir döngünün var olduğunu
+ölçmez — toplayıcının kendi süreci, kendi anahtarları ve kendi
+uygulama döngüsü var, ve oradaki aynı silme aynı şekilde görünmezdi.
+
+E2E artık toplayıcının sınırını da değiştiriyor: saniyede bir bağlantı,
+gerisi reddedilsin. Beş canlı ayarı arasından bu seçildi çünkü
+`cmd/collector`'ın kendi kayıt satırı onu şöyle tarif ediyor: *buradaki,
+müşterinin sitesine trafiğin ulaşmasını durdurabilen tek ayar.*
+
+İki anahtar birlikte yazılıyor. Yalnız tavanı düşürmek hiçbir şey
+değiştirmezdi: kurulu varsayılan `fail_open`, yani fazlalığı yine
+iletiyor, sadece parmak izini almıyor. Bu varsayılan bilinçli —
+toplayıcı varsayılan olarak asla sitenin düşme sebebi olmaz — ve testin
+politikayı da yazmak zorunda olmasının sebebi bu.
+
+Bağlantı başına bir istek, havuz yok: sınır bağlantı başına bir kez
+soruluyor, tek soket üzerinden atılan bir seri sınırı çalışmıyor gibi
+gösterirdi.
+
+### Ölçüm, ve ikinci yarının bulduğu şey
+
+**C1** — `lim.SetConfig(limits)` satırını sil. Yakalandı: sınır
+veritabanına ulaştı, koşan toplayıcı uygulamadı, test 30 saniyede söyledi.
+
+**C2** — `Source.Refresh` haritayı değiştirmek yerine üzerine eklesin.
+Yakalandı, ama yalnız **ikinci yarı** tarafından: ayarı geri alma adımı.
+Bu, testin "iki yön" iddiasının süs olmadığının kanıtı.
+
+Ve C2'nin asıl söylediği şey ayrıydı: aynı mutasyon
+`internal/settings`, `internal/beacon` ve `internal/collector`
+süitlerinin **tamamından sağ çıkıyor**. Yani "müşteri bir ayarı silince
+eski değer sonsuza kadar kalır" kusuru, kapıda hiçbir yerde görünmezdi;
+yalnız gecelik koşan e2e'de görünürdü.
+
+O yüzden hızlı kanala bir test eklendi:
+`TestSource_ADeletedSettingGoesBackToTheDefault`. Yanındaki
+`...KeepsLastKnownValuesWhenTheDatabaseGoesAway` ile çelişmiyor, onu
+tamamlıyor: **başarısız** bir okuma cevap değildir, önbellek durur;
+**başarılı** ama daha az satırla dönen bir okuma cevaptır, ayar gitmiştir.
+
+### Kapanmayan bir mutasyon, gerekçesiyle
+
+**C3** — `s.values = fresh` ataması `if len(fresh) > 0` ile sarılsın.
+**Sağ kaldı.** Ulaşmak için tablonun sıfır satırla dönmesi gerekiyor; bu
+süit, `panel_settings`'i `internal/panel` ve `internal/panel/web`
+süitleriyle paylaşıyor ve dosyanın kendi başlığı çıplak bir `DELETE`'in
+onların satırlarını koşarken silmesini yasaklıyor.
+
+Tek başına bir tablo görmenin ucuz yolu geçici tablo olurdu; `panel_user`
+geçici tablo açamıyor — H5 o varsayılanı bilerek kapattı, ve doğrusu bu.
+Kapatmanın gerçek bedeli bu tek test için ayrı bir veritabanı, ya da
+`panel_settings`'e dokunan üç süide ortak bir danışma kilidi.
+
+Bugün bir kusur değil, sınanmamış bir şekil. Atamanın yanına neden koşulsuz
+olduğunu yazan bir gerekçe kondu; birinin o `if`'i eklemesi artık sessiz
+bir tuzak değil, yazılı bir kuralın çiğnenmesi.
+
+*Bir döngüyü ölçmek, ikinci bir döngünün var olduğunu ölçmez.*
+
+## Kapının bir kez verdiği gizemli kırmızı: mesajı saklandı, ve okundu
+
+`ce07216`'da kapının konuşma dökümü kaybolmasın diye bir sarmalayıcı
+eklenmişti — çünkü `TestNoServiceStopsWhileTheSchemaIsApplied` bir kez
+kırmızı vermiş ve mesajı `grep`'in içinde kaybolmuştu. Sebep bilinmiyordu
+ve tahmin edilmedi.
+
+Bugün aynı test yine kırmızı verdi, ve bu sefer döküm duruyordu:
+
+```
+collector insert  worst during 4.370227983s | worst at rest 3.95748847s
+beacon insert     worst during 4.369876039s | worst at rest 3.958523902s
+panel write       worst during 4.365031353s | worst at rest 3.95643551s
+yükseltme 4.382980796s sürdü
+```
+
+Cevap satırın kendisinde yazıyor: **dinlenirken de 3,96 saniye.** Tavan 2
+saniye. Yani makinenin boştaki en kötüsü zaten tavanın iki katı. Oran
+1,1; bekleme yükseltme penceresinin içinde. Hiçbir şey kilitlenmemiş —
+konteyner, bütün entegrasyon süiti paralel koşarken aç kalmış.
+
+Aynı test tek başına, aynı konteynerde: yükseltme **118 ms**, en kötü
+bekleme **4 ms**. Otuz yedi kat.
+
+### Kusur testte değil, kuralın yarısındaydı
+
+Mutlak tavan şunu soruyor: *bir sorgu, insanın fark edeceği kadar bekledi
+mi?* Bu sorunun cevabı ancak aynı sorgunun dinlenirken beklemediği bir
+makinede vardır. Aç bir makinede tavan makineyi ölçüyor, şemayı değil —
+ve bastığı teşhis ("şema dosyalarından biri artık ağır kilit alıyor")
+orada olmayan bir şeyi gösteriyordu.
+
+*Aç bir makinede varılan bir teşhis, yanlış şeyi gösteren bir teşhistir.*
+
+Kural artık: mutlak tavan yalnız **taban tavanın altındaysa** geçerli.
+Uygulanamadığı koşuda test kırmızı vermiyor ama **susmuyor da** —
+`stallCeilingUnmeasurable` diye ayrı bir hüküm var ve döküme "bu makinede
+tavan sorulamadı, oran tuttu" diye yazıyor. Yarısı uygulanmamış bir koşu,
+iki yarısı da geçmiş bir koşuyla aynı görünmemeli.
+
+Sıralama önemli: oran kontrolü **önce** geliyor. Aç bir makinedeki gerçek
+bir kilit gerilemesi hâlâ gerilemedir, ve onu görebilen yarı orandır.
+
+### Ölçüm
+
+Üç mutasyon, üçü de yakalandı — ve her biri onu yakalaması gereken
+gözlem tarafından:
+
+- Tavan makineyi yine yok saysın → "a machine already over the ceiling at
+  rest" kırmızı verdi.
+- Ölçülemez hükmü orandan önce gelsin → "a real lock regression on that
+  same starved machine" kırmızı verdi.
+- Aç makine sadece "fine" densin → ilk gözlem yine kırmızı verdi.
+
+Bugünkü ölçüm `stallrule_test.go`'ya gerçek sayılarıyla yazıldı; oradaki
+tablo artık üç gerçek gözlem taşıyor, ve üçü de kuralın kendi kusuruydu.
