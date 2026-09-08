@@ -960,6 +960,18 @@ değişir. **Metni kopyalayıp kendi sayfanıza yapıştırmayın** — kopya ay
 değiştiğinde değişmez, ve o zaman ziyaretçiye yanlış şey söyler. Kendi
 diliniz için JSON ucunu kullanın.
 
+Panelde **Ayarlar → Gizlilik** altında üç ayar bunları yönetiyor, ve üçü
+de müşteriye ait (geliştirici parolası istenmiyor):
+
+| Ayar | Ne yapar |
+|---|---|
+| Ziyaretçiye dönük açıklama sayfası | Varsayılan açık. Kapatılırsa iki uç 404 verir, gömülü blok hiçbir şey çizmez. |
+| Kendi gizlilik sayfanızın adresi | Açıklama sayfası buraya bağlantı verir. Boşken bağlantı yok. |
+| İletişim adresi | E-posta ya da form sayfası. Boşken iletişim bölümü yok. |
+
+Anahtar canlıdır: değiştirince bir şey yeniden başlatmanız gerekmez, ve
+olay toplama etkilenmez. `crucible.optOut()` kapalıyken de çalışır.
+
 ---
 
 ## 11. Bot verisi

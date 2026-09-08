@@ -459,3 +459,196 @@ func TestTheDisclosureIsReadableFromTheCustomersOwnPage(t *testing.T) {
 		}
 	}
 }
+
+// P3: the switch, and the two facts only the operator knows.
+
+// TestTheSurfaceCanBeWithdrawnWhileTheServerRuns.
+//
+// The claim is a pair, and only the pair is worth anything: a customer
+// who switches the disclosure off gets 404 on both endpoints without
+// restarting anything, and a customer who switches it back on gets them
+// back the same way. A one-way test would pass on a server that had
+// simply stopped serving.
+func TestTheSurfaceCanBeWithdrawnWhileTheServerRuns(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+
+	for _, path := range []string{prefix + "/privacy", prefix + "/privacy.html"} {
+		if code, _ := fetchPrivacy(t, s, path); code != http.StatusOK {
+			t.Fatalf("GET %s = %d before the switch was touched; the default is on", path, code)
+		}
+	}
+
+	s.SetDisclosure(Disclosure{Enabled: false})
+
+	for _, path := range []string{prefix + "/privacy", prefix + "/privacy.html"} {
+		code, body := fetchPrivacy(t, s, path)
+		if code != http.StatusNotFound {
+			t.Errorf("with the surface off, GET %s = %d, want 404\n%s", path, code, body)
+		}
+		// And it says nothing about the deployment on the way out. A
+		// "disabled by the operator" page would be a disclosure of its
+		// own, and one nobody asked for.
+		for _, leak := range []string{"acme", "ip_storage", "visitor_id"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("the 404 for %s mentions %q", path, leak)
+			}
+		}
+	}
+
+	s.SetDisclosure(Disclosure{Enabled: true})
+
+	for _, path := range []string{prefix + "/privacy", prefix + "/privacy.html"} {
+		if code, _ := fetchPrivacy(t, s, path); code != http.StatusOK {
+			t.Errorf("switching the surface back on left GET %s at %d", path, code)
+		}
+	}
+}
+
+// TestTheClosedSurfaceStillAnswersTheScriptThatAsks.
+//
+// beacon.js asks the JSON endpoint whether to draw the embedded block,
+// from the site's own origin. A 404 without the CORS header is a 404 the
+// script cannot read: the browser blocks it, the promise rejects, and
+// what should have been an answer becomes a console error on somebody
+// else's privacy page.
+func TestTheClosedSurfaceStillAnswersTheScriptThatAsks(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+	s.SetDisclosure(Disclosure{Enabled: false})
+
+	r := httptest.NewRequest(http.MethodGet, prefix+"/privacy", nil)
+	r.Header.Set("Origin", "https://musteri.example")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("the endpoint answered %d", w.Code)
+	}
+	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("the 404 carries Access-Control-Allow-Origin %q; the script cannot "+
+			"read it, so 'switched off' arrives as an error rather than an answer", got)
+	}
+	// And it is not cached: the switch is live, so a cached 404 would
+	// outlive the decision that produced it.
+	if cache := w.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Errorf("the 404 is cached (%q); switching the surface back on would not "+
+			"reach a browser that had already asked", cache)
+	}
+}
+
+// TestTheEventEndpointIsNotAffectedByTheSwitch.
+//
+// The switch is about the disclosure, not about the measurement. A
+// customer who takes the page down has not asked to stop counting, and a
+// switch that stopped both would be one nobody could use for what it is
+// for.
+func TestTheEventEndpointIsNotAffectedByTheSwitch(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+	s.SetDisclosure(Disclosure{Enabled: false})
+
+	r := httptest.NewRequest(http.MethodPost, prefix+"/event",
+		strings.NewReader(`{"site":"acme","type":"pageview","url":"/x"}`))
+	r.RemoteAddr = "203.0.113.9:41234"
+	r.Header.Set("Content-Type", "text/plain")
+	r.Header.Set("User-Agent", chromeUA)
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+
+	if w.Code >= 400 {
+		t.Errorf("with the disclosure off the event endpoint answered %d", w.Code)
+	}
+	if accepted, _, _ := s.Counters(); accepted != 1 {
+		t.Errorf("the beacon accepted %d events with the disclosure off", accepted)
+	}
+
+	// The script is still served too: opting out lives in it, and P3
+	// says the opt-out does not depend on us publishing a page.
+	if code, body := fetchPrivacy(t, s, prefix+"/ca.js"); code != http.StatusOK ||
+		!strings.Contains(body, "optOut") {
+		t.Errorf("with the disclosure off the snippet answered %d and %s carry optOut",
+			code, map[bool]string{true: "does", false: "does not"}[strings.Contains(body, "optOut")])
+	}
+}
+
+// TestThePageLinksToTheOperatorsOwnPolicyOnlyWhenThereIsOne.
+func TestThePageLinksToTheOperatorsOwnPolicyOnlyWhenThereIsOne(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+
+	// Nothing set: no link, and no empty link either. An <a href="">
+	// reloads the page it is on, which is a worse answer than no link.
+	_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+	if strings.Contains(page, `href=""`) || strings.Contains(page, "href=\"#ZgotmplZ\"") {
+		t.Errorf("the page carries a link with no target:\n%s", page)
+	}
+	if strings.Contains(page, "kendi gizlilik metni") {
+		t.Error("the page offers the operator's own policy when none is set")
+	}
+	said := privacyJSON(t, s, prefix)
+	if _, ok := said["policy_url"]; ok {
+		t.Errorf("the JSON carries policy_url = %v when none is set", said["policy_url"])
+	}
+
+	// Set: the link is there, once, pointing where it was told.
+	const url = "https://acme.example/gizlilik"
+	s.SetDisclosure(Disclosure{Enabled: true, PolicyURL: url})
+	_, page = fetchPrivacy(t, s, prefix+"/privacy.html")
+	if !strings.Contains(page, `href="`+url+`"`) {
+		t.Errorf("the page does not link to %s:\n%s", url, page)
+	}
+	said = privacyJSON(t, s, prefix)
+	if said["policy_url"] != url {
+		t.Errorf("the JSON says policy_url = %v", said["policy_url"])
+	}
+}
+
+// TestAPolicyAddressTheDatabaseShouldNotHaveIsNotRendered.
+//
+// The panel refuses these on the way in. This is the other end: a row
+// written by an older build, restored from a backup, or edited by hand
+// reaches a page served to the public, and the page has to decline it
+// without anybody to ask.
+func TestAPolicyAddressTheDatabaseShouldNotHaveIsNotRendered(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+
+	for _, bad := range []string{
+		"javascript:alert(document.domain)",
+		"data:text/html,<script>alert(1)</script>",
+		"/gizlilik",
+		"https://ali:parola@acme.example/gizlilik",
+	} {
+		s.SetDisclosure(Disclosure{Enabled: true, PolicyURL: bad, Contact: bad})
+
+		_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+		for _, fragment := range []string{"javascript:", "data:text/html", "parola@", `href="/gizlilik"`} {
+			if strings.Contains(page, fragment) {
+				t.Errorf("with %q stored, the page contains %q", bad, fragment)
+			}
+		}
+		said := privacyJSON(t, s, prefix)
+		if v, ok := said["policy_url"]; ok {
+			t.Errorf("with %q stored, the JSON hands a customer's own page %v", bad, v)
+		}
+		if v, ok := said["contact"]; ok {
+			t.Errorf("with %q stored, the JSON hands a customer's own page %v", bad, v)
+		}
+	}
+}
+
+// TestTheContactIsLinkedTheWayItsKindRequires.
+func TestTheContactIsLinkedTheWayItsKindRequires(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+
+	s.SetDisclosure(Disclosure{Enabled: true, Contact: "gizlilik@acme.example"})
+	_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+	if !strings.Contains(page, `href="mailto:gizlilik@acme.example"`) {
+		t.Errorf("an email contact is not linked as mailto:\n%s", page)
+	}
+
+	s.SetDisclosure(Disclosure{Enabled: true, Contact: "https://acme.example/iletisim"})
+	_, page = fetchPrivacy(t, s, prefix+"/privacy.html")
+	if strings.Contains(page, "mailto:https") {
+		t.Error("a form page is linked as an email address")
+	}
+	if !strings.Contains(page, `href="https://acme.example/iletisim"`) {
+		t.Errorf("a form page is not linked:\n%s", page)
+	}
+}

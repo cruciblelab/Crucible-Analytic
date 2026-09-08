@@ -96,7 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **2/5** | P3–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **3/5** | P4–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -187,7 +187,7 @@ geçer.
 | 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ ~~**N4**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
-| 6.5 | ~~**P1** çağrılar~~ ✅ ~~**P2** açıklama yüzeyi~~ ✅ → **P3 · P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
+| 6.5 | ~~**P1** çağrılar~~ ✅ ~~**P2** açıklama yüzeyi~~ ✅ ~~**P3** panel ayarları~~ ✅ → **P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 7.5 | **P5** mod değişiminin geçmişi | uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -6320,7 +6320,7 @@ Docker yarısı geceliğin ölçmesini bekliyor.
 
 ---
 
-#### P3 — Panel: politika sayfaları, iletişim adresi, kapatma anahtarı
+#### P3 — Panel: politika sayfaları, iletişim adresi, kapatma anahtarı ✅ **yapıldı**
 
 **Ne:** üç ayar.
 
@@ -6352,6 +6352,36 @@ bizim bir sayfa servis etmemize bağlı değil; anahtar değiştiğinde
 **yeniden başlatma gerekmiyor** (canlı ayar, P2'nin okuduğu kaynağın
 aynısı); politika adresi boşken blok bağlantı göstermiyor, bozuk
 bağlantı göstermiyor.
+
+**Nasıl bitti.** Üç ayar `privacy.visitor_surface`,
+`privacy.policy_url`, `privacy.contact` — üçü de küresel, çünkü onları
+işleyen servis (beacon) küresel ayarları okuyor; site başına bir politika
+adresi, onu basan servisin göremeyeceği bir ayar olurdu.
+
+Anahtar canlı: `Server.SetDisclosure` atomik, iki uç her istekte
+bakıyor. Kapalıyken ikisi de 404, **CORS başlığıyla birlikte** — çünkü
+`beacon.js` çizmeden önce JSON ucuna soruyor, ve okunamayan bir 404 cevap
+değil konsol hatası olur. Olay ucu ve snippet anahtardan etkilenmiyor:
+kapatmak saymayı durdurmak değil.
+
+İki adres **iki yerde** deneniyor: panel yazarken (müşteriye cümle
+gösterebilsin diye) ve beacon basarken (kimseye cümle gösteremediği için
+sessizce düşürerek). `javascript:`, `data:`, şemasız, konaksız,
+parolalı, satır sonu taşıyan değerler ikisinde de reddediliyor. Kural tek
+yerde: `internal/privacy/policy.go`.
+
+Yetki kararı teste bağlandı: üç ayarı da geliştirici parolası olmadan
+değiştiren bir müşteri var, ve biri kilitlenirse test kırmızı verip
+gerekçeyi yazıyor. Anahtarın bedeli de sayfada — kapatınca yükümlülüğün
+müşteriye geçtiği, ve `optOut`'un kapalıyken de çalıştığı yazılı.
+
+**On sekiz mutasyon, on sekizi de yakalandı** — anahtarı yok say, 404'ün
+başlığını al, adresi denetlemeden bas, her iletişimi mailto yap, varsayılanı
+kapalıya çevir, ayarları geliştirici moduna sakla, betiğin sormadan
+çizmesini sağla, 404 cevabını da çizdir, `javascript:` şemasını kabul et.
+
+Gerçek Chromium'da: yüzey kapalıyken bağlama noktası boş kalıyor, sayfanın
+gövdesi hiç değişmiyor, ve `optOut()` / `optIn()` çalışmaya devam ediyor.
 
 ---
 

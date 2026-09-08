@@ -91,6 +91,34 @@ değil.
 birlikte geliyor. İsterseniz gizlilik sayfanızdan
 `<önek>/privacy.html`'e bağlantı verin ya da yukarıdaki noktayı koyun.
 
+### Açıklama sayfasının anahtarı ve iki adresi panelde
+
+**Ayarlar → Gizlilik** altında üç yeni ayar. Üçü de sizin; geliştirici
+parolası istenmiyor.
+
+| Ayar | Ne yapar |
+|---|---|
+| Ziyaretçiye dönük açıklama sayfası | Varsayılan **açık**. Kapatırsanız iki uç da 404 verir ve gömülü blok hiçbir şey çizmez. |
+| Kendi gizlilik sayfanızın adresi | Yazılırsa açıklama sayfası ziyaretçiye sizin kendi metninize bir bağlantı verir. Boşken bağlantı görünmez. |
+| İletişim adresi | E-posta ya da form sayfası. Yazılırsa açıklama sayfası "soru sormak isterseniz" bölümünü gösterir. |
+
+**Anahtarın bedeli, açıkça:** kapatmak yükümlülüğü ortadan kaldırmaz,
+size aktarır. Ziyaretçinin "burada ne toplanıyor" sorusuna kendi
+sayfanızda kendiniz cevap verirsiniz, ve o metin `privacy.ip_storage`
+ayarını değiştirdiğinizde kendiliğinden güncellenmez. Ölçümden çıkma
+çağrısı (`crucible.optOut()`) kapalıyken de çalışır — vazgeçme hakkı
+bizim bir sayfa yayımlamamıza bağlı değil.
+
+**Anahtar canlıdır:** değiştirdiğinizde hiçbir şeyi yeniden başlatmanız
+gerekmiyor, ve olay toplama etkilenmiyor. Kapatmak saymayı durdurmaz.
+
+İki adres hem yazarken hem basarken denetleniyor: yalnız `http` ve
+`https` adresleri, ve e-posta için tek `@` ile noktalı bir alan adı.
+`javascript:` gibi bir değer kabul edilmez, veritabanına elle yazılmış
+olsa bile sayfada gösterilmez.
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Üçü de isteğe bağlı.
+
 ---
 
 ## v0.23.0 — 2026-09-07

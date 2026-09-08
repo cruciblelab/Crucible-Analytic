@@ -264,6 +264,7 @@ func main() {
 	// is starting on rather than a change from nothing.
 	lastProxies := trustedProxies
 	lastLimits := cfg.Limits.LiveLimits(nil)
+	lastDisclosure := cfg.Privacy.LiveDisclosure(nil)
 
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
@@ -307,6 +308,19 @@ func main() {
 			lastIPMode = mode
 		}
 		srv.SetIPMode(lastIPMode)
+
+		// The visitor-facing surface. Logged when the switch moves,
+		// because "the disclosure page is 404ing" is a support call, and
+		// the answer to it is a line in this log rather than an
+		// afternoon.
+		if disclosure := cfg.Privacy.LiveDisclosure(live); disclosure != lastDisclosure {
+			if disclosure.Enabled != lastDisclosure.Enabled {
+				logger.Info("visitor disclosure surface changed",
+					"from", lastDisclosure.Enabled, "to", disclosure.Enabled)
+			}
+			lastDisclosure = disclosure
+		}
+		srv.SetDisclosure(lastDisclosure)
 
 		// The log level, and any temporary raise to debug. The raise
 		// expires by itself: "turn on debug, reproduce it, turn it off"

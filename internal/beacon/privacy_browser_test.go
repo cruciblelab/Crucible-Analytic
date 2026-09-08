@@ -271,6 +271,165 @@ func darkPixels(t *testing.T, path string) int {
 	return dark
 }
 
+// TestTheSurfaceCanBeTakenDownWithoutTakingTheOptOutWithIt.
+//
+// P3's completion criterion, in a browser, because both halves are about
+// what a document does.
+//
+// With the surface off the anchor stays empty: the script asks the JSON
+// endpoint first and draws nothing when the answer is 404. Drawing
+// anyway would put a browser's own error page inside somebody's privacy
+// policy, which is a worse answer than the nothing they asked for.
+//
+// And the opt-out still works, which is the half that is a promise
+// rather than a nicety: *vazgeçme hakkı bizim bir sayfa servis ediyor
+// olmamıza bağlanamaz*. The calls are pure localStorage and never touch
+// the server, so this is a statement about coupling - the day somebody
+// gates the script on the disclosure, this fails.
+func TestTheSurfaceCanBeTakenDownWithoutTakingTheOptOutWithIt(t *testing.T) {
+	if os.Getenv("CA_BROWSER_TEST") == "" {
+		t.Skip("set CA_BROWSER_TEST=1 to run this; it needs node, playwright and a chromium build")
+	}
+
+	const site = "p3-tarayici"
+	srv := &Server{
+		Sites:     []string{site},
+		Sink:      &fakeSink{},
+		Visitors:  newTestVisitorIDs(t),
+		IPMode:    privacy.IPMasked,
+		IPHashKey: []byte("otuz-iki-baytlik-test-anahtari!!"),
+	}
+	srv.SetDisclosure(Disclosure{Enabled: false})
+
+	mux := http.NewServeMux()
+	mux.Handle("/", srv.Handler())
+	mux.HandleFunc("/gizlilik", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!doctype html><html lang="tr"><head><title>Gizlilik</title></head>`+
+			`<body><h1>Gizlilik Politikamiz</h1>`+
+			`<div data-crucible-privacy></div>`+
+			`<p id="son">Son paragraf.</p>`+
+			`<script src="/_ca/ca.js" data-site=%q></script></body></html>`, site)
+	})
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	out, err := exec.Command("node", writeSurfaceOffScript(t), server.URL).Output()
+	if err != nil {
+		t.Fatalf("browser run failed: %v", err)
+	}
+	t.Logf("browser transcript:\n%s", out)
+
+	var report struct {
+		ConsoleErrors []string `json:"console_errors"`
+		Frames        int      `json:"frames"`
+		AnchorHTML    string   `json:"anchor_html"`
+		BodyHTML      string   `json:"body_html"`
+
+		StatusFresh  string `json:"status_fresh"`
+		StatusOut    string `json:"status_out"`
+		StatusIn     string `json:"status_in"`
+		OptOutStored bool   `json:"opt_out_stored"`
+
+		Threw string `json:"threw"`
+	}
+	if err := json.Unmarshal(out, &report); err != nil {
+		t.Fatalf("browser report: %v\n%s", err, out)
+	}
+	if report.Threw != "" {
+		t.Fatalf("the browser run threw: %s", report.Threw)
+	}
+
+	// Chromium logs a failed resource load, and the failed resource is
+	// the 404 this test is about. Everything else is a defect.
+	for _, e := range report.ConsoleErrors {
+		if strings.Contains(e, "404") {
+			continue
+		}
+		t.Errorf("console error: %s", e)
+	}
+
+	if report.Frames != 0 {
+		t.Errorf("the page drew %d frames with the disclosure switched off", report.Frames)
+	}
+	if strings.TrimSpace(report.AnchorHTML) != "" {
+		t.Errorf("the anchor is not empty: %q", report.AnchorHTML)
+	}
+	if want := "<h1>Gizlilik Politikamiz</h1><div data-crucible-privacy=\"\"></div><p id=\"son\">Son paragraf.</p>"; report.BodyHTML != want {
+		t.Errorf("the page was modified.\n got: %s\nwant: %s", report.BodyHTML, want)
+	}
+
+	// The opt-out, unaffected.
+	if report.StatusFresh != "in" || report.StatusOut != "out" || report.StatusIn != "in" {
+		t.Errorf("with the disclosure off the switch reads %q -> %q -> %q, want in -> out -> in",
+			report.StatusFresh, report.StatusOut, report.StatusIn)
+	}
+	if !report.OptOutStored {
+		t.Error("optOut() reported that it could not store the choice")
+	}
+}
+
+func writeSurfaceOffScript(t *testing.T) string {
+	t.Helper()
+
+	const script = `
+import playwright from '/opt/node22/lib/node_modules/playwright/index.js';
+const { chromium } = playwright;
+
+const [base] = process.argv.slice(2);
+
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const report = { console_errors: [] };
+const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
+page.on('console', (m) => { if (m.type() === 'error') report.console_errors.push(m.text()); });
+page.on('pageerror', (e) => report.console_errors.push(String(e)));
+
+try {
+
+await page.goto(base + '/gizlilik');
+// Long enough for the fetch and any frame it might have drawn: a test
+// that looked before the answer arrived would report "nothing drawn"
+// about a page that had not finished asking.
+await page.waitForTimeout(800);
+
+report.frames = await page.evaluate(() => document.querySelectorAll('iframe').length);
+report.anchor_html = await page.evaluate(() =>
+  document.querySelector('[data-crucible-privacy]').innerHTML);
+report.body_html = await page.evaluate(() =>
+  Array.from(document.body.children)
+    .filter((e) => e.tagName !== 'SCRIPT')
+    .map((e) => e.outerHTML)
+    .join(''));
+
+report.status_fresh = await page.evaluate(() => window.crucible.status());
+report.opt_out_stored = await page.evaluate(() => window.crucible.optOut());
+report.status_out = await page.evaluate(() => window.crucible.status());
+await page.evaluate(() => window.crucible.optIn());
+report.status_in = await page.evaluate(() => window.crucible.status());
+
+} catch (e) {
+  report.threw = String(e);
+}
+
+await browser.close();
+process.stdout.write(JSON.stringify(report));
+`
+
+	prepared, err := browsertest.Prepare(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "surfaceoff.mjs")
+	if err := os.WriteFile(path, []byte(prepared), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeDisclosureScript(t *testing.T) string {
 	t.Helper()
 

@@ -294,33 +294,96 @@
      * endpoint: ".../_ca/ca.js" becomes ".../_ca/privacy.html". A site
      * that moved the prefix, or put the beacon on a subdomain, gets the
      * right URL without a second attribute to keep in step. */
-    var src = script.src.replace(/[^/]*$/, '') + 'privacy.html';
+    var base = script.src.replace(/[^/]*$/, '');
 
-    for (var i = 0; i < slots.length; i++) {
-      var slot = slots[i];
-      /* Two copies of the snippet on one page is a mistake, not a
-       * request for two frames. */
-      if (slot.getAttribute('data-crucible-filled')) continue;
-      slot.setAttribute('data-crucible-filled', '1');
+    /* Ask before drawing anything.
+     *
+     * The site can switch the visitor surface off in the panel, and
+     * then both endpoints answer 404. Drawing the frame regardless
+     * would put a browser's own error page inside somebody's privacy
+     * policy - which is worse than the nothing they asked for.
+     *
+     * The question goes to the JSON endpoint rather than to the page:
+     * it is the one that carries CORS headers, so a script on the
+     * site's origin can read the answer, and it is the smaller of the
+     * two. The 404 carries those headers too, so "switched off" arrives
+     * as an answer rather than as a console error.
+     *
+     * A browser with no fetch draws nothing. That is a deliberate
+     * trade: the alternative is drawing a frame that may be a 404, and
+     * a visitor is better served by an empty space on a page than by an
+     * error inside one. Everything else in this script - the counting,
+     * the opt-out - works there as before. */
+    if (typeof fetch !== 'function') return;
 
-      var frame = document.createElement('iframe');
-      frame.setAttribute('sandbox', 'allow-top-navigation-by-user-activation');
-      frame.setAttribute('referrerpolicy', 'no-referrer');
-      frame.setAttribute('loading', 'lazy');
-      /* The frame needs an accessible name and this script must not be
-       * the place a sentence about privacy is written, so the site
-       * supplies it in its own language, and the fallback is the
-       * product's name rather than a claim. */
-      frame.setAttribute('title', slot.getAttribute('data-title') || 'Crucible Analytic');
-      frame.style.width = '100%';
-      frame.style.border = '0';
-      /* A frame cannot size itself to its content across origins, so
-       * there is a default and the site can override it - on the anchor
-       * for one page, or in its own stylesheet for all of them. */
-      frame.style.height = slot.getAttribute('data-height') || '34rem';
-      frame.src = src;
-      slot.appendChild(frame);
-    }
+    try {
+      fetch(base + 'privacy', { mode: 'cors', credentials: 'omit' })
+        .then(function (r) {
+          if (!r || !r.ok) return;
+          for (var i = 0; i < slots.length; i++) drawDisclosure(slots[i], base + 'privacy.html');
+        })['catch'](function () {});
+    } catch (e) {}
+  }
+
+  /* drawDisclosure fills one anchor with the ready-made page.
+   *
+   * # Why a frame rather than text written here
+   *
+   * Because the sentences would then be here as well as on the page,
+   * and the whole point of that page is that it is derived from the
+   * setting in force at that moment. A copy in this file would keep
+   * saying "masked" after somebody switched to full precision, and it
+   * would be the copy the visitor is looking at. An invariant test
+   * refuses a second copy of the prose anywhere in the repository; this
+   * is the shape that obeys it rather than the shape that has to be
+   * excused from it.
+   *
+   * It also means nothing is injected into the site's DOM. The frame
+   * carries a document from our origin, under its own strict policy;
+   * the alternative - fetching and inserting markup - would put a
+   * response from one origin into another origin's page, which is the
+   * shape of every XSS advisory ever written.
+   *
+   * The costs, plainly: the frame does not inherit the site's fonts, and
+   * a site with a strict Content-Security-Policy needs frame-src for
+   * this origin - the same origin it already allows for the script. A
+   * site that would rather have neither reads <prefix>/privacy and
+   * renders the facts itself, which is what that endpoint is for.
+   *
+   * The sandbox is everything off except one thing: a click by the
+   * visitor may navigate the top page. The disclosure carries a link to
+   * the operator's own policy page, and a link that silently does
+   * nothing is worse than no link. Scripts, forms, storage and
+   * downloads stay off - the page uses none of them.
+   *
+   * This runs for a visitor who has opted out, deliberately. The frame
+   * is a page they asked to read, not a measurement: no event is sent
+   * for it and none is recorded. Withholding the explanation from the
+   * people who went looking for the switch would be the wrong way
+   * round. */
+  function drawDisclosure(slot, src) {
+    /* Two copies of the snippet on one page is a mistake, not a
+     * request for two frames. */
+    if (slot.getAttribute('data-crucible-filled')) return;
+    slot.setAttribute('data-crucible-filled', '1');
+
+    var frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', 'allow-top-navigation-by-user-activation');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.setAttribute('loading', 'lazy');
+    /* The frame needs an accessible name and this script must not be
+     * the place a sentence about privacy is written, so the site
+     * supplies it in its own language, and the fallback is the
+     * product's name rather than a claim. */
+    frame.setAttribute('title', slot.getAttribute('data-title') || 'Crucible Analytic');
+    frame.style.width = '100%';
+    frame.style.border = '0';
+    /* A frame cannot size itself to its content across origins, so
+     * there is a default and the site can override it - on the anchor
+     * for one page, or in its own stylesheet for all of them. */
+    frame.style.height = slot.getAttribute('data-height') || '34rem';
+    frame.src = src;
+    slot.appendChild(frame);
   }
 
   if (document.readyState === 'loading') {

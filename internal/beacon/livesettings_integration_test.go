@@ -12,6 +12,7 @@ package beacon
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/netip"
 	"testing"
 	"time"
@@ -249,5 +250,61 @@ func TestAnUnreachableDatabaseKeepsTheFilesValues(t *testing.T) {
 	limits := LimitsConfig{MaxConcurrentRequests: 100, OverloadPolicy: "throttle"}.LiveLimits(src)
 	if limits.MaxConcurrentConnections != 100 || limits.Policy != limiter.PolicyThrottle {
 		t.Errorf("the file's limits did not survive a dead database: %+v", limits)
+	}
+}
+
+// TestTheVisitorSurfaceSettingsReachTheBeaconFromTheDatabase.
+//
+// P3. The switch is only worth anything if it moves without a restart,
+// and "without a restart" means the value travels: the panel writes a
+// row, the beacon's settings source picks it up, and the server applies
+// it. This is the middle link, against the real table.
+//
+// The default is asserted first and it is the important half: a
+// deployment where nobody has touched this setting serves the
+// disclosure. A bug that read a missing row as false would take the page
+// down on every installation in the world, and every assertion about
+// switching it off would still pass.
+func TestTheVisitorSurfaceSettingsReachTheBeaconFromTheDatabase(t *testing.T) {
+	pool := settingsPool(t)
+	var cfg PrivacyConfig
+
+	// ---- nothing stored ----
+	if got := cfg.LiveDisclosure(liveSource(t, pool)); !got.Enabled {
+		t.Fatal("with nothing stored the visitor surface is off; the documented " +
+			"default is on, and a deployment that never opened the panel would " +
+			"be serving 404 to its visitors")
+	}
+
+	// ---- the switch ----
+	storeSetting(t, settings.KeyPrivacyVisitorSurface, false)
+	if got := cfg.LiveDisclosure(liveSource(t, pool)); got.Enabled {
+		t.Error("the stored switch did not take effect")
+	}
+
+	// ---- the two addresses ----
+	storeSetting(t, settings.KeyPrivacyPolicyURL, "https://acme.example/gizlilik")
+	storeSetting(t, settings.KeyPrivacyContact, "gizlilik@acme.example")
+
+	got := cfg.LiveDisclosure(liveSource(t, pool))
+	if got.PolicyURL != "https://acme.example/gizlilik" {
+		t.Errorf("policy url = %q", got.PolicyURL)
+	}
+	if got.Contact != "gizlilik@acme.example" {
+		t.Errorf("contact = %q", got.Contact)
+	}
+
+	// And a server told this actually stops serving. The setting is
+	// worth nothing until something reads it, and this is the last link
+	// in the chain the phase claims.
+	srv := &Server{
+		Sites:    []string{"acme"},
+		Sink:     &fakeSink{},
+		Visitors: newTestVisitorIDs(t),
+	}
+	srv.SetDisclosure(got)
+	code, _ := fetchPrivacy(t, srv, DefaultPathPrefix+"/privacy.html")
+	if code != http.StatusNotFound {
+		t.Errorf("a server given the stored settings answers %d for the page", code)
 	}
 }

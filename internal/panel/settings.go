@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
 // Settings are the operational values a deployment can change while it
@@ -413,6 +414,20 @@ const (
 	// masking would quietly degrade geography and visitor counts too,
 	// and nothing would say so.
 	KeyPrivacyIPStorage Key = "privacy.ip_storage"
+
+	// P3: the three settings behind the visitor-facing surface.
+	//
+	// KeyPrivacyVisitorSurface serves or withdraws the two disclosure
+	// endpoints. KeyPrivacyPolicyURL and KeyPrivacyContact are the two
+	// facts the disclosure can carry that only the operator knows.
+	//
+	// Global rather than per site, and that is a statement about the
+	// deployment rather than an omission: the beacon reads global
+	// settings, one stack serves one customer, and a per-site policy
+	// address would be a setting the service that renders it cannot see.
+	KeyPrivacyVisitorSurface Key = "privacy.visitor_surface"
+	KeyPrivacyPolicyURL      Key = "privacy.policy_url"
+	KeyPrivacyContact        Key = "privacy.contact"
 )
 
 // The IP storage modes.
@@ -424,6 +439,36 @@ const (
 	// IPStorageMasked keeps IPv4 to /24 and IPv6 to /64.
 	IPStorageMasked = "masked"
 )
+
+// checkPolicyURL and checkContact defer to internal/privacy, which is
+// where the rule lives because there are two callers: this form, and the
+// beacon that renders the value on a public page. See privacy/policy.go
+// for what is refused and why each refusal exists.
+//
+// An empty value is not an error here. Empty is every deployment's
+// starting state, and a form that complained about a field nobody had
+// filled in yet would be teaching its reader to ignore complaints.
+func checkPolicyURL(value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return errors.New("adres metin olmalı")
+	}
+	if _, err := privacy.CleanPolicyURL(text); err != nil && !errors.Is(err, privacy.ErrEmpty) {
+		return err
+	}
+	return nil
+}
+
+func checkContact(value any) error {
+	text, ok := value.(string)
+	if !ok {
+		return errors.New("iletişim adresi metin olmalı")
+	}
+	if _, err := privacy.CleanContact(text); err != nil && !errors.Is(err, privacy.ErrEmpty) {
+		return err
+	}
+	return nil
+}
 
 // Definition describes one setting: what it is, what values it admits,
 // and what it is called in the panel.
@@ -720,6 +765,54 @@ var registry = map[Key]Definition{
 		RequiresDeveloperPassword: true,
 		GateReason: "Ham tıklama kimliği her tıklamada benzersizdir; saklandığında " +
 			"reklam ağının kayıtlarıyla eşleştirilebilen kalıcı bir tanımlayıcıya dönüşür.",
+	},
+	// P3. Three settings a customer may change without the developer
+	// password, and the exception is reasoned rather than forgotten.
+	//
+	// This project's rule is that anything which makes work for the
+	// developer is not opened by a role - a customer can grant
+	// themselves a role, and then grant us the work. These three point
+	// the other way: switching the visitor surface off makes work for
+	// the customer, not for us. None of them decides what personal data
+	// is stored or for how long, so none belongs to the locked set
+	// either. Written down here so nobody locks them by reflex.
+	KeyPrivacyVisitorSurface: {
+		Key: KeyPrivacyVisitorSurface, Scope: ScopeGlobal, Kind: KindBool,
+		Category: CatGizlilik,
+		Default:  true,
+		Label:    "Ziyaretçiye dönük açıklama sayfası",
+		Help: "Açıkken snippet'in bulunduğu adreste iki uç yayımlanır: ziyaretçinin " +
+			"okuyabileceği bir sayfa ve aynı bilgilerin JSON'u. Kapatırsanız ikisi de " +
+			"404 verir ve gömülü blok hiçbir şey çizmez. " +
+			"Kapatmak yükümlülüğü ortadan kaldırmaz, size aktarır: ziyaretçinin " +
+			"\"burada ne toplanıyor\" sorusuna kendi sayfanızda kendiniz cevap " +
+			"vermeniz gerekir, ve o metin ayar değiştiğinde kendiliğinden " +
+			"güncellenmez. Ölçümden çıkma çağrısı (crucible.optOut) kapalıyken de " +
+			"çalışmaya devam eder; vazgeçme hakkı bir sayfa yayımlamamıza bağlı değil.",
+		Live: true,
+	},
+	KeyPrivacyPolicyURL: {
+		Key: KeyPrivacyPolicyURL, Scope: ScopeGlobal, Kind: KindString,
+		Category: CatGizlilik,
+		Default:  "",
+		Label:    "Kendi gizlilik sayfanızın adresi",
+		Help: "Boş bırakılırsa açıklama sayfası hiçbir bağlantı göstermez. " +
+			"Yazılırsa ziyaretçi oradan sizin kendi metninize geçebilir. " +
+			"Yalnız http ve https adresleri kabul edilir; sayfa herkese açık " +
+			"olduğu için adres olduğu gibi gösterilir.",
+		Live:  true,
+		Check: checkPolicyURL,
+	},
+	KeyPrivacyContact: {
+		Key: KeyPrivacyContact, Scope: ScopeGlobal, Kind: KindString,
+		Category: CatGizlilik,
+		Default:  "",
+		Label:    "İletişim adresi",
+		Help: "Ziyaretçinin soru sorabileceği e-posta adresi ya da form sayfası. " +
+			"Boş bırakılırsa açıklama sayfası iletişim bölümü göstermez. " +
+			"Yazdığınız adres herkese açık bir sayfada görünür.",
+		Live:  true,
+		Check: checkContact,
 	},
 	KeyLogRetentionDays: {
 		Key: KeyLogRetentionDays, Scope: ScopeGlobal, Kind: KindInt,

@@ -99,10 +99,55 @@ func (s *Server) privacyNotice() privacyResponse {
 	if len(s.Sites) == 1 {
 		out.Site = s.Sites[0]
 	}
+
+	// The two operator-supplied facts, checked here rather than trusted.
+	//
+	// They arrive from a settings row, which the panel validates on the
+	// way in - and a row is still a place a value can come from without
+	// passing that form: an older build, a hand-edited database, a
+	// restore from a backup taken before the check existed. This page is
+	// served to the public and this value ends up in an href, so it is
+	// checked at the point of use as well. A value that fails is
+	// dropped, which is P3's own criterion: *bozuk bağlantı
+	// göstermiyor*.
+	d := s.disclosure()
+	out.PolicyURL = privacy.ShownPolicyURL(d.PolicyURL)
+	out.Contact = privacy.ShownContact(d.Contact)
 	return out
 }
 
+// ContactHref is the contact address as a link target.
+//
+// A method rather than a second stored field: what is stored is the
+// address, and whether it is written as mailto: is a rendering decision
+// that belongs beside the rendering - the same reasoning as
+// RotatesHuman.
+func (p privacyResponse) ContactHref() string {
+	if privacy.ContactIsMailbox(p.Contact) {
+		return "mailto:" + p.Contact
+	}
+	return p.Contact
+}
+
+// surfaceOff answers a request for a disclosure this deployment has
+// switched off.
+//
+// 404 rather than 403: to a visitor there is no such page here, which is
+// the truth. The CORS header goes out with it on purpose - beacon.js
+// asks this endpoint whether to draw the embedded block, and a 404 that
+// a cross-origin script cannot read is a 404 that turns into a console
+// error instead of an answer.
+func (s *Server) surfaceOff(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, "not found", http.StatusNotFound)
+}
+
 func (s *Server) handlePrivacyJSON(w http.ResponseWriter, r *http.Request) {
+	if !s.disclosure().Enabled {
+		s.surfaceOff(w)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	// Readable from a customer's own page, which is the entire point of
 	// this endpoint: their privacy page is on their origin and this is
@@ -123,6 +168,10 @@ func (s *Server) handlePrivacyJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrivacyPage(w http.ResponseWriter, r *http.Request) {
+	if !s.disclosure().Enabled {
+		s.surfaceOff(w)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	// No inline script and no external anything, so this renders under
@@ -206,6 +255,20 @@ onu yapmıyor.</p>
 <p>Tarayıcınızın konsolunda <code>{{.OptOut}}</code> çalıştırın. Seçim bu
 tarayıcıda saklanır ve bir daha hiçbir şey gönderilmez. Geri açmak için
 <code>window.crucible.optIn()</code>.</p>
+
+{{if .PolicyURL}}
+<h2>Bu sitenin kendi gizlilik metni</h2>
+<p>Yukarıdakiler ölçümün kendisi hakkında. Bu sitenin işleten kişinin
+kendi yazdığı gizlilik metni ayrı bir sayfada:
+<a href="{{.PolicyURL}}">{{.PolicyURL}}</a></p>
+{{end}}
+{{if .Contact}}
+<h2>Soru sormak isterseniz</h2>
+<p>Bu kurulumu işleten kişiye şuradan ulaşabilirsiniz:
+<a href="{{.ContactHref}}">{{.Contact}}</a>. Yukarıdaki "silinecek bir küme
+yok" cümlesi teknik bir sonuç; başka bir sorunuz varsa muhatabınız bu
+adres.</p>
+{{end}}
 
 <h2>Bu sayfanın makine okunabilir hâli</h2>
 <p>Aynı bilgiler <code>privacy</code> ucundan JSON olarak da alınabilir.

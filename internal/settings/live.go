@@ -319,6 +319,13 @@ const (
 	KeyLogVerboseUntil      = "logs.verbose_until"
 	KeyPrivacyIPStorage     = "privacy.ip_storage"
 
+	// P3: the visitor-facing surface. The switch decides whether the
+	// beacon serves the disclosure at all; the two addresses are what
+	// the page can carry that only the operator knows.
+	KeyPrivacyVisitorSurface = "privacy.visitor_surface"
+	KeyPrivacyPolicyURL      = "privacy.policy_url"
+	KeyPrivacyContact        = "privacy.contact"
+
 	// analytics.retention_days was here until it moved to the services'
 	// config files. It is the one setting in this project with legal
 	// rather than operational weight, and it now takes reaching the

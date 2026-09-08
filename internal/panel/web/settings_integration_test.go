@@ -764,3 +764,49 @@ func TestTheSectionsArriveClosedExceptTheOneThatFailed(t *testing.T) {
 			"they have not opened and have no reason to suspect")
 	}
 }
+
+// TestTheVisitorSurfaceIsOnTheCustomersOwnSettingsPage.
+//
+// P3's other half. The switch is worth nothing if the person who is
+// meant to decide never sees it: the three settings live in the privacy
+// category, and every other setting in that category is behind the
+// developer-mode toggle. A customer who never turns that on has to find
+// all three anyway.
+//
+// The cost sentence is checked with them. The plan's decision is that
+// switching the disclosure off is allowed and that the panel says what
+// it costs in plain Turkish - *caydırıcılık yasaktan değil, bedelin
+// görünür olmasından geliyor* - so a page that offered the switch
+// without the sentence would be offering half of what was decided.
+func TestTheVisitorSurfaceIsOnTheCustomersOwnSettingsPage(t *testing.T) {
+	server, client, _ := settingsServerAs(t, panel.RoleOwner)
+
+	status, body := get(t, client, server.URL+settingsURL())
+	if status != http.StatusOK {
+		t.Fatalf("the settings page answered %d", status)
+	}
+
+	for _, key := range []panel.Key{
+		panel.KeyPrivacyVisitorSurface,
+		panel.KeyPrivacyPolicyURL,
+		panel.KeyPrivacyContact,
+	} {
+		if !strings.Contains(body, string(key)) {
+			t.Errorf("%s is not on the page an ordinary owner sees.\n"+
+				"It is theirs to decide, and a decision nobody is shown is a "+
+				"decision somebody else made", key)
+		}
+	}
+
+	// The cost, in the words the customer reads. Looked for by what it
+	// has to say rather than by the whole paragraph, so rewording it
+	// does not fail this - but dropping the point does.
+	for _, mustSay := range []string{"404", "kendi sayfanızda", "optOut"} {
+		if !strings.Contains(shown(body), shown(mustSay)) {
+			t.Errorf("the switch does not tell the customer %q.\n"+
+				"Switching the disclosure off moves the obligation to them; a "+
+				"panel that hides that is deterring nobody and warning nobody",
+				mustSay)
+		}
+	}
+}

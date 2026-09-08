@@ -1058,3 +1058,108 @@ func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
 		t.Errorf("full mode was refused with the key configured: %v", err)
 	}
 }
+
+// P3: the three visitor-surface settings, and the exception they are.
+//
+// # Why this test exists at all
+//
+// This project's rule is that anything which makes work for the
+// developer is not opened by a role: a customer can grant themselves a
+// role, and then grant us the work. These three point the other way, and
+// the plan says so in as many words - switching the disclosure off makes
+// work for the customer, not for us. So they carry no developer
+// password, and the risk is that somebody later locks them by reflex
+// because they live in the privacy category.
+//
+// The measurement is a customer changing all three with no authorization
+// at all. If one of them grows a lock, this fails, and whoever added the
+// lock reads why it was not there.
+func TestTheVisitorSurfaceSettingsBelongToTheCustomer(t *testing.T) {
+	store := settingsStore(t)
+	ctx := context.Background()
+
+	customer := Access{
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
+		Role:      RoleOwner, Member: true,
+	}
+
+	// The default first: on. A deployment where nobody has been near the
+	// panel serves the disclosure.
+	if on, err := store.GetBoolSetting(ctx, KeyPrivacyVisitorSurface, ""); err != nil || !on {
+		t.Fatalf("the visitor surface starts at %v (err %v); the documented default is on", on, err)
+	}
+
+	for _, tc := range []struct {
+		key   Key
+		value any
+	}{
+		{KeyPrivacyVisitorSurface, false},
+		{KeyPrivacyPolicyURL, "https://acme.example/gizlilik"},
+		{KeyPrivacyContact, "gizlilik@acme.example"},
+	} {
+		if err := store.ApplySetting(ctx, customer, tc.key, "", tc.value,
+			devgate.Authorization{}, nil); err != nil {
+			t.Errorf("the customer could not set %s: %v.\n"+
+				"These three are theirs on purpose: turning the disclosure off "+
+				"makes work for them, not for us, and none of them decides what "+
+				"personal data is stored", tc.key, err)
+		}
+	}
+
+	if on, _ := store.GetBoolSetting(ctx, KeyPrivacyVisitorSurface, ""); on {
+		t.Error("the switch did not move")
+	}
+	if got, _ := store.GetStringSetting(ctx, KeyPrivacyPolicyURL, ""); got != "https://acme.example/gizlilik" {
+		t.Errorf("policy url = %q", got)
+	}
+	if got, _ := store.GetStringSetting(ctx, KeyPrivacyContact, ""); got != "gizlilik@acme.example" {
+		t.Errorf("contact = %q", got)
+	}
+}
+
+// TestTheVisitorSurfaceAddressesAreCheckedBeforeTheyAreStored.
+//
+// The value ends up in an href on a page served to the public, so the
+// form is the first of two places that refuse it - the beacon refuses it
+// again when it renders. Checked here rather than only there because a
+// customer who typed something wrong deserves a sentence, and a database
+// that never held the value cannot leak it if the second check is ever
+// weakened.
+func TestTheVisitorSurfaceAddressesAreCheckedBeforeTheyAreStored(t *testing.T) {
+	store := settingsStore(t)
+	ctx := context.Background()
+
+	customer := Access{
+		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
+		Role:      RoleOwner, Member: true,
+	}
+
+	for _, tc := range []struct {
+		key   Key
+		value string
+	}{
+		{KeyPrivacyPolicyURL, "javascript:alert(document.domain)"},
+		{KeyPrivacyPolicyURL, "data:text/html,<script>alert(1)</script>"},
+		{KeyPrivacyPolicyURL, "/gizlilik"},
+		{KeyPrivacyPolicyURL, "https://ali:parola@acme.example/gizlilik"},
+		{KeyPrivacyContact, "javascript:alert(1)"},
+		{KeyPrivacyContact, "gizlilik@localhost"},
+		{KeyPrivacyContact, "Acme <gizlilik@acme.example>"},
+	} {
+		err := store.ApplySetting(ctx, customer, tc.key, "", tc.value, devgate.Authorization{}, nil)
+		if err == nil {
+			t.Errorf("%s accepted %q, which is going onto a public page", tc.key, tc.value)
+			continue
+		}
+		if got, _ := store.GetStringSetting(ctx, tc.key, ""); got != "" {
+			t.Errorf("%s was refused and the value is %q", tc.key, got)
+		}
+	}
+
+	// And clearing is allowed: a customer who set an address and thought
+	// better of it must be able to take it back.
+	if err := store.ApplySetting(ctx, customer, KeyPrivacyPolicyURL, "", "",
+		devgate.Authorization{}, nil); err != nil {
+		t.Errorf("the customer could not clear the policy address: %v", err)
+	}
+}

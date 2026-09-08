@@ -138,6 +138,7 @@ type Server struct {
 	liveSites    atomic.Pointer[[]string]
 	liveIPMode   atomic.Pointer[privacy.IPMode]
 	liveClientIP atomic.Pointer[ClientIPResolver]
+	liveDisclose atomic.Pointer[Disclosure]
 
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
@@ -505,6 +506,47 @@ func (s *Server) clientIP() ClientIPResolver {
 		return *live
 	}
 	return s.ClientIP
+}
+
+// Disclosure is what the panel decides about the visitor-facing surface.
+//
+// Three settings that travel together because they are read together:
+// whether the two endpoints answer at all, and the two operator-supplied
+// facts the page can carry. P3.
+type Disclosure struct {
+	// Enabled serves the surface. The zero value of this struct is
+	// *disabled*, which is deliberately not the product's default: a
+	// Server that was never told anything serves the surface, and the
+	// only way to switch it off is to say so. See disclosure().
+	Enabled bool
+	// PolicyURL is the operator's own privacy page, unchecked as stored.
+	// Checked where it is rendered - see privacy.ShownPolicyURL.
+	PolicyURL string
+	// Contact is where a request goes when the operator handles them by
+	// hand. Also checked at the point of use.
+	Contact string
+}
+
+// SetDisclosure swaps the visitor-facing surface's settings.
+//
+// Live, because the whole point of the switch is that a customer who
+// decides to take the page down does not wait for a maintenance window
+// - and because the customer who turns it back on should not have to
+// call anybody either.
+func (s *Server) SetDisclosure(d Disclosure) { s.liveDisclose.Store(&d) }
+
+// disclosure is what is in force right now.
+//
+// A Server nobody has told anything serves the surface. That is P3's
+// stated default in the plan - *varsayılan açık* - and it is expressed
+// here rather than in the caller for the reason the ip mode is: a
+// process built by a future caller that forgets must be the one that
+// tells visitors more, not less.
+func (s *Server) disclosure() Disclosure {
+	if live := s.liveDisclose.Load(); live != nil {
+		return *live
+	}
+	return Disclosure{Enabled: true}
 }
 
 // SetIPMode swaps how much of each address is stored.

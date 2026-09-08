@@ -738,6 +738,32 @@ to update. A structural test refuses a second copy of that prose
 anywhere in this repository, so "copy the paragraph into your own page"
 is deliberately not the supported path: the JSON is.
 
+### The three settings behind it
+
+**Settings → Gizlilik**, and all three belong to the customer: no
+developer password, because switching the disclosure off makes work for
+them rather than for us, and none of them decides what personal data is
+stored.
+
+| Setting | Effect |
+| --- | --- |
+| `privacy.visitor_surface` | Default **on**. Off means both endpoints answer 404 and the embedded block draws nothing. |
+| `privacy.policy_url` | The operator's own privacy page. Set, the disclosure links to it; empty, it shows no link at all. |
+| `privacy.contact` | An email address or a form page. Set, the disclosure offers it; empty, no contact section. |
+
+The switch is live: nothing restarts, and event collection is not
+affected by it. `crucible.optOut()` keeps working with the surface off —
+the right to opt out does not depend on us publishing a page. The panel
+says all of that beside the switch, because switching it off does not
+remove the obligation, it moves it to the customer.
+
+The two addresses are checked twice: when the panel stores one, so the
+customer gets a sentence back, and again when the beacon renders one, so
+a row written by an older build or edited by hand cannot put
+`javascript:` into an href on a public page. Only `http` and `https`, no
+credentials in the URL, and a mail address needs one `@` and a dotted
+domain.
+
 The page says there is no deletion request, and why. That is not a
 policy choice: the visitor identifier is derived with a secret held only
 in memory and replaced every `salt_period` (24h by default), so once it

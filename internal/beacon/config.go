@@ -106,6 +106,25 @@ func (p PrivacyConfig) Live(source *settings.Source) privacy.IPMode {
 		[]string{string(privacy.IPFull), string(privacy.IPMasked)}))
 }
 
+// LiveDisclosure resolves the visitor-facing surface's three settings.
+//
+// No config-file fallback, and that is deliberate rather than an
+// oversight: this is a customer's decision about their own page, taken
+// in the panel, and a value in a service's config file would be a
+// second place to look for an answer that changes on a Tuesday
+// afternoon. A deployment with no settings source serves the surface,
+// which is the documented default.
+func (p PrivacyConfig) LiveDisclosure(source *settings.Source) Disclosure {
+	if source == nil {
+		return Disclosure{Enabled: true}
+	}
+	return Disclosure{
+		Enabled:   source.Bool(settings.KeyPrivacyVisitorSurface, "", true),
+		PolicyURL: source.String(settings.KeyPrivacyPolicyURL, "", "", nil),
+		Contact:   source.String(settings.KeyPrivacyContact, "", "", nil),
+	}
+}
+
 // CampaignConfig tunes which query parameters reach the database.
 //
 // It is configuration rather than a constant because the answer is a

@@ -14174,3 +14174,74 @@ Bu oturumun üçüncü tekrarı: **iddia doğruydu, düzenek yanlıştı.**
 Bugünkü kırmızının hangi iddiadan geldiğini **bilmiyorum** ve tahmin
 edip "düzeltmeyeceğim": elimde ölçüm yok. Bir sonraki kırmızıda
 transkript duracak, ve o zaman gerçek sebeple uğraşılır.
+
+## P3 — Anahtar müşterinin, ve bedeli anahtarın yanında yazıyor
+
+P2 ziyaretçiye bir sayfa verdi. P3 o sayfanın sahibini belirliyor: üç
+ayar, üçü de müşterinin.
+
+### Yetki kararı, ve neden kuralın tersi
+
+Bu projenin kuralı şu: *geliştiriciye iş çıkaran hiçbir şey yetkiyle
+açılmaz, geliştirici parolasına bağlanır* — çünkü müşteri kendine yetki
+verip bize iş çıkartabilir. Bu üç ayar **tersi yöne** işaret ediyor:
+açıklama sayfasını kapatmak müşteriye iş çıkarıyor, bize değil. Hiçbiri
+hangi kişisel verinin ne kadar saklandığına da karar vermiyor, yani
+§8.5'in kilitli kümesine girmiyor.
+
+Refleksle kilitlenmesin diye karar bir teste bağlandı: üç ayarı da
+geliştirici parolası olmadan değiştiren bir müşteri var. Biri kilitlenirse
+test kırmızı verir ve kilidi koyan kişi neden orada olmadığını okur.
+
+### Kapatma serbest, bedel görünür
+
+Kullanıcının kararıydı: *"isterse bunu kapatır, mail bazlı kendisi manuel
+yapar, caydırmak için ona bırakırız."* Panel anahtarın yanında düz
+Türkçeyle yazıyor: kapatınca iki uç 404 verir, gömülü blok hiçbir şey
+çizmez, ve *"burada ne toplanıyor"* sorusuna kendi sayfanızda kendiniz
+cevap verirsiniz — o metin de ayar değiştiğinde kendiliğinden
+güncellenmez. Bir cümle daha: `optOut()` kapalıyken de çalışır.
+
+Caydırıcılık yasaktan değil, bedelin görünür olmasından geliyor. Test bu
+üç cümlenin sayfada olduğunu tutuyor, ve mutasyonla ölçüldü: cümleyi
+sulandır, test kırmızı.
+
+### Betik çizmeden önce soruyor
+
+Kapalıyken uçlar 404 veriyor. `beacon.js` eskiden çerçeveyi doğrudan
+kuruyordu; öyle kalsaydı müşterinin gizlilik sayfasının ortasında
+tarayıcının kendi 404'ü görünürdü — istenen hiçliğin daha kötüsü.
+
+Artık önce JSON ucuna soruyor, 200 değilse hiçbir şey çizmiyor. Bunun
+için 404'ün de CORS başlığı taşıması gerekti: okunamayan bir 404 cevap
+değil, konsol hatasıdır. `fetch`'i olmayan tarayıcıda blok çizilmiyor —
+bilinçli takas, ve dosyada yazılı: sayma da vazgeçme de o tarayıcıda
+eskisi gibi çalışıyor.
+
+### Aynı kural iki yerde, çünkü iki farklı okur var
+
+Politika adresi ve iletişim adresi, bir operatörün yazdığı ve bir
+yabancının tarayıcısının bastığı tek iki dize. Panel yazarken
+reddediyor — müşteriye gösterecek bir cümlesi var. Beacon basarken
+reddediyor — kimseye gösterecek cümlesi yok, o yüzden sessizce düşürüyor.
+
+İkinci kontrol gereksiz değil: satır elle düzenlenebilir, eski bir
+sürümden gelebilir, kontrol yokken alınmış bir yedekten dönebilir.
+*İstemciye güvenme* kuralı kendi veritabanımız için de geçerli.
+
+Reddedilenler: `javascript:`, `data:`, şemasız, konaksız, kullanıcı adı
+ya da parola taşıyan adresler, satır sonu ve denetim karakterleri,
+noktasız alan adı, iki adres bir arada, köşeli parantezli görünen ad.
+Kural tek yerde: `internal/privacy/policy.go`.
+
+### Ölçüm
+
+On sekiz mutasyon, on sekizi de yakalandı. Gerçek Chromium'da: yüzey
+kapalıyken bağlama noktası boş, sayfanın gövdesi bayt bayt aynı, ve
+`optOut()` / `optIn()` çalışıyor. Gerçek veritabanında: ayar yazılıyor,
+beacon'ın canlı kaynağı okuyor, o değerleri alan bir sunucu sayfayı
+gerçekten 404'lüyor.
+
+Varsayılan iki ayrı yerde ayrıca sınandı — kayıt yokken **açık**. Eksik
+satırı "kapalı" diye okuyan bir kusur, dünyadaki bütün kurulumların
+sayfasını indirir ve kapatmayı sınayan her iddia yine geçerdi.

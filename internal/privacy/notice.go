@@ -91,6 +91,20 @@ type Notice struct {
 	// OptOut is the call a visitor makes to stop being counted, from
 	// P1. Named here so the disclosure and the script cannot drift.
 	OptOut string `json:"opt_out"`
+
+	// PolicyURL is the operator's own privacy page, when they have set
+	// one. Empty otherwise, and empty is the ordinary state.
+	//
+	// The one field here that is not derived from anything: it is a fact
+	// about the deployment that only the operator knows. It is carried
+	// rather than assumed, and it is checked before it is shown - see
+	// CleanPolicyURL for what a page served to the public must not
+	// contain.
+	PolicyURL string `json:"policy_url,omitempty"`
+
+	// Contact is where a visitor's request should go when the operator
+	// handles those by hand. An address or a page; empty when unset.
+	Contact string `json:"contact,omitempty"`
 }
 
 // NoDeletionNoIdentity is the reason id.
