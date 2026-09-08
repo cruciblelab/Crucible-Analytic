@@ -96,7 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **3/5** | P4–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **4/5** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -6406,7 +6406,7 @@ eklendi. Ayrıntı ve kapanmayan üçüncü mutasyonun gerekçesi NOTES.md'de.
 
 ---
 
-#### P4 — Belgeler
+#### P4 — Belgeler ✅ **yapıldı**
 
 **README'de uçların sözleşmesi** — yöntem, yol, yanıt şekli, ve üç
 yolun da isteğe bağlı olduğu. Bugün orada `/_ca/ca.js` ile
@@ -6424,6 +6424,44 @@ KURULUM'da müşterinin göreceği kısım.
 **Bitti ölçütü:** envanterdeki her iddianın karşılığı kodda gösterilebiliyor;
 belge ile kod arasında bir mutasyon testi *(metinde geçen ayar adının
 gerçekten var olduğunu tutan tür)*.
+
+##### Yapıldı — ve fazın kendisi bir kusur buldu
+
+README ve KURULUM'daki uçlar zaten P2/P3'te yazılmıştı: yöntem, yol,
+yanıt şekli, gömme bloğu, üç panel ayarı, ve nginx bloğu gerçekten
+değişmeden durdu. Kalan iş envanterdeydi — ve orada iki bölüm **aylardır
+yanlıştı**:
+
+- §6 "sistemde saklama süresi politikası yoktur, her iki tablo da
+  süresiz büyür" diyordu. Politika haftalardır var, iki yazıcı da
+  uyguluyor, gerçek TimescaleDB'de ölçülü.
+- §7 ziyaretçiye dönük yüzeyi "planlanan, henüz uygulanmamış" diye
+  listeliyordu. P1, P2, P3 onu yazmıştı.
+
+İkisi de ürünü **olduğundan kötü** anlatıyordu — kimsenin fark etmediği
+yön. §6 yeniden yazıldı (varsayılan 90 gün, sınırlar 1–730, dosyada
+oluşunun gerekçesi, dilim düşürme ile satır silmenin ayrımı,
+`SECURITY DEFINER` sarmalayıcılar, yedeklerin kendi sınırı). §7 "yazıldı"
+oldu; silme talebi kanalının **yazılmadığı** ve ölçülmüş gerekçesi 7.1'e,
+hâlâ yazılmamış olanlar (mod değişiminin geçmişe etkisi = P5; politika
+adresinin site başına olmaması) 7.2'ye taşındı.
+
+**Ve bir daha sessizce eskimemesi için ölçüm:** `internal/docs` içinde
+iki test. Belgelerin işaret ettiği her depo yolu var mı, ve adı geçen her
+ayar panelin kayıt defterinde tanımlı mı. Listeler türetiliyor — yollar
+belgelerin kendisinden, ayar aileleri kayıt defterinden. Bugünü tarif
+eden belgeler ile olanı kaydeden belgeler ayrıldı (`PLAN.md` `net/http`
+diyor ve haklı); her izlenen belge bu ayrımda yer almak zorunda, yer
+almayan test kırmızı veriyor.
+
+Dört mutasyon, dördü de yakalandı: belge taşınmış bir dosyaya işaret
+etsin; belge olmayan bir ayar adı yazsın; **panel gerçek bir ayarı
+yeniden adlandırsın** (belge dokunulmadan kırmızı verdi — korumanın asıl
+yönü bu); bir belge sınıflandırılmadan kalsın.
+
+**Ölçüm:** 139 yol çözülüyor, 30 ayar adı gerçek. Kontrol edilmeyen 25
+aday (import yolları, Go simgeleri, dış dosyalar) sayı olarak yazılıyor —
+bu kontrolün kendi sınırı, ve saklanmıyor.
 
 ---
 

@@ -9,7 +9,9 @@ listeler. Her satır, kaynak koddaki şema dosyalarından birebir
 `internal/beacon/schema.sql`, `internal/panel/schema.sql`), tarif veya
 tahmin değildir.
 
-Son güncelleme: 2026-08-16
+Son güncelleme: 2026-09-08 — Bölüm 6 (saklama süresi) ve Bölüm 7
+(ziyaretçiye dönük açıklama yüzeyi) "planlanan"dan çıkıp yazılana
+taşındı. İkisi de eski hâliyle sistemi olduğundan **kötü** anlatıyordu.
 
 ---
 
@@ -371,18 +373,64 @@ saklanamazlar:
 
 ---
 
-## 6. Saklama süresi — **dikkat: mevcut durum ile planlanan farklı**
+## 6. Saklama süresi
 
-**Bugünkü durum, dürüstçe:** sistemde **saklama süresi politikası
-yoktur.** Her iki analitik tablosu da süresiz büyür. Bu bilinen bir
-eksikliktir ve giderilmek üzere planlanmıştır.
+> **Düzeltme (2026-09-08).** Bu bölüm daha önce "sistemde saklama süresi
+> politikası yoktur, her iki tablo da süresiz büyür" diyordu. **O cümle
+> artık doğru değil.** Politika yazıldı, kuruldu ve kurulu sistemde
+> ölçüldü; aşağısı bugünkü durumdur. Eski hâliyle okuyan bir
+> değerlendirme, sistemi olduğundan kötü anlatır.
 
-**Planlanan durum:** her tablo için ayarlanabilir saklama süresi,
-**varsayılan 90 gün**, süresi dolan veriler otomatik silinir.
+**Bugünkü durum.** Her iki analitik tablosunun da saklama süresi vardır,
+**varsayılan 90 gün**, ve süresi dolan veri otomatik silinir. Sınırlar:
+en az **1 gün**, en çok **730 gün** (iki yıl). Aralık dışında bir değer
+yazılandırma dosyası okunurken reddedilir; servis o değerle başlamaz.
 
-Hukukçuya sorulacak asıl soru bu olabilir: *ilgili mevzuat ve müşterinin
+**Nerede ayarlanır — ve neden panelde değil.** Servisin kendi
+yapılandırma dosyasında, `[retention] days`. Panelde *değildir*, ve bu
+bilinçli: bu, projedeki tek **hukuki ağırlıklı** ayardır. Panelde
+dursaydı, sızmış bir parola bir müşterinin saklama süresini HTTP
+üzerinden değiştirebilirdi. Bugün değiştirmek için sunucuya erişmek
+gerekir. Aynı dosyada **site başına** kısaltma da yazılabilir; "bu
+müşteri otuz gün istedi" gerçek bir taleptir.
+
+**Nasıl siliniyor.** İki yol, ne için iyi olduklarına göre ayrılmış:
+
+- **Zaman dilimi düşürme (chunk drop).** TimescaleDB hipertabloyu
+  zaman aralıklı dilimler hâlinde tutar; bir dilimin tamamını düşürmek
+  bir dosyayı bağlantısından koparmaktır. Dağıtımdaki **en uzun**
+  saklama süresi bu yolla uygulanır — ucuzdur ve hiçbir sitenin hâlâ
+  istediği veriyi kaldıramaz.
+- **Satır silme.** Yalnız dağıtımdan **daha kısa** süre isteyen siteler
+  için, yalnız o sitenin satırlarında. Bir dilim bütün sitelerin o
+  zaman aralığındaki satırlarını taşır, dolayısıyla "A sitesinin 30
+  günden eski satırları" dilim düşürerek ifade edilemez.
+
+Tersini yapmak — politikayı en kısa değere kurmak — daha uzun süre
+isteyen her sitenin verisini sessizce yok ederdi, ve bu özelliğin
+çalışıyor gibi görünmesiyle aynı şey olurdu.
+
+**Kim uyguluyor.** Veriyi yazan servisin kendisi: collector
+`traffic_snapshots` için, beacon `beacon_events` için. Açılışta bir kez,
+sonra saatte bir. Uygulama dört adet `SECURITY DEFINER` veritabanı
+işlevi üzerinden yapılır; kurulu bir sistemde hipertabloların sahibi
+süper kullanıcıdır ve TimescaleDB yetkiye değil **sahipliğe** bakar —
+bu sarmalayıcılar olmadan özellik yalnız geliştirme veritabanında
+çalışıyordu ve bunu uçtan uca kurulum ölçtü.
+
+**Yedekler de kapsamda.** Saklama süresi analitik satırlarını yaşına
+göre siler; ondan *önce* alınmış bir yedek o satırları hâlâ taşır. Yedek
+dizini bu yüzden ayrı bir yaş sınırına bağlandı
+(`upgrader.toml` → `[backup] keep_days`) ve panel bunu yazıyor. Sınır
+konmazsa yedekler süresiz saklanır — o zaman **panel bunu da yazar**, ki
+"süresiz saklanıyor" en çok orada söylenmelidir.
+
+Hukukçuya sorulacak asıl soru şu: *ilgili mevzuat ve müşterinin
 faaliyeti açısından uygun saklama süresi nedir?* 90 gün teknik bir
-başlangıç önerisidir, hukuki bir tespit değildir.
+başlangıç önerisidir, hukuki bir tespit değildir. Tavanın iki yıl
+olmasının gerekçesi de teknik değil: kişisel veri amacın gerektirdiği
+süre kadar tutulmalıdır, ve tavanı on yıl olan bir ürün kimsenin
+savunamayacağı bir kurulumu davet eder.
 
 **Kendiliğinden gerçekleşen ek bir sınır:** `visitor_id`, tuz döndüğü
 için 24 saat sonra zaten yeniden bağlanamaz hâle gelir. Bu, saklama
@@ -390,18 +438,77 @@ süresinden bağımsız olarak işleyen teknik bir kısıttır.
 
 ---
 
-## 7. Planlanan — henüz uygulanmamış, ancak hukukçunun bilmesi yararlı
+## 7. Ziyaretçiye dönük açıklama yüzeyi — yazıldı
 
-Bunlar **yazılmadı**, kararlaştırıldı:
+> **Not (2026-09-08):** Bu bölüm daha önce "planlanan — henüz
+> uygulanmamış" başlığını taşıyordu. **Yüzey yazıldı, kuruldu ve gerçek
+> tarayıcıda ölçüldü.** Aynı bölümde "planlanan" diye duran **IP saklama
+> modu** da 2026-08-16'da yazılmıştı; ayrıntısı Bölüm 1.5'te. Hâlâ
+> yazılmamış olanlar bu bölümün sonunda, ayrı başlık altında.
 
-> **Not (2026-08-16):** Bu bölümde daha önce "planlanan" diye duran **IP
-> saklama modu artık yazıldı ve varsayılanı maskeli.** Ayrıntısı Bölüm
-> 1.5'te. Aşağıdakiler hâlâ yazılmamış olanlardır.
+**Ne var.** Beacon'ın kendi yol öneki altında iki uç — varsayılan önek
+`/_ca`:
 
-**Ziyaretçiye dönük açıklama yüzeyi.** Sitenin gizlilik/çerez sayfasına
-gömülebilen bir bileşen, ve bağlantı verilebilecek ayrı bir sayfa.
-Ziyaretçi **ne tutulduğunu** görür, ve toplamayı kendi tarayıcısında
-kapatabilir.
+| Uç | Ne döner |
+|---|---|
+| `GET /_ca/privacy` | JSON: hangi alanların saklandığı, IP modu, tuzun ne sıklıkta döndüğü, varsa politika sayfası ve iletişim adresi |
+| `GET /_ca/privacy.html` | Aynı bilginin Türkçe sayfası, bağlantı verilebilir |
+
+Üçüncü bir kullanım da var, ayrı bir uç değil: sitenin kendi gizlilik
+sayfasına `<div data-crucible-privacy></div>` konursa, snippet oraya
+kum havuzuna alınmış bir çerçeve içinde aynı sayfayı çizer. Çizmeden
+önce JSON ucuna sorar; 200 gelmezse **hiçbir şey çizmez** — kapalı bir
+kurulumda müşterinin sayfasının ortasında tarayıcının 404'ü görünmesin
+diye.
+
+**Açıklama metni ayardan türetilir, kopyalanmaz.** Ziyaretçiye
+gösterilen metin, `privacy.ip_storage`'ı **verinin yazıldığı yerin
+okuduğu aynı canlı kaynaktan** okur. Yani ayar değiştirildiğinde
+açıklama bir sonraki istekte kendiliğinden değişir; güncellenmesi
+unutulabilecek ikinci bir metin kopyası yoktur. Bu, belgeye yazılmış bir
+niyet değil, teste bağlanmış bir değişmez: metnin tek bir yerde
+durduğunu tutan bir test var.
+
+**Operatörün ekleyebileceği iki şey.** Panelden (Ayarlar → Gizlilik):
+kendi gizlilik politikası sayfasının adresi, ve talepler için bir
+iletişim adresi. İkisi de **iki uçta birden** denetlenir — panel
+yazarken reddeder (müşteriye gösterecek bir cümlesi vardır), beacon
+basarken reddeder (kimseye gösterecek cümlesi yoktur, sessizce düşürür).
+İkincisi gereksiz değil: satır elle düzenlenebilir, eski bir sürümden
+gelebilir, kontrol yokken alınmış bir yedekten dönebilir. Reddedilenler
+arasında `javascript:` ve `data:` şemaları, kullanıcı adı/parola taşıyan
+adresler, satır sonu ve denetim karakterleri var.
+
+**Müşteri bu yüzeyi kapatabilir** (`privacy.visitor_surface`, varsayılan
+**açık**). Kapattığında iki uç da 404 verir ve gömülü blok hiçbir şey
+çizmez. Yükümlülük ortadan kalkmaz, **kendisine ve elle** geçer: panel
+bunu kapatma anahtarının yanında açıkça yazar — "burada ne toplanıyor"
+sorusuna kendi sayfanızda kendiniz cevap verirsiniz, ve o metin ayar
+değiştiğinde kendiliğinden güncellenmez.
+
+**Devre dışı bırakma ziyaretçinin elinde, ve anahtardan bağımsız.**
+`crucible.optOut()` çağrısı beacon'ı o tarayıcıda susturur,
+`crucible.optIn()` geri açar, `crucible.status()` hangi durumda
+olunduğunu söyler. Altta yatan bayrak `localStorage`'daki
+`crucible.disabled`; elle ayarlamak da hep çalıştığı gibi çalışıyor. Bu
+üçü **yüzey kapalıyken de çalışır** — müşterinin bir açıklama sayfası
+sunmaması, ziyaretçinin çıkabilmesini kaldırmaz.
+
+Bunlar bizim çizdiğimiz bir bant değil, **çağrı**: sitede zaten bir çerez
+bandı ya da onay platformu var, ve yanına ikinci bir kutu koymak kimseye
+yaramaz. Müşteri kendi anahtarını bu üçüne bağlar.
+
+`optOut()` ve `optIn()` seçimin **saklanıp saklanamadığını** döndürüyor —
+kum havuzundaki bir çerçevede ya da site verisini engelleyen bir
+tarayıcıda `false`. O durumda seçim yine de o sayfanın ömrü boyunca
+uygulanıyor: ziyaretçi şimdi istedi.
+
+*(Bayrak okuma özelliği baştan beri vardı. Yaptığı şey, `window.crucible`
+tanımlanmadan bütün betikten çıkmaktı — yani devre dışı bırakmış bir
+ziyaretçinin çağırabileceği bir `optIn()` yoktu ve durumu soran bir onay
+bandı hata alıyordu. Girilebilen ve çıkılamayan bir özellik.)*
+
+### 7.1 Silme talebi kanalı — **yazılmadı**, ve gerekçesi ölçüldü
 
 > **Düzeltme (2026-09-02) — hukukçunun bilmesi gereken.** Bu maddede
 > daha önce bir **silme talebi** kanalı tarif ediliyordu: talebin kimlik
@@ -426,40 +533,26 @@ kapatabilir.
 >
 > **Sonuç, dürüstçe:** bu sistemde silinecek bir "kişiye ait kayıt
 > kümesi" teknik olarak oluşmuyor. Silme kanalı yerine **açıklama ve
-> kapatma** yazılıyor. Kayıtlar saklama süresi sonunda kendiliğinden
+> kapatma** yazıldı. Kayıtlar saklama süresi sonunda kendiliğinden
 > siliniyor (Bölüm 6), ve zaten hiçbiri gün sınırının ötesinde bir
 > kişiyle ilişkilendirilemiyor (Bölüm 2, "`visitor_id` — takma kimliğin
 > tam tanımı").
 
-**Açıklama metni ayardan türetilir, kopyalanmaz.** Ziyaretçiye
-gösterilen metin, `privacy.ip_storage`'ı **verinin yazıldığı yerin
-okuduğu aynı canlı kaynaktan** okur. Yani ayar değiştirildiğinde
-açıklama bir sonraki istekte kendiliğinden değişir; güncellenmesi
-unutulabilecek ikinci bir metin kopyası yoktur.
+### 7.2 Hâlâ yazılmamış olanlar
 
-**Müşteri bu yüzeyi kapatabilir.** Kapattığında yükümlülük ortadan
-kalkmaz, **kendisine ve elle** geçer; panel bunu kapatma anahtarının
-yanında açıkça yazar ve talep için bir iletişim adresi ister.
+**IP modu değiştirildiğinde geçmiş satırlar olduğu gibi kalır.**
+`privacy.ip_storage` maskeliye çevrildiğinde, o andan sonra yazılan
+satırlar maskeli olur; **daha önce yazılmış satırlar değişmez.** Bugün
+sistem bunu ne yapıyor ne de uyarıyor. Planlanan: değişimin anında
+panelin bunu yazması, ve isteyen kurulumun geçmişi onaylı bir işlemle
+temizleyebilmesi. Hukuki değerlendirme açısından önemli olduğu için
+burada, "yazıldı" listesinde değil.
 
-**Devre dışı bırakma ziyaretçinin elinde.** `crucible.optOut()` çağrısı
-beacon'ı o tarayıcıda susturur, `crucible.optIn()` geri açar, ve
-`crucible.status()` hangi durumda olunduğunu söyler. Altta yatan bayrak
-`localStorage`'daki `crucible.disabled`; elle ayarlamak da hep çalıştığı
-gibi çalışıyor.
-
-Bunlar bizim çizdiğimiz bir bant değil, **çağrı**: sitede zaten bir çerez
-bandı ya da onay platformu var, ve yanına ikinci bir kutu koymak kimseye
-yaramaz. Müşteri kendi anahtarını bu üçüne bağlar.
-
-`optOut()` ve `optIn()` seçimin **saklanıp saklanamadığını** döndürüyor —
-kum havuzundaki bir çerçevede ya da site verisini engelleyen bir
-tarayıcıda `false`. O durumda seçim yine de o sayfanın ömrü boyunca
-uygulanıyor: ziyaretçi şimdi istedi.
-
-*(Bayrak okuma özelliği baştan beri vardı. Yaptığı şey, `window.crucible`
-tanımlanmadan bütün betikten çıkmaktı — yani devre dışı bırakmış bir
-ziyaretçinin çağırabileceği bir `optIn()` yoktu ve durumu soran bir onay
-bandı hata alıyordu. Girilebilen ve çıkılamayan bir özellik.)*
+**Açıklama sayfası site başına özelleştirilemez.** Politika adresi ve
+iletişim adresi kurulum geneline yazılır, site başına değil — bu bilinçli
+bir karar: metni basan servis küresel ayarları okur, site başına bir
+adres onu gösteren servisin göremeyeceği bir ayar olurdu. Tek kurulumda
+birden çok müşterinin sitesi varsa, tek bir politika adresi gösterilir.
 
 ---
 
@@ -611,12 +704,25 @@ doğrulanabilir:
 | 2 | `internal/beacon/schema.sql`, `internal/beacon/event.go`, `internal/beacon/visitor.go`, `internal/beacon/beacon.js` |
 | 3 | `internal/panel/schema.sql` |
 | 4 | `internal/asnlookup/schema.sql` |
+| 6 | `internal/retention/retention.go`, `release/sql/grants.sql` |
+| 7 | `internal/beacon/privacy.go`, `internal/privacy/notice.go`, `internal/privacy/policy.go`, `internal/beacon/beacon.js` |
 | 8.5 | `internal/devgate/devgate.go`, `internal/panel/settings.go` (`GuardedKeys`) |
 
-Bölüm 1.5 ve 8.5'teki iddialar ayrıca **çalışan sistemde** doğrulandı,
-belgeden değil: gerçek bir tarayıcı gerçek beacon sürecine olay
-gönderdi ve veritabanına düşen değer okundu; şifre kapısı gerçek bir
-form üzerinden, gerçek bir tarayıcıyla denendi. Testleri:
+Bölüm 1.5, 6, 7 ve 8.5'teki iddialar ayrıca **çalışan sistemde**
+doğrulandı, belgeden değil: gerçek bir tarayıcı gerçek beacon sürecine
+olay gönderdi ve veritabanına düşen değer okundu; kurulu paket gerçek
+bir TimescaleDB'ye kuruldu ve saklama işinin gerçekten tanımlandığı
+veritabanından okundu; açıklama sayfası gerçek Chromium'da çizildi ve
+anahtar kapatılınca çizilmediği ölçüldü; şifre kapısı gerçek bir form
+üzerinden, gerçek bir tarayıcıyla denendi. Testleri:
 `internal/privacy/ip_test.go`, `internal/beacon/server_test.go`,
+`internal/beacon/privacy_browser_test.go`,
+`internal/retention/integration_test.go`, `e2e/e2e_test.go`,
 `internal/panel/settings_integration_test.go`,
 `internal/panel/devpassword_browser_test.go`.
+
+**Bu tablo denetleniyor.** `internal/docs` içindeki bir test, buradaki
+her dosya yolunun depoda gerçekten var olduğunu ve belgede geçen her
+ayar adının panelin kayıt defterinde tanımlı olduğunu tutuyor. Yeniden
+adlandırılmış bir dosya ya da kaldırılmış bir ayar, bu belgeyi sessizce
+yanlış bırakmak yerine kapıyı kırmızıya çevirir.

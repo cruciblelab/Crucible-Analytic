@@ -14385,3 +14385,70 @@ gözlem tarafından:
 
 Bugünkü ölçüm `stallrule_test.go`'ya gerçek sayılarıyla yazıldı; oradaki
 tablo artık üç gerçek gözlem taşıyor, ve üçü de kuralın kendi kusuruydu.
+
+## P4: hukukçuya giden belge, üründen aylarca geri kalmıştı
+
+Fazın işi "envanterdeki maddeyi planlanandan yazıldıya taşımak"tı.
+Açınca iki bölümün **aylardır yanlış** olduğu çıktı:
+
+- **§6** "sistemde saklama süresi politikası yoktur, her iki analitik
+  tablosu da süresiz büyür" diyordu. Politika haftalardır var: varsayılan
+  90 gün, sınırlar 1–730, iki yazıcı da açılışta ve saatte bir uyguluyor,
+  ve kurulu sistemde gerçek TimescaleDB'de ölçüldü — e2e sayıyı okuyor.
+- **§7** ziyaretçiye dönük açıklama yüzeyini "planlanan, henüz
+  uygulanmamış" diye listeliyordu. P1, P2 ve P3 onu yazmıştı; iki uç,
+  gömülebilir blok, üç panel ayarı, ve gerçek Chromium'da ölçüm.
+
+İkisinin de yönü aynı: ürünü **olduğundan kötü** anlatıyorlardı. Bu,
+kimsenin fark etmediği yön — bir belge ürünü olduğundan iyi anlatırsa
+biri düzeltir, kötü anlatırsa kimse şikâyet etmez.
+
+§6 baştan yazıldı: nerede ayarlandığı ve **neden panelde olmadığı**
+(projedeki tek hukuki ağırlıklı ayar; panelde dursa sızmış bir parola
+saklama süresini HTTP üzerinden değiştirirdi), dilim düşürme ile satır
+silmenin hangi işe iyi geldiği, `SECURITY DEFINER` sarmalayıcıların neden
+gerektiği, ve yedeklerin kendi yaş sınırı.
+
+§7 "yazıldı" oldu. Silme talebi kanalının **yazılmadığı** ve ölçülmüş
+gerekçesi (CGNAT altında `visitor_id` iki farklı kişi için aynı olabilir)
+7.1'e taşındı — hukukçunun ilk sorusu o. Hâlâ yazılmamış olanlar 7.2'de,
+ayrı başlıkla: mod değişiminin geçmiş satırlara etkisi (P5), ve politika
+adresinin site başına olamaması.
+
+### Ve bir daha sessizce eskimemesi için
+
+`internal/docs` içinde iki test. Belgelerin işaret ettiği her depo yolu
+var mı; adı geçen her ayar panelin kayıt defterinde tanımlı mı.
+
+Listeler türetiliyor: yollar belgelerin kendisinden, ayar aileleri
+`panel.AllDefinitions()`'dan. Yanına yazılmış bir liste, kontrol edilen
+şeyin ikinci kopyası olurdu — ve güncellenmeyen hep ikinci kopyadır, ki
+bu fazın bulduğu kusur tam olarak odur.
+
+**Bugünü tarif eden belgeler, olanı kaydeden belgelerden ayrıldı.**
+`PLAN.md` `net/http` ve `pgx/v5` diyor, taşınmış dosyaların o günkü
+adlarını yazıyor — hepsi tarih olarak doğru, yol olarak çözülmez. Bir
+kaydın artık var olmayan bir dosyayı anması yanlış değil; o bir kayıt.
+Ama **her izlenen belge bu ayrımda yer almak zorunda**: yer almayan bir
+belge atlanmıyor, test kırmızı veriyor ve sınıflandırılmasını istiyor.
+Böyle bir harita ancak öyle dürüst kalır.
+
+Yolun depo yolu mu başka bir şey mi olduğu da türetiliyor: ilk parçası
+git'in tepe düzeyinde gerçekten olan bir şey olmalı (bu, `net/http`'yi de
+`refs/tags/v0.23.0`'ı da isim vermeden eliyor), ve sonu nitelenmiş bir Go
+simgesi olmamalı (`internal/storage.Flusher` bir yol değil). Bu kuralın
+kendi sınırı var — ilk parçası yanlış yazılmış bir gönderme atlanır — ve
+test atladığı aday sayısını **yazıyor.**
+
+### Ölçüm
+
+Dört mutasyon, dördü de yakalandı:
+
+- Envanter taşınmış bir dosyaya işaret etsin → yakalandı.
+- Envanter olmayan bir ayar adı yazsın → yakalandı.
+- **Panel gerçek bir ayarı yeniden adlandırsın**, belgeye dokunulmadan →
+  yakalandı, hem envanterde hem README'de. Korumanın asıl yönü bu: kod
+  belgenin altından kayarsa.
+- Bir belge sınıflandırılmadan kalsın → yakalandı.
+
+139 yol çözülüyor, 30 ayar adı gerçek, 25 aday depo yolu değil.
