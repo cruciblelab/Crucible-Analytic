@@ -14245,3 +14245,24 @@ gerçekten 404'lüyor.
 Varsayılan iki ayrı yerde ayrıca sınandı — kayıt yokken **açık**. Eksik
 satırı "kapalı" diye okuyan bir kusur, dünyadaki bütün kurulumların
 sayfasını indirir ve kapatmayı sınayan her iddia yine geçerdi.
+
+### Ve ölçülmeyen tek satır da ölçüldü
+
+Anahtar, ayar kaynağı ve sunucu ayrı ayrı sınanmıştı; onları birleştiren
+satır `cmd/beacon`'ın uygulama döngüsünde duruyor ve orayı hiçbir birim
+testi koşturmuyor. Bu, o döngüdeki diğer yedi ayar için de geçerliydi:
+biri satırı silse hiçbir test kırmızı vermez, ama kurulu sistemde ayar
+çalışmazdı.
+
+Tarball e2e'sine dört satır eklendi: panelin yazacağı satırı veritabanına
+yaz, beacon'ın kendi yoklamasını bekle, sayfayı sor — sonra geri al ve
+dönmesini bekle. Yoklama aralığı testte 2 saniyeye indiriliyor
+(`[settings] interval_seconds`, örnek dosyada zaten belgeli); mekanizma
+aynı, hızı farklı.
+
+Mutasyon: `srv.SetDisclosure(lastDisclosure)` satırını sil. Yakalandı —
+kurulu sistem, ayarı veritabanında görüp uygulamadı ve test bunu 30
+saniyelik pencerede söyledi.
+
+*Ayrı ayrı sınanmış iki parçanın arasındaki satır, sınanmamış bir
+satırdır.*

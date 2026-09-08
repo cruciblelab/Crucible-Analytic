@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
-| **F** Ertelenen | 🟡 **1/3** | F1 yedekleme *(a–h bitti, F1i kaldı)*, F3 filo — bilerek sonraya |
+| **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
@@ -4814,7 +4814,7 @@ adımı: G2 kurulacak paketi üretir, F2 onu kurar. Numarası F2 kalıyor
 belgenin numaralandırma konusundaki kuralı, düzeltmek yerine
 açıklamak.
 
-#### F1 — Depolama ve yedekleme
+#### F1 — Depolama ve yedekleme ✅ **yapıldı**
 
 **Neden gerekli:** §5 "yedekten dönme"yi SSH gerektiren işler arasında
 sayıyor — ama projede **yedek alma hiç planlanmamış.** Geri yüklenecek
@@ -6382,6 +6382,12 @@ kapalıya çevir, ayarları geliştirici moduna sakla, betiğin sormadan
 
 Gerçek Chromium'da: yüzey kapalıyken bağlama noktası boş kalıyor, sayfanın
 gövdesi hiç değişmiyor, ve `optOut()` / `optIn()` çalışmaya devam ediyor.
+
+Ve zinciri kapatan satır da ölçüldü: tarball e2e'si panelin yazacağı
+satırı veritabanına yazıyor, kurulu beacon'ın kendi yoklamasını bekliyor,
+sayfanın 404 verdiğini görüyor, sonra geri alıp döndüğünü görüyor.
+Mutasyon (`SetDisclosure` çağrısını sil) yakalandı. *Ayrı ayrı sınanmış
+iki parçanın arasındaki satır, sınanmamış bir satırdır.*
 
 ---
 

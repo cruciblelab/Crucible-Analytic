@@ -123,6 +123,16 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// documents this switch for exactly this case.
 	setConfig(t, pkg, "panel.toml", `^# secure_cookies = true$`, `secure_cookies = false`)
 
+	// The live-settings poll, shortened for one assertion below.
+	//
+	// A customer's beacon re-reads the settings table every minute,
+	// which is the right period for a running service and the wrong one
+	// for a test: waiting a minute to see a switch take effect would
+	// make this suite a minute longer for one line. Two seconds is the
+	// same mechanism at a different rate - the example file documents
+	// the setting, and this is what it is for.
+	setConfig(t, pkg, "beacon.toml", `^# interval_seconds = 60$`, `interval_seconds = 2`)
+
 	start(t, pkg, "collector", "collector.toml")
 	start(t, pkg, "beacon", "beacon.toml")
 	start(t, pkg, "analytics-api", "analytics-api.toml")
@@ -212,6 +222,20 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// the tarball is the other deployment: this one has a config file
 	// install.sh edited, and a mode read from it.
 	checkDisclosure(t, beaconAddr)
+
+	// ---- and the panel's switch reaches the running process ----
+	//
+	// P3. The switch, the setting source and the server are each tested
+	// on their own; the line that joins them lives in cmd/beacon's apply
+	// loop, and nothing but a running installation exercises it. So this
+	// writes the row a panel would write, waits for the beacon's own
+	// poll, and asks the endpoints - then puts it back and waits for
+	// them to return.
+	//
+	// Both directions, because a customer who switches the disclosure
+	// off has to be able to switch it back on, and a one-way test would
+	// pass against a process that had simply stopped serving.
+	checkTheDisclosureSwitchTravels(t, ctx, pool, beaconAddr)
 
 	var events int
 	deadline = time.Now().Add(flushWait)
@@ -633,4 +657,58 @@ func hostOf(t *testing.T, dsn string) string {
 		t.Fatalf("cannot find a host in %q", dsn)
 	}
 	return rest
+}
+
+// checkTheDisclosureSwitchTravels writes the panel's row and watches the
+// installed beacon obey it.
+func checkTheDisclosureSwitchTravels(t *testing.T, ctx context.Context, pool *pgxpool.Pool, beaconAddr string) {
+	t.Helper()
+
+	// The row a panel writes. Written here with SQL because this test
+	// has no panel session and does not need one: what is under test is
+	// the beacon's half of the chain.
+	set := func(on bool) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO panel_settings (scope, site_id, key, value)
+			VALUES ('global', '', 'privacy.visitor_surface', $1)
+			ON CONFLICT (scope, site_id, key) DO UPDATE SET value = EXCLUDED.value`,
+			fmt.Sprintf("%t", on)); err != nil {
+			t.Fatalf("writing the visitor-surface setting: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE key = 'privacy.visitor_surface' AND site_id = ''`)
+	})
+
+	// waitFor polls until the disclosure answers with the status this
+	// step expects, or gives up with what it saw last.
+	waitFor := func(want int, what string) {
+		t.Helper()
+		client := &http.Client{Timeout: 5 * time.Second}
+		deadline := time.Now().Add(30 * time.Second)
+		last := 0
+		for time.Now().Before(deadline) {
+			resp, err := client.Get("http://" + beaconAddr + "/_ca/privacy.html")
+			if err == nil {
+				last = resp.StatusCode
+				resp.Body.Close()
+				if last == want {
+					return
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		t.Fatalf("after %s the disclosure page still answers %d, want %d.\n"+
+			"The setting reached the database; what did not happen is the "+
+			"running beacon applying it, which is the one link no unit test "+
+			"covers", what, last, want)
+	}
+
+	set(false)
+	waitFor(http.StatusNotFound, "switching the surface off")
+
+	set(true)
+	waitFor(http.StatusOK, "switching it back on")
 }
