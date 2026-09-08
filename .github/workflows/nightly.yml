@@ -141,8 +141,8 @@ jobs:
       # at once rather than picking one.
       - name: ja4 - the first bytes off the socket
         run: |
-          go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
-          go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
+          release/fuzz.sh 'FuzzParseClientHelloFromRecords' ./internal/ja4/ 5m
+          release/fuzz.sh 'FuzzParseClientHello'            ./internal/ja4/ 5m
 
       # Not attacker bytes - this one reads the repository's own schema
       # files. It is here because the failure it can have is the silent
@@ -152,7 +152,7 @@ jobs:
       # changes go unnoticed. Everything L1, L2 and L3 do rests on that
       # value.
       - name: schemaver - the scanner the upgrade machinery trusts
-        run: go test -run XXX -fuzz 'FuzzStripComments$' -fuzztime 5m ./internal/schemaver/
+        run: release/fuzz.sh 'FuzzStripComments' ./internal/schemaver/ 5m
 
       # Release signatures, and this one runs on bytes an attacker
       # chooses. Verification is the last thing standing between a
@@ -167,12 +167,12 @@ jobs:
       # the archive is open. What it writes then goes where systemd
       # runs it.
       - name: relupdate - the archive nobody has verified yet
-        run: go test -run XXX -fuzz 'FuzzUnpackNeverEscapesItsDirectory$' -fuzztime 5m ./internal/relupdate/
+        run: release/fuzz.sh 'FuzzUnpackNeverEscapesItsDirectory' ./internal/relupdate/ 5m
 
       - name: releasesign - the check between a package and root
         run: |
-          go test -run XXX -fuzz 'FuzzVerifyNeverPanicsAndNeverAccepts$' -fuzztime 5m ./internal/releasesign/
-          go test -run XXX -fuzz 'FuzzParsePublicKeyNeverPanics$'        -fuzztime 5m ./internal/releasesign/
+          release/fuzz.sh 'FuzzVerifyNeverPanicsAndNeverAccepts' ./internal/releasesign/ 5m
+          release/fuzz.sh 'FuzzParsePublicKeyNeverPanics'        ./internal/releasesign/ 5m
 
       # The rule the three targets below all rest on. It is small enough
       # to read in a minute, which is exactly why it is worth fuzzing:
@@ -180,7 +180,7 @@ jobs:
       # after changing it, and everything that reaches a TEXT column in
       # this product goes through it.
       - name: textsafe - the rule the other three rest on
-        run: go test -run XXX -fuzz 'FuzzStorableAlwaysReturnsSomethingAColumnAccepts$' -fuzztime 5m ./internal/textsafe/
+        run: release/fuzz.sh 'FuzzStorableAlwaysReturnsSomethingAColumnAccepts' ./internal/textsafe/ 5m
 
       # The body a browser POSTs, which is the payload with the shortest
       # path from a stranger to a row. What it defends is not a crash:
@@ -188,7 +188,7 @@ jobs:
       # batches, so one unsanitised field is one request that stops every
       # other visitor's events from being recorded.
       - name: beacon - the payload a stranger writes
-        run: go test -run XXX -fuzz 'FuzzAnEventFromABrowserCannotPoisonTheBatch$' -fuzztime 5m ./internal/beacon/
+        run: release/fuzz.sh 'FuzzAnEventFromABrowserCannotPoisonTheBatch' ./internal/beacon/ 5m
 
       # The two CSV files this product downloads. Same property, larger
       # blast radius: a country code and an organisation name are
@@ -200,8 +200,8 @@ jobs:
       # before the mutator had run once.
       - name: asnlookup - the ranges nobody here controls
         run: |
-          go test -run XXX -fuzz 'FuzzCountryCSVNeverProducesAnUnstorableValue$' -fuzztime 5m ./internal/asnlookup/
-          go test -run XXX -fuzz 'FuzzASNCSVNeverProducesAnUnstorableValue$'     -fuzztime 5m ./internal/asnlookup/
+          release/fuzz.sh 'FuzzCountryCSVNeverProducesAnUnstorableValue' ./internal/asnlookup/ 5m
+          release/fuzz.sh 'FuzzASNCSVNeverProducesAnUnstorableValue'     ./internal/asnlookup/ 5m
 
       # The bot archive. The failure this one has is not a refused write
       # but a wrong answer that looks like a right one: an empty
@@ -210,9 +210,9 @@ jobs:
       # product would say so.
       - name: botdata - the labels that decide who is a bot
         run: |
-          go test -run XXX -fuzz 'FuzzTheArchiveCannotLabelABrowserAsABot$'         -fuzztime 5m ./internal/botdata/
-          go test -run XXX -fuzz 'FuzzAFileOnDiskCannotLabelEveryVisitorABot$'      -fuzztime 5m ./internal/botdata/
-          go test -run XXX -fuzz 'FuzzAFileThisBuildWroteIsAFileThisBuildCanRead$'  -fuzztime 5m ./internal/botdata/
+          release/fuzz.sh 'FuzzTheArchiveCannotLabelABrowserAsABot'         ./internal/botdata/ 5m
+          release/fuzz.sh 'FuzzAFileOnDiskCannotLabelEveryVisitorABot'      ./internal/botdata/ 5m
+          release/fuzz.sh 'FuzzAFileThisBuildWroteIsAFileThisBuildCanRead'  ./internal/botdata/ 5m
 
       # A crash is written to testdata/fuzz/ as a regression case, which
       # is the artifact actually worth having - it turns a one-off

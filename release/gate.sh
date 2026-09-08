@@ -22,7 +22,47 @@
 # mode where a whole step was never run at all.
 set -uo pipefail
 
+# Where this script is, resolved before the cd below moves the ground
+# under a relative path. `bash release/gate.sh` and `./release/gate.sh`
+# and `bash gate.sh` from inside release/ all have to reach the same
+# file, because the transcript wrapper re-runs it.
+gate_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+
 cd "$(dirname "$0")/.."
+
+# The whole run, on disk, whatever the caller does with the output.
+#
+# # Why
+#
+# A gate went red on TestNoServiceStopsWhileTheSchemaIsApplied and the
+# message was gone: the run had been piped through grep to keep the
+# summary lines, and the summary lines are exactly the ones that do not
+# carry the numbers. Three re-runs passed, so the one run that had
+# something to say was the one nobody could read.
+#
+# That is this repository's oldest lesson wearing a new hat - *bir
+# teşhis, ona ulaşamayan bir yol için yok demektir* - and the fix is the
+# same shape as the compose-log one: put the diagnostic somewhere the
+# failing path cannot lose it.
+#
+# The script re-runs itself once, through tee, with the log path in the
+# environment so the second pass knows not to do it again. The path is
+# printed on stderr, so a filter on stdout cannot swallow it either.
+if [ -z "${CA_GATE_LOG:-}" ]; then
+  CA_GATE_LOG="${TMPDIR:-/tmp}/ca-gate-$(date +%Y%m%d-%H%M%S)-$$.log"
+  export CA_GATE_LOG
+  set -o pipefail
+  "${gate_self}" "$@" 2>&1 | tee "${CA_GATE_LOG}"
+  gate_status=$?
+  printf '\nfull transcript: %s\n' "${CA_GATE_LOG}" >&2
+  exit "${gate_status}"
+fi
+
+# The handshake is over: this is the wrapped pass. The variable is
+# unset before any step runs, so a gate started *by* a step - which is
+# how release/gatelog_test.go checks this behaviour - wraps itself and
+# writes its own transcript rather than inheriting the decision not to.
+unset CA_GATE_LOG
 
 # Pinned to the same versions the workflow pins, for the reason the
 # workflow gives: an unpinned analyser moves the baseline under a gate
@@ -32,7 +72,21 @@ GOSEC_VERSION="v2.29.0"
 DEADCODE_VERSION="v0.49.0"
 
 failed=0
+ran=0
+
+# CA_GATE_ONLY runs the steps whose names match one pattern.
+#
+# For iterating on a single check without paying for the other eight -
+# and it is what makes the transcript above testable in a second rather
+# than in ten minutes.
 step() {
+  if [ -n "${CA_GATE_ONLY:-}" ]; then
+    case "$1" in
+      *${CA_GATE_ONLY}*) ;;
+      *) return 0 ;;
+    esac
+  fi
+  ran=$((ran + 1))
   printf '\n== %s\n' "$1"
   shift
   if "$@"; then
@@ -88,8 +142,23 @@ else
 fi
 
 printf '\n'
+if [ "${ran}" -eq 0 ]; then
+  # A filter that matched no step is not a pass. The whole point of this
+  # script is that a step nobody ran cannot be reported as a step that
+  # succeeded.
+  printf 'gate: RED - no step matched CA_GATE_ONLY=%s\n' "${CA_GATE_ONLY:-}"
+  exit 1
+fi
 if [ "${failed}" -ne 0 ]; then
   printf 'gate: RED\n'
   exit 1
+fi
+if [ -n "${CA_GATE_ONLY:-}" ]; then
+  # Never the plain word. A filtered run is a green for the steps it
+  # chose, and somebody reading "gate: green" in a terminal three days
+  # later has no way to know a filter was set.
+  printf 'gate: green for the %d step(s) matching %s - not the whole gate\n' \
+    "${ran}" "${CA_GATE_ONLY}"
+  exit 0
 fi
 printf 'gate: green\n'

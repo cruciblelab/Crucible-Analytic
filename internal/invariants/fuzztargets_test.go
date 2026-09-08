@@ -28,6 +28,10 @@ import (
 // hand.
 var fuzzFunc = regexp.MustCompile(`(?m)^func (Fuzz[A-Za-z0-9_]*)\(`)
 
+// wrapped matches one invocation in the workflow: the wrapper, then the
+// target in quotes.
+var wrapped = regexp.MustCompile(`release/fuzz\.sh '(Fuzz[A-Za-z0-9_]*)'`)
+
 // TestEveryFuzzTargetIsRunByTheNightly.
 func TestEveryFuzzTargetIsRunByTheNightly(t *testing.T) {
 	root := repoRootFromInvariants(t)
@@ -74,15 +78,26 @@ func TestEveryFuzzTargetIsRunByTheNightly(t *testing.T) {
 			"test is comparing nothing", len(targets))
 	}
 
+	// Every invocation in the workflow, read once. The wrapper anchors
+	// the target itself (`-fuzz "${target}$"`), which is why the name is
+	// written bare here and why this test reads the wrapper's argument
+	// rather than go test's flag: an unanchored FuzzParseClientHello
+	// also matches FuzzParseClientHelloFromRecords, and `go test`
+	// refuses to fuzz two targets at once rather than choosing.
+	run := map[string]bool{}
+	for _, m := range wrapped.FindAllStringSubmatch(workflow, -1) {
+		run[m[1]] = true
+	}
+	if len(run) < 2 {
+		t.Fatalf("only %d fuzz invocations found in the workflow; the pattern has "+
+			"stopped matching how they are written", len(run))
+	}
+
 	for _, name := range targets {
-		// Anchored exactly as the workflow must write it. The anchor is
-		// not decoration: an unanchored FuzzParseClientHello also
-		// matches FuzzParseClientHelloFromRecords, and `go test`
-		// refuses to fuzz two targets at once rather than choosing.
-		if !strings.Contains(workflow, "'"+name+"$'") {
+		if !run[name] {
 			t.Errorf("%s is a fuzz target and the nightly workflow does not run it.\n"+
 				"Add a step:\n"+
-				"  go test -run XXX -fuzz '%s$' -fuzztime 5m ./<its package>/\n"+
+				"  release/fuzz.sh '%s' ./<its package>/ 5m\n"+
 				"Without it the target runs its seed corpus in the gate - a few inputs, "+
 				"a fraction of a second - and never fuzzes at all", name, name)
 		}
@@ -91,16 +106,71 @@ func TestEveryFuzzTargetIsRunByTheNightly(t *testing.T) {
 	// The other direction: a target named in the workflow that no longer
 	// exists fails the whole nightly job, and a nightly that is red for
 	// a stale name is one people stop reading.
-	named := regexp.MustCompile(`-fuzz '(Fuzz[A-Za-z0-9_]*)\$'`)
 	have := map[string]bool{}
 	for _, name := range targets {
 		have[name] = true
 	}
-	for _, m := range named.FindAllStringSubmatch(workflow, -1) {
-		if !have[m[1]] {
+	for name := range run {
+		if !have[name] {
 			t.Errorf("the nightly runs %s and no such fuzz target exists any more; "+
-				"that job will fail every night until the line goes", m[1])
+				"that job will fail every night until the line goes", name)
 		}
+	}
+}
+
+// TestEveryFuzzRunGoesThroughTheWrapper.
+//
+// # Why the wrapper is not optional
+//
+// `go test -fuzz` reports its own deadline as a failure sometimes: the
+// coordinator suppresses the cancellation only when the error is
+// identical to its workers' context error, and at the moment the
+// deadline fires there is a window where it is not. Nightly #18 spent
+// sixty-five minutes to print
+//
+//	--- FAIL: FuzzAFileThisBuildWroteIsAFileThisBuildCanRead (301.01s)
+//	    context deadline exceeded
+//
+// with no failing input and nothing written to any corpus. release/fuzz.sh
+// tells that apart from a finding - by the corpus directory, by the
+// "Failing input written to" line, and by whether the failure arrived
+// when the budget ran out - and passes the first while failing the
+// second.
+//
+// A step that called `go test -fuzz` directly would go red on the same
+// race, and a nightly that is red for no defect is one people learn to
+// re-run without reading. That is the failure this whole invariants
+// package exists against, so the rule is checked rather than remembered.
+func TestEveryFuzzRunGoesThroughTheWrapper(t *testing.T) {
+	root := repoRootFromInvariants(t)
+
+	body, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "nightly.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") {
+			continue // the comments explain the flag; they do not run it
+		}
+		if !strings.Contains(trimmed, "-fuzz ") && !strings.Contains(trimmed, "-fuzz=") {
+			continue
+		}
+		t.Errorf(".github/workflows/nightly.yml:%d runs the fuzzer directly:\n  %s\n"+
+			"Use release/fuzz.sh, which fails on a finding and passes on the "+
+			"toolchain's own deadline race. A direct call goes red on a run that "+
+			"found nothing", i+1, trimmed)
+	}
+
+	// And the wrapper is there, and runnable.
+	info, err := os.Stat(filepath.Join(root, "release", "fuzz.sh"))
+	if err != nil {
+		t.Fatalf("release/fuzz.sh: %v", err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Errorf("release/fuzz.sh is not executable (%v); the workflow calls it by "+
+			"path", info.Mode().Perm())
 	}
 }
 

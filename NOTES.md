@@ -14031,3 +14031,146 @@ kimse `.gitignore`'a yazmasın (yakalandı).
 Dosyalar **uçtan** çıktı, **geçmişten** değil. Geçmişi temizlemek
 `main`'i yeniden yazmak demek — birleşmiş commit'lerin SHA'ları değişir.
 Bu, benim tek başıma alacağım bir karar değil; sorup öyle yaparım.
+
+## Gecelik, bulmadığı bir şey için kırmızı verdi — ve testin kendisi önbellekten geçti
+
+P2'nin Docker yarısını ölçtürmek için geceliği elle tetikledim. Docker
+yarısı geçti (bitti ölçütünün son maddesi kapandı), ama koşu kırmızı
+döndü. Sebep, altmış beş dakika sonra:
+
+```
+--- FAIL: FuzzAFileThisBuildWroteIsAFileThisBuildCanRead (301.01s)
+    context deadline exceeded
+```
+
+Ne çöken bir girdi var, ne `testdata/fuzz` altına yazılmış bir şey.
+301,01 saniye ise 5 dakikalık bütçenin ta kendisi, yüzde biriyle.
+Fuzzer bir şey bulmadı; **süresi doldu, ve araç süresinin dolmasını
+başarısızlık diye bildirdi.**
+
+### Kusur bizde değil, ve nerede olduğu okunabiliyor
+
+`go/src/internal/fuzz/fuzz.go`: koordinatör süreyi bir bağlama koyuyor,
+işçilerin bağlamını ondan türetiyor, ve durduğunda hatayı **yalnız
+türetilmiş bağlamın hatasıyla birebir aynıysa** susturuyor:
+
+```go
+if err == fuzzCtx.Err() || isInterruptError(err) { err = nil }
+```
+
+Süre dolduğu anda, ebeveyn `DeadlineExceeded` demeye başlamışken çocuğa
+henüz haber verilmemiş olabilir; o pencerede karşılaştırma `nil` ile
+yapılıyor, hata hayatta kalıyor, ve hiçbir şey bulmamış bir koşu 1 ile
+çıkıyor. Yerelde 20 koşuda hiç tekrarlamadı — pencere o kadar dar;
+yüklü bir CI makinesinde açılıyor. Go deposunda aynı sınıftan kırılgan
+test kayıtları var, ve başka projeler komutu aynı sebeple sarmalıyor.
+
+### Neden omuz silkip geçmedim
+
+Kusur olmayan bir kırmızı, kırmızıdan kötüdür: insan onu okumadan
+yeniden koşturmayı öğrenir. Bu depo bunun bedelini zaten ödedi — kendi
+sebebini yazamayan bir rapor için üç gece.
+
+### `release/fuzz.sh` — ve asla yutmadığı şey
+
+Sarmalayıcı bir hedefi koşturuyor ve **buluntu ile saati** ayırıyor. Üç
+ayrı ayraç, çünkü biri tek başına bir sürüm sonrası değişebilir:
+
+1. `testdata/fuzz` altında yeni dosya var mı (koşudan önce ve sonra
+   listeleniyor);
+2. çıktı "Failing input written to" diyor mu;
+3. tek bir `--- FAIL` var mı, ve **bütçenin sonunda mı geldi** — tohum
+   korpusundan düşen bir girdi 0,00 saniyede düşer, saat 301'de.
+
+Üçünden biri bile buluntuyu gösteriyorsa kırmızı. Yalnız üçü birden
+"saat" diyorsa yeşil, ve o zaman da **niçin** yeşil olduğunu ekrana
+yazıyor: sessizce kırmızıyı yeşile çeviren bir adım, sonradan kimsenin
+denetleyemeyeceği bir adımdır.
+
+Sekiz mutasyon, sekizi de yakalandı — ama ikisi ancak testler
+düzeltildikten sonra:
+
+- "Failing input written to" kontrolünü silmek ilk hâlde hayatta kaldı,
+  çünkü elimdeki çöküş sabitinin süresi 12,34 saniyeydi: zaman kuralı
+  zaten kırmızı veriyordu. Gerçek tehlikeli şekil **bütçenin son
+  saniyesinde bulunan bir çöküş**; o sabit eklendi.
+- "tek bir FAIL" kuralını silmek de hayatta kaldı, çünkü sabitte gerçek
+  hata satırı önce geliyordu ve `head -1` onun süresini okuyordu. İki
+  sıralama da eklendi.
+
+### Ve testin kendisi ölçmeden geçiyormuş
+
+İlk mutasyon turunda beşi birden "hayatta kaldı". Sebep mutasyonların
+zararsızlığı değildi: `go test` paketin sonucunu **önbellekten** verdi.
+Önbellek anahtarı, test ikilisinin okuduğu dosyalardan kuruluyor — ve bu
+testler betiği `sh` ile çalıştırdığı için ikili `fuzz.sh`'ı hiç açmıyordu.
+Diskteki dosya bozukken beş yeşil.
+
+Düzeltme bir satır: test artık betiği kendisi okuyor. O okuma, sonucu
+ölçtüğü dosyaya bağlıyor.
+
+*Ölçtüğü dosyaya bağımlı olmayan bir test, ölçmeden geçebilir.*
+
+Bir değişmez testi de eklendi: gecelikte hiçbir adım `go test -fuzz`'ı
+doğrudan çağıramaz, hepsi sarmalayıcıdan geçer — ve sarmalayıcının
+çalıştırılabilir olduğu kontrol ediliyor, çünkü iş akışı onu yol ile
+çağırıyor.
+
+## Kapı bir kez kırmızı verdi ve mesajı kayboldu — çünkü ben süzmüştüm
+
+`release/gate.sh --all` `TestNoServiceStopsWhileTheSchemaIsApplied`
+üzerinde kırmızı verdi. Mesaj yok: koşuyu arka plana atarken çıktıyı
+`grep -E "^(==|!!|gate:|FAIL|---)"` ile süzüp öyle kaydetmiştim, ve
+özet satırları tam olarak **sayı taşımayan** satırlar. Test kendi
+ölçümlerini `t.Logf` ile yazıyor; onların hepsi süzgeçte kaldı.
+
+Üç kez tekrar koşturdum — tek başına, `-race` ile, ve bütün entegrasyon
+süiti paralelken — üçü de yeşil. Yani söyleyecek sözü olan tek koşu,
+kimsenin okuyamadığı koşuydu.
+
+*Bir teşhis, ona ulaşamayan bir yol için yok demektir.* Bu deponun en
+eski dersi, yeni bir şapkayla; ve bu sefer şapkayı ben taktım.
+
+### Düzeltme, testin değil kapının kendisinde
+
+Kapı artık bütün koşuyu bir dosyaya yazıyor ve yolunu **stderr'e**
+basıyor — stdout'a süzgeç koyan biri yolu da süzemesin diye. Betik
+kendini bir kez `tee` üzerinden yeniden çalıştırıyor; ikinci geçişin
+tekrar sarmalamaması için yol ortam değişkeninde.
+
+Yanında iki şey daha:
+
+- `CA_GATE_ONLY` — tek bir adımı koşturmak için. Dokuz adım yerine bir
+  adım, ki yukarıdaki davranış on dakikada değil bir saniyede
+  sınanabilsin.
+- Süzülmüş bir koşu **"gate: green" diyemez**: hangi adımların koştuğunu
+  ve bunun tam kapı olmadığını yazıyor. Ve hiçbir adıma uymayan bir
+  filtre **kırmızıdır** — hiç adım koşmamış bir kapıyı yeşil saymak,
+  ismi yanlış yazan herkesin geçebildiği bir kapı demektir.
+
+Beş mutasyon, beşi de yakalandı: yolu stdout'a bas, dosyayı hiç yazma,
+boş filtreyi yeşil say, süzülmüş koşuya "gate: green" dedirt, TMPDIR'i
+yok say.
+
+### Ve testler kapının içinde kırmızı verdi
+
+Tek başına yeşildi, `gate.sh --all` içinde kırmızı. Sebep, eklediğim
+şeyin kendisi: kapı iki geçiş arasındaki el sıkışmayı (`CA_GATE_LOG`)
+**export** ediyordu, yani adımların çocukları da görüyordu. Testin
+başlattığı kapı onu görüp "zaten sarmalanmışım" diyordu; ne transkript
+yazıyordu ne yolu basıyordu.
+
+İki tarafı da düzeltildi. Kapı el sıkışmayı adımlar başlamadan
+`unset` ediyor — bir adımın başlattığı kapı kendini sarmalasın ve kendi
+transkriptini yazsın diye. Test de ortamdan `CA_GATE_LOG`'u temizliyor,
+çünkü ölçmek istediği düzeneği kendisi kurmalı, onu kimin çalıştırdığına
+bırakmamalı.
+
+Bu oturumun üçüncü tekrarı: **iddia doğruydu, düzenek yanlıştı.**
+
+### Açık kalan
+
+`TestNoServiceStopsWhileTheSchemaIsApplied` yük altında kırılgan.
+Bugünkü kırmızının hangi iddiadan geldiğini **bilmiyorum** ve tahmin
+edip "düzeltmeyeceğim": elimde ölçüm yok. Bir sonraki kırmızıda
+transkript duracak, ve o zaman gerçek sebeple uğraşılır.
