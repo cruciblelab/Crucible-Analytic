@@ -51,6 +51,46 @@ yürürlükte olmayan bir sınır söyleyemez.
 **Kuran kişinin yapması gereken (isteğe bağlı):** `upgrader.toml`'a
 `keep_days` yazmak. Tavan 730 gün, saklama politikasınınkiyle aynı.
 
+### Ziyaretçi artık burada ne toplandığını okuyabiliyor
+
+Beacon iki yeni uç servis ediyor, ikisi de snippet ile aynı önek altında
+— yani bugün `/_ca/`'yı yönlendiren nginx kuralınız bunları da
+yönlendiriyor, ve **kurulu hiçbir sistemin yapılandırmasına dokunmanız
+gerekmiyor.**
+
+`GET <önek>/privacy.html` hazır bir sayfa: adresin ne kadarının
+saklandığı, çerez kullanılmadığı, ziyaretçi kimliğinin ne sıklıkla
+yenilendiği, hangi alanların saklandığı, ölçümden nasıl çıkılacağı — ve
+silme talebi olmadığı, **nedeniyle birlikte.**
+
+`GET <önek>/privacy` aynı bilgilerin JSON'u: cümle yok, olgu var. Kendi
+gizlilik sayfanızda kendi dilinizle, kendi tasarımınızla basmak
+içindir. Sitenizin kendi sayfasından okunabilmesi için
+`Access-Control-Allow-Origin: *` ile geliyor.
+
+Kendi gizlilik sayfanızın içine gömmek isterseniz, snippet'in zaten
+bulunduğu sayfaya bir bağlama noktası koymanız yeterli:
+
+```html
+<div data-crucible-privacy></div>
+```
+
+Betik burayı dolduruyor, **nokta yoksa hiçbir şey çizmiyor** — sitenizin
+diğer sayfalarına dokunulmuyor. `data-title` çerçevenin erişilebilir
+adını, `data-height` yüksekliğini veriyor; ikisi de isteğe bağlı. Sıkı
+bir CSP kullanıyorsanız beacon'ın kaynağı için `frame-src` gerekiyor —
+zaten betiğe izin verdiğiniz kaynak.
+
+**Metin ayardan türüyor.** `privacy.ip_storage` maskeliden tama
+geçtiğinde sayfa bir sonraki istekte kendiliğinden değişiyor: yeniden
+başlatma yok, güncellenecek ikinci bir metin yok. Saklanan alan listesi
+de yazıcının kendi sütun listesinden geliyor, elle yazılmış bir listeden
+değil.
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Uçlar yükseltmeyle
+birlikte geliyor. İsterseniz gizlilik sayfanızdan
+`<önek>/privacy.html`'e bağlantı verin ya da yukarıdaki noktayı koyun.
+
 ---
 
 ## v0.23.0 — 2026-09-07

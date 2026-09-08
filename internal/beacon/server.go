@@ -206,6 +206,21 @@ func (s *Server) Handler() http.Handler {
 	// caller that does send application/json still works.
 	mux.HandleFunc("OPTIONS "+prefix+"/event", s.handlePreflight)
 
+	// The disclosure, both encodings, both under the prefix.
+	//
+	// Under the prefix on purpose: whatever already routes /_ca/ca.js to
+	// this service - an nginx rule, a compose port, a reverse proxy
+	// somebody wrote a year ago - routes these too. A deployment adopts
+	// this by upgrading, not by editing a web server config it may not
+	// remember the shape of.
+	//
+	// Served by the beacon rather than the panel or the read API because
+	// it is the only service a visitor can reach: docker/compose.yml
+	// publishes no port for the other two, deliberately, and a
+	// disclosure nobody can open is not one.
+	mux.HandleFunc("GET "+prefix+"/privacy", s.handlePrivacyJSON)
+	mux.HandleFunc("GET "+prefix+"/privacy.html", s.handlePrivacyPage)
+
 	// Unauthenticated and dataless, exactly as in the read API.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

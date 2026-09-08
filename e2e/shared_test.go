@@ -391,3 +391,97 @@ const DevAccessSegment = "/gelistirici/"
 // SetupPathPrefix is where a redeemed developer link leads. Written out
 // rather than imported, for the same reason as the segment above.
 const SetupPathPrefix = "/kurulum/"
+
+// checkDisclosure reads both privacy endpoints from the published port.
+//
+// # Why this is measured in a container rather than in a handler test
+//
+// internal/beacon already proves the two endpoints answer, that their
+// content follows the live mode, and that neither leaks anything about
+// the reader. None of that says a visitor can reach them. Between the
+// handler and the visitor there is an image, a compose file, a published
+// port and a path prefix, and this product has shipped a feature that
+// was correct in all of them but one before.
+//
+// # What is asserted
+//
+// Reachability, and that the two encodings agree with each other. The
+// second is the part a running system can say that a unit test cannot:
+// the page and the JSON are rendered by one process from one reading of
+// one setting, so every column the JSON declares has to appear on the
+// page a visitor reads.
+func checkDisclosure(t *testing.T, beaconAddr string) {
+	t.Helper()
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	get := func(path string) (*http.Response, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, "http://"+beaconAddr+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// From a page on the customer's own site, which is the case the
+		// JSON endpoint exists for.
+		req.Header.Set("Origin", "https://musteri.example")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s through the published port: %v", path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s = %s\n%s", path, resp.Status, string(body))
+		}
+		return resp, string(body)
+	}
+
+	resp, raw := get("/_ca/privacy")
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("the container answers the disclosure with "+
+			"Access-Control-Allow-Origin %q; a customer's own privacy page could "+
+			"not read it", got)
+	}
+
+	var notice struct {
+		IPStorage             string   `json:"ip_storage"`
+		Stored                []string `json:"stored"`
+		TokenFromWholeAddress bool     `json:"token_from_whole_address"`
+		OptOut                string   `json:"opt_out"`
+	}
+	if err := json.Unmarshal([]byte(raw), &notice); err != nil {
+		t.Fatalf("the disclosure is not JSON: %v\n%s", err, raw)
+	}
+	// The mode this stack is actually running in. docker/compose.yml
+	// configures none, so the default is what a customer gets - and the
+	// default is the one worth pinning here, because it is the promise
+	// made to every deployment that changes nothing.
+	if notice.IPStorage != "masked" {
+		t.Errorf("the shipped compose file produces a beacon in %q mode; the "+
+			"default this product documents is masked", notice.IPStorage)
+	}
+	if notice.TokenFromWholeAddress {
+		t.Error("a stack with no ip_storage setting discloses that it stores a token")
+	}
+	if len(notice.Stored) < 10 {
+		t.Errorf("the disclosure names %d stored fields, which cannot be the whole "+
+			"list this build writes: %v", len(notice.Stored), notice.Stored)
+	}
+
+	_, page := get("/_ca/privacy.html")
+	for _, field := range notice.Stored {
+		if !strings.Contains(page, ">"+field+"<") {
+			t.Errorf("the JSON declares %q is stored and the page a visitor reads "+
+				"does not name it.\n"+
+				"Both come from one process reading one list, so a disagreement "+
+				"means one of them is no longer derived", field)
+		}
+	}
+	if !strings.Contains(page, notice.OptOut) {
+		t.Errorf("the page does not tell a visitor to run %q", notice.OptOut)
+	}
+	t.Logf("disclosure: ip_storage=%s, %d stored fields, both endpoints reachable on %s",
+		notice.IPStorage, len(notice.Stored), beaconAddr)
+}

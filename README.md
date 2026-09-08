@@ -702,6 +702,49 @@ The underlying flag is `localStorage`'s `crucible.disabled`, so
 `localStorage.setItem('crucible.disabled', '1')` still works and still
 means the same thing.
 
+### What a visitor is told, and where it comes from
+
+Two endpoints, both under the same path prefix as the snippet, so the
+nginx rule you already wrote forwards them and no installed deployment
+has to be reconfigured to have them:
+
+| Endpoint | For |
+| --- | --- |
+| `GET <prefix>/privacy` | JSON. Facts, no prose — for a site that wants to print this on its own privacy page in its own language and design. `Access-Control-Allow-Origin: *`, so a page on the site's own origin can read it. |
+| `GET <prefix>/privacy.html` | A ready-made page in Turkish. Link to it, frame it, or ignore it. |
+
+To put it inside your own privacy page, add an anchor anywhere in the
+page that already carries the snippet:
+
+```html
+<div data-crucible-privacy></div>
+```
+
+The script fills it with a frame carrying that page, and **draws nothing
+when the anchor is absent** — every other page on the site is untouched.
+`data-title` sets the frame's accessible name (in your language) and
+`data-height` its height; both are optional, and your own CSS can size
+the frame instead. A site with a strict `Content-Security-Policy` needs
+`frame-src` for the beacon's origin — the origin it already allows for
+the script.
+
+Everything on that page is derived from what this build actually does:
+the stored field list comes from the writer's own column list, and the
+sentences about the address are chosen by the `privacy.ip_storage` mode
+in force at that moment, read from the same live setting the writer
+reads. Change the mode on the panel and the next request to either
+endpoint says the new thing — no restart, and no second copy of the text
+to update. A structural test refuses a second copy of that prose
+anywhere in this repository, so "copy the paragraph into your own page"
+is deliberately not the supported path: the JSON is.
+
+The page says there is no deletion request, and why. That is not a
+policy choice: the visitor identifier is derived with a secret held only
+in memory and replaced every `salt_period` (24h by default), so once it
+rotates nothing can point at one visitor's rows — there is no set to
+hand over and none to delete. Identifying you well enough to honour such
+a request would mean collecting more, not less.
+
 ## Design notes
 
 - **Language: Go.** Goroutines suit the high-concurrency connection model,

@@ -79,6 +79,15 @@ func TestTheStackWorksFromItsOwnComposeFile(t *testing.T) {
 	}
 	sendPageview(t, fmt.Sprintf("127.0.0.1:%d", beaconPort), dockerSite)
 
+	// ---- the visitor-facing disclosure, from outside the container ----
+	//
+	// The port is the one the shipped compose file already publishes for
+	// the beacon, and nothing above was changed to make this work: that
+	// is the claim. A disclosure that needed a published port of its own,
+	// or a line in somebody's nginx, would be a feature every installed
+	// deployment has to be told about before it has it.
+	checkDisclosure(t, fmt.Sprintf("127.0.0.1:%d", beaconPort))
+
 	// ---- the panel draws both halves ----
 	panelAddr := fmt.Sprintf("127.0.0.1:%d", panelPort)
 	client := panelSession(t, stack, panelAddr)

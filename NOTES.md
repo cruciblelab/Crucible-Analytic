@@ -13839,3 +13839,123 @@ dosya her tablonun sahipliğini `schema_admin`'e devrediyor. Gerçek
 kurulumda install.sh ikisini birlikte koşuyor, yükseltme yolunda da tabloyu
 zaten `schema_admin` yaratıyor. Yani kusur üründe değil, benim yarım
 uyguladığım şemadaydı — ve onu da beş entegrasyon testi aynı anda söyledi.
+
+## P2 — Açıklama yüzeyi: ziyaretçinin okuduğu metin bir kod yolundan türüyor
+
+P1 ziyaretçiye bir anahtar verdi. P2 ona anahtarın neyi kapattığını
+söylüyor — ve söylerken bir şey yazmıyor, bir şey türetiyor.
+
+### İki uç, çünkü iki okur var
+
+`GET <önek>/privacy` JSON: olgular, sıfır cümle. Müşteri kendi gizlilik
+sayfasında kendi diliyle, kendi tasarımıyla basıyor. `GET
+<önek>/privacy.html` hazır sayfa: bağlantı verilir, gömülür, ya da hiç
+kullanılmaz.
+
+Cümle neden JSON'da yok: cümle çevrilir, çeviri yeniden yazılır, yeniden
+yazılan ikinci kopyadır, ve ikinci kopya ayar değiştiğinde değişmez.
+Aynı gerekçeyle hazır sayfa yalnız Türkçe, ve bunu sayfanın kendisi
+yazıyor — unutulmuş bir eksiklik sanılmasın diye.
+
+İkisi de önek altında. Bugün `/_ca/`'yı yönlendiren nginx kuralı bu iki
+ucu da yönlendiriyor: kurulu hiçbir sistemin yapılandırmasına
+dokunulmuyor. Beacon servis ediyor, çünkü `docker/compose.yml` panel ile
+okuma API'sini bilerek yayımlamıyor — ziyaretçinin ulaşabildiği tek
+servis bu. *Giriş formunun arkasındaki açıklamayı kimse açmaz.*
+
+### Metin türetiliyor: nereden, ve nasıl ölçüldü
+
+Mod, yazıcının okuduğu **aynı canlı atomikten** okunuyor; panelde ayar
+değişince bir sonraki istek yeni metni veriyor, yeniden başlatma yok.
+Saklanan alan listesi `writer.columns`'tan — yani `CopyFrom`'un gerçekten
+kullandığı listeden. Maskeleme uzunlukları `maskedIPv4Bits` /
+`maskedIPv6Bits`'ten.
+
+Birim testi bunu **ölçüyor**, tekrar etmiyor: `/24`'ü metinden okumuyor,
+her biti 1 olan bir adresi `MaskIP`'ten geçirip ayakta kalan bitleri
+sayıyor. Sabiti okuyan bir test kendisiyle mutabık kalırdı.
+
+Yazıcıyla mutabakat da aynı biçimde: sayfa "jeton saklanıyor" diyorsa,
+`storedPseudonym` gerçek bir adres için gerçekten bayt döndürüyor mu diye
+bakılıyor. İki bağımsız okuma, tek canlı ayar.
+
+**On yedi mutasyon, on yedisi de yakalandı.** Biri "boşa gitmiş mutasyon"
+tuzağına düşmemek için iki dosyayı birden değiştirdi: `maskedTo` sabiti
+elle yazsın *ve* maske /16'ya insin. Tek başına birincisi bugünkü
+sayılarla yeşil kalırdı — türetmenin sınandığı yer tam olarak orası.
+
+### Gömme yolu: çerçeve, çünkü metin ikinci kez yazılamaz
+
+Müşteri kendi gizlilik sayfasına `data-crucible-privacy` koyuyor,
+`beacon.js` onu dolduruyor. **Nokta yoksa hiçbir şey çizilmiyor.**
+
+Doldurma bir çerçeve, metin değil. Metni betiğe yazmak ikinci kopya
+olurdu — ve bu fazın bütün varlık sebebi ikinci kopyanın olmaması.
+Ayrıca müşterinin DOM'una hiçbir şey enjekte edilmiyor: bir kaynaktan
+alınan HTML'i başka bir kaynağın sayfasına koymak, yazılmış her XSS
+bildiriminin şekli. Bedeli açıkça yazıldı: çerçeve sitenin yazı tipini
+almıyor, ve sıkı CSP'li bir site `frame-src` eklemek zorunda — zaten
+betiğe izin verdiği kaynak için.
+
+Sandbox her şeyi kapatıyor, bir şey hariç: ziyaretçinin tıklaması üst
+sayfayı gezdirebiliyor. P3 bu bloğa müşterinin kendi politika sayfasına
+bağlantı koyacak, ve sessizce hiçbir şey yapmayan bir bağlantı, bağlantı
+olmamasından kötüdür.
+
+### Gerçek Chromium: çerçeve var mı değil, çerçevede yazı var mı
+
+Kutunun 1264×544 olması "ziyaretçi okuyor" demek değil. Çerçeve
+sandbox'lı, yani içeriden rapor alacak betik yok — tek yöntem piksel:
+ekran görüntüsündeki koyu piksel sayısı. **17 987.** Boş bir kutu bunu
+geçemez.
+
+**Yedi mutasyon, yedisi de yakalandı — ama yedincisi ancak üçüncü sabit
+eklendikten sonra.** Doldurmayı `DOMContentLoaded`'ın içinden alıp
+doğrudan çağırdım: iki sabitte de hiçbir şey değişmedi, çünkü ikisinde de
+betik gövdenin sonundaydı ve nokta çoktan ayrıştırılmıştı. Korumanın
+gerçek durumu — betik `<head>`'de, `defer` yok — hiç kurulmamıştı.
+
+*Sınadığı koşulu hiç kurmayan bir düzenek, o koşulu koruyan kodu da
+sınamıyordur.*
+
+Üçüncü sabit eklendi (`/basliktan`), mutasyon kırmızı verdi. Ve o sabit
+uydurma değil: etiket yöneticisi betiği `<head>`'e enjekte eder, insanlar
+`defer`'i kopyalamayı unutur.
+
+### Değişmez testi ilk hâlinde bir kopyayı temize çıkardı
+
+"Ağaçta ikinci kopya yok" iddiasını tutan test cümleleri şablonun
+kendisinden çıkarıyor — elle yazılmış bir yasak liste, kendi savına göre,
+ikinci kopyanın ta kendisi olurdu.
+
+İlk hâli yeşildi. README'ye sayfanın kendi paragrafını yapıştırdım:
+**yine yeşil.** Sebep: etiketleri boşlukla değiştiriyordum, yani `<h2>`
+başlığı ile altındaki paragraf tek cümle hâline geliyordu — ve gerçek bir
+kopya başlığı almaz. Bir de `<style>` bloğunun içi metin sanılıp
+çıkarılıyordu; ilk taslağın ürettiği "cümleler" CSS'ti.
+
+Etiketler artık ayraç, `<style>` bloğu bütünüyle atılıyor, eşik iki
+ölçüde (30 rune **ve** 4 kelime). Üç mutasyon: README'ye yapıştır, panel
+şablonuna yapıştır, şablonu yeniden adlandır. Üçü de yakalanıyor.
+
+*Bir kopyayı, kopyalanan birimden büyük bir birimde arayan test
+aramıyordur.*
+
+Dosya listesi de `git ls-files`'tan, disk yürüyüşünden değil: `dist/`
+altında altı binary duruyor ve **her biri sayfayı içeriyor**, çünkü sayfa
+beacon'a gömülü. Depoda olmayan bir şeyde kopya aramak, kırmızıyı
+depoyla ilgisi olmayan bir yerden almak olurdu.
+
+### Ölçülemeyen tek madde
+
+Bitti ölçütünün son maddesi Docker yarısı. Bu konteynerde docker yok.
+`checkDisclosure` `e2e/shared_test.go`'ya kondu ve **iki suite de**
+çağırıyor; tarball yarısı burada koşturuldu:
+
+```
+disclosure: ip_storage=masked, 30 stored fields, both endpoints reachable on 127.0.0.1:18081
+```
+
+Kurulu bir sistemde, install.sh'in yazdığı yapılandırmayla, gerçek
+veritabanıyla. Docker yarısı geceliğin ölçmesini bekliyor — ve bunu
+"ölçüldü" diye yazmıyorum.

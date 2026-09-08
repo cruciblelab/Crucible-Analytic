@@ -204,6 +204,15 @@ func TestARequestBecomesANumberOnTheDashboard(t *testing.T) {
 	// shape of half-proof this whole test was written against.
 	sendPageview(t, beaconAddr, site)
 
+	// ---- and what a visitor is told, from the same installed process ----
+	//
+	// The disclosure is served by the beacon under the same path prefix
+	// as the snippet, so the installed unit either answers both or
+	// neither. Read here rather than only in the container half because
+	// the tarball is the other deployment: this one has a config file
+	// install.sh edited, and a mode read from it.
+	checkDisclosure(t, beaconAddr)
+
 	var events int
 	deadline = time.Now().Add(flushWait)
 	for time.Now().Before(deadline) {

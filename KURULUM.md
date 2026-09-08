@@ -934,6 +934,32 @@ cümle. Sayfa bunu ilk isteğin üstünde yazıyor.
 `beacon.toml`'daki `sites` listesinde **bulunmalı** — snippet herkese
 açık olduğu için o liste zorunlu.
 
+### Ziyaretçiye ne toplandığını söyleyen iki uç
+
+Aynı önek altında, yani yukarıdaki nginx kuralı bunları da
+yönlendiriyor. Ayrıca bir şey yapmanız gerekmiyor:
+
+| Uç | Ne |
+|---|---|
+| `<önek>/privacy.html` | Hazır sayfa (Türkçe). Gizlilik sayfanızdan bağlantı verebilirsiniz. |
+| `<önek>/privacy` | Aynı bilgilerin JSON'u. Kendi sayfanızda kendi dilinizle basmak için. |
+
+Kendi gizlilik sayfanızın **içine** koymak isterseniz, snippet'in zaten
+bulunduğu sayfaya bir nokta koyun:
+
+```html
+<div data-crucible-privacy></div>
+```
+
+Nokta yoksa betik hiçbir şey çizmez. Sıkı bir CSP kullanıyorsanız
+beacon'ın kaynağı için `frame-src` gerekir.
+
+Sayfanın içeriği yürürlükteki ayardan türer: `privacy.ip_storage`'ı
+panelden değiştirdiğinizde metin bir sonraki istekte kendiliğinden
+değişir. **Metni kopyalayıp kendi sayfanıza yapıştırmayın** — kopya ayar
+değiştiğinde değişmez, ve o zaman ziyaretçiye yanlış şey söyler. Kendi
+diliniz için JSON ucunu kullanın.
+
 ---
 
 ## 11. Bot verisi

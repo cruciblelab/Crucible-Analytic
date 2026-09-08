@@ -96,7 +96,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **1/5** | P2–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **2/5** | P3–P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -187,7 +187,7 @@ geçer.
 | 5.6 | ~~**M1** kütüphane~~ ✅ ~~**M2** çekim kaydı~~ ✅ ~~**M3** düğme~~ ✅ ~~**C8** erişim politikası~~ ✅ | M3 sonucu göstermeden yarım kalır, sonucu M2 getirir; C8 bağımsız, kabuğu bekler |
 | 5.7 | ~~**N1**~~ ✅ ~~**N2**~~ ✅ ~~**N4**~~ ✅ → **N3** ← **sıradaki** | müşteriye ulaşan bir kurulum kusuru; A zinciri bekleyebilir, panelsiz kalan müşteri bekleyemez |
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
-| 6.5 | **P1 · P2 · P3 · P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
+| 6.5 | ~~**P1** çağrılar~~ ✅ ~~**P2** açıklama yüzeyi~~ ✅ → **P3 · P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
 | 7.5 | **P5** mod değişiminin geçmişi | uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
@@ -6234,7 +6234,7 @@ sonrası yazıyor; `status()` iki durumu da doğru bildiriyor;
 
 ---
 
-#### P2 — Açıklama yüzeyi, içeriği canlı moddan türeyen
+#### P2 — Açıklama yüzeyi, içeriği canlı moddan türeyen ✅ **yapıldı**
 
 **Ne:** ziyaretçinin "burada ne toplanıyor" sorusunun cevabı. **İki uç,
 ikisi de önek altında:**
@@ -6283,6 +6283,40 @@ ve **gerçek konteynerde ölçülüyor** — `e2e`'nin Docker yarısı, yayımla
 8081'den, bugünkü `compose.yml`'e tek satır eklemeden ikisini de
 okuyor. Bu son madde "Docker'da da çalışacak"ın ölçülmüş hâli;
 yazılmazsa yalnız umut olur.
+
+**Nasıl bitti.** İki uç `internal/beacon/privacy.go`'da, ikisi de önekten
+kuruluyor; olgular `internal/privacy/notice.go`'da, ve `NewNotice` modu
+`ParseIPMode`'dan geçiriyor — tanınmayan bir ayar satırı ziyaretçiye
+"full" diye değil, yazıcının gerçekten yapacağı şey olarak yansıyor.
+Saklanan alan listesi yazıcının kendi sütun listesinden, maskeleme
+uzunlukları maskeyi yapan sabitlerden türetiliyor: birim testi `/24`'ü
+metinden değil, her biti 1 olan bir adresi `MaskIP`'ten geçirip sayarak
+buluyor. **17 mutasyon, 17'si de yakalandı** — biri "boşa gitmiş
+mutasyon" tuzağına düşmemek için iki dosyayı birden değiştirdi
+(`maskedTo` sabiti elle yazsın *ve* maske /16'ya insin).
+
+Gömme yolu `beacon.js`'te: sayfada `data-crucible-privacy` varsa çerçeve
+çiziliyor, yoksa **hiçbir şey**. Gerçek Chromium'da ölçüldü; çerçevenin
+boş olmadığı ekran görüntüsündeki koyu piksel sayısıyla doğrulandı —
+çerçeve sandbox'lı olduğu için içeriden rapor alacak betik yok, tek
+yöntem piksel. **Yedi mutasyon, yedisi de yakalandı** — ama yedincisi
+ancak *üçüncü sabit eklendikten sonra*: betiği `<head>`'e koyan bir
+sayfa yoktu, ve ilk iki sabitte betik zaten gövdenin sonundaydı.
+*Sınadığı koşulu hiç kurmayan bir düzenek, o koşulu koruyan kodu da
+sınamıyordur.*
+
+Metnin ikinci kopyası olmadığını tutan değişmez testi
+(`internal/invariants/privacyprose_test.go`) cümleleri şablonun
+kendisinden çıkarıyor; ilk hâli README'ye yapıştırılmış gerçek bir
+paragrafı **temize çıkardı**, çünkü başlık ile paragrafı tek cümlede
+birleştiriyordu. Etiketler artık ayraç: *bir kopyayı, kopyalanan
+birimden büyük bir birimde arayan test aramıyordur.*
+
+**Ölçülmemiş tek madde:** Docker yarısı. Bu konteynerde docker yok;
+`e2e/shared_test.go`'daki `checkDisclosure` iki suite tarafından da
+çağrılıyor ve **tarball yarısında burada koşturuldu** — kurulu bir
+sistemde `ip_storage=masked`, 30 alan, iki uç da 18081'den okundu.
+Docker yarısı geceliğin ölçmesini bekliyor.
 
 ---
 
