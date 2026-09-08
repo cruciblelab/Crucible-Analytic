@@ -5,7 +5,6 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -151,14 +150,13 @@ func TestThePrivacyProseExistsInExactlyOnePlace(t *testing.T) {
 func trackedFiles(t *testing.T, root string) []string {
 	t.Helper()
 
-	cmd := exec.Command("git", "-C", root, "ls-files", "-z")
-	out, err := cmd.Output()
+	out, err := runGit(root, "ls-files", "-z")
 	if err != nil {
-		t.Fatalf("listing the repository's files with git: %v", err)
+		t.Fatalf("listing the repository's files with git: %v\n%s", err, out)
 	}
 
 	var files []string
-	for _, name := range strings.Split(string(out), "\x00") {
+	for _, name := range strings.Split(out, "\x00") {
 		if name != "" {
 			files = append(files, name)
 		}

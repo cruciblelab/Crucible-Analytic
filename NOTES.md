@@ -13959,3 +13959,75 @@ disclosure: ip_storage=masked, 30 stored fields, both endpoints reachable on 127
 Kurulu bir sistemde, install.sh'in yazdığı yapılandırmayla, gerçek
 veritabanıyla. Docker yarısı geceliğin ölçmesini bekliyor — ve bunu
 "ölçüldü" diye yazmıyorum.
+
+## Bir kontrolü genişletmek, deponun içinde iki derlenmiş binary buldu
+
+P2'yi yazarken fark ettim: Türkçe bozulma kontrolü yalnız kökteki `.md`
+dosyalarına bakıyor. Oysa artık ürünün en halka açık Türkçe metni bir Go
+dosyasında — `internal/beacon/privacy.go`'daki gizlilik sayfası. Panelin
+mesaj kataloğu TOML'da, şablonları HTML'de; hiçbiri kontrol edilmiyordu.
+
+Kontrolü "git'in izlediği her dosya"ya genişlettim. İlk koşuda iki dosya
+"geçerli UTF-8 değil" dedi:
+
+```
+analytics-api   15.7 MB, ELF executable, with debug_info, not stripped
+devpass          5.2 MB, ELF executable, with debug_info, not stripped
+```
+
+### Nasıl girmişler
+
+Kimse bilerek koymamış. `go build ./cmd/...` her komut için bir binary'i
+çalıştığı dizine bırakıyor, `.gitignore` yedisinden yalnız birini
+(`/collector`) dışlıyordu, ve `git add -A` gerisini iki kez yaptı — iki
+ayrı commit'te, aylar arayla (`4d6462a` ve `88eb94c`).
+
+28 MB'lık izlenen ağacın 21 MB'ı bu iki dosyaydı.
+
+### Megabaytlardan daha önemlisi
+
+Depoyu klonlayan herkes **bayat bir ürün** alıyordu: kimsenin
+hatırlamadığı bir commit'ten derlenmiş, ağacın tepesinde, çalıştırılacak
+şeye benzeyen bir isimle duran bir dosya. İkisini de sır için taradım —
+DSN, parola hash'i, anahtar, özel anahtar: yok. Ama bu bir özellik değil,
+şans: yanında yapılandırma dosyası olan bir makinede derlenen bir binary
+`go:embed`'e bir adım uzaklıkta, ve commit'lenmiş bir binary onu almış
+klonlardan geri alınamaz.
+
+`.gitignore`'un ilk cümlesi zaten şunu diyor: *"What this repository
+distributes is source code. Nothing else."* Cümle niyet hakkında
+doğruydu, ağaç hakkında yanlıştı.
+
+### Kural isim listesi değil, "metin mi"
+
+Yasak isim listesi buradaki ikisini yakalar. Yazdığım kural beşincisini
+yakalıyor: henüz açılmamış bir dizinde, kimsenin seçmediği bir isimle
+duran bir veritabanı dökümü, ekran görüntüsü, tarball, ya da bugün
+olmayan bir komuttan çıkan binary. Bu projenin dağıttığı her şey metin;
+metin olmayan ya derleme çıktısıdır ya birinin verisi, ve ikisinin de
+cevabı aynı. Gerçekten gereken bir binary fixture çıkarsa, gerekçesiyle
+birlikte haritaya yazılır — bugün harita boş, ve boş olması bir ifade.
+
+İkinci yarısı tekrarı engelliyor: `cmd/` altındaki her dizin için
+`.gitignore`'da bir kural olmalı, ve bu git'in kendi cevabıyla
+sınanıyor (`git check-ignore`), dosyayı okuyarak değil — yazılmamış bir
+kural ile eşleşmeyen biçimde yazılmış bir kural aynı şekilde yakalanıyor.
+
+### Ölçümler
+
+Yeni kontrolün gerçekten kırmızı verebildiği **uydurma bir mutasyonla
+değil, gerçek kusurla** gösterildi: test önce yazıldı, iki binary'yi
+isimleriyle ve boyutlarıyla bildirdi, sonra dosyalar ağaçtan çıktı.
+
+Beş mutasyon daha: gizlilik sayfasının Türkçesi bozulsun (yakalandı) —
+*ve aynı bozulmayı eski kök-`.md` kontrolü göremedi, yani yeni kontrol
+gerçekten yeni bir zemin örtüyor*; `tr.toml` bozulsun (yakalandı); git
+hiçbir şey listelemesin (taban kontrolü kırmızı verdi); ağaca bir PNG
+eklensin (yakalandı); `cmd/` altına sekizinci bir komut eklensin ve
+kimse `.gitignore`'a yazmasın (yakalandı).
+
+### Dürüstlük notu
+
+Dosyalar **uçtan** çıktı, **geçmişten** değil. Geçmişi temizlemek
+`main`'i yeniden yazmak demek — birleşmiş commit'lerin SHA'ları değişir.
+Bu, benim tek başıma alacağım bir karar değil; sorup öyle yaparım.

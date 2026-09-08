@@ -6,8 +6,27 @@
 # publish, and several of them would carry visitors' personal data if
 # they were ever committed by accident.
 
-# Build output
+# Build output.
+#
+# One line per directory under cmd/, because that is where the files
+# come from: `go build ./cmd/...` writes one binary per command into
+# whatever directory it was run from, and for anybody working at the top
+# of the tree that is here.
+#
+# This list used to be `/collector` alone, and the other six were offered
+# to every `git add -A` after a build. Two of them were accepted:
+# analytics-api (15.7 MB) and devpass (5.2 MB) sat in the repository for
+# months, 21 MB of a 28 MB tree, a stale product under a name that looks
+# like the real one. internal/invariants/buildoutput_test.go now fails if
+# any command here is missing from this list, so the seventh command
+# added to cmd/ cannot repeat it quietly.
+/analytics-api
+/beacon
 /collector
+/devpass
+/panel
+/releasesign
+/upgrader
 /bin/
 *.test
 *.out

@@ -2,6 +2,7 @@ package docs
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -84,6 +85,78 @@ func TestDocuments_TurkishIsNotCorrupted(t *testing.T) {
 				t.Errorf("%s: corrupted character %q in: %s", name, found, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+// selfReferencingFiles name the corruption they are looking for.
+//
+// One entry, and it is this file: the pattern above is written out here
+// as a literal, so a scan for the pattern finds it. Excluding the
+// checker from its own check is the smallest exception that keeps the
+// rule meaningful; excluding anything else would need the same kind of
+// sentence.
+var selfReferencingFiles = map[string]string{
+	"internal/docs/docs_test.go": "declares the mojibake pattern, so it contains " +
+		"every sequence the pattern matches",
+}
+
+// TestNoTrackedFileCarriesCorruptedTurkish.
+//
+// The check above reads the documents at the root. That was the whole of
+// the Turkish in this project once, and it stopped being true the day a
+// page written in Turkish went into a Go file: internal/beacon/privacy.go
+// carries the disclosure a visitor reads, and a corrupted "ş" there is
+// not a document somebody stops trusting - it is a stranger being shown
+// mangled text about their own data, on a page served to the public.
+//
+// The panel's own messages are in TOML, its templates in HTML, and its
+// tests carry Turkish assertions. None of those were covered either.
+//
+// So the file list is every file git tracks, which needs no maintenance
+// and covers the next Turkish string in the next kind of file. Binaries
+// are skipped here and answered by internal/invariants: a file that is
+// not text cannot be checked for mojibake, and pretending otherwise
+// would be this test reporting somebody else's problem in its own words.
+func TestNoTrackedFileCarriesCorruptedTurkish(t *testing.T) {
+	root := repoRoot(t)
+
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("listing the repository's files with git: %v", err)
+	}
+	names := strings.Split(string(out), "\x00")
+	checked := 0
+
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if why, ok := selfReferencingFiles[name]; ok {
+			t.Logf("not checked: %s - %s", name, why)
+			continue
+		}
+		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
+		if err != nil {
+			t.Errorf("could not read %s: %v", name, err)
+			continue
+		}
+		if !utf8.Valid(body) {
+			continue // not text; internal/invariants has the answer for those
+		}
+		checked++
+		for i, line := range strings.Split(string(body), "\n") {
+			if found := mojibake.FindString(line); found != "" {
+				t.Errorf("%s:%d: corrupted character %q in: %s",
+					name, i+1, found, strings.TrimSpace(line))
+			}
+		}
+	}
+
+	// The floor, because a git that answered with nothing would clear
+	// every file in the repository in under a millisecond.
+	if checked < 100 {
+		t.Fatalf("only %d files were checked; git listed %d names, and this test "+
+			"would pass against a tree it never read", checked, len(names))
 	}
 }
 
