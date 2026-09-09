@@ -14992,3 +14992,164 @@ tarif ettiği durumun tam kendisi.
 
 *İki ayrı sorgunun aynı kuralı yazması, kuralın yazıldığı anda doğru
 olması demektir; türetilmesi, doğru kalması demektir.*
+
+## Okuma tarafı ölçek altında ölçüldü: pano yavaşlamıyor, kırılıyor
+
+Kullanıcı "aklındaki şey dikkat çekici, imkânın varsa çalış" dedi. İmkân
+vardı: gerçek TimescaleDB, gerçek şema, ürünün kendi okuma API
+binary'si. Ayrı bir veritabanı (`ca_scale`) kurup ölçtüm.
+
+Bugüne kadar yük testleri yalnız **yazma** yolunu sınıyordu:
+eşzamanlılık, kısma, engel listesi. Panelin aylarca birikmiş bir tabloda
+ne kadar sürede açıldığı hiç ölçülmemişti.
+
+### Veri kümesi
+
+90 güne yayılmış 12 milyon satır, 50 bin ayrı IP (geri dönen ziyaretçi),
+üç site. Büyük sitenin payı 11,1 milyon, yani günde ~123 bin satır.
+Collector 10 saniyede bir yazdığına göre bu, her 10 saniyelik pencerede
+**~14 aktif IP** demek. Mütevazı bir iş sitesi, devasa bir kurulum değil.
+
+### Ölçüm: ürünün kendi uç noktaları
+
+Kendi yazdığım SQL değil, `analytics-api` binary'sinin cevap süresi:
+
+| Aralık | Özet | Zaman serisi |
+|---|---|---|
+| 1 gün | 0,19 sn | 0,11 sn |
+| 7 gün (varsayılan) | 1,50 sn | 0,98 sn |
+| 30 gün | **7,97 sn** | 4,48 sn |
+| 90 gün | **26,96 sn** | **19,55 sn** |
+
+Panelin istemcisinde `RequestTimeout = 5 sn`, `PageTimeout = 8 sn`.
+Aralık seçicide dört düğme var: 1, 7, 30, 90.
+
+**Yani ikisi çalışmıyor.** Müşteri "30 gün"e bastığında pano
+yavaşlamıyor; kartlar "veri kaynağına ulaşılamıyor" durumuna düşüyor ve
+panel şunu yazıyor: *"Sayılar eksik değil, henüz gelmedi."* Bu cümle
+burada **yalan** — sayılar orada, sorgu onları getirecek kadar hızlı
+değil.
+
+### Sebep: tablo zamana göre dizili, sorgular siteye göre soruyor
+
+`EXPLAIN` asıl cevabı verdi, ve cevap "veri büyük" değil.
+
+308 bin satırlık *küçük* sitenin 90 günlük özeti için: index taraması
+166 tampon okuyor, ardından **13.632 heap sayfası**. 20.748 satır için
+13.632 sayfa, yani satır başına neredeyse bir sayfa. Sorgunun tamamı
+**3,1 GB** okuyor.
+
+Sebep şu: hypertable satırları **zamana** göre diziyor. Bir sitenin
+satırları diğerlerinin arasına serpilmiş. Dolayısıyla bir siteyi sormak,
+o aralıktaki **bütün sitelerin** sayfalarını okumak demek. Index doğru
+satırları buluyor, ama onları getirmek için diskin her yerine gidiyor.
+
+Bu indeksle çözülebilecek bir şey değil; **fiziksel düzenin sorunun
+şekline uymaması.**
+
+### Ölçülen çözüm, birinci yarı: siteye göre bölümlenmiş sıkıştırma
+
+`compress_segmentby = 'site_id'`, 7 günden eski parçalar sıkıştırıldı.
+
+| | önce | sonra |
+|---|---|---|
+| Disk (12M satır) | 3269 MB | **792 MB** |
+| 90 günlük özet | 21,9 sn | 11,6 sn |
+| 30 günlük özet | 7,0 sn | 5,1 sn |
+
+Disk 4,1 kat küçüldü, süre yarılandı. **Ama yetmedi:** 30 gün hâlâ
+sınırda, 90 gün hâlâ iki katı. Çünkü sorgu aralıktaki her satıra
+dokunmak zorunda.
+
+Yedekleme yolu etkilenmiyor, ölçüldü: yedek `pg_dump` değil `COPY`
+kullanıyor (gerekçesi `internal/backup/dump.go`'da yazılı), ve
+sıkıştırılmış bir parçadan COPY 133.333 satırı eksiksiz okudu.
+
+### Ölçülen çözüm, ikinci yarı: önceden hesaplanmış günlük özet
+
+Sürekli toplama, gün + site başına tek satır.
+**273 satır, 1,9 MB** — üç sitenin doksan günü.
+
+| 90 günlük özet | süre |
+|---|---|
+| Ham tablodan | 7,9 sn |
+| Günlük özetten | **14 ms** |
+
+545 kat. Ama bir bedeli var ve bedelini saklamak olmaz.
+
+### Toplanabilir olmayan tek şey: benzersiz ziyaretçi
+
+Toplama, toplanabilir işlemler için bedelsiz: zirve hız, ortalama hız,
+anlık görüntü sayısı, zirve pencere. Hepsi kovadan kovaya toplanıyor.
+
+**`count(distinct ip)` toplanamıyor.** İki günün benzersiz ziyaretçisini
+toplayamazsınız; aynı kişi iki gün de gelmiş olabilir.
+
+İlk denemem gün+IP kırılımında bir özet tutmaktı: 4,8 milyon satır, 632
+MB, ve 90 günlük özet **14 saniye** — yani ham tablodan *daha kötü*.
+Not: bu sonuç kısmen benim ürettiğim verinin kusuru, gerçek trafiğin
+değil. Ürettiğim veride her IP her gün görünüyor; gerçek trafikte
+ziyaretçilerin çoğu bir gün gelir. Yine de yön doğru, ve rakamı olduğu
+gibi yazıyorum.
+
+İkinci deneme, standart cevap: **hyperloglog** (timescaledb_toolkit, bu
+makinede kurulu, 1.25.0). Kovadan kovaya birleştirilebilen bir eskiz.
+Sonuç yukarıdaki 14 ms, ve hatası:
+
+| Site | Kesin | Tahmin | Hata |
+|---|---|---|---|
+| küçük | 2.500 | 2.532 | +%1,28 |
+| büyük | 47.500 | 48.054 | +%1,17 |
+
+hyperloglog(4096) için belgelenen standart hatayla uyumlu.
+
+### Karar kullanıcının, ve söylemeden geçemem
+
+Benzersiz ziyaretçiyi **%1,2 hatayla** göstermek bir ürün kararı, benim
+kararım değil. Büyük analitik ürünlerinin hepsi bunu yapıyor, ama bu
+projenin sözü "sayı ver, tahmin verme" idi ve bu bir tahmin.
+
+Üç seçenek de meşru: eskizi kabul etmek; aralığı sınırlamak (90 gün
+düğmesini kaldırmak); ya da kesin sayıyı yalnız kısa aralıklarda sunmak.
+
+### Ve yeni bir ayrışma tehlikesi
+
+Bir özet tablosu, **aynı gerçeği söylemek zorunda olan ikinci bir yer**
+demek. Bugün C9.3'te kapattığım kusurun tam olarak aynı sınıfı, yeni bir
+kılıkta: pano özetten okur, detay sayfası ham tablodan; ikisi ayrışırsa
+müşteri iki farklı sayı görür ve hangisinin doğru olduğunu bilemez.
+
+Bu faz yazılırsa C9.3'ün önlemi de yazılmalı: özetin ürettiği sayı ile
+ham tablonun ürettiği sayı, gerçek veriye karşı, tolerans içinde
+karşılaştırılmalı, ve tolerans testin içinde yazılı olmalı.
+
+*Yalnız yazma yolunu ölçen bir yük testi, ürünün yarısını ölçüyordur.*
+
+### Nasıl tekrarlanır
+
+Ölçüm ayrı bir veritabanında yapıldı, testlerin kullandığına
+dokunulmadan. Kısaca:
+
+```
+createdb ca_scale; CREATE EXTENSION timescaledb;
+psql ca_scale -f internal/storage/schema.sql
+-- 90 güne yayılmış N satır, 50 bin ayrı IP, üç site:
+INSERT INTO traffic_snapshots (...) SELECT
+  now() - interval '90 days' + (g::float / N) * interval '90 days',
+  CASE WHEN g % 20 = 0 THEN 'ikinci-site' WHEN g % 37 = 0 THEN 'ucuncu-site'
+       ELSE 'buyuk-site' END,
+  ('10.' || ...(g * 2654435761) % 50000...)::inet, ...
+FROM generate_series(1, N) AS g;
+```
+
+Sonra `analytics-api`'yi bu veritabanına bakan bir yapılandırmayla
+başlatıp `/api/v1/sites/buyuk-site/summary?from=...&to=...` sürelerini
+ölçmek. **Sürelerin kendi SQL'imle değil binary'nin cevabıyla ölçülmesi
+önemli:** psql'de sıcak önbellekle ölçtüğüm süreler, API'nin gerçekte
+verdiği sürelerin üçte biri kadar çıkıyordu.
+
+`g::bigint` şart: `g * 7919` bir milyonun üstünde `integer out of range`
+veriyor ve INSERT tamamen düşüyor.
+
+O1 yazılırken bu ölçüm Go'ya taşınmalı, çünkü elle koşulan bir ölçüm
+bir sonraki sürümde koşulmaz.

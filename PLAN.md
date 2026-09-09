@@ -89,6 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
+| **O** Ölçek altında okuma | ⬜ **0/3** | hepsi — *(planda yoktu; ölçüm açtı — §O)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -3928,6 +3929,128 @@ satırı yakalayacak olan tam da bu kaba kontroldür.
 #### E3 — README'nin ürün olarak yeniden yazımı
 
 Bugünkü README collector'ı anlatıyor. Ürün dört parça.
+
+---
+
+### O. Ölçek altında okuma — panonun kırıldığı yer
+
+*(Planda yoktu. 2026-09-09'da ölçüldü: yük testleri bugüne kadar yalnız
+**yazma** yolunu sınıyordu, ve okuma tarafı hiç ölçülmemişti.)*
+
+**Ölçüm.** 90 güne yayılmış 12 milyon satır, üç site, gerçek şema, ve
+`analytics-api` binary'sinin kendi cevap süresi:
+
+| Aralık | Özet | Zaman serisi |
+|---|---|---|
+| 1 gün | 0,19 sn | 0,11 sn |
+| 7 gün (varsayılan) | 1,50 sn | 0,98 sn |
+| 30 gün | **7,97 sn** | 4,48 sn |
+| 90 gün | **26,96 sn** | **19,55 sn** |
+
+Panel istemcisinde çağrı sınırı 5 saniye, sayfa sınırı 8. Aralık
+seçicideki dört düğmenin **ikisi çalışmıyor**, ve panel bunu "veri
+kaynağına ulaşılamıyor" diye anlatıyor — yani var olan sayılar için
+olmayan bir sebep gösteriyor.
+
+Ve bu devasa bir kurulum değil: 12 milyon satır, her 10 saniyelik
+pencerede ~14 aktif IP demek.
+
+**Sebep.** `EXPLAIN`: 308 bin satırlık *küçük* bir sitenin 90 günlük
+özeti 20.748 satır için **13.632 heap sayfası** okuyor, toplam 3,1 GB.
+Hypertable satırları zamana göre diziyor, sorgular siteye göre soruyor,
+ve bir sitenin satırları diğerlerinin arasına serpilmiş. İndeksle
+çözülecek bir şey değil: fiziksel düzen sorunun şekline uymuyor.
+
+Gerekçenin tamamı ve ölçümlerin hepsi NOTES.md'de.
+
+---
+
+#### O1 — Siteye göre bölümlenmiş sıkıştırma ⬜
+
+`compress_segmentby = 'site_id'`, `compress_orderby = 'time DESC'`, ve
+belli bir yaştan eski parçalar için sıkıştırma politikası.
+
+**Neden önce bu.** Üç faz içinde tek başına duran, karar gerektirmeyen
+ve **ikinci bir doğruluk kaynağı yaratmayan** faz. Yeni eklenti yok,
+yeni sorgu yok, panelde değişiklik yok. Ölçüldü:
+
+| | önce | sonra |
+|---|---|---|
+| Disk (12M satır) | 3269 MB | 792 MB |
+| 90 günlük özet | 21,9 sn | 11,6 sn |
+
+Disk 4,1 kat, süre 2 kat. **Tek başına yetmiyor** ve yettiğini iddia
+etmiyor; 30 gün hâlâ sınırda.
+
+**Yedekleme yolu etkilenmiyor, ölçüldü.** Yedek `pg_dump` değil `COPY`
+kullanıyor, ve sıkıştırılmış bir parçadan COPY 133.333 satırı eksiksiz
+okudu.
+
+##### Bitti ölçütü
+
+Gerçek veritabanına karşı: sıkıştırmadan sonra collector hâlâ yazıyor,
+saklama politikası hâlâ siliyor, yedek alınıp geri yükleniyor ve satır
+sayıları eşleşiyor. Sorgu süresi ve disk, öncesi/sonrası olarak
+ölçülüyor. Politikanın yaşı yapılandırmadan geliyor ve belgede yazılı.
+
+Mutasyon: politikayı kaldır; `segmentby`'yi kaldır (sıkıştırma kalsın).
+İkisi de ölçüm testinde kırmızı vermeli.
+
+---
+
+#### O2 — Günlük özet: toplanabilir sayılar ⬜
+
+Gün + site başına tek satır tutan sürekli toplama, **yalnız kovadan
+kovaya toplanabilen** sayılar için: zirve hız, ortalama hız (ağırlıklı),
+anlık görüntü sayısı, zirve pencere.
+
+Ölçüldü: üç sitenin doksan günü **273 satır, 1,9 MB**, ve zaman serisi
+sorgusu 19,6 saniyeden **1,6 saniyeye** iniyor.
+
+**Bu faz C9.3'ün önlemini de yazmak zorunda.** Bir özet tablosu, aynı
+gerçeği söylemek zorunda olan ikinci bir yerdir: pano özetten okur,
+detay sayfası ham tablodan, ve ikisi ayrışırsa müşteri iki farklı sayı
+görür. Test, özetin ürettiği sayıyı ham tablonunkiyle gerçek veriye
+karşı karşılaştırmalı, ve toleransı testin içinde yazılı olmalı.
+
+##### Bitti ölçütü
+
+Özetten gelen her sayı, aynı aralık için ham tablodan gelenle
+eşleşiyor. Yeni satır yazıldığında özet güncelleniyor ve arada kalan
+pencerede pano **eski değil eksik** göstermiyor. Süre öncesi/sonrası
+ölçülüyor.
+
+---
+
+#### O3 — Benzersiz ziyaretçi: kararı olan faz ⬜
+
+**Karar sahibin, ve faz o karar verilmeden yazılamaz.**
+
+`count(distinct ip)` toplanabilir değil: iki günün benzersiz
+ziyaretçisini toplayamazsınız, aynı kişi iki gün de gelmiş olabilir.
+Ölçüldü — gün+IP kırılımında özet tutmak işe yaramadı (4,8 milyon satır,
+632 MB, ve 90 günlük özet ham tablodan **daha yavaş**).
+
+Standart cevap birleştirilebilir bir eskiz (hyperloglog; bu makinede
+toolkit 1.25.0 kurulu). Ölçüldü: 90 günlük özet **14 ms**, hata:
+
+| Site | Kesin | Tahmin | Hata |
+|---|---|---|---|
+| küçük | 2.500 | 2.532 | +%1,28 |
+| büyük | 47.500 | 48.054 | +%1,17 |
+
+**Ama bu projenin sözü "sayı ver, tahmin verme" idi, ve bu bir tahmin.**
+Üç seçenek de meşru: eskizi kabul etmek ve panelde bunu **söylemek**;
+aralığı sınırlamak; ya da kesin sayıyı yalnız kısa aralıklarda sunmak.
+Ayrıca `timescaledb_toolkit` yeni bir kurulum bağımlılığı, ve kurulum
+betiğinin onu isteyip istemeyeceği de aynı kararın parçası.
+
+##### Bitti ölçütü
+
+Karar verildikten sonra yazılır. Hangi seçenek seçilirse seçilsin,
+panelde gösterilen sayının **ne olduğu** yazılı olmalı: kesin sayı
+"kesin", tahmin "yaklaşık" demeli. Bir tahmini kesin diye göstermek, bu
+projenin reddettiği şeyin ta kendisi.
 
 ---
 
