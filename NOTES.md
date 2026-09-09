@@ -14452,3 +14452,57 @@ Dört mutasyon, dördü de yakalandı:
 - Bir belge sınıflandırılmadan kalsın → yakalandı.
 
 139 yol çözülüyor, 30 ayar adı gerçek, 25 aday depo yolu değil.
+
+## Ekran görüntüsü bir kusur buldu: her müşteriye yanlış bir cümle
+
+Yeni ekran görüntüleri alırken **Hesabım** sayfasının tepesinde şu
+yazıyordu:
+
+> Bu hesap yalnızca görüntüleme yetkisine sahip. Hiçbir ayarı
+> değiştiremez.
+
+Altında ise görünen adı, parolayı, iki aşamalı doğrulamayı, kurtarma
+kodlarını ve geliştirici modunu değiştiren beş ayrı form vardı. Beşi de
+hesabın kendisine ait; hiçbiri kimsenin esirgeyebileceği bir şey değil.
+
+### Sebep: kabuk, hakkında karar veremeyeceği bir şeyi iddia ediyordu
+
+Bayrak `chrome.go`'da iki **site bazlı** yetkiden hesaplanıyor. Ama
+kabuğu paylaşan sayfaların bir kısmı bir site hakkında değil:
+
+`/hesap`, `/posta`, `/saglik`, `/erisim`, `/teknik`, site listesi,
+hoşgeldiniz sihirbazı — yedisi de kabuğa **sitesiz bir `Access`**
+veriyor, çünkü ortada site yok. Boş bir `Access`'te her yetki `false`,
+dolayısıyla bayrak basılıyordu.
+
+### Neden kimse görmedi
+
+`Access.Can` bir süper yönetici için her sitede `true` döner. Yani
+**işletmeci bu cümleyi hiç görmedi.** Panele her gün bakan kişi, kusurun
+ulaşamadığı tek kişiydi; gören herkes müşteriydi.
+
+*Hakkında karar veremeyeceği bir sayfada bir iddia basan kabuk, iddiayı
+değil kendini anlatır.*
+
+### Düzeltme
+
+Bayrak artık `access.SiteID != ""` koşuluna bağlı. Site sayfalarında
+davranış aynı, sitesiz sayfalarda cümle yok.
+
+### Ölçüm
+
+Önce test yazıldı ve **gerçek kusurla** kırmızı verdi (uydurma mutasyonla
+değil): altı iddia düştü, biri geçti — o biri, izleyicinin ayarlar
+sayfasında bayrağı hâlâ **görmesi** gerektiğini tutan iddia.
+
+İki mutasyon, ikisi de yakalandı:
+
+- Kabuk site sorusunu unutsun → sitesiz altı sayfa yine kırmızı.
+- Bir site sayfası kendi site kimliğini taşımayı bıraksın
+  (`internal/panel/members.go`) → yalnız "ayarlar sayfasında hâlâ
+  görünüyor" iddiası kırmızı. Yani o iddia süs değil, koruma.
+
+Bir de test düzeneğinden ders: `setupTestServer` bitene kadar bir Postgres
+danışma kilidi tutuyor, dolayısıyla ilki yaşarken ikinci çağrı sonsuza
+kadar bekliyor. İlk yazışımda öyleydi ve test asıldı; tek sunucu, üç
+hesap oldu. **`setupTestServer`'ı bir testte iki kez çağırma.**

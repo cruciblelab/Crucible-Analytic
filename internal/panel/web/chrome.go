@@ -100,7 +100,22 @@ func (s *Server) page(r *http.Request, lang *ui.Language, access panel.Access, c
 			// Said once, in the chrome, so that every control missing
 			// from the page below has an explanation the reader has
 			// already met.
-			ReadOnly:      !access.Can(panel.CapManageSettings) && !access.Can(panel.CapManageMembers),
+			//
+			// Only where there is a site to be read-only *on*. The
+			// capabilities below are per-site, and the pages that belong
+			// to an account or to the deployment - the account page, the
+			// mail wizard, the health page, the site list, the
+			// developer-access page, the technical door, the welcome
+			// wizard - pass an Access with no site, because there is no
+			// site. Every capability on one of those is false, so this
+			// used to print "you may only view, you cannot change any
+			// setting" above a form offering to change the reader's own
+			// password.
+			//
+			// It was invisible to whoever looks at the panel most: Can()
+			// is true for a superadmin on every site, so the operator
+			// never saw it and only customers did.
+			ReadOnly:      access.SiteID != "" && !access.Can(panel.CapManageSettings) && !access.Can(panel.CapManageMembers),
 			DeveloperMode: access.ShowsTechnical(),
 		},
 	}

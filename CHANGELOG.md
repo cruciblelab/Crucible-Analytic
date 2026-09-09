@@ -18,6 +18,23 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayar
 yazılmazsa başka hiçbir davranış değişmiyor.
 
+### Düzeltme: panel her müşteriye "hiçbir ayarı değiştiremezsiniz" diyordu
+
+Hesabım, Giden e-posta, Sistem sağlığı, Erişim istekleri, teknik kurulum
+kapısı, site listesi ve hoşgeldiniz sihirbazının tepesinde şu cümle
+görünüyordu: *"Bu hesap yalnızca görüntüleme yetkisine sahip. Hiçbir
+ayarı değiştiremez."* Altında ise o sayfaların kendi formları duruyordu —
+parolanız, iki aşamalı doğrulamanız, kurtarma kodlarınız.
+
+Cümle bir site üzerindeki yetkiden hesaplanıyordu, ama bu sayfaların
+hiçbiri bir site hakkında değil. Yalnızca **görüntüsel**: hiçbir yerde
+bir şeyi engellemiyordu, sadece yanlış söylüyordu. İşletmeci hesabı bu
+cümleyi hiç görmediği için de kimse fark etmemişti.
+
+**Kuran kişinin yapması gereken: yok.** Bir siteye ait ayarlar sayfasında
+davranış aynı — izleyici rolündeki bir kullanıcı kaydet düğmelerini
+göremediğinde açıklamayı hâlâ okuyor.
+
 ### Yedeklerin artık kendi yaş sınırı olabiliyor
 
 Saklama süresi analitik satırları yaşına göre siler. Ondan **önce**
