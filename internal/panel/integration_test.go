@@ -508,6 +508,151 @@ func TestStore_RealDB_AnExpiredMembershipGrantsNothing(t *testing.T) {
 	}
 }
 
+// The page's label and the access decision are two different queries,
+// and this is the assertion that they can never mean different things.
+//
+// # The failure being guarded against
+//
+// The members page says "this access has ended" while the reading query
+// still grants it. That is the quiet direction: nobody re-checks a person
+// they believe is already out, so the access could stand for as long as
+// the site exists. The reverse - listed as live, refused at the door - is
+// loud, and somebody complains within the hour.
+//
+// # Why PostgreSQL is asked rather than Go
+//
+// The two conditions differ only by a NOT, and the whole subtlety is
+// three-valued logic: NULL means "no end date", and a hand-written
+// complement of the form `expires_at <= now()` returns NULL rather than
+// TRUE for those rows. NULL is not TRUE, so it happens to behave - but
+// "happens to" is the word that makes this a test rather than a comment.
+// The strings come from the same functions the real queries use, so
+// editing either one moves this test.
+func TestTheTwoHalvesOfExpiryAreExactComplements(t *testing.T) {
+	s := newTestStore(t, "panel-tamlayici")
+	ctx := context.Background()
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT m.label, `+liveMembership("m")+`, `+endedMembership("m")+`
+		  FROM (VALUES
+		    ('bitis yok',  NULL::timestamptz),
+		    ('gecmis',     now() - interval '1 hour'),
+		    ('tam simdi',  now()),
+		    ('gelecek',    now() + interval '1 hour')
+		  ) AS m(label, expires_at)`)
+	if err != nil {
+		t.Fatalf("asking the database: %v", err)
+	}
+	defer rows.Close()
+
+	want := map[string]bool{ // true means the membership still grants access
+		"bitis yok": true, "gecmis": false, "tam simdi": false, "gelecek": true,
+	}
+	seen := 0
+	for rows.Next() {
+		var label string
+		var live, ended bool
+		if err := rows.Scan(&label, &live, &ended); err != nil {
+			t.Fatal(err)
+		}
+		seen++
+		if live == ended {
+			t.Errorf("%s: live=%v ended=%v - a row that is both, or neither, is a row the "+
+				"page and the door disagree about", label, live, ended)
+		}
+		if live != want[label] {
+			t.Errorf("%s: the membership is live=%v, want %v", label, live, want[label])
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if seen != len(want) {
+		t.Fatalf("%d cases came back, wrote %d - a case that never runs proves nothing", seen, len(want))
+	}
+}
+
+// The same guarantee one level up: for real rows, what the members page
+// says about somebody and what the door does to them always agree.
+//
+// Three readers rather than two. The page's label, the per-site
+// authorization choke point, and the person's own site list are three
+// separate queries against the same table, and a customer meets all
+// three. Any pair of them disagreeing is the panel lying to somebody.
+func TestWhatThePageSaysAndWhatTheDoorDoesAgree(t *testing.T) {
+	ns := "panel-mutabakat"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	past, future := time.Now().Add(-time.Hour), time.Now().Add(24*time.Hour)
+	people := map[string]User{
+		"suresiz": mustUser(t, s, ns, "suresiz", false),
+		"canli":   mustUser(t, s, ns, "canli", false),
+		"dolmus":  mustUser(t, s, ns, "dolmus", false),
+	}
+	for label, u := range people {
+		g := Grant{By: &owner.ID}
+		switch label {
+		case "canli":
+			g.Until = &future
+		case "dolmus":
+			g.Until = &past
+		}
+		if err := s.AddMember(ctx, site, u.ID, RoleViewer, g); err != nil {
+			t.Fatalf("AddMember(%s): %v", label, err)
+		}
+	}
+
+	members, err := s.Members(ctx, site)
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	byID := map[int64]Member{}
+	for _, m := range members {
+		byID[m.UserID] = m
+	}
+
+	for label, u := range people {
+		m, listed := byID[u.ID]
+		if !listed {
+			t.Errorf("%s: the members page does not list them at all", label)
+			continue
+		}
+
+		access, err := s.AccessFor(ctx, principalOf(u), site)
+		if err != nil {
+			t.Fatalf("AccessFor(%s): %v", label, err)
+		}
+		sites, err := s.Sites(ctx, principalOf(u), nil)
+		if err != nil {
+			t.Fatalf("Sites(%s): %v", label, err)
+		}
+		inList := false
+		for _, sa := range sites {
+			if sa.SiteID == site {
+				inList = true
+			}
+		}
+
+		// One fact, asserted from three directions.
+		if m.Expired == access.Member {
+			t.Errorf("%s: the page says expired=%v and the door says member=%v. "+
+				"The dangerous half of this is expired=true with member=true: a person "+
+				"the owner believes is out, who is not", label, m.Expired, access.Member)
+		}
+		if m.Expired == inList {
+			t.Errorf("%s: the page says expired=%v and their own site list %s the site",
+				label, m.Expired, map[bool]string{true: "contains", false: "does not contain"}[inList])
+		}
+	}
+}
+
 // The other half, and it is the one that would go unnoticed: a grant
 // with no end date behaves exactly as every grant did before this column
 // existed.

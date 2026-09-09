@@ -14905,3 +14905,90 @@ kimse hatırlamadan ona kayar — `assignableRoles`'un kuralının aynısı.
 işareti düşürsün, `leastAuthority` ilk rolü döndürsün.
 
 *Bir formun dinlenme hâli, kullanıcının en sık verdiği cevaptır.*
+
+## C9.3 — Sayfanın söylediği ile kapının yaptığı ayrışamaz
+
+Kullanıcının sorusu: *"süresi doldu ama bir şekilde silinmedi, ama
+üyelerde silindi/süresi doldu olarak gözükürse sorun olur."* Doğru soru,
+ve C9.2'nin tam olarak açık bıraktığı yer.
+
+C9.2'de bitiş bir süzgeç: satır silinmiyor, erişimi hesaplayan sorgu onu
+eliyor. Bunun bedeli şu: **sayfanın etiketi ile kapının kararı iki ayrı
+sorgu.** İkisi aynı kuralı yazmak zorunda, ve bugüne kadar bu iki ayrı
+elle yazılmış ifadeyle sağlanıyordu.
+
+### Önce ölçüm: bugün ayrışma yok
+
+Veritabanına dört durumu birden sordum — bitiş yok, geçmiş, tam şimdi,
+gelecek. Dördünde de `canlı` ifadesi `süresi dolmuş` ifadesinin tam
+tersi. Yani **bugün bir kusur yoktu.** Korunmuyor olması kusurdu.
+
+### Tehlikeli yön hangisi
+
+İki yönden biri gürültülü, diğeri sessiz:
+
+- **Listede canlı, kapıda ret.** Kişi şikâyet eder, bir saat içinde
+  fark edilir.
+- **Listede "süresi doldu", kapıda kabul.** Sahip o kişinin çıktığına
+  inanıyor, bir daha bakmıyor. Erişim site var oldukça durur.
+
+İkincisi için hiçbir şey kırmızı vermez: sorgu geçerli, sayfa çizilir,
+testler geçer. Bunu yalnız kaynağı okuyup sayan bir test görür.
+
+### Üç önlem
+
+**1. Tek kaynak.** `endedMembership` artık `NOT liveMembership`. Elle
+yazılmış tamlayıcı yok, dolayısıyla ayrışma yazılamaz hâle geldi.
+Süzgeç ayrıca takma adla nitelenmiş (`m.expires_at`), böylece ikinci bir
+tablo eklendiğinde yanlış sütuna süzülemez.
+
+**2. Tamlayıcılık veritabanına soruluyor.** Test dört durumu gerçek
+PostgreSQL'e soruyor ve `canlı != süresi_dolmuş` olduğunu doğruluyor.
+Go'ya değil veritabanına, çünkü buradaki incelik **üç değerli mantık**:
+NULL "bitiş yok" demek, ve `expires_at <= now()` biçiminde elle yazılmış
+bir tamlayıcı o satırlar için TRUE değil NULL döndürür. NULL, TRUE
+olmadığı için tesadüfen doğru çalışır — ve "tesadüfen" kelimesi bunu bir
+yorum değil bir test yapan şeydir.
+
+**3. Mutabakat testi.** Gerçek satırlar üzerinde, üç okuyucu birden:
+sayfanın etiketi, erişim boğaz noktası, ve kişinin kendi site listesi.
+Üçü de aynı tabloyu ayrı ayrı sorguluyor ve müşteri üçüyle de
+karşılaşıyor. Herhangi ikisinin ayrışması panelin birine yalan söylemesi
+demek.
+
+### Ve yarın eklenecek okuma için
+
+`internal/invariants/membershipreads_test.go`: `internal/panel` içinde
+`panel_site_members`'ı **okuyan** her fonksiyon ya `liveMembership(`
+çağırır ya da gerekçesiyle listede yazılıdır. Üç istisna var
+(`allSites`, `lockMembership`, `Members`) ve üçünün de gerekçesi
+listenin yanında. Liste iki yönlü: yeni bir süzgeçsiz okuma kırmızı
+verir, ama artık süzen ya da artık var olmayan bir istisna da kırmızı
+verir — çünkü gerçeği anlatmayan bir gerekçe, bir sonraki okuyucuyu
+yanıltır.
+
+**Değişmez ilk koşuşunda kendi kusurumu yakaladı:** `RemoveMember`'ı
+işaretledi, ama orası `DELETE FROM`, okuma değil. Silme satırı zaten
+kaldırdığı için süzgeç istemez, ve dayandığı okuma `lockMembership`'in.
+Düzenli ifade artık `FROM`'dan önceki kelimeyi de yakalıyor.
+
+### Davetin ikinci saati de kapatıldı
+
+`MemberInvite.Open()` daveti panel sürecinin **kendi saatiyle**
+değerlendiriyordu; kullanım ise SQL'de `now()` ile. Aynı sorunun küçük
+hâli: bir soruya iki saat cevap veriyor.
+
+Zararlı değildi ve bunu ölçmek yerine söylememek yanlış olurdu:
+kullanım SQL'de kapılı olduğu için ileri giden bir panel yalnız çalışan
+bir bağlantıyı **reddedebilirdi**, çalışmayanı asla kabul edemezdi. Yine
+de metot silindi ve bakış da SQL'e taşındı — çekmecede duran bir yüklem,
+birinin uzanacağı yüklemdir.
+
+### Ölçüm
+
+Altı mutasyon, altısı da yakalandı. En önemlisi ikincisi: sayfa herkesi
+"süresi dolmuş" diye etiketlesin ama kapı açık kalsın — kullanıcının
+tarif ettiği durumun tam kendisi.
+
+*İki ayrı sorgunun aynı kuralı yazması, kuralın yazıldığı anda doğru
+olması demektir; türetilmesi, doğru kalması demektir.*

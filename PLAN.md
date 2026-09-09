@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | ✅ **15/15** | — |
+| **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3417,6 +3417,40 @@ Mutasyon: bitiş tarihini erişim sorgusundan çıkar, ve yalnız temizlik
 işine bırak. Bitiş tarihini yeniden verirken sıfırlama. Bitişi
 `AccessFor`'dan çıkar ama `Sites`'ta bırak (ve tersi). Hepsi kırmızı
 vermeli.
+
+---
+
+#### C9.3 — Gösterilen ile uygulanan ayrışamaz ✅ **yapıldı**
+
+*(kullanıcı sorusu: "süresi doldu ama bir şekilde silinmedi, ama
+üyelerde süresi doldu olarak gözükürse sorun olur")*
+
+C9.2'nin bedeli: bitiş bir süzgeç olduğu için **sayfanın etiketi ile
+kapının kararı iki ayrı sorgu**, ve ikisi aynı kuralı yazmak zorunda.
+Ölçüldü — bugün ayrışma yok, ama korunmuyordu.
+
+İki yönden biri sessiz: *listede "süresi doldu", kapıda kabul.* Sahip o
+kişinin çıktığına inanıyor ve bir daha bakmıyor, dolayısıyla erişim site
+var oldukça durur. Hiçbir şey kırmızı vermez.
+
+Üç önlem: `endedMembership` artık `NOT liveMembership` (elle yazılmış
+tamlayıcı yok); tamlayıcılık **gerçek PostgreSQL'e** dört durumla
+soruluyor (incelik üç değerli mantık, NULL); ve gerçek satırlarda üç
+okuyucunun — sayfa etiketi, `AccessFor`, `Sites` — mutabakatı sınanıyor.
+
+Yarın eklenecek okuma için yapısal değişmez: `panel_site_members`'ı
+okuyan her fonksiyon ya `liveMembership(` çağırır ya da gerekçesiyle
+listededir, ve liste iki yönlü çalışır.
+
+Davetin ikinci saati de kapatıldı: `MemberInvite.Open()` panelin kendi
+saatiyle karar veriyordu, artık bakış da SQL'de.
+
+##### Bitti ölçütü
+
+Altı mutasyon, hepsi kırmızı: etiket elle yazılsın ve NULL'da yanılsın;
+sayfa herkesi "dolmuş" etiketlesin ama kapı açık kalsın; süzgeç hiçbir
+satırı elemesin; davet bakışı SQL'de süzmesin; bir okuyucu süzgecini
+kaybetsin; listede bayat bir istisna kalsın.
 
 ---
 

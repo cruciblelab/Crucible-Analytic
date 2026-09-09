@@ -106,10 +106,20 @@ type MemberInvite struct {
 	GrantDays int
 }
 
-// Open reports whether this invitation can still be accepted.
-func (i MemberInvite) Open() bool {
-	return i.UsedAt == nil && i.RevokedAt == nil && time.Now().Before(i.ExpiresAt)
-}
+// openInvitation is the one condition that decides whether an invitation
+// can still be accepted, and every query that asks uses it.
+//
+// It replaced a Go method on MemberInvite that asked the same question
+// against the panel process's own clock. Two clocks answering one
+// question is how a page comes to show a link as dead that the database
+// would still take, or the reverse - and the method is gone rather than
+// left unused, because a predicate sitting in the drawer is a predicate
+// somebody reaches for.
+//
+// Deliberately not parameterised by alias: every query that uses it
+// reads panel_member_invites and nothing else, so there is no second
+// table for a bare column name to resolve against.
+const openInvitation = `(used_at IS NULL AND revoked_at IS NULL AND expires_at > now())`
 
 const memberInviteColumns = `id, site_id, role, email, created_at, created_label,
 	expires_at, revoked_at, used_at, coalesce(grant_days, 0)`
@@ -180,8 +190,8 @@ func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email str
 		var open int
 		if err := tx.QueryRow(ctx, `
 			SELECT count(*) FROM panel_member_invites
-			 WHERE site_id = $1 AND used_at IS NULL AND revoked_at IS NULL
-			   AND expires_at > now() AND email <> $2`, siteID, email).Scan(&open); err != nil {
+			 WHERE site_id = $1 AND email <> $2
+			   AND `+openInvitation, siteID, email).Scan(&open); err != nil {
 			return fmt.Errorf("panel: count invitations: %w", err)
 		}
 		if open >= MaxOpenInvitesPerSite {
@@ -222,6 +232,18 @@ func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email str
 // nothing on its own - RedeemMemberInvite re-checks everything inside
 // the transaction that consumes it - because a check here and a write
 // later is a gap two tabs can both fit through.
+//
+// # Whose clock decides
+//
+// The database's, here as at redemption. This used to compare the
+// invitation's expiry against the panel process's own clock, which is
+// the same shape of divergence C9.3 removed from the membership expiry:
+// the page deciding with one clock and the write deciding with another.
+// Nothing dangerous came of it - redemption is gated in SQL, so a
+// panel running fast could only refuse a link that still worked, never
+// accept one that did not - but "the page is wrong in the harmless
+// direction" is a thing to have measured rather than a thing to hope for,
+// and one clock is simpler than two.
 func (s *Store) LookupMemberInvite(ctx context.Context, token string) (MemberInvite, error) {
 	if token == "" {
 		return MemberInvite{}, ErrInviteInvalid
@@ -229,15 +251,12 @@ func (s *Store) LookupMemberInvite(ctx context.Context, token string) (MemberInv
 	invite, err := scanMemberInvite(s.pool.QueryRow(ctx, `
 		SELECT `+memberInviteColumns+`
 		  FROM panel_member_invites
-		 WHERE sha256 = $1`, hashToken(token)))
+		 WHERE sha256 = $1 AND `+openInvitation, hashToken(token)))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MemberInvite{}, ErrInviteInvalid
 	}
 	if err != nil {
 		return MemberInvite{}, fmt.Errorf("panel: read invitation: %w", err)
-	}
-	if !invite.Open() {
-		return MemberInvite{}, ErrInviteInvalid
 	}
 	return invite, nil
 }
@@ -296,8 +315,7 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 		err := tx.QueryRow(ctx, `
 			UPDATE panel_member_invites
 			   SET used_at = now(), used_from = $2
-			 WHERE sha256 = $1
-			   AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+			 WHERE sha256 = $1 AND `+openInvitation+`
 			RETURNING `+memberInviteColumns+`, created_by`,
 			hashToken(token), addrOrNull(from),
 		).Scan(&invite.ID, &invite.SiteID, &invite.Role, &invite.Email, &invite.CreatedAt,
@@ -408,8 +426,7 @@ func (s *Store) OpenMemberInvites(ctx context.Context, siteID string) ([]MemberI
 	rows, err := s.pool.Query(ctx, `
 		SELECT `+memberInviteColumns+`
 		  FROM panel_member_invites
-		 WHERE site_id = $1
-		   AND used_at IS NULL AND revoked_at IS NULL AND expires_at > now()
+		 WHERE site_id = $1 AND `+openInvitation+`
 		 ORDER BY created_at DESC`, siteID)
 	if err != nil {
 		return nil, fmt.Errorf("panel: list invitations: %w", err)

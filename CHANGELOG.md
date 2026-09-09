@@ -68,6 +68,31 @@ düşürülürse, o davet artık çalışmıyor.
 **Kuran kişinin yapması gereken: yok.** Şema yükseltmesinden sonra
 kendiliğinden çalışıyor.
 
+### Önlem: "süresi doldu" yazan bir satır gerçekten erişim vermiyor
+
+Süreli üyelikte bitiş tarihi bir temizlik işiyle değil, erişimi
+hesaplayan sorgunun içinde uygulanıyor. Bunun bir bedeli var: üye
+sayfasının yazdığı ile kapının yaptığı **iki ayrı sorgu**, ve ikisi aynı
+kuralı yazmak zorunda.
+
+Ölçtük: bugün ayrışma yoktu. Ama korunmuyordu, ve iki yönden biri
+sessiz — sayfa "süresi doldu" derken kapının açık kalması. O kişinin
+çıktığına inanan kimse bir daha bakmaz.
+
+Artık ayrışması mümkün değil: sayfanın kullandığı ifade, kapının
+kullandığı ifadenin doğrudan tersinden türetiliyor. Üstüne üç test —
+biri veritabanına dört zaman durumunu birden soruyor, biri gerçek
+satırlarda sayfa/kapı/site listesi üçlüsünün mutabakatını arıyor, biri
+de yarın bu tabloyu süzgeçsiz okuyan yeni bir sorgu eklenirse yakalıyor.
+
+Davet bağlantısının geçerliliği de artık tek saatle ölçülüyor:
+veritabanınınkiyle. Panel süreci ile veritabanı farklı makinelerdeyse
+saat farkı bağlantının durumunu yanlış gösterebiliyordu; kullanım zaten
+veritabanı tarafında kapılıydı, yani kimse hak etmediği bir erişim
+alamıyordu.
+
+**Kuran kişinin yapması gereken: yok.** Davranış değişmiyor.
+
 ### Düzeltme: üye ekleme formu varsayılan olarak "Sahip" seçiyordu
 
 Üye ekleme kutusundaki rol seçicisi açıldığında **Sahip** yazıyordu.

@@ -35,7 +35,30 @@ type Member struct {
 // whole phase rests on the expiry being enforced by the reads
 // themselves, and a rule enforced in four places is a rule with four
 // chances of being enforced in three.
-const liveMembership = `(expires_at IS NULL OR expires_at > now())`
+//
+// Qualified by table alias rather than bare, so a query that joins a
+// second table carrying an expires_at cannot silently start filtering on
+// the wrong one.
+func liveMembership(alias string) string {
+	return `(` + alias + `.expires_at IS NULL OR ` + alias + `.expires_at > now())`
+}
+
+// endedMembership is the exact negation of liveMembership, and it is
+// written as its negation rather than as the condition somebody would
+// write by hand.
+//
+// This is the guard on the failure the whole feature is exposed to: the
+// page's label and the access decision are two different queries, so if
+// their conditions ever stop being complements the panel starts lying.
+// The direction that matters is the quiet one - a row shown under "this
+// access has ended" while the reading query still grants it. Nobody
+// looks at a person they believe is already out.
+//
+// Deriving one from the other makes that divergence unwriteable rather
+// than unlikely. TestTheTwoHalvesOfExpiryAreExactComplements asks
+// PostgreSQL itself, because the subtlety here is NULL and three-valued
+// logic rather than anything Go can see.
+func endedMembership(alias string) string { return `NOT ` + liveMembership(alias) }
 
 // SiteAccess is a site as it appears in one user's own site list.
 type SiteAccess struct {
@@ -61,9 +84,9 @@ func (s *Store) Sites(ctx context.Context, p Principal, known []string) ([]SiteA
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		SELECT site_id, role FROM panel_site_members
-		WHERE user_id = $1 AND `+liveMembership+`
-		ORDER BY site_id`, p.UserID)
+		SELECT m.site_id, m.role FROM panel_site_members m
+		WHERE m.user_id = $1 AND `+liveMembership("m")+`
+		ORDER BY m.site_id`, p.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("panel: list sites: %w", err)
 	}
@@ -126,8 +149,8 @@ func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Acce
 
 	var role Role
 	err := s.pool.QueryRow(ctx,
-		`SELECT role FROM panel_site_members
-		  WHERE site_id = $1 AND user_id = $2 AND `+liveMembership,
+		`SELECT m.role FROM panel_site_members m
+		  WHERE m.site_id = $1 AND m.user_id = $2 AND `+liveMembership("m"),
 		siteID, p.UserID).Scan(&role)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -161,7 +184,7 @@ func (s *Store) Members(ctx context.Context, siteID string) ([]Member, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT m.site_id, m.user_id, m.role, u.email, u.display_name, u.disabled,
 		       m.created_at, m.created_by, m.expires_at,
-		       (m.expires_at IS NOT NULL AND m.expires_at <= now()) AS expired
+		       `+endedMembership("m")+` AS expired
 		FROM panel_site_members m
 		JOIN panel_users u ON u.id = m.user_id
 		WHERE m.site_id = $1
@@ -449,7 +472,7 @@ func liveAccess(ctx context.Context, tx pgx.Tx, userID int64, siteID string) (Ac
 		SELECT u.is_superadmin,
 		       (SELECT m.role FROM panel_site_members m
 		         WHERE m.user_id = u.id AND m.site_id = $2
-		           AND `+liveMembership+`)
+		           AND `+liveMembership("m")+`)
 		  FROM panel_users u
 		 WHERE u.id = $1 AND NOT u.disabled`, userID, siteID).
 		Scan(&superadmin, &current)
