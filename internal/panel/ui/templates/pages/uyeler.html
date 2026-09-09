@@ -54,6 +54,64 @@ this select is a convenience, not the check. */}}
 </tbody>
 </table>
 
+{{- if .Data.Invites}}
+{{- /* Their own list rather than rows in the table above. That table
+answers "who can see this site", and somebody who has been offered access
+is not an answer to it. */}}
+<section class="bolum">
+<h2>{{t "uyeler.davet.baslik"}}</h2>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "uyeler.sutun.kisi"}}</th>
+<th scope="col">{{t "uyeler.sutun.rol"}}</th>
+<th scope="col">{{t "uyeler.davet.gecerlilik"}}</th>
+<th scope="col"><span class="gizli">{{t "uyeler.sutun.islem"}}</span></th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Invites}}
+<tr>
+<th scope="row">{{.Email}}</th>
+<td>{{.RoleLabel}}</td>
+<td>{{$.F.DateTime .Expires}}</td>
+<td>
+{{- if $.Data.CanManage}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="davet-geri-al">
+<input type="hidden" name="davet" value="{{.ID}}">
+<button type="submit" class="tehlikeli">{{t "uyeler.davet.geri_al"}}</button>
+</form>
+{{- end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</section>
+{{- end}}
+
+{{- with .Data.InviteURL}}
+{{- /* Shown once, because only the hash is stored and this is the only
+moment the link exists. Inviting the same address again replaces the
+invitation and produces a new link, which is what "I lost it" needs. */}}
+<section class="bolum">
+<h2>{{t "uyeler.davet.baglanti_baslik"}}</h2>
+<p>{{tf "uyeler.davet.baglanti_govde" $.Data.InviteEmail $.Data.InviteRole}}</p>
+<p><code class="secret">{{.}}</code></p>
+<p class="uyari" role="note">{{t "uyeler.davet.baglanti_ipucu"}}</p>
+{{- /* Under the link, never instead of it. Email here is a second copy
+of something the inviter is already looking at. */}}
+{{- with $.Data.Delivery}}
+<p class="ipucu">{{.Note}}</p>
+{{- if .Detail}}
+<p class="ipucu">{{.Detail}} {{t "posta.teslim.elden"}}</p>
+{{- end}}
+{{- end}}
+</section>
+{{- end}}
+
 {{- if .Data.CanManage}}
 <section class="bolum">
 <h2>{{t "uyeler.ekle.baslik"}}</h2>
@@ -63,9 +121,11 @@ this select is a convenience, not the check. */}}
 <div class="alan">
 <label for="eposta">{{t "uyeler.ekle.eposta"}}</label>
 <input id="eposta" name="eposta" type="email" required spellcheck="false">
-{{- /* This adds somebody who already has an account. Creating one means
-sending an invitation, which means email - and that is a later phase.
-Said here so the failure is understood before it happens. */}}
+{{- /* One form for both outcomes, and the help text says so in advance.
+Whether this address has an account is not something the person filling
+the form knows, and a second form beside this one would ask them to
+guess. So the button stays "add" and the sentence below covers the two
+things adding can mean. */}}
 <p class="ipucu">{{t "uyeler.ekle.ipucu"}}</p>
 </div>
 <div class="alan">

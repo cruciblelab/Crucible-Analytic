@@ -14595,3 +14595,103 @@ Tablo panel kümesine kondu, dışlanan listesine değil. Gerekçe yanındaki
 sahiplik davetiyle aynı: açık bir davet, birinin verdiği ve henüz
 alınmamış bir yetkidir; yedekten dönen bir makine onu onurlandırmalı.
 Dosyaya yalnız hash gidiyor, yani yedek çalışan bir bağlantı taşımıyor.
+
+## C9.1'in arayüzü: tek form, ve kararın gerekçesi
+
+Kullanıcı iş yerindeydi ve kararı bana bıraktı. Tasarımın tek gerçek
+sorusu şuydu: davet kutusu var olan üye ekleme formunun içinde mi dursun,
+yoksa ayrı bir bölüm mü olsun.
+
+**Tek form.** Formu dolduran kişi, yazdığı adresin hesabı olup olmadığını
+**bilmiyor** — ve bilmesi gerekmiyor, çünkü yaptığı iş tek: birine bu
+siteye erişim vermek. Hesabın olup olmaması bizim uygulama ayrıntımız.
+İki form, ona tahmin ettirir ve yanlış tahmin ettiğini söyler; bu, bir
+arayüzün yapabileceği en kötü şeydir.
+
+Düğme "Ekle" kaldı, çünkü hedge eden bir etiket ("ekle ya da davet et")
+eylemden çok kararsızlık anlatır. Onun yerine **alanın altındaki cümle
+iki sonucu da önceden söylüyor**: hesabı varsa doğrudan eklenir, yoksa
+tek kullanımlık bir davet bağlantısı üretilir.
+
+### Diğer kararlar, ve gerekçeleri
+
+**Bağlantı her koşulda ekranda.** Yeni bir karar değil, C7.3'ün kuralı:
+*"davetler ve parola sıfırlama bağlantıları her zaman ekranda
+gösterilir."* E-posta ikinci kopya; gitmemesi bağlantının varlığını
+değil, yanındaki cümleyi değiştiriyor.
+
+**Bekleyen davetler ayrı tabloda, üyelerin altında.** Üstteki tablo "bu
+siteyi kim görebiliyor" sorusunun cevabı; davet edilmiş biri o sorunun
+cevabı değil. Karıştırmak, üye olmayanları içeren bir üye listesi
+demekti.
+
+**Aynı adresi tekrar davet etmek eskisini geçersiz kılıyor.** Bu, "bağlantıyı
+kaybettim" sorusunu ikinci bir düğme olmadan çözüyor, ve tek kişiye iki
+canlı bağlantı olmasını engelliyor — hangisinin geçerli olduğunu hiçbir
+sayfa söyleyemezdi.
+
+**Hesabı zaten olan biri giriş yapmıyor.** Davet edilen adres araya giren
+bir sürede hesap edinmişse üyelik veriliyor ama **oturum açılmıyor**:
+formdaki parola o hesaba hiç uygulanmadı, dolayısıyla onunla giriş
+yaptırmak, parolası doğrulanmamış birini içeri almak olurdu — üstelik
+bağlantıyı elinde tutan herkesin açabildiği bir sayfada.
+
+**Açık davet tavanı 50.** Ürün sınırı, güvenlik sınırı değil, ve öyleymiş
+gibi de yapmıyor: daveti üretebilen kişi zaten sitede `CapManageMembers`
+tutuyor ve parola sıfırlama akışına da erişebiliyor. Gerçek bir hız
+sınırı o eski yüzeye ait, buraya cıvatalanmaya değil. Yazılı.
+
+### Ölçüm
+
+Dört mutasyon, dördü de yakalandı:
+
+- Sayfa hesapsız adresi yine reddetsin → dört test.
+- Bağlantı üretilip basılmasın → dört test.
+- Geri alma site sormadan id'ye güvensin → **yalıtım testi**, yani bir
+  sitenin sahibi başka sitenin davetini geri alamıyor.
+- Hesabı olan davetli yine giriş yaptırılsın → parola testi.
+
+Üç yapısal değişmez de kendiliğinden iş çıkardı: yeni POST rotası CSRF
+taramasına, yeni sayfa "yürünen sayfalar" listesine, ve eski davranışı
+tutan bir test yeni davranışa taşındı (silinmedi — aynı form, aynı iki
+adres, artık iki sonuç).
+
+### Test düzeneğinden bir ders
+
+`TestTheInviteeCannotChooseTheirOwnRole` ikinci koşuda düştü, ilkinde
+değil. Sebep: test, katılma sayfasından **gerçek bir hesap yaratıyor** ve
+onu temizlemiyordu; ikinci koşuda adres artık "hesabı var" dalına
+giriyordu. Ürünün kendi akışını süren bir test, akışın yarattığını da
+temizlemek zorunda — yalnız fixture'ının yarattığını değil.
+
+## Kapının kırmızısının asıl sebebi: kendi çöpünü bırakan bir test
+
+C9.1'in kapısı `TestTheUpgradeSectionPollsOnlyWhileSomethingIsRunning`
+üzerinde kırmızı verdi. Test tek başına geçiyordu, tam paket koşusunda
+düşüyordu — ve sebebi ne benim değişikliğimdi ne de o testti.
+
+`schema_version` bu veritabanında **tek satırdır** ve bütün süitlerle,
+üstelik bu süitin bir sonraki koşusuyla da paylaşılır.
+`TestASchemaWhoseNumberAgreesAndFingerprintDoesNotIsAMismatch` oraya
+bilerek yanlış bir parmak izi yazıyor (`deadbeef...`) — testin konusu bu —
+ama **geri koymuyordu.**
+
+Sonuç: koşu bitiyor, satır bozuk kalıyor, ve **bir sonraki koşuda başka
+bir dosyadaki başka bir iddia** düşüyor. Yalnız tam koşuda görünen,
+tek başına asla üretilemeyen bir kırmızı.
+
+Ölçüm basitti: satırı elle düzelttim, paket geçti; koşu bitince satır
+yine `deadbeef` idi. Yani mekanizma tahmin değil.
+
+**Düzeltme geri koymayı çağırana bırakmıyor.** `setSchemaRow` ve
+`clearSchemaRow` artık ilk çağrıldıklarında satırın o anki hâlini
+okuyup `t.Cleanup` ile geri yazıyor; satır hiç yoksa silinmiş hâline
+döndürüyor. Kimsenin hatırlaması gerekmiyor, ki bir sonraki testi yazan
+kişinin hatırlaması gereken şey tam olarak hatırlanmayan şeydir.
+
+Doğrulama: paket arka arkaya iki kez koşuldu, ikisi de yeşil, ve
+`schema_version` ikisinden de doğru parmak iziyle çıktı. Öncesinde
+ikinci koşu kırmızıydı.
+
+*Paylaşılan tek satırlık bir tabloyu bozup bırakan bir test, kendi
+konusunu başkasının testine taşımıştır.*

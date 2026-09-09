@@ -324,10 +324,17 @@ kategorisidir.
 | `panel_api_tokens` | Jeton adı, **yalnızca SHA-256 özeti**, yetki kapsamı, son kullanım |
 | `panel_login_attempts` | Denenen e-posta, **IP adresi**, başarılı mı — kaba kuvvet saldırısını sınırlamak için |
 | `panel_dev_access` | Geliştirici erişim talepleri ve onayları |
+| `panel_member_invites` | Davet edilen **e-posta adresi**, hangi siteye hangi rolle, kimin davet ettiği, geçerlilik süresi, ve kullanıldıysa kullanım anı ile **IP adresi**. Bağlantının kendisi değil, yalnızca SHA-256 özeti saklanır |
 
 `panel_login_attempts` tablosu, **var olmayan hesaplar için de** kayıt
 tutar. Gerekçe: saldırı desenini görebilmek. Bu, güvenlik amaçlı meşru
 menfaat değerlendirmesi gerektirebilir.
+
+`panel_member_invites` tablosu, **hesabı hiç açılmamış bir kişinin
+e-posta adresini** taşıyabilir: davet edilen ama daveti hiç kabul etmemiş
+biri. Süre dolduğunda satır kendiliğinden geçersizleşir (varsayılan yedi
+gün) ve davet eden kişi istediği anda geri alabilir. Kabul edilmemiş bir
+davet, o kişi hakkında adresinden başka hiçbir şey içermez.
 
 ---
 
@@ -702,7 +709,7 @@ doğrulanabilir:
 | 1 | `internal/storage/schema.sql` |
 | 1.5 | `internal/privacy/ip.go`, `internal/storage/row.go`, `internal/beacon/server.go` |
 | 2 | `internal/beacon/schema.sql`, `internal/beacon/event.go`, `internal/beacon/visitor.go`, `internal/beacon/beacon.js` |
-| 3 | `internal/panel/schema.sql` |
+| 3 | `internal/panel/schema.sql`, `internal/panel/memberinvite.go` |
 | 4 | `internal/asnlookup/schema.sql` |
 | 6 | `internal/retention/retention.go`, `release/sql/grants.sql` |
 | 7 | `internal/beacon/privacy.go`, `internal/privacy/notice.go`, `internal/privacy/policy.go`, `internal/beacon/beacon.js` |

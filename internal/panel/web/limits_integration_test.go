@@ -271,6 +271,7 @@ func routePattern(expr ast.Expr) (string, bool) {
 // and this file stops building.
 var routeConstants = map[string]string{
 	"DevAccessPathPrefix":    DevAccessPathPrefix,
+	"JoinPathPrefix":         JoinPathPrefix,
 	"SetupPathPrefix":        SetupPathPrefix,
 	"LoginPath":              LoginPath,
 	"RecoveryPath":           RecoveryPath,

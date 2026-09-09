@@ -26,8 +26,50 @@ import (
 // Through the pool the test owns rather than the panel's, because
 // panel_user has no INSERT on this table and is not meant to - the panel
 // reporting a version it could have written itself is not a report.
+//
+// # It puts the row back, and that is not tidiness
+//
+// schema_version is one row for the whole database, shared with every
+// other suite and with the next run of this one. A test that leaves a
+// deliberately wrong fingerprint in it has not finished; it has moved
+// its own subject matter into somebody else's test.
+//
+// Measured: TestASchemaWhoseNumberAgreesAndFingerprintDoesNotIsAMismatch
+// left "deadbeef..." behind, and the *next* run of this package failed in
+// health_integration_test.go - a different file, a different claim, and a
+// failure that reproduced only in a full run. Restoring here rather than
+// in each caller means nobody has to remember.
+func restoreSchemaRow(t *testing.T) {
+	t.Helper()
+	admin := testdb.Admin(t)
+	var (
+		version     int
+		fingerprint string
+		by          string
+	)
+	err := admin.QueryRow(context.Background(),
+		`SELECT version, fingerprint, applied_by FROM schema_version WHERE id = 1`).
+		Scan(&version, &fingerprint, &by)
+	had := err == nil
+	t.Cleanup(func() {
+		bg := context.Background()
+		if !had {
+			_, _ = admin.Exec(bg, `DELETE FROM schema_version WHERE id = 1`)
+			return
+		}
+		_, _ = admin.Exec(bg, `
+			INSERT INTO schema_version (id, version, fingerprint, applied_by)
+			VALUES (1, $1, $2, $3)
+			ON CONFLICT (id) DO UPDATE SET
+			    version = EXCLUDED.version,
+			    fingerprint = EXCLUDED.fingerprint,
+			    applied_by = EXCLUDED.applied_by`, version, fingerprint, by)
+	})
+}
+
 func setSchemaRow(t *testing.T, version int, fingerprint string) {
 	t.Helper()
+	restoreSchemaRow(t)
 	admin := testdb.Admin(t)
 	_, err := admin.Exec(context.Background(), `
 		INSERT INTO schema_version (id, version, fingerprint, applied_by)
@@ -43,6 +85,7 @@ func setSchemaRow(t *testing.T, version int, fingerprint string) {
 
 func clearSchemaRow(t *testing.T) {
 	t.Helper()
+	restoreSchemaRow(t)
 	if _, err := testdb.Admin(t).Exec(context.Background(), `DELETE FROM schema_version`); err != nil {
 		t.Fatalf("clearing the schema version row: %v", err)
 	}

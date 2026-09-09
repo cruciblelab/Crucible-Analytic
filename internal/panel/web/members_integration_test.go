@@ -211,9 +211,17 @@ func TestTheLastOwnerCannotBeRemoved(t *testing.T) {
 	}
 }
 
-// TestAddingAMemberNeedsAnExistingAccount covers the sentence that
-// exists because this page cannot send an invitation.
-func TestAddingAMemberNeedsAnExistingAccount(t *testing.T) {
+// TestAddingAMemberDoesTheRightThingForBothKindsOfAddress.
+//
+// This test used to be named for the limitation: adding somebody needed
+// an account that already existed, and the page said so. C9.1 removed
+// the limitation, so the assertion moved rather than the test - the
+// same form, the same two addresses, and now two outcomes instead of one
+// outcome and one apology.
+//
+// Kept as one test because it is one claim: the person filling the form
+// does not know which kind of address they typed, and should not have to.
+func TestAddingAMemberDoesTheRightThingForBothKindsOfAddress(t *testing.T) {
 	srv, store := setupTestServer(t)
 	ctx := context.Background()
 	const site = "davet-testi"
@@ -229,15 +237,35 @@ func TestAddingAMemberNeedsAnExistingAccount(t *testing.T) {
 	page := server.URL + memberPath(site)
 	client := signedIn(t, server.URL, owner.Email)
 
-	// An address nobody has an account for.
+	// An address nobody has an account for: an invitation, and a link on
+	// the page. The link is the whole point - it is shown once, because
+	// only its hash is stored.
 	status, body := post(t, client, page, url.Values{
 		"islem": {"ekle"}, "eposta": {"kimse" + testEmailSuffix}, "rol": {"viewer"},
 	})
-	if status != http.StatusBadRequest {
-		t.Errorf("adding a nonexistent account answered %d", status)
+	if status != http.StatusOK {
+		t.Errorf("inviting an address with no account answered %d: %q", status, messageOf(body))
 	}
-	if !strings.Contains(body, "hesap yok") {
-		t.Errorf("the refusal does not say what is missing: %q", messageOf(body))
+	if !strings.Contains(body, JoinPathPrefix) {
+		t.Errorf("the page shows no invitation link after inviting somebody.\n" +
+			"Only the hash is stored, so a page that does not print it here has " +
+			"minted an invitation nobody can ever use")
+	}
+	if strings.Contains(body, "hesap yok") {
+		t.Error("the page still apologises for not being able to invite")
+	}
+	// And the invitation is real: it is listed as pending, for the right
+	// address and role.
+	invites, err := store.OpenMemberInvites(ctx, site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(invites) != 1 {
+		t.Fatalf("%d open invitations after inviting one person", len(invites))
+	}
+	if invites[0].Email != "kimse"+testEmailSuffix || invites[0].Role != roleOf("viewer") {
+		t.Errorf("the invitation is for %q at %q; the form said %q at viewer",
+			invites[0].Email, invites[0].Role, "kimse"+testEmailSuffix)
 	}
 
 	// One that does.

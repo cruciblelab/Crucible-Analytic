@@ -1601,6 +1601,7 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 | İzolasyon kontrolü "bakamadım" diyor | Panel ayrı bir veritabanında — §4.1 |
 | Panel açılmıyor, "unknown time zone" | `timezone` bu makinede tanınmıyor; zoneinfo paketi eksik olabilir |
 | Beacon olayları reddediyor | `site_id`, `sites` listesinde yok |
+| Davet bağlantısı çalışmıyor | Süresi dolmuş (varsayılan 7 gün), geri alınmış, kullanılmış — ya da daveti üreten kişinin o rolü verme yetkisi bu arada düşürülmüş. Yenisini üretmek için aynı adresi tekrar davet edin |
 
 ---
 

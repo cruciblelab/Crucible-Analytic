@@ -55,6 +55,24 @@ import (
 // becoming a standing key.
 const DefaultMemberInviteTTL = 7 * 24 * time.Hour
 
+// MaxOpenInvitesPerSite bounds how many invitations one site may have
+// outstanding.
+//
+// A product limit rather than a security one, and the number is chosen
+// for the page: a list of five hundred unaccepted invitations is not a
+// list anybody reads, and a site that has reached fifty has a problem
+// that minting a fifty-first does not solve.
+//
+// It is not a rate limit, and it is not pretending to be one. Whoever
+// can mint these already holds CapManageMembers on the site and can
+// already reach the password-reset flow, so the deployment's mail server
+// is not newly exposed by this feature. A real throttle belongs with
+// that older surface rather than bolted onto the newer one.
+const MaxOpenInvitesPerSite = 50
+
+// ErrTooManyInvites is returned when a site is already at the cap.
+var ErrTooManyInvites = errors.New("panel: too many open invitations")
+
 // ErrInviteInvalid covers every way redeeming can fail: unknown,
 // expired, withdrawn, already used, or minted by somebody who has since
 // lost the authority to have minted it.
@@ -127,15 +145,47 @@ func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email str
 		actorID = by.UserID
 	}
 
-	invite, err := scanMemberInvite(s.pool.QueryRow(ctx, `
-		INSERT INTO panel_member_invites
-		  (sha256, site_id, role, email, created_by, created_label, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, now() + $7::interval)
-		RETURNING `+memberInviteColumns,
-		hashToken(token), siteID, string(role), email, actorID, by.Label,
-		fmt.Sprintf("%d seconds", int(ttl.Seconds()))))
+	// Minting replaces any open invitation to the same address on the
+	// same site, in the same transaction that creates the new one.
+	//
+	// Two live links to one person is the state nobody wants: the
+	// invitee has two, neither page says which is current, and
+	// withdrawing "the invitation" leaves the other one working. It is
+	// also what makes "I lost the link" answerable without a second
+	// button - inviting them again is the answer.
+	var invite MemberInvite
+	err := s.inTx(ctx, func(tx pgx.Tx) error {
+		var open int
+		if err := tx.QueryRow(ctx, `
+			SELECT count(*) FROM panel_member_invites
+			 WHERE site_id = $1 AND used_at IS NULL AND revoked_at IS NULL
+			   AND expires_at > now() AND email <> $2`, siteID, email).Scan(&open); err != nil {
+			return fmt.Errorf("panel: count invitations: %w", err)
+		}
+		if open >= MaxOpenInvitesPerSite {
+			return ErrTooManyInvites
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE panel_member_invites SET revoked_at = now()
+			 WHERE site_id = $1 AND email = $2
+			   AND used_at IS NULL AND revoked_at IS NULL`, siteID, email); err != nil {
+			return fmt.Errorf("panel: replace invitation: %w", err)
+		}
+		var err error
+		invite, err = scanMemberInvite(tx.QueryRow(ctx, `
+			INSERT INTO panel_member_invites
+			  (sha256, site_id, role, email, created_by, created_label, expires_at)
+			VALUES ($1, $2, $3, $4, $5, $6, now() + $7::interval)
+			RETURNING `+memberInviteColumns,
+			hashToken(token), siteID, string(role), email, actorID, by.Label,
+			fmt.Sprintf("%d seconds", int(ttl.Seconds()))))
+		if err != nil {
+			return fmt.Errorf("panel: create invitation: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return "", MemberInvite{}, fmt.Errorf("panel: create invitation: %w", err)
+		return "", MemberInvite{}, err
 	}
 	return token, invite, nil
 }
@@ -166,6 +216,19 @@ func (s *Store) LookupMemberInvite(ctx context.Context, token string) (MemberInv
 	return invite, nil
 }
 
+// Redemption is what accepting an invitation produced.
+//
+// Created is the fact the page needs and the store is the only thing
+// that knows: an invitation to an address that has since acquired an
+// account grants the membership and leaves the existing password alone.
+// Without this the page would either claim to have set a password it did
+// not set, or ask for one it did not need.
+type Redemption struct {
+	User    User
+	Invite  MemberInvite
+	Created bool
+}
+
 // RedeemMemberInvite turns an invitation into an account and a
 // membership, in one transaction.
 //
@@ -191,15 +254,16 @@ func (s *Store) LookupMemberInvite(ctx context.Context, token string) (MemberInv
 // invitation nobody can be asked about is an invitation nobody
 // authorised.
 func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, passwordHash string,
-	from netip.Addr) (User, MemberInvite, error) {
+	from netip.Addr) (Redemption, error) {
 
 	if token == "" || passwordHash == "" {
-		return User{}, MemberInvite{}, ErrInviteInvalid
+		return Redemption{}, ErrInviteInvalid
 	}
 
 	var (
-		user   User
-		invite MemberInvite
+		user    User
+		invite  MemberInvite
+		created bool
 	)
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		var inviterID *int64
@@ -219,6 +283,7 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 		if err != nil {
 			return fmt.Errorf("panel: consume invitation: %w", err)
 		}
+		created = false
 
 		if !inviterMayStillGrant(ctx, tx, inviterID, invite.SiteID, invite.Role) {
 			// Rolled back with the rest of the transaction, so the
@@ -245,6 +310,7 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 			if err != nil {
 				return fmt.Errorf("panel: create member: %w", err)
 			}
+			created = true
 		} else if err != nil {
 			return fmt.Errorf("panel: look up invited address: %w", err)
 		}
@@ -265,9 +331,9 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 		return nil
 	})
 	if err != nil {
-		return User{}, MemberInvite{}, err
+		return Redemption{}, err
 	}
-	return user, invite, nil
+	return Redemption{User: user, Invite: invite, Created: created}, nil
 }
 
 // inviterMayStillGrant answers whether the person who minted an

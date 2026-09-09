@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | 🟡 **12/14** | C9.1–C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
+| **C** Panel HTTP yüzeyi | 🟡 **13/14** | C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3215,7 +3215,7 @@ yapısal test: **`panel_smtp`'yi collector okuyamaz**, ve **e-posta
 yapılandırılmamışken davet ile sıfırlama akışları çalışmaya devam
 eder**.
 
-#### C9.1 — Üye daveti
+#### C9.1 — Üye daveti ✅ **yapıldı**
 
 Panelin kendi kendine söylediği eksik. Hesabı olmayan birini üye eklemeye
 çalışan bir müşteri bugün şunu görüyor:

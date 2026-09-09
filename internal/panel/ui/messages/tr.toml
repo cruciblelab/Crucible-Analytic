@@ -385,6 +385,16 @@ cikarildi = "Üye siteden çıkarıldı."
 rol_degisti = "Rol güncellendi."
 kendini_cikaramaz = "Kendinizi bu sayfadan çıkaramazsınız."
 
+[metin.uyeler.davet]
+baslik = "Bekleyen davetler"
+gecerlilik = "Son geçerlilik"
+geri_al = "Geri al"
+geri_alindi = "Davet geri alındı."
+olusturuldu = "%s için davet bağlantısı hazır."
+baglanti_baslik = "Davet bağlantısı"
+baglanti_govde = "%s adresini %s rolüyle davet ettiniz. Bağlantıyı kendisine iletin."
+baglanti_ipucu = "Bu bağlantı yalnız bir kez gösterilir ve bir kez kullanılabilir. Kaybederseniz aynı adresi tekrar davet edin; yenisi üretilir ve eskisi geçersiz olur."
+
 [metin.uyeler.sutun]
 kisi = "Kişi"
 rol = "Rol"
@@ -393,7 +403,7 @@ islem = "İşlemler"
 [metin.uyeler.ekle]
 baslik = "Üye ekle"
 eposta = "E-posta adresi"
-ipucu = "Hesabı zaten olan birini ekler. Yeni hesap açmaz — davet e-postası henüz yok."
+ipucu = "Hesabı varsa doğrudan eklenir. Yoksa tek kullanımlık bir davet bağlantısı üretilir; bağlantı ekranda gösterilir, e-posta ayarlıysa ayrıca gönderilir."
 gonder = "Ekle"
 
 [metin.uyeler.hata]
@@ -401,7 +411,8 @@ bilinmeyen = "Anlaşılmayan bir istek geldi. Sayfayı yenileyip tekrar deneyin.
 kaydedilemedi = "Kaydedilemedi. Sorun sürerse günlük kayıtlarına bakın."
 rol_yetki = "Kendi yetkinizin üstünde bir rol veremezsiniz."
 eposta_bos = "E-posta adresi boş."
-hesap_yok = "Bu adrese ait bir hesap yok. Kişinin önce hesabı oluşturulmalı; davet e-postası henüz eklenmedi."
+davet_cok = "Bu sitenin bekleyen davet sayısı sınıra ulaştı (%d). Kullanılmayanlardan bazılarını geri alın."
+davet_yok = "Bu davet bulunamadı. Kullanılmış ya da geri alınmış olabilir."
 kullanici_gecersiz = "Geçersiz kullanıcı."
 uye_yok = "Bu kişi zaten bu sitenin üyesi değil."
 son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yapın."
@@ -452,6 +463,24 @@ ipucu = "Sistemi kuran kişiden yeni bir davet bağlantısı isteyin. Sunucuya e
 
 [metin.sahiplen.hata]
 artik_gecersiz = "Bu bağlantı artık kullanılamıyor. Başka bir sekmede kullanılmış veya süresi dolmuş olabilir."
+
+[metin.katil]
+baslik = "Davete katılın"
+govde = "%s sitesine %s rolüyle davet edildiniz. Katılmak için bir parola belirleyin."
+rol_ipucu = "Rolünüz: %s. Bu rolü davet eden kişi belirledi; bu sayfadan değiştirilemez."
+eposta = "E-posta adresiniz"
+eposta_ipucu = "Davet bu adrese açıldı; değiştirilemez."
+gonder = "Katıl ve giriş yap"
+hesap_vardi = "Bu adresin zaten bir hesabı var. %s sitesi hesabınıza eklendi; her zamanki gibi giriş yapabilirsiniz."
+hesap_vardi_ipucu = "Parolanız değişmedi."
+
+[metin.katil.gecersiz]
+baslik = "Bu bağlantı kullanılamıyor"
+govde = "Bağlantı kullanılmış, geri alınmış, süresi dolmuş veya hiç var olmamış olabilir."
+ipucu = "Sizi davet eden kişiden yeni bir bağlantı isteyin."
+
+[metin.katil.hata]
+artik_gecersiz = "Bu bağlantı artık kullanılamıyor. Başka bir sekmede kullanılmış, geri alınmış ya da süresi dolmuş olabilir."
 
 [metin.hosgeldiniz]
 ilerleme = "Kurulum adımları"
@@ -919,6 +948,10 @@ elden = "Bağlantı yukarıda duruyor; kendiniz iletebilirsiniz."
 [metin.posta.davet]
 konu = "Crucible Analytic — panel davetiniz"
 govde = "Merhaba,\n\nAnalitik panelinizin hesabını oluşturmanız için bir davet bağlantısı hazırlandı. Bağlantı tek kullanımlıktır."
+
+[metin.posta.uye_daveti]
+konu = "Crucible Analytic — analitik paneline davet edildiniz"
+govde = "Merhaba,\n\nBir analitik panelinde bir siteye erişim için davet edildiniz. Katılmak için aşağıdaki bağlantıyı açın ve bir parola belirleyin. Bağlantı tek kullanımlıktır ve süresi sınırlıdır."
 
 # --- Sistem sağlığı (B4/B7) ---
 #

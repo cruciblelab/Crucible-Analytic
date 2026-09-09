@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -81,8 +82,35 @@ type membersPage struct {
 	// will want the same table without the controls.
 	CanManage bool
 
+	// Invites are the invitations nobody has accepted yet.
+	//
+	// Their own list rather than rows in the table above, because the
+	// table above answers "who can see this site" and an invitation is
+	// not an answer to that. Somebody invited is somebody offered.
+	Invites []inviteRow
+	// InviteURL is the link a mint just produced, shown once.
+	//
+	// Once is not a limitation to work around: only the hash is stored,
+	// so this is the only moment it exists. Inviting the same address
+	// again replaces the invitation and produces a new link, which is
+	// what "I lost it" needs and why there is no separate button for it.
+	InviteURL   string
+	InviteEmail string
+	InviteRole  string
+	Delivery    *mailDelivery
+
 	Message string
 	Failed  bool
+}
+
+// inviteRow is one open invitation as the page shows it.
+type inviteRow struct {
+	ID        int64
+	Email     string
+	Role      string
+	RoleLabel string
+	Expires   time.Time
+	InvitedBy string
 }
 
 // membersHandler serves and processes a site's member list.
@@ -127,21 +155,23 @@ func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.La
 	var data membersPage
 	switch r.PostFormValue("islem") {
 	case "ekle":
-		data = s.addMember(ctx, lang, access,
+		data = s.addMember(ctx, lang, r, access,
 			r.PostFormValue("eposta"), panel.Role(r.PostFormValue("rol")))
 	case "rol":
 		data = s.changeRole(ctx, lang, access,
 			r.PostFormValue("kullanici"), panel.Role(r.PostFormValue("rol")))
 	case "cikar":
 		data = s.removeMember(ctx, lang, access, r.PostFormValue("kullanici"))
+	case "davet-geri-al":
+		data = s.withdrawInvite(ctx, lang, access, r.PostFormValue("davet"))
 	default:
 		data = membersPage{Message: lang.T("uyeler.hata.bilinmeyen"), Failed: true}
 	}
 	s.renderMembers(w, r, lang, access, data)
 }
 
-func (s *Server) addMember(ctx context.Context, lang *ui.Language, access panel.Access,
-	email string, role panel.Role) membersPage {
+func (s *Server) addMember(ctx context.Context, lang *ui.Language, r *http.Request,
+	access panel.Access, email string, role panel.Role) membersPage {
 
 	// The same question the select answered when the page was drawn,
 	// asked again against the value that actually arrived.
@@ -156,11 +186,15 @@ func (s *Server) addMember(ctx context.Context, lang *ui.Language, access panel.
 	user, err := s.Store.UserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, panel.ErrNotFound) {
-			// Says what is missing and what to do, because the obvious
-			// reading of a bare failure here is "I typed it wrong" -
-			// and the actual state is "this person has no account yet",
-			// which nothing on this page can fix.
-			return membersPage{Message: lang.T("uyeler.hata.hesap_yok"), Failed: true}
+			// No account: an invitation rather than a refusal.
+			//
+			// One form for both, deliberately. Whether this address has
+			// an account is not something the person filling the form
+			// knows, and it is not their business - they are doing one
+			// thing, giving somebody access to this site. A second form
+			// beside this one would ask them to guess, and tell them
+			// they guessed wrong.
+			return s.inviteMember(ctx, lang, r, access, email, role)
 		}
 		s.logger().Error("panel: looking up member", "err", err)
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
@@ -228,6 +262,75 @@ func (s *Server) removeMember(ctx context.Context, lang *ui.Language, access pan
 // server fault and it is not the caller's mistake in any interesting
 // sense - it is the rule working - so it gets its own sentence, and only
 // everything else gets logged and called a failure.
+// inviteMember mints an invitation for an address with no account.
+//
+// Reached only from addMember, which is the point: the caller asked for
+// one thing and gets one thing, whichever half of the branch runs.
+func (s *Server) inviteMember(ctx context.Context, lang *ui.Language, r *http.Request,
+	access panel.Access, email string, role panel.Role) membersPage {
+
+	token, invite, err := s.Store.CreateMemberInvite(ctx, access.SiteID, email, role,
+		access.Principal, 0)
+	if err != nil {
+		if errors.Is(err, panel.ErrTooManyInvites) {
+			return membersPage{Message: lang.Tf("uyeler.hata.davet_cok",
+				panel.MaxOpenInvitesPerSite), Failed: true}
+		}
+		s.logger().Error("panel: creating member invitation", "err", err)
+		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
+	}
+
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
+		Action: panel.ActionMemberInvited, SiteID: access.SiteID,
+		Detail: map[string]any{"invited": invite.Email, "role": string(invite.Role),
+			"invite_id": invite.ID},
+	})
+
+	data := membersPage{
+		InviteURL:   s.absoluteURL(r, JoinPathPrefix+token),
+		InviteEmail: invite.Email,
+		InviteRole:  lang.T("rol." + string(invite.Role)),
+		Message:     lang.Tf("uyeler.davet.olusturuldu", invite.Email),
+	}
+	// Emailed as well, if this deployment can. The link above is set
+	// first and unconditionally: mail is a second copy of something the
+	// inviter is already looking at, and a send that fails changes what
+	// the page says beside the link rather than whether there is one.
+	delivery := s.deliverLink(ctx, lang, invite.Email,
+		"posta.uye_daveti.konu", "posta.uye_daveti.govde", data.InviteURL)
+	data.Delivery = &delivery
+	return data
+}
+
+// withdrawInvite ends one open invitation.
+func (s *Server) withdrawInvite(ctx context.Context, lang *ui.Language, access panel.Access,
+	rawID string) membersPage {
+
+	if !access.Can(panel.CapManageMembers) {
+		return membersPage{Message: lang.T("uyeler.hata.rol_yetki"), Failed: true}
+	}
+	id, ok := parsePositiveID(rawID)
+	if !ok {
+		return membersPage{Message: lang.T("uyeler.hata.kullanici_gecersiz"), Failed: true}
+	}
+	// The site comes from the authorised access rather than from the
+	// form, so an id belonging to another site's invitation matches
+	// nothing here instead of being withdrawn by somebody with no
+	// authority over it.
+	if err := s.Store.RevokeMemberInvite(ctx, id, access.SiteID); err != nil {
+		if errors.Is(err, panel.ErrNotFound) {
+			return membersPage{Message: lang.T("uyeler.hata.davet_yok"), Failed: true}
+		}
+		s.logger().Error("panel: withdrawing invitation", "err", err)
+		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
+	}
+	s.auditFor(ctx, access.Principal, panel.AuditEntry{
+		Action: panel.ActionMemberInviteWithdrawn, SiteID: access.SiteID,
+		Detail: map[string]any{"invite_id": id},
+	})
+	return membersPage{Message: lang.T("uyeler.davet.geri_alindi")}
+}
+
 func (s *Server) memberWriteFailed(lang *ui.Language, err error, what string) membersPage {
 	if errors.Is(err, panel.ErrLastOwner) {
 		return membersPage{Message: lang.T("uyeler.hata.son_sahip"), Failed: true}
@@ -285,6 +388,26 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 			// elsewhere.
 			Removable: data.CanManage && !self,
 		})
+	}
+
+	// The open invitations, read after the members so the two lists come
+	// from one page load rather than from two moments.
+	//
+	// A failure here is logged and not fatal: it costs a section, and
+	// taking the member list down over it would be the worse trade.
+	if invites, err := s.Store.OpenMemberInvites(ctx, access.SiteID); err != nil {
+		s.logger().Warn("panel: listing invitations", "err", err)
+	} else {
+		for _, in := range invites {
+			data.Invites = append(data.Invites, inviteRow{
+				ID:        in.ID,
+				Email:     in.Email,
+				Role:      string(in.Role),
+				RoleLabel: lang.T("rol." + string(in.Role)),
+				Expires:   in.ExpiresAt,
+				InvitedBy: in.CreatedLabel,
+			})
+		}
 	}
 
 	page := s.page(r, lang, access, "uyeler", lang.T("uyeler.baslik"))

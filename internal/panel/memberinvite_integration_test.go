@@ -88,13 +88,13 @@ func TestMemberInviteIsSingleUseUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			user, _, err := store.RedeemMemberInvite(context.Background(), token,
+			got, err := store.RedeemMemberInvite(context.Background(), token,
 				"Yarış", hash, netip.MustParseAddr("198.51.100.7"))
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
 			case err == nil:
-				users = append(users, user)
+				users = append(users, got.User)
 			case errors.Is(err, ErrInviteInvalid):
 				refusals++
 			default:
@@ -153,10 +153,14 @@ func TestMemberInviteGrantsWhatItSaysAndNothingTheInviteeChose(t *testing.T) {
 		t.Errorf("the invitation is for %q; addresses are normalised before they are stored", invite.Email)
 	}
 
-	user, used, err := store.RedeemMemberInvite(ctx, token, "Alınan", hash,
+	got, err := store.RedeemMemberInvite(ctx, token, "Alınan", hash,
 		netip.MustParseAddr("198.51.100.8"))
 	if err != nil {
 		t.Fatalf("RedeemMemberInvite: %v", err)
+	}
+	user, used := got.User, got.Invite
+	if !got.Created {
+		t.Error("the redemption reports it did not create an account, and the address had none")
 	}
 	if user.Email != invite.Email {
 		t.Errorf("the account was created as %q for an invitation to %q", user.Email, invite.Email)
@@ -217,7 +221,7 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 		t.Fatalf("SetMemberRole: %v", err)
 	}
 
-	_, _, err = store.RedeemMemberInvite(ctx, token, "Düşen", hash,
+	_, err = store.RedeemMemberInvite(ctx, token, "Düşen", hash,
 		netip.MustParseAddr("198.51.100.9"))
 	if !errors.Is(err, ErrInviteInvalid) {
 		t.Fatalf("redeeming an invitation from a demoted inviter returned %v; want ErrInviteInvalid.\n"+
@@ -230,7 +234,7 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 	if err := store.SetMemberRole(ctx, inviteSite, admin.ID, RoleAdmin); err != nil {
 		t.Fatalf("SetMemberRole back: %v", err)
 	}
-	if _, _, err := store.RedeemMemberInvite(ctx, token, "Düşen", hash,
+	if _, err := store.RedeemMemberInvite(ctx, token, "Düşen", hash,
 		netip.MustParseAddr("198.51.100.9")); err != nil {
 		t.Errorf("the invitation stayed dead after the inviter's role came back: %v.\n"+
 			"A refusal must roll back with the transaction, not spend the link", err)
@@ -308,7 +312,7 @@ func TestAnInvitationThatIsNoLongerOpenIsRefused(t *testing.T) {
 		if _, err := store.LookupMemberInvite(ctx, token); !errors.Is(err, ErrInviteInvalid) {
 			t.Errorf("looking up the %s invitation returned %v; want ErrInviteInvalid", name, err)
 		}
-		if _, _, err := store.RedeemMemberInvite(ctx, token, "Kapalı", hash,
+		if _, err := store.RedeemMemberInvite(ctx, token, "Kapalı", hash,
 			netip.MustParseAddr("198.51.100.10")); !errors.Is(err, ErrInviteInvalid) {
 			t.Errorf("redeeming the %s invitation returned %v; want ErrInviteInvalid", name, err)
 		}

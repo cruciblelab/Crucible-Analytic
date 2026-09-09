@@ -89,6 +89,9 @@ var excusedPages = map[string]string{
 	"totpQRHandler": "it answers a PNG, which has no strings in it to be missing",
 	"claimHandler": "reaching it needs a single-use invitation token, and " +
 		"TestHandoverCreatesAnOwner already walks the claim page with a real one",
+	"joinHandler": "reaching it needs a single-use invitation token, and " +
+		"TestTheInvitedPageIsReadable in memberinvite_integration_test.go walks " +
+		"both of its faces - the form and the refusal - with a real one",
 	"devAccessHandler": "reaching it needs a single-use developer token; " +
 		"the pages it leads to are setupHandler's, which is walked",
 }

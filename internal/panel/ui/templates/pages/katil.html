@@ -1,0 +1,51 @@
+{{define "icerik"}}
+{{- if .Data.Invalid}}
+{{- /* One page for unknown, expired, withdrawn and already-used. Which
+of the four it was is not said: distinguishing them confirms to anybody
+guessing that a guess had once been real, and somebody holding a genuine
+link that no longer works does the same thing in every case - ask
+whoever invited them. */}}
+<p>{{t "katil.gecersiz.govde"}}</p>
+<p class="ipucu">{{t "katil.gecersiz.ipucu"}}</p>
+{{- else if not .CSRF}}
+{{- /* No CSRF token means this render came from renderJoinDone: the
+address already had an account, the membership is granted, and there is
+nothing to submit. The notice above says so. */}}
+<p class="ipucu">{{t "katil.hesap_vardi_ipucu"}}</p>
+{{- else}}
+{{- with .Data.Error}}
+<p class="uyari hata" role="alert">{{.}}</p>
+{{- end}}
+<p>{{tf "katil.govde" .Data.Invite.SiteID .Data.RoleLabel}}</p>
+<p class="ipucu">{{tf "katil.rol_ipucu" .Data.RoleLabel}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{.CSRF}}">
+{{- /* Three things are not fields here: the address, the site and the
+role. All three are on the invitation and are read from it inside the
+transaction that grants the membership, so editing this form by hand
+changes nothing about what is granted. */}}
+<div class="alan">
+<label>{{t "katil.eposta"}}</label>
+<p class="deger">{{.Data.Invite.Email}}</p>
+<p class="ipucu">{{t "katil.eposta_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="ad">{{t "hesap.ad"}}</label>
+<input id="ad" name="ad" type="text" maxlength="80">
+<p class="ipucu">{{t "hesap.ad_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="parola">{{t "sahiplen.parola"}}</label>
+<input id="parola" name="parola" type="password" autocomplete="new-password"
+       minlength="12" required>
+<p class="ipucu">{{t "sahiplen.parola_ipucu"}}</p>
+</div>
+<div class="alan">
+<label for="parola_tekrar">{{t "hesap.parola.tekrar"}}</label>
+<input id="parola_tekrar" name="parola_tekrar" type="password"
+       autocomplete="new-password" minlength="12" required>
+</div>
+<button type="submit">{{t "katil.gonder"}}</button>
+</form>
+{{- end}}
+{{end}}

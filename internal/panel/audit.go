@@ -79,6 +79,12 @@ const (
 	ActionMemberAdded   = "member.added"
 	ActionMemberRemoved = "member.removed"
 	ActionMemberRerole  = "member.role_changed"
+	// C9.1. Minting and using an invitation are two events with two
+	// actors - the person who offered access and the person who took
+	// it up - and a single "member.added" would lose which was which.
+	ActionMemberInvited         = "member.invited"
+	ActionMemberInviteUsed      = "member.invite_used"
+	ActionMemberInviteWithdrawn = "member.invite_withdrawn"
 
 	ActionTokenCreated = "token.created"
 	ActionTokenRevoked = "token.revoked"

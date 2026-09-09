@@ -358,6 +358,16 @@ cikarildi = "The member was removed from the site."
 rol_degisti = "Role updated."
 kendini_cikaramaz = "You cannot remove yourself from this page."
 
+[metin.uyeler.davet]
+baslik = "Pending invitations"
+gecerlilik = "Valid until"
+geri_al = "Withdraw"
+geri_alindi = "The invitation was withdrawn."
+olusturuldu = "The invitation link for %s is ready."
+baglanti_baslik = "Invitation link"
+baglanti_govde = "You invited %s as %s. Pass the link on to them."
+baglanti_ipucu = "This link is shown once and can be used once. If you lose it, invite the same address again: a new one is minted and the old one stops working."
+
 [metin.uyeler.sutun]
 kisi = "Person"
 rol = "Role"
@@ -366,7 +376,7 @@ islem = "Actions"
 [metin.uyeler.ekle]
 baslik = "Add a member"
 eposta = "Email address"
-ipucu = "Adds somebody who already has an account. It does not create one - invitation email is not built yet."
+ipucu = "Added directly if the address has an account. If not, a single-use invitation link is minted; the link is shown on this page, and emailed as well when mail is configured."
 gonder = "Add"
 
 [metin.uyeler.hata]
@@ -374,7 +384,8 @@ bilinmeyen = "That request was not understood. Reload the page and try again."
 kaydedilemedi = "Could not be saved. If this keeps happening, check the logs."
 rol_yetki = "You cannot grant a role above your own."
 eposta_bos = "The email address is empty."
-hesap_yok = "No account exists for that address. The person needs an account first; invitation email is not built yet."
+davet_cok = "This site has reached its limit of pending invitations (%d). Withdraw some of the unused ones."
+davet_yok = "That invitation was not found. It may have been used or withdrawn."
 kullanici_gecersiz = "Invalid user."
 uye_yok = "That person is not a member of this site."
 son_sahip = "A site must keep at least one owner. Make somebody else an owner first."
@@ -423,6 +434,24 @@ ipucu = "Ask whoever installed the system for a new invitation link. Anybody wit
 
 [metin.sahiplen.hata]
 artik_gecersiz = "This link can no longer be used. It may have been used in another tab, or it expired."
+
+[metin.katil]
+baslik = "Accept the invitation"
+govde = "You have been invited to %s as %s. Set a password to join."
+rol_ipucu = "Your role: %s. Whoever invited you chose it; it cannot be changed from this page."
+eposta = "Your email address"
+eposta_ipucu = "The invitation was opened for this address and cannot be changed."
+gonder = "Join and sign in"
+hesap_vardi = "That address already has an account. %s has been added to it; sign in as you normally do."
+hesap_vardi_ipucu = "Your password has not changed."
+
+[metin.katil.gecersiz]
+baslik = "This link cannot be used"
+govde = "It may have been used, withdrawn, expired, or never existed."
+ipucu = "Ask whoever invited you for a new link."
+
+[metin.katil.hata]
+artik_gecersiz = "This link no longer works. It may have been used in another tab, withdrawn, or expired."
 
 [metin.hosgeldiniz]
 ilerleme = "Setup steps"
@@ -883,6 +912,10 @@ elden = "The link is above; you can pass it on yourself."
 [metin.posta.davet]
 konu = "Crucible Analytic — your panel invitation"
 govde = "Hello,\n\nA one-time invitation link has been prepared so you can create your account for your analytics panel."
+
+[metin.posta.uye_daveti]
+konu = "Crucible Analytic — you have been invited to an analytics panel"
+govde = "Hello,\n\nYou have been invited to a site on an analytics panel. Open the link below and set a password to join. The link can be used once and expires."
 
 # --- System health (B4/B7) ---
 #
