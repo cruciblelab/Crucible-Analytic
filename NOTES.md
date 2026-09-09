@@ -14506,3 +14506,39 @@ Bir de test düzeneğinden ders: `setupTestServer` bitene kadar bir Postgres
 danışma kilidi tutuyor, dolayısıyla ilki yaşarken ikinci çağrı sonsuza
 kadar bekliyor. İlk yazışımda öyleydi ve test asıldı; tek sunucu, üç
 hesap oldu. **`setupTestServer`'ı bir testte iki kez çağırma.**
+
+## Aynı testin iki koruması, bir gün içinde ikisi de ateşledi
+
+`TestNoServiceStopsWhileTheSchemaIsApplied` dün mutlak tavan yüzünden
+kırmızı verdi ve kural düzeltildi (tavan yalnız taban tavanın altındaysa
+geçerli). Bugün, konteyner yeniden başladıktan hemen sonra, **başka bir
+iddiası** kırmızı verdi:
+
+```
+collector insert  50 queries (31 during) | worst at rest 932ms
+  ... 50 sorgu koştu, bu bir şey ölçmüş olmak için çok az (taban 100)
+```
+
+Bu sefer düzeltilecek bir şey yoktu: test doğru olanı yaptı. Soramadığı
+bir soruya "hizmet kesilmedi" cevabı vermeyi **reddetti.** Kendi
+kaydettiğim ilke tam da bu: *ölçtüğü şeyi aç bırakan bir yük üreteci,
+kendi yükünü ölçüyordur.*
+
+Soğuk ile ılık aynı makinede:
+
+| | soğuk | ılık |
+|---|---|---|
+| yükseltme süresi | 684 ms | 129 ms |
+| dinlenirken en kötü | 932 ms | 436 ms |
+| toplam sorgu (collector) | 50 | 1955 |
+
+İkinci kırmızı (`TestAReleaseThatComesBackKeepsRunningAndDropsTheCheckpoint`)
+aynı sebep: sahte servisler zaman aşımı içinde geri bildiremedi. İkisi de
+ılık veritabanında geçti.
+
+**Ders, teste değil düzeneğe:** `pg_ctl status` bayat bir
+`postmaster.pid` yüzünden "server is running" diyebiliyor. Konteyner
+yeniden başladıktan sonra gerçek kontrol bir bağlantıdır. Yüzlerce testin
+0.00s'de düşmesi kodun değil veritabanının haberidir; ve veritabanı yeni
+kalktıysa kapıyı bir kez ısıtmadan koşturmak, kapının kendi ölçümünü aç
+bırakmak demek.

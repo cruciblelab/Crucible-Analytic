@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | ✅ **12/12** | — |
+| **C** Panel HTTP yüzeyi | 🟡 **12/13** | C9 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3214,6 +3214,132 @@ adım süreç yeniden başlatıldıktan sonra doğrulanmış kalır. Ve iki
 yapısal test: **`panel_smtp`'yi collector okuyamaz**, ve **e-posta
 yapılandırılmamışken davet ile sıfırlama akışları çalışmaya devam
 eder**.
+
+#### C9 — Üye daveti, ve süreli üyelik
+
+Panelin kendi kendine söylediği eksik. Hesabı olmayan birini üye eklemeye
+çalışan bir müşteri bugün şunu görüyor:
+
+> Bu adrese ait bir hesap yok. Kişinin önce hesabı oluşturulmalı; **davet
+> e-postası henüz eklenmedi.**
+
+"Henüz" diyen bir cümle, tutulmayı bekleyen bir sözdür — C7.2'nin
+kurtarma kodlarında da aynısı vardı. C4.4 bu işi C7'ye ertelemiş, C7 ise
+üçe bölünürken almamış; grup tablosunda bitmiş görünürken ertelenmiş bir
+iş taşıyordu. Bu faz o sözü tutuyor.
+
+##### Neyin zaten olduğu, ve neyin yazılacağı
+
+Jeton tarafı bu projede dört kez yazılmış: `panel_api_tokens`,
+`panel_dev_access`, `panel_owner_claims`, `panel_recovery_codes`. Dördü
+de yalnız `sha256` saklıyor. Sahiplik daveti ayrıca tek kullanımlık,
+süreli, e-postası mint edilirken sabitlenmiş, ve kimin hangi adresten
+kullandığını kaydediyor. **İkinci bir jeton mekanizması yazılmıyor**;
+üye daveti bu desenin beşinci örneği.
+
+Yazılacak olan üç şey: davet satırı, kullanım akışı, ve üyeliğin isteğe
+bağlı bitiş tarihi.
+
+##### Karar: davet bir satır, kullanıcı değil — ve bellekte değil
+
+Tartışmada iki alternatif kondu ve ikisi de ölçülerek elendi.
+
+**"Hesap davet edilirken açılsın."** C3'ün kararı zaten bunun tersiydi ve
+gerekçesi duruyor: *parolasız + "henüz alınmadı" bayraklı bir kullanıcı
+satırı, uyuşmadıklarında ya kimsenin giremediği ya da herkesin girebildiği
+bir hesap demek.* Üstüne pratik bir bedel var: sahip, yazdığı her adrese
+kimse hiçbir şey yapmadan bir hesap satırı imal eder, ve o satır üye
+listesinde erişimi olan bir kişi gibi durur. Hiçbir şey de kaybolmuyor —
+rol **davet anında kararlaşıp kullanım anında uygulanıyor.**
+
+**"Davet bellekte tutulsun, yeniden başlatınca bitmiş sayılsın."**
+Sezgisi doğru (kısa ömürlü olsun, arkasında kullanılabilir bir sır
+kalmasın) ama mekanizması yanlış, ve üç ölçüm bunu söylüyor:
+
+1. **Bu panel bilerek yeniden başlatılıyor.** `release/restart.sh`,
+   `crucible-restart.path` yükseltici bir dosyaya dokununca çalışıyor.
+   Yani yeniden başlatma istisna değil, yükseltmenin rutin parçası — ve
+   `internal/upgrade`'in kendi yorumuyla "çalışan bir sistemin gece üçte
+   yeniden başlatılma" anı. Sonuç: sahip 17:00'de davet eder, gece
+   yükseltme koşar, meslektaş 09:00'da tıklar ve bağlantı ölüdür.
+2. **Kimse sebebini söyleyemez.** Süresi mi doldu, kullanıldı mı, hiç var
+   mı oldu — panelin kaydı olmadığı için cevabı yok. *Bir teşhis, ona
+   ulaşamayan bir yol için yok demektir.* `panel_owner_claims` tam
+   tersini yapıyor: `used_at`, `used_from`, `used_by` yıllar sonra "bu
+   sahibi hangi davet üretti" sorusunu cevaplasın diye duruyor.
+3. **Oturumlar zaten veritabanında.** `internal/panel/session.go`'nun
+   gerekçesi yazılı: oturumlar Postgres'te, çünkü iptal edilebilirlik
+   imzalı bir çerezin veremeyeceği şey. Bellekteki bir davet, yeniden
+   başlatmayı **oturumların atlattığı** ama davetin atlatamadığı tek
+   kullanıcıya dönük durum olurdu.
+
+Tuz karşılaştırması da transfer etmiyor, ve `internal/beacon/visitor.go`
+bedeli kendi yazıyor: tuzun bellekte olmasının bedeli "yeniden başlatmada
+bir ziyaretçinin iki sayılması", kazancı "kimliklerin yedekten geri
+türetilememesi". Orada kaybolmak **özelliğin kendisi** ve kimse tuzu
+beklemiyor. Davette kaybolmanın kazancı yok — satırda zaten yalnız
+`sha256` var, yani yedekte çalışan bir davet hiç bulunmuyor — bedeli ise
+bekleyen bir insan.
+
+**Ama istenen şey alınıyor:** kısa süre (varsayılan 7 gün, sahip iptal
+edebilir), yalnız hash saklanıyor, ve süresi geçmiş satırlar süpürülüyor.
+Kalıcı olan yalnız denetim kaydı, ki erişim vermenin izi orada durmalı.
+
+##### Kullanım anında rol yeniden sorulur
+
+Tasarımın en kolay atlanan deliği: rol yalnız üretilirken denetlenirse,
+bir admin sahip daveti üretir, yetkisi düşürülür, bağlantı sonradan
+kullanılır ve ortaya bir sahip çıkar. **Yetki yükselmesi, yetkinin
+alınmasından sağ çıkar.**
+
+İki parça: kullanım anında davet edenin o rolü hâlâ verebildiği
+doğrulanır (`CanAssign`, sunucuda, C4.4'ün tuzak notuyla aynı gerekçe),
+ve birinin rolü düşürüldüğünde ya da çıkarıldığında açık davetleri iptal
+edilir.
+
+Formdan gelen hiçbir şeye güvenilmiyor: rol de site kimliği de e-posta da
+davet satırından okunuyor. Davetli kendine yalnız parola ve **görünen ad**
+ayarlıyor; giriş kimliği e-posta ve onu davet eden sabitliyor — sahiplik
+davetinin aynı kuralı.
+
+##### Süreli üyelik: ayrı bir şey, ve daha değerli olanı
+
+"Arkadaşını çağıracak ya da geçici bir iş yapacak" durumunun cevabı
+bağlantının süresi değil, **erişimin** süresi. `panel_site_members`'ta
+bugün hiç bitiş sütunu yok, yani geçici erişimin tek yolu birinin
+hatırlayıp elle silmesi — ve unutulan erişim en sessiz güvenlik kusuru.
+
+Üyelik satırına boş bırakılabilir bir bitiş tarihi ekleniyor. Boşken
+bugünkü davranış, yani süresiz. Özgürlük kuralına uyuyor: kimseyi
+engellemiyor, yalnız geçici olanı dürüst kılıyor.
+
+**Süre her istekte sunucuda süzülür, temizlik işiyle değil.** Erişim
+sorgusu bitiş tarihini kendisi eler; süpürme yalnız kozmetik olur.
+Aksi hâlde süresi dolmuş bir üye, işin koşmasını bekleyerek erişimini
+sürdürür — ve o pencere, kimsenin bakmadığı bir pencere olur.
+
+##### Bitti ölçütü
+
+Gerçek veritabanına ve gerçek tarayıcıya karşı:
+
+- Hesabı olmayan bir adrese davet üretiliyor; bağlantı **hem e-postayla
+  hem ekranda** veriliyor (e-posta yapılandırılmamışken de akış
+  çalışıyor, C7.3'ün yapısal testiyle aynı iddia).
+- Bağlantı **tek kullanımlık**: iki sekmede aynı anda açılan davet bir
+  hesap üretiyor, iki değil — `panel_owner_claims`'in yarış testiyle
+  aynı desen.
+- Davetli role dokunamıyor: formdan farklı bir rol gönderildiğinde
+  sunucu davet satırındakini uyguluyor.
+- **Davet eden yetkisini kaybedince davet çalışmıyor**, ve düşürme açık
+  davetleri iptal ediyor.
+- Süresi dolmuş üyelik erişim vermiyor, **temizlik işi hiç koşmadan**.
+- Denetim kaydında davetin üretilmesi ve kullanılması ayrı ayrı görünüyor.
+
+Mutasyonlar: kullanım anındaki `CanAssign` kontrolünü sil; rolü davet
+satırı yerine formdan oku; bitiş tarihini erişim sorgusundan çıkar;
+`used_at`'i atomik işlemin dışına taşı. Dördü de kırmızı vermeli.
+
+---
 
 ### D. Panelin kendisi
 
