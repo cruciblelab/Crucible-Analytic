@@ -242,19 +242,190 @@ func TestStore_RealDB_LastOwnerCannotBeRemovedOrDemoted(t *testing.T) {
 		t.Fatalf("AddMember: %v", err)
 	}
 
-	if err := s.RemoveMember(ctx, site, owner.ID); !errors.Is(err, ErrLastOwner) {
+	if err := s.RemoveMember(ctx, site, owner.ID, nil); !errors.Is(err, ErrLastOwner) {
 		t.Errorf("removing the only owner gave %v, want ErrLastOwner", err)
 	}
-	if err := s.SetMemberRole(ctx, site, owner.ID, RoleViewer); !errors.Is(err, ErrLastOwner) {
+	if err := s.SetMemberRole(ctx, site, owner.ID, RoleViewer, nil); !errors.Is(err, ErrLastOwner) {
 		t.Errorf("demoting the only owner gave %v, want ErrLastOwner - it leaves the site ownerless just as surely as removal", err)
 	}
 
 	// With a second owner, both operations become legal again.
-	if err := s.SetMemberRole(ctx, site, admin.ID, RoleOwner); err != nil {
+	if err := s.SetMemberRole(ctx, site, admin.ID, RoleOwner, nil); err != nil {
 		t.Fatalf("promoting the admin: %v", err)
 	}
-	if err := s.RemoveMember(ctx, site, owner.ID); err != nil {
+	if err := s.RemoveMember(ctx, site, owner.ID, nil); err != nil {
 		t.Errorf("removing one of two owners: %v", err)
+	}
+}
+
+// CanAssign had no counterpart, and three writers went through the gap.
+//
+// The rule it states - nobody may grant authority above their own - was
+// only ever asked about the role being handed out. Nothing asked about
+// the role being taken away, so an administrator could not make an owner
+// and could unmake one, by any of three routes. All three were measured
+// against this database before the check existed; all three left the
+// owner holding "viewer".
+func TestStore_RealDB_AnAdminCannotUnmakeAnOwner(t *testing.T) {
+	ns := "panel-unmake"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	second := mustUser(t, s, ns, "ownertwo", false)
+	admin := mustUser(t, s, ns, "admin", false)
+	for _, u := range []User{owner, second} {
+		if err := s.AddMember(ctx, site, u.ID, RoleOwner, nil); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+	}
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, nil); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// A second owner stands, so nothing here is refused by the
+	// last-owner rule. What refuses it is the admin's own authority.
+	for _, tc := range []struct {
+		what string
+		do   func() error
+	}{
+		{"re-adding an owner with a lower role", func() error {
+			return s.AddMember(ctx, site, owner.ID, RoleViewer, &admin.ID)
+		}},
+		{"setting an owner's role", func() error {
+			return s.SetMemberRole(ctx, site, owner.ID, RoleViewer, &admin.ID)
+		}},
+		{"removing an owner", func() error {
+			return s.RemoveMember(ctx, site, owner.ID, &admin.ID)
+		}},
+	} {
+		if err := tc.do(); !errors.Is(err, ErrNotPermitted) {
+			t.Errorf("an admin %s gave %v, want ErrNotPermitted", tc.what, err)
+		}
+	}
+
+	// And the owner is untouched by all three attempts.
+	access, err := s.AccessFor(ctx, principalOf(owner), site)
+	if err != nil {
+		t.Fatalf("AccessFor: %v", err)
+	}
+	if access.Role != RoleOwner {
+		t.Errorf("the owner's role is now %q, want owner", access.Role)
+	}
+
+	// The half that was always stated, asserted here against the store
+	// rather than only through the page. Both halves live in one
+	// transaction now, and a rule that only the handler enforces is a
+	// rule the next handler can forget.
+	if err := s.AddMember(ctx, site, admin.ID, RoleOwner, &admin.ID); !errors.Is(err, ErrNotPermitted) {
+		t.Errorf("an admin making themselves an owner gave %v, want ErrNotPermitted", err)
+	}
+}
+
+// The other half, and it needs its own test because the authority check
+// above would hide it: an owner *may* act on an owner, so only the
+// structural rule stands between a site and having nobody who owns it.
+//
+// Re-granting was the route that skipped that rule entirely. Removal and
+// demotion had it from the beginning; AddMember wrote the same change
+// with a different verb and no check at all.
+func TestStore_RealDB_ReGrantingCannotStripTheLastOwner(t *testing.T) {
+	ns := "panel-regrant"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	if err := s.AddMember(ctx, site, owner.ID, RoleViewer, &owner.ID); !errors.Is(err, ErrLastOwner) {
+		t.Errorf("re-granting the only owner a lower role gave %v, want ErrLastOwner", err)
+	}
+
+	var owners int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM panel_site_members WHERE site_id = $1 AND role = 'owner'`,
+		site).Scan(&owners); err != nil {
+		t.Fatalf("counting owners: %v", err)
+	}
+	if owners != 1 {
+		t.Errorf("the site has %d owners, want 1 - a site with none cannot be repaired from the panel", owners)
+	}
+}
+
+// The operator is not caught by the rule above, and should not be.
+//
+// Hosting the deployment is what superadmin means; a rule that stopped
+// the operator from repairing a customer's site would only mean the
+// operator editing the table by hand.
+func TestStore_RealDB_TheOperatorMayStillActOnAnOwner(t *testing.T) {
+	ns := "panel-opowner"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	second := mustUser(t, s, ns, "ownertwo", false)
+	staff := mustUser(t, s, ns, "staff", true)
+	for _, u := range []User{owner, second} {
+		if err := s.AddMember(ctx, site, u.ID, RoleOwner, nil); err != nil {
+			t.Fatalf("AddMember: %v", err)
+		}
+	}
+
+	if err := s.SetMemberRole(ctx, site, owner.ID, RoleViewer, &staff.ID); err != nil {
+		t.Errorf("the operator demoting an owner: %v", err)
+	}
+}
+
+// Authority is read from the database inside the writing transaction,
+// not from whatever the caller believed when it started.
+//
+// A demoted administrator whose session is still open is the ordinary
+// case, and the demotion has to reach them without anybody logging them
+// out.
+func TestStore_RealDB_AuthorityIsReadAtWriteTime(t *testing.T) {
+	ns := "panel-livewrite"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	admin := mustUser(t, s, ns, "admin", false)
+	target := mustUser(t, s, ns, "target", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, nil); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.AddMember(ctx, site, target.ID, RoleViewer, nil); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// While they are an admin, this is allowed.
+	if err := s.SetMemberRole(ctx, site, target.ID, RoleAdmin, &admin.ID); err != nil {
+		t.Fatalf("an admin re-roling a viewer: %v", err)
+	}
+
+	// Demoted, and the same call is refused - with no session involved.
+	if err := s.SetMemberRole(ctx, site, admin.ID, RoleViewer, &owner.ID); err != nil {
+		t.Fatalf("demoting the admin: %v", err)
+	}
+	if err := s.SetMemberRole(ctx, site, target.ID, RoleViewer, &admin.ID); !errors.Is(err, ErrNotPermitted) {
+		t.Errorf("a demoted admin re-roling somebody gave %v, want ErrNotPermitted", err)
+	}
+
+	// A disabled account is refused too, whatever role its row still
+	// carries. Sessions outlive the switch that turns an account off.
+	if err := s.SetDisabled(ctx, owner.ID, true); err != nil {
+		t.Fatalf("SetDisabled: %v", err)
+	}
+	if err := s.SetMemberRole(ctx, site, target.ID, RoleAdmin, &owner.ID); !errors.Is(err, ErrNotPermitted) {
+		t.Errorf("a disabled owner re-roling somebody gave %v, want ErrNotPermitted", err)
 	}
 }
 
@@ -285,7 +456,7 @@ func TestStore_RealDB_ConcurrentOwnerRemovalLeavesOneStanding(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			errs[i] = s.RemoveMember(context.Background(), site, u.ID)
+			errs[i] = s.RemoveMember(context.Background(), site, u.ID, nil)
 		}()
 	}
 	close(start)
@@ -990,7 +1161,7 @@ func TestStore_RealDB_UpdatesReportMissingRows(t *testing.T) {
 	if err := s.SetPasswordHash(ctx, noSuchUser, "x"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("SetPasswordHash on a missing user gave %v, want ErrNotFound", err)
 	}
-	if err := s.RemoveMember(ctx, "site-"+ns, noSuchUser); !errors.Is(err, ErrNotFound) {
+	if err := s.RemoveMember(ctx, "site-"+ns, noSuchUser, nil); !errors.Is(err, ErrNotFound) {
 		t.Errorf("removing a missing member gave %v, want ErrNotFound", err)
 	}
 }

@@ -217,7 +217,7 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 	}
 
 	// Demoted to viewer, which cannot manage members at all.
-	if err := store.SetMemberRole(ctx, inviteSite, admin.ID, RoleViewer); err != nil {
+	if err := store.SetMemberRole(ctx, inviteSite, admin.ID, RoleViewer, nil); err != nil {
 		t.Fatalf("SetMemberRole: %v", err)
 	}
 
@@ -231,7 +231,7 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 	// And the invitation was not consumed by the refusal: restoring the
 	// role restores the link, rather than leaving the invitee holding
 	// something that can never work again.
-	if err := store.SetMemberRole(ctx, inviteSite, admin.ID, RoleAdmin); err != nil {
+	if err := store.SetMemberRole(ctx, inviteSite, admin.ID, RoleAdmin, nil); err != nil {
 		t.Fatalf("SetMemberRole back: %v", err)
 	}
 	if _, err := store.RedeemMemberInvite(ctx, token, "Düşen", hash,
@@ -240,6 +240,52 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 			"A refusal must roll back with the transaction, not spend the link", err)
 	}
 	_ = invite
+}
+
+// An invitation gives access. It is not a way to take any away.
+//
+// The route this closes was real and short: an administrator invites the
+// site's owner as a viewer, and then opens the link themselves - it is
+// printed on their own screen, which is the whole point of C7.3's rule
+// that the link is always shown. Redemption's upsert wrote the
+// invitation's role over the membership it found, and the site was left
+// with no owner at all. Measured before it was fixed.
+//
+// The fix is DO NOTHING, so the assertion here is about the membership
+// after the redemption rather than about an error: redeeming succeeds,
+// the account is found rather than created, and the role does not move.
+func TestARedeemedInvitationNeverLowersAMembershipItFinds(t *testing.T) {
+	store := newTestStore(t, "davet")
+	ctx := context.Background()
+	owner := inviteFixture(t, store, "hedef-sahip", RoleOwner, false)
+	admin := inviteFixture(t, store, "davetci-admin", RoleAdmin, false)
+
+	hash, err := HashPassword(goodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token, _, err := store.CreateMemberInvite(ctx, inviteSite, owner.Email, RoleViewer,
+		Principal{UserID: admin.ID, Label: admin.Email}, 0)
+	if err != nil {
+		t.Fatalf("CreateMemberInvite: %v", err)
+	}
+	got, err := store.RedeemMemberInvite(ctx, token, "Sahip", hash,
+		netip.MustParseAddr("198.51.100.11"))
+	if err != nil {
+		t.Fatalf("RedeemMemberInvite: %v", err)
+	}
+	if got.Created {
+		t.Errorf("the address already had an account; Created = true would mean a second one")
+	}
+
+	access, err := store.AccessFor(ctx, Principal{UserID: owner.ID}, inviteSite)
+	if err != nil {
+		t.Fatalf("AccessFor: %v", err)
+	}
+	if access.Role != RoleOwner {
+		t.Errorf("the owner's role is %q after somebody redeemed a viewer invitation aimed at them, want owner", access.Role)
+	}
 }
 
 // TestMemberInviteStoresNoUsableToken.

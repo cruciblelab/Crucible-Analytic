@@ -161,6 +161,57 @@ func TestMembersPageEnforcesTheRoleItDraws(t *testing.T) {
 	}
 }
 
+// The page had been saying, in a comment beside the role select, that
+// an owner may be re-roled by another owner and not by an admin. It was
+// not true: the select was filtered by what the viewer may hand out and
+// never by whose row it sat on, so an administrator was offered a menu
+// and a button that both changed an owner.
+//
+// Tested from the rendered page rather than only from the store, because
+// a control that always fails is its own defect even when the failure is
+// correct.
+func TestAnAdminIsNotOfferedAWayToChangeAnOwner(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+	const site = "sahip-satiri-testi"
+
+	owner := makeUser(t, store, "satir-sahip", false)
+	admin := makeUser(t, store, "satir-admin", false)
+	viewer := makeUser(t, store, "satir-izleyici", false)
+	for _, m := range []struct {
+		id   int64
+		role string
+	}{{owner.ID, "owner"}, {admin.ID, "admin"}, {viewer.ID, "viewer"}} {
+		if err := store.AddMember(ctx, site, m.id, roleOf(m.role), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	page := server.URL + memberPath(site)
+
+	_, body := get(t, signedIn(t, server.URL, admin.Email), page)
+	ownerField := `name="kullanici" value="` + strconv.FormatInt(owner.ID, 10) + `"`
+	viewerField := `name="kullanici" value="` + strconv.FormatInt(viewer.ID, 10) + `"`
+	if strings.Contains(body, ownerField) {
+		t.Errorf("the page offered an admin a form aimed at an owner")
+	}
+	if !strings.Contains(body, viewerField) {
+		t.Errorf("the page offered an admin no form aimed at a viewer, so the check above proves nothing")
+	}
+
+	// An owner sees both, which is what makes the absence above a rule
+	// rather than the page simply having stopped drawing forms.
+	_, body = get(t, signedIn(t, server.URL, owner.Email), page)
+	if !strings.Contains(body, viewerField) {
+		t.Errorf("an owner was offered no form aimed at a viewer")
+	}
+	if !strings.Contains(body, `name="kullanici" value="`+strconv.FormatInt(admin.ID, 10)+`"`) {
+		t.Errorf("an owner was offered no form aimed at an admin")
+	}
+}
+
 // TestTheLastOwnerCannotBeRemoved is the store's rule seen from the
 // page. What is being tested is not the rule - that has its own test -
 // but that the page turns it into a sentence instead of a 500.
@@ -182,9 +233,34 @@ func TestTheLastOwnerCannotBeRemoved(t *testing.T) {
 	defer server.Close()
 	page := server.URL + memberPath(site)
 	helperClient := signedIn(t, server.URL, helper.Email)
+	ownerClient := signedIn(t, server.URL, owner.Email)
 
-	// The admin tries to remove the only owner.
+	// The admin does not reach the last-owner rule at all: an owner is
+	// above them, so the refusal comes one rule earlier. Two sentences
+	// rather than one, because they say different things to the person
+	// reading them - "you may not touch this person" is not "this site
+	// needs somebody who owns it", and offering the second when the first
+	// is true would tell an administrator to go and promote a colleague.
 	status, body := post(t, helperClient, page, url.Values{
+		"islem": {"cikar"}, "kullanici": {strconv.FormatInt(owner.ID, 10)},
+	})
+	if status == http.StatusInternalServerError {
+		t.Fatal("the authority rule surfaced as a server error")
+	}
+	if !strings.Contains(body, "rolü sizinkinin üstünde") {
+		t.Errorf("an admin removing an owner was not refused by authority: %q", messageOf(body))
+	}
+	_, body = post(t, helperClient, page, url.Values{
+		"islem": {"rol"}, "kullanici": {strconv.FormatInt(owner.ID, 10)}, "rol": {"admin"},
+	})
+	if !strings.Contains(body, "rolü sizinkinin üstünde") {
+		t.Errorf("an admin demoting an owner was not refused by authority: %q", messageOf(body))
+	}
+
+	// The owner may act on themselves, and that is where the last-owner
+	// rule stands. The page does not draw either button next to your own
+	// name; the form still arrives, so the refusal has to be real.
+	status, body = post(t, ownerClient, page, url.Values{
 		"islem": {"cikar"}, "kullanici": {strconv.FormatInt(owner.ID, 10)},
 	})
 	if status == http.StatusInternalServerError {
@@ -194,7 +270,7 @@ func TestTheLastOwnerCannotBeRemoved(t *testing.T) {
 		t.Errorf("the page did not explain the refusal: %q", messageOf(body))
 	}
 	// And demotion is refused for the same reason, by the same rule.
-	_, body = post(t, helperClient, page, url.Values{
+	_, body = post(t, ownerClient, page, url.Values{
 		"islem": {"rol"}, "kullanici": {strconv.FormatInt(owner.ID, 10)}, "rol": {"admin"},
 	})
 	if !strings.Contains(body, "en az bir sahibi olmalı") {

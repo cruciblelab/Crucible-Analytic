@@ -259,6 +259,31 @@ func (a Access) CanAssign(role Role) bool {
 	return true
 }
 
+// CanManageMember reports whether this principal may act on a member who
+// currently holds the given role.
+//
+// The missing half of CanAssign, and it was missing for real: CanAssign
+// asks what may be handed out and nothing asked what may be taken away,
+// so an administrator could not make an owner and could unmake one. The
+// owner/admin distinction survives being unable to promote yourself only
+// if it also survives being demoted by the person below you.
+//
+// A membership that does not exist yet has the empty role, which no rule
+// protects - granting somebody their first role is CanAssign's question,
+// not this one.
+func (a Access) CanManageMember(current Role) bool {
+	if !a.Can(CapManageMembers) {
+		return false
+	}
+	if a.Principal.Superadmin {
+		return true
+	}
+	if current == RoleOwner {
+		return a.Role == RoleOwner
+	}
+	return true
+}
+
 // RoleCan reports whether a bare role carries a capability.
 //
 // Access.Can is the one to use in a handler: it knows about superadmins,

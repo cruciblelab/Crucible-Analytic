@@ -200,14 +200,8 @@ func (s *Server) addMember(ctx context.Context, lang *ui.Language, r *http.Reque
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 	}
 
-	by := access.Principal.UserID
-	var grantedBy *int64
-	if by != 0 {
-		grantedBy = &by
-	}
-	if err := s.Store.AddMember(ctx, access.SiteID, user.ID, role, grantedBy); err != nil {
-		s.logger().Error("panel: adding member", "err", err)
-		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
+	if err := s.Store.AddMember(ctx, access.SiteID, user.ID, role, actorID(access)); err != nil {
+		return s.memberWriteFailed(lang, err, "panel: adding member")
 	}
 	s.auditFor(ctx, access.Principal, panel.AuditEntry{
 		Action: panel.ActionMemberAdded, SiteID: access.SiteID,
@@ -229,7 +223,7 @@ func (s *Server) changeRole(ctx context.Context, lang *ui.Language, access panel
 	// Demoting the person whose role currently permits the demotion is
 	// how a site loses its last owner without anybody removing anyone.
 	// The store's transaction refuses it; this is only the message.
-	if err := s.Store.SetMemberRole(ctx, access.SiteID, userID, role); err != nil {
+	if err := s.Store.SetMemberRole(ctx, access.SiteID, userID, role, actorID(access)); err != nil {
 		return s.memberWriteFailed(lang, err, "panel: changing member role")
 	}
 	s.auditFor(ctx, access.Principal, panel.AuditEntry{
@@ -246,7 +240,7 @@ func (s *Server) removeMember(ctx context.Context, lang *ui.Language, access pan
 	if !ok {
 		return membersPage{Message: lang.T("uyeler.hata.kullanici_gecersiz"), Failed: true}
 	}
-	if err := s.Store.RemoveMember(ctx, access.SiteID, userID); err != nil {
+	if err := s.Store.RemoveMember(ctx, access.SiteID, userID, actorID(access)); err != nil {
 		return s.memberWriteFailed(lang, err, "panel: removing member")
 	}
 	s.auditFor(ctx, access.Principal, panel.AuditEntry{
@@ -256,12 +250,22 @@ func (s *Server) removeMember(ctx context.Context, lang *ui.Language, access pan
 	return membersPage{Message: lang.T("uyeler.cikarildi")}
 }
 
-// memberWriteFailed turns a store error into a page message.
+// actorID is who the store should check this write against.
 //
-// The last-owner refusal is the whole reason this exists. It is not a
-// server fault and it is not the caller's mistake in any interesting
-// sense - it is the rule working - so it gets its own sentence, and only
-// everything else gets logged and called a failure.
+// A principal with no account is a developer session, which the store
+// treats as the deployment acting rather than a person. That is the same
+// answer its own rules would give, because such a session carries
+// superadmin authority - asserted in
+// TestDeveloperPrincipal_IsLabelledAndPrivileged, which is what keeps
+// this shortcut honest if that ever changes.
+func actorID(access panel.Access) *int64 {
+	if access.Principal.UserID == 0 {
+		return nil
+	}
+	id := access.Principal.UserID
+	return &id
+}
+
 // inviteMember mints an invitation for an address with no account.
 //
 // Reached only from addMember, which is the point: the caller asked for
@@ -331,9 +335,19 @@ func (s *Server) withdrawInvite(ctx context.Context, lang *ui.Language, access p
 	return membersPage{Message: lang.T("uyeler.davet.geri_alindi")}
 }
 
+// memberWriteFailed turns a store error into a page message.
+//
+// The last-owner refusal is the whole reason this exists. It is not a
+// server fault and it is not the caller's mistake in any interesting
+// sense - it is the rule working - so it gets its own sentence, and only
+// everything else gets logged and called a failure. The same is now true
+// of the authority refusal beside it.
 func (s *Server) memberWriteFailed(lang *ui.Language, err error, what string) membersPage {
 	if errors.Is(err, panel.ErrLastOwner) {
 		return membersPage{Message: lang.T("uyeler.hata.son_sahip"), Failed: true}
+	}
+	if errors.Is(err, panel.ErrNotPermitted) {
+		return membersPage{Message: lang.T("uyeler.hata.uye_yetki"), Failed: true}
 	}
 	if errors.Is(err, panel.ErrNotFound) {
 		return membersPage{Message: lang.T("uyeler.hata.uye_yok"), Failed: true}
@@ -386,7 +400,11 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 			// own name is for, and a mis-click that locks somebody out
 			// of the page they are standing on is worth one extra step
 			// elsewhere.
-			Removable: data.CanManage && !self,
+			//
+			// Nor is removing somebody whose role stands above your own.
+			// The store refuses it either way; this is what stops the
+			// page from offering a button that always fails.
+			Removable: data.CanManage && !self && access.CanManageMember(m.Role),
 		})
 	}
 
@@ -432,7 +450,15 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 // Built from panel.ValidRoles and filtered by CanAssign, so a role added
 // to the model appears here without anybody remembering to add it - and
 // one nobody may grant never appears at all.
+//
+// Filtered by CanManageMember first, which is a different question: the
+// list above asks what may be handed out, this asks whether this row's
+// occupant may be touched at all. An administrator looking at an owner
+// gets no select, which is what the page has always said happens.
 func assignableRoles(lang *ui.Language, access panel.Access, current panel.Role) []roleChoice {
+	if current != "" && !access.CanManageMember(current) {
+		return nil
+	}
 	choices := make([]roleChoice, 0, len(panel.ValidRoles))
 	for _, role := range panel.ValidRoles {
 		if !access.CanAssign(role) {

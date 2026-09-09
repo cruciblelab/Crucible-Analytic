@@ -315,10 +315,21 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 			return fmt.Errorf("panel: look up invited address: %w", err)
 		}
 
+		// DO NOTHING, not DO UPDATE. An invitation gives access; it is
+		// not a way to take any away. Overwriting the role would mean an
+		// administrator could invite the site's owner as a viewer, open
+		// the link themselves - it is printed on their own screen - and
+		// demote them. Measured on a real database: the site was left
+		// with no owner at all.
+		//
+		// The invitation is minted only for an address with no account,
+		// so a membership standing here at all means one appeared in the
+		// meantime. Leaving it alone is also the only answer that cannot
+		// surprise the person who has it.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO panel_site_members (site_id, user_id, role, created_by)
 			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (site_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+			ON CONFLICT (site_id, user_id) DO NOTHING`,
 			invite.SiteID, user.ID, string(invite.Role), inviterID); err != nil {
 			return fmt.Errorf("panel: grant membership: %w", err)
 		}
@@ -342,28 +353,16 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 // Read inside the redeeming transaction, against the same rule the
 // members page uses: a superadmin may assign anything, and a member may
 // assign what their own role allows.
+//
+// liveAccess is shared with the members page's own writes, so the
+// question "may this person do this here" has one implementation and one
+// place to be got wrong.
 func inviterMayStillGrant(ctx context.Context, tx pgx.Tx, inviterID *int64, siteID string, role Role) bool {
 	if inviterID == nil {
 		return false
 	}
-	var superadmin bool
-	var current *string
-	err := tx.QueryRow(ctx, `
-		SELECT u.is_superadmin,
-		       (SELECT m.role FROM panel_site_members m
-		         WHERE m.user_id = u.id AND m.site_id = $2)
-		  FROM panel_users u
-		 WHERE u.id = $1 AND NOT u.disabled`, *inviterID, siteID).
-		Scan(&superadmin, &current)
-	if err != nil {
-		return false
-	}
-	access := Access{Principal: Principal{UserID: *inviterID, Superadmin: superadmin}, SiteID: siteID}
-	if current != nil {
-		access.Role = Role(*current)
-		access.Member = true
-	}
-	return access.CanAssign(role)
+	access, ok := liveAccess(ctx, tx, *inviterID, siteID)
+	return ok && access.CanAssign(role)
 }
 
 // OpenMemberInvites lists the invitations for one site that nobody has

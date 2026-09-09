@@ -141,6 +141,45 @@ func TestAccess_CanAssignNeverEscalates(t *testing.T) {
 	}
 }
 
+// The mirror of the test above, and it exists because for a long time
+// only that one did. Three writers went through the gap: re-granting a
+// lower role, redeeming an invitation aimed at an owner, and the role
+// select itself. All three left the owner holding "viewer", and two of
+// them left the site with nobody who owned it.
+func TestAccess_CanManageMemberProtectsTheRowAbove(t *testing.T) {
+	owner := accessAs(RoleOwner)
+	admin := accessAs(RoleAdmin)
+	viewer := accessAs(RoleViewer)
+
+	if !owner.CanManageMember(RoleOwner) {
+		t.Error("an owner may not act on another owner")
+	}
+	if admin.CanManageMember(RoleOwner) {
+		t.Error("an admin was allowed to act on an owner")
+	}
+	if !admin.CanManageMember(RoleAdmin) || !admin.CanManageMember(RoleViewer) {
+		t.Error("an admin may not act on an admin or a viewer")
+	}
+	for _, role := range ValidRoles {
+		if viewer.CanManageMember(role) {
+			t.Errorf("a viewer was allowed to act on %s", role)
+		}
+	}
+
+	// A row that does not exist yet has no occupant to protect. Whether
+	// somebody may be given their first role is CanAssign's question,
+	// and answering it here as well would refuse an admin the ordinary
+	// act of adding a colleague.
+	if !admin.CanManageMember("") {
+		t.Error("an admin may not grant somebody their first role")
+	}
+
+	staff := Access{Principal: Principal{Superadmin: true}}
+	if !staff.CanManageMember(RoleOwner) {
+		t.Error("the operator may not act on an owner; hosting the deployment is what superadmin means")
+	}
+}
+
 func TestAccess_CanAssignRejectsUnknownRoles(t *testing.T) {
 	if accessAs(RoleOwner).CanAssign(Role("god")) {
 		t.Error("an unrecognized role was assignable")

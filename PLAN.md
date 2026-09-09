@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | 🟡 **13/14** | C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
+| **C** Panel HTTP yüzeyi | 🟡 **14/15** | C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3324,6 +3324,39 @@ de kırmızı vermeli.
 
 ---
 
+#### C9.1c — Yetki kuralının alınan yarısı ✅ **yapıldı**
+
+Planlanmamış, C9.2'ye hazırlanırken bulundu: üyelik tablosuna kimin
+yazdığına bakarken kuralın yarısının hiç yazılmamış olduğu görüldü.
+
+`CanAssign` "kimse kendi yetkisinin üstünde bir rol veremez" diyor ve
+doğru söylüyor. Hiçbir yerde **kimin rolüne dokunulduğu** sorulmuyordu,
+dolayısıyla bir yönetici bir sahip yapamıyor ama bir sahibi
+bozabiliyordu. Üç yol da gerçek veritabanına karşı ölçüldü:
+`AddMember` son sahip korumasının tamamen dışındaydı; davet kullanımı
+bulduğu üyeliğin üstüne yazıyordu; ve rol seçicisi hiç satır sahibine
+bakmıyordu. İlk ikisi siteyi **sıfır sahiple** bırakıyordu.
+
+Düzeltme `Access.CanManageMember`, ve kararın **yazan işlemin içinde**
+alınması: üç mutasyon da aktörün kimliğini alıp yetkiyi o an
+veritabanından okuyor, oturumun inandığından değil. `nil` aktör
+dağıtımın kendisi demek (ilk kurulum, sahiplik daveti). Davet tarafı
+`DO NOTHING` oldu: davet erişim verir, erişim almaz.
+
+Bu faz C9.2'den **önce** gelmek zorundaydı: süreli üyelik aynı tabloya
+dördüncü bir yazar ekliyor, ve bir sahibin üyeliğine bitiş tarihi
+koyabilen bir yönetici üçüncü deliği dördüncü kez açardı.
+
+##### Bitti ölçütü
+
+Sekiz mutasyon: `CanManageMember`'ın sahip koruması; `AddMember`'ın son
+sahip kontrolü; davetin `DO NOTHING`'i; deponun `CanManageMember` ve
+`CanAssign` kontrolleri ayrı ayrı; `liveAccess`'in devre dışı hesap
+süzgeci; sayfanın rol seçici ve çıkarma düğmesi süzgeçleri. Hepsi
+kırmızı vermeli.
+
+---
+
 #### C9.2 — Süreli üyelik
 
 "Arkadaşını çağıracak ya da geçici bir iş yapacak" durumunun cevabı
@@ -3340,15 +3373,50 @@ sorgusu bitiş tarihini kendisi eler; süpürme yalnız kozmetik olur.
 Aksi hâlde süresi dolmuş bir üye, işin koşmasını bekleyerek erişimini
 sürdürür — ve o pencere, kimsenin bakmadığı bir pencere olur.
 
+##### Süre nereden geliyor: kabul anından, mint anından değil
+
+Davet satırı da bir süre taşıyor, ama **tarih değil gün sayısı.** Davet
+eden "bu kişiye otuz gün erişim" diye düşünüyor; davetli bağlantıyı üç
+gün sonra açarsa mutlak bir tarih ona yirmi yedi gün verirdi ve kimse
+bunu istemedi. Kayma sınırlı: davetin kendi ömrü zaten yedi gün.
+
+Bedeli dürüstçe yazılıyor: bekleyen davetler tablosunda bitiş tarihi
+değil "kabul edilince 30 gün" yazıyor, çünkü panel o tarihi tıklanmadan
+bilemez.
+
+##### Süresi dolmuş satır kalıyor, ve görünüyor
+
+Satır silinmiyor. Üye tablosundan düşüyor — o tablo "bu siteyi kim
+görebiliyor" sorusunun cevabı — ama **kendi bölümünde** görünüyor,
+bekleyen davetlerin yaptığı gibi. Sebebi C9.1'in kendi kuralı: *bir
+teşhis, ona ulaşamayan bir yol için yok demektir.* Satır durup da onu
+gösterebilen hiçbir şey yoksa panel "Ali erişimini neden kaybetti"
+sorusunu cevaplayamaz.
+
+Denetim kaydı bitişi **verildiği anda** yazıyor, dolduğu anda değil:
+dolma anında yazmak, dolmayı fark eden bir işin var olması demek olurdu
+ve bu fazın tamamı öyle bir işin olmamasına dayanıyor.
+
+##### Üçüncü yazar aynı kapıdan geçiyor
+
+Bitiş tarihi koymak da bir üyeliği değiştirmektir, dolayısıyla C9.1c'nin
+`CanManageMember` kapısından geçiyor: bir yönetici bir sahibin
+üyeliğine bitiş tarihi koyamaz. Aksi hâlde kapatılan delik dördüncü kez
+açılırdı — zamanlanmış olarak.
+
 ##### Bitti ölçütü
 
 Süresi dolmuş bir üyelik erişim vermiyor, **temizlik işi hiç koşmadan** —
 yani sorgu kendisi eliyor. Boş bırakılmış bir bitiş tarihi bugünkü
 davranışı hiç değiştirmiyor. Süre dolduğunda kişi listeden düşüyor ve
-denetim kaydı bunu söylüyor.
+denetim kaydı bunu söylüyor. Süresi dolmuş bir üyeliğe yeniden erişim
+verildiğinde bitiş tarihi de **sıfırlanıyor** — aksi hâlde yeni izin
+doğduğu anda ölü olurdu.
 
 Mutasyon: bitiş tarihini erişim sorgusundan çıkar, ve yalnız temizlik
-işine bırak. Kırmızı vermeli.
+işine bırak. Bitiş tarihini yeniden verirken sıfırlama. Bitişi
+`AccessFor`'dan çıkar ama `Sites`'ta bırak (ve tersi). Hepsi kırmızı
+vermeli.
 
 ---
 

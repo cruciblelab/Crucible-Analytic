@@ -38,6 +38,34 @@ düşürülürse, o davet artık çalışmıyor.
 **Kuran kişinin yapması gereken: yok.** Şema yükseltmesinden sonra
 kendiliğinden çalışıyor.
 
+### Düzeltme: bir yönetici bir sahibi düşürebiliyordu
+
+Panel "kimse kendi yetkisinin üstünde bir rol veremez" kuralını
+uyguluyordu, ve bu doğruydu: bir yönetici kimseyi **sahip yapamıyordu.**
+Ama hiçbir yerde "kimin rolüne dokunuyorsun" diye sorulmuyordu, yani bir
+yönetici bir sahibi **bozabiliyordu.** Üç ayrı yoldan:
+
+- Üye ekleme kutusuna sahibin adresini yazıp yanına "izleyici" seçerek.
+  Site tek sahipliyse **sıfır sahiple** kalıyordu — panelden
+  onarılamayan bir durum.
+- Sitenin sahibini "izleyici" olarak davet edip bağlantıyı kendisi
+  açarak. Bağlantı davet edenin kendi ekranında basılı olduğu için bu
+  kimseyi beklemeyi gerektirmiyordu.
+- Doğrudan rol seçicisinden, ikinci bir sahip ayaktayken.
+
+Üçü de kapandı. Bir sahibin satırına artık yalnız başka bir sahip (ya da
+kurulumu barındıran işletmeci) dokunabiliyor; yönetici o satırda ne rol
+seçici ne de çıkarma düğmesi görüyor. Davet **erişim verir, erişim
+almaz**: kabul edildiğinde zaten var olan bir üyeliğe hiç dokunmuyor.
+
+Karar, yazan işlemin içinde ve veritabanından o an okunuyor. Yani rolü
+düşürülen bir yöneticinin açık oturumu, kimse onu çıkış yaptırmadan
+yetkisini kaybediyor; devre dışı bırakılmış bir hesap da öyle.
+
+**Kuran kişinin yapması gereken: yok.** Sahiplik geçmişte kaybedilmişse
+panel bunu kendiliğinden onarmaz; kurulumu barındıran işletmeci hesabı
+her siteye erişebildiği için sahibi yeniden atayabilir.
+
 ### Düzeltme: panel her müşteriye "hiçbir ayarı değiştiremezsiniz" diyordu
 
 Hesabım, Giden e-posta, Sistem sağlığı, Erişim istekleri, teknik kurulum

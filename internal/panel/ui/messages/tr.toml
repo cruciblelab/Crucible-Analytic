@@ -415,6 +415,7 @@ davet_cok = "Bu sitenin bekleyen davet sayısı sınıra ulaştı (%d). Kullanı
 davet_yok = "Bu davet bulunamadı. Kullanılmış ya da geri alınmış olabilir."
 kullanici_gecersiz = "Geçersiz kullanıcı."
 uye_yok = "Bu kişi zaten bu sitenin üyesi değil."
+uye_yetki = "Bu kişinin rolü sizinkinin üstünde. Yalnız bir sahip, başka bir sahibi değiştirebilir ya da çıkarabilir."
 son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yapın."
 
 # Birden çok sayfanın paylaştığı düğme metinleri. Bölüm başlığı yok:

@@ -388,6 +388,7 @@ davet_cok = "This site has reached its limit of pending invitations (%d). Withdr
 davet_yok = "That invitation was not found. It may have been used or withdrawn."
 kullanici_gecersiz = "Invalid user."
 uye_yok = "That person is not a member of this site."
+uye_yetki = "That person's role stands above your own. Only an owner may change or remove another owner."
 son_sahip = "A site must keep at least one owner. Make somebody else an owner first."
 
 [metin]

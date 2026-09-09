@@ -14695,3 +14695,84 @@ ikinci koşu kırmızıydı.
 
 *Paylaşılan tek satırlık bir tabloyu bozup bırakan bir test, kendi
 konusunu başkasının testine taşımıştır.*
+
+## C9.1c — Yetki kuralının hiç yazılmamış yarısı
+
+C9.2'yi yazmadan önce üyelik tablosuna kimin yazdığına baktım, ve
+kuralın yarısının eksik olduğunu gördüm. Bir tahmin değil: üçü de gerçek
+veritabanına karşı ölçüldü, üçü de kırmızı verdi.
+
+`Access.CanAssign` şunu söylüyor ve doğru söylüyor: *kimse kendi
+yetkisinin üstünde bir rol veremez.* Ama hiçbir yerde şu sorulmuyordu:
+*kimin rolüne dokunuyorsun?* Yani bir yönetici bir sahip **yapamıyordu**
+ama bir sahibi **bozabiliyordu.**
+
+### Üç yol, üçü de ölçüldü
+
+1. **`AddMember` son sahip korumasının dışındaydı.** `SetMemberRole` ve
+   `RemoveMember` işlem içinde `ensureNotLastOwner` çağırıyordu;
+   `AddMember` aynı değişikliği başka bir fiille yazıyor ve hiçbir şey
+   sormuyordu. Ölçüm: üye ekleme formuna sahibin adresini yazıp yanına
+   "izleyici" seçmek yetti — site **sıfır sahiple** kaldı. Panelden
+   onarılamayan bir durum.
+2. **Davet kullanımı bulduğu üyeliğin üstüne yazıyordu.** Kullanım
+   `ON CONFLICT ... DO UPDATE SET role` idi. Yani bir yönetici sitenin
+   sahibini "izleyici" olarak davet eder, bağlantıyı **kendisi** açar —
+   bağlantı zaten kendi ekranında basılı, C7.3'ün kuralı bu — ve sahip
+   düşer. Aynı ölçüm, aynı sonuç: sıfır sahip.
+3. **Bir yönetici bir sahibi düşürebiliyordu.** İkinci bir sahip
+   ayaktayken `ensureNotLastOwner` geçiyor, `CanAssign("viewer")` de
+   geçiyor, ve sahip izleyici oluyordu. Sayfa bunun tersini iddia
+   ediyordu: rol seçicinin yanındaki yorum "bir sahibi ancak başka bir
+   sahip değiştirebilir" diyordu. Kod bunu hiç yapmıyordu.
+
+### Düzeltme
+
+`Access.CanManageMember(current Role)` — `CanAssign`'ın aynası. Biri ne
+dağıtılabileceğini sorar, diğeri kimin satırına dokunulabileceğini.
+Yönetici sahibe dokunamaz, sahip dokunabilir, işletmeci (superadmin) her
+zaman dokunabilir — çünkü dağıtımı barındıran odur ve onu engellemek
+yalnız tabloyu elle düzenlemesi demek olurdu.
+
+**Karar bir kez ve yazan işlemin içinde alınıyor.** Üç mutasyon
+(`AddMember`, `SetMemberRole`, `RemoveMember`) artık aktörün kimliğini
+alıyor ve yetkiyi **veritabanından o anda** okuyor — oturumun
+inandığından değil. Bu C9.1'in kendi dersi: *sayfa çizilirken okunup
+yazdıktan sonra uygulanan bir karar, artık var olmayan bir durum
+hakkındaki karardır.* Rolü düşürülmüş bir yöneticinin açık oturumu
+sıradan durumdur, ve düşürmenin ona kimseyi çıkış yaptırmadan ulaşması
+gerekir. Devre dışı bırakılmış bir hesap da aynı sorgunun içinde eleniyor.
+
+`nil` aktör **dağıtımın kendisi** demek: ilk kurulum, kurucu betik,
+sahiplik daveti. Rolü olmayan, dolayısıyla elinden alınabilecek bir
+yetkisi de olmayan taraf. İnsanı olan her yol kimliğini geçiriyor.
+
+**Kilit sırası da düzeldi.** Eskiden `ensureNotLastOwner` yalnız sahip
+satırlarını kilitliyordu ve **sahipliğe yükseltme hiçbir şey
+kilitlemiyordu**; yani bir yükseltme ile bir düşürme aynı anda ikisi de
+"ortada bir sahip kalıyor" diye inanabiliyordu. Artık her yazar tek bir
+`lockMembership` ifadesiyle hem sahip sayımını hem hedefin kendi rolünü
+aynı kilit kümesinden okuyor. Tek ifade, her yolda aynı ifade — farklı
+sırayla kilitlenen iki işlem kilitlenme (deadlock) demektir.
+
+Davet tarafı `DO NOTHING` oldu: **davet erişim verir, erişim almaz.**
+Davet zaten yalnız hesabı olmayan bir adrese üretiliyor, dolayısıyla
+orada duran bir üyelik aradan geçen zamanda ortaya çıkmış demektir; onu
+olduğu gibi bırakmak, sahibini şaşırtmayan tek cevap.
+
+### Sayfa da düzeldi, çünkü hep yanlış söylüyordu
+
+Rol seçici artık `CanManageMember`'dan geçiyor, "çıkar" düğmesi de. Bir
+yönetici bir sahibin satırında hiçbir şey görmüyor. Yorumun yıllardır
+iddia ettiği davranış nihayet kodun davranışı.
+
+*Her zaman başarısız olan bir kontrol, başarısızlığı doğru olsa bile
+kendi başına bir kusurdur.*
+
+### Ölçüm
+
+Sekiz mutasyon. Ayrıntı için commit mesajı; hepsi Go dosyasında olduğu
+için `go test` önbelleği burada yalancı yeşil vermiyor.
+
+*Bir kuralın verilen yarısını sınayan bir süit, alınan yarısını
+sınamıyordur.*
