@@ -84,12 +84,12 @@ gerekçe değil bahane olur.
 | Grup | Durum | Kalan |
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
-| **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
+| **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | ⬜ **0/3** | hepsi — *(planda yoktu; ölçüm açtı — §O)* |
+| **O** Ölçek altında okuma | ⬜ **0/4** | hepsi — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -1548,7 +1548,22 @@ alanı yok; ✅ kilit ve gerekçe yazılı; ✅ elle kurulmuş POST doğru
 
 ---
 
-#### A8 — Zaman dilimi ⚠️ **planda hiç yoktu**
+#### A8 — Zaman dilimi ❌ **yerine O2a geçti** *(2026-09-09)*
+
+> **Bu madde taşındı, çünkü ölçüm ona bir son tarih koydu.** Sorun aynen
+> aşağıda yazdığı gibi duruyor ve gerçek: her gruplama UTC, ve İstanbul'da
+> gece 00:00-03:00 arası trafik bir önceki güne yazılıyor. Değişen, ne
+> zaman yapılması gerektiği.
+>
+> Sürekli toplamanın kova sınırı **oluşturulurken sabitlenir**. O2'nin
+> günlük özeti UTC kovasıyla kurulursa bu hata malzemeleşir, ve sonradan
+> düzeltmek müşterinin aylarca birikmiş özetini silip yeniden kurmak
+> demek olur. Yani bu artık kendi başına duran bir "sıra bekleyen madde"
+> değil, O2'nin **ön koşulu.**
+>
+> Aşağıdaki gerekçe olduğu gibi bırakıldı; O2a onu devralıyor.
+
+#### A8 (eski metin) — Zaman dilimi
 
 **Ne:** Bugün okuma API'sinde hiçbir zaman dilimi kavramı yok.
 `time_bucket($6::interval, time)` çağrılarının hiçbiri zaman dilimi
@@ -4022,9 +4037,57 @@ pencerede pano **eski değil eksik** göstermiyor. Süre öncesi/sonrası
 
 ---
 
-#### O3 — Benzersiz ziyaretçi: kararı olan faz ⬜
+#### O2a — Kova sınırı müşterinin saatinde ⬜ *(eski A8)*
 
-**Karar sahibin, ve faz o karar verilmeden yazılamaz.**
+**Neden O2'nin içinde ve neden ondan önce.** A8 kendi başına duran bir
+madde olarak yazılmıştı. Ölçüm onu O2'ye bağladı: sürekli toplamanın kova
+sınırı **oluşturulurken sabitlenir.** Günlük özet UTC kovasıyla
+kurulursa, zaman dilimi hatası malzemeleşir — sonradan düzeltmek özeti
+silip yeniden kurmak demek olur, ve o noktada müşterinin aylarca birikmiş
+verisi vardır.
+
+Yani sıra bir tercih değil: **O2a, O2'den önce.**
+
+**Ne.** Okuma API'sinde hiçbir zaman dilimi kavramı yok;
+`time_bucket($n::interval, time)` çağrılarının hiçbiri zaman dilimi
+almıyor, yani her gruplama UTC. Panel ise aralık sınırlarını
+`panel.timezone`'da hesaplıyor (D1'in kararı). İkisi aynı şeyi söylediğini
+sanıyor.
+
+**Ölçüldü** (2026-09-09, gerçek veritabanı, Europe/Istanbul):
+
+```
+ziyaret (İstanbul)   bugün sayıldığı gün   sayılması gereken
+09 Eyl 00:30         08 Eyl                09 Eyl
+09 Eyl 02:45         08 Eyl                09 Eyl
+09 Eyl 08:00         09 Eyl                09 Eyl
+```
+
+Her günün ilk üç saati bir önceki güne yazılıyor. Bir mağaza için bu boş
+bir pencere değil, gece gezinme saatleri.
+
+**Bu, kalan fazlar içinde tek "yanlış cevap veren" madde.** Diğerlerinin
+hepsi eksik bir şey; bu, var olan ve yanlış olan bir şey. Bu projenin
+kuralı olmayanı yanlış olana tercih ediyor.
+
+##### Bitti ölçütü
+
+Zaman dilimi tek yerden geliyor ve API ile panel aynı yerden okuyor —
+ikisinin ayrı ayrı doğru olması yetmez, **aynı** olmaları gerekiyor
+(C9.3'ün dersi). Gerçek veritabanına karşı: İstanbul'da 00:30'daki bir
+ziyaret İstanbul gününe yazılıyor. Yaz saati geçişi olan bir günün 23
+veya 25 saat sürdüğü ve kova sayısının buna uyduğu gösteriliyor.
+
+Mutasyon: kovadan zaman dilimini çıkar; paneli UTC'de hesaplat. İkisi de
+kırmızı vermeli.
+
+---
+
+#### O3 — Benzersiz ziyaretçi: yaklaşık, ve yaklaşık olduğunu söyleyen ⬜
+
+**Karar verildi (2026-09-09, sahip):** *"%1,2 hata payı oldukça ufak,
+tolere edilemez mi."* Edilebilir. Ama iki koşulla, ve koşulların ikincisi
+ölçerken çıktı.
 
 `count(distinct ip)` toplanabilir değil: iki günün benzersiz
 ziyaretçisini toplayamazsınız, aynı kişi iki gün de gelmiş olabilir.
@@ -4039,18 +4102,58 @@ toolkit 1.25.0 kurulu). Ölçüldü: 90 günlük özet **14 ms**, hata:
 | küçük | 2.500 | 2.532 | +%1,28 |
 | büyük | 47.500 | 48.054 | +%1,17 |
 
-**Ama bu projenin sözü "sayı ver, tahmin verme" idi, ve bu bir tahmin.**
-Üç seçenek de meşru: eskizi kabul etmek ve panelde bunu **söylemek**;
-aralığı sınırlamak; ya da kesin sayıyı yalnız kısa aralıklarda sunmak.
-Ayrıca `timescaledb_toolkit` yeni bir kurulum bağımlılığı, ve kurulum
-betiğinin onu isteyip istemeyeceği de aynı kararın parçası.
+**Ölçümün sınırı, ve altı gibi sunmuyorum.** Elimde iki gerçek örnek
+var, altı değil: ürettiğim veride her IP her gün göründüğü için altı ayrı
+aralık aynı sayıyı verdi. İki örnek de yüksek çıktı, ama iki örnek bir
+yanlılık ölçümü değildir. hyperloglog(4096) için belgelenen standart hata
+zaten bu mertebede; söylenebilecek doğru cümle bu.
+
+##### Koşul 1: yaklaşık olan yaklaşık demeli
+
+Panelde gösterilen sayının **ne olduğu** yazılı olmalı. Bir tahmini kesin
+diye göstermek, bu projenin her yerde reddettiği şey. Ucuz olduğu yerde
+kesin kalır: 1 günlük aralıkta kesin cevap 0,19 saniye, orada yaklaşıklık
+hiçbir şey kazandırmaz.
+
+##### Koşul 2: insan sayısı çıkarmayla bulunamaz — ve bugün öyle bulunuyor
+
+Bu, sorulmamış olan ve ölçerken çıkan asıl tehlike.
+
+`internal/api/store.go`: `out.HumanIPs = out.UniqueIPs - out.BotIPs`.
+Bugün ikisi de kesin olduğu için fark da kesin. İkisi de **yaklaşık**
+olduğunda fark kesin olmaz, ve hatası kendi büyüklüğüne göre patlar:
+
+| | değer | hata |
+|---|---|---|
+| benzersiz | 10.000 | ±120 |
+| bot | 9.500 | ±114 |
+| **insan (fark)** | **500** | **±234, yani ±%47** |
+
+Bot trafiği toplamın büyük kısmıysa — ve bu ürünün varlık sebebi tam
+olarak bot trafiğinin büyük olması — "gerçek ziyaretçi" kartı anlamsız
+hâle gelir. %1,2'lik iki hata, %47'lik bir hata üretir.
+
+**Çözümü basit ve fazın içinde:** insan sayısı da kendi eskizini taşır
+(`hyperloglog(...) FILTER (WHERE bot_score < esik)`), çıkarma ile
+bulunmaz. O zaman hatası kendi büyüklüğünün %1,2'si olur.
+
+Bu, özet tablosu yazılırken **kolayca atlanacak** bir ayrıntı, çünkü
+bugünkü kod doğru ve değiştirmek için bir sebep görünmüyor. Sebep,
+sayıların kesin olmaktan çıkması.
+
+##### Kurulum bağımlılığı
+
+`timescaledb_toolkit` yeni bir paket. Kurulum betiğinin onu isteyip
+istemeyeceği, ve yoksa ürünün ne yapacağı (kesin sayıya düşmek mi, uzun
+aralığı kapatmak mı) bu fazın kararı.
 
 ##### Bitti ölçütü
 
-Karar verildikten sonra yazılır. Hangi seçenek seçilirse seçilsin,
-panelde gösterilen sayının **ne olduğu** yazılı olmalı: kesin sayı
-"kesin", tahmin "yaklaşık" demeli. Bir tahmini kesin diye göstermek, bu
-projenin reddettiği şeyin ta kendisi.
+Gerçek veriye karşı: yaklaşık sayı ile kesin sayı karşılaştırılıyor ve
+tolerans **testin içinde yazılı**. İnsan sayısı çıkarmayla değil kendi
+eskiziyle geliyor, ve bunu bir mutasyon koruyor (çıkarmaya geri döndür,
+kırmızı vermeli). Panel yaklaşık olanı yaklaşık diye gösteriyor, ve
+kesin olduğu aralıklarda kesin diyor.
 
 ---
 
