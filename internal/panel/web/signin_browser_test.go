@@ -42,10 +42,10 @@ func TestSignInInABrowser(t *testing.T) {
 
 	user := makeUser(t, store, "tarayici-kullanici", false)
 	colleague := makeUser(t, store, "tarayici-meslektas", false)
-	if err := store.AddMember(ctx, site, user.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, user.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMember(ctx, site, colleague.ID, panel.RoleViewer, nil); err != nil {
+	if err := store.AddMember(ctx, site, colleague.ID, panel.RoleViewer, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -13,10 +13,40 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 17.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. İki küçük tablo ekleniyor; veri
+**Şema sürümü: 18.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Bir tablo ve iki sütun ekleniyor; veri
 değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayarlar
 yazılmazsa başka hiçbir davranış değişmiyor.
+
+### Bir üyeliğe süre verebiliyorsunuz
+
+Birini bir siteye eklerken artık **erişim süresi** de seçebiliyorsunuz:
+süresiz, ya da 1 / 7 / 30 / 90 gün. Meslektaşınızı bir haftalığına
+çağırmak ya da bir işi bitirene kadar birine erişim vermek için,
+sonradan hatırlayıp elle silmeniz gerekmiyor.
+
+Süre dolduğunda erişim **kendiliğinden** biter. Bunu yapan bir temizlik
+işi yok: bitiş tarihi, erişimi hesaplayan sorgunun kendi içinde
+süzülüyor. Yani "iş henüz koşmadı" diye açık kalan bir pencere de yok.
+
+Süresi dolan kişi üye listesinden düşüyor ama sayfadan kaybolmuyor:
+altta **"Süresi dolmuş erişimler"** başlığı altında duruyor, ne zaman
+bittiğiyle. Yeniden erişim vermek için adresini yine üye ekleme
+kutusuna yazmanız yeterli; süre baştan başlar.
+
+Hesabı olmayan birini davet ederken de süre seçebiliyorsunuz. Orada süre
+**kabul edildiği anda** başlıyor: "30 gün" dediyseniz, kişi bağlantıyı
+üç gün sonra açsa bile otuz gün erişimi olur.
+
+**Sahiplik süreli olamaz.** Tek sahibinin erişimi biten bir site
+panelden onarılamaz, o yüzden veritabanı buna izin vermiyor. Süreli
+gelen birini sahip yaparsanız bitiş tarihi silinir.
+
+**Boş bıraktığınızda hiçbir şey değişmez:** süresiz erişim bugüne kadar
+nasıl çalışıyorsa öyle çalışıyor.
+
+**Kuran kişinin yapması gereken: yok.** Var olan bütün üyelikler süresiz
+sayılır.
 
 ### Hesabı olmayan birini davet edebiliyorsunuz
 

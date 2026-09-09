@@ -229,7 +229,7 @@ func TestOwnerWizardRefusesAnythingButAnOwner(t *testing.T) {
 		id   int64
 		role panel.Role
 	}{{admin.ID, panel.RoleAdmin}, {viewer.ID, panel.RoleViewer}, {owner.ID, panel.RoleOwner}} {
-		if err := store.AddMember(ctx, site, m.id, m.role, nil); err != nil {
+		if err := store.AddMember(ctx, site, m.id, m.role, panel.Grant{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -265,7 +265,7 @@ func TestTimezoneSettingIsCheckedRatherThanAccepted(t *testing.T) {
 	const site = "saat-testi"
 
 	owner := makeUser(t, store, "saat-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -315,10 +315,10 @@ func TestTheTechnicalDoorWarnsBeforeItOpens(t *testing.T) {
 
 	owner := makeUser(t, store, "kapi-sahip", false)
 	admin := makeUser(t, store, "kapi-yonetici", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMember(ctx, site, admin.ID, panel.RoleAdmin, nil); err != nil {
+	if err := store.AddMember(ctx, site, admin.ID, panel.RoleAdmin, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

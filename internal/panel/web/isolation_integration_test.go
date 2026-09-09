@@ -81,14 +81,14 @@ func isolationServer(t *testing.T) (*httptest.Server, *http.Client) {
 	ctx := context.Background()
 
 	outsider := makeUser(t, store, "yalitim-yabanci", false)
-	if err := store.AddMember(ctx, ourSite, outsider.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, ourSite, outsider.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	// theirSite has an owner who is not our user. Without this the site
 	// would have no members at all, which is a third state and not the
 	// one being tested.
 	neighbour := makeUser(t, store, "yalitim-komsu", false)
-	if err := store.AddMember(ctx, theirSite, neighbour.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, theirSite, neighbour.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -230,7 +230,7 @@ func TestTheAuditLogIsReadSiteScoped(t *testing.T) {
 	ctx := context.Background()
 
 	actor := makeUser(t, store, "yalitim-denetim", false)
-	if err := store.AddMember(ctx, ourSite, actor.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, ourSite, actor.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, site := range []string{ourSite, theirSite} {

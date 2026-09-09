@@ -129,7 +129,7 @@ func TestTheDashboardDrawsRealNumbers(t *testing.T) {
 	seedTraffic(t, dashboardSite, time.Now().Add(-2*time.Hour), 6)
 
 	owner := makeUser(t, store, "pano-sahip", false)
-	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -190,7 +190,7 @@ func TestSomebodyElsesNumbersAreNotShown(t *testing.T) {
 
 	owner := makeUser(t, store, "pano-sahip2", false)
 	outsider := makeUser(t, store, "pano-yabanci", false)
-	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -234,7 +234,7 @@ func TestTheDashboardSurvivesTheAPIGoingAway(t *testing.T) {
 	srv.Analytics = client
 
 	owner := makeUser(t, store, "pano-sahip3", false)
-	if err := store.AddMember(ctx, "kapali-api", owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, "kapali-api", owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -272,7 +272,7 @@ func TestTheRangePickerChangesTheRange(t *testing.T) {
 	srv.Analytics = client
 
 	owner := makeUser(t, store, "pano-aralik", false)
-	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, dashboardSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	seedTraffic(t, dashboardSite, time.Now().Add(-2*time.Hour), 2)
@@ -328,7 +328,7 @@ func TestTheRestOfThePanelSurvivesTheAPIGoingAway(t *testing.T) {
 
 	const site = "kesinti-sitesi"
 	owner := makeUser(t, store, "kesinti-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{site}, nil); err != nil {

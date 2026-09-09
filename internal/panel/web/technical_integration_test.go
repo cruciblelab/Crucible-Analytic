@@ -187,7 +187,7 @@ func TestATechnicalBreakdownIsRefusedToARoleThatMayNotSeeIt(t *testing.T) {
 	// A viewer on the same site. RoleViewer does not carry
 	// CapUseDeveloperMode, which is the boundary under test.
 	viewer := makeUser(t, store, "d3-izleyici", false)
-	if err := store.AddMember(ctx, technicalSite, viewer.ID, panel.RoleViewer, nil); err != nil {
+	if err := store.AddMember(ctx, technicalSite, viewer.ID, panel.RoleViewer, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	// The preference is turned on for the viewer too, deliberately. It
@@ -485,7 +485,7 @@ func TestAnAddressListIsRefusedToARoleThatMayNotSeeIt(t *testing.T) {
 	}
 
 	viewer := makeUser(t, store, "d3-liste-izleyici", false)
-	if err := store.AddMember(ctx, technicalSite, viewer.ID, panel.RoleViewer, nil); err != nil {
+	if err := store.AddMember(ctx, technicalSite, viewer.ID, panel.RoleViewer, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	// On for the viewer too: a gate that a user can open by ticking their

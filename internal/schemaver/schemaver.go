@@ -136,14 +136,28 @@ import (
 // table. A deployment that has not applied this keeps the behaviour it
 // has always had - adding a member requires an account that already
 // exists - which is a missing feature rather than a broken one.
-const Version = 17
+//
+// # 18
+//
+// Two nullable columns and two CHECK constraints: an end date on
+// panel_site_members and a number of days on panel_member_invites, so a
+// membership can be temporary (C9.2).
+//
+// Additive, and both columns are NULL on every existing row, which is
+// what "no end" means - so a deployment that applies this keeps every
+// membership it had, unchanged. An older binary is unaffected: it names
+// its columns and never selects these two.
+//
+// The constraints refuse an ownership that carries an end date. They
+// cannot fail on an existing table, because no row can carry one yet.
+const Version = 18
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "c8fd0ed9b77b83084ae13df3c3e2192b20f4494154d51f4e3c109b67a2e12bcc"
+const Fingerprint = "cb6dc3307f226a4a04073744e52e6f8b8da06eb96bb84ffd661472d9c30d7dfb"
 
 // FingerprintOf hashes a set of schema files.
 //

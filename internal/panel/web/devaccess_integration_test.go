@@ -45,7 +45,7 @@ func TestTheOwnerDecidesAndTheLinkObeys(t *testing.T) {
 	const site = "erisim-testi"
 
 	owner := makeUser(t, store, "erisim-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -170,7 +170,7 @@ func TestADeveloperCannotApproveDeveloperAccess(t *testing.T) {
 	const site = "erisim-gelistirici"
 
 	owner := makeUser(t, store, "erisim-sahip2", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestOnlyAnOwnerDecides(t *testing.T) {
 		id   int64
 		role panel.Role
 	}{{owner.ID, panel.RoleOwner}, {admin.ID, panel.RoleAdmin}, {viewer.ID, panel.RoleViewer}} {
-		if err := store.AddMember(ctx, site, m.id, m.role, nil); err != nil {
+		if err := store.AddMember(ctx, site, m.id, m.role, panel.Grant{}); err != nil {
 			t.Fatalf("AddMember(%s): %v", m.role, err)
 		}
 	}
@@ -277,7 +277,7 @@ func TestTwoOwnersDecidingAtOnceProduceOneDecision(t *testing.T) {
 	const site = "erisim-yaris"
 
 	owner := makeUser(t, store, "erisim-yaris-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 	_, req := requestAccess(t, store, "yaris")
@@ -369,7 +369,7 @@ func TestABannerReachesTheOwnerOnEveryPage(t *testing.T) {
 		id   int64
 		role panel.Role
 	}{{owner.ID, panel.RoleOwner}, {admin.ID, panel.RoleAdmin}} {
-		if err := store.AddMember(ctx, site, m.id, m.role, nil); err != nil {
+		if err := store.AddMember(ctx, site, m.id, m.role, panel.Grant{}); err != nil {
 			t.Fatalf("AddMember: %v", err)
 		}
 	}
@@ -436,7 +436,7 @@ func TestARefusedLinkIsRecorded(t *testing.T) {
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "erisim-ret-sahip", false)
-	if err := store.AddMember(ctx, "erisim-ret", owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, "erisim-ret", owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 

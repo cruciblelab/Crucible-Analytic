@@ -54,7 +54,7 @@ func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "saglik-sahip", false)
-	if err := store.AddMember(ctx, healthSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, healthSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 	admin := testdb.Admin(t)
@@ -252,11 +252,11 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "saglik-yetki-sahip", false)
-	if err := store.AddMember(ctx, healthSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, healthSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	admin := makeUser(t, store, "saglik-yetki-yonetici", false)
-	if err := store.AddMember(ctx, healthSite, admin.ID, panel.RoleAdmin, nil); err != nil {
+	if err := store.AddMember(ctx, healthSite, admin.ID, panel.RoleAdmin, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

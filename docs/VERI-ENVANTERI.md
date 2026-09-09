@@ -319,12 +319,12 @@ kategorisidir.
 |---|---|
 | `panel_users` | E-posta, görünen ad, **şifrenin argon2id özeti** (şifrenin kendisi hiçbir zaman saklanmaz), iki faktörlü kimlik doğrulama gizli anahtarı, rol bayrakları, oluşturma ve son giriş zamanı |
 | `panel_sessions` | Oturum jetonu, süre bitişi |
-| `panel_site_members` | Hangi kullanıcı hangi siteye hangi yetkiyle erişiyor |
+| `panel_site_members` | Hangi kullanıcı hangi siteye hangi yetkiyle erişiyor, kimin verdiği, ve varsa **erişimin bitiş tarihi** |
 | `panel_audit_log` | Kim, ne zaman, ne yaptı; **eylemi yapanın IP'si ve User-Agent'ı** |
 | `panel_api_tokens` | Jeton adı, **yalnızca SHA-256 özeti**, yetki kapsamı, son kullanım |
 | `panel_login_attempts` | Denenen e-posta, **IP adresi**, başarılı mı — kaba kuvvet saldırısını sınırlamak için |
 | `panel_dev_access` | Geliştirici erişim talepleri ve onayları |
-| `panel_member_invites` | Davet edilen **e-posta adresi**, hangi siteye hangi rolle, kimin davet ettiği, geçerlilik süresi, ve kullanıldıysa kullanım anı ile **IP adresi**. Bağlantının kendisi değil, yalnızca SHA-256 özeti saklanır |
+| `panel_member_invites` | Davet edilen **e-posta adresi**, hangi siteye hangi rolle, kimin davet ettiği, bağlantının geçerlilik süresi, kabul edilince erişimin kaç gün süreceği, ve kullanıldıysa kullanım anı ile **IP adresi**. Bağlantının kendisi değil, yalnızca SHA-256 özeti saklanır |
 
 `panel_login_attempts` tablosu, **var olmayan hesaplar için de** kayıt
 tutar. Gerekçe: saldırı desenini görebilmek. Bu, güvenlik amaçlı meşru
@@ -335,6 +335,14 @@ e-posta adresini** taşıyabilir: davet edilen ama daveti hiç kabul etmemiş
 biri. Süre dolduğunda satır kendiliğinden geçersizleşir (varsayılan yedi
 gün) ve davet eden kişi istediği anda geri alabilir. Kabul edilmemiş bir
 davet, o kişi hakkında adresinden başka hiçbir şey içermez.
+
+`panel_site_members` satırı **boş bırakılabilir bir bitiş tarihi**
+taşıyabilir. Boşken erişim süresizdir, yani bugüne kadarki davranış.
+Doluysa erişim o tarihte kendiliğinden biter: bitiş, erişimi hesaplayan
+her sorgunun kendi içinde süzülür, bir temizlik işi tarafından değil.
+Satır silinmez — kimin ne zamana kadar erişimi olduğu, sonradan
+sorulabilecek bir sorudur — ama erişim vermez. Sahiplik rolüne bitiş
+tarihi konulamaz; veritabanı kısıtı buna izin vermez.
 
 ---
 

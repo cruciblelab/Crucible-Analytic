@@ -90,6 +90,29 @@ CREATE TABLE IF NOT EXISTS panel_site_members (
     PRIMARY KEY (site_id, user_id)
 );
 
+-- When this membership ends. NULL is the old behaviour and the default:
+-- it does not end.
+--
+-- Read by every query that decides access, never by a cleanup job. A row
+-- that stops granting access only once something notices it has expired
+-- is a row that grants access for as long as nobody looks.
+ALTER TABLE panel_site_members ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+
+-- An ownership may never be temporary.
+--
+-- Otherwise a site could be handed a scheduled "no owner at all": the
+-- only person who can administer it loses access one night and nobody
+-- can repair it from the panel. It is the last-owner rule spread over
+-- time, so it belongs beside it - and it is in the database rather than
+-- in Go because four paths write this table.
+--
+-- DROP then ADD because PostgreSQL has no ADD CONSTRAINT IF NOT EXISTS
+-- and the pair is idempotent. On an existing database no row carries an
+-- expiry yet, so the validation pass cannot reject anything.
+ALTER TABLE panel_site_members DROP CONSTRAINT IF EXISTS panel_site_members_owner_never_expires;
+ALTER TABLE panel_site_members ADD CONSTRAINT panel_site_members_owner_never_expires
+    CHECK (expires_at IS NULL OR role <> 'owner');
+
 -- "Which sites can this user see" is the panel's most frequent query,
 -- and the primary key above leads with site_id, so it cannot serve it.
 CREATE INDEX IF NOT EXISTS idx_panel_site_members_user ON panel_site_members (user_id);
@@ -333,6 +356,27 @@ CREATE TABLE IF NOT EXISTS panel_member_invites (
     used_from INET,
     used_by   BIGINT REFERENCES panel_users(id) ON DELETE SET NULL
 );
+
+-- How long the membership this invitation grants should last, in days.
+-- NULL means it does not end, which is the old behaviour.
+--
+-- Days rather than a date, and counted from acceptance rather than from
+-- minting. Whoever invites somebody is thinking "thirty days of access";
+-- an absolute date would hand a person who opens the link on the third
+-- day twenty-seven of them. The drift is bounded by the invitation's own
+-- life, which is a week.
+--
+-- The page pays for this honestly: the pending-invitations table says
+-- "30 days once accepted" rather than a date, because there is no date
+-- to show until somebody clicks.
+ALTER TABLE panel_member_invites ADD COLUMN IF NOT EXISTS grant_days INTEGER;
+
+-- The same rule the membership table carries, at the other end: an
+-- invitation to own a site cannot be a temporary one either. Without it
+-- the constraint over there would be reachable only by being violated.
+ALTER TABLE panel_member_invites DROP CONSTRAINT IF EXISTS panel_member_invites_grant_days_check;
+ALTER TABLE panel_member_invites ADD CONSTRAINT panel_member_invites_grant_days_check
+    CHECK (grant_days IS NULL OR (grant_days > 0 AND grant_days <= 365 AND role <> 'owner'));
 
 -- Open invitations for one site, newest first: what the members page
 -- lists under the people who have actually accepted.

@@ -147,7 +147,7 @@ func TestNoPageADeveloperReachesCarriesAMissingMessageMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	dev := makeUser(t, store, "isaret-gelistirici", true)
-	if err := store.AddMember(ctx, markerSite, dev.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, markerSite, dev.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(srv.Handler())

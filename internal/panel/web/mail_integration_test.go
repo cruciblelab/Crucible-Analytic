@@ -52,7 +52,7 @@ func mailServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store, pan
 
 	ctx := context.Background()
 	owner := makeUser(t, store, "posta-sahip", false)
-	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 	t.Cleanup(func() {
@@ -256,13 +256,13 @@ func TestOnlyAnOwnerReachesTheMailPage(t *testing.T) {
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "posta-yetki-sahip", false)
-	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	// An admin on the same site: entitled to a great deal, and not to
 	// this.
 	admin := makeUser(t, store, "posta-yetki-yonetici", false)
-	if err := store.AddMember(ctx, mailSite, admin.ID, panel.RoleAdmin, nil); err != nil {
+	if err := store.AddMember(ctx, mailSite, admin.ID, panel.RoleAdmin, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -384,7 +384,7 @@ func TestWithoutAKeyThePageExplainsItself(t *testing.T) {
 	// srv.SecretKey deliberately left zero.
 
 	owner := makeUser(t, store, "posta-anahtarsiz", false)
-	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, mailSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(srv.Handler())

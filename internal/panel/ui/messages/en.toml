@@ -353,7 +353,7 @@ siz = "you"
 pasif = "disabled"
 cikar = "Remove"
 rol_kaydet = "Save role"
-eklendi = "%s was added to the site."
+erisebiliyor = "%s can now see this site."
 cikarildi = "The member was removed from the site."
 rol_degisti = "Role updated."
 kendini_cikaramaz = "You cannot remove yourself from this page."
@@ -368,15 +368,28 @@ baglanti_baslik = "Invitation link"
 baglanti_govde = "You invited %s as %s. Pass the link on to them."
 baglanti_ipucu = "This link is shown once and can be used once. If you lose it, invite the same address again: a new one is minted and the old one stops working."
 
+[metin.uyeler.sure]
+suresiz = "No end"
+gun = "%d days"
+kabul_edilince = "%d days once accepted"
+
+[metin.uyeler.suresi_dolan]
+baslik = "Access that has ended"
+aciklama = "These people's access ran out on its own. To give it back, type their address in the box below; the clock starts again."
+bitti = "Ended on %s"
+
 [metin.uyeler.sutun]
 kisi = "Person"
 rol = "Role"
+erisim = "Access"
 islem = "Actions"
 
 [metin.uyeler.ekle]
 baslik = "Add a member"
 eposta = "Email address"
 ipucu = "Added directly if the address has an account. If not, a single-use invitation link is minted; the link is shown on this page, and emailed as well when mail is configured."
+sure = "Access lasts"
+sure_ipucu = "When the time is up the access ends on its own; nobody has to do anything. Typing somebody who is already a member updates their role and length to these values. An ownership cannot be temporary."
 gonder = "Add"
 
 [metin.uyeler.hata]
@@ -388,6 +401,8 @@ davet_cok = "This site has reached its limit of pending invitations (%d). Withdr
 davet_yok = "That invitation was not found. It may have been used or withdrawn."
 kullanici_gecersiz = "Invalid user."
 uye_yok = "That person is not a member of this site."
+sure_gecersiz = "That access length is not one of the offered options."
+sahip_sureli = "An ownership cannot be temporary. A site whose only owner expires cannot be repaired from the panel."
 uye_yetki = "That person's role stands above your own. Only an owner may change or remove another owner."
 son_sahip = "A site must keep at least one owner. Make somebody else an owner first."
 

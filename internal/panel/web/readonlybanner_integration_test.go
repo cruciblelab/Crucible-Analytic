@@ -71,7 +71,7 @@ func TestTheReadOnlyBannerStaysWhereItExplainsSomething(t *testing.T) {
 	signIn := func(local string, superadmin bool, role panel.Role) *http.Client {
 		t.Helper()
 		user := makeUser(t, store, local, superadmin)
-		if err := store.AddMember(ctx, bannerSite, user.ID, role, nil); err != nil {
+		if err := store.AddMember(ctx, bannerSite, user.ID, role, panel.Grant{}); err != nil {
 			t.Fatal(err)
 		}
 		return signedIn(t, server.URL, user.Email)

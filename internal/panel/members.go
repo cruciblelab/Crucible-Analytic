@@ -19,7 +19,23 @@ type Member struct {
 	Disabled  bool
 	CreatedAt time.Time
 	CreatedBy *int64
+	// Expires is when this membership ends, nil when it does not.
+	Expires *time.Time
+	// Expired is whether it already has, decided by the database rather
+	// than by comparing Expires against the panel's clock. The queries
+	// that grant access ask the same server the same way, and two
+	// clocks answering one question is how a page comes to list somebody
+	// who cannot sign in - or hide somebody who can.
+	Expired bool
 }
+
+// liveMembership is the condition every query that decides access adds.
+//
+// Written once and referenced, rather than spelled out at each site: the
+// whole phase rests on the expiry being enforced by the reads
+// themselves, and a rule enforced in four places is a rule with four
+// chances of being enforced in three.
+const liveMembership = `(expires_at IS NULL OR expires_at > now())`
 
 // SiteAccess is a site as it appears in one user's own site list.
 type SiteAccess struct {
@@ -46,7 +62,8 @@ func (s *Store) Sites(ctx context.Context, p Principal, known []string) ([]SiteA
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT site_id, role FROM panel_site_members
-		WHERE user_id = $1 ORDER BY site_id`, p.UserID)
+		WHERE user_id = $1 AND `+liveMembership+`
+		ORDER BY site_id`, p.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("panel: list sites: %w", err)
 	}
@@ -63,6 +80,10 @@ func (s *Store) Sites(ctx context.Context, p Principal, known []string) ([]SiteA
 	return sites, rows.Err()
 }
 
+// allSites deliberately does not filter expired memberships: this list
+// is site discovery for the operator, not an authorization decision. A
+// site whose only membership has run out still exists, and hiding it
+// would leave nobody able to see that it needs a new owner.
 func (s *Store) allSites(ctx context.Context, known []string) ([]SiteAccess, error) {
 	rows, err := s.pool.Query(ctx, `SELECT DISTINCT site_id FROM panel_site_members ORDER BY site_id`)
 	if err != nil {
@@ -105,13 +126,21 @@ func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Acce
 
 	var role Role
 	err := s.pool.QueryRow(ctx,
-		`SELECT role FROM panel_site_members WHERE site_id = $1 AND user_id = $2`,
+		`SELECT role FROM panel_site_members
+		  WHERE site_id = $1 AND user_id = $2 AND `+liveMembership,
 		siteID, p.UserID).Scan(&role)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		// No membership. For a superadmin that is normal and access
-		// still follows; for anyone else Access.Can will now deny
-		// everything, since roleCapabilities[""] is empty.
+		// No membership, or one that has run out - the same answer, and
+		// deliberately the same code path. A membership whose end date
+		// has passed is not a membership with a flag on it; it is
+		// somebody who is no longer a member, and the choke point every
+		// per-site handler goes through has to say so without waiting
+		// for anything to notice.
+		//
+		// For a superadmin no membership is normal and access still
+		// follows; for anyone else Access.Can will now deny everything,
+		// since roleCapabilities[""] is empty.
 		return access, nil
 	case err != nil:
 		return Access{}, fmt.Errorf("panel: resolve access: %w", err)
@@ -130,10 +159,19 @@ func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Acce
 // Members lists a site's members, with the account details the UI needs.
 func (s *Store) Members(ctx context.Context, siteID string) ([]Member, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT m.site_id, m.user_id, m.role, u.email, u.display_name, u.disabled, m.created_at, m.created_by
+		SELECT m.site_id, m.user_id, m.role, u.email, u.display_name, u.disabled,
+		       m.created_at, m.created_by, m.expires_at,
+		       (m.expires_at IS NOT NULL AND m.expires_at <= now()) AS expired
 		FROM panel_site_members m
 		JOIN panel_users u ON u.id = m.user_id
 		WHERE m.site_id = $1
+		-- Expired memberships are returned rather than filtered, and the
+		-- page puts them in their own list. Somebody whose access ran out
+		-- is not an answer to "who can see this site", but a row that
+		-- exists and that nothing can display is a row nobody can explain
+		-- - and "why did Ali lose access" is a question the panel should
+		-- be able to answer.
+		--
 		-- Owners first, then admins, then viewers, so the person
 		-- responsible for the site is at the top of the list rather
 		-- than wherever their name happens to sort.
@@ -148,7 +186,8 @@ func (s *Store) Members(ctx context.Context, siteID string) ([]Member, error) {
 	for rows.Next() {
 		var m Member
 		var displayName string
-		if err := rows.Scan(&m.SiteID, &m.UserID, &m.Role, &m.Email, &displayName, &m.Disabled, &m.CreatedAt, &m.CreatedBy); err != nil {
+		if err := rows.Scan(&m.SiteID, &m.UserID, &m.Role, &m.Email, &displayName, &m.Disabled,
+			&m.CreatedAt, &m.CreatedBy, &m.Expires, &m.Expired); err != nil {
 			return nil, fmt.Errorf("panel: scan member: %w", err)
 		}
 		m.Name = displayName
@@ -160,19 +199,44 @@ func (s *Store) Members(ctx context.Context, siteID string) ([]Member, error) {
 	return members, rows.Err()
 }
 
+// Grant is who is giving somebody access to a site, and for how long.
+//
+// A value rather than two arguments because the two travel together
+// everywhere and neither is meaningful without the other: an expiry
+// nobody granted has no author, and a grant with no end is a decision
+// somebody made rather than a field left out.
+type Grant struct {
+	// By is the person doing it. nil is the deployment itself - the
+	// first-run setup, the installer, an owner claim - which has no role
+	// to check and no authority that could have been taken away since.
+	By *int64
+	// Until ends the membership. nil is the old behaviour: it does not
+	// end.
+	Until *time.Time
+}
+
 // AddMember grants a role, or changes it if a membership already exists.
 //
-// actor is the person doing it, and nil means the deployment itself -
-// first-run setup, the installer, an owner claim - which has no role to
-// check and no authority that could have been taken away since. Anybody
-// else is checked against their live authority inside the transaction
-// that does the writing, because this call can lower a role as well as
-// raise one and the two need different questions asked. See
+// The actor is checked against their live authority inside the
+// transaction that does the writing, because this call can lower a role
+// as well as raise one and the two need different questions asked. See
 // mayActOnMember.
-func (s *Store) AddMember(ctx context.Context, siteID string, userID int64, role Role, actor *int64) error {
+//
+// Re-granting resets the end date to whatever this grant says, including
+// back to "no end". A membership that has run out and is given again has
+// to start again; carrying the old date forward would produce an access
+// that was dead the moment it was handed over.
+func (s *Store) AddMember(ctx context.Context, siteID string, userID int64, role Role, g Grant) error {
 	if !role.Valid() {
 		return fmt.Errorf("panel: invalid role %q", role)
 	}
+	if g.Until != nil && role == RoleOwner {
+		// The schema refuses this as well. Named here so the refusal
+		// arrives as a decision rather than as a constraint violation
+		// nobody upstream can tell apart from a broken query.
+		return ErrOwnershipCannotExpire
+	}
+	actor := g.By
 	return s.inTx(ctx, func(tx pgx.Tx) error {
 		st, err := lockMembership(ctx, tx, siteID, userID)
 		if err != nil {
@@ -190,10 +254,11 @@ func (s *Store) AddMember(ctx context.Context, siteID string, userID int64, role
 			return ErrLastOwner
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO panel_site_members (site_id, user_id, role, created_by)
-			VALUES ($1,$2,$3,$4)
-			ON CONFLICT (site_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
-			siteID, userID, string(role), actor); err != nil {
+			INSERT INTO panel_site_members (site_id, user_id, role, created_by, expires_at)
+			VALUES ($1,$2,$3,$4,$5)
+			ON CONFLICT (site_id, user_id) DO UPDATE
+			   SET role = EXCLUDED.role, expires_at = EXCLUDED.expires_at`,
+			siteID, userID, string(role), actor, g.Until); err != nil {
 			return fmt.Errorf("panel: add member: %w", err)
 		}
 		return nil
@@ -257,8 +322,19 @@ func (s *Store) SetMemberRole(ctx context.Context, siteID string, userID int64, 
 		if role != RoleOwner && st.lastOwnerIs(userID) {
 			return ErrLastOwner
 		}
-		tag, err := tx.Exec(ctx,
-			`UPDATE panel_site_members SET role = $3 WHERE site_id = $1 AND user_id = $2`,
+		// Promoting somebody to owner clears their end date rather than
+		// failing on the constraint. Making somebody responsible for a
+		// site is a deliberate act by another owner, and refusing it
+		// because the person happened to arrive on a temporary grant
+		// would be the panel making them start over for no reason. Every
+		// other role keeps whatever end date it had: a role change is not
+		// a new grant, and silently extending one would be a way to give
+		// somebody permanent access without saying so.
+		tag, err := tx.Exec(ctx, `
+			UPDATE panel_site_members
+			   SET role = $3,
+			       expires_at = CASE WHEN $3 = 'owner' THEN NULL ELSE expires_at END
+			 WHERE site_id = $1 AND user_id = $2`,
 			siteID, userID, string(role))
 		if err != nil {
 			return fmt.Errorf("panel: set member role: %w", err)
@@ -294,6 +370,12 @@ func (st membershipState) lastOwnerIs(userID int64) bool {
 // closes a gap the previous shape had: promoting somebody to owner took
 // no lock at all, so a promotion and a demotion could both believe they
 // were leaving an owner standing.
+//
+// Unlike every read that decides access, this one does not filter
+// expired memberships, and must not: a writer that cannot see a row that
+// has run out cannot give that person access again. The owner census is
+// unaffected either way, because the schema forbids an ownership from
+// carrying an end date at all.
 func lockMembership(ctx context.Context, tx pgx.Tx, siteID string, userID int64) (membershipState, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT user_id, role FROM panel_site_members
@@ -366,7 +448,8 @@ func liveAccess(ctx context.Context, tx pgx.Tx, userID int64, siteID string) (Ac
 	err := tx.QueryRow(ctx, `
 		SELECT u.is_superadmin,
 		       (SELECT m.role FROM panel_site_members m
-		         WHERE m.user_id = u.id AND m.site_id = $2)
+		         WHERE m.user_id = u.id AND m.site_id = $2
+		           AND `+liveMembership+`)
 		  FROM panel_users u
 		 WHERE u.id = $1 AND NOT u.disabled`, userID, siteID).
 		Scan(&superadmin, &current)

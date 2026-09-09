@@ -107,7 +107,7 @@ func breakdownFixture() []beaconRow {
 func signedInOwner(t *testing.T, srv *Server, store *panel.Store, site, who string) (*httptest.Server, *http.Client, panel.User) {
 	t.Helper()
 	owner := makeUser(t, store, who, false)
-	if err := store.AddMember(context.Background(), site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(context.Background(), site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(srv.Handler())
@@ -349,7 +349,7 @@ func TestSomebodyElsesBreakdownsAreNotShown(t *testing.T) {
 	seedBeacon(t, breakdownSite, time.Now().Add(-3*time.Hour), breakdownFixture())
 
 	owner := makeUser(t, store, "kirilim-sahip3", false)
-	if err := store.AddMember(context.Background(), breakdownSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(context.Background(), breakdownSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	outsider := makeUser(t, store, "kirilim-yabanci", false)

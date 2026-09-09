@@ -70,12 +70,32 @@ type roleChoice struct {
 	Selected bool
 }
 
+// durationChoice is one option in the access-length select.
+type durationChoice struct {
+	// Days is what the form posts; 0 is "no end".
+	Days  int
+	Label string
+}
+
 // membersPage is Data for the member template.
 type membersPage struct {
 	SiteID  string
 	Members []memberRow
+	// Expired are memberships whose end date has passed.
+	//
+	// Their own list, below the table, for the same reason the
+	// invitations have one: the table answers "who can see this site",
+	// and somebody whose access ran out is not an answer to it. Kept
+	// visible rather than swept away because a row nothing can display
+	// is a row nobody can explain, and "why did Ali lose access" is a
+	// question the panel should be able to answer.
+	Expired []memberRow
 	// AddRoles are the roles the viewer may grant to somebody new.
 	AddRoles []roleChoice
+	// AddDurations are the access lengths the add form offers, derived
+	// from accessDurations so the template cannot offer one the handler
+	// would refuse.
+	AddDurations []durationChoice
 	// CanManage is false for a page rendered read-only. Today the
 	// handler refuses anybody who cannot manage, so this is always true;
 	// it is here because the audit view arrives in a later phase and
@@ -111,6 +131,11 @@ type inviteRow struct {
 	RoleLabel string
 	Expires   time.Time
 	InvitedBy string
+	// GrantDays is how long the access will last once accepted, zero for
+	// no end. Shown as a length rather than a date because there is no
+	// date until somebody clicks - the honest cost of counting from
+	// acceptance instead of from minting.
+	GrantDays int
 }
 
 // membersHandler serves and processes a site's member list.
@@ -156,7 +181,8 @@ func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.La
 	switch r.PostFormValue("islem") {
 	case "ekle":
 		data = s.addMember(ctx, lang, r, access,
-			r.PostFormValue("eposta"), panel.Role(r.PostFormValue("rol")))
+			r.PostFormValue("eposta"), panel.Role(r.PostFormValue("rol")),
+			r.PostFormValue("sure"))
 	case "rol":
 		data = s.changeRole(ctx, lang, access,
 			r.PostFormValue("kullanici"), panel.Role(r.PostFormValue("rol")))
@@ -171,12 +197,22 @@ func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.La
 }
 
 func (s *Server) addMember(ctx context.Context, lang *ui.Language, r *http.Request,
-	access panel.Access, email string, role panel.Role) membersPage {
+	access panel.Access, email string, role panel.Role, rawDays string) membersPage {
 
 	// The same question the select answered when the page was drawn,
 	// asked again against the value that actually arrived.
 	if !access.CanAssign(role) {
 		return membersPage{Message: lang.T("uyeler.hata.rol_yetki"), Failed: true}
+	}
+	days, ok := parseAccessDays(rawDays)
+	if !ok {
+		return membersPage{Message: lang.T("uyeler.hata.sure_gecersiz"), Failed: true}
+	}
+	if days > 0 && role == panel.RoleOwner {
+		// The database refuses this too. The message exists because a
+		// constraint violation reaching the page as "could not be saved"
+		// would be the panel declining to say what it declined.
+		return membersPage{Message: lang.T("uyeler.hata.sahip_sureli"), Failed: true}
 	}
 	email = strings.TrimSpace(email)
 	if email == "" {
@@ -194,20 +230,67 @@ func (s *Server) addMember(ctx context.Context, lang *ui.Language, r *http.Reque
 			// thing, giving somebody access to this site. A second form
 			// beside this one would ask them to guess, and tell them
 			// they guessed wrong.
-			return s.inviteMember(ctx, lang, r, access, email, role)
+			return s.inviteMember(ctx, lang, r, access, email, role, days)
 		}
 		s.logger().Error("panel: looking up member", "err", err)
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 	}
 
-	if err := s.Store.AddMember(ctx, access.SiteID, user.ID, role, actorID(access)); err != nil {
+	grant := panel.Grant{By: actorID(access)}
+	if days > 0 {
+		until := time.Now().Add(time.Duration(days) * 24 * time.Hour)
+		grant.Until = &until
+	}
+	if err := s.Store.AddMember(ctx, access.SiteID, user.ID, role, grant); err != nil {
 		return s.memberWriteFailed(lang, err, "panel: adding member")
 	}
+	detail := map[string]any{"user": user.Email, "role": string(role)}
+	if grant.Until != nil {
+		// Written when the access is given, not when it runs out. There
+		// is nothing that watches for the second moment, deliberately -
+		// the expiry is enforced by the reads - so the record of it has
+		// to be made here or not at all.
+		detail["until"] = grant.Until.UTC().Format(time.RFC3339)
+	}
 	s.auditFor(ctx, access.Principal, panel.AuditEntry{
-		Action: panel.ActionMemberAdded, SiteID: access.SiteID,
-		Detail: map[string]any{"user": user.Email, "role": string(role)},
+		Action: panel.ActionMemberAdded, SiteID: access.SiteID, Detail: detail,
 	})
-	return membersPage{Message: lang.Tf("uyeler.eklendi", user.Email)}
+	// "Can now see this site" rather than "was added": the same form also
+	// updates somebody who was already a member, and telling them they
+	// were added would be telling them something that did not happen.
+	return membersPage{Message: lang.Tf("uyeler.erisebiliyor", user.Email)}
+}
+
+// accessDurations is the closed set of access lengths the page offers, in
+// days. Zero is "no end", and it is first because it is the answer for
+// almost everybody.
+//
+// A closed set rather than a free number field, for the reason
+// parsePositiveID gives: this value reaches a query, and a list the
+// template draws from is also the list the handler validates against, so
+// the two cannot drift.
+var accessDurations = []int{0, 1, 7, 30, 90}
+
+// parseAccessDays turns the form's value into one of accessDurations.
+//
+// An empty field means "no end" so that a form posted without the select
+// - an older page still open, a script - keeps the old behaviour rather
+// than being refused.
+func parseAccessDays(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, true
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	for _, d := range accessDurations {
+		if d == days {
+			return days, true
+		}
+	}
+	return 0, false
 }
 
 func (s *Server) changeRole(ctx context.Context, lang *ui.Language, access panel.Access,
@@ -271,10 +354,10 @@ func actorID(access panel.Access) *int64 {
 // Reached only from addMember, which is the point: the caller asked for
 // one thing and gets one thing, whichever half of the branch runs.
 func (s *Server) inviteMember(ctx context.Context, lang *ui.Language, r *http.Request,
-	access panel.Access, email string, role panel.Role) membersPage {
+	access panel.Access, email string, role panel.Role, days int) membersPage {
 
 	token, invite, err := s.Store.CreateMemberInvite(ctx, access.SiteID, email, role,
-		access.Principal, 0)
+		access.Principal, 0, days)
 	if err != nil {
 		if errors.Is(err, panel.ErrTooManyInvites) {
 			return membersPage{Message: lang.Tf("uyeler.hata.davet_cok",
@@ -284,10 +367,16 @@ func (s *Server) inviteMember(ctx context.Context, lang *ui.Language, r *http.Re
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 	}
 
+	detail := map[string]any{"invited": invite.Email, "role": string(invite.Role),
+		"invite_id": invite.ID}
+	if invite.GrantDays > 0 {
+		// Days, not a date, because there is no date yet: the clock
+		// starts when somebody accepts. The audit entry says exactly
+		// what was decided here and nothing it cannot know.
+		detail["days"] = invite.GrantDays
+	}
 	s.auditFor(ctx, access.Principal, panel.AuditEntry{
-		Action: panel.ActionMemberInvited, SiteID: access.SiteID,
-		Detail: map[string]any{"invited": invite.Email, "role": string(invite.Role),
-			"invite_id": invite.ID},
+		Action: panel.ActionMemberInvited, SiteID: access.SiteID, Detail: detail,
 	})
 
 	data := membersPage{
@@ -388,9 +477,10 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 	data.SiteID = access.SiteID
 	data.CanManage = access.Can(panel.CapManageMembers)
 	data.AddRoles = assignableRoles(lang, access, "")
+	data.AddDurations = accessDurationChoices(lang)
 	for _, m := range members {
 		self := m.UserID == access.Principal.UserID
-		data.Members = append(data.Members, memberRow{
+		row := memberRow{
 			Member:          m,
 			Self:            self,
 			AssignableRoles: assignableRoles(lang, access, m.Role),
@@ -405,7 +495,18 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 			// The store refuses it either way; this is what stops the
 			// page from offering a button that always fails.
 			Removable: data.CanManage && !self && access.CanManageMember(m.Role),
-		})
+		}
+		if m.Expired {
+			// No role select on a membership that grants nothing: moving
+			// an expired viewer to "admin" would leave them expired, and
+			// a control whose effect is invisible is worse than none.
+			// Removing it is still offered, and re-granting is the add
+			// form, which resets the end date.
+			row.AssignableRoles = nil
+			data.Expired = append(data.Expired, row)
+			continue
+		}
+		data.Members = append(data.Members, row)
 	}
 
 	// The open invitations, read after the members so the two lists come
@@ -424,6 +525,7 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 				RoleLabel: lang.T("rol." + string(in.Role)),
 				Expires:   in.ExpiresAt,
 				InvitedBy: in.CreatedLabel,
+				GrantDays: in.GrantDays,
 			})
 		}
 	}
@@ -443,6 +545,23 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 		status = http.StatusBadRequest
 	}
 	s.Renderer.Render(w, r, status, "uyeler", page)
+}
+
+// accessDurationChoices renders accessDurations for the select.
+//
+// Derived from the same slice the handler validates against, so the page
+// cannot offer a length that would be refused, and adding one is a single
+// edit rather than two that have to agree.
+func accessDurationChoices(lang *ui.Language) []durationChoice {
+	choices := make([]durationChoice, 0, len(accessDurations))
+	for _, days := range accessDurations {
+		label := lang.T("uyeler.sure.suresiz")
+		if days > 0 {
+			label = lang.Tf("uyeler.sure.gun", days)
+		}
+		choices = append(choices, durationChoice{Days: days, Label: label})
+	}
+	return choices
 }
 
 // assignableRoles lists the roles this viewer may set, marking current.

@@ -1602,6 +1602,8 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 | Panel açılmıyor, "unknown time zone" | `timezone` bu makinede tanınmıyor; zoneinfo paketi eksik olabilir |
 | Beacon olayları reddediyor | `site_id`, `sites` listesinde yok |
 | Davet bağlantısı çalışmıyor | Süresi dolmuş (varsayılan 7 gün), geri alınmış, kullanılmış — ya da daveti üreten kişinin o rolü verme yetkisi bu arada düşürülmüş. Yenisini üretmek için aynı adresi tekrar davet edin |
+| Bir üye siteyi birden göremez oldu | Erişimine süre verilmiş olabilir; üye sayfasının altındaki **Süresi dolmuş erişimler** listesine bakın. Yeniden vermek için aynı adresi üye ekleme kutusuna yazmanız yeterli, süre baştan başlar |
+| Bir üyeye süre verilemiyor | Sahiplik süreli olamaz — tek sahibinin erişimi biten bir site panelden onarılamaz. Kişiye yönetici ya da izleyici rolü verin |
 
 ---
 

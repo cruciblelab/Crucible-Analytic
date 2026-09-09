@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | 🟡 **14/15** | C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
+| **C** Panel HTTP yüzeyi | ✅ **15/15** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3357,7 +3357,7 @@ kırmızı vermeli.
 
 ---
 
-#### C9.2 — Süreli üyelik
+#### C9.2 — Süreli üyelik ✅ **yapıldı**
 
 "Arkadaşını çağıracak ya da geçici bir iş yapacak" durumunun cevabı
 bağlantının süresi değil, **erişimin** süresi. `panel_site_members`'ta

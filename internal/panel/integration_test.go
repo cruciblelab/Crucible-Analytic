@@ -181,10 +181,10 @@ func TestStore_RealDB_AccessResolution(t *testing.T) {
 	stranger := mustUser(t, s, ns, "stranger", false)
 	staff := mustUser(t, s, ns, "staff", true)
 
-	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember owner: %v", err)
 	}
-	if err := s.AddMember(ctx, site, viewer.ID, RoleViewer, &owner.ID); err != nil {
+	if err := s.AddMember(ctx, site, viewer.ID, RoleViewer, Grant{By: &owner.ID}); err != nil {
 		t.Fatalf("AddMember viewer: %v", err)
 	}
 
@@ -235,10 +235,10 @@ func TestStore_RealDB_LastOwnerCannotBeRemovedOrDemoted(t *testing.T) {
 
 	owner := mustUser(t, s, ns, "owner", false)
 	admin := mustUser(t, s, ns, "admin", false)
-	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, &owner.ID); err != nil {
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{By: &owner.ID}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -276,11 +276,11 @@ func TestStore_RealDB_AnAdminCannotUnmakeAnOwner(t *testing.T) {
 	second := mustUser(t, s, ns, "ownertwo", false)
 	admin := mustUser(t, s, ns, "admin", false)
 	for _, u := range []User{owner, second} {
-		if err := s.AddMember(ctx, site, u.ID, RoleOwner, nil); err != nil {
+		if err := s.AddMember(ctx, site, u.ID, RoleOwner, Grant{}); err != nil {
 			t.Fatalf("AddMember: %v", err)
 		}
 	}
-	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, nil); err != nil {
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestStore_RealDB_AnAdminCannotUnmakeAnOwner(t *testing.T) {
 		do   func() error
 	}{
 		{"re-adding an owner with a lower role", func() error {
-			return s.AddMember(ctx, site, owner.ID, RoleViewer, &admin.ID)
+			return s.AddMember(ctx, site, owner.ID, RoleViewer, Grant{By: &admin.ID})
 		}},
 		{"setting an owner's role", func() error {
 			return s.SetMemberRole(ctx, site, owner.ID, RoleViewer, &admin.ID)
@@ -318,7 +318,7 @@ func TestStore_RealDB_AnAdminCannotUnmakeAnOwner(t *testing.T) {
 	// rather than only through the page. Both halves live in one
 	// transaction now, and a rule that only the handler enforces is a
 	// rule the next handler can forget.
-	if err := s.AddMember(ctx, site, admin.ID, RoleOwner, &admin.ID); !errors.Is(err, ErrNotPermitted) {
+	if err := s.AddMember(ctx, site, admin.ID, RoleOwner, Grant{By: &admin.ID}); !errors.Is(err, ErrNotPermitted) {
 		t.Errorf("an admin making themselves an owner gave %v, want ErrNotPermitted", err)
 	}
 }
@@ -337,11 +337,11 @@ func TestStore_RealDB_ReGrantingCannotStripTheLastOwner(t *testing.T) {
 	site := "site-" + ns
 
 	owner := mustUser(t, s, ns, "owner", false)
-	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
-	if err := s.AddMember(ctx, site, owner.ID, RoleViewer, &owner.ID); !errors.Is(err, ErrLastOwner) {
+	if err := s.AddMember(ctx, site, owner.ID, RoleViewer, Grant{By: &owner.ID}); !errors.Is(err, ErrLastOwner) {
 		t.Errorf("re-granting the only owner a lower role gave %v, want ErrLastOwner", err)
 	}
 
@@ -371,7 +371,7 @@ func TestStore_RealDB_TheOperatorMayStillActOnAnOwner(t *testing.T) {
 	second := mustUser(t, s, ns, "ownertwo", false)
 	staff := mustUser(t, s, ns, "staff", true)
 	for _, u := range []User{owner, second} {
-		if err := s.AddMember(ctx, site, u.ID, RoleOwner, nil); err != nil {
+		if err := s.AddMember(ctx, site, u.ID, RoleOwner, Grant{}); err != nil {
 			t.Fatalf("AddMember: %v", err)
 		}
 	}
@@ -396,13 +396,13 @@ func TestStore_RealDB_AuthorityIsReadAtWriteTime(t *testing.T) {
 	owner := mustUser(t, s, ns, "owner", false)
 	admin := mustUser(t, s, ns, "admin", false)
 	target := mustUser(t, s, ns, "target", false)
-	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, nil); err != nil {
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, target.ID, RoleViewer, nil); err != nil {
+	if err := s.AddMember(ctx, site, target.ID, RoleViewer, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -429,6 +429,256 @@ func TestStore_RealDB_AuthorityIsReadAtWriteTime(t *testing.T) {
 	}
 }
 
+// The claim the whole phase rests on: an expired membership grants
+// nothing, and nothing had to run for that to be true.
+//
+// The test asserts the second half as well as the first. No sweeper is
+// called, and the row is still sitting in the table when the assertions
+// are made - so what refused the access was the reading query, not a job
+// that had tidied the row away. An expiry enforced by a job is an expiry
+// that lasts until the job runs, and that window is one nobody watches.
+func TestStore_RealDB_AnExpiredMembershipGrantsNothing(t *testing.T) {
+	ns := "panel-expired"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	guest := mustUser(t, s, ns, "guest", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := s.AddMember(ctx, site, guest.ID, RoleAdmin, Grant{By: &owner.ID, Until: &past}); err != nil {
+		t.Fatalf("AddMember with an end date: %v", err)
+	}
+
+	access, err := s.AccessFor(ctx, principalOf(guest), site)
+	if err != nil {
+		t.Fatalf("AccessFor: %v", err)
+	}
+	if access.Role != "" || access.Member {
+		t.Errorf("an expired membership resolved to role %q, member=%v", access.Role, access.Member)
+	}
+	if access.Can(CapViewAnalytics) {
+		t.Error("an expired membership still carries a capability")
+	}
+
+	sites, err := s.Sites(ctx, principalOf(guest), nil)
+	if err != nil {
+		t.Fatalf("Sites: %v", err)
+	}
+	for _, sa := range sites {
+		if sa.SiteID == site {
+			t.Error("the site is still in the expired member's own site list")
+		}
+	}
+
+	// And the row is still there, untouched. This is what makes the
+	// assertions above about the query rather than about a cleanup.
+	var rows int
+	if err := s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM panel_site_members WHERE site_id = $1 AND user_id = $2`,
+		site, guest.ID).Scan(&rows); err != nil {
+		t.Fatalf("counting: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("the membership row is gone (%d rows); then the access was refused by something "+
+			"having removed it, which is not what this phase claims", rows)
+	}
+
+	// The page can still see it, and knows it has ended.
+	members, err := s.Members(ctx, site)
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	var found bool
+	for _, m := range members {
+		if m.UserID != guest.ID {
+			continue
+		}
+		found = true
+		if !m.Expired || m.Expires == nil {
+			t.Errorf("the member list reports Expired=%v Expires=%v for a membership that has ended",
+				m.Expired, m.Expires)
+		}
+	}
+	if !found {
+		t.Error("an expired membership vanished from the member list; then nothing can explain it")
+	}
+}
+
+// The other half, and it is the one that would go unnoticed: a grant
+// with no end date behaves exactly as every grant did before this column
+// existed.
+func TestStore_RealDB_AGrantWithNoEndIsUnchanged(t *testing.T) {
+	ns := "panel-noend"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	u := mustUser(t, s, ns, "member", false)
+	if err := s.AddMember(ctx, site, u.ID, RoleAdmin, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	access, err := s.AccessFor(ctx, principalOf(u), site)
+	if err != nil {
+		t.Fatalf("AccessFor: %v", err)
+	}
+	if access.Role != RoleAdmin || !access.Member {
+		t.Errorf("role = %q member = %v, want an ordinary admin", access.Role, access.Member)
+	}
+	members, err := s.Members(ctx, site)
+	if err != nil {
+		t.Fatalf("Members: %v", err)
+	}
+	if len(members) != 1 || members[0].Expires != nil || members[0].Expired {
+		t.Errorf("a grant with no end date came back as %+v", members)
+	}
+}
+
+// Giving access again has to restart the clock. Carrying the old date
+// forward would hand somebody an access that was already dead.
+func TestStore_RealDB_ReGrantingRestartsTheClock(t *testing.T) {
+	ns := "panel-regrantclock"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	guest := mustUser(t, s, ns, "guest", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := s.AddMember(ctx, site, guest.ID, RoleViewer, Grant{By: &owner.ID, Until: &past}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// A fresh window.
+	future := time.Now().Add(48 * time.Hour)
+	if err := s.AddMember(ctx, site, guest.ID, RoleViewer, Grant{By: &owner.ID, Until: &future}); err != nil {
+		t.Fatalf("re-granting: %v", err)
+	}
+	if access, err := s.AccessFor(ctx, principalOf(guest), site); err != nil {
+		t.Fatal(err)
+	} else if access.Role != RoleViewer {
+		t.Errorf("role = %q after being given access again; the old end date survived the new grant", access.Role)
+	}
+
+	// And back to no end at all.
+	if err := s.AddMember(ctx, site, guest.ID, RoleViewer, Grant{By: &owner.ID}); err != nil {
+		t.Fatalf("re-granting without an end: %v", err)
+	}
+	members, err := s.Members(ctx, site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.UserID == guest.ID && m.Expires != nil {
+			t.Errorf("a grant with no end date left the old one in place: %v", m.Expires)
+		}
+	}
+}
+
+// An ownership may never be temporary, on any path.
+//
+// A site whose only owner expires cannot be repaired from the panel: the
+// last-owner rule protects against removing them and demoting them, and
+// this is the same loss arriving on a timer.
+func TestStore_RealDB_AnOwnershipCannotBeTemporary(t *testing.T) {
+	ns := "panel-tempowner"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	guest := mustUser(t, s, ns, "guest", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	future := time.Now().Add(24 * time.Hour)
+	if err := s.AddMember(ctx, site, guest.ID, RoleOwner,
+		Grant{By: &owner.ID, Until: &future}); !errors.Is(err, ErrOwnershipCannotExpire) {
+		t.Errorf("a temporary ownership gave %v, want ErrOwnershipCannotExpire", err)
+	}
+	if _, _, err := s.CreateMemberInvite(ctx, site, "gecici-sahip-"+ns+"@example.com",
+		RoleOwner, principalOf(owner), 0, 7); !errors.Is(err, ErrOwnershipCannotExpire) {
+		t.Errorf("a temporary ownership invitation gave %v, want ErrOwnershipCannotExpire", err)
+	}
+
+	// The database refuses it too, with the Go check taken out of the
+	// way. Both, because the Go check is the message and the constraint
+	// is the guarantee - and four paths write this table.
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO panel_site_members (site_id, user_id, role, expires_at)
+		VALUES ($1, $2, 'owner', $3)`, site, guest.ID, future); err == nil {
+		t.Error("the database accepted an ownership with an end date")
+	}
+
+	// Promoting a temporary member to owner clears the end date rather
+	// than failing: making somebody responsible for a site is deliberate,
+	// and refusing it because they arrived on a temporary grant would
+	// make them start over for nothing.
+	soon := time.Now().Add(time.Hour)
+	if err := s.AddMember(ctx, site, guest.ID, RoleViewer, Grant{By: &owner.ID, Until: &soon}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.SetMemberRole(ctx, site, guest.ID, RoleOwner, &owner.ID); err != nil {
+		t.Fatalf("promoting a temporary member to owner: %v", err)
+	}
+	members, err := s.Members(ctx, site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.UserID == guest.ID && m.Expires != nil {
+			t.Errorf("a promoted owner kept an end date of %v", m.Expires)
+		}
+	}
+}
+
+// The actor's own membership is read through the same filter, so an
+// administrator whose access has run out cannot act on anybody - and
+// cannot have an invitation of theirs redeemed either.
+func TestStore_RealDB_AnExpiredAdminCannotActOrGrant(t *testing.T) {
+	ns := "panel-expiredadmin"
+	s := newTestStore(t, ns)
+	ctx := context.Background()
+	site := "site-" + ns
+
+	owner := mustUser(t, s, ns, "owner", false)
+	admin := mustUser(t, s, ns, "admin", false)
+	target := mustUser(t, s, ns, "target", false)
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.AddMember(ctx, site, target.ID, RoleViewer, Grant{}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+
+	// While their access is live, this is allowed.
+	future := time.Now().Add(time.Hour)
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{By: &owner.ID, Until: &future}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.SetMemberRole(ctx, site, target.ID, RoleAdmin, &admin.ID); err != nil {
+		t.Fatalf("a live temporary admin acting: %v", err)
+	}
+
+	// Once it has run out, the same call is refused - with nothing having
+	// changed except the clock.
+	past := time.Now().Add(-time.Minute)
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{By: &owner.ID, Until: &past}); err != nil {
+		t.Fatalf("AddMember: %v", err)
+	}
+	if err := s.SetMemberRole(ctx, site, target.ID, RoleViewer, &admin.ID); !errors.Is(err, ErrNotPermitted) {
+		t.Errorf("an expired admin acting gave %v, want ErrNotPermitted", err)
+	}
+}
+
 // The reason RemoveMember uses a transaction with FOR UPDATE. Two
 // administrators each seeing "there are 2 owners" and each removing one
 // would leave a site nobody can administer - a small race, but one that
@@ -442,7 +692,7 @@ func TestStore_RealDB_ConcurrentOwnerRemovalLeavesOneStanding(t *testing.T) {
 	first := mustUser(t, s, ns, "ownerone", false)
 	second := mustUser(t, s, ns, "ownertwo", false)
 	for _, u := range []User{first, second} {
-		if err := s.AddMember(ctx, site, u.ID, RoleOwner, nil); err != nil {
+		if err := s.AddMember(ctx, site, u.ID, RoleOwner, Grant{}); err != nil {
 			t.Fatalf("AddMember: %v", err)
 		}
 	}
@@ -500,13 +750,13 @@ func TestStore_RealDB_MembersAreOrderedByAuthority(t *testing.T) {
 	viewer := mustUser(t, s, ns, "aaa", false)
 	owner := mustUser(t, s, ns, "zzz", false)
 	admin := mustUser(t, s, ns, "mmm", false)
-	if err := s.AddMember(ctx, site, viewer.ID, RoleViewer, nil); err != nil {
+	if err := s.AddMember(ctx, site, viewer.ID, RoleViewer, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, site, owner.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, nil); err != nil {
+	if err := s.AddMember(ctx, site, admin.ID, RoleAdmin, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 
@@ -535,10 +785,10 @@ func TestStore_RealDB_AddMemberIsAnUpsert(t *testing.T) {
 	site := "site-" + ns
 
 	u := mustUser(t, s, ns, "user", false)
-	if err := s.AddMember(ctx, site, u.ID, RoleViewer, nil); err != nil {
+	if err := s.AddMember(ctx, site, u.ID, RoleViewer, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, site, u.ID, RoleAdmin, nil); err != nil {
+	if err := s.AddMember(ctx, site, u.ID, RoleAdmin, Grant{}); err != nil {
 		t.Fatalf("AddMember again: %v", err)
 	}
 
@@ -560,10 +810,10 @@ func TestStore_RealDB_SitesListing(t *testing.T) {
 	me := mustUser(t, s, ns, "me", false)
 	them := mustUser(t, s, ns, "them", false)
 	staff := mustUser(t, s, ns, "staff", true)
-	if err := s.AddMember(ctx, mine, me.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, mine, me.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
-	if err := s.AddMember(ctx, theirs, them.ID, RoleOwner, nil); err != nil {
+	if err := s.AddMember(ctx, theirs, them.ID, RoleOwner, Grant{}); err != nil {
 		t.Fatalf("AddMember: %v", err)
 	}
 

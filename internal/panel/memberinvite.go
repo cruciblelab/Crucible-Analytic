@@ -81,6 +81,11 @@ var ErrTooManyInvites = errors.New("panel: too many open invitations")
 // that a guess was once real is telling them something.
 var ErrInviteInvalid = errors.New("panel: that invitation link is not valid")
 
+// ErrOwnershipCannotExpire is returned when somebody tries to give an
+// ownership an end date. The schema refuses it as well; this is so the
+// refusal has a name before it reaches a constraint violation.
+var ErrOwnershipCannotExpire = errors.New("panel: an ownership cannot be temporary")
+
 // MemberInvite is one invitation to one site.
 type MemberInvite struct {
 	ID           int64
@@ -92,6 +97,13 @@ type MemberInvite struct {
 	ExpiresAt    time.Time
 	RevokedAt    *time.Time
 	UsedAt       *time.Time
+	// GrantDays is how long the membership lasts once accepted, zero
+	// when it does not end.
+	//
+	// Days rather than a date because the clock starts at acceptance:
+	// somebody inviting a contractor for a month means a month of work,
+	// not a month minus however long the invitation sat in an inbox.
+	GrantDays int
 }
 
 // Open reports whether this invitation can still be accepted.
@@ -100,12 +112,12 @@ func (i MemberInvite) Open() bool {
 }
 
 const memberInviteColumns = `id, site_id, role, email, created_at, created_label,
-	expires_at, revoked_at, used_at`
+	expires_at, revoked_at, used_at, coalesce(grant_days, 0)`
 
 func scanMemberInvite(row pgx.Row) (MemberInvite, error) {
 	var i MemberInvite
 	err := row.Scan(&i.ID, &i.SiteID, &i.Role, &i.Email, &i.CreatedAt,
-		&i.CreatedLabel, &i.ExpiresAt, &i.RevokedAt, &i.UsedAt)
+		&i.CreatedLabel, &i.ExpiresAt, &i.RevokedAt, &i.UsedAt, &i.GrantDays)
 	return i, err
 }
 
@@ -117,14 +129,24 @@ func scanMemberInvite(row pgx.Row) (MemberInvite, error) {
 //
 // The caller has already been asked whether it may assign this role -
 // see Access.CanAssign - and RedeemMemberInvite asks again.
+// grantDays is how long the membership should last once accepted; zero
+// means it does not end. An ownership cannot be temporary, here as in the
+// schema: refusing it at both ends means the constraint over there is
+// never the first thing that says so.
 func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email string,
-	role Role, by Principal, ttl time.Duration) (string, MemberInvite, error) {
+	role Role, by Principal, ttl time.Duration, grantDays int) (string, MemberInvite, error) {
 
 	if siteID == "" {
 		return "", MemberInvite{}, errors.New("panel: an invitation needs a site")
 	}
 	if !role.Valid() {
 		return "", MemberInvite{}, fmt.Errorf("panel: %q is not a role", role)
+	}
+	if grantDays < 0 {
+		return "", MemberInvite{}, fmt.Errorf("panel: %d is not a number of days", grantDays)
+	}
+	if grantDays > 0 && role == RoleOwner {
+		return "", MemberInvite{}, ErrOwnershipCannotExpire
 	}
 	email = NormalizeEmail(email)
 	if email == "" {
@@ -172,13 +194,17 @@ func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email str
 			return fmt.Errorf("panel: replace invitation: %w", err)
 		}
 		var err error
+		var days any
+		if grantDays > 0 {
+			days = grantDays
+		}
 		invite, err = scanMemberInvite(tx.QueryRow(ctx, `
 			INSERT INTO panel_member_invites
-			  (sha256, site_id, role, email, created_by, created_label, expires_at)
-			VALUES ($1, $2, $3, $4, $5, $6, now() + $7::interval)
+			  (sha256, site_id, role, email, created_by, created_label, expires_at, grant_days)
+			VALUES ($1, $2, $3, $4, $5, $6, now() + $7::interval, $8)
 			RETURNING `+memberInviteColumns,
 			hashToken(token), siteID, string(role), email, actorID, by.Label,
-			fmt.Sprintf("%d seconds", int(ttl.Seconds()))))
+			fmt.Sprintf("%d seconds", int(ttl.Seconds())), days))
 		if err != nil {
 			return fmt.Errorf("panel: create invitation: %w", err)
 		}
@@ -276,7 +302,7 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 			hashToken(token), addrOrNull(from),
 		).Scan(&invite.ID, &invite.SiteID, &invite.Role, &invite.Email, &invite.CreatedAt,
 			&invite.CreatedLabel, &invite.ExpiresAt, &invite.RevokedAt, &invite.UsedAt,
-			&inviterID)
+			&invite.GrantDays, &inviterID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrInviteInvalid
 		}
@@ -326,11 +352,18 @@ func (s *Store) RedeemMemberInvite(ctx context.Context, token, displayName, pass
 		// so a membership standing here at all means one appeared in the
 		// meantime. Leaving it alone is also the only answer that cannot
 		// surprise the person who has it.
+		// The clock starts here, not when the invitation was minted. An
+		// invitation that sat in an inbox for three days still grants the
+		// number of days it promised.
+		var until any
+		if invite.GrantDays > 0 {
+			until = time.Now().Add(time.Duration(invite.GrantDays) * 24 * time.Hour)
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO panel_site_members (site_id, user_id, role, created_by)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO panel_site_members (site_id, user_id, role, created_by, expires_at)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (site_id, user_id) DO NOTHING`,
-			invite.SiteID, user.ID, string(invite.Role), inviterID); err != nil {
+			invite.SiteID, user.ID, string(invite.Role), inviterID, until); err != nil {
 			return fmt.Errorf("panel: grant membership: %w", err)
 		}
 

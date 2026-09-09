@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 )
@@ -82,7 +83,7 @@ func TestMembersPageEnforcesTheRoleItDraws(t *testing.T) {
 	}{
 		{owner.ID, "owner"}, {admin.ID, "admin"}, {viewer.ID, "viewer"},
 	} {
-		if err := store.AddMember(ctx, site, m.id, roleOf(m.role), nil); err != nil {
+		if err := store.AddMember(ctx, site, m.id, roleOf(m.role), panel.Grant{}); err != nil {
 			t.Fatalf("AddMember(%s): %v", m.role, err)
 		}
 	}
@@ -182,7 +183,7 @@ func TestAnAdminIsNotOfferedAWayToChangeAnOwner(t *testing.T) {
 		id   int64
 		role string
 	}{{owner.ID, "owner"}, {admin.ID, "admin"}, {viewer.ID, "viewer"}} {
-		if err := store.AddMember(ctx, site, m.id, roleOf(m.role), nil); err != nil {
+		if err := store.AddMember(ctx, site, m.id, roleOf(m.role), panel.Grant{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -222,10 +223,10 @@ func TestTheLastOwnerCannotBeRemoved(t *testing.T) {
 
 	owner := makeUser(t, store, "tek-sahip", false)
 	helper := makeUser(t, store, "yardimci", false)
-	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMember(ctx, site, helper.ID, roleOf("admin"), nil); err != nil {
+	if err := store.AddMember(ctx, site, helper.ID, roleOf("admin"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -304,7 +305,7 @@ func TestAddingAMemberDoesTheRightThingForBothKindsOfAddress(t *testing.T) {
 
 	owner := makeUser(t, store, "davet-sahibi", false)
 	guest := makeUser(t, store, "davetli", false)
-	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -370,7 +371,7 @@ func TestASuperadminReachesEverySite(t *testing.T) {
 
 	owner := makeUser(t, store, "site-sahibi", false)
 	operator := makeUser(t, store, "isletmeci", true)
-	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	_ = ctx
@@ -386,6 +387,109 @@ func TestASuperadminReachesEverySite(t *testing.T) {
 	// And the chrome says so, so nobody forgets whose data is on screen.
 	if !strings.Contains(body, "İşletmeci olarak görüyorsunuz") {
 		t.Error("the page does not say this is operator access")
+	}
+}
+
+// Temporary access, from the form that grants it to the page that shows
+// it - and then the moment it runs out, with nothing having run.
+//
+// The store has its own test for the rule. This one is about the two
+// things only the page can be wrong about: that the form's length
+// actually reaches the grant, and that somebody whose access has ended
+// leaves the member table without leaving the page.
+func TestTemporaryAccessIsGrantedShownAndThenGone(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+	const site = "sureli-erisim-testi"
+
+	owner := makeUser(t, store, "sureli-sahip", false)
+	guest := makeUser(t, store, "sureli-konuk", false)
+	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	page := server.URL + memberPath(site)
+	ownerClient := signedIn(t, server.URL, owner.Email)
+
+	// ---- the form's length reaches the grant ----
+	status, body := post(t, ownerClient, page, url.Values{
+		"islem": {"ekle"}, "eposta": {guest.Email}, "rol": {"viewer"}, "sure": {"7"},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("adding a member for seven days answered %d: %q", status, messageOf(body))
+	}
+	members, err := store.Members(ctx, site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expires *time.Time
+	for _, m := range members {
+		if m.UserID == guest.ID {
+			expires = m.Expires
+		}
+	}
+	if expires == nil {
+		t.Fatal("the form offered a length and the membership has no end date")
+	}
+	if d := time.Until(*expires); d < 6*24*time.Hour || d > 8*24*time.Hour {
+		t.Errorf("the membership ends in %v; the form asked for seven days", d)
+	}
+
+	// ---- a length nobody was offered is refused ----
+	status, body = post(t, ownerClient, page, url.Values{
+		"islem": {"ekle"}, "eposta": {guest.Email}, "rol": {"viewer"}, "sure": {"3650"},
+	})
+	if status != http.StatusBadRequest {
+		t.Errorf("a hand-edited access length answered %d, want a refusal", status)
+	}
+	if !strings.Contains(body, "sunulan seçeneklerden biri değil") {
+		t.Errorf("the refusal does not explain itself: %q", messageOf(body))
+	}
+
+	// ---- and an ownership cannot be given one ----
+	_, body = post(t, ownerClient, page, url.Values{
+		"islem": {"ekle"}, "eposta": {guest.Email}, "rol": {"owner"}, "sure": {"7"},
+	})
+	if !strings.Contains(body, "Sahiplik süreli olamaz") {
+		t.Errorf("a temporary ownership was not refused with its own sentence: %q", messageOf(body))
+	}
+
+	// ---- once it has run out ----
+	//
+	// Backdated directly rather than by waiting. What is being tested is
+	// what the page does with a row whose date has passed, and nothing in
+	// this product notices that moment - which is the claim.
+	if _, err := store.Pool().Exec(ctx,
+		`UPDATE panel_site_members SET expires_at = now() - interval '1 hour'
+		  WHERE site_id = $1 AND user_id = $2`, site, guest.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body = get(t, ownerClient, page)
+	if !strings.Contains(body, "Süresi dolmuş erişimler") {
+		t.Error("the members page does not list the access that ended; then nothing can explain it")
+	}
+	// In its own section, and not still in the table above it. The two
+	// lists are separated by that heading, so the guest's address must
+	// appear only after it.
+	head, tail, found := strings.Cut(body, "Süresi dolmuş erişimler")
+	if !found {
+		t.Fatal("no expired section to split on")
+	}
+	if strings.Contains(head, guest.Email) {
+		t.Error("an expired member is still listed among the people who can see this site")
+	}
+	if !strings.Contains(tail, guest.Email) {
+		t.Error("the expired section does not name the person whose access ended")
+	}
+
+	// And the access really is gone: the site itself answers 404, because
+	// somebody with no membership is not told the site exists.
+	guestClient := signedIn(t, server.URL, guest.Email)
+	if status, _ := get(t, guestClient, server.URL+sitePath(site)); status != http.StatusNotFound {
+		t.Errorf("an expired member got %d on the site page, want 404", status)
 	}
 }
 

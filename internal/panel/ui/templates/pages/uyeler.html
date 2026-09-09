@@ -4,6 +4,7 @@
 <tr>
 <th scope="col">{{t "uyeler.sutun.kisi"}}</th>
 <th scope="col">{{t "uyeler.sutun.rol"}}</th>
+<th scope="col">{{t "uyeler.sutun.erisim"}}</th>
 <th scope="col"><span class="gizli">{{t "uyeler.sutun.islem"}}</span></th>
 </tr>
 </thead>
@@ -38,6 +39,12 @@ this select is a convenience, not the check. */}}
 {{- end}}
 </td>
 <td>
+{{- /* The end date rather than "temporary": a person reading this row
+is deciding whether to do something about it, and a date is what that
+decision needs. */}}
+{{- if .Expires}}{{$.F.DateTime .Expires}}{{else}}{{t "uyeler.sure.suresiz"}}{{end}}
+</td>
+<td>
 {{- if .Removable}}
 <form method="post" action="">
 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -54,6 +61,50 @@ this select is a convenience, not the check. */}}
 </tbody>
 </table>
 
+{{- if .Data.Expired}}
+{{- /* Kept on the page rather than swept away. The table above answers
+"who can see this site" and these people are not an answer to it, but a
+row that exists and that nothing can display is a row nobody can
+explain. */}}
+<section class="bolum">
+<h2>{{t "uyeler.suresi_dolan.baslik"}}</h2>
+<p class="ipucu">{{t "uyeler.suresi_dolan.aciklama"}}</p>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "uyeler.sutun.kisi"}}</th>
+<th scope="col">{{t "uyeler.sutun.rol"}}</th>
+<th scope="col">{{t "uyeler.sutun.erisim"}}</th>
+<th scope="col"><span class="gizli">{{t "uyeler.sutun.islem"}}</span></th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Expired}}
+<tr>
+<th scope="row">
+{{.Email}}
+{{- if .Self}} <span class="rozet">{{t "uyeler.siz"}}</span>{{end}}
+{{- if .Disabled}} <span class="rozet pasif">{{t "uyeler.pasif"}}</span>{{end}}
+</th>
+<td>{{t (printf "rol.%s" .Role)}}</td>
+<td>{{tf "uyeler.suresi_dolan.bitti" ($.F.DateTime .Expires)}}</td>
+<td>
+{{- if .Removable}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="cikar">
+<input type="hidden" name="kullanici" value="{{.UserID}}">
+<button type="submit" class="tehlikeli">{{t "uyeler.cikar"}}</button>
+</form>
+{{- end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+</section>
+{{- end}}
+
 {{- if .Data.Invites}}
 {{- /* Their own list rather than rows in the table above. That table
 answers "who can see this site", and somebody who has been offered access
@@ -66,6 +117,7 @@ is not an answer to it. */}}
 <th scope="col">{{t "uyeler.sutun.kisi"}}</th>
 <th scope="col">{{t "uyeler.sutun.rol"}}</th>
 <th scope="col">{{t "uyeler.davet.gecerlilik"}}</th>
+<th scope="col">{{t "uyeler.sutun.erisim"}}</th>
 <th scope="col"><span class="gizli">{{t "uyeler.sutun.islem"}}</span></th>
 </tr>
 </thead>
@@ -75,6 +127,12 @@ is not an answer to it. */}}
 <th scope="row">{{.Email}}</th>
 <td>{{.RoleLabel}}</td>
 <td>{{$.F.DateTime .Expires}}</td>
+<td>
+{{- /* A length, not a date, because there is no date yet: the clock
+starts when somebody accepts. Saying "until the 12th" here would be the
+page inventing something it cannot know. */}}
+{{- if .GrantDays}}{{tf "uyeler.sure.kabul_edilince" .GrantDays}}{{else}}{{t "uyeler.sure.suresiz"}}{{end}}
+</td>
 <td>
 {{- if $.Data.CanManage}}
 <form method="post" action="">
@@ -135,6 +193,17 @@ things adding can mean. */}}
 <option value="{{.Value}}">{{.Label}}</option>
 {{- end}}
 </select>
+</div>
+<div class="alan">
+<label for="ekle-sure">{{t "uyeler.ekle.sure"}}</label>
+{{- /* Drawn from the same list the handler validates against, so this
+select cannot offer a length that would be refused. */}}
+<select id="ekle-sure" name="sure">
+{{- range .Data.AddDurations}}
+<option value="{{.Days}}">{{.Label}}</option>
+{{- end}}
+</select>
+<p class="ipucu">{{t "uyeler.ekle.sure_ipucu"}}</p>
 </div>
 <button type="submit">{{t "uyeler.ekle.gonder"}}</button>
 </form>

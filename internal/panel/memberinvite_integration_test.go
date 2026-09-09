@@ -39,7 +39,7 @@ func inviteFixture(t *testing.T, store *Store, local string, role Role, superadm
 		t.Fatalf("CreateUser(%s): %v", local, err)
 	}
 	if role != "" {
-		if err := store.AddMember(ctx, inviteSite, user.ID, role, nil); err != nil {
+		if err := store.AddMember(ctx, inviteSite, user.ID, role, Grant{}); err != nil {
 			t.Fatalf("AddMember(%s): %v", local, err)
 		}
 	}
@@ -69,7 +69,7 @@ func TestMemberInviteIsSingleUseUnderConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	token, _, err := store.CreateMemberInvite(ctx, inviteSite, "yaris-davetli@davet.invalid",
-		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0)
+		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0, 0)
 	if err != nil {
 		t.Fatalf("CreateMemberInvite: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestMemberInviteGrantsWhatItSaysAndNothingTheInviteeChose(t *testing.T) {
 		t.Fatal(err)
 	}
 	token, invite, err := store.CreateMemberInvite(ctx, inviteSite, "Alinan@Davet.invalid",
-		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0)
+		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0, 0)
 	if err != nil {
 		t.Fatalf("CreateMemberInvite: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 	// at minting - so the case under test is a role they legitimately had
 	// and then lost.
 	token, invite, err := store.CreateMemberInvite(ctx, inviteSite, "dusen-davetli@davet.invalid",
-		RoleViewer, Principal{UserID: admin.ID, Label: admin.Email}, 0)
+		RoleViewer, Principal{UserID: admin.ID, Label: admin.Email}, 0, 0)
 	if err != nil {
 		t.Fatalf("CreateMemberInvite: %v", err)
 	}
@@ -242,6 +242,75 @@ func TestAnInviterWhoLostTheAuthorityCannotStillGrantIt(t *testing.T) {
 	_ = invite
 }
 
+// The clock starts when somebody accepts, not when the link was minted.
+//
+// That is the whole reason the row carries a number of days rather than
+// a date: whoever invites a contractor for a month means a month of
+// work, and an absolute date would quietly spend part of it while the
+// message sat in an inbox.
+func TestAnInvitationsClockStartsAtAcceptance(t *testing.T) {
+	store := newTestStore(t, "davet")
+	ctx := context.Background()
+	owner := inviteFixture(t, store, "sureli-sahip", RoleOwner, false)
+
+	hash, err := HashPassword(goodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const days = 30
+	token, invite, err := store.CreateMemberInvite(ctx, inviteSite, "sureli@davet.invalid",
+		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0, days)
+	if err != nil {
+		t.Fatalf("CreateMemberInvite: %v", err)
+	}
+	if invite.GrantDays != days {
+		t.Errorf("the invitation carries %d days, want %d", invite.GrantDays, days)
+	}
+
+	// Minted, then a pause, then accepted. The pause is what an absolute
+	// date would have spent.
+	minted := time.Now()
+	time.Sleep(20 * time.Millisecond)
+	got, err := store.RedeemMemberInvite(ctx, token, "Süreli", hash,
+		netip.MustParseAddr("198.51.100.12"))
+	if err != nil {
+		t.Fatalf("RedeemMemberInvite: %v", err)
+	}
+
+	members, err := store.Members(ctx, inviteSite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expires *time.Time
+	for _, m := range members {
+		if m.UserID == got.User.ID {
+			expires = m.Expires
+		}
+	}
+	if expires == nil {
+		t.Fatal("the membership has no end date; the invitation's days were not applied")
+	}
+	// Counted from acceptance: the end is later than minting plus the
+	// window, by at least the pause.
+	if !expires.After(minted.Add(days * 24 * time.Hour)) {
+		t.Errorf("the membership ends at %v, which is no later than %d days after minting - "+
+			"the clock started at the wrong end", expires, days)
+	}
+	// And it is the window, not something else entirely.
+	if expires.After(time.Now().Add((days + 1) * 24 * time.Hour)) {
+		t.Errorf("the membership ends at %v, more than %d days out", expires, days)
+	}
+
+	// The invited person can actually see the site, which is the point.
+	access, err := store.AccessFor(ctx, Principal{UserID: got.User.ID}, inviteSite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access.Role != RoleViewer {
+		t.Errorf("the temporarily invited member holds %q, want viewer", access.Role)
+	}
+}
+
 // An invitation gives access. It is not a way to take any away.
 //
 // The route this closes was real and short: an administrator invites the
@@ -266,7 +335,7 @@ func TestARedeemedInvitationNeverLowersAMembershipItFinds(t *testing.T) {
 	}
 
 	token, _, err := store.CreateMemberInvite(ctx, inviteSite, owner.Email, RoleViewer,
-		Principal{UserID: admin.ID, Label: admin.Email}, 0)
+		Principal{UserID: admin.ID, Label: admin.Email}, 0, 0)
 	if err != nil {
 		t.Fatalf("CreateMemberInvite: %v", err)
 	}
@@ -298,7 +367,7 @@ func TestMemberInviteStoresNoUsableToken(t *testing.T) {
 	owner := inviteFixture(t, store, "jeton-sahip", RoleOwner, false)
 
 	token, invite, err := store.CreateMemberInvite(ctx, inviteSite, "jeton@davet.invalid",
-		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0)
+		RoleViewer, Principal{UserID: owner.ID, Label: owner.Email}, 0, 0)
 	if err != nil {
 		t.Fatalf("CreateMemberInvite: %v", err)
 	}
@@ -335,7 +404,7 @@ func TestAnInvitationThatIsNoLongerOpenIsRefused(t *testing.T) {
 	}
 
 	withdrawn, invite, err := store.CreateMemberInvite(ctx, inviteSite,
-		"geri-alinan@davet.invalid", RoleViewer, by, 0)
+		"geri-alinan@davet.invalid", RoleViewer, by, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +413,7 @@ func TestAnInvitationThatIsNoLongerOpenIsRefused(t *testing.T) {
 	}
 
 	expired, _, err := store.CreateMemberInvite(ctx, inviteSite,
-		"suresi-dolan@davet.invalid", RoleViewer, by, time.Millisecond)
+		"suresi-dolan@davet.invalid", RoleViewer, by, time.Millisecond, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +453,7 @@ func TestOpenInvitationsAreListedAndDemotionWithdrawsThem(t *testing.T) {
 	by := Principal{UserID: owner.ID, Label: owner.Email}
 
 	for _, address := range []string{"liste-bir@davet.invalid", "liste-iki@davet.invalid"} {
-		if _, _, err := store.CreateMemberInvite(ctx, inviteSite, address, RoleViewer, by, 0); err != nil {
+		if _, _, err := store.CreateMemberInvite(ctx, inviteSite, address, RoleViewer, by, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 	}

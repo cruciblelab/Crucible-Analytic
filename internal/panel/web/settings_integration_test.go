@@ -46,7 +46,7 @@ func settingsServerAs(t *testing.T, role panel.Role) (*httptest.Server, *http.Cl
 	withRealAPI(t, srv)
 
 	user := makeUser(t, store, "ayar-"+string(role), false)
-	if err := store.AddMember(context.Background(), settingsSite, user.ID, role, nil); err != nil {
+	if err := store.AddMember(context.Background(), settingsSite, user.ID, role, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(srv.Handler())
@@ -74,7 +74,7 @@ func settingsServerAsOperator(t *testing.T) (*httptest.Server, *http.Client, *pa
 	withRealAPI(t, srv)
 
 	dev := makeUser(t, store, "ayar-operator", true)
-	if err := store.AddMember(context.Background(), settingsSite, dev.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(context.Background(), settingsSite, dev.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(srv.Handler())

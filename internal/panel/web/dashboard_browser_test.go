@@ -47,7 +47,7 @@ func TestDashboardInABrowser(t *testing.T) {
 	seedTraffic(t, site, time.Now().Add(-2*time.Hour), 8)
 
 	owner := makeUser(t, store, "tarayici-pano-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

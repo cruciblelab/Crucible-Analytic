@@ -40,7 +40,7 @@ func TestDevAccessInABrowser(t *testing.T) {
 	const site = "tarayici-erisim"
 
 	owner := makeUser(t, store, "tarayici-erisim-sahip", false)
-	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -14776,3 +14776,82 @@ için `go test` önbelleği burada yalancı yeşil vermiyor.
 
 *Bir kuralın verilen yarısını sınayan bir süit, alınan yarısını
 sınamıyordur.*
+
+## C9.2 — Süreli üyelik: bitişi kimse fark etmiyor, çünkü fark edecek kimse yok
+
+"Arkadaşını çağıracak ya da geçici bir iş yapacak" durumunun cevabı
+bağlantının süresi değil, **erişimin** süresi. `panel_site_members`'ta
+bugüne kadar hiç bitiş sütunu yoktu, yani geçici erişimin tek yolu
+birinin hatırlayıp elle silmesiydi — ve unutulan erişim en sessiz
+güvenlik kusuru.
+
+### Bitiş, süzgeç. İş değil.
+
+Fazın tamamı tek bir cümleye dayanıyor: **süre, erişimi hesaplayan
+sorgunun içinde elenir.** Bir temizlik işi bunu yapsaydı, süresi dolmuş
+bir üye işin koşmasını bekleyerek erişimini sürdürürdü, ve o pencere
+kimsenin bakmadığı bir pencere olurdu.
+
+Bunun test edilebilir hâli şu: testin sonunda **satır hâlâ tabloda
+duruyor** ve erişim yine de reddediliyor. Satır kalkmış olsaydı, testi
+geçiren şey sorgu değil temizlik olurdu ve bu faz kendi iddiasını
+sınamamış olurdu.
+
+Süzgeç tek yerde yazılı (`liveMembership`) ve dört okuma da onu
+çağırıyor. Yazarlar çağırmıyor, ve çağırmamalı: süresi dolmuş bir satırı
+göremeyen bir yazar, o kişiye erişimi yeniden veremez.
+
+### Gün sayısı, tarih değil
+
+Davet satırı bir tarih değil **gün sayısı** taşıyor, ve saat kabul
+anında başlıyor. Davet eden "bu kişiye otuz gün" diye düşünüyor; mutlak
+bir tarih, bağlantıyı üçüncü gün açan birine yirmi yedi gün verirdi.
+Kayma sınırlı, çünkü davetin kendi ömrü zaten bir hafta.
+
+Bedeli dürüstçe ödeniyor: bekleyen davetler tablosunda tarih değil
+"kabul edilince 30 gün" yazıyor, çünkü panel o tarihi tıklanmadan
+bilemez. Bilmediği bir şeyi yazmak yerine bildiğini yazıyor.
+
+### Sahiplik süreli olamaz — ve bu bir veritabanı kısıtı
+
+Süresi biten tek sahip, panelden onarılamayan bir site demek. Son sahip
+kuralı bunun anlık hâlini zaten engelliyordu; bu, aynı kaybın bir
+zamanlayıcıyla gelen hâli.
+
+Kısıt Go'da değil **veritabanında**, çünkü bu tabloya dört yol yazıyor.
+Go tarafındaki kontrol mesajı üretiyor, kısıt garantiyi veriyor: bir
+kısıt ihlali sayfaya "kaydedilemedi" diye ulaşsaydı panel reddettiği
+şeyi söylememiş olurdu.
+
+Bir istisna var ve yazılı: **sahipliğe yükseltmek bitiş tarihini
+siliyor**, hata vermiyor. Birini siteden sorumlu yapmak başka bir
+sahibin bilinçli kararı, ve bunu "geçici bir izinle gelmişti" diye
+reddetmek kimseye bir şey kazandırmazdı. Diğer rol değişiklikleri bitişe
+dokunmuyor: rol değişimi yeni bir bağış değil, ve sessizce süre uzatmak
+birine kalıcı erişimi söylemeden vermenin bir yolu olurdu.
+
+### Süresi dolmuş satır kalıyor, ve görünüyor
+
+Üye tablosundan düşüyor — o tablo "bu siteyi kim görebiliyor" sorusunun
+cevabı — ama kendi bölümünde duruyor. Sebep C9.1'in kendi kuralı: *bir
+teşhis, ona ulaşamayan bir yol için yok demektir.* Satır durup da onu
+gösterebilen hiçbir şey yoksa panel "Ali erişimini neden kaybetti"
+sorusunu cevaplayamaz.
+
+Denetim kaydı bitişi **verildiği anda** yazıyor, dolduğu anda değil.
+Dolma anını yazmak, dolmayı fark eden bir işin var olması demekti — ki
+bu fazın tamamı öyle bir işin olmamasına dayanıyor.
+
+### Üçüncü yazar aynı kapıdan geçti
+
+Bitiş tarihi koymak da bir üyeliği değiştirmek, dolayısıyla C9.1c'nin
+`CanManageMember` kapısından geçiyor. Bir yönetici bir sahibin
+üyeliğine bitiş tarihi koyamaz. C9.1c bu yüzden C9.2'den önce
+yazılmıştı: aksi hâlde kapatılan delik dördüncü kez, zamanlanmış olarak
+açılırdı.
+
+### Ölçüm
+
+On mutasyon. Ayrıntı için commit mesajı.
+
+*Bir süreyi bir işe bırakmak, süreyi işin sıklığı kadar uzatmaktır.*

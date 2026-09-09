@@ -380,7 +380,7 @@ siz = "siz"
 pasif = "pasif"
 cikar = "Çıkar"
 rol_kaydet = "Rolü kaydet"
-eklendi = "%s siteye eklendi."
+erisebiliyor = "%s bu siteye erişebiliyor."
 cikarildi = "Üye siteden çıkarıldı."
 rol_degisti = "Rol güncellendi."
 kendini_cikaramaz = "Kendinizi bu sayfadan çıkaramazsınız."
@@ -395,15 +395,28 @@ baglanti_baslik = "Davet bağlantısı"
 baglanti_govde = "%s adresini %s rolüyle davet ettiniz. Bağlantıyı kendisine iletin."
 baglanti_ipucu = "Bu bağlantı yalnız bir kez gösterilir ve bir kez kullanılabilir. Kaybederseniz aynı adresi tekrar davet edin; yenisi üretilir ve eskisi geçersiz olur."
 
+[metin.uyeler.sure]
+suresiz = "Süresiz"
+gun = "%d gün"
+kabul_edilince = "Kabul edilince %d gün"
+
+[metin.uyeler.suresi_dolan]
+baslik = "Süresi dolmuş erişimler"
+aciklama = "Bu kişilerin erişimi kendiliğinden bitti. Yeniden vermek için adreslerini aşağıdaki kutuya yazın; süre yeniden başlar."
+bitti = "%s tarihinde bitti"
+
 [metin.uyeler.sutun]
 kisi = "Kişi"
 rol = "Rol"
+erisim = "Erişim"
 islem = "İşlemler"
 
 [metin.uyeler.ekle]
 baslik = "Üye ekle"
 eposta = "E-posta adresi"
 ipucu = "Hesabı varsa doğrudan eklenir. Yoksa tek kullanımlık bir davet bağlantısı üretilir; bağlantı ekranda gösterilir, e-posta ayarlıysa ayrıca gönderilir."
+sure = "Erişim süresi"
+sure_ipucu = "Süre dolduğunda erişim kendiliğinden biter; kimsenin bir şey yapması gerekmez. Zaten üye olan birini yazarsanız rolü ve süresi bu değerlerle güncellenir. Sahiplik süreli olamaz."
 gonder = "Ekle"
 
 [metin.uyeler.hata]
@@ -415,6 +428,8 @@ davet_cok = "Bu sitenin bekleyen davet sayısı sınıra ulaştı (%d). Kullanı
 davet_yok = "Bu davet bulunamadı. Kullanılmış ya da geri alınmış olabilir."
 kullanici_gecersiz = "Geçersiz kullanıcı."
 uye_yok = "Bu kişi zaten bu sitenin üyesi değil."
+sure_gecersiz = "Bu erişim süresi sunulan seçeneklerden biri değil."
+sahip_sureli = "Sahiplik süreli olamaz. Tek sahibinin erişimi biten bir site panelden onarılamaz."
 uye_yetki = "Bu kişinin rolü sizinkinin üstünde. Yalnız bir sahip, başka bir sahibi değiştirebilir ya da çıkarabilir."
 son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yapın."
 

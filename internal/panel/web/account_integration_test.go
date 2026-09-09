@@ -280,10 +280,10 @@ func TestDeveloperModeNeedsTheCapabilityNotJustTheForm(t *testing.T) {
 
 	viewer := makeUser(t, store, "izleyici-gelistirici", false)
 	admin := makeUser(t, store, "yonetici-gelistirici", false)
-	if err := store.AddMember(ctx, site, viewer.ID, roleOf("viewer"), nil); err != nil {
+	if err := store.AddMember(ctx, site, viewer.ID, roleOf("viewer"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMember(ctx, site, admin.ID, roleOf("admin"), nil); err != nil {
+	if err := store.AddMember(ctx, site, admin.ID, roleOf("admin"), panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 

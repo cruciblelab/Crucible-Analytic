@@ -61,7 +61,7 @@ func inviteWebFixture(t *testing.T) (*httptest.Server, *http.Client, *panel.Stor
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "web-davet-sahip", false)
-	if err := store.AddMember(ctx, inviteWebSite, owner.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, inviteWebSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -263,7 +263,7 @@ func TestAViewerCannotInviteAnybody(t *testing.T) {
 	owner := makeUser(t, store, "kisit-sahip", false)
 	viewer := makeUser(t, store, "kisit-izleyici", false)
 	for id, role := range map[int64]panel.Role{owner.ID: panel.RoleOwner, viewer.ID: panel.RoleViewer} {
-		if err := store.AddMember(ctx, inviteWebSite, id, role, nil); err != nil {
+		if err := store.AddMember(ctx, inviteWebSite, id, role, panel.Grant{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -313,10 +313,10 @@ func TestOneSiteCannotWithdrawAnothersInvitation(t *testing.T) {
 
 	mine := makeUser(t, store, "yalitim-benim", false)
 	theirs := makeUser(t, store, "yalitim-onlar", false)
-	if err := store.AddMember(ctx, inviteWebSite, mine.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, inviteWebSite, mine.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.AddMember(ctx, other, theirs.ID, panel.RoleOwner, nil); err != nil {
+	if err := store.AddMember(ctx, other, theirs.ID, panel.RoleOwner, panel.Grant{}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -329,7 +329,7 @@ func TestOneSiteCannotWithdrawAnothersInvitation(t *testing.T) {
 
 	// Their invitation, minted by them on their own site.
 	_, theirInvite, err := store.CreateMemberInvite(ctx, other, "onlarin"+testEmailSuffix,
-		panel.RoleViewer, panel.Principal{UserID: theirs.ID, Label: theirs.Email}, 0)
+		panel.RoleViewer, panel.Principal{UserID: theirs.ID, Label: theirs.Email}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +379,7 @@ func TestAnInvitedAddressThatAlreadyHasAnAccountIsNotSignedIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	token, _, err := store.CreateMemberInvite(ctx, inviteWebSite, "zaten-var"+testEmailSuffix,
-		panel.RoleViewer, panel.Principal{UserID: owner.ID, Label: owner.Email}, 0)
+		panel.RoleViewer, panel.Principal{UserID: owner.ID, Label: owner.Email}, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
