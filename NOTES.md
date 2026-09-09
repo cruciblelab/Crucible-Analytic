@@ -14855,3 +14855,53 @@ açılırdı.
 On mutasyon. Ayrıntı için commit mesajı.
 
 *Bir süreyi bir işe bırakmak, süreyi işin sıklığı kadar uzatmaktır.*
+
+## Ekran görüntüsü yine bir kusur buldu: formun dinlenme hâli "sahip yap"
+
+C9.2 bittikten sonra üye sayfasının ekran görüntüsünü aldım ve baktım.
+Sayfa doğru çalışıyordu; kusur çalışmasında değil, **neyi öne
+koyduğundaydı.**
+
+`ValidRoles` azalan yetki sırasında (sahip, yönetici, izleyici) ve ekleme
+formundaki rol seçicisinde hiçbir seçenek işaretli değildi. İşaretsiz bir
+`<select>` ilkini gösterir. Yani sayfadaki en zararsız görünen eylem —
+adresi yaz, Ekle'ye bas — **siteyi devretmekti.** Üstelik sahiplik,
+veren kişinin geri alamayacağı tek rol.
+
+Hiçbir şey bozuk değildi, hiçbir test kırmızı değildi, ve hiçbir sunucu
+kontrolü atlanmıyordu. Yalnızca sayfa en tehlikeli cevabı önden
+söylüyordu.
+
+### İlk düzeltme yetmedi, ve yetmediğini yine ekran görüntüsü söyledi
+
+Go tarafında en düşük yetkiyi hesaplayıp `Selected` olarak işaretledim.
+Ekran görüntüsünü tekrar aldım: hâlâ "Sahip" yazıyordu.
+
+Sebep: şablon o alanı hiç okumuyordu. Satır içindeki seçiciler
+`{{if .Selected}} selected{{end}}` yazıyor, ekleme formundaki seçici
+yazmıyordu. Yani sunucu kararı veriyor, sayfa çöpe atıyordu.
+
+*Yalnızca Go değerini okuyan bir test, hâlâ "Sahip" yazan bir sayfaya
+karşı geçerdi.* Bu yüzden iddia gerçek sunucudan çekilen HTML'e karşı.
+
+### Testin kendisi de aynı hataya düştü
+
+İlk yazdığım iddia sayfanın tamamında `value="owner" selected` arıyordu
+ve kırmızı verdi — çünkü **sahibin kendi satırındaki** seçici de haklı
+olarak "owner"ı işaretliyor. İddia, iddiayı üreten birimden büyük bir
+birimde aranıyordu.
+
+Düzeltmesi: gövde `id="ekle-rol"` ile kesiliyor ve yalnız o seçicinin
+içine bakılıyor. P2'de gizlilik metni için öğrenilen aynı ders, farklı
+bir kılıkta.
+
+### En düşük yetki türetiliyor, yazılmıyor
+
+`leastAuthority` "izleyici" demiyor; `ValidRoles`'u gezip verilebilenlerin
+sonuncusunu alıyor. İzleyicinin altına bir rol eklenirse varsayılan
+kimse hatırlamadan ona kayar — `assignableRoles`'un kuralının aynısı.
+
+Üç mutasyon, üçü de yakalandı: handler varsayılanı hesaplamasın, şablon
+işareti düşürsün, `leastAuthority` ilk rolü döndürsün.
+
+*Bir formun dinlenme hâli, kullanıcının en sık verdiği cevaptır.*

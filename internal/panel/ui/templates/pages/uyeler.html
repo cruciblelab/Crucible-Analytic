@@ -188,9 +188,13 @@ things adding can mean. */}}
 </div>
 <div class="alan">
 <label for="ekle-rol">{{t "uyeler.sutun.rol"}}</label>
+{{- /* The marked option is the least authority this person may hand out,
+not the first in the list. Without the "selected" below, the browser
+picks the first - and the list is in descending authority, so the form's
+resting state was "make this person an owner". */}}
 <select id="ekle-rol" name="rol">
 {{- range .Data.AddRoles}}
-<option value="{{.Value}}">{{.Label}}</option>
+<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
 {{- end}}
 </select>
 </div>

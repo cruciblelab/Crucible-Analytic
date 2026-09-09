@@ -390,6 +390,71 @@ func TestASuperadminReachesEverySite(t *testing.T) {
 	}
 }
 
+// The add form's resting state was "make this person an owner".
+//
+// Found by taking a screenshot and looking at it. Nothing was broken:
+// ValidRoles is in descending authority, nothing marked a default, and a
+// select with no marked option shows its first. So the safest-looking
+// action on the page - fill in an address, press Ekle - handed over the
+// site, and ownership is the one role the person granting it cannot take
+// back.
+//
+// Two halves, because the first fix was not enough: the handler computed
+// the default and the template dropped it on the floor. A test that only
+// read the Go value would have passed against a page that still said
+// "Sahip".
+func TestTheAddFormStartsAtTheLeastAuthority(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+	const site = "varsayilan-rol-testi"
+
+	owner := makeUser(t, store, "varsayilan-sahip", false)
+	admin := makeUser(t, store, "varsayilan-admin", false)
+	if err := store.AddMember(ctx, site, owner.ID, roleOf("owner"), panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMember(ctx, site, admin.ID, roleOf("admin"), panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	page := server.URL + memberPath(site)
+
+	for _, who := range []struct {
+		what  string
+		email string
+	}{{"an owner", owner.Email}, {"an admin", admin.Email}} {
+		_, body := get(t, signedIn(t, server.URL, who.email), page)
+		// Only the add form's select. Every row above it has one too,
+		// and the owner's row legitimately marks "owner" - a claim looked
+		// for in a larger unit than the one that makes it is a claim
+		// about the wrong thing.
+		sel := addRoleSelect(t, body)
+		if !strings.Contains(sel, `<option value="viewer" selected>`) {
+			t.Errorf("%s: the add form does not mark the viewer option, so the browser "+
+				"will show whichever comes first: %s", who.what, sel)
+		}
+		if strings.Contains(sel, `<option value="owner" selected>`) {
+			t.Errorf("%s: the add form marks the owner option as its default", who.what)
+		}
+	}
+}
+
+// addRoleSelect returns just the add form's role select.
+func addRoleSelect(t *testing.T, body string) string {
+	t.Helper()
+	_, after, ok := strings.Cut(body, `<select id="ekle-rol"`)
+	if !ok {
+		t.Fatal("the members page has no add-member role select")
+	}
+	inner, _, ok := strings.Cut(after, "</select>")
+	if !ok {
+		t.Fatal("the add-member role select is never closed")
+	}
+	return inner
+}
+
 // Temporary access, from the form that grants it to the page that shows
 // it - and then the moment it runs out, with nothing having run.
 //

@@ -476,7 +476,15 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 
 	data.SiteID = access.SiteID
 	data.CanManage = access.Can(panel.CapManageMembers)
-	data.AddRoles = assignableRoles(lang, access, "")
+	// The add form starts at the least authority anybody may hand out.
+	//
+	// Found by looking at the page. ValidRoles is in descending order and
+	// nothing marked a default, so the browser chose the first option and
+	// the form's resting state was "make this person an owner" - a
+	// mis-click away from handing over the site, and the one role that
+	// cannot be taken back by the person who granted it. Nothing was
+	// broken; the page simply led with the most dangerous answer.
+	data.AddRoles = assignableRoles(lang, access, leastAuthority(access))
 	data.AddDurations = accessDurationChoices(lang)
 	for _, m := range members {
 		self := m.UserID == access.Principal.UserID
@@ -545,6 +553,23 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 		status = http.StatusBadRequest
 	}
 	s.Renderer.Render(w, r, status, "uyeler", page)
+}
+
+// leastAuthority is the weakest role this viewer may grant.
+//
+// Derived from ValidRoles rather than written down as "viewer", so a role
+// added below viewer becomes the default without anybody remembering to
+// change this - the same rule assignableRoles follows, and for the same
+// reason. Empty when they may grant nothing, which marks no option and
+// leaves a select that has no options anyway.
+func leastAuthority(access panel.Access) panel.Role {
+	var least panel.Role
+	for _, role := range panel.ValidRoles {
+		if access.CanAssign(role) {
+			least = role
+		}
+	}
+	return least
 }
 
 // accessDurationChoices renders accessDurations for the select.

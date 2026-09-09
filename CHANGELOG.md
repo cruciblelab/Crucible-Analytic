@@ -68,6 +68,19 @@ düşürülürse, o davet artık çalışmıyor.
 **Kuran kişinin yapması gereken: yok.** Şema yükseltmesinden sonra
 kendiliğinden çalışıyor.
 
+### Düzeltme: üye ekleme formu varsayılan olarak "Sahip" seçiyordu
+
+Üye ekleme kutusundaki rol seçicisi açıldığında **Sahip** yazıyordu.
+Yani adresi yazıp başka bir şeye dokunmadan Ekle'ye basmak, o kişiyi
+sitenin sahibi yapıyordu — ve sahiplik, veren kişinin geri alamayacağı
+tek rol.
+
+Hiçbir kontrol atlanmıyordu; sayfa yalnızca en tehlikeli cevabı önden
+söylüyordu. Artık en düşük yetkiyle — **İzleyici** — açılıyor.
+
+**Kuran kişinin yapması gereken: yok.** Geçmişte verilmiş roller
+değişmiyor.
+
 ### Düzeltme: bir yönetici bir sahibi düşürebiliyordu
 
 Panel "kimse kendi yetkisinin üstünde bir rol veremez" kuralını
