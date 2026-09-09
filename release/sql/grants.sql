@@ -24,8 +24,8 @@ GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   panel_users, panel_sessions, panel_site_members,
   panel_settings, panel_api_tokens, panel_dev_access,
-  panel_owner_claims, panel_login_attempts, panel_recovery_codes,
-  panel_smtp
+  panel_owner_claims, panel_member_invites, panel_login_attempts,
+  panel_recovery_codes, panel_smtp
   TO panel_user;
 
 -- The audit log is append-only. No UPDATE and no DELETE, deliberately:
@@ -79,6 +79,7 @@ REVOKE ALL ON SEQUENCE panel_logs_id_seq
 GRANT USAGE, SELECT ON
   panel_users_id_seq, panel_audit_log_id_seq, panel_api_tokens_id_seq,
   panel_dev_access_id_seq, panel_owner_claims_id_seq,
+  panel_member_invites_id_seq,
   panel_login_attempts_id_seq, panel_recovery_codes_id_seq
   TO panel_user;
 

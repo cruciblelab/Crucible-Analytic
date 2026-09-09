@@ -13,10 +13,30 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 16.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Tek bir küçük tablo ekleniyor; veri
-değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayar
+**Şema sürümü: 17.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. İki küçük tablo ekleniyor; veri
+değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayarlar
 yazılmazsa başka hiçbir davranış değişmiyor.
+
+### Hesabı olmayan birini davet edebiliyorsunuz
+
+Üye ekleme kutusuna daha önce hesabı olmayan bir adres yazdığınızda panel
+şunu diyordu: *"Bu adrese ait bir hesap yok. Kişinin önce hesabı
+oluşturulmalı; davet e-postası henüz eklenmedi."* Yani meslektaşınızı
+ekleyebilmenizin tek yolu, onun hesabının başka bir yoldan açılmış
+olmasıydı.
+
+Artık davet edebiliyorsunuz. Bağlantı **tek kullanımlık ve süreli**
+(varsayılan yedi gün), veritabanında yalnız özeti duruyor, ve davet
+edilen kişi **kendi rolünü seçemiyor** — hangi siteye hangi rolle davet
+edildiği davet satırında yazılı, ve kabul anında oradan okunuyor.
+
+Davet ettiğiniz kişinin yetkisi değil, **sizin** yetkiniz kullanım anında
+yeniden soruluyor. Yani bir yönetici birini davet ettikten sonra yetkisi
+düşürülürse, o davet artık çalışmıyor.
+
+**Kuran kişinin yapması gereken: yok.** Şema yükseltmesinden sonra
+kendiliğinden çalışıyor.
 
 ### Düzeltme: panel her müşteriye "hiçbir ayarı değiştiremezsiniz" diyordu
 

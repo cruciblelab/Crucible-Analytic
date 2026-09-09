@@ -103,6 +103,12 @@ var Sets = []Set{
 			"panel_audit_log",
 			"panel_dev_access",
 			"panel_owner_claims",
+			// In the set rather than excluded, and the reason is the
+			// same as the owner claims beside it: an open invitation is
+			// a grant somebody made and has not yet been taken up, so a
+			// machine restored from a backup should still honour it.
+			// Only the hash travels, so the file carries no usable link.
+			"panel_member_invites",
 		},
 	},
 	{

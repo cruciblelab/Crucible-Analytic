@@ -86,7 +86,7 @@ gerekçe değil bahane olur.
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | 🟡 **12/13** *(+1 düştü)* | A8 *(A9 düştü — yerine P)* |
 | **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
-| **C** Panel HTTP yüzeyi | 🟡 **12/13** | C9 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
+| **C** Panel HTTP yüzeyi | 🟡 **12/14** | C9.1–C9.2 — *(C4.4'ün ertelediği üye daveti; grup bitmiş görünürken taşıdığı iş)* |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -3215,7 +3215,7 @@ yapısal test: **`panel_smtp`'yi collector okuyamaz**, ve **e-posta
 yapılandırılmamışken davet ile sıfırlama akışları çalışmaya devam
 eder**.
 
-#### C9 — Üye daveti, ve süreli üyelik
+#### C9.1 — Üye daveti
 
 Panelin kendi kendine söylediği eksik. Hesabı olmayan birini üye eklemeye
 çalışan bir müşteri bugün şunu görüyor:
@@ -3302,7 +3302,29 @@ davet satırından okunuyor. Davetli kendine yalnız parola ve **görünen ad**
 ayarlıyor; giriş kimliği e-posta ve onu davet eden sabitliyor — sahiplik
 davetinin aynı kuralı.
 
-##### Süreli üyelik: ayrı bir şey, ve daha değerli olanı
+##### Bitti ölçütü
+
+Gerçek veritabanına ve gerçek tarayıcıya karşı:
+
+- Hesabı olmayan bir adrese davet üretiliyor; bağlantı **hem e-postayla
+  hem ekranda** veriliyor (e-posta yapılandırılmamışken de akış
+  çalışıyor, C7.3'ün yapısal testiyle aynı iddia).
+- Bağlantı **tek kullanımlık**: iki sekmede aynı anda açılan davet bir
+  hesap üretiyor, iki değil — `panel_owner_claims`'in yarış testiyle
+  aynı desen.
+- Davetli role dokunamıyor: formdan farklı bir rol gönderildiğinde
+  sunucu davet satırındakini uyguluyor.
+- **Davet eden yetkisini kaybedince davet çalışmıyor**, ve düşürme açık
+  davetleri iptal ediyor.
+- Denetim kaydında davetin üretilmesi ve kullanılması ayrı ayrı görünüyor.
+
+Mutasyonlar: kullanım anındaki `CanAssign` kontrolünü sil; rolü davet
+satırı yerine formdan oku; `used_at`'i atomik işlemin dışına taşı. Üçü
+de kırmızı vermeli.
+
+---
+
+#### C9.2 — Süreli üyelik
 
 "Arkadaşını çağıracak ya da geçici bir iş yapacak" durumunun cevabı
 bağlantının süresi değil, **erişimin** süresi. `panel_site_members`'ta
@@ -3320,24 +3342,13 @@ sürdürür — ve o pencere, kimsenin bakmadığı bir pencere olur.
 
 ##### Bitti ölçütü
 
-Gerçek veritabanına ve gerçek tarayıcıya karşı:
+Süresi dolmuş bir üyelik erişim vermiyor, **temizlik işi hiç koşmadan** —
+yani sorgu kendisi eliyor. Boş bırakılmış bir bitiş tarihi bugünkü
+davranışı hiç değiştirmiyor. Süre dolduğunda kişi listeden düşüyor ve
+denetim kaydı bunu söylüyor.
 
-- Hesabı olmayan bir adrese davet üretiliyor; bağlantı **hem e-postayla
-  hem ekranda** veriliyor (e-posta yapılandırılmamışken de akış
-  çalışıyor, C7.3'ün yapısal testiyle aynı iddia).
-- Bağlantı **tek kullanımlık**: iki sekmede aynı anda açılan davet bir
-  hesap üretiyor, iki değil — `panel_owner_claims`'in yarış testiyle
-  aynı desen.
-- Davetli role dokunamıyor: formdan farklı bir rol gönderildiğinde
-  sunucu davet satırındakini uyguluyor.
-- **Davet eden yetkisini kaybedince davet çalışmıyor**, ve düşürme açık
-  davetleri iptal ediyor.
-- Süresi dolmuş üyelik erişim vermiyor, **temizlik işi hiç koşmadan**.
-- Denetim kaydında davetin üretilmesi ve kullanılması ayrı ayrı görünüyor.
-
-Mutasyonlar: kullanım anındaki `CanAssign` kontrolünü sil; rolü davet
-satırı yerine formdan oku; bitiş tarihini erişim sorgusundan çıkar;
-`used_at`'i atomik işlemin dışına taşı. Dördü de kırmızı vermeli.
+Mutasyon: bitiş tarihini erişim sorgusundan çıkar, ve yalnız temizlik
+işine bırak. Kırmızı vermeli.
 
 ---
 

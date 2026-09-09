@@ -283,6 +283,69 @@ CREATE INDEX IF NOT EXISTS idx_panel_owner_claims_open
     ON panel_owner_claims (created_at DESC)
     WHERE used_at IS NULL;
 
+-- Member invitations: the same shape as an owner claim, for a colleague
+-- rather than for the deployment.
+--
+-- Its own table rather than a nullable site_id on the one above, because
+-- the two answer different questions and are decided by different
+-- people. An owner claim is minted at a shell at handover, grants every
+-- site, and creates the account that owns the deployment. This one is
+-- minted in the panel by somebody who already has authority over one
+-- site, and grants exactly that site at exactly one role. Merging them
+-- would mean every query about either having to say which kind it meant.
+--
+-- Why an invitation row and not a user row: see panel_owner_claims. The
+-- same reasoning, and it is the reason the panel could not offer this
+-- until now - adding a member has always required an account that
+-- already existed.
+CREATE TABLE IF NOT EXISTS panel_member_invites (
+    id     BIGSERIAL PRIMARY KEY,
+    sha256 TEXT      NOT NULL UNIQUE,
+
+    -- What is being granted. Decided when the invitation is minted and
+    -- applied when it is used; the person accepting never sends either
+    -- of these, so a hand-edited form cannot change what it is for.
+    site_id TEXT NOT NULL,
+    role    TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'viewer')),
+    -- The address the account will be created with, fixed here for the
+    -- same reason as the owner claim: the person inviting decides who
+    -- this is for.
+    email TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Who minted it. Kept after they are gone (SET NULL) so the audit
+    -- trail can still say an invitation existed, and read at redemption
+    -- to ask whether they may still grant this role.
+    created_by    BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
+    created_label TEXT NOT NULL DEFAULT '',
+
+    expires_at TIMESTAMPTZ NOT NULL,
+    -- Set when somebody withdraws the invitation, or when the person who
+    -- minted it loses the authority to have minted it. Separate from
+    -- expires_at because "withdrawn" and "ran out" are different answers
+    -- to the invitee, and the page says which.
+    revoked_at TIMESTAMPTZ,
+
+    -- Set atomically on redemption, in the transaction that grants the
+    -- membership. A second attempt finds it non-NULL and is refused, so
+    -- two tabs opened at once produce one member rather than two.
+    used_at   TIMESTAMPTZ,
+    used_from INET,
+    used_by   BIGINT REFERENCES panel_users(id) ON DELETE SET NULL
+);
+
+-- Open invitations for one site, newest first: what the members page
+-- lists under the people who have actually accepted.
+CREATE INDEX IF NOT EXISTS idx_panel_member_invites_open
+    ON panel_member_invites (site_id, created_at DESC)
+    WHERE used_at IS NULL AND revoked_at IS NULL;
+
+-- Every invitation one person minted: read when they are demoted or
+-- removed, to withdraw what they can no longer grant.
+CREATE INDEX IF NOT EXISTS idx_panel_member_invites_by
+    ON panel_member_invites (created_by)
+    WHERE used_at IS NULL AND revoked_at IS NULL;
+
 -- Login attempts, for throttling and for seeing an attack in progress.
 --
 -- A table rather than an in-memory counter, for two reasons: an

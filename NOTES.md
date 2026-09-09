@@ -14542,3 +14542,56 @@ yeniden başladıktan sonra gerçek kontrol bir bağlantıdır. Yüzlerce testin
 0.00s'de düşmesi kodun değil veritabanının haberidir; ve veritabanı yeni
 kalktıysa kapıyı bir kez ısıtmadan koşturmak, kapının kendi ölçümünü aç
 bırakmak demek.
+
+## C9.1'in ilk yarısı: davet satırı, ve dört mutasyonun ölçtüğü şey
+
+Panelin kendi kendine söylediği eksik kapanmaya başladı. `panel_member_invites`
+şemaya girdi, sürüm 16 → 17.
+
+Tablo `panel_owner_claims`'in şeklinde, çünkü o şekil bu şemada dört kez
+yazılmış (API jetonu, geliştirici erişimi, sahiplik daveti, kurtarma
+kodu) ve beşinci bir yazım beşinci bir yanlış yapma fırsatıdır. Farkı ne
+verdiği: tek site, tek rol, o site üzerinde zaten yetkisi olan biri
+tarafından.
+
+Davetlinin **seçemediği** üç şey satırda duruyor: site, rol, adres.
+Üçü de kullanım anında satırdan okunuyor; kabul formunun gönderdiği
+hiçbir şey bunlardan biri için okunmuyor. Seçtiği tek şey parolası ve
+görünen adı.
+
+### Yetki iki kez soruluyor, ve ikincisi ilk taslağın atlayacağı yer
+
+Rol mint edilirken denetleniyor — o an doğru. Aradan geçen sürede davet
+eden düşürülmüş olabilir, ve hâlâ veremeyeceği şeyi veren bir davet,
+düşürmenin bitirmesi gereken yetkiyi düşürmeden sağ çıkarır. Bu yüzden
+davet edenin yetkisi **kullanım işleminin içinde** yeniden okunuyor.
+
+Reddediş işlemle birlikte geri alınıyor, yani davet harcanmıyor: rol geri
+verilirse bağlantı yine çalışıyor. Testte iki yön de var.
+
+### Ölçüm
+
+Altı entegrasyon testi, gerçek TimescaleDB'ye karşı. Dört mutasyon,
+dördü de yakalandı ve her biri doğru testler tarafından:
+
+- Kullanım anında yetki sorulmasın → *AnInviterWhoLostTheAuthority...*
+- Tüketen `UPDATE` `used_at IS NULL` kontrolünü bıraksın → *IsSingleUse
+  UnderConcurrency* (sekiz eşzamanlı kullanım, sekiz üye).
+- Geri alınmış davet yine okunabilsin → *AnInvitationThatIsNoLongerOpen...*
+- Ham jeton hash'in yerine saklansın → dört test birden.
+
+### Yazarken düşen bir hata, ve neden sessiz olmadığı
+
+İlk yazımda var olan hesabı ararken `pgx.ErrNoRows` bekliyordum, ama
+`scanUser` onu `ErrNotFound`'a çeviriyor. Sonuç: hiçbir davet kullanılamaz
+oluyordu. **Fail-closed** olduğu için tehlikeli değildi ama tamamen
+kırıktı, ve ilk koşuda sekiz redemption'ın sekizi de aynı cümleyle düştü.
+Gerçek veritabanına karşı koşan bir testin taklide karşı üstünlüğü tam
+olarak bu: taklit `ErrNoRows` döndürürdü ve test yeşil verirdi.
+
+### Yedek kümesi
+
+Tablo panel kümesine kondu, dışlanan listesine değil. Gerekçe yanındaki
+sahiplik davetiyle aynı: açık bir davet, birinin verdiği ve henüz
+alınmamış bir yetkidir; yedekten dönen bir makine onu onurlandırmalı.
+Dosyaya yalnız hash gidiyor, yani yedek çalışan bir bağlantı taşımıyor.

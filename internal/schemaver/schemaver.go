@@ -125,14 +125,25 @@ import (
 // schema_admin alone, deliberately: the panel must not be able to tell
 // itself that a version exists, because the reason the upgrader is the
 // one asking is that the upgrader is the one holding the signing key.
-const Version = 16
+//
+// # 17
+//
+// One table: panel_member_invites, the invitation that lets somebody
+// with no account be added to a site (C9.1).
+//
+// Additive, and only the panel reads or writes it. An older binary is
+// unaffected: it has never offered the feature and never queries the
+// table. A deployment that has not applied this keeps the behaviour it
+// has always had - adding a member requires an account that already
+// exists - which is a missing feature rather than a broken one.
+const Version = 17
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "b92a2fdb8ae9f78b7726418d9ece78ea4bcc6fe2c4c35194bf1c2628664df8a8"
+const Fingerprint = "c8fd0ed9b77b83084ae13df3c3e2192b20f4494154d51f4e3c109b67a2e12bcc"
 
 // FingerprintOf hashes a set of schema files.
 //
