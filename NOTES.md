@@ -15727,3 +15727,89 @@ Gerçek üründe ulaşılamaz: `internal/beacon/server.go` satırın zamanını
 `s.now()` ile, **sunucunun saatiyle** damgalıyor; istemci bir zaman
 gönderemiyor. Kontrol edildi, çünkü gönderebiliyor olsaydı kart-grafik
 ayrışması gerçek bir kusur olurdu.
+
+## Sahibin sorusu: "şema yükseltmesinde sıkıştırılanlar serbest mi bırakılacak, bir anda patlama mı olacak"
+
+İyi soru, ve belgede cevabı yoktu — yani sorulması gerektiği için değil,
+**yazılmadığı için** sorulmuş bir soruydu. Ölçüldü.
+
+Düzenek: kurulum şeklinde bir veritabanı (şema dosyaları süper
+kullanıcıyla, sonra `grants.sql`, sonra `install.sh`'in şema hakları),
+60 güne yayılmış 1,2 milyon satır, `ca_set_compression` ile ürünün kendi
+yolundan sıkıştırıldı — 10 parçanın 8'i.
+
+### 1. Yükseltme hiçbir şeyi çözmüyor
+
+```
+                    önce      sonra
+sıkıştırılmış parça   8         8
+hipertablo          35 MB     35 MB     (0 bayt fark)
+veritabanı          46 MB     46 MB     (+24 KB katalog)
+süre                          519 ms
+```
+
+211 MB → 46 MB sıkıştırma kazancı yükseltmeden sonra da duruyor.
+
+### 2. Neden: yükseltmenin yapabildiği hiçbir şey veriyi yeniden yazmıyor
+
+Sıkıştırılmış hipertabloda **kabul edilen** dört DDL biçimi tek tek
+ölçüldü:
+
+| İşlem | Disk | Süre | Çözüyor mu |
+|---|---|---|---|
+| `ADD COLUMN` (NOT NULL DEFAULT) | 0 KB | 44 ms | hayır |
+| `ADD COLUMN` (nullable) | 0 KB | 45 ms | hayır |
+| `DROP COLUMN` | 0 KB | 40 ms | hayır |
+| `CREATE INDEX` | +1,1 MB | 213 ms | hayır |
+
+`CREATE INDEX`'in maliyeti indeksin kendi boyutu — sıkıştırılmamış bir
+tabloda da aynı olurdu.
+
+**Reddedilen** biçimler (ALTER COLUMN TYPE, DROP NOT NULL, ADD CHECK,
+ENABLE RLS) zaten geliştirme anında kapıyı kırmızı verdiriyor. Yani
+"çözmesi gereken" bir şema değişikliği bir müşteriye sessizce ulaşamıyor:
+ya hiç yazılmıyor, ya kendi fazı ve kendi sürüm notu oluyor.
+
+### 3. Asıl geçici şişme yükseltmede değil, ilk sıkıştırma turunda
+
+Ve o da küçük. Sıkıştırma koşarken 200 ms'de bir veritabanı boyutu
+örneklendi:
+
+```
+başlangıç   216 MB
+tepe        226 MB   (+10 MB, %4,6)
+sonuç        48 MB
+```
+
+Sebebi TimescaleDB'nin **parça parça** çalışması: herhangi bir anda
+yalnız bir parçanın iki kopyası var. Yani tepe tablonun boyutuyla değil,
+**bir parçanın** boyutuyla sınırlı. (Bu veride sıkıştırılmamış bir parça
+~24 MB.)
+
+### 4. Yedekler etkilenmiyor
+
+Yedek `COPY` ile okuyup çıktıyı gzip'liyor (`internal/backup/container.go`).
+Yani yedeğin boyutu tablonun diskte nasıl durduğuna değil verinin
+kendisine bağlı — disk 4 kat küçüldü diye yedekler küçülmez, ve
+sıkıştırma yedek yolunu yavaşlatmaz (O1'de zaten ölçülmüştü: 133.333
+satır sıkıştırılmış parçadan eksiksiz okundu).
+
+### Ölçüm bir şart hâline getirildi
+
+`TestAnUpgradeStillWorksOnACompressedDeployment` artık yalnız ayarları
+değil **gerçek sıkıştırılmış parçaları** kuruyor (her hipertabloya 60
+günlük bir satır, sonra `compress_chunk`), ve yükseltmeden sonra sayının
+aynı kaldığını doğruluyor.
+
+Hipertablo listesi yine katalogdan türetiliyor; tohum satırı ise tablo
+başına yazılı bir haritada. Haritada olmayan bir hipertablo **sessizce
+atlanmıyor**, testi düşürüyor — çünkü tohumsuz bir tablonun parçası
+olmaz, parçası olmayan tablo hakkında bu test hiçbir şey söylemez.
+
+Üç mutasyon kırmızı: bir şema dosyası sessizce çözsün; fikstür hiç parça
+sıkıştırmasın; tohumsuz hipertablo atlansın. Artı bir çift kontrol —
+iddia kaldırılıp aynı şema mutasyonu tekrarlandığında test **yeşil**
+veriyor, yani kırmızıyı veren yan etki değil iddianın kendisi.
+
+*Belgede cevabı olmayan her soru, birinin sorması gereken bir sorudur;
+sorulduğunda ölç ve yaz.*

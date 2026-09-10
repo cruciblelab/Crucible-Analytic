@@ -95,6 +95,19 @@ func TestAnUpgradeStillWorksOnACompressedDeployment(t *testing.T) {
 			"compressed deployment", enabled, compressed)
 	}
 
+	// Real compressed chunks, not just the settings.
+	//
+	// The settings alone are enough for the refusals this test began as,
+	// because TimescaleDB checks them rather than the data. They are not
+	// enough for the question the owner asked: does an upgrade *undo* the
+	// compression - and does the disk a customer just got back disappear
+	// again the moment they press the button.
+	chunks := compressOldChunks(t, pool)
+	if chunks == 0 {
+		t.Fatal("no chunk was compressed, so the assertion below about staying " +
+			"compressed has nothing to be about")
+	}
+
 	// The real path, not a loop of our own over the same slice: apply is
 	// what the panel's button runs, with its lock timeout, its advisory
 	// lock and its version row.
@@ -109,6 +122,28 @@ func TestAnUpgradeStillWorksOnACompressedDeployment(t *testing.T) {
 			"named above is one of those, guard it so it runs only when it would change "+
 			"something - see the DO block in internal/storage/schema.sql", err)
 	}
+	// And the compression is still there.
+	//
+	// Measured, 2026-09-10, on 1,2 million rows over sixty days: the
+	// upgrade decompressed nothing, the hypertable did not grow by a
+	// byte, and it took half a second. This turns that measurement into
+	// something that stays true: a future schema file that quietly
+	// decompresses - to add a column the hard way, say - would give a
+	// customer back four times their disk usage in the middle of an
+	// upgrade they were told was additive.
+	var stillCompressed int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM timescaledb_information.chunks
+		 WHERE hypertable_schema = 'public' AND is_compressed`).Scan(&stillCompressed); err != nil {
+		t.Fatalf("counting compressed chunks after the upgrade: %v", err)
+	}
+	if stillCompressed != chunks {
+		t.Errorf("%d chunks were compressed before the upgrade and %d after.\n"+
+			"An upgrade that decompresses is an upgrade that multiplies a "+
+			"customer's disk use without warning, on the traffic path, while "+
+			"the page says a schema is being applied", chunks, stillCompressed)
+	}
+
 	if reached == nil || *reached != schemaver.Version {
 		t.Errorf("reached version %v, want %d", reached, schemaver.Version)
 	}
@@ -130,24 +165,7 @@ func compressEveryHypertable(t *testing.T, pool *pgxpool.Pool) int {
 	t.Helper()
 	ctx := context.Background()
 
-	rows, err := pool.Query(ctx, `
-		SELECT hypertable_name FROM timescaledb_information.hypertables
-		 WHERE hypertable_schema = 'public' ORDER BY hypertable_name`)
-	if err != nil {
-		t.Fatalf("listing hypertables: %v", err)
-	}
-	var tables []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scanning a hypertable name: %v", err)
-		}
-		tables = append(tables, name)
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("listing hypertables: %v", err)
-	}
-
+	tables := hypertablesIn(t, pool)
 	for _, table := range tables {
 		var hasSiteID bool
 		if err := pool.QueryRow(ctx, `
@@ -166,6 +184,87 @@ func compressEveryHypertable(t *testing.T, pool *pgxpool.Pool) int {
 		}
 	}
 	return len(tables)
+}
+
+// hypertablesIn is every hypertable the schema created, read from
+// TimescaleDB's own catalogue.
+//
+// One function rather than a copy in each helper: the whole point of not
+// naming the tables is that a third one is covered on the day it is
+// added, and two derivations are two chances for one of them to stop
+// being a derivation.
+func hypertablesIn(t *testing.T, pool *pgxpool.Pool) []string {
+	t.Helper()
+	rows, err := pool.Query(context.Background(), `
+		SELECT hypertable_name FROM timescaledb_information.hypertables
+		 WHERE hypertable_schema = 'public' ORDER BY hypertable_name`)
+	if err != nil {
+		t.Fatalf("listing hypertables: %v", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scanning a hypertable name: %v", err)
+		}
+		tables = append(tables, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("listing hypertables: %v", err)
+	}
+	return tables
+}
+
+// oldRowFor is one row per hypertable, dated far enough back to have a
+// chunk of its own.
+//
+// A map rather than generated SQL: what runs is visible in full where it
+// is read, the same reason internal/retention's wrappers are written out
+// per table. The list of hypertables is still derived from the
+// catalogue - this only says how to put a row in each, and a hypertable
+// with no entry fails loudly below rather than being skipped.
+var oldRowFor = map[string]string{
+	"traffic_snapshots": `INSERT INTO traffic_snapshots
+		  (time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate, bot_score)
+		VALUES (now() - INTERVAL '60 days', 'yukseltme', '203.0.113.60'::inet, 't13d', 1, 1, 1.0, 10)`,
+	"beacon_events": `INSERT INTO beacon_events (time, site_id, visitor_id, event_type)
+		VALUES (now() - INTERVAL '60 days', 'yukseltme', 'yukseltme', 'pageview')`,
+}
+
+// compressOldChunks puts a row sixty days back in every hypertable and
+// compresses the chunks it lands in, answering how many are compressed.
+func compressOldChunks(t *testing.T, pool *pgxpool.Pool) int {
+	t.Helper()
+	ctx := context.Background()
+
+	for _, table := range hypertablesIn(t, pool) {
+		insert, ok := oldRowFor[table]
+		if !ok {
+			t.Fatalf("no seed row is written for the hypertable %q.\n"+
+				"Add one to oldRowFor: without a row it has no chunk, and without a "+
+				"chunk this test says nothing about whether an upgrade decompresses "+
+				"that table", table)
+		}
+		if _, err := pool.Exec(ctx, insert); err != nil {
+			t.Fatalf("seeding an old row in %s: %v", table, err)
+		}
+		if _, err := pool.Exec(ctx, `
+			SELECT public.compress_chunk(c, if_not_compressed => true)
+			  FROM public.show_chunks($1::regclass, older_than => INTERVAL '7 days') c`,
+			table); err != nil {
+			t.Fatalf("compressing chunks of %s: %v", table, err)
+		}
+	}
+
+	var compressed int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM timescaledb_information.chunks
+		 WHERE hypertable_schema = 'public' AND is_compressed`).Scan(&compressed); err != nil {
+		t.Fatalf("counting compressed chunks: %v", err)
+	}
+	return compressed
 }
 
 // freshDatabase is a database of this test's own, schema applied once.

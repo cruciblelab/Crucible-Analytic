@@ -1169,6 +1169,50 @@ yüzden **Sağlık → Şema yükseltmesi** düğmesi sıkıştırma açıkken d
 çalışır. İleride bunlardan birini gerektiren bir değişiklik gerekirse,
 sürüm notunda ayrıca yazılır — sessizce olmaz.
 
+### Yükseltme sıkıştırmayı çözer mi, disk bir anda şişer mi
+
+Hayır. Ölçüldü (2026-09-10, 60 güne yayılmış 1,2 milyon satır, 10
+parçanın 8'i sıkıştırılmış):
+
+| | önce | sonra |
+|---|---|---|
+| Sıkıştırılmış parça | 8 | 8 |
+| Hipertablo boyutu | 35 MB | 35 MB (**0 bayt fark**) |
+| Veritabanı | 46 MB | 46 MB (+24 KB katalog) |
+| Süre | | 519 ms |
+
+Sebebi şu: yükseltmenin sıkıştırılmış bir tabloda yapabildiği işlemlerin
+hiçbiri veriyi yeniden yazmıyor. Tek tek ölçüldü:
+
+| İşlem | Disk | Süre | Çözüyor mu |
+|---|---|---|---|
+| `ADD COLUMN` (NOT NULL DEFAULT) | 0 KB | 44 ms | hayır |
+| `ADD COLUMN` (boş bırakılabilir) | 0 KB | 45 ms | hayır |
+| `DROP COLUMN` | 0 KB | 40 ms | hayır |
+| `CREATE INDEX` | +1,1 MB (indeksin kendisi) | 213 ms | hayır |
+
+Ve bu bir söz değil, **her koşuda sınanan bir şart**: yükseltme testi
+gerçekten sıkıştırılmış parçalar bırakıp yükseltiyor ve sonrasında
+sayının aynı kaldığını doğruluyor. Sessizce çözen bir şema dosyası kapıyı
+kırmızı verdirir.
+
+**Asıl geçici şişme yükseltmede değil, ilk sıkıştırma turunda** — ve o da
+küçük. Ölçüldü, aynı veri:
+
+```
+başlangıç   216 MB
+tepe        226 MB   (+10 MB, %4,6)
+sonuç        48 MB
+```
+
+Çünkü TimescaleDB **parça parça** çalışıyor: herhangi bir anda yalnız bir
+parçanın iki kopyası var, tablonun tamamının değil. Yani tepe, tablonun
+boyutuyla değil **bir parçanın** boyutuyla sınırlı.
+
+**Yedeklerin boyutu değişmiyor.** Yedek `COPY` ile okuyup çıktıyı gzip'le
+sıkıştırıyor, yani yedeğin boyutu tablonun diskte nasıl durduğuna değil
+verinin kendisine bağlı. Disk 4 kat küçüldü diye yedekler küçülmez.
+
 ---
 
 ## 13. Gerçekten çalışıyor mu
