@@ -127,37 +127,141 @@ const worstAcceptableStall = 2 * time.Second
 // EXISTS skips the work, not the lock). The stall was 39% of the upgrade
 // window; on the development machine the same figure is 28%.
 //
-// So the floor also scales with the window: a query cannot have been
-// blocked *by the upgrade* for longer than the upgrade lasted, and a
-// wait comfortably inside the window is the queueing this design already
-// accepts. effectiveFloor is that rule.
+// So the floor was made to scale with the upgrade window, on the
+// sentence "a query cannot have been blocked by the upgrade for longer
+// than the upgrade lasted". The reading of that run was right. The
+// sentence was not.
+//
+// # The window is not a bound on a sample's duration - measured
+//
+// A query counts as "during" if it *overlaps* the window, deliberately -
+// see the comment at the sampling loop, and the sample that comment is
+// there to keep. So a sample may begin before the window opens or end
+// after it closes, and in neither case is its total duration bounded by
+// the window, however healthy the run.
+//
+// CI run 34426623555, 2026-09-10, on the branch: beacon insert, worst
+// during 359.92ms, worst at rest 48.47ms, window 282.81ms. Red, and red
+// on the floor being the window. The same tree passed on the other ref
+// four minutes earlier.
+//
+// The arithmetic settles what the rule could not. A query the upgrade is
+// holding is let go when the upgrade lets go, so it ends within its own
+// work of the window's close - at most 282.81 + 48.47 = 331.28ms after
+// the window opened, and if it started inside the window its duration is
+// at most that. 359.92ms is more. So that sample was either one that
+// began before the window, which the upgrade cannot have been holding
+// (a statement takes its locks when it begins, so the DDL queues behind
+// *it*), or one whose own work was slower than anything this machine did
+// at rest. Neither is a lock, and the rule had no way to ask which.
+//
+// # What replaces it: the tail
+//
+// For a sample that starts inside the window, split its duration at the
+// moment the upgrade returned:
+//
+//	duration = (upgradeEnded - start) + (end - upgradeEnded)
+//	            \___________________/   \_________________/
+//	             at most the window,           the tail
+//	             and the part the
+//	             upgrade could have held
+//
+// The left half is the queueing this design already accepts as the cost
+// of applying a schema file. The right half is time the upgrade provably
+// did not cause: it had returned and released everything it held. So the
+// tail is a *lower* bound on what the upgrade cannot explain, and the
+// rule complains about that and about nothing else.
+//
+// It is compared to the machine rather than to a constant, because a
+// blocked query's tail is its own work: the tail may reach several times
+// the worst this machine managed at rest before it means anything, with
+// the 250ms minimum below for the reason the minimum has always been
+// there. That is tailFloor.
+//
+// "A blocked query's tail is its own work" is the load-bearing sentence,
+// so it was measured rather than argued. Five runs on the development
+// machine, the beacon insert - the probe that went red on CI:
+//
+//	window     worst during   at rest   worst tail
+//	458.31ms       413.82ms   298.74ms      0.305ms
+//	 36.25ms         2.86ms   144.35ms      0.216ms
+//	 47.60ms         3.74ms     7.54ms      0.116ms
+//	 51.71ms         3.46ms    26.07ms      0.492ms
+//	268.63ms       223.24ms     5.75ms      0.201ms
+//
+// The first and last rows are the ones to read, and they are the CI
+// failure's own shape reproduced. In the first, a writer waited 413.82ms
+// inside a 458.31ms window and then ran on for 305 microseconds after
+// the applier returned. In the last it waited 223.24ms against 5.75ms at
+// rest - thirty-nine times its own worst, unmistakably blocked - and its
+// tail was 201 microseconds. The collector on that same run: 132.32ms
+// against 4.71ms, tail 370 microseconds.
+//
+// The wait was the lock. The tail was the insert. Across the five runs
+// and all five probes the largest tail was 2.13ms, against a floor of
+// 250ms.
 //
 // # What this costs, said plainly
 //
-// Sensitivity in one narrow band: a mild regression that makes the
-// upgrade itself take, say, 400ms and blocks a query for about as long
-// would now sit at the floor rather than over it. That band is covered
-// from the other side by TestTheUpgradeYieldsToTrafficRatherThanTheOther
-// WayRound, which constructs the contention deliberately and asserts the
-// mechanism - the applier gives way inside deadlock_timeout and the
-// traffic commits - rather than inferring it from timings on whatever
-// machine happens to be running.
+// Sensitivity to one shape, the same shape as before: an upgrade that
+// blocks a query and releases it before returning leaves no tail, so a
+// regression that made every writer wait 400ms inside a 450ms window
+// passes here - as it did under the window floor, which 400ms was also
+// inside. That band is covered from the other side by TestTheUpgrade
+// YieldsToTrafficRatherThanTheOtherWayRound, which constructs the
+// contention deliberately and asserts the mechanism - the applier gives
+// way inside deadlock_timeout and the traffic commits - rather than
+// inferring it from timings on whatever machine happens to be running.
+// And the ceiling is untouched: a wait a customer notices fails this
+// test whatever its shape.
 const (
 	comparedToRest        = 4
 	worthComplainingAbout = 250 * time.Millisecond
 )
 
-// effectiveFloor is how slow a query has to get before this complains.
+// tailFloor is how long a query has to keep running after the upgrade
+// let go before this complains.
 //
-// The larger of the absolute minimum and the upgrade window, for the
-// reason above: below the window, a wait is bounded by the thing that
-// caused it and is the accepted cost of applying a schema file; above
-// it, the query was waiting for something else.
-func effectiveFloor(upgradeTook time.Duration) time.Duration {
-	if upgradeTook > worthComplainingAbout {
-		return upgradeTook
+// The larger of the absolute minimum and several times what this machine
+// manages at rest. Both, because either alone is unusable: a fixed
+// number is a threshold for one machine's speed, and a pure ratio makes
+// 9ms a complaint on a baseline of 2ms.
+func tailFloor(baseline time.Duration) time.Duration {
+	if scaled := comparedToRest * baseline; scaled > worthComplainingAbout {
+		return scaled
 	}
 	return worthComplainingAbout
+}
+
+// tailAfter is one sample's tail: how long that query went on running
+// after the upgrade returned, and zero when the upgrade cannot be asked
+// about it at all.
+//
+// Two ways to get zero, and they are different claims.
+//
+// A query that ended before the upgrade did has no tail: the upgrade was
+// still holding things when the query finished, so every millisecond of
+// it is inside the window this design accepts.
+//
+// A query that *started* before the upgrade did is excluded outright,
+// however long it ran. A statement takes its locks when it begins, so
+// one already in flight when the DDL arrives is what the DDL queues
+// behind - the other way round from what this file used to say. Charging
+// its duration to the upgrade would let the upgrade be blamed for a
+// query it was itself waiting for, and on a loaded machine that query
+// can be the longest sample in the run.
+//
+// Extracted from the loop for the ordinary reason: the two zeros above
+// are the whole attribution argument, and inline they could only be
+// exercised by getting a machine to produce each shape.
+func tailAfter(start, end, upgradeBegan, upgradeEnded time.Time) time.Duration {
+	if start.Before(upgradeBegan) {
+		return 0
+	}
+	if t := end.Sub(upgradeEnded); t > 0 {
+		return t
+	}
+	return 0
 }
 
 // stallVerdict is what one probe's numbers mean.
@@ -167,9 +271,9 @@ const (
 	stallFine stallVerdict = iota
 	// stallOverCeiling is a wait a customer notices, whatever caused it.
 	stallOverCeiling
-	// stallDisproportionate is under the ceiling but longer than the
-	// upgrade that supposedly caused it, and several times this machine's
-	// own at-rest worst.
+	// stallDisproportionate is under the ceiling, but the query kept
+	// running well after the upgrade released everything it held - so
+	// whatever it was waiting for, it was not the upgrade.
 	stallDisproportionate
 	// stallCeilingUnmeasurable is a machine whose at-rest worst is
 	// already over the ceiling. Nothing is wrong with the schema and
@@ -189,7 +293,8 @@ const (
 // it would say about a given run was to produce that run - and the runs
 // that matter are the ones a laptop does not reproduce. The measurements
 // in TestTheStallRuleAgreesWithWhatWasMeasured are real observations,
-// including the two that made this rule what it is.
+// including the three that made this rule what it is.
+//
 // # The ceiling needs a machine that can honour it - measured
 //
 // The absolute half asks "did a query wait long enough for a person to
@@ -204,11 +309,19 @@ const (
 // A diagnosis that arrives on a starved machine is a diagnosis pointed at
 // the wrong thing. So the ceiling applies only where the baseline is
 // under it, and a run where it could not apply says so.
-func judgeStall(during, baseline, upgradeTook time.Duration) stallVerdict {
+//
+// The three numbers, from one probe's run: during is the longest a single
+// query took among those overlapping the upgrade window, tail the longest
+// any of them went on running after the upgrade returned, and baseline
+// the longest one took while nothing was being applied. The ceiling reads
+// during, because a wait a customer notices is a wait whoever caused it.
+// The sensitive half reads tail, because that is the part no upgrade can
+// be blamed for.
+func judgeStall(during, tail, baseline time.Duration) stallVerdict {
 	switch {
 	case during > worstAcceptableStall && baseline < worstAcceptableStall:
 		return stallOverCeiling
-	case during > effectiveFloor(upgradeTook) && during > comparedToRest*baseline:
+	case tail > tailFloor(baseline):
 		return stallDisproportionate
 	case baseline >= worstAcceptableStall:
 		// Ordered after the ratio deliberately: a real regression on a
@@ -532,12 +645,20 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 
 		// A query counts as "during" if it overlapped the window at all.
 		//
-		// Overlap rather than containment, and this is the case that
-		// matters most: a query that started before the DDL and was still
-		// running when it began is exactly the one a lock blocks. A
-		// containment test would drop it - discarding the worst sample as
-		// out of scope.
-		var during, baseline time.Duration
+		// Overlap rather than containment, because the ceiling asks what
+		// the customer saw: a query still in flight when the window
+		// opened is part of the stop they watched, and containment would
+		// drop it - discarding the worst sample as out of scope.
+		//
+		// The comment here used to justify that differently, and the
+		// justification was wrong: "a query that started before the DDL
+		// and was still running when it began is exactly the one a lock
+		// blocks". It is the opposite. A statement takes its locks when
+		// it begins, so a query already running when the DDL arrives is
+		// what the *DDL* queues behind. That is why the two halves of
+		// the rule want different sets of samples, deliberately - see
+		// tailAfter.
+		var during, baseline, tail time.Duration
 		var duringCount int
 		for _, sm := range r.samples {
 			took := sm.end.Sub(sm.start)
@@ -546,6 +667,9 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				if took > during {
 					during = took
 				}
+				if t := tailAfter(sm.start, sm.end, upgradeBegan, upgradeEnded); t > tail {
+					tail = t
+				}
 				continue
 			}
 			if took > baseline {
@@ -553,8 +677,24 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 			}
 		}
 
-		t.Logf("%-16s %5d queries (%d during) | worst during %v | worst at rest %v",
-			l.name, len(r.samples), duringCount, during, baseline)
+		t.Logf("%-16s %5d queries (%d during) | worst during %v | worst at rest %v | worst tail %v",
+			l.name, len(r.samples), duringCount, during, baseline, tail)
+
+		// The tail is a piece of the query that carries it, so it cannot
+		// be longer than the longest query. Nothing about a machine can
+		// make this false; only these two lines getting crossed can.
+		//
+		// Here because the rule below is unit-tested against numbers and
+		// this loop is what decides which numbers it gets. On a healthy
+		// machine every threshold below stays quiet whatever this loop
+		// computes, so a mistake in it would show up nowhere else until
+		// the day the rule was supposed to speak.
+		if tail > during {
+			t.Errorf("%s reported a tail of %v inside a longest query of %v, which "+
+				"is not a fact about the machine: the tail is measured from the end "+
+				"of the same sample the duration is measured across, so one of the "+
+				"two is being computed from the wrong thing", l.name, tail, during)
+		}
 
 		floor := minimumQueriesOverall
 		if l.pause > 0 {
@@ -600,7 +740,7 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"their site is serving traffic", l.name, r.firstErr)
 		}
 
-		switch judgeStall(during, baseline, upgradeTook) {
+		switch judgeStall(during, tail, baseline) {
 		case stallOverCeiling:
 			t.Errorf("%s waited %v for a single query while the schema was applied, "+
 				"and the ceiling is %v. At rest the same query's worst was %v.\n"+
@@ -610,14 +750,15 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"dashboard stopping", l.name, during, worstAcceptableStall, baseline)
 
 		case stallDisproportionate:
-			t.Errorf("%s waited %v during the upgrade against %v at rest on this same "+
-				"machine - %dx worse, and longer than the upgrade itself took (%v).\n"+
+			t.Errorf("%s was still running %v after the upgrade released everything it "+
+				"held, and this machine's worst at rest is %v (floor %v).\n"+
 				"Under the absolute ceiling, so this is the sensitive half: on a fast "+
 				"machine a real lock regression can cost far less than %v and still be "+
-				"an outage a customer sees. A wait longer than the whole upgrade is "+
-				"not queueing behind it",
-				l.name, during, baseline, comparedToRest, effectiveFloor(upgradeTook),
-				worstAcceptableStall)
+				"an outage a customer sees. A query the upgrade was holding is let go "+
+				"when the upgrade lets go; one still waiting afterwards was waiting "+
+				"for something else. Worst query during the window: %v, upgrade: %v",
+				l.name, tail, baseline, tailFloor(baseline),
+				worstAcceptableStall, during, upgradeTook)
 
 		case stallCeilingUnmeasurable:
 			// Logged, not failed. A container running the whole

@@ -15813,3 +15813,178 @@ veriyor, yani kırmızıyı veren yan etki değil iddianın kendisi.
 
 *Belgede cevabı olmayan her soru, birinin sorması gereken bir sorudur;
 sorulduğunda ölç ve yaz.*
+
+## İki CI kırmızısı: biri fikstürün zaman aşımı, biri kuralın kendisi
+
+Kullanıcı "github run failed vermiş" dedi. İki farklı koşu, iki farklı
+kusur, ve **ikisi de üründe değil ölçen tarafta.** Ama biri
+ötekinden çok daha ciddi: kural, ölçtüğü şeyi ölçemiyordu.
+
+Önce şunu söyleyeyim: en yeni commit (`17c2063`) **iki dalda da yeşil.**
+Kırmızılar daha eski commit'lerde.
+
+### 1. Koşu 34423937265 (main @ `a3fc10f`) — fikstürün penceresi
+
+`TestAReleaseThatComesBackKeepsRunningAndDropsTheCheckpoint`:
+"collector did not come back after the update."
+
+Test şunu kuruyor: zil çalıyor, 150 ms sonra dört servis kalp atışı
+yazıyor, `Healthy` hepsini görmeli. Fikstür (`doorbellIn`) pencereyi
+**3 saniye** veriyordu. Ürünün kendi sabiti `HealthWindow` = **30
+saniye**, ve o sabitin yorumunda niye 30 olduğu yazılı:
+
+> The margin is for a machine under load and a database that has just
+> had four clients reconnect at once.
+
+Yani fikstür tam o payı silmiş, sonra tam o makineye denk gelmişti:
+bütün entegrasyon süitini `-race` ile koşturan bir runner'da 150 ms
+uyuyup dört bağlantı açan bir goroutine üç saniyelik yarışı kaybetti.
+
+Düzeltme tek satır: `Window: HealthWindow`. Kısaltmak hiçbir şey
+kazandırmıyor — pencere yalnız servisler **raporlamadığında** harcanır,
+ve o durumu sınayan testler bunu `nothingIsComing` ile açıkça söylüyor.
+Bir yerde eksikti (`TestAReleaseThatDoesNotComeBackIsPutBackAutomatically`),
+eklendi; süit hâlâ 3,4 sn.
+
+Bu düzeltmeyi **mutasyonla gösteremiyorum** ve göstermiyorum: yarışı hiç
+kaybetmeyen bir makinede 3 saniyeye geri döndürmek yeşil kalır.
+Doğrulanabilen şey, fikstürün artık ürünün sabitini kullanması, yani
+ikisinin ayrışamaması.
+
+### 2. Koşu 34426623555 (dal @ `2c2b115`) — kuralın tabanı yanlış şeydi
+
+`TestNoServiceStopsWhileTheSchemaIsApplied`:
+
+```
+the upgrade took 282.805993ms
+beacon insert 3635 queries (29 during) | worst during 359.921237ms | worst at rest 48.468972ms
+beacon insert waited 359.921237ms during the upgrade against 48.468972ms
+at rest on this same machine - 4x worse, and longer than the upgrade
+itself took (282.805993ms).
+```
+
+Kuralın hassas yarısı şunu diyordu: *"bir sorgu, kendisine sebep olan
+yükseltmeden daha uzun bekleyemez"* — yani taban, yükseltme penceresi.
+Cümle kulağa doğru geliyor. **Değil.**
+
+Bir örnek "yükseltme sırasında" sayılıyorsa pencereyle **örtüşüyor**
+demektir, içerilmiyor. Bu bilerek böyle: örtüşme kuralının yanındaki
+yorum, kenardaki örneği atmamak için yazılmış. Ama o zaman örneğin
+süresi pencereyle **sınırlı değildir** — ne sağlıklı bir koşuda, ne
+hasta bir koşuda.
+
+Aritmetik meseleyi kapatıyor. Yükseltmenin tuttuğu bir sorgu,
+yükseltme bıraktığında serbest kalır; yani pencerenin kapanmasından
+sonra **yalnız kendi işi kadar** koşar. Pencere içinde başladıysa süresi
+en fazla 282,81 + 48,47 = **331,28 ms** olabilir. Ölçülen 359,92 ms daha
+büyük. Öyleyse o örnek ya pencereden **önce** başlamıştı — ki bir ifade
+kilitlerini başladığı anda alır, dolayısıyla DDL **onun** arkasında
+kuyruğa girer, tersi değil — ya da kendi işi bu makinenin dinlenirken
+yaptığı her şeyden yavaştı. İkisi de kilit değil, ve kural hangisi
+olduğunu **soramıyordu.**
+
+### Yerine gelen şey: kuyruk (tail)
+
+Pencere içinde başlayan bir örneğin süresini, yükseltmenin döndüğü anda
+ikiye böl:
+
+```
+süre = (upgradeEnded - start) + (end - upgradeEnded)
+        \_________________/     \_________________/
+         en fazla pencere,            kuyruk
+         ve yükseltmenin
+         tutmuş olabileceği kısım
+```
+
+Sol yarı bu tasarımın zaten kabul ettiği maliyet: bir şema dosyası
+ShareLock'unu dosyanın tamamı boyunca tutar. Sağ yarı ise yükseltmenin
+**kanıtlanabilir biçimde** sebep olmadığı süre — o an dönmüş, tuttuğu
+her şeyi bırakmış. Yani kuyruk, yükseltmenin açıklayamadığı kısmın **alt
+sınırıdır**, ve kural yalnız onu şikâyet ediyor.
+
+Eşik yine makineye göre: `tailFloor(baseline) = max(250 ms, 4 × dinlenme
+en kötüsü)`. Çünkü tutulan bir sorgunun kuyruğu **kendi işidir**, ve o
+işin ne kadar sürdüğünü en iyi tahmin eden şey aynı makinenin dinlenirken
+yaptığı en kötü sorgudur.
+
+### "Tutulan sorgunun kuyruğu kendi işidir" — ölçüldü
+
+Bu cümle bütün kuralı taşıyor, o yüzden tartışmak yerine ölçtüm. Beş
+koşu, geliştirme makinesi, CI'da kırmızı veren prob (beacon insert):
+
+| pencere | en kötü süre | dinlenirken | en kötü kuyruk |
+|---:|---:|---:|---:|
+| 458,31 ms | 413,82 ms | 298,74 ms | 0,305 ms |
+| 36,25 ms | 2,86 ms | 144,35 ms | 0,216 ms |
+| 47,60 ms | 3,74 ms | 7,54 ms | 0,116 ms |
+| 51,71 ms | 3,46 ms | 26,07 ms | 0,492 ms |
+| 268,63 ms | 223,24 ms | 5,75 ms | 0,201 ms |
+
+Okunacak olan birinci ve **beşinci** satır, ve ikisi de CI'nın
+kırmızısının şeklinin ta kendisi. Birincide bir yazar 458,31 ms'lik
+pencerenin içinde 413,82 ms bekledi, sonra yükseltme döndükten sonra
+**305 mikrosaniye** koştu. Beşincide 223,24 ms bekledi — dinlenirken
+kendi en kötüsü 5,75 ms, yani **39 kat** — ve kuyruğu **201
+mikrosaniye**. Aynı koşuda collector: 132,32 ms'ye karşı 4,71 ms, kuyruk
+370 mikrosaniye.
+
+Beşinci satır birinciden daha değerli, çünkü birincide makine zaten
+yüklüydü (dinlenirken 298,74 ms); beşincide değildi. Yani kuyruk, "her
+şey küçükken küçük" değil: **bekleme 39 kat büyüdüğünde de küçük.**
+Süreye bakan bir oran ikisini de bildirir, kuyruğa bakan hiçbirini.
+
+Beş koşu ve beş probun tamamında en büyük kuyruk **2,13 ms** — taban
+250 ms.
+
+### Bir de fazın kendi açtığı kusur: yorum mekanizmayı ters yazıyordu
+
+Örtüşme kuralının gerekçesi şöyleydi: *"DDL'den önce başlayıp o
+başladığında hâlâ koşan bir sorgu, tam olarak kilidin bloke ettiği
+sorgudur."* **Tam tersi.** Bir ifade kilitlerini başladığı anda alır;
+DDL geldiğinde çoktan koşan bir sorgu, **DDL'in arkasında kuyruğa
+girdiği** şeydir.
+
+Bu, bu dosyada ikinci kez oluyor (birincisi "IF NOT EXISTS ağır kilit
+almaz" idi, o da yanlıştı ve dosyada yazılı). Örtüşme kuralı **doğru**,
+gerekçesi yanlıştı: tavan müşterinin ne gördüğünü soruyor, ve pencere
+açıldığında havada olan bir sorgu o durmanın parçası. Kuyruk ise o
+örneği **dışlıyor**. Kuralın iki yarısı bilerek farklı örnek kümesi
+istiyor, ve `tailAfter` bunu tek yerde yazıyor.
+
+### Ölçüm
+
+- `judgeStall(during, tail, baseline)` — pencere artık **girdi değil.**
+- `tailAfter(start, end, upgradeBegan, upgradeEnded)` — sıfır dönmenin
+  iki yolu var ve **iki ayrı iddia**: sorgu yükseltmeden önce bitti
+  (pencerenin içindeydi), ya da sorgu yükseltmeden önce **başladı**
+  (yükseltmeye sorulamaz). İkincisi olmadan, yüklü bir makinenin en uzun
+  örneği, kendisini bekleyen bir yükseltmeye faturalanır.
+- Üç süit: kural tablosu (17 durum), tavanın altında sürenin okunmadığını
+  gösteren tarama, ve `tailAfter`'ın altı durumu.
+- **On yedi mutasyon, on yedisi de kırmızı.** İkisi ilk turda sağ kaldı
+  ve ikisi de bir soruydu, cevap değil:
+  - `comparedToRest` 4 → 5: tabloda kuyruğu dinlenme en kötüsünün 4-5
+    katı arasında olan **hiç durum yoktu**, yani sabit dörtten büyük
+    herhangi bir şey olabilirdi. İki durum eklendi (4,5× kırmızı, 3,5×
+    yeşil), ikisi de sabiti iki yönden tutuyor.
+  - `worstAcceptableStall` 2 sn → 3 sn: tavanı sınayan tek durum 8
+    saniyeydi, yani **hiçbir tavanı** tutmuyordu. 2001 ms / 1999 ms
+    çifti eklendi. (Bu sağ kalan benim değişikliğimden önce de vardı.)
+- Ve bir yapısal koruma: `tail > during` imkânsızdır (kuyruk, taşıdığı
+  sorgunun parçası). Ölçüm döngüsünde iki maksimumu çaprazlayan bir
+  mutasyon **yalnız bu iddiayla** yakalanıyor — iddia kaldırılıp aynı
+  mutasyon tekrarlandığında süit yeşil veriyor.
+
+### Ne bedeli var, açıkça
+
+Tek şekle karşı duyarsız, ve **eskisiyle aynı şekil**: yükseltme bir
+sorguyu bloke edip dönmeden önce bırakırsa kuyruk kalmaz, yani 450
+ms'lik bir pencerede her yazarı 400 ms bekleten bir gerileme buradan
+geçer. Pencere tabanında da geçiyordu (400 < 450). O bant öteki taraftan
+`TestTheUpgradeYieldsToTrafficRatherThanTheOtherWayRound` ile kapalı:
+o test çekişmeyi bilerek kuruyor ve **mekanizmayı** iddia ediyor.
+Tavan ise değişmedi: müşterinin fark ettiği bir bekleme, şekli ne olursa
+olsun bu testi düşürür.
+
+*Bir örneğin süresini, o örneği içermeyen bir pencereyle sınırlı sanmak,
+sınırın kendisini ölçüm yerine koymaktır.*

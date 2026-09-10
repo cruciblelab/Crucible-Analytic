@@ -288,6 +288,9 @@ func TestAReleaseThatDoesNotComeBackIsPutBackAutomatically(t *testing.T) {
 	// into an empty room. That is exactly what a service which restarts
 	// and then dies looks like from here - no fresh heartbeat.
 	bell, _ := doorbellIn(t, pool)
+	// Nothing will report, so the whole window is spent waiting for rows
+	// that never arrive. The answer cannot change by waiting longer.
+	nothingIsComing(&bell)
 	runner := Runner{
 		Pool: pool, Source: src, Name: "test-upgrader", Restart: bell,
 		Install: Installer{Prefix: prefix,

@@ -88,13 +88,33 @@ func clockOf(t *testing.T, d Doorbell) time.Time {
 // real window.
 func nothingIsComing(d *Doorbell) { d.Window = 200 * time.Millisecond }
 
+// doorbellIn is a doorbell wired to a temporary directory, with the
+// product's own health window.
+//
+// # The window is HealthWindow, not a smaller number of its own
+//
+// It was three seconds, a tenth of the product's thirty, and that is
+// what made TestAReleaseThatComesBackKeepsRunningAndDropsTheCheckpoint
+// fail on CI (run 34423937265, 2026-09-10): a goroutine that sleeps
+// 150ms and then opens four connections lost a race with a three-second
+// deadline on a runner executing the whole integration suite under
+// -race.
+//
+// HealthWindow's own comment says why it is thirty seconds: "The margin
+// is for a machine under load and a database that has just had four
+// clients reconnect at once." The fixture had removed precisely that
+// margin and then met precisely that machine.
+//
+// Nothing is bought by shortening it here. The window is only ever spent
+// when services do *not* report, and the tests about that case say so
+// with nothingIsComing.
 func doorbellIn(t *testing.T, pool *pgxpool.Pool) (Doorbell, string) {
 	t.Helper()
 	dir := t.TempDir()
 	return Doorbell{
 		Dir:    dir,
 		Pool:   pool,
-		Window: 3 * time.Second,
+		Window: HealthWindow,
 		Poll:   50 * time.Millisecond,
 	}, dir
 }
