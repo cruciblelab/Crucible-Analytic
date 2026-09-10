@@ -16167,3 +16167,158 @@ bir öncekinden ileride bitiyor.
 
 *Bir kova genişliği bir aritmetik tercihi değil, saat dilimi
 veritabanına sorulacak bir sorudur.*
+
+## Ekran görüntüsü yine kusur buldu: "Okunamadı" diyen sayfa sebebini hiçbir yere yazmıyordu
+
+O2 bittikten sonra sayfalara baktım. Panonun sol altında **"Ülkeler:
+Okunamadı."** yazıyordu. 90 gün sayfasında aynı bölüm çalışıyordu: TR 12,
+Belirlenemedi 2, DE 2, FR 2. Aynı veri, aynı oturum, saniyeler arayla.
+
+Bu, CLAUDE.md §7'de **2026-09-08'den beri "izlenecek"** diye duran
+maddeydi. O gün "muhtemelen benim test düzeneğimde soğuk başlangıç" diye
+bırakmıştım. İki gün sonra tekrarladı ve yine teşhis edemedim — çünkü
+**ürün bunu hiçbir yere yazmıyor.**
+
+### Görünen sebep
+
+| koşu | süre | ülkeler |
+|---|---:|---|
+| birinci (soğuk) | 37,85 sn | **düştü** |
+| ikinci (sıcak) | 6,97 sn | çalıştı |
+
+İkinci koşuda 7 gün ve 30 gün sayfaları **bayt bayt aynı** çıktı, yani
+fark verinin değil sıcaklığın. Mekanizma: panel bütün kırılımları
+eşzamanlı çekiyor, `PageTimeout` 8 sn, `RequestTimeout` 5 sn. Ülkeler en
+pahalı kırılım — `beacon_events` ile `traffic_snapshots`'ı IP üzerinden
+birleştiriyor — ve soğukta o yarışı kaybediyor.
+
+### Asıl kusur bu değil
+
+Hata **üç ayrı yerde** Türkçe bir cümleye çevrilip atılıyordu:
+
+```
+dashboard.go:396/398   pano geneli
+breakdown.go:587/589   tek kırılım
+technical.go:368       teknik liste
+```
+
+Üçünde de tek satır log yok. Yani:
+
+- Müşteri "Ülkeler okunmuyor" diye yazıyor.
+- Operatörün elinde hiçbir şey yok: satır yok, hata kodu yok, süre yok,
+  hangi çağrı olduğu bile yok.
+- Ve **benim elimde de yoktu.** İki gün "izlenecek" diye durmasının sebebi
+  tam buydu.
+
+Teşhisi sonunda ekran görüntüsü koşusunun **toplam süresini** ölçerek
+buldum — 37,85 sn'ye karşı 6,97 sn. Bu, test düzeneğinin ölçümü; bir
+sonraki sefer olacağı kurulumun değil.
+
+*Bir teşhis, ona ulaşamayan bir yol için yok demektir.* Bu ilke zaten
+CLAUDE.md'de yazılıydı ve ihlal eden yer ürünün kendisiydi.
+
+### Düzeltme: cümle ve satır tek çağrı
+
+`internal/panel/web/unreadable.go`, tek fonksiyon: hem okuyucunun
+cümlesini döndürüyor hem operatörün satırını yazıyor. Üç çağrı yeri de
+ona bağlandı.
+
+Operatörün artık gördüğü şey:
+
+```
+level=WARN msg="panel: a section could not be read, and the page says so"
+  where=pano site=log-okunamadi
+  from=2026-09-04T00:00:00Z to=2026-09-11T00:00:00Z span=168h0m0s
+  err="analytics: the read API could not be reached: Get \"http://...
+       /summary?from=...&tz=UTC\": dial tcp ...: connect: connection refused"
+```
+
+Alan seçimi keyfî değil. **`span`** en önemlisi: her aralıkta mı düşüyor
+yoksa yalnız uzun olanlarda mı — bu, **duran bir servis** ile **yavaş
+bir sorgu** arasındaki farktır ve sayfada ikisi birebir aynı görünüyor.
+`where` hangi bölüm, `site` hangi site, `err` sebep.
+
+**Warn, Error değil:** servis ayakta, kurulum sağlam, bir çağrı zamanında
+cevap vermedi ve sayfa bunu dürüstçe söyledi. Error çalışmayı durduran
+şey için; bu, birinin soracağı şey için.
+
+### Koruma yapısal, çünkü kusur gelecekte yazılacak bir sayfada
+
+Davranış testi bugünü tutuyor. Ama yarın biri yeni bir bölüm ekleyip o
+iki satırı kopyalarsa hata yine yere düşer, ve **henüz yazılmamış bir
+sayfa için hiçbir davranış testi kırmızı veremez.**
+
+O yüzden değişmez mesaj anahtarlarının kendisi: `pano.hata.ulasilamiyor`
+ve `pano.hata.reddedildi` bu pakette **yalnız bir dosyada** geçiyor, ve o
+dosya logluyor. Cümleyi isteyen, satırı yazan çağrıdan geçmek zorunda.
+Test kaynağı okuyor, kataloğu değil — katalog anahtarların *var*
+olduğunu söyler, kim yazdığını yalnız kaynak söyler.
+
+İkinci yapısal test log satırının dört alanı taşıdığını tutuyor, ve
+parantez eşleyerek yalnız `Warn` çağrısına bakıyor: dosyadaki başka bir
+çağrıya eklenen bir alan bu kontrolü tatmin etmesin.
+
+### Ve kendi betiğim de aynı hataya düştü
+
+Ekran görüntüsü betiğime bir "okunamadı" dedektörü koymuştum ve
+`unreadable: []` bildirdi — yani **kusuru göremedi.** Seçicileri
+`.kart-bos, .hata, .uyari` idi; o metin oralarda değil. Görüntüye
+gözümle bakmasam kaçırmıştım.
+
+*Bir dedektörün sessizliği, aradığı şeye ulaşabildiğini göstermez.*
+
+### Ölçüm
+
+- Yedi mutasyon, yedisi de kırmızı: log çağrısı kalkar; Warn yerine Debug
+  (operatörün süzgecinin altına iner); `span`, `where`, `err` alanları
+  tek tek düşürülür; pano ve kırılım yine kendi mesajını yazar.
+- İkisi ilk denemede **derlenmedi** (`err` kullanılmaz hâle geldi);
+  `_ = err` ile derlenir hâle getirilip tekrarlandı. Derlenmeyen bir
+  mutasyon hiçbir şey ölçmez.
+
+### Kapı bir dördüncü kusur buldu, ve aynı sınıftan
+
+Bu düzeltmenin kapısında `TestNoServiceStopsWhileTheSchemaIsApplied`
+kırmızı verdi — ama duraklama kuralında değil, **sorgu sayısı tabanında**:
+
+```
+panel write ran 17 queries in total, which is too few to have measured
+anything (floor 18)
+```
+
+O koşuda konteyner açtı: dinlenirken tek sorgu 554,80 ms, yükseltme
+714 ms. (Karşılaştırma: sıcak koşuda dinlenme en kötüsü 5 ms.)
+
+Taban `baselinePeriod/pause/4` ile hesaplanıyordu — yani **sorgunun
+bedava olduğu** varsayımıyla. Yazıldığı makinelerde bu neredeyse
+doğruydu: 20 ms duraklamaya karşı 5 ms sorgu. Aç bir makinede değil, ve
+20 ms'lik duraklama 555 ms'lik bir sorgunun yanında hiç.
+
+**Bu, aynı sabah düzelttiğim kusurun tam olarak aynı sınıfı:** bir eşiği,
+böldüğü şeyi sınırlamayan bir sayıyla hesaplamak. Sabah pencere, akşam
+duraklama.
+
+Düzeltme: taban artık makinenin **o koşuda gösterdiği** şeyden
+türetiliyor — `pacedFloor(pause, baseline)` = `baselinePeriod / (pause +
+dinlenme en kötüsü) / 4`, en az iki. İki, çünkü tek örnek ilk sorgudan
+sonra duran bir probu gösteremez; sıfır olamaz, çünkü sıfır tabanı
+kontrolün hiç olmaması demek.
+
+Dişleri duruyor: sıcak makinede (5 ms) taban 15, ve prob 75-80 sorgu
+yapıyor — yani üç sorguda duran bir prob hâlâ bildiriliyor. Aç makinede
+(555 ms) taban 2.
+
+Ve **değişimin bir şeyi değiştirdiği** ayrıca sınanıyor: eski aritmetik o
+koşuda 18 istiyordu, prob 17 yapmıştı, yeni taban 2. İki tarafı da
+yazmayan bir test, düzeltmenin düzelttiğini göstermez.
+
+Beş mutasyon, beşi de kırmızı: eski aritmetiğe dönüş; taban ikiden sıfıra
+düşer; çeyrek pay kalkar; döngü yalnız dinlenme; taban her zaman iki.
+
+### Kalan iş, açıkça
+
+**Bu düzeltme zaman aşımını çözmüyor, görünür kılıyor.** Ülkeler kırılımı
+soğukta hâlâ 8 saniyelik sayfa bütçesini aşabilir, ve bu yalnız test
+düzeneğinin değil müşterinin ilk yüklemesinin de yolu. Ölçülüp ayrı bir
+faz olarak karara bağlanacak; artık bir sonraki oluşta günlükte sebep
+yazılı olacak.

@@ -422,3 +422,116 @@ func (v stallVerdict) String() string {
 		return "fine"
 	}
 }
+
+// The paced probes' query floor, against the run that made it what it is.
+//
+// # Why this is a table and not left to the machine
+//
+// The floor's job is to separate "the probe ran" from "the probe never
+// started". It used to compute what a probe should manage from the pause
+// alone - baselinePeriod/pause/4 - which is what a probe would manage if
+// the query itself were free.
+//
+// It is not free, and on a starved machine it is not even close. So the
+// floor went red on a run where nothing was wrong with the product,
+// which is the same mistake the stall rule's own floor made and in the
+// same shape: a threshold divided by a number that does not bound the
+// thing it divides.
+//
+// A machine cannot be asked to be starved on demand, so the arithmetic
+// is asked here instead.
+func TestThePacedFloorAsksWhatTheMachineCanActuallyManage(t *testing.T) {
+	// The pause the two paced probes use. Named so a case cannot drift
+	// from the fixture it is about.
+	const paced = 20 * time.Millisecond
+
+	for _, c := range []struct {
+		name            string
+		pause, baseline time.Duration
+		wantAtMost      int
+		wantAtLeast     int
+		why             string
+	}{
+		{
+			// Measured 2026-09-10, the gate running every suite in
+			// parallel in a container. The probe managed 17 queries and
+			// the old floor asked for 18.
+			name:  "the starved container that made this a function",
+			pause: paced, baseline: 554*ms + 796*time.Microsecond,
+			wantAtMost:  17,
+			wantAtLeast: 2,
+			why: "17 queries was the whole run on that machine, so any floor above " +
+				"it reports a stopped probe that was running as fast as the " +
+				"database would answer. And it must not fall to zero: a floor of " +
+				"nought is the check not existing",
+		},
+		{
+			// The same probe on a warm machine, from the runs taken
+			// straight after the fix.
+			name:  "a warm machine, where the floor has to keep its teeth",
+			pause: paced, baseline: 5 * ms,
+			wantAtLeast: 10,
+			wantAtMost:  20,
+			why: "the probe managed 75-80 queries here. A floor near fifteen still " +
+				"reports a probe that stopped after three, which is what this " +
+				"check is for - a floor of two would pass that silently",
+		},
+		{
+			name:  "an unmeasurably fast machine",
+			pause: paced, baseline: 0,
+			wantAtLeast: 15, wantAtMost: 20,
+			why: "with a free query the floor is the old arithmetic, which was " +
+				"right for the machines it was written on. The change is not a " +
+				"loosening; it is the same number where the assumption holds",
+		},
+		{
+			name:  "a machine slower than the whole baseline period",
+			pause: paced, baseline: 30 * time.Second,
+			wantAtLeast: 2, wantAtMost: 2,
+			why: "one cycle does not fit in the baseline at all, so the only " +
+				"honest floor is the smallest one that still means something. Two " +
+				"rather than one, because one sample cannot show a probe that " +
+				"stalled after its first query",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := pacedFloor(c.pause, c.baseline)
+			if got < c.wantAtLeast || got > c.wantAtMost {
+				t.Errorf("pacedFloor(pause=%v, at rest=%v) = %d, want %d..%d.\n%s",
+					c.pause, c.baseline, got, c.wantAtLeast, c.wantAtMost, c.why)
+			}
+		})
+	}
+}
+
+// TestTheOldPacedFloorAndTheNewOneDisagreeOnTheRunThatFailed.
+//
+// Without this the table above proves only that some function returns
+// some numbers. The fix is a *change*, and a change has to be shown
+// changing something: the old arithmetic asked the starved container for
+// 18 queries and it had managed 17.
+//
+// Written as the old expression rather than as the number 18, so that a
+// reader can see the two side by side and so that the claim is about the
+// arithmetic instead of about a constant somebody could edit.
+func TestTheOldPacedFloorAndTheNewOneDisagreeOnTheRunThatFailed(t *testing.T) {
+	const (
+		pause    = 20 * time.Millisecond
+		atRest   = 554*ms + 796*time.Microsecond
+		measured = 17 // queries the probe actually managed
+	)
+	old := int(baselinePeriod/pause) / 4
+	now := pacedFloor(pause, atRest)
+
+	if old <= measured {
+		t.Fatalf("the old floor was %d against %d queries, so it would not have "+
+			"failed that run and this whole change is about something else",
+			old, measured)
+	}
+	if now > measured {
+		t.Errorf("the new floor is %d against the %d queries that machine managed, "+
+			"so the run that prompted this would still be red", now, measured)
+	}
+	t.Logf("the run that failed: %d queries, old floor %d, new floor %d",
+		measured, old, now)
+}

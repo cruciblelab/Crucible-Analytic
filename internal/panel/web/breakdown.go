@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -582,11 +581,8 @@ func (s *Server) detailData(ctx context.Context, lang *ui.Language, siteID strin
 		s.collecting(ctx, s.collection()))
 
 	b := site.Breakdowns[def.Kind]
-	switch {
-	case errors.Is(b.Err, analytics.ErrRefused):
-		data.Notice = lang.T("pano.hata.reddedildi")
-	case b.Err != nil:
-		data.Notice = lang.T("pano.hata.ulasilamiyor")
+	if b.Err != nil {
+		data.Notice = s.unreadable(lang, "kirilim:"+string(def.Kind), siteID, from, to, b.Err)
 	}
 
 	data.Pages = pageCount(b.Total, detailRows)

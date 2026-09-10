@@ -18,6 +18,20 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
 
+### "Okunamadı" diyen bir bölüm artık niye olduğunu da yazıyor
+
+Panoda bir bölüm sayılarını çekemediğinde sayfa "Okunamadı." yazıyordu ve
+**sebebi hiçbir yere yazılmıyordu.** Yani siz "Ülkeler görünmüyor" diye
+bildirdiğinizde, kuran kişinin elinde bakacak hiçbir şey olmuyordu.
+
+Artık günlüğe tek satır düşüyor: hangi bölüm, hangi site, hangi aralık ve
+hata. Aralık en önemlisi — her aralıkta mı düşüyor yoksa yalnız uzun
+olanlarda mı, bu **duran bir servis** ile **yavaş bir sorgu** arasındaki
+farktır ve sayfada ikisi aynı görünür.
+
+Sayfada gördüğünüz cümle değişmedi. Değişen, o cümlenin yanında artık bir
+kaydın olması.
+
 ### Panonun 30 ve 90 gün düğmeleri artık çalışıyor
 
 İki düğme çalışmıyordu, ve pano bunu **yanlış** anlatıyordu: kartlar

@@ -354,6 +354,48 @@ func judgeStall(during, tail, baseline time.Duration) stallVerdict {
 // one. Zero overlapping queries means that goroutine stopped running.
 const minimumQueriesOverall = 100
 
+// pacedFloor is how many queries a paced probe must manage before this
+// test believes it measured anything.
+//
+// # The arithmetic this replaces assumed a free query - measured
+//
+// It was baselinePeriod/pause/4: what a probe should manage if the query
+// itself cost nothing. On the machines this was written against that was
+// nearly true - an at-rest worst of five milliseconds against a pause of
+// twenty.
+//
+// Measured 2026-09-10, the gate running every suite in parallel in a
+// container: the panel write probe's at-rest worst was 554,80ms, its
+// pause is 20ms, and it managed 17 queries against a floor of 18. Red,
+// on a run where nothing was wrong with the product - the same claim
+// the stall rule's old floor made, in the same shape: a threshold
+// computed from a number that does not bound the thing it divides.
+//
+// So the pause is not the whole cost of a cycle. What the machine
+// demonstrated it could do is, and it demonstrated it in this same run:
+// pause plus the worst that query took while nothing was being applied.
+//
+// A quarter of that, and never less than two. Two rather than one
+// because one sample cannot show a probe that stalled after its first
+// query, and never zero because the floor's whole job is to separate
+// "it ran" from "it never started". Zero overlaps is a different
+// assertion, immediately below this one, and it is what catches a
+// goroutine that never began.
+//
+// On a fast machine the floor still bites: a 5ms at-rest worst and a
+// 20ms pause give 1500/25/4 = 15, so a probe that managed three queries
+// is still reported.
+func pacedFloor(pause, baseline time.Duration) int {
+	cycle := pause + baseline
+	if cycle <= 0 {
+		return 2
+	}
+	if n := int(baselinePeriod/cycle) / 4; n > 2 {
+		return n
+	}
+	return 2
+}
+
 // baselinePeriod is how long the load runs before the upgrade starts.
 //
 // Named rather than written at the call site because the paced probe's
@@ -698,12 +740,13 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 
 		floor := minimumQueriesOverall
 		if l.pause > 0 {
-			floor = int(baselinePeriod/l.pause) / 4
+			floor = pacedFloor(l.pause, baseline)
 		}
 		if len(r.samples) < floor {
 			t.Errorf("%s ran %d queries in total, which is too few to have measured "+
 				"anything - this test would report an undisturbed service without "+
-				"ever having asked one (floor %d)", l.name, len(r.samples), floor)
+				"ever having asked one (floor %d, from a pause of %v and an at-rest "+
+				"worst of %v)", l.name, len(r.samples), floor, l.pause, baseline)
 			continue
 		}
 		if duringCount == 0 {

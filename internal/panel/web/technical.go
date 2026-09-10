@@ -365,7 +365,7 @@ func (s *Server) addressListData(ctx context.Context, lang *ui.Language, siteID 
 		// reported as itself rather than guessed at.
 		data.Empty = unreachable
 		data.Text = lang.T("pano.bos." + string(unreachable) + "." + string(sourceTraffic))
-		data.Notice = lang.T("pano.hata.ulasilamiyor")
+		data.Notice = s.unreadable(lang, "teknik:"+string(kind), siteID, from, to, list.Err)
 		return data
 	case len(list.Rows) == 0:
 		data.Empty = nothingInRange

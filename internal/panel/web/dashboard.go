@@ -391,12 +391,7 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	// unconditionally would silence the notice on a page that shows only
 	// beacon cards - exactly the page a customer with no collector has.
 	if failed, err := allRequestedFailed(req, board); failed {
-		switch {
-		case errors.Is(err, analytics.ErrRefused):
-			data.Notice = lang.T("pano.hata.reddedildi")
-		default:
-			data.Notice = lang.T("pano.hata.ulasilamiyor")
-		}
+		data.Notice = s.unreadable(lang, "pano", siteID, from, to, err)
 	}
 
 	// Asked only when something came back empty, and only once for the
