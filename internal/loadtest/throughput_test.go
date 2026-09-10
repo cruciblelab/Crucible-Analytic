@@ -544,12 +544,25 @@ type pinnedServer struct {
 
 func startPinnedServer(t *testing.T, cpus, certFile, keyFile string) pinnedServer {
 	t.Helper()
+	return startPinnedChild(t, cpus, "^TestThroughputOfTheRequestPath$", []string{
+		"CA_TPUT_SERVE=" + cpus,
+		"CA_TPUT_CERT=" + certFile,
+		"CA_TPUT_KEY=" + keyFile,
+	})
+}
+
+// startPinnedChild re-executes this test binary under taskset, running
+// only the named test, and waits for the READY line it prints.
+//
+// Shared by both measurements in this package so that "the server side
+// on its own CPUs" means exactly one thing. A second copy of this would
+// be a second chance for the two measurements to differ in the rig
+// rather than in the product.
+func startPinnedChild(t *testing.T, cpus, testName string, env []string) pinnedServer {
+	t.Helper()
 	cmd := exec.Command("taskset", "-c", cpus, os.Args[0],
-		"-test.run", "^TestThroughputOfTheRequestPath$", "-test.timeout=0")
-	cmd.Env = append(os.Environ(),
-		"CA_TPUT_SERVE="+cpus,
-		"CA_TPUT_CERT="+certFile,
-		"CA_TPUT_KEY="+keyFile)
+		"-test.run", testName, "-test.timeout=0")
+	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

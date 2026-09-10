@@ -233,8 +233,43 @@ noktaya varmadan durduran şey `[limits]` — Bölüm 12'de panelden
 ayarlanıyor, ve bu ölçüm o ayarın niye bir sabit olmadığının cevabı.
 
 Ölçümün nasıl yapıldığı, dört kez nasıl yanlış ölçtüğüm ve nelerin
-**ölçülmediği** (HTTP/2, beacon yolu, başka ürünlerle karşılaştırma)
-`NOTES.md`'de yazılı.
+**ölçülmediği** (HTTP/2, 4+ çekirdek) `NOTES.md`'de yazılı.
+
+### Başka bir analitikle karşılaştırma — ölçüldü
+
+Yukarıdaki tablo vekilin. Vekilin başka analitiklerde **karşılığı yok**:
+onlar JavaScript koşmadıkça isteği hiç görmez, yani bir botu ya da
+JavaScript'i kapalı bir ziyaretçiyi sayamaz. Karşılaştırılabilir olan
+şey **olay alma yolu**: bizim beacon'ımıza karşı onların toplayıcı ucu.
+
+Kurulan rakip: **Umami v3.3.1** (MIT), kendi kilit dosyasından, kendi
+üretim derlemesiyle, aynı makinede, **aynı PostgreSQL'e**, aynı
+çekirdeklere çivilenmiş, aynı yük üreteciyle. Plausible (ClickHouse) ve
+Matomo (MySQL) bu makinede kurulamadı.
+
+Ölçülen sayı **veritabanına düşen satır**, kabul edilen istek değil —
+çünkü bizim beacon tamponlayıp toplu yazıyor, Umami isteğin içinde
+yazıyor, ve "kabul edildi" iki tarafta aynı iş değil.
+
+| hedef | 1 çekirdek | 2 çekirdek | tek bağlantı p50 |
+|---|---:|---:|---:|
+| **Crucible beacon** | **22.445–23.982 satır/s** | **30.157–30.402 satır/s** | 182–215 µs |
+| Umami `/api/send` | 183–192 satır/s | 270–277 satır/s | 5,7–7,8 ms |
+| Umami `/api/send` (jetonlu) | 283–306 satır/s | 335–390 satır/s | 3,6–6,0 ms |
+
+Her hücre **iki tam koşunun** aralığı. Yani olay alma yolunda **73–91
+kat** daha fazla olay, **19–31 kat** daha az gecikme. Sebebi mimari: biz 500'lük gruplarla `COPY` yapıyoruz, Umami
+olay başına bir `INSERT`.
+
+**Bedelini de yazalım:** Umami isteğe cevap verdiğinde satır diskte;
+bizim beacon cevap verdiğinde satır **bellekte**, en çok iki saniye
+sonra diskte. Süreç çökerse tampondaki olaylar kaybolur. Bu bilinçli bir
+takas — düşen bir sayfa görüntülemesi yuvarlama hatası, yavaş açılan bir
+sayfa gerçek bir problem — ama bir takas, bedava değil.
+
+Ölçümün tamamı, dört ayrı ölçüm hatam ve **ölçülmeyenler** (Umami'nin
+panosu, iki tarafta da ayar yapılmaması, ülke çözümünün açık hâli)
+`NOTES.md`'de.
 
 ### Veritabanını nereden bulacaksınız
 

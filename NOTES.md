@@ -16630,3 +16630,185 @@ sayısı için yanlış: yarış dedektörü ölçülen şeyin maliyetini deği�
 ve beş dakikalık bir taramanın üç koşusu geceliğin çoğu eder. Paylaşımlı
 bir bulut koşucusu da kendini ölçerdi. Bu yüzden test `CA_THROUGHPUT`
 yoksa atlıyor ve buradaki sayılar geldikleri makineyi adıyla söylüyor.
+
+## Umami kuruldu ve aynı düzenekte ölçüldü — sahibin sorusunun cevapsız yarısı
+
+Y1'de *"başka bir analitik ürünüyle karşılaştırma ölçülmedi"* diye
+bırakmıştım, gerekçesi de yazılıydı: bu makinede hiçbiri koşmamıştı.
+Sahip *"umumi yükleyip test edebilir misin peki karşılaştırma niyetine"*
+dedi. Kuruldu, koştu, ölçüldü.
+
+**Hangi ürün ve neden o.** Plausible ClickHouse istiyor, Matomo MySQL;
+ikisi de bu makinede yok ve kurulamıyor (Docker da yok). **Umami**
+(MIT, en yaygın kendi sunucusunda barındırılan analitiklerden biri)
+Node + PostgreSQL istiyor, ikisi de burada. Kurulan sürüm: **v3.3.1**,
+commit `ca661c7`, `pnpm install --frozen-lockfile` ile kilit dosyasından,
+kendi `next build --turbo` çıktısıyla, kendi standalone giriş noktasıyla
+(`server.js`) — yani projenin Dockerfile'ının çalıştırdığı şeyin aynısı.
+
+### Karşılaştırılabilir olan ne, olmayan ne
+
+Umami bir **olay toplayıcı**: JS parçacığı `/api/send`'e bir sayfa
+görüntülemesi POST ediyor, sunucu bir satır yazıyor. Yani bu ürünün
+karşılaştırılabilir yarısı **beacon** (`internal/beacon`), collector
+vekili değil.
+
+**Vekilin Umami'de karşılığı yok.** Umami JavaScript koşmadıkça isteği
+hiç görmüyor: bir botu, bir tarayıcıyı, JavaScript'i kapalı bir
+ziyaretçiyi sayamıyor. Bu bir *özellik* farkı, hız farkı değil — ve
+vekilin verimini `/api/send` ile karşılaştırmak kategori hatası olurdu.
+
+### Ölçülen sayı "kabul edilen istek" değil, **veritabanına düşen satır**
+
+Bütün adalet sorusu bu ve sonucu bu belirliyor.
+
+Beacon satırları bellekte tamponluyor ve **COPY** ile toplu yazıyor;
+Umami isteğin içinde yazıyor. Yani "saniyede istek" iki tarafta aynı iş
+değil: bu ürün bir isteği kuyruğa koyarak kabul edebilir, ve kuyruk
+dolduğunda **düşürür** (`internal/beacon.Writer` bu takası açıkça
+yazıyor). Kabul edilen isteği bildirmek, bu ürüne yapmadığı işi
+yazmak olurdu.
+
+Onun için manşet sayı **PostgreSQL'e ulaşan satır**, iki tarafta da aynı
+aletle: sürüşten önce say, sür, sayım durana kadar bekle, tekrar say.
+Kabul edilen istek yanında bildiriliyor — çünkü ikisi arasındaki boşluk
+her tasarımın gerçek bir özelliği ve saklamak kendi başına bir sahtelik
+olurdu.
+
+**Ve boşluk çıkmadı:** bütün basamaklarda kabul edilen ile saklanan
+eşit. Tampon bu hızlarda hiç taşmadı, COPY yazıcısı yetişti. Tek
+istisna ölçüm kuyruğu: 24.008 kabul / 23.982 satır (26 satır, bekleme
+penceresinin kuyruğu).
+
+### Düzenek
+
+Y1'in düzeneği, bir parça eklenmiş: **PostgreSQL de sunucunun
+çekirdeklerine çivilendi**, yani veritabanı ölçülen makinenin *içinde*,
+yanında değil. İki ürün de aynı postmaster'a yazıyor.
+
+- Uygulama CPU 0..n-1'e, PostgreSQL aynı kümeye sabitlendi
+- Yük üreteci kalan çekirdeklerde, sığan her boyda
+- Kapasite = herhangi bir üreteç boyunun aldığı **en iyisi**, "en az" diye
+- Gecikme tek bağlantıda, hiçbir yerde kuyruk yokken
+- Her sabitleme `/proc`'tan geri okunuyor, yanlışsa test düşüyor
+- Beacon **`beacon_writer`** rolüyle bağlanıyor, süper kullanıcıyla değil
+- İki sunucu da aynı yolla başlatılıyor: `taskset` altında çocuk süreç
+
+**Test Umami'nin ömrünü kendi yönetiyor.** İlk hâlde elle başlatmıştım ve
+süreç ölçümün ortasında kayboldu (kabuk oturumu kapanınca alındı). Bir
+sunucu, onu başlatan kabuk çıkmışsa, ölçüm ortasında kaybolabilecek bir
+sunucudur.
+
+**Üretim kipi bir iddia değil, bir kontrol:** test Umami'nin
+`server.js`'ini okuyup `NODE_ENV = 'production'` satırını arıyor ve
+bulamazsa düşüyor. Geliştirme kipinde ölçülmüş bir rakip, ölçülmüş bir
+rakip değildir — Next.js orada istek üstüne derliyor.
+
+### Isınma sabit süre değil, ölçülen bir koşul
+
+İlk hâl her hedefe 3 saniye ısınma veriyordu ve **Umami için 8 satır/s**
+bildirdi. O sayı Umami'nin değil, Next.js'in derleyicisinin sayısıydı:
+rota ilk istekte derleniyor, ve bu ürün — önceden derlenmiş — ilk
+saniyesinde tam hızındaydı. Sabit bir ısınma bir tahmindir ve bu tahmin
+karşılaştırmayı belirleyecek kadar yanlıştı.
+
+Artık ısınma **iki tur birbirine %15 içinde yaklaşana kadar** sürüyor,
+en çok sekiz tur; yaklaşmazsa test düşüyor. Bu, sürecin kendisi hakkında
+bir cümle — benim ne kadar beklemek istediğim hakkında değil.
+
+**Aynı tuzak elle yaptığım teşhiste de yakaladı beni.** Genel bir IP,
+özel bir IP'den **3,1 kat** pahalı görünüyordu (18 ms'e karşı 56 ms) ve
+bu Umami'nin geo yolu hakkında bir bulgu olacaktı. Isıtınca fark
+**kayboldu**: ilk-istek derlemesiydi. Geo yolunun gerçek maliyeti ayrı
+ayrı ölçüldü ve küçük:
+
+| adım | maliyet |
+|---|---:|
+| `canBindToIp` (genel IP) | 0,054 ms |
+| `canBindToIp` (özel IP) | 0,028 ms |
+| `maxmind.get()` | 0,010 ms |
+
+(`is-localhost-ip`, özel aralıklarda olmayan her adres için bir UDP
+soketi açıp o adrese `bind` etmeyi deniyor; DNS değil, ve pahalı da
+değil.)
+
+### Ölçülen
+
+Konteyner: 4 CPU, 16 GB. Her değer, üç tekrarın en iyisi ve **hepsi alt
+sınır** (Y1'in gerekçesi: üreteç boyu cevabı değiştiriyor).
+
+Ve **iki tam koşu** var, ikisi de baştan sona; aşağıdaki her hücre
+ikisinin aralığı. Tek koşunun sayısını bildirmek, elimde iki tane
+varken, kendi kuralımı çiğnemek olurdu.
+
+**Sunucu + PostgreSQL 1 çekirdek** (CPU 0), yük kalan üçünden:
+
+| hedef | kapasite (en az) | tek bağlantı p50 |
+|---|---:|---:|
+| **Crucible beacon** | **22.445 – 23.982 satır/s** | **182 – 189 µs** |
+| Umami `/api/send` | 183 – 192 satır/s | 5,71 – 6,37 ms |
+| Umami `/api/send` (jetonlu) | 283 – 306 satır/s | 3,59 – 3,92 ms |
+
+**Sunucu + PostgreSQL 2 çekirdek** (CPU 0-1):
+
+| hedef | kapasite (en az) | tek bağlantı p50 |
+|---|---:|---:|
+| **Crucible beacon** | **30.157 – 30.402 satır/s** | **194 – 215 µs** |
+| Umami `/api/send` | 270 – 277 satır/s | 6,37 – 7,78 ms |
+| Umami `/api/send` (jetonlu) | 335 – 390 satır/s | 4,60 – 6,03 ms |
+
+**Oran:** Umami'nin *en iyi* yolu (jetonlu) ile 1 çekirdekte **73-85
+kat**, 2 çekirdekte **77-91 kat**; jetonsuz yolla 117-131 ve 109-113
+kat. Gecikmede **19-31 kat** daha az (yine en iyi yoluna karşı).
+
+### Umami'nin eğrisinin şekli, sayıdan daha çok şey söylüyor
+
+| eşzamanlılık | Umami satır/s | Umami p50 |
+|---:|---:|---:|
+| 1 | 129 | 6,50 ms |
+| 8 | 129 | 54,96 ms |
+| 16 | 146 | 105,31 ms |
+| 32 | 159 | 188,79 ms |
+| 64 | 165 | 396,38 ms |
+| 128 | 162 | 679,59 ms |
+
+Verim eşzamanlılıkla **hiç artmıyor**, gecikme ise doğrusal büyüyor. Bu
+tek bir kaynağın seri kuyruğunun imzası: 128 bağlantı sunmak, sekiz
+bağlantıdan fazla iş çıkarmıyor, yalnız her isteği 12 kat uzun
+bekletiyor. Crucible'ın eğrisi 8 bağlantıdan sonra düzleşiyor ve
+kapasitesini 128'de bile %91-100 koruyor.
+
+### Niye bu kadar fark var — mekanizma
+
+Sayı büyük, ve büyük bir sayının açıklaması olmalı. İstek başına
+çekirdek zamanı: Crucible **~43 µs** (1 çekirdekte 23.000/s), Umami
+**~3.400 µs** (295/s). Aradaki iş:
+
+- **Yazma biçimi.** Beacon 500'lük gruplarla `COPY` yapıyor; Umami olay
+  başına bir `INSERT`, kendi işlemiyle. Tek başına bu on kat mertebesi.
+- **Çalışma zamanı ve çerçeve.** Önceden derlenmiş Go HTTP işleyicisi
+  ile Next.js rota işleyicisi + Prisma.
+- **Dayanıklılık takası.** Umami isteğe cevap verdiğinde satır diskte;
+  beacon cevap verdiğinde satır **bellekte**. Süreç çökerse beacon
+  tamponunu kaybeder. Bu, hızın bir kısmının **bedeli** ve
+  `internal/beacon.Writer` bunu açıkça yazıyor: düşen bir sayfa
+  görüntülemesi yuvarlama hatası, yavaş açılan bir sayfa gerçek bir
+  problem.
+
+Yani "85 kat hızlı" cümlesinin yanında duran cümle şu: **beacon çökme
+anında tamponunu kaybeder, Umami kaybetmez.**
+
+### Ne ölçülmedi, ve neyi ölçmediğimi biliyorum
+
+- **Umami'nin okuma tarafı / panosu.** Yalnız olay alma yolu ölçüldü.
+- **Hiçbir tarafta ayar yapılmadı.** İkisi de kurulduğu gibi. Prisma'nın
+  bağlantı havuzu tek çekirdekte varsayılan boyutunda kaldı; Umami'nin
+  varsayılanı bu, ama "ayarlanmış Umami" ölçülmedi.
+- **Yapılandırma farkı adıyla duruyor:** Umami'nin derlemesi MaxMind
+  GeoLite2-City indiriyor ve olay başına şehir çözüyor; bu ürünün
+  varsayılan profili (`hafif`) hiç aralık tablosu yüklemiyor, yani ülke
+  çözmüyor. Yukarıda ölçüldüğü gibi o adım 0,064 ms, yani farkı
+  açıklamıyor — ama eşit değil, ve eşit olmadığı yazılı.
+- **Beacon'ın ASN/ülke açık hâli** ölçülmedi.
+- **Umami'nin kendi yayımladığı bir verim sayısı yok**, yani bu sayı
+  onların iddiasıyla değil yalnız bu makineyle karşılaştırılabilir.

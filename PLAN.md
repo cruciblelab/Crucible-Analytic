@@ -90,7 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
-| **Y** İstek yolu yük altında | 🟡 **1/2** | Y2 — *(planda yoktu; sahibin sorusu açtı — §Y)* |
+| **Y** İstek yolu yük altında | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4476,13 +4476,57 @@ varsayılanlar onu karşılıyor.
 makinede hiçbiri koşmadı — sahibin sorusunun bu yarısı **cevapsız**),
 HTTP/2, beacon yolu, veritabanına yazmanın maliyeti, ve 4+ çekirdek.
 
-#### Y2 — Beacon yolu ve yazma maliyeti *(sıradaki, ölçülmedi)*
+#### Y2 — Beacon yolu ve yazma maliyeti ✅ **bitti (2026-09-10), Y3 ile birlikte**
 
-Bu ölçüm vekilin kendi maliyetini yalıttı. Bir ziyaretçi isteğinin geri
-kalanı — beacon'ın JSON'u ayrıştırması, ziyaretçi kimliğinin HMAC'i, ve
-toplu yazmanın TimescaleDB'ye maliyeti — ayrı bir soru. Aynı düzenek
-kullanılabilir (çocuk süreç + sabitleme), ama veritabanı da sabitlenmeli
-yoksa ölçülen şey Postgres'in payı olur.
+Y1 vekilin kendi maliyetini yalıtmıştı; beacon yolu ve veritabanına
+yazma Y3'ün düzeneğinde ölçüldü — PostgreSQL de sunucunun çekirdeklerine
+çivilenmiş hâlde, yani veritabanı ölçülen makinenin içinde.
+
+Ölçülen sayı **kabul edilen istek değil, veritabanına düşen satır**:
+beacon tamponlayıp `COPY` ile toplu yazıyor, yani "kabul ettim" ile
+"sakladım" aynı şey değil. Bu hızlarda ikisi **eşit çıktı** — tampon hiç
+taşmadı.
+
+| | 1 çekirdek | 2 çekirdek |
+|---|---:|---:|
+| beacon, satır/s | **22.445–23.982** | **30.157–30.402** |
+| tek bağlantı p50 | 182–189 µs | 194–215 µs |
+
+#### Y3 — Başka bir analitikle karşılaştırma ✅ **bitti (2026-09-10)**
+
+Sahip: *"umumi yükleyip test edebilir misin peki karşılaştırma
+niyetine."* Y1'de bu yarıyı açıkça cevapsız bırakmıştım. Kuruldu:
+**Umami v3.3.1** (MIT, Node + PostgreSQL), kendi kilit dosyasından, kendi
+üretim derlemesiyle, aynı makinede, aynı PostgreSQL'e, aynı çekirdeklere
+çivilenmiş, aynı yük üreteciyle ve aynı protokolle. Plausible
+(ClickHouse) ve Matomo (MySQL) bu makinede kurulamadı; Docker da yok.
+
+| hedef | 1 çekirdek | 2 çekirdek | tek bağlantı p50 |
+|---|---:|---:|---:|
+| Crucible beacon | **22.445–23.982** satır/s | **30.157–30.402** satır/s | 182–215 µs |
+| Umami `/api/send` | 183–192 satır/s | 270–277 satır/s | 5,7–7,8 ms |
+| Umami (jetonlu) | 283–306 satır/s | 335–390 satır/s | 3,6–6,0 ms |
+
+İki tam koşunun aralığı: **73–91 kat** daha fazla olay, **19–31 kat**
+daha az gecikme. Mekanizma:
+500'lük gruplarla `COPY` karşısında olay başına bir `INSERT`; ve Umami'nin
+verimi eşzamanlılıkla hiç artmıyor, yalnız gecikmesi doğrusal büyüyor
+(6,5 ms → 680 ms).
+
+**Bedeli de yazılı:** Umami cevap verdiğinde satır diskte, beacon cevap
+verdiğinde bellekte. Çökme tamponu kaybettirir.
+
+**Vekilin karşılığı Umami'de yok** — JavaScript koşmadıkça isteği hiç
+görmüyor, yani bir botu sayamıyor. Özellik farkı, hız farkı değil.
+
+**İki ölçüm hatası daha buradan çıktı:** (a) sabit süreli ısınma bir
+tahmindi ve Umami'yi 8 satır/s diye bildirdi — Next.js rotayı ilk
+istekte derliyor; ısınma artık iki tur %15 içinde yaklaşana kadar
+sürüyor. (b) Elle yaptığım teşhiste genel IP özel IP'den 3,1 kat pahalı
+göründü, ısıtınca fark kayboldu; geo yolunun gerçek maliyeti 0,064 ms.
+
+**Ölçülmedi:** Umami'nin okuma tarafı/panosu, iki tarafta da ayar,
+beacon'ın ülke çözümü açık hâli.
 
 ---
 

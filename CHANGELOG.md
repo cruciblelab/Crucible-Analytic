@@ -42,6 +42,29 @@ bağlantıda tepenin %66'sı, yanıt süresi 0,47 ms'den 12,66 ms'ye). Yani
 **`[limits]` ayarlarını kapatmayın** — sunucuyu o noktaya varmadan
 durduran şey onlar. Varsayılanlar bunun için yeterli; Bölüm 12.
 
+### Olay alma yolu başka bir analitikle karşılaştırıldı
+
+Aynı makinede **Umami v3.3.1** kurulup ölçüldü: aynı PostgreSQL, aynı
+çekirdekler, aynı yük üreteci, iki tarafta da hiçbir ayar yapılmadan.
+Ölçülen sayı kabul edilen istek değil, **veritabanına düşen satır**.
+
+| | 1 çekirdek | 2 çekirdek |
+|---|---:|---:|
+| **Crucible beacon** | **22.445–23.982 olay/s** | **30.157–30.402 olay/s** |
+| Umami `/api/send` (en iyi yolu) | 283–306 olay/s | 335–390 olay/s |
+
+İki tam koşunun aralığı. Olay alma yolunda **73–91 kat** daha fazla
+olay, **19–31 kat** daha az gecikme. Sebebi mimari: 500'lük gruplarla `COPY`, olay başına bir
+`INSERT` yerine.
+
+**Bedeli açıkça:** beacon isteğe cevap verdiğinde olay bellekte, en çok
+iki saniye sonra diskte. Süreç çökerse tampondaki olaylar kaybolur —
+bilinçli bir takas, ama bedava değil.
+
+Collector vekilinin başka analitiklerde karşılığı yok: onlar
+JavaScript koşmadıkça isteği hiç görmez. Ayrıntı ve **ölçülmeyenler**
+kurulum kılavuzunun *Kaç istek kaldırır* bölümünde.
+
 ### "Okunamadı" diyen bir bölüm artık niye olduğunu da yazıyor
 
 Panoda bir bölüm sayılarını çekemediğinde sayfa "Okunamadı." yazıyordu ve
