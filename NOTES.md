@@ -15988,3 +15988,182 @@ olsun bu testi düşürür.
 
 *Bir örneğin süresini, o örneği içermeyen bir pencereyle sınırlı sanmak,
 sınırın kendisini ölçüm yerine koymaktır.*
+
+## O2 — Çeyrek saatlik özet: panonun iki düğmesi geri geldi
+
+O grubunun ikinci yarısı. O1 diski 4,1 kat küçültüp süreyi yarıladı ve
+**yetmedi**; bu faz yetiyor, ama tamamına değil.
+
+### Önce iki ölçüm, çünkü ikisi de tasarımı belirledi
+
+**Birincisi: sürekli toplama Apache yapısında yok.** Sıkıştırmayla aynı
+duvar. `timescaledb.license=apache` ile başlatılmış ayrı bir küme kurdum
+(5434, `/var/tmp/ca-apache`):
+
+```
+CREATE MATERIALIZED VIEW cagg WITH (timescaledb.continuous) AS ...
+ERROR:  functionality not supported under the current "apache" license
+```
+
+Düz tablo + kendi SQL'im aynı kümede çalıştı. O1'de sıkıştırmayı şema
+dosyasından çıkarıp çalışma anına taşımak yeterliydi, çünkü sıkıştırma
+**atlanabilir** bir şey: yoksa yavaş kalır. Bir özet tablosu öyle değil
+— atlanabilir olsa okuma yolunun iki şekli olurdu, biri özeti olan
+kurulumlar için biri olmayanlar için, ve o ikisi birbirinden ayrışmakta
+serbest olurdu. Düz tablo iki yapıda birebir aynı davranıyor. Fazın
+tamamı bu yüzden düz tablo.
+
+**İkincisi: kova genişliği bir aritmetik değil bir tz veritabanı
+sorusu.** O2a'dan beri bir gün müşterinin günü; yerel gece yarısı,
+diliminin ofseti neredeyse oraya düşüyor. Saatlik kova Hindistan'ı
+(+05:30), Nepal'i (+05:45) ve Lord Howe'u (+10:30) dışarıda bırakır.
+Çeyrek saatlik kova hepsini kapsar **ancak ve ancak** hiçbir dilimin
+ofseti 15 dakikanın katı değilse. Sordum:
+
+```
+499 dilim, 379.739 örnek (saklama tavanı boyunca günlük), 0 uymayan
+```
+
+Bu iddia artık bir test: `TestEveryTimezoneSitsOnTheBucketGrid`, listesi
+`pg_timezone_names`'ten **türetilmiş**. 1972 öncesinde ızgara dışı
+ofsetler vardı; bir gün geri gelirse tek uyarı bu test olacak.
+
+### Hangi dört sayı, ve niye öteki üçü değil
+
+Özet altı sayı bildiriyor. Dördü toplanabilir, üçü değil, ve biri her iki
+listede de yok:
+
+| sayı | toplanır? | nasıl |
+|---|---|---|
+| `snapshots` | ✅ | toplanır |
+| `sum_rate` | ✅ | toplanır, sonra `snapshots`'a bölünür |
+| `max_rate` | ✅ | maksimumların maksimumu |
+| `max_window` | ✅ | maksimumların maksimumu |
+| `unique_ips` | ❌ | `count(distinct ip)` toplanmaz |
+| `bot_ips` | ❌ | üstelik **eşik istekle geliyor** |
+
+Ortalama, ortalama olarak değil **toplam + sayı** olarak saklanıyor:
+ortalamaların ortalaması sessiz kovayı yoğun kovayla aynı ağırlıkta
+sayar.
+
+`bot_ips`'in ikinci sebebi ayrıca önemli: **bir özet sütunu bir sorgu
+parametresine bağlı olamaz.** Skor eşiği istekten geliyor, yani önceden
+hesaplanacak tek bir sayı yok.
+
+### Ölçüm: binary'nin cevabı, soğuk
+
+İlk turda süreleri psql'de aldım ve **karşılaştırılamaz** çıktılar:
+benzersiz sayımı soğukta 25,4 sn, sıcakta 2,9 sn. Aradaki fark özetin
+kendi doldurma işinin önbelleği ısıtmasıydı. CLAUDE.md'de yazılı olan
+kural tam bu: *süreyi kendi SQL'inle değil binary'nin cevabıyla ölç.*
+
+Yeniden ölçtüm. Aynı makine, aynı veri, aynı gün, `analytics-api`
+binary'si, ve her ölçümden önce PostgreSQL yeniden başlatıldı. "Önce"
+hâli su işareti satırı silinerek kuruldu — yani ürünün O2 öncesi yolu,
+taklit değil:
+
+| Aralık | Önce | Sonra | Kat |
+|---|---:|---:|---:|
+| 7 gün | 0,91 sn | 0,30 sn | 3,0 |
+| 30 gün | **5,32 sn** | **1,08 sn** | 4,9 |
+| 90 gün | **17,62 sn** | **3,63 sn** | 4,9 |
+
+İstemci sınırı 5 sn. **İki düğme de sınırın altına indi.** Ve yöntemin
+kendisi de doğrulandı: soğuk psql toplamları (7,30 / 24,95 sn) 2026-09-09'da
+binary'yle ölçülen 7,97 / 26,96 sn'ye yakın çıktı, yani soğuk psql ≈
+binary, sıcak psql ise üçte bir.
+
+Boyut: bir sitenin 90 günü **8.641 satır, 1,2 MB** — aynı verinin
+sıkıştırılmış hâlinin (792 MB) **binde ikisi.**
+
+### Kalan yavaşlık, ve tamamı tek sayıda
+
+90 günlük sorgunun yarıları, her biri taze başlatılmış kümede:
+
+| yarı | süre |
+|---|---:|
+| benzersiz + bot sayısı | 5,91 sn |
+| toplanabilir dört sayı, ham tablodan | 19,04 sn |
+| toplanabilir dört sayı, özetten | 0,48 sn |
+
+Yani O2, 19 saniyelik yarıyı yarım saniyeye indiriyor; 5,9 saniyelik yarı
+duruyor ve **O3'ün işi.** 3,63 saniyenin 3,1'i o.
+
+### Bayat değil, eksik göstermemek: su işareti saklanıyor
+
+Okuma yolunun özetin nereye kadar hesaplandığını bilmesi gerekiyor. Bunu
+tahmin edebilirdi — "bir saatten eskisi kesin hesaplanmıştır" — ve o
+tahmin tam olarak önemli olduğu anda yanlış olurdu: yeniden başlatmadan
+sonra, uzun bir kesintiden sonra, var olan bir tabloda ilk koşuda.
+
+Saklandığında bölünme bir **olgu**, tahmin değil. Yenileme geride
+kalırsa ham tablo aralığın daha büyük kısmını kapsar ve cevap *yavaşlar*;
+güncelse özet kapsar ve *hızlanır*. İki durumda da cevap **eksiksiz.**
+Bayat olan bir pano ile yavaş olan bir pano arasındaki fark bu, ve
+yalnız biri dürüst.
+
+### Aralık üçe bölünüyor, ve üçü de bitişik
+
+Özet yalnız **tamamı aralığın içinde kalan** kovaları cevaplıyor. Panelin
+kendi sınırları yerel gece yarısı, ama API her an'ı kabul ediyor; kova
+sınırını kesen bir istek iki uçta pürüzlü kenar bırakıyor ve o kenarlar
+ham tablonun. Yani: ham baş + özet orta + ham kuyruk, üçü bitişik ve
+ayrık, her satır tam bir kez sayılıyor.
+
+### Fazın kendi actığı üç kusur
+
+**1. Tablo yokken sorgu düşüyordu.** İlk hâli tek bir ifadeydi ve
+`WHERE $8 AND ...` ile özet parçasını kapatıyordu. PostgreSQL tablo adını
+**ayrıştırma anında** çözüyor, yani `WHERE false` bir tabloyu yok
+saymıyor. Şema 20'yi uygulamamış bir veritabanında `/summary` 500
+veriyordu — yani binary yükseltilip düğmeye basılmamış her kurulumda.
+Gerçek bir entegrasyon testi söyledi. Artık iki ifade var, ama
+**aritmetiğin iki tanımı yok**: `rawAggregate` ve `rollupFinal` birer kez
+yazılı ve iki ifade de onlardan kuruluyor.
+
+**2. `CleanSite` yeni tabloları bilmiyordu.** Testlerin site temizleyicisi
+`traffic_snapshots` ve `beacon_events` siliyordu. Silinmeyen bir özet
+satırı, ham satırları olmayan bir aralıkta trafik gösterir — testte
+kimsenin açıklayamadığı bir sayı, üründe aynı kusur. Eklendi. Ve aynı
+kusurun ürün tarafı: **özet, özetlediği satırlarla aynı yaşta budanıyor**,
+yoksa 30 gün saklayan bir kurulum aylarca özet tutar ve pano detay
+sayfaları boş olan haftalar için trafik çizer.
+
+**3. İlk doldurma sınırsızdı.** 11 milyon satırda 31,7 saniye, tek
+ifadede. Saklama tavanı 730 gün. Yavaşlık sorun değil — arka planda ve
+yalnız ACCESS SHARE alıyor, toplayıcı yazmaya devam ediyor. Sorun şu:
+sınırsız bir yenileme bitene kadar hiçbir şey commit etmiyor, yani
+yarıda kesilen bir yakalama **hiç ilerleme kaydetmiyor** ve bir sonraki
+deneme aynı yerden başlıyor. Çağrı başına 30 gün sınırı kondu; saatlik
+varsayılanda tavandaki bir kurulum bir gün içinde yakalıyor ve her tur
+bir öncekinden ileride bitiyor.
+
+### Ölçüm
+
+- Yenileme toplayıcının kendi rolüyle koşuyor, **SECURITY DEFINER yok**:
+  zaten okuduğu bir tabloyu okuyup ondan türeyen bir tabloya yazıyor.
+  Retention'ın sarmalayıcıları TimescaleDB'nin politika işlevlerini
+  çağırdığı ve başka sitenin satırlarını sildiği için var; burada ikisi
+  de yok.
+- `beacon_writer` bu tabloya **yazamıyor** ve bu bir test: aynı retention
+  kodunu kendi tablosu için koşuyor, yazabilseydi bir servisin
+  bakım turu öteki servisin sayılarını yeniden yazabilirdi.
+- Sekiz süit, hepsi gerçek TimescaleDB'ye karşı. Ayrışma testinin
+  kâhini, bu ucun O2'den **önce** koştuğu sorgu — yeniden yazılmış bir
+  kâhin, sınadığı kodla akıl yürütme paylaşan bir kâhindir.
+- **On yedi mutasyon, on yedisi de kırmızı.** İkisi ilk turda sağ kaldı
+  ve ikisi de aynı dersi söyledi: iddiayı sınayabilecek satır fikstürde
+  yoktu.
+  - Son kovayı `alignDown` yerine `alignUp` ile almak (aralık dışı satır
+    sayılır) hiçbir cevabı değiştirmedi, çünkü seçtiğim orta-kova sınırı
+    on yedi dakikalık bir boşluğa düşüyordu. İkinci denemem aritmetikle
+    bir an seçti ve **aynı boşluğa** düştü. Üçüncüsünde sınırı veriden
+    türettim: aynı kovada kendisinden sonra başka akış olan bir akışın
+    bir saniye sonrası.
+  - Su işaretini ufuk yerine `now()` yazmak da geçti, çünkü fikstürün en
+    yeni satırı yirmi saat eskiydi — yani boş kovalar iddia ediliyordu, ve
+    boş bir kova hakkındaki yanlış bir iddia ölçülemez. Fikstür artık
+    şimdiye kadar satır yazıyor.
+
+*Bir kova genişliği bir aritmetik tercihi değil, saat dilimi
+veritabanına sorulacak bir sorudur.*

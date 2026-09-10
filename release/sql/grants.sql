@@ -9,6 +9,29 @@
 -- collector: writes its own table.
 GRANT SELECT, INSERT ON traffic_snapshots TO collector;
 
+-- collector: and the rollup derived from it.
+--
+-- Since O2 the collector's own retention cycle also keeps
+-- traffic_rollup in step. It needs INSERT and UPDATE for the upsert,
+-- DELETE to prune the rollup by the same age as the rows it summarizes,
+-- and SELECT because the upsert reads back its own conflict target.
+--
+-- No wrapper, and that is a decision rather than an omission: the
+-- refresh reads a table this role already reads and writes a table
+-- derived from it. The retention wrappers are SECURITY DEFINER because
+-- they call TimescaleDB's policy functions and delete other sites'
+-- rows; nothing here is either, so nothing here runs as anybody else.
+GRANT SELECT, INSERT, UPDATE, DELETE ON traffic_rollup TO collector;
+GRANT SELECT, INSERT, UPDATE ON traffic_rollup_state TO collector;
+
+-- And beacon_writer gets neither, deliberately.
+--
+-- It runs the same retention code against its own table. If it could
+-- write traffic_rollup, one service's cycle could rewrite the other
+-- service's numbers - which is the separation the whole deployment
+-- rests on, said once more for a table that did not exist when the rest
+-- of this file was written. internal/api holds it as a test.
+
 -- beacon: writes its own table and nothing else. No SELECT: it never
 -- reads back what it wrote.
 GRANT INSERT ON beacon_events TO beacon_writer;
@@ -19,6 +42,12 @@ GRANT INSERT ON beacon_events TO beacon_writer;
 -- answering 500 while everything else works - a fault that is annoying to
 -- diagnose precisely because most of the product is fine.
 GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
+
+-- And the rollup, read-only. Both tables: the rollup rows and the
+-- watermark that says how far they reach. Without the second the read
+-- path cannot tell "the rollup covers nothing" from "the rollup covers
+-- everything", and those differ by the whole table.
+GRANT SELECT ON traffic_rollup, traffic_rollup_state TO analytics_reader;
 
 -- The panel: its own tables only. Never the analytics ones.
 GRANT SELECT, INSERT, UPDATE, DELETE ON

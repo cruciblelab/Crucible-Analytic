@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **2/4** | O2, O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4143,7 +4143,7 @@ bulgunun bir daha oluşamayacağı tek düzenek bu, ve ölçüldü:
 
 ---
 
-#### O2 — Günlük özet: toplanabilir sayılar ⬜
+#### O2 — Çeyrek saatlik özet: toplanabilir sayılar ✅ **yapıldı**
 
 Gün + site başına tek satır tutan sürekli toplama, **yalnız kovadan
 kovaya toplanabilen** sayılar için: zirve hız, ortalama hız (ağırlıklı),
@@ -4164,6 +4164,59 @@ karşı karşılaştırmalı, ve toleransı testin içinde yazılı olmalı.
 eşleşiyor. Yeni satır yazıldığında özet güncelleniyor ve arada kalan
 pencerede pano **eski değil eksik** göstermiyor. Süre öncesi/sonrası
 ölçülüyor.
+
+##### Nasıl yapıldı — ölçüldü
+
+**Gün değil çeyrek saat, ve bu bir tercih değil.** O2a'dan beri bir gün
+müşterinin günü, yani yerel gece yarısı diliminin ofseti neredeyse oraya
+düşüyor. Saatlik kova Hindistan'ı (+05:30) ve Nepal'i (+05:45) dışarıda
+bırakırdı. Çeyrek saat hepsini kapsıyor, ve bu tz veritabanına soruldu:
+**499 dilim, saklama tavanı boyunca günlük örneklenmiş 379.739 örnek,
+ızgara dışı sıfır.** Liste `pg_timezone_names`'ten türetilmiş bir testte
+duruyor.
+
+**Sürekli toplama değil düz tablo, ve bu da ölçüldü.**
+`timescaledb.license=apache` ile başlatılmış ayrı bir kümede
+`CREATE MATERIALIZED VIEW ... WITH (timescaledb.continuous)` reddediliyor.
+O1'de sıkıştırma çalışma anına taşınabildi çünkü atlanabilir bir şeydi;
+bir özet atlanabilir olsa okuma yolunun iki şekli olurdu ve o ikisi
+ayrışmakta serbest olurdu.
+
+**Dört sayı:** `snapshots`, `sum_rate`, `max_rate`, `max_window`.
+Ortalama, ortalama olarak değil toplam + sayı olarak. `unique_ips` ve
+`bot_ips` yok: birincisi toplanmıyor, ikincisi ayrıca **istekten gelen bir
+eşiğe** bağlı — bir özet sütunu bir sorgu parametresine bağlı olamaz.
+
+**Ölçüm binary'nin cevabı, soğuk, aynı makinede önce/sonra** (su işareti
+satırı silinerek O2 öncesi yol kuruldu):
+
+| Aralık | Önce | Sonra |
+|---|---:|---:|
+| 7 gün | 0,91 sn | 0,30 sn |
+| 30 gün | **5,32 sn** | **1,08 sn** |
+| 90 gün | **17,62 sn** | **3,63 sn** |
+
+İstemci sınırı 5 sn: **iki düğme de geri geldi.** Boyut: bir sitenin 90
+günü 8.641 satır, 1,2 MB.
+
+İlk turda psql'de ölçmüştüm ve sayılar karşılaştırılamazdı (benzersiz
+sayımı soğukta 25,4 sn, sıcakta 2,9 sn) — özetin doldurma işi önbelleği
+ısıtmıştı.
+
+**Kalan yavaşlık tek sayıda:** 3,63 saniyenin 3,1'i benzersiz ziyaretçi,
+yani O3.
+
+**Üç kusur fazın kendisinden çıktı.** Tablo yokken tek-ifadeli sorgu
+düşüyordu (PostgreSQL tablo adını ayrıştırma anında çözüyor, `WHERE
+false` yetmiyor) — yani şema 20'yi uygulamamış her kurulumda `/summary`
+500 verirdi; `CleanSite` yeni tabloları bilmiyordu ve aynı kusurun ürün
+tarafı özetin budanmaması; ilk doldurma sınırsızdı, yarıda kesilse hiç
+ilerleme kaydetmezdi (çağrı başına 30 gün sınırı kondu).
+
+On yedi mutasyon, on yedisi de kırmızı. İkisi ilk turda sağ kaldı ve
+ikisi de aynı sebeptendi: iddiayı sınayacak satır fikstürde yoktu. Biri
+için orta-kova sınırı artık **veriden türetiliyor** — aritmetikle
+seçtiğim iki an da akış boşluğuna düşmüştü.
 
 ---
 

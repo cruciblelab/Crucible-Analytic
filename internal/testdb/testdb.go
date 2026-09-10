@@ -108,8 +108,24 @@ func Admin(t *testing.T) *pgxpool.Pool {
 // inside this run's window is a number nobody can explain.
 func CleanSite(t *testing.T, admin *pgxpool.Pool, sites ...string) {
 	t.Helper()
+	// The rollup tables are on this list, and leaving them off was the
+	// first thing O2 got wrong.
+	//
+	// traffic_rollup holds the same history as traffic_snapshots in
+	// pre-aggregated form, so a row this helper does not delete is a row
+	// the summary still counts - traffic in a range whose detail rows are
+	// gone. In a test that shows up as a number nobody can explain; in a
+	// deployment it is the same fault, which is why the rollup is pruned
+	// by the retention age as well.
+	//
+	// Named rather than derived, like the two above. The derived version
+	// would be "every table with a site_id column", which reaches the
+	// panel's membership and settings tables - rows a CleanSite call has
+	// no business removing.
 	wipe := func() {
-		for _, table := range []string{"traffic_snapshots", "beacon_events"} {
+		for _, table := range []string{
+			"traffic_snapshots", "beacon_events", "traffic_rollup", "traffic_rollup_state",
+		} {
 			if _, err := admin.Exec(context.Background(),
 				"DELETE FROM "+table+" WHERE site_id = ANY($1)", sites); err != nil {
 				t.Logf("clearing %s for %v: %v", table, sites, err)

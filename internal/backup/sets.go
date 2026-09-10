@@ -152,6 +152,23 @@ var Excluded = map[string]string{
 	"panel_release_available":   "one row of cached fact, refreshed within six hours",
 	"panel_operations":          "in-flight operation state",
 
+	// Derived from a table that IS backed up, and rebuilt from it.
+	//
+	// traffic_rollup holds nothing traffic_snapshots does not, in
+	// pre-aggregated form, and the collector rebuilds it on its ordinary
+	// cycle. Backing it up would put the same history in the file twice.
+	//
+	// The stronger reason is what a restore would do with it. Each table
+	// is copied separately, so a restored rollup and the restored rows
+	// behind it can be from different moments - and a watermark claiming
+	// buckets whose rows did not come back is the one failure that makes
+	// the read path answer short instead of slow. Left out, the rollup
+	// starts empty with no watermark, every range is answered from the
+	// raw table, and the next few cycles rebuild it. Slower for an hour,
+	// and right throughout.
+	"traffic_rollup":       "derived from traffic_snapshots; rebuilt by the collector",
+	"traffic_rollup_state": "how far a derived table reached on the old machine",
+
 	// Facts about this machine, which the restored machine is not.
 	"service_heartbeat": "what these services were doing on the old machine",
 	"schema_version":    "recorded by the applier; a restored row would claim a state",

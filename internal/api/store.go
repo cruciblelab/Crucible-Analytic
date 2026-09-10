@@ -152,9 +152,25 @@ func (s *Store) Sites(ctx context.Context) ([]string, error) {
 func (s *Store) Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error) {
 	out := Summary{SiteID: siteID, From: from, To: to, BotScoreMin: botScoreMin}
 
-	// One pass for the exact statistics. An IP counts as a bot if *any*
-	// snapshot of it in range scored at or above the threshold - a burst
-	// that later decays shouldn't erase the fact that it happened.
+	// The visitor counts, from the raw table, and there is nowhere else
+	// they can come from.
+	//
+	// An IP counts as a bot if *any* snapshot of it in range scored at or
+	// above the threshold - a burst that later decays shouldn't erase the
+	// fact that it happened.
+	//
+	// # Why this half is not rolled up, and what that costs
+	//
+	// count(distinct ip) does not aggregate: two days' visitors are not
+	// the sum of each day's. And bot_ips could not be precomputed even
+	// if it did, because the threshold arrives in the request - see
+	// traffic_rollup's comment in internal/storage/schema.sql.
+	//
+	// Measured on 12 million rows over 90 days, this endpoint's halves:
+	// the counts below 25,36 s, the aggregable figures 1,46 s, the peak
+	// window 10,26 s. O2 removed the second and third. This one is what
+	// O3 is for, and until then a 90-day summary is still slower than
+	// the panel's client will wait.
 	err := s.pool.QueryRow(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, max(bot_score) AS peak_score
@@ -162,57 +178,53 @@ func (s *Store) Summary(ctx context.Context, siteID string, from, to time.Time, 
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
 		)
-		SELECT
-		    (SELECT count(*) FROM per_ip),
-		    (SELECT count(*) FROM per_ip WHERE peak_score >= $4),
-		    COALESCE(max(request_rate), 0),
-		    COALESCE(avg(request_rate), 0),
-		    count(*)
-		FROM traffic_snapshots
-		WHERE site_id = $1 AND time >= $2 AND time < $3`,
+		SELECT (SELECT count(*) FROM per_ip),
+		       (SELECT count(*) FROM per_ip WHERE peak_score >= $4)`,
 		siteID, from, to, botScoreMin,
-	).Scan(&out.UniqueIPs, &out.BotIPs, &out.PeakRequestRate, &out.AvgRequestRate, &out.Snapshots)
+	).Scan(&out.UniqueIPs, &out.BotIPs)
 	if err != nil {
 		return Summary{}, fmt.Errorf("api: summary: %w", err)
 	}
 	out.HumanIPs = out.UniqueIPs - out.BotIPs
 
-	peak, err := s.peakWindowRequests(ctx, siteID, from, to)
+	// The four aggregable figures, from the rollup where it reaches and
+	// the raw table for the rest. The watermark is read first and passed
+	// in, so the decision about which half answers is taken in one place
+	// - see internal/api/rollup.go.
+	watermark, err := s.rollupWatermark(ctx, siteID)
 	if err != nil {
 		return Summary{}, err
 	}
-	out.PeakWindowRequests = peak
+	agg, err := s.aggregableOver(ctx, siteID, from, to, watermark)
+	if err != nil {
+		return Summary{}, err
+	}
+	out.Snapshots = agg.Snapshots
+	out.PeakRequestRate = agg.PeakRequestRate
+	out.AvgRequestRate = agg.AvgRequestRate
+	out.PeakWindowRequests = agg.PeakWindow
 
 	return out, nil
 }
 
-// peakWindowRequests finds the busiest single sliding window in the
-// range: for each flush event (all rows from one flush share that flush's
-// exact timestamp), it totals every active IP's window counters, then
-// takes the largest such total.
+// The peak window is a maximum over flush events: all rows from one
+// flush share that flush's exact timestamp, so totalling every active
+// IP's window counters per timestamp and taking the largest total is
+// exact regardless of how irregularly flushes are spaced - which matters,
+// because the collector only writes rows for IPs seen since the previous
+// flush, making flush events genuinely irregular whenever traffic is
+// bursty.
 //
-// This reads counters the collector already maintains rather than
-// reconstructing anything, so it's exact regardless of how irregularly
-// flushes happen to be spaced - which matters, because the collector only
-// writes rows for IPs seen since the previous flush, making flush events
-// genuinely irregular whenever traffic is bursty.
-func (s *Store) peakWindowRequests(ctx context.Context, siteID string, from, to time.Time) (int, error) {
-	var peak int
-	err := s.pool.QueryRow(ctx, `
-		WITH per_flush AS (
-		    SELECT time, sum(prev_window_count + curr_window_count) AS window_requests
-		    FROM traffic_snapshots
-		    WHERE site_id = $1 AND time >= $2 AND time < $3
-		    GROUP BY time
-		)
-		SELECT COALESCE(max(window_requests), 0) FROM per_flush`,
-		siteID, from, to,
-	).Scan(&peak)
-	if err != nil {
-		return 0, fmt.Errorf("api: peak window requests: %w", err)
-	}
-	return peak, nil
-}
+// It used to be its own query here. Since O2 it comes out of
+// aggregableOver with the other three aggregable figures, because it is
+// one: the maximum of a set of per-flush totals is the maximum of the
+// per-bucket maxima of those totals. That is what let it move into the
+// rollup, and it was the expensive one - 10,26 s of the 90-day summary's
+// 37, against 1,46 s for the rates.
+//
+// The old single-pass version is still run on every integration test, as
+// the oracle the rollup path is checked against rather than as
+// production code. See rollup_integration_test.go.
 
 // Bucket is one time slice of a timeseries.
 type Bucket struct {

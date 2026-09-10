@@ -1213,6 +1213,54 @@ boyutuyla değil **bir parçanın** boyutuyla sınırlı.
 sıkıştırıyor, yani yedeğin boyutu tablonun diskte nasıl durduğuna değil
 verinin kendisine bağlı. Disk 4 kat küçüldü diye yedekler küçülmez.
 
+### Özet tablosu: panonun uzun aralıkları neden hızlı
+
+Şema 20'den beri iki tablo daha var: `traffic_rollup` ve
+`traffic_rollup_state`. Ayar yok, açma kapama yok; toplayıcı saklama
+turunda kendiliğinden dolduruyor.
+
+Ne yapıyor: `traffic_snapshots`'ın toplanabilir dört sayısını site ve
+**çeyrek saat** başına önceden hesaplıyor. Bir sitenin 90 günü 8.641
+satır ve 1,2 MB — aynı verinin sıkıştırılmış hâlinin binde ikisi. Yani
+diskte fark edilir bir yer kaplamıyor.
+
+Ne kazandırıyor, ölçülmüş (12 milyon satır, üç site, `analytics-api`'nin
+kendi cevap süresi, her ölçüm taze başlatılmış veritabanıyla):
+
+| Aralık | Önce | Sonra |
+|---|---:|---:|
+| 7 gün | 0,91 sn | 0,30 sn |
+| 30 gün | 5,32 sn | 1,08 sn |
+| 90 gün | 17,62 sn | 3,63 sn |
+
+**Sayılar hiçbir zaman bayat değil.** Özetin nereye kadar hesaplandığı
+`traffic_rollup_state` satırında yazılı, ve o noktadan sonrası ham
+tablodan okunuyor. Yenileme geride kalırsa cevap yavaşlar, eskiyi
+göstermez.
+
+**Özet, özetlediği satırlarla aynı yaşta budanıyor.** Yani saklama
+süresini kısaltırsanız özet de kısalır; pano detay sayfası boş olan bir
+hafta için trafik çizmez.
+
+**İlk tur uzun sürebilir.** Var olan bir tabloda ilk yenileme geçmişi
+baştan hesaplıyor: 11 milyon satırda 31,7 saniye ölçüldü. Çağrı başına 30
+günle sınırlı, yani uzun bir geçmiş birkaç turda yakalanıyor ve her tur
+bir öncekinden ileride bitiyor. Bu arada pano yalnız eskisi kadar yavaş
+olur, yanlış olmaz. Günlükte görürsünüz:
+
+```
+rollup: still catching up, and further along than last cycle
+```
+
+**Bir sayı hâlâ uzun aralıkta yavaş:** benzersiz ziyaretçi. İki günün
+ziyaretçi sayısı toplanamaz, çünkü aynı kişi iki gün de gelmiş olabilir.
+90 günlük özette kalan 3,6 saniyenin 3,1'i o sayı.
+
+**Bir de PostgreSQL yapısı hakkında:** özet düz bir tablo, TimescaleDB'nin
+"sürekli toplama"sı değil. Sebebi ölçüldü — sürekli toplama Apache
+lisanslı yapıda yok, ve orada çalışmayan bir şey şema dosyasında
+duramaz. Yani bu hızlanma **her iki yapıda** aynı şekilde çalışıyor.
+
 ---
 
 ## 13. Gerçekten çalışıyor mu

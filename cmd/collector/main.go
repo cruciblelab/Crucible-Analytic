@@ -269,6 +269,19 @@ func main() {
 			logger.Error("retention: not configured", "err", err)
 			return
 		}
+		// The rollup rides this cycle rather than one of its own.
+		//
+		// Same schedule, same failure policy, and one number configures
+		// both. What it costs is bounded and small: the read path takes
+		// everything the rollup has not claimed from the raw table, so
+		// between two cycles a query reaches at most one interval plus
+		// the settle margin further back into the unrolled table - about
+		// two hours by default, against a range measured in months.
+		//
+		// The other reason is the honest one. A second ticker is a second
+		// thing to notice has stopped, and this one runs inside the
+		// process on the traffic path.
+		rollup := storage.NewRollup(writer.Pool())
 		apply := func() {
 			report, err := manager.Apply(ctx, retention.Policy{Days: cfg.Retention.Resolved()})
 			if err != nil {
@@ -282,6 +295,12 @@ func main() {
 			if days, wanted := cfg.Retention.CompressionWanted(); wanted {
 				manager.LogApply(ctx, logger, days, cfg.Retention.Resolved())
 			}
+			// This collector's own site and no other. One collector
+			// writes one site_id - it is stamped onto every row it
+			// produces - so rolling up anything else would be this
+			// process maintaining numbers for a site it knows nothing
+			// about, on a schedule that site's own collector already has.
+			rollup.LogRefresh(ctx, logger, cfg.SiteID, cfg.Retention.Resolved())
 		}
 		apply()
 

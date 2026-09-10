@@ -13,10 +13,50 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 19.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Bir tablo, iki sütun ve bir veritabanı
+**Şema sürümü: 20.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Üç tablo, iki sütun ve bir veritabanı
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
+
+### Panonun 30 ve 90 gün düğmeleri artık çalışıyor
+
+İki düğme çalışmıyordu, ve pano bunu **yanlış** anlatıyordu: kartlar
+"veri kaynağına ulaşılamıyor" durumuna düşüyor ve panel *"Sayılar eksik
+değil, henüz gelmedi"* yazıyordu. Sayılar oradaydı; sorgu onları
+getirecek kadar hızlı değildi.
+
+Ölçüldü. 90 güne yayılmış 12 milyon satır, üç site, sıkıştırma açık, ve
+`analytics-api`'nin kendi cevap süresi. Her ölçüm taze başlatılmış bir
+veritabanıyla, yani soğuk:
+
+| Aralık | Önce | Sonra |
+|---|---:|---:|
+| 7 gün | 0,91 sn | **0,30 sn** |
+| 30 gün | 5,32 sn | **1,08 sn** |
+| 90 gün | 17,62 sn | **3,63 sn** |
+
+Panel istemcisinin sınırı 5 saniye. Yani 30 gün sınırın üstündeydi, 90
+gün üç katıydı; ikisi de artık altında.
+
+Nasıl: gün başına değil **çeyrek saat** başına, site başına önceden
+hesaplanmış bir özet tablosu. Bir sitenin 90 günü 8.641 satır ve
+**1,2 MB** — aynı verinin sıkıştırılmış hâlinin (792 MB) binde ikisi.
+
+Çeyrek saat, çünkü bir gün artık sizin gününüz: yerel gece yarısı
+diliminizin ofseti neredeyse oraya düşer. Saatlik bir kova Hindistan'ı
+(+05:30) ve Nepal'i (+05:45) dışarıda bırakırdı. PostgreSQL'in tanıdığı
+499 dilimin tamamı, saklama tavanı boyunca günlük örneklenerek
+sınandı: **hiçbirinin ofseti çeyrek saatin katı olmayan bir sayı
+değil.**
+
+**Sayı bekleyip eski sayı görmüyorsunuz.** Özetin nereye kadar
+hesaplandığı veritabanında yazılı, ve o noktadan sonrası ham tablodan
+okunuyor. Yani özet geride kalırsa cevap *yavaşlar*, hiçbir zaman
+*bayatlamaz*.
+
+**Bir sayı hâlâ yavaş:** benzersiz ziyaretçi. İki günün ziyaretçisi
+toplanamaz, çünkü aynı kişi iki gün de gelmiş olabilir. 90 günlük özette
+kalan sürenin tamamı o: 3,63 saniyenin 3,1'i. Sırada duran iş bu.
 
 ### Bir gün artık sizin gününüz
 

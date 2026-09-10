@@ -174,14 +174,34 @@ import (
 // compression is on, an unguarded one fails every upgrade after the
 // first. Nothing about the resulting tables differs; the statements were
 // already no-ops on any database that had applied them once.
-const Version = 19
+// # 20
+//
+// Two tables: traffic_rollup and traffic_rollup_state (O2). The
+// pre-aggregated answer to the four figures a long range asks for, at a
+// quarter-hour bucket, plus the watermark saying how far it reaches.
+//
+// Additive, and both start empty. That is what makes the step safe in
+// either direction: an empty rollup with no watermark means the read
+// path answers entirely from the raw table, which is what it did before
+// this version, so a deployment is never wrong between applying the
+// schema and the first refresh - only as slow as it already was. An
+// older binary is unaffected: it never selects either table.
+//
+// Plain tables rather than a continuous aggregate, and that is measured
+// rather than preferred. Measured on 2.17.2 with a cluster started at
+// timescaledb.license=apache, CREATE MATERIALIZED VIEW ... WITH
+// (timescaledb.continuous) is refused outright - so it could not live in
+// a schema file without failing every install and every upgrade on the
+// other build. The reasoning is written out where the tables are, in
+// internal/storage/schema.sql.
+const Version = 20
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "70ec74ee4a16912cdd4d4a91c968c67c6222b8ae707e80aadd0fbcf7bc7f1e7d"
+const Fingerprint = "def4bfa7078c1b056a68594efc682a0b9ef033b613e2962f1eb4013c72395d02"
 
 // FingerprintOf hashes a set of schema files.
 //

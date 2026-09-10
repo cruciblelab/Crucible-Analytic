@@ -26,6 +26,18 @@ listen_addr = "127.0.0.1:8082"
 #   GRANT USAGE ON SCHEMA public TO analytics_reader;
 #   GRANT SELECT ON traffic_snapshots TO analytics_reader;
 #   GRANT SELECT ON beacon_events TO analytics_reader;
+#   GRANT SELECT ON traffic_rollup, traffic_rollup_state TO analytics_reader;
+#
+# The last line is the pre-aggregated summary and the row saying how far
+# it reaches (schema 20). Without it every long range falls back to the
+# raw table and answers correctly but slowly - which is what this whole
+# process did before that version, so it is a lost speed-up rather than
+# a fault. Both tables or neither: without the second one the read path
+# cannot tell "the rollup covers nothing" from "the rollup covers
+# everything", and those differ by the entire table.
+#
+# release/sql/grants.sql is the authoritative list and install.sh applies
+# it. This comment exists for an operator granting by hand.
 #
 # Both tables: the /beacon/ endpoints read the second, and the
 # /crossover/ endpoints join the two. Granting only the first leaves
