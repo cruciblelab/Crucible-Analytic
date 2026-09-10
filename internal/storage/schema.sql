@@ -75,7 +75,39 @@ CREATE INDEX IF NOT EXISTS idx_traffic_snapshots_site_time
 -- they are the two halves of the crossover join, and the two processes
 -- that fill them are now held to the same config rules by
 -- internal/invariants.
-ALTER TABLE traffic_snapshots ALTER COLUMN ip DROP NOT NULL;
+--
+-- # Why the ALTER COLUMN is wrapped in a test rather than run outright
+--
+-- TimescaleDB refuses ALTER COLUMN on a hypertable that has compression
+-- enabled - and refuses it unconditionally, including when the column
+-- is already nullable and the statement would change nothing. Measured
+-- on 2.17.2: DROP NOT NULL, ALTER COLUMN TYPE, ADD CONSTRAINT CHECK and
+-- ENABLE ROW LEVEL SECURITY are all rejected; ADD COLUMN, DROP COLUMN,
+-- SET DEFAULT, CREATE INDEX, GRANT and OWNER TO are not.
+--
+-- Since O1 every deployment whose TimescaleDB can compress does
+-- compress this table, from the first minute the collector runs. So an
+-- unguarded statement here does not fail on some exotic install: it
+-- fails on the *second* schema upgrade of every ordinary one, which is
+-- the panel's Health -> Schema upgrade button, which is the only
+-- upgrade path a customer has.
+--
+-- The guard makes it a no-op once applied, which is what it already was
+-- in effect. Holding the general rule is a test, not this comment:
+-- internal/applier's TestAnUpgradeStillWorksOnACompressedDeployment
+-- applies every schema file to a compressed database and requires it to
+-- succeed - so the next statement of this shape is caught when it is
+-- written rather than when a customer presses the button.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+                WHERE attrelid = 'traffic_snapshots'::regclass
+                  AND attname  = 'ip'
+                  AND attnotnull) THEN
+        ALTER TABLE traffic_snapshots ALTER COLUMN ip DROP NOT NULL;
+    END IF;
+END
+$$;
 ALTER TABLE traffic_snapshots ADD COLUMN IF NOT EXISTS ip_hash BYTEA;
 CREATE INDEX IF NOT EXISTS traffic_snapshots_ip_hash_idx
     ON traffic_snapshots (site_id, ip_hash, time DESC) WHERE ip_hash IS NOT NULL;

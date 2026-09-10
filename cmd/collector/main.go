@@ -279,6 +279,9 @@ func main() {
 				logger.Info("retention policy changed", "table", string(report.Table),
 					"from_days", report.PreviousDays, "to_days", report.PolicyDays)
 			}
+			if days, wanted := cfg.Retention.CompressionWanted(); wanted {
+				manager.LogApply(ctx, logger, days, cfg.Retention.Resolved())
+			}
 		}
 		apply()
 

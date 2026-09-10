@@ -15153,3 +15153,425 @@ veriyor ve INSERT tamamen düşüyor.
 
 O1 yazılırken bu ölçüm Go'ya taşınmalı, çünkü elle koşulan bir ölçüm
 bir sonraki sürümde koşulmaz.
+
+## O1 — Siteye göre bölümlenmiş sıkıştırma
+
+Ölçümün birinci yarısı. Karar gerektirmeyen, ikinci bir doğruluk kaynağı
+yaratmayan, ve panelde tek bir sayıyı değiştirmeyen yarı.
+
+### Nereye konduğu, ve neden şemaya değil
+
+Sıkıştırma bir **Timescale Lisansı** özelliği. Apache lisanslı yapıda
+yok. Şema dosyasında duran bir `ALTER TABLE ... SET
+(timescaledb.compress ...)` o yapıdaki bir müşteride dosyayı komple
+düşürürdü — hem kurulumda hem, daha kötüsü, **her şema
+yükseltmesinde.** Hiç istemediği bir özellik yüzünden yükseltmesi
+patlayan bir müşteri.
+
+O yüzden sıkıştırmayla ilgili hiçbir şey şema dosyasında değil. Hepsi
+çalışma zamanında, ve başarısızlık uyarı: saklama döngüsünün zaten
+izlediği disiplin, aynı gerekçeyle — bu kod trafik yolundaki bir sürecin
+içinde koşuyor.
+
+Konteyner lisansı oturum içinde değiştirmeye izin vermiyor, dolayısıyla
+Apache koşulunu burada **kuramadım.** Bunu ölçtüm diye yazmıyorum;
+korumayı yazdım, ve korumanın çalıştığını başka bir gerçek hatayla
+gördüm (fonksiyonun kendi SQL'i yanlıştı, çağıran uyarı verip devam
+etti).
+
+### Sahiplik, yine
+
+`ALTER TABLE` ve `add_compression_policy` **sahiplik** istiyor, yetki
+değil — B2'de saklama politikası için öğrenilen aynı ders. O yüzden
+dördüncü bir `SECURITY DEFINER` sarmalayıcı: `ca_set_compression`. Aynı
+çağıran kontrolü, aynı `search_path` sabitlemesi, aynı `REVOKE ... FROM
+PUBLIC`.
+
+### Üç ölçüm, ve üçü de kendi hatamı buldu
+
+**Testler atlayarak "geçti".** İlk koşuda beş testin dördü `t.Skipf`
+ile atladı ve süit yeşil verdi. Sebep benim SQL hatamdı
+(`array_to_string(text, ...)` — o görünümde `segmentby` dizi değil
+metin), ama atlama koşulu "çağrı başarısız oldu" olduğu için hata "bu
+veritabanı sıkıştıramıyor" diye raporlandı. **Ürettiğiniz bir hataya
+bağlı bir atlama, o hatayı saklayan bir atlamadır.** Önkoşul artık
+veritabanına ayrıca soruluyor.
+
+**Temizlik sessizce başarısız oluyordu.** `collector`'ın `DELETE`
+yetkisi yok ve ben `_, _ =` yazmıştım. Her koşu bir öncekinin
+satırlarıyla başlıyordu; "4 satır, 2 bekleniyordu" diye göründü ve
+sıkıştırma hatası gibi durdu. Aynı dosyada iki fonksiyon yukarıda bunun
+tehlikesini yazmıştım.
+
+**Test sınadığı koşulu hiç kurmuyordu.** Segment mutasyonu sağ kaldı,
+çünkü geliştirme veritabanındaki tablo zaten ayarlıydı ve fonksiyon
+"zaten yapılandırılmış" dalına giriyordu — yani mutasyona uğrayan satır
+hiç çalışmıyordu. Test artık ayarları önce temizliyor.
+
+### Ve sağ kalan mutasyon bir şey öğretti
+
+Temizledikten sonra da sağ kaldı. Sebep test zayıflığı değildi:
+**TimescaleDB 2.17 segmenti kendisi seçiyor**, `(site_id, time DESC)`
+indeksinden okuyup `site_id` diyor — üstelik emin olmadığını söyleyen
+bir uyarıyla. Yani açık ayarı silmek bu sürümde hiçbir şeyi
+değiştirmiyor.
+
+Ayar yine de duruyor, ve gerekçesi artık varsayım değil: tahmin bir
+**indeksten** yapılıyor, dolayısıyla o indeksi yeniden düzenleyen bir
+göç düzeni sessizce değiştirir ve hiçbir şey kırmızı vermez, yalnız
+yavaşlar. Sütunu yazmak, düzeni bir çıkarım olmaktan çıkarıp bir karar
+yapıyor.
+
+Anlamlı mutasyon farklıydı ve yakalandı: **yanlış sütuna göre
+bölümle.**
+
+### Bir de gerçek bir gerileme, kendi testimin bulduğu
+
+Yeni doğrulama `retention.days = 1` olan bir dosyayı **reddediyordu**,
+çünkü varsayılan sıkıştırma yaşı 7. Bir günlük saklama tamamen geçerli
+bir yapılandırma. Yani yükseltme, müşterinin çalışan yapılandırmasını
+geçersiz hâle getirirdi — hiç istemediği bir özellik yüzünden servisi
+açılmazdı.
+
+Kural düzeldi: **varsayılan yol verir, açık değer vermez.** Sığmayan bir
+varsayılan sıkıştırmayı kapatıyor; yalnız operatörün kendi yazdığı bir
+değer dosyayı reddettiriyor, çünkü ancak o zaman biri aynı anda doğru
+olamayacak iki şey söylemiş oluyor.
+
+### Ölçüm
+
+Altı mutasyon, altısı da yakalandı; artı yedincisi (segmenti sil) sağ
+kaldı ve **neden sağ kaldığı yukarıda yazılı**. Sağ kalan bir mutasyonu
+"test zayıf" diye geçmek yerine sebebini bulmak, bu turda öğrenilen
+şeyin kendisi.
+
+Beş entegrasyon testi gerçek veritabanına karşı, gerçek servis
+rolleriyle. En önemlisi sonuncusu: sıkıştırılmış bir parçada collector
+hâlâ yazıyor, yedeğin `COPY` yolu hâlâ okuyor, saklama hâlâ düşürüyor.
+Bunlardan biri kırılsaydı, yavaş bir panodan çok daha kötü olurdu.
+
+*Ürettiğiniz bir hataya bağlı bir atlama, o hatayı saklayan bir
+atlamadır.*
+
+## O1'in yan etkisi: sıkıştırma açılınca şema yükseltmesi bir daha çalışmıyor
+
+Bu, O1'in kendi kapısında bulundu ve O1'in en önemli parçası oldu.
+Sıkıştırma özelliğinin kendisi bir hızlanmaydı; bu ise **kurulmuş bir
+müşteride tek yükseltme yolunu kapatıyordu.**
+
+### Nasıl göründü
+
+`release/gate.sh --all` kırmızı verdi ve kırmızı benim dokunmadığım bir
+pakette çıktı: `internal/applier`'ın yedi testi birden, hepsi aynı
+cümleyle.
+
+```
+applying internal/storage/schema.sql:
+ERROR: operation not supported on hypertables that have compression enabled
+```
+
+İlk refleks "test ortamı kirlenmiş" demekti — ve doğruydu: sıkıştırma
+süitim paylaşılan veritabanını sıkıştırılmış bırakıyordu. Ama **kirlilik
+sebep değil, ortaya çıkarıcıydı.** Temizlemekle yetinseydim, kapı yeşile
+dönerdi ve ürün kırık giderdi.
+
+### Ne olduğu
+
+TimescaleDB, sıkıştırma açık bir hypertable üzerinde bazı DDL biçimlerini
+reddediyor. 2.17.2'de ölçüldü — ve **koşulsuz** reddediyor, yani ifade
+hiçbir şeyi değiştirmeyecek olsa bile:
+
+| Reddedilen | Kabul edilen |
+|---|---|
+| `ALTER COLUMN ... DROP NOT NULL` | `ADD COLUMN` |
+| `ALTER COLUMN ... TYPE` | `DROP COLUMN` |
+| `ADD CONSTRAINT ... CHECK` | `ALTER COLUMN ... SET DEFAULT` |
+| `ENABLE ROW LEVEL SECURITY` | `CREATE INDEX`, `GRANT`, `OWNER TO` |
+
+Şemada birinci gruptan iki ifade vardı, her hypertable için bir tane:
+
+```sql
+ALTER TABLE traffic_snapshots ALTER COLUMN ip DROP NOT NULL;
+ALTER TABLE beacon_events     ALTER COLUMN ip DROP NOT NULL;
+```
+
+Aylardır oradaydılar ve zararsızdılar — çünkü sıkıştırma yoktu. O1'den
+sonra anlamları şu oldu:
+
+1. Müşteri kuruyor. Şema uygulanıyor, **çalışıyor** (henüz sıkıştırma
+   yok).
+2. Servisler açılıyor, sıkıştırmayı kuruyorlar.
+3. Müşteri bir sonraki sürüme geçmek için panelde **Sağlık → Şema
+   yükseltmesi**'ne basıyor. **Başarısız.** Ve bir daha hiç
+   başarmayacak.
+
+O düğme müşterinin sahip olduğu tek yükseltme yolu. Yani O1, ilk
+kurulumu bozmadan, ikinci yükseltmeden itibaren ürünü yükseltilemez
+hâle getiriyordu.
+
+### Düzeltme: ifadeyi bir soruya sarmak
+
+Her iki ifade de artık yalnızca bir şey değiştirecekse koşuyor:
+
+```sql
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+                WHERE attrelid = 'traffic_snapshots'::regclass
+                  AND attname  = 'ip'
+                  AND attnotnull) THEN
+        ALTER TABLE traffic_snapshots ALTER COLUMN ip DROP NOT NULL;
+    END IF;
+END
+$$;
+```
+
+Ortaya çıkan tabloda hiçbir fark yok: ifade zaten bir kez uygulandıktan
+sonra etkisizdi. Değişen tek şey, etkisiz olduğunda **veritabanına hiç
+sorulmaması.**
+
+### Asıl düzeltme: kuralı bir teste bağlamak
+
+Yasak DDL'in yorum satırında tutulan bir listesi, birinin okumayı
+hatırlaması gereken bir listedir. Bunun yerine soruyu veritabanına
+soruyoruz:
+
+`internal/applier/compressed_integration_test.go` —
+`TestAnUpgradeStillWorksOnACompressedDeployment`. Kendi veritabanını
+kuruyor, şemayı bir kez uyguluyor (kurulum), **kataloğun saydığı her
+hypertable'ı** sıkıştırıyor, sıkıştırmanın gerçekten açık olduğunu geri
+okuyor, ve sonra applier'ın kendi `apply` yolunu koşturup başarmasını
+istiyor.
+
+Hypertable listesi elle yazılmıyor, TimescaleDB'nin kataloğundan
+okunuyor: yarın üçüncü bir hypertable eklenirse bu test onu da kapsıyor,
+kimse dosyayı açmadan.
+
+Dört mutasyon, dördü de yakalandı: iki korumayı tek tek kaldır (özgün
+hata), şemaya yeni bir `ALTER COLUMN ... TYPE` ekle (yarının hatası),
+ve **düzeneği sıkıştırmayı bırakacak şekilde boz** (testin kendi
+koşulunu kurmaması).
+
+Dördüncüsü ilk turda **sağ kaldı** ve sebebi öğreticiydi: geri okuma
+`timescaledb_information.hypertable_compression_settings`'i sayıyordu, o
+görünüm ise sıkıştırma kapalıyken de her hypertable için bir satır
+taşıyor. Yani hiçbir zaman başarısız olamayacak bir kontroldü.
+`hypertables.compression_enabled` ile değiştirildi.
+
+*Bir koşulu geri okuyan sorgu, koşul yokken de dolu dönen bir görünüme
+bakıyorsa, hiçbir şey geri okumuyordur.*
+
+### Ve kirliliğin kendisi de bir kusurdu
+
+`restoreCompression` politikayı geri koyuyordu ama **sıkıştırmanın
+kendisini kapatmıyordu.** Yani "bulduğun gibi bırak" sözünün yarısı
+tutuluyordu. Tamamlandı: süit, tabloyu sıkıştırılmış bulmadıysa
+sıkıştırılmış bırakmıyor. Ölçüldü — süitten sonra iki hypertable de
+`compression_enabled = f`, sıkıştırma işi sayısı 0.
+
+Not: kapatma yalnızca durum gerçekten değiştiyse koşuyor. Ayarları zaten
+temizlenmiş bir tabloda `decompress_chunk` "missing compressed
+hypertable" diye patlıyor, ve kimsenin istemediği bir iş için hata
+bildiren bir temizlik, insanların bakmamayı öğrendiği bir temizliktir.
+
+### Bir de sorulmamış soru: sıkıştırma yetkileri gevşetiyor mu
+
+Sıkıştırılmış veri `_timescaledb_internal` altındaki ayrı tablolarda
+duruyor. Bu ürünün kuralı "veritabanında açık uç bırakmayalım" olduğuna
+göre sorulması gereken soru: o iç tablolara kim erişebiliyor.
+
+Ölçüldü, gerçek rollerle, gerçek sıkıştırılmış bir parça üzerinde:
+
+- `analytics_reader` (hypertable'da SELECT) → iç tabloda **SELECT**.
+- `beacon_writer` (hypertable'da yalnız INSERT) → iç tabloda **yalnız
+  INSERT**; okuma denemesi `permission denied`.
+- `panel_user` (hiçbir şey) → `permission denied`.
+
+Yani yetkiler birebir yansıyor, kimse sahip olmadığı bir hakkı
+kazanmıyor. Sütun bazlı GRANT'ler bu iki tabloda yok (tablo bazlılar);
+sütun bazlı olan tek tablo `panel_backups` ve o bir hypertable değil,
+yani sıkıştırma ona hiç dokunmuyor.
+
+**Kayda geçsin:** `ENABLE ROW LEVEL SECURITY` sıkıştırılmış bir
+hypertable'da reddediliyor. Bugün bu iki tabloda RLS yok (yalıtım rol
+ayrımı + sorgudaki site_id ile), ama ileride biri RLS eklemek isterse
+önce sıkıştırmayı kapatmak zorunda kalacak. Bu, o gün keşfedilecek bir
+sürpriz olmasın diye buraya yazıldı.
+
+## O1'in ikinci yan etkisi: özellik hiçbir gerçek kurulumda çalışmayacaktı
+
+Birincisini düzelttikten sonra kapı yine kırmızı verdi, yine
+`internal/applier`'da, ama bu kez başka bir cümleyle:
+
+```
+applying internal/retention/schema.sql:
+ERROR: must be owner of function ca_set_compression (SQLSTATE 42501)
+```
+
+Bu, ilkinden daha kötü bir bulguydu.
+
+### Sahiplik bir ayrıntı değil, işlevin sahip olduğu yetkinin kendisi
+
+Bir `SECURITY DEFINER` işlev **sahibinin yetkileriyle** koşar. Sahibini
+belirleyen de şemayı kimin uyguladığıdır — şemanın içinde bunu söyleyen
+hiçbir şey yoktur.
+
+Benim `applySchema` yardımcım şemayı **süper kullanıcı** olarak
+uyguluyordu. Yani geliştirme veritabanında `ca_set_compression`'ın sahibi
+`postgres`'ti, ve işlev süper kullanıcı yetkileriyle koşuyordu. Beş
+testin beşi de yeşildi.
+
+Gerçek bir kurulumda öyle değil. `release/install.sh` şemaları
+`postgres` olarak uyguluyor, ama sonra `release/sql/grants.sql`
+**public'teki her rutinin sahipliğini `schema_admin`'e devrediyor** — bu
+dosyanın var olma sebebi tam olarak bu: bu üründe kurulumdan sonra
+hiçbir parça süper kullanıcı olarak koşmaz.
+
+Ve `schema_admin` `add_compression_policy`'yi çağıramıyor. Ölçüldü,
+2.17.2:
+
+| İşlev | schema_admin | ACL |
+|---|---|---|
+| `add_retention_policy` | çağırabilir | `grants.sql` elle veriyor |
+| `remove_retention_policy` | çağırabilir | `grants.sql` elle veriyor |
+| `add_compression_policy` | **reddediliyor** | `{postgres=X/postgres}` |
+| `remove_compression_policy` | **reddediliyor** | `{postgres=X/postgres}` |
+| `compress_chunk` | çağırabilir | varsayılan (PUBLIC) |
+| `show_chunks` | çağırabilir | varsayılan (PUBLIC) |
+
+İlk ikisini `grants.sql` elle veriyor — yani **elle yazılmış bir ad
+listesi**, ve H5'te yazıldığından beri kimse ona sıkıştırmayı eklememişti
+(o zaman sıkıştırma yoktu).
+
+### Arızanın şekli, yine bu projenin klasiği
+
+`ApplyCompression` bu çağrının **her** hatasını
+`ErrCompressionUnavailable` olarak okuyor, `LogApply` onu `Info`
+seviyesinde tek satır yazıp geçiyor, servis açılmaya devam ediyor.
+Sonuç: kırmızı hiçbir şey yok, sıkıştırılan hiçbir şey yok, pano eskisi
+gibi kırık, ve herkes düzeltmenin çıktığına inanıyor.
+
+Yani O1 iki farklı yoldan hiç çalışmayacaktı ve ikisi de yeşil test
+veriyordu.
+
+### Neden yetkiyi şema dosyasına taşımak işe yaramıyor
+
+Deponun bu duruma verdiği standart cevap var ve yazılı: *yetkiler
+tablonun şema dosyasında, bir `DO` bloğu içinde* — böylece yükseltme
+düğmesi de alıyor. Burada işlemiyor: bu iki işlev `timescaledb`
+eklentisine ait ve sahibi `postgres`. `schema_admin`'in verecek bir şeyi
+yok. Yükseltme düğmesi `schema_admin` olarak koşuyor ve `grants.sql`'i
+hiç çalıştırmıyor.
+
+### Çözüm: politikayı kurmak yerine parçaları kendimiz sıkıştırmak
+
+`ca_set_compression` artık `add_compression_policy` çağırmıyor.
+Ayarları kurduktan sonra, yaşı dolmuş parçaları **kendisi**
+`compress_chunk` ile sıkıştırıyor. Bunun gerektirdiği tek yetki
+hipertablonun sahipliği — `schema_admin`'de zaten var, ve diğer üç
+sarmalayıcının da dayandığı yetki bu.
+
+İş, bu işlevi zaten her saklama aralığında çağıran döngüye biniyor. Yani
+hiçbir kurulum yolunun sahip olmadığı bir yetkiye ihtiyaç kalmıyor.
+
+Vazgeçilen: TimescaleDB'nin politikası, sıkıştırıldıktan sonra geç satır
+alan bir parçayı yeniden sıkıştırır. Sıkıştırılmış bir parçaya yazılan
+satırlar her hâlükârda okunabilir kalıyor (sıkıştırılmamış kısma
+düşüyorlar), yani bunun bedeli **doğruluk değil disk** — ve geriye dönük
+veri yazmayan bir tabloda pratikte sıfır.
+
+### Ve bunun bir daha sessizce geri gelmemesi için
+
+`TestNoWrapperRunsAsASuperuser`: public'teki her `ca_*` SECURITY DEFINER
+işlevin sahibinin süper kullanıcı **olmadığını** doğruluyor. Liste
+katalogdan türetiliyor, yani beşinci sarmalayıcı yazıldığı gün kapsanıyor.
+Boş küme de bir kusur sayılıyor.
+
+*Bir SECURITY DEFINER işlevin gerçek yetkisi kodunda değil sahibinde
+yazılıdır, ve sahibini şemayı kimin uyguladığı belirler.*
+
+### Beş mutasyon
+
+Sıkıştırma yapma (yakalandı), yaşı yok say ve her şeyi sıkıştır
+(yakalandı — ama ancak testin **taze** bir parça da tohumlamasından
+sonra), yanlış sütuna bölümle (yakalandı), çağıran kontrolünü kaldır
+(yakalandı), sarmalayıcıyı yine süper kullanıcıya ait yap (yakalandı).
+
+İkincisi ilk turda sağ kalmıştı: test yalnız kırk günlük bir satır
+tohumluyordu, dolayısıyla "her şeyi sıkıştır" ile "eskileri sıkıştır"
+aynı sonucu veriyordu. Oysa fark önemli — en yeni parça, collector'ın on
+saniyede bir yazdığı parça. Test artık bir de bir dakikalık satır
+tohumluyor ve o parçanın sıkıştırılmamış kaldığını sınıyor.
+
+*Bir yaş sınırını, yalnızca sınırın bir yanında örneği olan bir veriyle
+sınayamazsınız.*
+
+Not, kendime: **veritabanı durumunu değiştiren bir mutasyon, kaynak geri
+alındığında geri alınmaz.** Beşinci mutasyon işlevi düşürüp süper
+kullanıcı olarak yeniden yaratıyordu; `mutate.py` dosyayı geri aldı,
+veritabanı öyle kaldı ve sonraki koşu altı testte kırmızı verdi.
+
+## Ve üçüncüsü: sıkıştırma süiti paylaşılan veritabanında koşamaz
+
+İlk iki bulgu düzeltildikten sonra kapı üçüncü kez kırmızı verdi, bu kez
+bambaşka bir şekilde:
+
+```
+server process (PID 8606) was terminated by signal 11: Segmentation fault
+DETAIL:  Failed process was running: DELETE FROM beacon_events WHERE site_id = ANY($1)
+LOG:  all server processes terminated; reinitializing
+```
+
+PostgreSQL çöktü ve **bütün küme kurtarma moduna** girdi. O anda koşan
+her paket, kendi kodlarıyla hiç ilgisi olmayan hatalarla kırmızı verdi.
+
+Çökmenin sebebi kesin değil. Yalıtılmış bir veritabanında aynı DELETE'i
+sıkıştırılmış parçalar üzerinde tekrarladım — çökmedi. Çöken koşuda
+TimescaleDB'nin arka plan işçileri de tükenmişti (`max_worker_processes`
+= 8, günlükte yüzlerce "failed to start a background worker"). Yani
+muhtemelen eşzamanlılık + işçi tükenmesi + sıkıştırılmış parça
+üçlüsünden çıkan bir TimescaleDB hatası. **Ölçemediğim için "şu
+yüzdendir" demiyorum.**
+
+Ama karar için sebebi bilmek gerekmiyor:
+
+> Sıkıştırma, bir testin yazıp sildiği bir satır değil. Açıldığında
+> tablonun **fiziksel olarak nasıl saklandığını** değiştirir, her oturum
+> için, test koştuğu sürece. `go test ./...` ise aynı veritabanına aynı
+> anda bir düzine paket salıyor.
+
+Ve kanıt zaten iki kere gelmişti: `internal/applier` kırmızısı da aynı
+paylaşımdan çıkmıştı.
+
+### Süit kendi veritabanını kuruyor
+
+`internal/retention/compressiondb_test.go` — `TestMain` bir kez
+`ca_compression_suite` veritabanını kuruyor, testler koşuyor, sonunda
+düşürüyor.
+
+Ve kurma sırası **`release/install.sh`'in sırası**: önce her şema dosyası
+süper kullanıcıyla, sonra `release/sql/grants.sql`. Yani süit artık
+gerçek bir kurulumun bittiği yerden başlıyor — sarmalayıcıların sahibi
+`schema_admin`, tıpkı müşteride olacağı gibi.
+
+Bu, yalıtımdan daha değerli bir yan etki: ikinci bulgunun (süper
+kullanıcı sahipliği) bir daha oluşamayacağı tek düzenek bu. Ve
+ölçüldü — `grants.sql`'in sahiplik devrini bozan bir mutasyon
+`TestNoWrapperRunsAsASuperuser`'ı kırmızı veriyor. Yani bir **Go dışı
+dosyadaki** mutasyon, Go testinde yakalanıyor: fikstür o dosyayı
+gerçekten okuyup uyguluyor.
+
+Şema dosyaları listesi `schemafiles.InOrder`'dan geliyor, yani şemadaki
+her mutasyon burada da uygulanıyor. (Bunun için dosyanın `package
+retention_test` olması gerekti: `schemafiles` `internal/retention`'ı
+import ediyor, iç test paketi onu import edemez.)
+
+### Altı mutasyon
+
+Sıkıştırma yapma, yaşı yok say, yanlış sütuna bölümle, çağıran
+kontrolünü kaldır, başka bir kurulumun ayarını gasp et, ve
+`grants.sql`'in sahiplik devrini boz. Altısı da kırmızı.
+
+*Bir süit, başka süitlerin koştuğu bir veritabanının fiziksel şeklini
+değiştiriyorsa, o veritabanında koşmamalıdır — sebebini bulamasanız
+bile.*

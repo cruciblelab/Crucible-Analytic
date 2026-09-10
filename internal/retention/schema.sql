@@ -47,7 +47,7 @@
 --
 -- # What this is
 --
--- Three SECURITY DEFINER functions, owned by the role that installs,
+-- Four SECURITY DEFINER functions, owned by the role that installs,
 -- each one narrower than the privilege it replaces:
 --
 --   - ca_set_retention cannot schedule anything except a retention
@@ -163,7 +163,171 @@ BEGIN
 END
 $$;
 
--- ca_check_retention_caller is the guard all three share.
+-- ca_set_compression turns on site-segmented compression and compresses
+-- the chunks that are old enough, or reports why it could not.
+--
+-- # Why this is here and not in internal/storage/schema.sql
+--
+-- Compression is a Timescale-License feature. On a deployment running
+-- the Apache-licensed build it does not exist, and an
+-- `ALTER TABLE ... SET (timescaledb.compress ...)` sitting in a schema
+-- file would abort that file - on every install and, worse, on every
+-- schema upgrade afterwards. A customer whose PostgreSQL happens to
+-- carry the other build would find their upgrades failing on a feature
+-- they never asked for.
+--
+-- So nothing about compression is in a schema file. It happens here, at
+-- run time, and the caller treats failure as a warning - the same
+-- discipline the retention loop already follows, and for the same
+-- reason: this runs inside a process on the traffic path.
+--
+-- # Why segment by site_id
+--
+-- Measured, 2026-09-09. The hypertable orders rows by time; every query
+-- the dashboard makes asks by site. So one site's rows are interleaved
+-- with every other site's, and reading 20.748 rows for one site touched
+-- 13.632 heap pages - about one page per row, 3,1 GB for a single
+-- summary. Compressing with site_id as the segment stores each site's
+-- rows together.
+--
+-- # The segment is written out even though this version would guess it
+--
+-- Measured: TimescaleDB 2.17 picks site_id by itself here, reading it
+-- off the (site_id, time DESC) index, and says so - with a warning that
+-- it was not certain. A mutation removing the setting below therefore
+-- survives every test, correctly: on this version it changes nothing.
+--
+-- It stays because it costs one line and buys not depending on a
+-- heuristic. The guess is made from an index, so a future migration that
+-- reorders or drops that index would silently change how the data is
+-- laid out - and nothing would fail, it would only get slow again.
+-- Naming the column makes the layout a decision rather than an
+-- inference.
+--
+-- Setting it to the *wrong* column is caught, which is what makes the
+-- assertion in the suite a real one.
+--
+-- # Why it compresses the chunks itself instead of scheduling a policy
+--
+-- The obvious implementation is add_compression_policy: hand TimescaleDB
+-- the age and let its background worker do the work forever. The first
+-- version did exactly that, and its tests passed.
+--
+-- They passed because of who owned this function in the development
+-- database. A SECURITY DEFINER function runs as its owner, and there it
+-- happened to be the superuser. On a real install it is not:
+-- release/sql/grants.sql hands every routine in public over to
+-- schema_admin at the end of an install, deliberately, so that no part
+-- of this product runs as a superuser.
+--
+-- And schema_admin cannot call add_compression_policy. Measured on
+-- 2.17.2:
+--
+--	add_retention_policy       schema_admin may  (granted in grants.sql)
+--	remove_retention_policy    schema_admin may  (granted in grants.sql)
+--	add_compression_policy     denied            {postgres=X/postgres}
+--	remove_compression_policy  denied            {postgres=X/postgres}
+--	compress_chunk             may               (default: PUBLIC)
+--	show_chunks                may               (default: PUBLIC)
+--
+-- The two retention entry points are granted by hand in grants.sql,
+-- which is where a hand-written list of names had already been read once
+-- and not updated. So the policy call would have failed on every real
+-- deployment, and failed the quiet way: the caller reads any failure of
+-- this function as "this database cannot compress", logs one line at
+-- Info, and carries on. Nothing red, nothing compressed, a dashboard
+-- that stays broken and a fix that everybody believes shipped.
+--
+-- The grant cannot be moved into a schema file either, which is the
+-- repository's usual answer (see the fetch-log note in NOTES.md): these
+-- functions belong to the timescaledb extension and are owned by
+-- postgres, so schema_admin has nothing to grant. The upgrade button
+-- runs as schema_admin and never runs grants.sql.
+--
+-- So this compresses the chunks itself, with compress_chunk, which needs
+-- only ownership of the hypertable - which schema_admin has, and which
+-- is the same privilege the other three wrappers already rest on. The
+-- work then rides the loop that already calls this function every
+-- retention interval, and no install path needs a privilege it does not
+-- already have.
+--
+-- What is given up: TimescaleDB's policy also recompresses a chunk that
+-- received late rows after being compressed. Rows written into a
+-- compressed chunk stay readable either way - they land in the
+-- uncompressed part - so this costs disk on a table nobody backfills,
+-- not correctness. if_not_compressed skips what is already done.
+--
+-- # What it will not do
+--
+-- Change the settings on a table that already has them. Altering
+-- segmentby requires decompressing every chunk first, and a service
+-- doing that to a customer's history at startup - unasked, on the
+-- traffic path - is not a thing this function is allowed to decide. It
+-- reports the mismatch instead and leaves the data alone.
+CREATE OR REPLACE FUNCTION ca_set_compression(p_table text, p_after_days integer)
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    current_segmentby text;
+    chunk             regclass;
+BEGIN
+    PERFORM ca_check_retention_caller(p_table, p_after_days);
+
+    -- segmentby is text in this view, not an array. Measured rather
+    -- than assumed: the first version of this function wrapped it in
+    -- array_to_string and failed with "function array_to_string(text,
+    -- unknown) does not exist" - which the caller then reported as
+    -- "this database cannot compress", because that is what every
+    -- failure of this call was being read as.
+    SELECT cs.segmentby INTO current_segmentby
+      FROM timescaledb_information.hypertable_compression_settings cs
+     WHERE cs.hypertable = p_table::regclass;
+
+    IF current_segmentby IS NULL THEN
+        -- Written out per table rather than assembled from p_table, for
+        -- the reason ca_trim_site_rows gives: what runs is visible in
+        -- full at the point it is read.
+        IF p_table = 'traffic_snapshots' THEN
+            ALTER TABLE traffic_snapshots SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'site_id',
+                timescaledb.compress_orderby   = 'time DESC');
+        ELSE
+            ALTER TABLE beacon_events SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'site_id',
+                timescaledb.compress_orderby   = 'time DESC');
+        END IF;
+        current_segmentby := 'site_id';
+    ELSIF current_segmentby <> 'site_id' THEN
+        RETURN 'segmentby is ' || current_segmentby ||
+               ', not site_id; left alone because changing it decompresses every chunk';
+    END IF;
+
+    -- One pass over the chunks that are old enough. Bounded by
+    -- p_after_days rather than by a count: a deployment turning this on
+    -- for the first time has a backlog, and the alternative to
+    -- compressing it is leaving the dashboard slow for as many retention
+    -- intervals as there are chunks.
+    --
+    -- if_not_compressed so a chunk already done is skipped rather than
+    -- raising - this runs on every pass of the retention loop, so all
+    -- but the first pass finds most of them done.
+    FOR chunk IN
+        SELECT c FROM public.show_chunks(p_table::regclass,
+                                         older_than => make_interval(days => p_after_days)) c
+    LOOP
+        PERFORM public.compress_chunk(chunk, if_not_compressed => true);
+    END LOOP;
+
+    RETURN 'ok';
+END
+$$;
+
+-- ca_check_retention_caller is the guard all four share.
 --
 -- One function rather than three copies, because three copies of a
 -- check are three chances for one of them to drift - and the one that
@@ -226,6 +390,7 @@ $$;
 REVOKE ALL ON FUNCTION ca_set_retention(text, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION ca_trim_site_rows(text, text, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION ca_count_site_rows(text, text, integer) FROM PUBLIC;
+REVOKE ALL ON FUNCTION ca_set_compression(text, integer) FROM PUBLIC;
 REVOKE ALL ON FUNCTION ca_check_retention_caller(text, integer) FROM PUBLIC;
 
 -- And the two services get exactly the three they call. Both roles on
@@ -255,6 +420,9 @@ BEGIN
         IF NOT has_function_privilege('collector', 'ca_count_site_rows(text, text, integer)', 'EXECUTE') THEN
             GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO collector;
         END IF;
+        IF NOT has_function_privilege('collector', 'ca_set_compression(text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_set_compression(text, integer) TO collector;
+        END IF;
     END IF;
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'beacon_writer') THEN
         IF NOT has_function_privilege('beacon_writer', 'ca_set_retention(text, integer)', 'EXECUTE') THEN
@@ -265,6 +433,9 @@ BEGIN
         END IF;
         IF NOT has_function_privilege('beacon_writer', 'ca_count_site_rows(text, text, integer)', 'EXECUTE') THEN
             GRANT EXECUTE ON FUNCTION ca_count_site_rows(text, text, integer) TO beacon_writer;
+        END IF;
+        IF NOT has_function_privilege('beacon_writer', 'ca_set_compression(text, integer)', 'EXECUTE') THEN
+            GRANT EXECUTE ON FUNCTION ca_set_compression(text, integer) TO beacon_writer;
         END IF;
     END IF;
 END

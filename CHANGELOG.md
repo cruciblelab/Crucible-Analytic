@@ -13,10 +13,60 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 18.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Bir tablo ve iki sütun ekleniyor; veri
-değişmiyor, servis durmuyor. Yükseltmeden sonra aşağıdaki ayarlar
-yazılmazsa başka hiçbir davranış değişmiyor.
+**Şema sürümü: 19.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Bir tablo, iki sütun ve bir veritabanı
+işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
+aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
+
+### Panodaki uzun aralıklar artık açılıyor
+
+Panoda **30 gün** ve **90 gün** düğmeleri, verinin büyüdüğü bir kurulumda
+çalışmıyordu. Sayfa "Okunamadı" diyordu; veri yerindeydi, sorgu
+zamanında bitmiyordu.
+
+Ölçüldü: 90 günde 12 milyon satır taşıyan bir veritabanında 90 günlük
+özet **26,96 saniye** sürüyor, panelin bir çağrıya verdiği süre ise beş
+saniye. Sebep verinin büyüklüğü değil, nasıl durduğuydu: tablo satırları
+**zamana** göre sıralı tutuyor, panonun her sorusu ise **siteye** göre.
+Yani bir sitenin 20.748 satırını okumak 13.632 ayrı disk sayfasına
+dokunuyordu — satır başına neredeyse bir sayfa.
+
+Artık bir haftadan eski veri **siteye göre bölümlenerek sıkıştırılıyor**:
+her sitenin satırları yan yana duruyor. Aynı veride ölçülen sonuç:
+
+- disk **3269 MB → 792 MB** (4,1 kat),
+- 90 günlük özet **21,9 sn → 11,6 sn**.
+
+**Sayılar değişmiyor.** Sıkıştırma verinin nasıl saklandığını değiştirir,
+ne olduğunu değil; panodaki her rakam öncesiyle aynı.
+
+**Bu yetmiyor, ve burada yazılı olması bunun için:** 11,6 saniye hâlâ
+beş saniyenin üstünde. Sorgu aralıktaki bütün satırlara dokunmaya devam
+ediyor ve hiçbir yerleşim bunu değiştirmez. Diğer yarısı önceden
+hesaplanmış bir özet tablosu; planda **O2** olarak duruyor.
+
+**Kuran kişinin yapması gereken: yok.** Yükseltmeden sonra iki servis
+bunu kendileri yapıyor: sıkıştırma, saklama süresini uygulayan aynı
+döngüde koşuyor, yani bir parça yaşı dolduktan sonra en geç bir aralık
+içinde sıkıştırılıyor.
+
+Aynı adımda, sıkıştırmanın açtığı bir kusur da kapatıldı: **sıkıştırma
+açıkken şema yükseltmesi çalışmıyordu.** TimescaleDB, sıkıştırılmış bir
+tabloda birkaç DDL biçimini reddediyor ve şemada bunlardan ikisi vardı.
+Sonucu şu olurdu: kurulum çalışır, servisler açılır — ve panelde
+**Sağlık → Şema yükseltmesi** düğmesi bir daha hiç çalışmaz. İki ifade
+artık yalnız bir şey değiştirecekse koşuyor, ve şemanın sıkıştırılmış
+bir veritabanına uygulanabildiği artık her koşuda sınanıyor.
+
+Elle karışmak isterseniz, `retention` bölümündeki
+`compress_after_days` ayarı: yazmazsanız **7 gün**, `-1` yazarsanız
+kapalı, bir sayı yazarsanız o kadar gün. Saklama süresinden kısa olmak
+zorunda — silindiği gün sıkıştırılan veri hiç sıkıştırılmaz.
+
+İki durumda kendiliğinden kapanır ve servis yine açılır, günlüğe bir
+satır düşer: PostgreSQL'inizdeki TimescaleDB'nin **Apache** yapısı
+sıkıştırma taşımıyorsa, ve saklama süreniz varsayılan yedi günden kısaysa
+(o zaman ayarı elinizle yazmanız gerekir).
 
 ### Bir üyeliğe süre verebiliyorsunuz
 

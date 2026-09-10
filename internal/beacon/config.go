@@ -333,6 +333,26 @@ func (c Config) validate() error {
 				site, days, retention.MinDays, retention.MaxDays)
 		}
 	}
+	// The two numbers have to agree, and the file is where the
+	// disagreement is worth refusing: at run time a chunk compressed
+	// after the day it is dropped is merely never compressed, and nobody
+	// is reading the log to find out why.
+	if days, wanted := c.Retention.CompressionWanted(); wanted {
+		if days < retention.MinDays || days > retention.MaxDays {
+			return fmt.Errorf("beacon: retention.compress_after_days is %d, outside %d..%d "+
+				"(a negative number turns compression off)",
+				days, retention.MinDays, retention.MaxDays)
+		}
+		// Only a value somebody wrote is worth refusing the file for.
+		// A default that does not fit turns compression off instead -
+		// see retention.CompressionWanted, and the upgrade it would
+		// otherwise have broken.
+		if c.Retention.CompressAfterDays > 0 && days >= c.Retention.Resolved() {
+			return fmt.Errorf("beacon: retention.compress_after_days is %d and retention.days "+
+				"is %d, so no chunk would ever live long enough to be compressed",
+				days, c.Retention.Resolved())
+		}
+	}
 	if c.ASNLookup.Enabled {
 		if c.ASNLookup.CacheMaxEntries <= 0 {
 			return fmt.Errorf("beacon: asn_lookup.cache_max_entries must be positive")
@@ -429,6 +449,17 @@ type RetentionConfig struct {
 	// row-level delete each time, and running that every minute would
 	// scan for nothing sixty times an hour.
 	IntervalHours int `toml:"interval_hours"`
+	// CompressAfterDays is how old a chunk must be before it is
+	// compressed. Zero takes the default; a negative number turns
+	// compression off. See internal/retention/compression.go.
+	CompressAfterDays int `toml:"compress_after_days"`
+}
+
+// CompressionWanted reports whether this deployment asked for
+// compression at all, and after how many days. The rule is
+// retention.CompressionWanted's; this is the accessor.
+func (r RetentionConfig) CompressionWanted() (days int, wanted bool) {
+	return retention.CompressionWanted(r.CompressAfterDays, r.Resolved())
 }
 
 // DefaultRetentionDays is what a file that says nothing gets, and

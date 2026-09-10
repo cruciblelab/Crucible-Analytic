@@ -306,3 +306,25 @@ enabled = false
 # keeping less than the deployment gets a row-level delete each pass and
 # running that every minute would scan for nothing sixty times an hour.
 # interval_hours = 1
+#
+# How old a chunk must be before it is compressed, in days.
+#
+# Compression stores each site's rows together instead of interleaved
+# with every other site's, which is what the dashboard's long ranges
+# have to read. Measured on 12 million rows over 90 days: disk 3269 MB
+# to 792 MB, and the 90-day summary from 21,9 to 11,6 seconds. Not a
+# cure on its own - the query still touches every row in the range - but
+# free, and it does not change a single number the panel reports.
+#
+# Seven days by default, and the number is chosen by what compression
+# costs rather than what it saves: a compressed chunk can still be
+# written to, but by a slower path, and recent chunks are where the
+# collector writes every ten seconds.
+#
+# A negative number turns it off. It also turns itself off, quietly, on
+# a deployment keeping fewer days than this - a chunk compressed after
+# the day it is dropped would never be compressed at all.
+#
+# On a TimescaleDB built without the Timescale License this feature does
+# not exist. The service says so once at startup and carries on.
+# compress_after_days = 7

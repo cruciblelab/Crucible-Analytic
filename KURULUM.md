@@ -1093,6 +1093,66 @@ olurdu ve bunu müşteriden öğrenirdi.
 müşteri 30 gün istedi" gerçek bir taleptir. Hypertable en uzun süreyi
 isteyen siteye göre tutar, daha kısa isteyenler satır satır temizlenir.
 
+### Aynı bölümdeki ikinci ayar: sıkıştırma
+
+`[retention]` bölümünün ikinci ayarı, eski veriyi **siteye göre
+bölümleyerek** sıkıştırır:
+
+```toml
+[retention]
+days = 90
+compress_after_days = 7    # varsayılan 7; -1 kapatır
+```
+
+Neden orada: sıkıştırma da saklama da bir parçanın **yaşı** üzerine
+kurulu bir politika, aynı iki tabloda, aynı servisler tarafından, aynı
+anda uygulanıyor. Ve tek bir şeyde anlaşmak zorundalar — **silindiği gün
+sıkıştırılan veri hiç sıkıştırılmaz.**
+
+Ne yapar: panodaki uzun aralıkları okunabilir hâle getirir. Ölçülen
+kurulumda disk 3269 MB'den 792 MB'ye, 90 günlük özet 21,9 saniyeden 11,6
+saniyeye indi. **Panodaki sayılar değişmez**; sıkıştırma verinin nasıl
+durduğunu değiştirir, ne olduğunu değil.
+
+Sıkıştırmayı **servislerin kendisi** yapar, saklama döngüsünün her
+turunda — TimescaleDB'nin arka plan işi değil. Sebebi yetki: bir arka
+plan sıkıştırma politikası kurmak süper kullanıcı gerektiriyor ve bu
+üründe kurulumdan sonra hiçbir parça süper kullanıcı olarak koşmuyor.
+Pratik farkı: bir parça, yaşı dolduktan sonra en geç bir saklama aralığı
+içinde sıkıştırılır.
+
+Değerler:
+
+| Değer | Anlamı |
+| --- | --- |
+| yazılmamış / `0` | Varsayılan: **7 gün**. Saklama süresi 7 günden kısaysa kendiliğinden kapanır. |
+| `-1` (ya da başka negatif) | Kapalı. |
+| `1..730` | O kadar gün. **Saklama süresinden kısa olmalı**, yoksa servis dosyayı reddeder. |
+
+Varsayılanla açıkça yazılmış bir değerin farkı budur: **varsayılan yol
+verir, yazdığınız değer vermez.** Bir günlük saklama tutan bir kurulum
+yükseltildiğinde dosyası geçersiz olmasın diye; ama iki sayıyı kendi
+elinizle çelişkili yazdıysanız bu bir hatadır ve söylenir.
+
+**Sıkıştırmayı taşımayan bir veritabanında servis yine açılır.**
+Sıkıştırma TimescaleDB'nin Timescale-Lisanslı yapısında var, **Apache**
+yapısında yok. İkincisi geçerli bir kurulumdur: her şey çalışır, tek
+bedeli uzun aralıkların yavaş kalmasıdır. Günlüğe `Info` seviyesinde tek
+satır düşer, hata değil.
+
+**Zaten sıkıştırılmış bir tabloya dokunmaz.** Bölümleme sütununu
+değiştirmek bütün parçaları önce açmayı gerektirir; bir servisin
+açılışta, kimse istemeden, müşterinin geçmişine yapacağı bir iş değil.
+Farkı bildirip veriyi olduğu gibi bırakır.
+
+**Şema yükseltmesi sıkıştırmayla çalışır.** TimescaleDB sıkıştırılmış
+bir tabloda birkaç DDL biçimini reddediyor (sütun tipi değiştirme, NOT
+NULL kaldırma, CHECK ekleme, satır düzeyi güvenlik açma). Şemanın
+sıkıştırılmış bir veritabanına uygulanabildiği her koşuda sınanıyor, o
+yüzden **Sağlık → Şema yükseltmesi** düğmesi sıkıştırma açıkken de
+çalışır. İleride bunlardan birini gerektiren bir değişiklik gerekirse,
+sürüm notunda ayrıca yazılır — sessizce olmaz.
+
 ---
 
 ## 13. Gerçekten çalışıyor mu
@@ -1119,7 +1179,26 @@ psql "$DSN" -c "SELECT count(*), max(time) FROM beacon_events;"
 # 6. Saklama politikaları kuruldu mu
 psql "$DSN" -c "SELECT * FROM timescaledb_information.jobs
                 WHERE proc_name = 'policy_retention';"
+
+# 7. Sıkıştırma kuruldu mu, ve siteye göre mi bölümlenmiş
+psql "$DSN" -c "SELECT hypertable_name, compression_enabled
+                FROM timescaledb_information.hypertables
+                WHERE hypertable_schema = 'public';"
+psql "$DSN" -c "SELECT hypertable_name,
+                       count(*) FILTER (WHERE is_compressed) AS sikistirilmis,
+                       count(*) AS parca
+                FROM timescaledb_information.chunks
+                WHERE hypertable_schema = 'public'
+                GROUP BY 1;"
 ```
+
+`compression_enabled` yanlışsa üç ihtimal var: TimescaleDB'nin Apache
+yapısı (günlükte tek satır yazar), `compress_after_days = -1`, ya da
+saklama süresinin varsayılan yedi günden kısa olması.
+
+Sıkıştırma açık ama sıkıştırılmış parça sayısı sıfırsa, muhtemelen henüz
+yeterince eski parça yok: yeni bir kurulumda ilk parça yedi gün sonra
+sıkıştırılır.
 
 **En iyi doğrulama:** müşterinin hesabıyla panele girip site sayfasını
 açın. Sayılar geliyorsa zincirin tamamı çalışıyor demektir — toplama,

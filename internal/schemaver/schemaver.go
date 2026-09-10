@@ -150,14 +150,38 @@ import (
 //
 // The constraints refuse an ownership that carries an end date. They
 // cannot fail on an existing table, because no row can carry one yet.
-const Version = 18
+//
+// # 19
+//
+// One function: ca_set_compression, the fourth SECURITY DEFINER wrapper
+// in internal/retention (O1). No table, no column, no row.
+//
+// Additive in the strictest sense - CREATE OR REPLACE of a name nothing
+// had - and the two services are the only callers. An older binary is
+// unaffected: it never calls it. A deployment that has not applied this
+// keeps a dashboard whose long ranges are slow, which is the behaviour
+// it already had.
+//
+// It is a schema version at all because the fingerprint covers every
+// schema.sql in the repository, and this changed one. That is the point
+// of the fingerprint: what counts as a schema change is decided by the
+// files, not by whether the change felt like one.
+//
+// The same step also wraps two ALTER COLUMN statements - one per
+// hypertable - in a test of whether they would change anything.
+// TimescaleDB refuses ALTER COLUMN on a compressed hypertable even when
+// the column already has the shape the statement asks for, so once
+// compression is on, an unguarded one fails every upgrade after the
+// first. Nothing about the resulting tables differs; the statements were
+// already no-ops on any database that had applied them once.
+const Version = 19
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "cb6dc3307f226a4a04073744e52e6f8b8da06eb96bb84ffd661472d9c30d7dfb"
+const Fingerprint = "70ec74ee4a16912cdd4d4a91c968c67c6222b8ae707e80aadd0fbcf7bc7f1e7d"
 
 // FingerprintOf hashes a set of schema files.
 //

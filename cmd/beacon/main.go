@@ -401,6 +401,9 @@ func main() {
 				logger.Info("retention: trimmed sites keeping less than the deployment",
 					"rows", rows, "sites", len(report.SiteRows))
 			}
+			if days, wanted := cfg.Retention.CompressionWanted(); wanted {
+				manager.LogApply(settingsCtx, logger, days, policy.Days)
+			}
 		}
 		apply()
 

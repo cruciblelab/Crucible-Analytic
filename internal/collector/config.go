@@ -314,6 +314,23 @@ type RetentionConfig struct {
 	// IntervalHours is how often the policy is re-applied. Zero takes an
 	// hour.
 	IntervalHours int `toml:"interval_hours"`
+	// CompressAfterDays is how old a chunk must be before it is
+	// compressed. Zero takes retention.DefaultCompressAfterDays; a
+	// negative number turns compression off entirely.
+	//
+	// It sits in the retention block rather than one of its own because
+	// the two numbers have to agree: a chunk compressed after the day it
+	// is dropped is never compressed at all, and a setting whose only
+	// constraint lives in another block is a setting somebody will move
+	// past that constraint.
+	CompressAfterDays int `toml:"compress_after_days"`
+}
+
+// CompressionWanted reports whether this deployment asked for
+// compression at all, and after how many days. The rule is
+// retention.CompressionWanted's; this is the accessor.
+func (r RetentionConfig) CompressionWanted() (days int, wanted bool) {
+	return retention.CompressionWanted(r.CompressAfterDays, r.Resolved())
 }
 
 // DefaultRetentionDays is what a file that says nothing gets, and
@@ -679,6 +696,27 @@ func (c *Config) validate() error {
 		return fmt.Errorf("config: retention.days is %d, outside %d..%d - "+
 			"visit records are personal data and this build will not keep them longer",
 			c.Retention.Days, retention.MinDays, retention.MaxDays)
+	}
+	// The two numbers have to agree, and the file is where the
+	// disagreement is worth refusing. At run time it is only a wasted
+	// feature - a chunk compressed after the day it is dropped is never
+	// compressed - but at run time nobody is reading, and a setting that
+	// silently does nothing is worse than one that says why.
+	if days, wanted := c.Retention.CompressionWanted(); wanted {
+		if days < retention.MinDays || days > retention.MaxDays {
+			return fmt.Errorf("config: retention.compress_after_days is %d, outside %d..%d "+
+				"(a negative number turns compression off)",
+				days, retention.MinDays, retention.MaxDays)
+		}
+		// Only a value somebody wrote is worth refusing the file for.
+		// A default that does not fit turns compression off instead -
+		// see retention.CompressionWanted, and the upgrade it would
+		// otherwise have broken.
+		if c.Retention.CompressAfterDays > 0 && days >= c.Retention.Resolved() {
+			return fmt.Errorf("config: retention.compress_after_days is %d and retention.days "+
+				"is %d, so no chunk would ever live long enough to be compressed",
+				days, c.Retention.Resolved())
+		}
 	}
 	// Rejected here even though privacy.ParseIPMode would quietly fall
 	// back to masked. The two are answering different questions: at
