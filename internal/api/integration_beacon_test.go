@@ -458,7 +458,7 @@ func TestStore_RealTimescaleDB_TimeseriesBucketsSessionsByTheirStart(t *testing.
 		{site: site, visitor: "v2", at: base.Add(90 * time.Minute), path: "/a"},
 	})
 
-	buckets, err := store.BeaconTimeseries(context.Background(), site, base, base.Add(4*time.Hour), "1 hour", BotsExclude, campaignFilter{})
+	buckets, err := store.BeaconTimeseries(context.Background(), site, base, base.Add(4*time.Hour), "1 hour", DefaultTimezone, BotsExclude, campaignFilter{})
 	if err != nil {
 		t.Fatalf("BeaconTimeseries: %v", err)
 	}
@@ -822,5 +822,93 @@ func TestStore_RealTimescaleDB_EmptyRangeIsZeroNotAnError(t *testing.T) {
 	}
 	if cross.IPsSeen != 0 || cross.JSCoverage != 0 || len(cross.Bands) != 10 {
 		t.Errorf("empty crossover = %+v, want zeroes but all 10 bands", cross)
+	}
+}
+
+// TestBeaconDaysAreTheCustomersDaysNotUTCs.
+//
+// The same claim as the traffic timeseries makes, asked of the other
+// hypertable, because they are two queries and passing one says nothing
+// about the other. Measured: a mutation that dropped the zone from this
+// query alone survived the whole suite while the traffic side was
+// covered.
+func TestBeaconDaysAreTheCustomersDaysNotUTCs(t *testing.T) {
+	const zone = "Europe/Istanbul"
+	istanbul, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatalf("loading %s: %v (does this machine have tzdata?)", zone, err)
+	}
+	day := time.Date(2026, 3, 5, 0, 0, 0, 0, istanbul)
+
+	store := seedBeacon(t, []beaconSeed{
+		{site: "beacon-tz", visitor: "v1", at: day.Add(30 * time.Minute), eventType: "pageview", path: "/"},
+		{site: "beacon-tz", visitor: "v2", at: day.Add(2*time.Hour + 45*time.Minute), eventType: "pageview", path: "/"},
+		{site: "beacon-tz", visitor: "v3", at: day.Add(8 * time.Hour), eventType: "pageview", path: "/"},
+	})
+
+	ctx := context.Background()
+	from, to := day, day.AddDate(0, 0, 1)
+
+	local, err := store.BeaconTimeseries(ctx, "beacon-tz", from, to, "1 day", zone,
+		BotsExclude, campaignFilter{})
+	if err != nil {
+		t.Fatalf("BeaconTimeseries in %s: %v", zone, err)
+	}
+	if len(local) != 1 {
+		t.Fatalf("%d buckets in %s, want 1: all three pageviews happened on 5 March in "+
+			"Istanbul: %+v", len(local), zone, local)
+	}
+	if got := local[0].Time.In(istanbul); !got.Equal(day) {
+		t.Errorf("the bucket starts at %s, want %s", got.Format(time.RFC3339), day.Format(time.RFC3339))
+	}
+	if local[0].Pageviews != 3 {
+		t.Errorf("the day holds %d pageviews, want 3", local[0].Pageviews)
+	}
+
+	utc, err := store.BeaconTimeseries(ctx, "beacon-tz", from, to, "1 day", "UTC",
+		BotsExclude, campaignFilter{})
+	if err != nil {
+		t.Fatalf("BeaconTimeseries in UTC: %v", err)
+	}
+	if len(utc) != 2 {
+		t.Fatalf("%d buckets in UTC, want 2. If this is 1, the zone parameter is not "+
+			"reaching time_bucket and the assertion above proves nothing: %+v", len(utc), utc)
+	}
+	if utc[0].Pageviews != 2 {
+		t.Errorf("UTC's first day holds %d pageviews, want 2 (00:30 and 02:45 Istanbul "+
+			"are the day before in UTC)", utc[0].Pageviews)
+	}
+}
+
+// TestBeaconSessionStartsAreBucketedInTheSameZoneAsTheEvents.
+//
+// The beacon timeseries buckets twice - once over events and once over
+// session starts - and they are joined on the bucket. Two calls to
+// time_bucket with different zones would produce two sets of keys that
+// never match, and the session column would silently read zero.
+func TestBeaconSessionStartsAreBucketedInTheSameZoneAsTheEvents(t *testing.T) {
+	const zone = "Europe/Istanbul"
+	istanbul, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatalf("loading %s: %v", zone, err)
+	}
+	day := time.Date(2026, 3, 5, 0, 0, 0, 0, istanbul)
+
+	store := seedBeacon(t, []beaconSeed{
+		{site: "beacon-tz-ses", visitor: "v1", at: day.Add(30 * time.Minute), eventType: "pageview", path: "/"},
+		{site: "beacon-tz-ses", visitor: "v1", at: day.Add(40 * time.Minute), eventType: "pageview", path: "/b"},
+	})
+
+	buckets, err := store.BeaconTimeseries(context.Background(), "beacon-tz-ses",
+		day, day.AddDate(0, 0, 1), "1 day", zone, BotsExclude, campaignFilter{})
+	if err != nil {
+		t.Fatalf("BeaconTimeseries: %v", err)
+	}
+	if len(buckets) != 1 {
+		t.Fatalf("%d buckets, want 1: %+v", len(buckets), buckets)
+	}
+	if buckets[0].Sessions != 1 {
+		t.Errorf("the day reports %d sessions, want 1. A zero here means the two "+
+			"time_bucket calls produced keys that do not join", buckets[0].Sessions)
 	}
 }

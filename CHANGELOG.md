@@ -18,6 +18,36 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
 
+### Bir gün artık sizin gününüz
+
+Panodaki günlük sayılar UTC gününe göre bölünüyordu, aralık uçları ise
+sizin saat diliminizde hesaplanıyordu. İkisi aynı şeyi söylediğini
+sanıyordu ve söylemiyordu.
+
+Türkiye (UTC+3) için sonucu şuydu: **her günün ilk üç saati bir önceki
+güne yazılıyordu.**
+
+```
+ziyaret               sayıldığı gün   olması gereken
+09 Eylül 00:30        08 Eylül        09 Eylül
+09 Eylül 02:45        08 Eylül        09 Eylül
+09 Eylül 08:00        09 Eylül        09 Eylül
+```
+
+Bir mağaza için bu boş bir pencere değil, gece gezinme saatleri.
+
+Artık bir gün **Ayarlar → Saat dilimi**'nde ne yazıyorsa ona göre
+başlıyor ve bitiyor. Grafiklerdeki sütunlar da öyle: yaz saati uygulayan
+bir ülkede 23 saatlik gün 23 sütun, 25 saatlik gün 25 sütun.
+
+**Kuran kişinin yapması gereken: yok.** Ayarı zaten yazdıysanız
+kendiliğinden geçerli olur; yazmadıysanız yapılandırma dosyasındaki değer
+kullanılır.
+
+Küçük bir kısıt: saat dilimi olarak `Local` yazılamıyor artık. "Sunucu
+hangi dilimdeyse" bir gün tanımı değil, ve kurulum başka bir makineye
+taşınırsa sayıları sessizce değiştirirdi.
+
 ### Panodaki uzun aralıklar artık açılıyor
 
 Panoda **30 gün** ve **90 gün** düğmeleri, verinin büyüdüğü bir kurulumda

@@ -432,6 +432,7 @@ All are `GET` and return JSON. Common query parameters:
 | `bots` | the `/beacon/` endpoints | `exclude` | `exclude`, `include` or `only`, selecting whether events from self-identified bot user agents are counted. Echoed back in every response. |
 | `limit` / `offset` | the list endpoints | `50` / `0` | Page size (max 1000) and offset (max 100,000). Those responses also carry `total`, so a UI can render "showing 51-100 of 1,234". |
 | `interval` | either `timeseries` | `1 hour` | One of `1 minute`, `5 minutes`, `15 minutes`, `1 hour`, `6 hours`, `1 day`, `1 week`. |
+| `tz` | either `timeseries` | `UTC` | IANA zone name (`Europe/Istanbul`) deciding where a bucket boundary falls. A day is that zone's day, so a daily bucket starts at local midnight and a day that loses or gains an hour has 23 or 25 hours of rows in it. Echoed back in the response. An unknown name is a 400; so is `Local`, which names no zone another process can resolve. `from`/`to` cannot carry this - RFC 3339 records an offset, and an offset is not a zone. |
 
 #### Collector-side (`traffic_snapshots`)
 

@@ -1656,10 +1656,29 @@ func checkPrefixes(value any) error {
 	return nil
 }
 
+// checkTimezone accepts an empty string or an IANA zone name.
+//
+// # "Local" is refused, and it is the only name that has to be
+//
+// time.LoadLocation accepts it - it means "whatever zone this machine is
+// set to" - so the obvious check lets it through. Since O2a that name
+// does not stay inside the panel: it is sent to the read API as the zone
+// to bucket days by, and PostgreSQL has never heard of it. The customer
+// would type a name the panel accepted and get a dashboard that says
+// "could not read" on every chart.
+//
+// Refusing it is also the right answer on its own terms. The point of
+// this setting is to name the zone the customer's days are in; "whatever
+// the server is set to" is not that, and it changes the numbers if
+// anybody ever moves the deployment.
 func checkTimezone(value any) error {
 	name, _ := value.(string)
 	if name == "" {
 		return nil
+	}
+	if name == "Local" {
+		return fmt.Errorf(`%q means "whichever zone this machine is in", which is not `+
+			`a fact about your days - name the zone itself (try Europe/Istanbul)`, name)
 	}
 	if _, err := time.LoadLocation(name); err != nil {
 		return fmt.Errorf("%q is not a timezone this machine knows (try Europe/Istanbul)", name)

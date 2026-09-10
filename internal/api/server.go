@@ -34,7 +34,7 @@ type TrafficQuerier interface {
 	Sites(ctx context.Context) ([]string, error)
 	Overview(ctx context.Context, sites []string, from, to time.Time, botScoreMin int) ([]SiteOverview, error)
 	Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error)
-	Timeseries(ctx context.Context, siteID string, from, to time.Time, interval string, botScoreMin int) ([]Bucket, error)
+	Timeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, botScoreMin int) ([]Bucket, error)
 	TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error)
 	Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error)
 	ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error)
@@ -212,13 +212,18 @@ func (s *Server) handleTimeseries(w http.ResponseWriter, r *http.Request, site s
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	zone, err := ParseTimezone(q.Get("tz"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	botScoreMin, err := ParseBotScoreMin(q)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	buckets, err := s.Store.Timeseries(r.Context(), site, from, to, interval, botScoreMin)
+	buckets, err := s.Store.Timeseries(r.Context(), site, from, to, interval, zone, botScoreMin)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -228,6 +233,7 @@ func (s *Server) handleTimeseries(w http.ResponseWriter, r *http.Request, site s
 		"from":     from,
 		"to":       to,
 		"interval": interval,
+		"tz":       zone,
 		"buckets":  buckets,
 	})
 }

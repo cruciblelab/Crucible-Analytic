@@ -15575,3 +15575,155 @@ kontrolünü kaldır, başka bir kurulumun ayarını gasp et, ve
 *Bir süit, başka süitlerin koştuğu bir veritabanının fiziksel şeklini
 değiştiriyorsa, o veritabanında koşmamalıdır — sebebini bulamasanız
 bile.*
+
+## O2a — Kova sınırı müşterinin saatinde
+
+Kalan fazlar içinde **tek "yanlış cevap veren"** maddeydi. Diğerleri
+eksik olan bir şey; bu, var olan ve yanlış olan bir şey.
+
+### Ne yanlıştı
+
+Okuma API'sinde hiçbir zaman dilimi kavramı yoktu: dört `time_bucket`
+çağrısının hiçbiri zaman dilimi almıyordu, yani her gruplama UTC
+sınırlarındaydı. Panel ise aralık uçlarını `panel.timezone`'da
+hesaplıyordu (D1'in kararı). İkisi aynı şeyi söylediğini sanıyordu.
+
+Europe/Istanbul (UTC+3, yaz saati yok) ölçümü:
+
+```
+ziyaret (İstanbul)   sayıldığı gün   sayılması gereken
+09 Eyl 00:30         08 Eyl          09 Eyl
+09 Eyl 02:45         08 Eyl          09 Eyl
+09 Eyl 08:00         09 Eyl          09 Eyl
+```
+
+Her günün ilk üç saati bir önceki güne yazılıyordu. Bir mağaza için bu
+boş bir pencere değil, gece gezinme saatleri.
+
+### Çözüm: dilim, ucu kestiği aralığın kendisinden okunuyor
+
+`time_bucket($n::interval, time, $m::text)` — TimescaleDB 2.8'den beri
+üçüncü argüman zaman dilimi. Dört çağrı da artık alıyor.
+
+Asıl soru dilimin **nereden** geldiğiydi. Fazın bitti ölçütü şunu
+istiyordu: *"ikisinin ayrı ayrı doğru olması yetmez, aynı olmaları
+gerekiyor"* — C9.3'ün dersi.
+
+Üç seçenek vardı ve ikisi eleniyor:
+
+- API kendi yapılandırmasından okusun → **ikinci bir kaynak.** Panel
+  ayarı değişince API'ninki değişmez ve kimse fark etmez.
+- API `panel_settings`'i okusun → **mimari kural ihlali.** API'nin rolü
+  panel tablolarına erişemez, panelinki analitik tablolarına erişemez.
+- **Panel gönderisin** → tek kaynak.
+
+Üçüncüsü seçildi, ve gönderme yeri bir satır oldu: `Client.get`,
+`from.Location().String()`. Yani gönderilen dilim, **tanımı gereği**
+sınırın kesildiği dilim. İki ayrı yerden gelen iki değer olmadığı için
+ayrışamıyorlar.
+
+RFC 3339 bunu taşıyamıyor: **ofset kaydediyor, dilim değil.** +03:00
+bugün İstanbul'dur ve her zaman Moskova'dır; yaz saati geçişinde ne
+olacağını ikisi de söylemez.
+
+### `"Local"` — tek isim, üç yerde reddediliyor
+
+`time.LoadLocation("Local")` başarılı olur: "bu makine hangi dilimdeyse".
+PostgreSQL böyle bir dilim tanımaz. O1'e kadar bu bir sorun değildi,
+çünkü isim panelin dışına çıkmıyordu; artık çıkıyor.
+
+Bırakılsaydı: müşteri ayarlar sayfasının kabul ettiği bir isim yazar ve
+bütün grafiklerinde "Okunamadı" görürdü. Üç kapıda da reddediliyor —
+API'nin `ParseTimezone`'u, saklanan ayarın `checkTimezone`'u, ve
+yapılandırma dosyasının `Location()`'ı. Üçü de ayrı ayrı mutasyonla
+ölçüldü.
+
+Ayrıca kendi başına doğru olan cevap bu: bu ayar müşterinin günlerinin
+hangi dilimde olduğunu söyler; "sunucu neyse o" bunun cevabı değildir ve
+kurulum taşınırsa sayıları değiştirir.
+
+### Ve fazın kendi açtığı kusur: grafik saatleri toplayarak yürüyordu
+
+Kovalar UTC olduğu sürece bir gün **her zaman** 24 saatti. Yerel gün
+olunca değil.
+
+`internal/panel/ui`'nin iki yarısı da bunu varsayıyordu:
+`bucketStarts` aralığı `Add(step)` ile yürüyor, `fillSeries` bir noktayı
+`(nokta - ilk) / step` ile kovaya yerleştiriyordu. Europe/Berlin'de 29
+Mart 2026 (23 saat) üzerinden ölçüldü:
+
+```
+Add(24h) ile             takvim günüyle
+27 Mar 00:00 +01:00      27 Mar 00:00 +01:00
+28 Mar 00:00 +01:00      28 Mar 00:00 +01:00
+29 Mar 00:00 +01:00      29 Mar 00:00 +01:00
+30 Mar 01:00 +02:00      30 Mar 00:00 +02:00
+31 Mar 01:00 +02:00      31 Mar 00:00 +02:00
+```
+
+Geçişten sonraki her yuva, tutması gereken kovanın bir saat ötesinde.
+Ve bölme 30 Mart'ı 29 Mart'ın üstüne yuvarlıyordu: **iki gün tek
+sütunda, son sütun boş.** Yılda iki kez, sessiz bir pazartesi gibi
+görünerek.
+
+Düzeltme iki parça:
+
+1. Yürüyüş takvim birimiyle — gün/hafta için `AddDate`, gün altı
+   genişlikler için her günün içinde **duvar saatiyle** (`time.Date`)
+   işaret üretmek. 23 saatlik bir günde altı saatlik genişlik dört işaret
+   verir, beş değil; toplayarak yürüseydi beş verirdi.
+2. Nokta→yuva eşlemesi **arama** ile. Bölme "bütün kovalar aynı uzunlukta"
+   demektir; arama "bu nokta nerede" diye sorar.
+
+*Bir süreyle hesaplanan eşleme, bütün kovaların aynı uzunlukta olduğunu
+varsayan bir eşlemedir.*
+
+### Var olan bir test yeni kodu yakaladı
+
+Aramaya geçince `TestAPointOutsideTheRangeIsDroppedRatherThanClamped`
+kırmızı verdi: son yuvadan sonraki bir nokta, arama sonucu son yuvaya
+düşüyordu — yani **kırpma**, tam olarak o testin var olma sebebi. Bölme
+bunu kazara yapmıyordu (indeks taşıyordu). `fillSeries` artık aralığın
+sonunu da alıyor.
+
+Bir fazın kendi getirdiği yöntemi, o fazdan önce yazılmış bir testin
+yakalaması iyi haber; kötü haberi olan hâli, testin orada olmamasıydı.
+
+### Ölçüm
+
+On bir mutasyon, on biri de kırmızı:
+
+- iki kovadan (trafik, beacon) zaman dilimini kaldır,
+- beacon'ın iki kovasına **farklı** dilim ver (oturum sütunu sessizce
+  sıfırlanır — join anahtarları tutmaz),
+- handler'ı her isteği UTC'ye sabitlet,
+- istemciyi aralığın dilimi yerine sabit bir dilim göndert,
+- grafiği 24 saat toplayarak yürütt,
+- gün altı işaretleri duvar saati yerine toplayarak üret,
+- `fillSeries`'i bölmeye döndür,
+- `"Local"`'ü üç kapının her birinde kabul ettir.
+
+Gerçek TimescaleDB'ye karşı dört entegrasyon testi: İstanbul'da bir gün
+(ve aynı satırların UTC'de **iki** güne düştüğü — yoksa iddia bir şey
+söylemiyor), Berlin'de 23 saatlik bir günün 23 kovası ve olmayan 02:00'ın
+hiç görünmemesi, beacon tarafının aynısı, ve beacon'ın iki kovasının
+aynı dilimde olması.
+
+### Ekran görüntüsü alındı, ve bu kez kusur bulmadı
+
+Yeni bir faz bitince sayfaya *bakma* kuralı gereği üç görüntü çekildi
+(1/7/30 gün), panel dilimi `Europe/Istanbul` yazılıyken. Doğrulanan:
+alt bilgi "Saat dilimi: Europe/Istanbul" diyor, 30 günlük grafik günlük
+kovalarla düzgün bir eğri çiziyor, 1 günlük grafiğin ekseni yerel
+00:00'dan başlıyor.
+
+**Yanlış alarm, kayda geçsin:** 1 günlük görünümde kartlar 17 derken
+grafik 1 gösteriyordu. Sebebi düzeneğimdi — satırları yerel saatle
+09:00–16:00'ya yazdım, konteynerin saati ise 04:40'tı, yani satırlar
+**gelecekte**. Grafik gelecek kovaları çizmiyor (doğru), kartlar ise
+aralığın tamamını sayıyor.
+
+Gerçek üründe ulaşılamaz: `internal/beacon/server.go` satırın zamanını
+`s.now()` ile, **sunucunun saatiyle** damgalıyor; istemci bir zaman
+gönderemiyor. Kontrol edildi, çünkü gönderebiliyor olsaydı kart-grafik
+ayrışması gerçek bir kusur olurdu.

@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **1/4** | O2, O2a, O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **2/4** | O2, O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4167,7 +4167,7 @@ pencerede pano **eski değil eksik** göstermiyor. Süre öncesi/sonrası
 
 ---
 
-#### O2a — Kova sınırı müşterinin saatinde ⬜ *(eski A8)*
+#### O2a — Kova sınırı müşterinin saatinde ✅ **yapıldı** *(eski A8)*
 
 **Neden O2'nin içinde ve neden ondan önce.** A8 kendi başına duran bir
 madde olarak yazılmıştı. Ölçüm onu O2'ye bağladı: sürekli toplamanın kova
@@ -4210,6 +4210,39 @@ veya 25 saat sürdüğü ve kova sayısının buna uyduğu gösteriliyor.
 
 Mutasyon: kovadan zaman dilimini çıkar; paneli UTC'de hesaplat. İkisi de
 kırmızı vermeli.
+
+##### Nasıl yapıldı — ölçüldü
+
+`time_bucket($n::interval, time, $m::text)`, dört çağrının hepsinde.
+
+**Tek kaynak bir parametre değil, bir satır oldu:** `Client.get` dilimi
+`from.Location().String()` ile aralığın kendisinden okuyor. Yani
+gönderilen dilim **tanımı gereği** sınırın kesildiği dilim; iki ayrı
+değer olmadığı için ayrışamıyorlar. (RFC 3339 bunu taşıyamıyor: ofset
+kaydediyor, dilim değil — +03:00 bugün İstanbul'dur ve her zaman
+Moskova'dır.)
+
+**`"Local"` üç kapıda birden reddediliyor.** `time.LoadLocation` onu
+kabul eder, PostgreSQL tanımaz; artık isim panelin dışına çıktığı için
+bırakılsaydı müşteri ayarlar sayfasının kabul ettiği bir isim yazıp
+bütün grafiklerinde "Okunamadı" görürdü.
+
+**Ve faz kendi kusurunu açtı:** kovalar UTC olduğu sürece bir gün her
+zaman 24 saatti. `internal/panel/ui`'nin iki yarısı da bunu
+varsayıyordu. Berlin'de 29 Mart 2026'da (23 saat) ölçüldü: yürüyüş
+geçişten sonra bir saat kayıyor, bölme 30 Mart'ı 29 Mart'ın üstüne
+yuvarlıyordu — **iki gün tek sütunda, son sütun boş.** Yürüyüş takvim
+birimine (ve gün altı genişliklerde duvar saatine), eşleme aramaya
+geçti.
+
+Aramaya geçince **var olan bir test yeni kodu yakaladı**: aralığın
+dışındaki bir nokta son yuvaya düşüyordu, yani kırpma — o testin var
+olma sebebi. `fillSeries` artık aralığın sonunu da alıyor.
+
+On bir mutasyon, on biri de kırmızı. Dört entegrasyon testi gerçek
+TimescaleDB'ye karşı, ve her biri **iki** çağrı yapıyor: İstanbul'da bir
+gün, aynı satırların UTC'de iki gün olduğu. Tek çağrı olsaydı, dilim
+parametresinin hiç okunmadığı bir yapıda da yeşil verirdi.
 
 ---
 

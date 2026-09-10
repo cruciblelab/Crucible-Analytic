@@ -631,7 +631,7 @@ alınabilir; diğeri değil.
 | | `[[tokens]]` | Hash'ler |
 | `panel.toml` | `panel_dsn` | `panel_user` rolüyle, **analitikle aynı veritabanı** |
 | | `analytics_api_url`, `analytics_api_token` | |
-| | `timezone` | Müşterinin saat dilimi |
+| | `timezone` | Müşterinin saat dilimi — **bir günün nerede başladığını da bu belirler** (aşağıya bakın) |
 | | `beacon_url` | Snippet'i yazdırmak için |
 | | `[roles]` | Dört rol adı — **boş bırakırsanız devir teslim bloke olur** |
 | | `[developer_gate] password_hash` | `devpass` çıktısı |
@@ -655,6 +655,22 @@ kendi IP'sini uydurabilir.
 
 Bu ayar artık **panelden de değiştirilebilir** (A5.1) — dosya yalnız
 geri düşüş katmanı.
+
+### `timezone` — yalnız görüntü değil, günün tanımı
+
+Bu ayar paneldeki tarihlerin nasıl yazıldığını belirlemekle kalmıyor:
+**bir günün nerede başladığını** da belirliyor. Pano günlük sayıları bu
+dilime göre bölüyor, yani UTC+3'te 00:30'daki bir ziyaret o güne yazılıyor
+— bir öncekine değil.
+
+Nereden okunduğu: panelde **Ayarlar → Saat dilimi** yazılmışsa o, yoksa
+bu dosyadaki değer, o da yoksa UTC. Panel bu dilimi okuma API'sine her
+istekte kendisi gönderiyor, yani ikisinin ayrı ayrı ayarlanması gerekmiyor
+ve ayrışması mümkün değil.
+
+**IANA adı yazın** (`Europe/Istanbul`), ofset değil. `Local` kabul
+edilmiyor: "sunucu hangi dilimdeyse" bir gün tanımı değildir ve kurulum
+başka bir makineye taşınırsa sayıları sessizce değiştirir.
 
 ---
 

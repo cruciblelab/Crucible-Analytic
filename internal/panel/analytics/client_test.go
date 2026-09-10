@@ -282,3 +282,59 @@ var hourFrom, hourTo = func() (time.Time, time.Time) {
 	to := time.Now().Truncate(time.Hour)
 	return to.Add(-time.Hour), to
 }()
+
+// TestTheZoneTravelsWithTheRangeItCutTheEdgesIn.
+//
+// O2a's "one source" requirement, from the client's side.
+//
+// The read API cuts buckets by day; the panel decides where a day
+// starts. Those are two processes deciding one thing, and C9.3's lesson
+// is that two queries writing the same rule agree only until somebody
+// edits one of them. Here they cannot be edited apart: the zone sent is
+// read off the range itself, so the boundary and the label are the same
+// fact.
+//
+// The assertion is not "tz is present" but "tz is the zone the caller's
+// own range was cut in" - a client that sent a constant, or the server's
+// zone, would pass the first and fail this.
+func TestTheZoneTravelsWithTheRangeItCutTheEdgesIn(t *testing.T) {
+	for _, name := range []string{"Europe/Istanbul", "America/New_York", "UTC"} {
+		t.Run(name, func(t *testing.T) {
+			loc, err := time.LoadLocation(name)
+			if err != nil {
+				t.Skipf("no tzdata for %s on this host", name)
+			}
+			// Locked, because FetchDashboard fetches the two summaries
+			// concurrently on purpose - see the test above. The first
+			// version of this appended from both goroutines and the gate
+			// caught it as a race.
+			var mu sync.Mutex
+			var got []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				got = append(got, r.URL.Query().Get("tz"))
+				mu.Unlock()
+				_, _ = w.Write([]byte(`{"site_id":"bir"}`))
+			}))
+			defer srv.Close()
+
+			from := time.Date(2026, 3, 5, 0, 0, 0, 0, loc)
+			to := from.AddDate(0, 0, 1)
+			mustClient(t, srv.URL, "jeton").FetchDashboard(context.Background(), "bir", from, to)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(got) == 0 {
+				t.Fatal("the dashboard made no request at all")
+			}
+			for i, sent := range got {
+				if sent != name {
+					t.Errorf("request %d sent tz=%q, want %q. The API buckets days in "+
+						"whatever this says; a zone that is not the one the range's "+
+						"midnights were cut in is a page whose picker and whose "+
+						"columns mean different days", i+1, sent, name)
+				}
+			}
+		})
+	}
+}

@@ -224,22 +224,25 @@ type Bucket struct {
 }
 
 // Timeseries buckets a site's activity over [from, to). interval must
-// already have been validated by ParseInterval.
-func (s *Store) Timeseries(ctx context.Context, siteID string, from, to time.Time, interval string, botScoreMin int) ([]Bucket, error) {
+// already have been validated by ParseInterval and zone by ParseTimezone.
+//
+// zone is what makes a "day" the customer's day rather than UTC's. See
+// ParseTimezone for the measurement that made it necessary.
+func (s *Store) Timeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, botScoreMin int) ([]Bucket, error) {
 	// interval is interpolated through a bound parameter cast to
 	// ::interval rather than string-formatted into the SQL, and
 	// ParseInterval separately restricts it to a fixed allowlist - so
 	// neither injection nor an absurd bucket size is reachable from a
-	// request.
+	// request. zone travels the same way.
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip_bucket AS (
-		    SELECT time_bucket($4::interval, time) AS bucket, ip, max(bot_score) AS peak_score
+		    SELECT time_bucket($4::interval, time, $6::text) AS bucket, ip, max(bot_score) AS peak_score
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY bucket, ip
 		),
 		per_bucket_rate AS (
-		    SELECT time_bucket($4::interval, time) AS bucket,
+		    SELECT time_bucket($4::interval, time, $6::text) AS bucket,
 		           max(request_rate) AS peak_rate,
 		           avg(request_rate) AS avg_rate
 		    FROM traffic_snapshots
@@ -255,7 +258,7 @@ func (s *Store) Timeseries(ctx context.Context, siteID string, from, to time.Tim
 		JOIN per_bucket_rate r USING (bucket)
 		GROUP BY b.bucket, r.peak_rate, r.avg_rate
 		ORDER BY b.bucket`,
-		siteID, from, to, interval, botScoreMin,
+		siteID, from, to, interval, botScoreMin, zone,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("api: timeseries: %w", err)

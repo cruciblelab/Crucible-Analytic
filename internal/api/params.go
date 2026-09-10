@@ -45,6 +45,52 @@ func ParseInterval(raw string) (string, error) {
 	return raw, nil
 }
 
+// DefaultTimezone is what a request that names no zone is bucketed in.
+//
+// UTC, and it is the only defensible default: the alternative is the
+// server's own zone, which is a property of the machine rather than of
+// the customer, and which would silently change the numbers the day
+// somebody moves the deployment.
+const DefaultTimezone = "UTC"
+
+// ParseTimezone validates a requested bucket timezone, defaulting when
+// empty.
+//
+// # Why a bucket needs a zone at all
+//
+// time_bucket without one puts every boundary at UTC midnight. The panel
+// meanwhile computes the range's edges at midnight in the customer's own
+// zone, so the two agree about the *range* and disagree about every
+// boundary inside it. Measured in Europe/Istanbul (UTC+3): a visit at
+// 00:30 on the 9th was counted on the 8th, and so was every visit until
+// 03:00. Three hours of every day filed under the day before - and for a
+// shop those are browsing hours, not an empty window.
+//
+// # What is checked, and why "Local" is refused by name
+//
+// The name reaches SQL as a bound parameter, so injection is not the
+// concern; an unknown zone is. It is checked with time.LoadLocation
+// because that is the same tzdata the rest of this binary uses.
+//
+// "Local" passes LoadLocation - it means "this machine's zone" - and
+// PostgreSQL has never heard of it, so it would fail deep inside a query
+// as a 500. It is refused here instead, where the message can say what
+// is wrong. It is also the one name a caller can send by accident: a
+// time.Time built from time.Now() without In() carries it.
+func ParseTimezone(raw string) (string, error) {
+	if raw == "" {
+		return DefaultTimezone, nil
+	}
+	if raw == "Local" {
+		return "", fmt.Errorf(`invalid tz "Local": name the zone (e.g. Europe/Istanbul or UTC) ` +
+			`rather than whichever zone a machine happens to be in`)
+	}
+	if _, err := time.LoadLocation(raw); err != nil {
+		return "", fmt.Errorf("invalid tz %q (want an IANA zone name, e.g. Europe/Istanbul or UTC)", raw)
+	}
+	return raw, nil
+}
+
 // ParseRange reads the from/to query parameters as RFC 3339 timestamps,
 // filling in defaults and rejecting ranges that are inverted or longer
 // than maxRange. now is passed in rather than read from the clock so

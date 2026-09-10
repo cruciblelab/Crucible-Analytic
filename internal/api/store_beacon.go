@@ -171,8 +171,12 @@ type BeaconBucket struct {
 }
 
 // BeaconTimeseries buckets client-side activity over [from, to).
-// interval must already have been validated by ParseInterval.
-func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
+// interval must already have been validated by ParseInterval, and zone
+// by ParseTimezone.
+//
+// zone is what makes a "day" the customer's day rather than UTC's. See
+// ParseTimezone for the measurement that made it necessary.
+func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
 	p := beaconParams{from: from, to: to, bots: bots, campaign: campaign}
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+sessionCTEs+`,
 		session_starts AS (
@@ -181,14 +185,14 @@ func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to ti
 		    GROUP BY visitor_id, session_seq
 		),
 		per_bucket AS (
-		    SELECT time_bucket($9::interval, time) AS bucket,
+		    SELECT time_bucket($9::interval, time, $10::text) AS bucket,
 		           count(*) FILTER (WHERE event_type = 'pageview') AS pageviews,
 		           count(DISTINCT visitor_id) AS visitors
 		    FROM filtered
 		    GROUP BY bucket
 		),
 		per_bucket_sessions AS (
-		    SELECT time_bucket($9::interval, started) AS bucket, count(*) AS sessions
+		    SELECT time_bucket($9::interval, started, $10::text) AS bucket, count(*) AS sessions
 		    FROM session_starts
 		    GROUP BY bucket
 		)
@@ -199,7 +203,7 @@ func (s *Store) BeaconTimeseries(ctx context.Context, siteID string, from, to ti
 		FROM per_bucket b
 		LEFT JOIN per_bucket_sessions sx USING (bucket)
 		ORDER BY b.bucket`,
-		beaconArgs(siteID, p, sessionTimeout, interval)...,
+		beaconArgs(siteID, p, sessionTimeout, interval, zone)...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("api: beacon timeseries: %w", err)

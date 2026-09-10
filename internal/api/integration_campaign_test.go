@@ -227,7 +227,7 @@ func TestCampaignFilter_AppliesToSummaryAndSessionQueries(t *testing.T) {
 
 	// And the timeseries, which binds an interval after the timeout.
 	buckets, err := store.BeaconTimeseries(ctx, "camp-sessions", p.from, p.to, "1 hour",
-		BotsExclude, campaignFilter{source: "instagram"})
+		DefaultTimezone, BotsExclude, campaignFilter{source: "instagram"})
 	if err != nil {
 		t.Fatalf("BeaconTimeseries filtered: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestCampaignFilter_IsHonouredByEveryReadMethod(t *testing.T) {
 		}
 	})
 	t.Run("BeaconTimeseries", func(t *testing.T) {
-		buckets, err := store.BeaconTimeseries(ctx, "camp-every", p.from, p.to, "1 hour", p.bots, nothing.campaign)
+		buckets, err := store.BeaconTimeseries(ctx, "camp-every", p.from, p.to, "1 hour", DefaultTimezone, p.bots, nothing.campaign)
 		if err != nil {
 			t.Fatalf("BeaconTimeseries: %v", err)
 		}

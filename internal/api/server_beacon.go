@@ -10,7 +10,7 @@ import (
 type BeaconQuerier interface {
 	BeaconSites(ctx context.Context) ([]string, error)
 	BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error)
-	BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error)
+	BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error)
 	BeaconPages(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
 	BeaconTitles(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
 	BeaconUTMSources(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
@@ -211,6 +211,11 @@ func (s *Server) handleBeaconTimeseries(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	zone, err := ParseTimezone(q.Get("tz"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	bots, err := ParseBotFilter(q)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -223,7 +228,7 @@ func (s *Server) handleBeaconTimeseries(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	buckets, err := s.Store.BeaconTimeseries(r.Context(), site, from, to, interval, bots, campaign)
+	buckets, err := s.Store.BeaconTimeseries(r.Context(), site, from, to, interval, zone, bots, campaign)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -233,6 +238,7 @@ func (s *Server) handleBeaconTimeseries(w http.ResponseWriter, r *http.Request, 
 		"from":     from,
 		"to":       to,
 		"interval": interval,
+		"tz":       zone,
 		"bots":     string(bots),
 		"buckets":  buckets,
 	})

@@ -248,3 +248,23 @@ func TestSecretKeyIsOptionalButNeverHalfConfigured(t *testing.T) {
 // keyHexLen is the hex length of a key, kept here rather than
 // hardcoded so a change to sealed.KeySize reaches this file.
 const keyHexLen = sealed.KeySize * 2
+
+// TestTheConfiguredTimezoneRefusesLocal.
+//
+// The same refusal as the stored setting makes, at the other place a
+// zone can be named. Both, because a value that only one of them checks
+// is a value that arrives through the other.
+func TestTheConfiguredTimezoneRefusesLocal(t *testing.T) {
+	path := writeConfig(t, `
+panel_dsn = "postgres://panel@localhost/crucible"
+timezone = "Local"
+`)
+	_, err := LoadConfig(path)
+	if err == nil {
+		t.Fatal(`timezone = "Local" was accepted. It names no zone any other process ` +
+			`can resolve, and since O2a this value is sent to the read API`)
+	}
+	if !strings.Contains(err.Error(), "Local") {
+		t.Errorf("the error does not name the value: %v", err)
+	}
+}

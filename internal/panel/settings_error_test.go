@@ -166,3 +166,36 @@ func TestCheckSeesTheCanonicalForm(t *testing.T) {
 		t.Fatalf("Check saw %T; a list validator has to be handed a []string", seen)
 	}
 }
+
+// TestTheTimezoneSettingRefusesLocal.
+//
+// "Local" passes time.LoadLocation - it means "whichever zone this
+// machine is set to" - so the obvious check lets it through. Since O2a
+// the name does not stay inside the panel: it is sent to the read API as
+// the zone to cut days in, and PostgreSQL has never heard of it. Left
+// accepted, a customer could type a name the settings page took happily
+// and get "could not read" on every chart.
+//
+// It is also the wrong answer on its own terms. This setting names the
+// zone the customer's days are in; "whatever the server is set to" is
+// not a fact about their days, and it changes the numbers the day
+// anybody moves the deployment.
+func TestTheTimezoneSettingRefusesLocal(t *testing.T) {
+	if _, err := Validate(KeyPanelTimezone, "Local"); err == nil {
+		t.Error(`"Local" was accepted as a timezone. It is the one name Go resolves ` +
+			`and PostgreSQL cannot, so it reaches the read API and comes back as an error ` +
+			`on every chart`)
+	}
+
+	// And the ordinary cases still behave, so the refusal above is a
+	// refusal rather than the check having stopped working.
+	if _, err := Validate(KeyPanelTimezone, "Europe/Istanbul"); err != nil {
+		t.Errorf("a real zone was refused: %v", err)
+	}
+	if _, err := Validate(KeyPanelTimezone, ""); err != nil {
+		t.Errorf("the empty value was refused; it means \"use the config file\": %v", err)
+	}
+	if _, err := Validate(KeyPanelTimezone, "Mars/Olympus"); err == nil {
+		t.Error("a zone this machine does not have was accepted")
+	}
+}

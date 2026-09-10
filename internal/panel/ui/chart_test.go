@@ -559,3 +559,122 @@ func TestARowBiggerThanItsDenominatorIsClampedRatherThanDrawnPastTheEdge(t *test
 		t.Errorf("BarWidth(150, 100) = %q, want the bar clamped to the column", got)
 	}
 }
+
+// TestADayThatLosesAnHourStillLinesUp.
+//
+// The chart's half of O2a, and a defect this phase created rather than
+// found: once the API started cutting buckets in the customer's zone, a
+// bucket stopped being a fixed number of nanoseconds, and both halves of
+// this file assumed it was.
+//
+// Measured in Europe/Berlin across 29 March 2026, a 23-hour day. Walking
+// the range with Add(24h) put every slot after the change an hour past
+// the bucket it was meant to hold; mapping a point with
+// (point-first)/step then rounded the 30th onto the 29th. Two days in
+// one column, and the last column empty. Twice a year, looking like a
+// quiet Monday.
+//
+// The test gives each day a different value, so a collapse is not just a
+// wrong total somewhere but a specific column holding a number that
+// belongs to another day.
+func TestADayThatLosesAnHourStillLinesUp(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip("no tzdata for Europe/Berlin on this host")
+	}
+	from := time.Date(2026, 3, 27, 0, 0, 0, 0, berlin)
+	to := from.AddDate(0, 0, 5)
+	if got := to.Sub(from); got != 119*time.Hour {
+		t.Fatalf("the five days from 27 March 2026 are %v in Berlin, want 119h - this "+
+			"machine's tzdata does not have the transition this test is about", got)
+	}
+
+	var points []ChartPoint
+	for d := 0; d < 5; d++ {
+		points = append(points, ChartPoint{At: from.AddDate(0, 0, d), Value: (d + 1) * 10})
+	}
+	c := Build(ChartInput{
+		From: from, To: to, Step: 24 * time.Hour, Now: to,
+		Series: []ChartSeries{{Key: "goruntuleme", Points: points}},
+	})
+
+	slots := bucketStarts(from, to, 24*time.Hour)
+	if len(slots) != 5 {
+		t.Fatalf("%d slots across five local days, want 5: %v", len(slots), slots)
+	}
+	for i, s := range slots {
+		want := from.AddDate(0, 0, i)
+		if !s.Equal(want) {
+			t.Errorf("slot %d is %s, want %s - a daily slot has to be a local midnight",
+				i, s.Format(time.RFC3339), want.Format(time.RFC3339))
+		}
+	}
+
+	values := fillSeries(slots, to, points)
+	for i, v := range values {
+		if want := (i + 1) * 10; v != want {
+			t.Errorf("day %d holds %d, want %d. A day landing in the wrong column is how "+
+				"two days become one and the last one draws empty",
+				i, v, want)
+		}
+	}
+	if c.Max != 50 {
+		t.Errorf("the axis tops out at %d, want 50", c.Max)
+	}
+}
+
+// TestTheHourThatDoesNotExistIsNotDrawn.
+//
+// The same day, asked at the width the one-day period uses. 29 March
+// 2026 has 23 hours in Berlin: there is no 02:00, the API sends no such
+// bucket, and a chart that drew one would put a zero in a place where
+// nothing could have happened.
+func TestTheHourThatDoesNotExistIsNotDrawn(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip("no tzdata for Europe/Berlin on this host")
+	}
+	from := time.Date(2026, 3, 29, 0, 0, 0, 0, berlin)
+	to := from.AddDate(0, 0, 1)
+
+	slots := bucketStarts(from, to, time.Hour)
+	if len(slots) != 23 {
+		t.Fatalf("%d hourly slots on a 23-hour day, want 23: %v", len(slots), slots)
+	}
+	for _, s := range slots {
+		if s.Hour() == 2 {
+			t.Errorf("a slot is labelled 02:00 on a day where that hour does not exist")
+		}
+	}
+	for i := 1; i < len(slots); i++ {
+		if !slots[i].After(slots[i-1]) {
+			t.Errorf("slot %d (%s) does not come after slot %d (%s)",
+				i, slots[i].Format(time.RFC3339), i-1, slots[i-1].Format(time.RFC3339))
+		}
+	}
+}
+
+// TestASixHourWidthKeepsFourMarksOnAShortDay.
+//
+// The width the seven-day period uses, on the day that loses an hour.
+// Four marks, not five: local 00, 06, 12, 18, with the first of them
+// five real hours long. Adding six hours repeatedly gets this wrong by
+// one mark, which is the failure this file's walk exists to avoid.
+func TestASixHourWidthKeepsFourMarksOnAShortDay(t *testing.T) {
+	berlin, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		t.Skip("no tzdata for Europe/Berlin on this host")
+	}
+	from := time.Date(2026, 3, 29, 0, 0, 0, 0, berlin)
+	to := from.AddDate(0, 0, 1)
+
+	slots := bucketStarts(from, to, 6*time.Hour)
+	if len(slots) != 4 {
+		t.Fatalf("%d six-hour slots on a 23-hour day, want 4: %v", len(slots), slots)
+	}
+	for i, s := range slots {
+		if want := i * 6; s.Hour() != want {
+			t.Errorf("slot %d is at %02d:00, want %02d:00", i, s.Hour(), want)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -260,7 +261,7 @@ func Build(in ChartInput) Chart {
 	filled := make([][]int, len(in.Series))
 	peak := 0
 	for i, s := range in.Series {
-		values := fillSeries(slots, in.Step, s.Points)
+		values := fillSeries(slots, end, s.Points)
 		filled[i] = values
 		for _, v := range values {
 			if v > peak {
@@ -361,12 +362,88 @@ func Build(in ChartInput) Chart {
 // begins at noon because nothing happened that morning would otherwise
 // start the chart at noon, and the morning would disappear instead of
 // showing as the quiet it was.
+//
+// # Why this is not a loop adding Step
+//
+// It was, until the read API began cutting buckets in the customer's own
+// zone (O2a). Since then a bucket is a *local* day or a *local* hour,
+// and neither of those is a fixed number of nanoseconds. Measured in
+// Europe/Berlin across the spring change of 2026, with a daily step:
+//
+//	walked with Add(24h)      walked by calendar day
+//	27 Mar 00:00 +01:00       27 Mar 00:00 +01:00
+//	28 Mar 00:00 +01:00       28 Mar 00:00 +01:00
+//	29 Mar 00:00 +01:00       29 Mar 00:00 +01:00
+//	30 Mar 01:00 +02:00       30 Mar 00:00 +02:00
+//	31 Mar 01:00 +02:00       31 Mar 00:00 +02:00
+//
+// Every slot after the change was an hour past the bucket it was meant
+// to hold - so two days' traffic landed in one column and the last
+// column drew as empty. Twice a year, in a way that looks like a quiet
+// Monday rather than like a bug.
+//
+// So the walk is by calendar unit in the range's own zone: whole days
+// (or weeks) for a step of a day or more, and wall-clock hours inside
+// each day for anything shorter. Building the sub-day marks with
+// time.Date rather than by adding to the day's start is what keeps a
+// 23-hour day to four six-hour marks instead of five.
+//
+// Two edges, both of them properties of the clock rather than of this
+// code. On the day an hour is skipped, the mark for the hour that does
+// not exist normalises onto the next one and is dropped as a duplicate -
+// which matches the API, since there is no such bucket. On the day an
+// hour repeats, local 02:30 names two different instants and this draws
+// one column for both; an ambiguous label cannot be drawn twice without
+// the axis lying about it either way.
 func bucketStarts(from, to time.Time, step time.Duration) []time.Time {
+	const day = 24 * time.Hour
 	var out []time.Time
-	for t := from; t.Before(to); t = t.Add(step) {
+	add := func(t time.Time) bool {
+		if n := len(out); n > 0 && !t.After(out[n-1]) {
+			return true // the skipped hour, normalised onto its neighbour
+		}
 		out = append(out, t)
-		if len(out) > chartMaxBuckets {
-			return nil
+		return len(out) <= chartMaxBuckets
+	}
+
+	if step >= day {
+		days := int(step / day)
+		for t := from; t.Before(to); t = t.AddDate(0, 0, days) {
+			if !add(t) {
+				return nil
+			}
+		}
+		return out
+	}
+
+	hours := int(step / time.Hour)
+	if hours <= 0 || step%time.Hour != 0 || 24%hours != 0 {
+		// A width that is not a whole number of hours dividing a day has
+		// no local marks to land on. Nothing asks for one - ParseInterval
+		// offers minutes, hours, a day and a week - so this walks by
+		// duration rather than inventing a rule for a case with no
+		// caller.
+		for t := from; t.Before(to); t = t.Add(step) {
+			if !add(t) {
+				return nil
+			}
+		}
+		return out
+	}
+
+	for d := from; d.Before(to); d = d.AddDate(0, 0, 1) {
+		year, month, dayOfMonth := d.Date()
+		for h := d.Hour(); h < 24; h += hours {
+			t := time.Date(year, month, dayOfMonth, h, 0, 0, 0, d.Location())
+			if t.Before(from) {
+				continue
+			}
+			if !t.Before(to) {
+				break
+			}
+			if !add(t) {
+				return nil
+			}
 		}
 	}
 	return out
@@ -383,17 +460,38 @@ func bucketStarts(from, to time.Time, step time.Duration) []time.Time {
 // A point outside the range is dropped rather than clamped to an edge -
 // clamping would pile a week of traffic onto the first bucket and draw
 // a spike that never happened.
-func fillSeries(slots []time.Time, step time.Duration, points []ChartPoint) []int {
+//
+// # Why the slot is searched for rather than calculated
+//
+// The obvious mapping is (point - first) / step, and it was that until
+// O2a. It assumes every bucket is the same length, which stopped being
+// true the day buckets became local days: across a spring change two
+// consecutive days are 24 and 23 hours apart, the division rounds the
+// second one down onto the first, and one column ends up holding two
+// days while the last one draws empty.
+//
+// Searching the slots asks where the point is rather than assuming how
+// far apart the slots must be, so it is right for any bucket the walk
+// above produces - and it needs no step at all.
+//
+// It does need the range's end, which the division did not: a point past
+// the last slot searches to the last slot, and silently piling the week
+// after the range onto its final column is the same clamp this function
+// exists to refuse. Caught by the test that was already here.
+func fillSeries(slots []time.Time, end time.Time, points []ChartPoint) []int {
 	out := make([]int, len(slots))
 	if len(slots) == 0 {
 		return out
 	}
 	start := slots[0]
 	for _, p := range points {
-		if p.At.Before(start) {
+		if p.At.Before(start) || !p.At.Before(end) {
 			continue
 		}
-		i := int(p.At.Sub(start) / step)
+		// The last slot at or before the point: sort.Search finds the
+		// first slot strictly after it, so the one before that is the
+		// bucket it belongs to.
+		i := sort.Search(len(slots), func(k int) bool { return slots[k].After(p.At) }) - 1
 		if i < 0 || i >= len(out) {
 			continue
 		}

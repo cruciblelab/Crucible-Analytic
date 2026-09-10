@@ -300,6 +300,23 @@ func (c *Client) get(ctx context.Context, path string, from, to time.Time,
 	q := url.Values{
 		"from": {from.UTC().Format(time.RFC3339)},
 		"to":   {to.UTC().Format(time.RFC3339)},
+		// The zone the range was computed in, read off the range itself
+		// rather than passed alongside it.
+		//
+		// This is the whole of O2a's "one source" requirement, and it is
+		// a line rather than a parameter because of what the alternative
+		// costs. The API buckets by day; the panel decides where a day
+		// starts. If those two came from two places they could disagree,
+		// and the disagreement would be silent: a page whose picker says
+		// one thing over columns that mean another. Deriving the zone
+		// from `from` makes them the same fact by construction - the
+		// zone sent is, definitionally, the zone the boundary was cut in.
+		//
+		// RFC 3339 cannot carry it: it records an offset, and an offset
+		// is not a zone. +03:00 is Istanbul today and Moscow always, and
+		// neither of them is the rule for what happens at a daylight
+		// saving change.
+		"tz": {from.Location().String()},
 	}
 	for key, values := range extra {
 		// Assigned rather than appended: from and to are this method's to

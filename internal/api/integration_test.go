@@ -268,7 +268,7 @@ func TestStore_RealTimescaleDB_SiteIsolation(t *testing.T) {
 		t.Errorf("site-a top IP PeakScore = %d, want 10 (site-b's 99 must not leak)", ips[0].PeakScore)
 	}
 
-	buckets, err := store.Timeseries(ctx, "site-a", from, to, "1 minute", DefaultBotScoreMin)
+	buckets, err := store.Timeseries(ctx, "site-a", from, to, "1 minute", DefaultTimezone, DefaultBotScoreMin)
 	if err != nil {
 		t.Fatalf("Timeseries: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestStore_RealTimescaleDB_TimeseriesBucketsByInterval(t *testing.T) {
 		{site: "site-ts", ip: "203.0.113.3", at: base.Add(1*time.Hour + 1*time.Minute), rate: 3, score: 10},
 	})
 
-	buckets, err := store.Timeseries(context.Background(), "site-ts", base, base.Add(2*time.Hour), "1 hour", DefaultBotScoreMin)
+	buckets, err := store.Timeseries(context.Background(), "site-ts", base, base.Add(2*time.Hour), "1 hour", DefaultTimezone, DefaultBotScoreMin)
 	if err != nil {
 		t.Fatalf("Timeseries: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestStore_RealTimescaleDB_EmptyRangeReturnsEmptyNotError(t *testing.T) {
 		t.Errorf("PeakWindowRequests = %d, want 0 for an empty range", summary.PeakWindowRequests)
 	}
 
-	if b, err := store.Timeseries(ctx, "site-nonexistent", from, to, "1 hour", DefaultBotScoreMin); err != nil || b == nil {
+	if b, err := store.Timeseries(ctx, "site-nonexistent", from, to, "1 hour", DefaultTimezone, DefaultBotScoreMin); err != nil || b == nil {
 		t.Errorf("Timeseries = (%v, %v), want an empty non-nil slice and no error", b, err)
 	}
 	if ips, _, err := store.TopIPs(ctx, "site-nonexistent", from, to, 10, 0); err != nil || ips == nil {
@@ -685,5 +685,123 @@ func TestStore_RealTimescaleDB_SitesListsDistinctSites(t *testing.T) {
 	}
 	if seen["zzz-site-one"] != 1 || seen["zzz-site-two"] != 1 {
 		t.Errorf("Sites() = %v, want each seeded site exactly once", sites)
+	}
+}
+
+// TestStore_RealTimescaleDB_DaysAreTheCustomersDaysNotUTCs.
+//
+// O2a's own done-criterion, asked of a real TimescaleDB.
+//
+// The measurement that opened the phase: in Europe/Istanbul, UTC+3 with
+// no daylight saving, a visit at 00:30 was filed under the previous day,
+// and so was everything until 03:00. Three hours of every day - and for
+// a shop, browsing hours rather than an empty window.
+//
+// It is written as two calls over the same rows rather than one, because
+// the interesting claim is not "the zone-aware call is right" but "the
+// two disagree". A test that only asked the new way would pass on a
+// build where the parameter was ignored.
+func TestStore_RealTimescaleDB_DaysAreTheCustomersDaysNotUTCs(t *testing.T) {
+	const zone = "Europe/Istanbul"
+	istanbul, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatalf("loading %s: %v (does this machine have tzdata?)", zone, err)
+	}
+
+	// A fixed day rather than "today": the claim is about where a
+	// boundary falls, and a test that moved with the clock could not
+	// name the day it expected.
+	day := time.Date(2026, 3, 5, 0, 0, 0, 0, istanbul)
+	store := newTestStore(t, "t13d_api_tz", []seedRow{
+		{site: "site-tz", ip: "203.0.113.1", at: day.Add(30 * time.Minute), rate: 1, score: 10},
+		{site: "site-tz", ip: "203.0.113.2", at: day.Add(2*time.Hour + 45*time.Minute), rate: 1, score: 10},
+		{site: "site-tz", ip: "203.0.113.3", at: day.Add(8 * time.Hour), rate: 1, score: 10},
+	})
+
+	ctx := context.Background()
+	from, to := day, day.AddDate(0, 0, 1)
+
+	local, err := store.Timeseries(ctx, "site-tz", from, to, "1 day", zone, DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("Timeseries in %s: %v", zone, err)
+	}
+	if len(local) != 1 {
+		t.Fatalf("%d buckets in %s, want 1: every one of the three visits happened on "+
+			"5 March in Istanbul, so they belong to one day: %+v", len(local), zone, local)
+	}
+	if got := local[0].Time.In(istanbul); !got.Equal(day) {
+		t.Errorf("the bucket starts at %s, want %s - a day has to start at the "+
+			"customer's midnight", got.Format(time.RFC3339), day.Format(time.RFC3339))
+	}
+	if local[0].UniqueIPs != 3 {
+		t.Errorf("the day holds %d addresses, want 3", local[0].UniqueIPs)
+	}
+
+	// And the same rows in UTC, which is what this code did before O2a.
+	// Two buckets: the first two visits fall on 4 March in UTC.
+	utc, err := store.Timeseries(ctx, "site-tz", from, to, "1 day", "UTC", DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("Timeseries in UTC: %v", err)
+	}
+	if len(utc) != 2 {
+		t.Fatalf("%d buckets in UTC, want 2. If this is 1, the zone parameter is not "+
+			"reaching time_bucket and the assertion above proves nothing: %+v", len(utc), utc)
+	}
+	if utc[0].UniqueIPs != 2 {
+		t.Errorf("UTC's first day holds %d addresses, want 2 (00:30 and 02:45 Istanbul "+
+			"are the day before in UTC)", utc[0].UniqueIPs)
+	}
+}
+
+// TestStore_RealTimescaleDB_ADaylightSavingDayIsShorter.
+//
+// The other half of the done-criterion, and the one no zone this product
+// was measured in can show: Turkey has been on permanent UTC+3 since
+// 2016. Europe/Berlin still changes, so it is what the claim is asked
+// of.
+//
+// 29 March 2026 is 23 hours long there: 02:00 does not exist. An hourly
+// series across it must therefore hold 23 buckets, not 24, and the hour
+// that does not exist must not appear.
+func TestStore_RealTimescaleDB_ADaylightSavingDayIsShorter(t *testing.T) {
+	const zone = "Europe/Berlin"
+	berlin, err := time.LoadLocation(zone)
+	if err != nil {
+		t.Fatalf("loading %s: %v (does this machine have tzdata?)", zone, err)
+	}
+	day := time.Date(2026, 3, 29, 0, 0, 0, 0, berlin)
+	next := day.AddDate(0, 0, 1)
+	if got := next.Sub(day); got != 23*time.Hour {
+		t.Fatalf("29 March 2026 is %v long in %s, want 23h - this machine's tzdata "+
+			"does not have the transition this test is about", got, zone)
+	}
+
+	// One row per real hour of that day, so every bucket that exists has
+	// something in it and a missing bucket is a missing hour rather than
+	// a quiet one.
+	var rows []seedRow
+	for h := 0; h < 23; h++ {
+		rows = append(rows, seedRow{
+			site: "site-dst", ip: "203.0.113.7",
+			at: day.Add(time.Duration(h)*time.Hour + 30*time.Minute), rate: 1, score: 10,
+		})
+	}
+	store := newTestStore(t, "t13d_api_dst", rows)
+
+	buckets, err := store.Timeseries(context.Background(), "site-dst", day, next,
+		"1 hour", zone, DefaultBotScoreMin)
+	if err != nil {
+		t.Fatalf("Timeseries: %v", err)
+	}
+	if len(buckets) != 23 {
+		t.Fatalf("%d hourly buckets on a 23-hour day, want 23: %+v", len(buckets), buckets)
+	}
+	for _, b := range buckets {
+		if h := b.Time.In(berlin).Hour(); h == 2 {
+			t.Errorf("a bucket is labelled 02:00 on a day where that hour does not exist")
+		}
+	}
+	if first := buckets[0].Time.In(berlin); first.Hour() != 0 {
+		t.Errorf("the first bucket is at %s, want local midnight", first.Format(time.RFC3339))
 	}
 }

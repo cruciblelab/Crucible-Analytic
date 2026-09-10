@@ -23,6 +23,7 @@ type fakeStore struct {
 	gotSite        string
 	gotFrom, gotTo time.Time
 	gotInterval    string
+	gotZone        string
 	gotLimit       int
 	gotOffset      int
 	gotBotScoreMin int
@@ -89,7 +90,8 @@ func (f *fakeStore) Summary(ctx context.Context, siteID string, from, to time.Ti
 	return Summary{SiteID: siteID, From: from, To: to, UniqueIPs: 3, BotIPs: 1, HumanIPs: 2, BotScoreMin: botScoreMin}, nil
 }
 
-func (f *fakeStore) Timeseries(ctx context.Context, siteID string, from, to time.Time, interval string, botScoreMin int) ([]Bucket, error) {
+func (f *fakeStore) Timeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, botScoreMin int) ([]Bucket, error) {
+	f.gotZone = zone
 	f.gotSite, f.gotFrom, f.gotTo, f.gotInterval, f.gotBotScoreMin = siteID, from, to, interval, botScoreMin
 	if f.err != nil {
 		return nil, f.err

@@ -216,9 +216,18 @@ func (c Config) Secrets() (sealed.Key, error) {
 // Falling back would put every timestamp in the panel an hour or three
 // away from the customer's clock while the config file said otherwise -
 // wrong, and invisible.
+// "Local" is refused for the reason internal/panel.checkTimezone gives
+// at the stored setting: since O2a the name leaves this process - it
+// tells the read API which zone to cut days at - and it is not a name
+// any other process can resolve.
 func (c Config) Location() (*time.Location, error) {
 	if c.Timezone == "" {
 		return time.UTC, nil
+	}
+	if c.Timezone == "Local" {
+		return nil, fmt.Errorf(`panel: timezone "Local" means whichever zone this machine ` +
+			`is in, which is not a fact about the customer's days - name the zone itself ` +
+			`(e.g. Europe/Istanbul)`)
 	}
 	loc, err := time.LoadLocation(c.Timezone)
 	if err != nil {

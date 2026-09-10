@@ -33,8 +33,9 @@ func (f *fakeStore) BeaconSummary(ctx context.Context, siteID string, from, to t
 	return BeaconSummary{SiteID: siteID, From: from, To: to, Bots: string(bots), Pageviews: 9, Visitors: 4, Sessions: 5}, nil
 }
 
-func (f *fakeStore) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
+func (f *fakeStore) BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error) {
 	f.gotCampaign = campaign
+	f.gotZone = zone
 	f.gotCall, f.gotSite, f.gotFrom, f.gotTo, f.gotInterval, f.gotBots = "BeaconTimeseries", siteID, from, to, interval, bots
 	if f.err != nil {
 		return nil, f.err
