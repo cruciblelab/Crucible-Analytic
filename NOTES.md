@@ -16322,3 +16322,108 @@ soğukta hâlâ 8 saniyelik sayfa bütçesini aşabilir, ve bu yalnız test
 düzeneğinin değil müşterinin ilk yüklemesinin de yolu. Ölçülüp ayrı bir
 faz olarak karara bağlanacak; artık bir sonraki oluşta günlükte sebep
 yazılı olacak.
+
+## O3'ün ölçülmemiş üç sorusu ölçüldü (kod yazılmadı)
+
+Kullanıcı "ölçülmemiş sorular ne olacak" diye sordu. Üçü de ölçüldü ve
+**biri notlarımdaki bir sayıyı çürüttü.**
+
+### 1. Eskiz Apache yapısında çalışıyor
+
+O1 ve O2'de iki kez çarptığım duvar burada **yok.**
+`timescaledb_toolkit` ayrı bir eklenti ve TSL kapısının arkasında değil.
+`timescaledb.license=apache` ile başlatılmış kümede:
+
+```
+CREATE EXTENSION timescaledb_toolkit;                      -- CREATE EXTENSION
+SELECT distinct_count(hyperloglog(4096, g::text)) ...       -- 9932
+```
+
+Yani okuma yolunun iki şekle bölünmesi tehlikesi kalkıyor. **Ama eklenti
+yine ayrı bir kurulum şartı**: müşterinin PostgreSQL'inde olmayabilir, ve
+o zaman kesin sayıya düşmek gerekir — ki o iki *farklı sayı* demektir,
+sayfanın hangisini gösterdiğini söylemesi gerekir.
+
+### 2. Boyut endişem yanlıştı: birleştirme veritabanının içinde
+
+"İstek başına 34 MB eskiz" diye hesaplamıştım. Yanlış: `rollup()`
+sunucuda birleşiyor, dışarıya **tek sayı** çıkıyor.
+
+Ölçüldü, 8.641 kova (90 gün × çeyrek saat), p=4096:
+
+```
+disk               14 MB
+90 gün birleştirme  190 ms   -> 49.989 (kesin 50.000, -%0,02)
+30 gün birleştirme   63 ms
+iki eskiz birlikte  173 ms
+```
+
+### 3. Ve çürüttüğüm şey: %1,2 p=4096'nın verdiği şey değil
+
+Notlarımda şöyle yazıyordu: *"hyperloglog(4096) için belgelenen standart
+hatayla uyumlu"*, ve yanında iki satır: küçük site +%1,28, büyük site
++%1,17. **İki çekiliş.**
+
+İlk denememde on çekiliş aldım ve dördü **birebir aynı sayıyı** verdi —
+çünkü üretecim her tohumda aynı IP kümesini üretiyordu. Bu, CLAUDE.md'de
+yazılı kendi dersimin harfi harfine tekrarı: *üretilen verinin kusuru,
+ölçümün sonucu gibi görünür.*
+
+Sabit kardinalitede (50.000) **gerçekten farklı** yirmi küme:
+
+| p | ortalama | std | en kötü | kova başına bayt |
+|---:|---:|---:|---:|---:|
+| 4096 | +%0,03 | **%1,84** | **%3,91** | 3.098 |
+| 16384 | -%0,12 | **%0,80** | **%1,77** | 12.314 |
+
+Yirmi çekilişin tamamı: 2,90 -1,46 -1,43 0,96 -1,80 0,45 -1,79 3,01
+**-3,91** 0,29 -1,04 2,14 1,06 2,30 0,23 -0,06 1,36 -2,25 0,46 -0,81.
+
+Yani **sahibin kabul ettiği %1,2, p=4096 ile tutulamıyor.** Tipik hata
+%1,8, en kötüsü %3,9. Sözü tutmak p=16384 istiyor.
+
+### Üçgen gerçekti, ama sandığım yerde değil: aktarımda değil diskte
+
+p=16384, çeyrek saatlik kova: 8.640 × 12,3 KB = **site başına 90 günde
+106 MB.** 730 günde 860 MB — sıkıştırılmış ham tablodan (792 MB) büyük.
+
+Çözüm O2'nin zaten kullandığı şeklin aynısı: **kaba kova + ham kenar.**
+Eskiz **günlük UTC** tutuluyor; yerel gün sınırının kestiği kenarlar ham
+tablodan taze bir eskiz olarak üretilip birleşime katılıyor. Ölçüldü,
+90 gün, p=16384:
+
+```
+91 günlük eskiz                        528 kB
+88 saklı eskiz + 2 taze kenar eskizi   99,8 ms
+tahmin 90.495 / kesin 90.500           -%0,006
+```
+
+**528 kB, 106 MB yerine.** İkiyüz kat küçük, aynı hassasiyet, ve aralık
+üçe bölünüyor — ham baş, eskiz orta, ham kuyruk — yani O2'nin şekli
+yeniden kullanılıyor, ikinci bir şekil değil.
+
+### Karara bağlanacak şey, açıkça
+
+Sahip %1,2'yi kabul etmişti ve o sayı yanlış ölçülmüştü. Şimdi seçenekler
+sayılarla duruyor:
+
+| seçenek | disk / site / 90 gün | tipik hata | en kötü |
+|---|---:|---:|---:|
+| günlük eskiz p=16384 | 528 kB | %0,80 | %1,77 |
+| günlük eskiz p=4096 | 133 kB | %1,84 | %3,91 |
+| eskiz yok, aralık sınırı | 0 | 0 | 0 |
+
+Üçüncüsü NOTES'ta zaten yazılı meşru seçenek: benzersiz ziyaretçiyi
+yalnız kısa aralıklarda kesin göstermek. Bugün 90 gün 5,91 sn'lik
+yarının tamamı o sayı.
+
+Ve `HumanIPs = UniqueIPs - BotIPs` çıkarması duruyor: iki yaklaşık sayının
+farkının hatası patlıyor, insan sayısı kendi eskizini taşımalı. Yani kova
+başına **iki** eskiz, disk iki katı (1,1 MB).
+
+Bir de eşik: **panel `bot_score_min` göndermiyor**, hep varsayılan 50. Yani
+eskiz varsayılan eşikte kurulabilir ve başka eşik soran çağrı ham tabloya
+düşer. Bir özet sütununun sorgu parametresine bağlı olamaması engeli
+panel için bağlayıcı değil.
+
+*Bir hata payını iki çekilişle ölçmek, hata payını ölçmemektir.*

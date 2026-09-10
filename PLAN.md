@@ -4371,6 +4371,57 @@ eskiziyle geliyor, ve bunu bir mutasyon koruyor (çıkarmaya geri döndür,
 kırmızı vermeli). Panel yaklaşık olanı yaklaşık diye gösteriyor, ve
 kesin olduğu aralıklarda kesin diyor.
 
+##### Üç soru ölçüldü, kod yazılmadı *(2026-09-10)*
+
+**Eskiz Apache yapısında çalışıyor.** `timescaledb_toolkit` ayrı bir
+eklenti ve TSL kapısının arkasında değil; `timescaledb.license=apache`
+ile başlatılmış bir kümede `hyperloglog` koştu. O1 ve O2'nin duvarı
+burada yok. **Ama eklenti ayrı bir kurulum şartı**, ve yoksa kesin sayıya
+düşmek gerekir — o da *iki farklı sayı* demektir, sayfanın hangisini
+gösterdiğini söylemesi gerekir.
+
+**Birleştirme veritabanının içinde.** "İstek başına 34 MB eskiz" diye
+hesaplamıştım, yanlış: `rollup()` sunucuda birleşiyor ve dışarıya tek
+sayı çıkıyor. 8.641 kova, p=4096: disk 14 MB, 90 gün 190 ms, 30 gün
+63 ms.
+
+**Ve kabul edilen %1,2 yanlış ölçülmüş.** Ölçüm notunda "belgelenen
+standart hatayla uyumlu" yazıyordu, altında iki çekiliş vardı. Sabit
+kardinalitede (50.000) yirmi gerçekten farklı küme:
+
+| p | ortalama | std | en kötü | kova başına |
+|---:|---:|---:|---:|---:|
+| 4096 | +%0,03 | %1,84 | **%3,91** | 3.098 B |
+| 16384 | -%0,12 | %0,80 | %1,77 | 12.314 B |
+
+Yani **%1,2 p=4096 ile tutulamaz.**
+
+**Tasarım: günlük UTC eskiz + ham kenar.** p=16384'ü çeyrek saatlik
+tutmak site başına 90 günde 106 MB eder (730 günde 860 MB — sıkıştırılmış
+ham tablodan büyük). Eskiz günlük tutulup yerel gün sınırının kestiği
+kenarlar ham tablodan taze eskizle birleşime katıldığında:
+
+```
+91 günlük eskiz                        528 kB
+88 saklı eskiz + 2 taze kenar eskizi   99,8 ms
+tahmin 90.495 / kesin 90.500           -%0,006
+```
+
+İkiyüz kat küçük, aynı hassasiyet, ve aralık O2'nin zaten kullandığı üç
+parçaya bölünüyor: ham baş, eskiz orta, ham kuyruk.
+
+##### Sahibin kararını bekleyen şey
+
+| seçenek | disk / site / 90 gün | tipik | en kötü |
+|---|---:|---:|---:|
+| günlük eskiz, p=16384 | 528 kB | %0,80 | %1,77 |
+| günlük eskiz, p=4096 | 133 kB | %1,84 | %3,91 |
+| eskiz yok, aralık sınırı | 0 | kesin | kesin |
+
+İnsan sayısı kendi eskizini taşımak zorunda (çıkarmanın hatası patlıyor),
+yani disk iki katı. Ve panel `bot_score_min` göndermediği için eskiz
+varsayılan eşikte kurulabilir; başka eşik soran çağrı ham tabloya düşer.
+
 ---
 
 ### G. Yayın hattı — disiplinin insan hafızasına bağlı kalmaması
