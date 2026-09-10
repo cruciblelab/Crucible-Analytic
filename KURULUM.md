@@ -187,6 +187,55 @@ Collector açılışta profili bu makinenin belleğine karşı kontrol ediyor ve
 yalnız bir konteyner sınırının öldüreceğini reddediyor. Ayrıntısı
 `CHANGELOG.md`'de v0.18.0.
 
+### Kaç istek kaldırır — ölçüldü
+
+Yukarıdaki tablo **belleği** söylüyor; bu bölüm **CPU'yu.** Sayılar 4
+CPU / 16 GB bir konteynerde ölçüldü: sunucunun tamamı `taskset` ile bir
+ya da iki çekirdeğe çivilendi, yük kalan çekirdeklerden sürüldü, her
+değer üç tekrarın ortası.
+
+**Hepsi alt sınır.** Yük üretecinin boyu, sabit eşzamanlılıkta bile
+cevabı %32'ye kadar değiştiriyor; bildirilen değer birkaç düzenek
+boyunun **en iyisi**, yani "sunucu en az bunu yapıyor". Kendi sunucunuzda
+kıyaslamak isterseniz aynı ölçüm sizde de koşar:
+
+```bash
+CA_THROUGHPUT=1 go test -tags loadtest ./internal/loadtest/ \
+  -run Throughput -v -timeout 25m      # ~8 dakika, makine sessiz olmalı
+```
+
+| kip | 1 çekirdek | 2 çekirdek | istek başına eklediği |
+|---|---:|---:|---:|
+| arka uç yalnız (taban çizgisi) | 62.798 istek/s | 63.236 istek/s | — |
+| **geçişli vekil** (TLS'i açmaz) | **40.568 istek/s** | **44.105 istek/s** | +16–18 µs |
+| **tam vekil** (TLS'i sonlandırır) | **13.476 istek/s** | **14.607 istek/s** | +58–67 µs |
+
+"İstek başına eklediği", **tek bağlantıda** ölçülen gidiş-dönüş farkı:
+hiçbir yerde kuyruk yokken vekilin gerçekten harcadığı süre. Tek
+çekirdekte bu sayı ikinci ve bağımsız bir yoldan da doğrulandı (doygun
+çekirdekte istek başına çekirdek zamanı: 74,2 µs − 15,9 µs = 58,3 µs).
+
+**Arka uç kasten boş** — yalnız `ok` yazan bir işleyici. Gerçekçi değil,
+ölçüm için doğru: 20 ms harcayan bir arka uç vekilin maliyetini kendi
+içinde saklar. Sizin sitenizde asıl işi uygulamanız yapacak; collector'ın
+eklediği şey son sütun.
+
+**Bir günlük hesap:** günde bir milyon sayfa gösterimi, sayfa başına on
+istek → günde on milyon istek → ortalama saniyede **116**; günün en
+yoğun saati ortalamanın on katı olsa saniyede **1.160.** Tek çekirdekli
+tam vekil bunun on katının üstünde.
+
+**Ama tepe bir eğrinin tepesidir, ve limitler bu yüzden var.** Aynı tek
+çekirdek, tepesinin çok üstünde bir yükle itildiğinde daha **az** iş
+çıkarıyor: 128 eşzamanlı bağlantıda tam vekil tepesinin **%66**'sını
+geçiriyor ve yanıt süresi 0,47 ms'den 12,66 ms'ye çıkıyor. Sunucuyu o
+noktaya varmadan durduran şey `[limits]` — Bölüm 12'de panelden
+ayarlanıyor, ve bu ölçüm o ayarın niye bir sabit olmadığının cevabı.
+
+Ölçümün nasıl yapıldığı, dört kez nasıl yanlış ölçtüğüm ve nelerin
+**ölçülmediği** (HTTP/2, beacon yolu, başka ürünlerle karşılaştırma)
+`NOTES.md`'de yazılı.
+
 ### Veritabanını nereden bulacaksınız
 
 Bu betik veritabanını **kurmuyor**, kurulmuş bir veritabanına bağlanıyor.

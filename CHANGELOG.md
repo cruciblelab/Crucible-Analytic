@@ -18,6 +18,30 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
 
+### Kaç istek kaldırdığı ölçüldü — davranış değişmedi
+
+Bir soru vardı ve cevabı yoktu: küçük bir sunucu ne kadar yük kaldırır.
+Ölçüldü, ve **hiçbir kod davranışı değişmedi** — değişen tek şey artık
+bir sayının olması. Kurulum kılavuzunda yeni bir bölüm var
+(*Ön gereksinimler → Kaç istek kaldırır*).
+
+Kısaca, 4 CPU'lu bir makinede, sunucu bir ya da iki çekirdeğe çivilenmiş
+hâlde, ve **hepsi alt sınır**:
+
+| kip | 1 çekirdek | 2 çekirdek |
+|---|---:|---:|
+| geçişli vekil (TLS'i açmaz) | 40.568 istek/s | 44.105 istek/s |
+| tam vekil (TLS'i sonlandırır) | 13.476 istek/s | 14.607 istek/s |
+
+Vekilin bir isteğe eklediği süre, tek bağlantıda: geçişli **+16 µs**, tam
+**+58 µs**.
+
+Ölçümün bir bulgusu var ve sizi ilgilendiriyor: tek çekirdek, tepesinin
+çok üstünde bir yükle itilirse daha **az** iş çıkarıyor (128 eşzamanlı
+bağlantıda tepenin %66'sı, yanıt süresi 0,47 ms'den 12,66 ms'ye). Yani
+**`[limits]` ayarlarını kapatmayın** — sunucuyu o noktaya varmadan
+durduran şey onlar. Varsayılanlar bunun için yeterli; Bölüm 12.
+
 ### "Okunamadı" diyen bir bölüm artık niye olduğunu da yazıyor
 
 Panoda bir bölüm sayılarını çekemediğinde sayfa "Okunamadı." yazıyordu ve

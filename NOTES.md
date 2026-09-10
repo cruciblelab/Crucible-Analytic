@@ -16427,3 +16427,206 @@ düşer. Bir özet sütununun sorgu parametresine bağlı olamaması engeli
 panel için bağlayıcı değil.
 
 *Bir hata payını iki çekilişle ölçmek, hata payını ölçmemektir.*
+
+## Sahibin sorusu: "küçük sunucularda yüksek istekleri kaldırır mı" — ve ürünün hiç verim sayısı yoktu
+
+**Sorunun ilk cevabı bir itiraf oldu:** bu projede bugüne kadar hiç verim
+ölçümü yapılmamış. `internal/loadtest` limiter'ın **doğru** çalıştığını
+onlarca eşzamanlı bağlantı altında kanıtlıyor — PLAN.md'deki "gerçek
+eşzamanlı yük testi yapıldı" cümlesi tam olarak bunu söylüyor, saniyede
+kaç istek geçtiğini değil. O grubunun sayıları da **okuma** yolunun.
+Ziyaretçi isteğinin geçtiği yol, yani ürünün her müşteride her saniye
+çalışan yarısı, hiç ölçülmemiş.
+
+Yeni dosya: `internal/loadtest/throughput_test.go`, `loadtest` etiketi ve
+`CA_THROUGHPUT=1` arkasında. Sekiz dakika sürüyor ve makineyi sessiz
+istiyor.
+
+### Düzenek
+
+Üç kip aynı işleyiciye gidiyor, ve **üçü de TLS konuşuyor:**
+
+- **doğrudan arka uç (TLS)** — taban çizgisi. Müşterinin kendi
+  sunucusunun zaten cevaplayacağı istek.
+- **geçişli vekil** (`internal/proxy`) — ClientHello'yu parmak izliyor,
+  sonra TLS baytlarını olduğu gibi taşıyor. TLS arka uçta kalıyor.
+- **tam vekil** (`internal/fullproxy`) — TLS'i kendi sonlandırıyor, arka
+  uca düz HTTP konuşuyor. Yani bağlantı değil **istek** görüyor.
+
+TLS'in iki tarafta da olması bilinçli: `fullproxy` TLS'i sonlandırdığı
+için "vekilli / vekilsiz" diye naif bir karşılaştırma Go'nun RSA el
+sıkışmasını ürünün maliyeti diye bildirirdi. Farkta kalan şey kabul, hız
+deposu ve bir fazladan atlama.
+
+Arka uç **hiçbir şey yapmıyor** (`w.Write([]byte("ok"))`). Gerçekçi bir
+arka uç değil, kasıtlı olarak: 20 ms harcayan bir arka uç vekilin
+maliyetini kendi içinde saklardı. Soru "bu ürün ne ekliyor", ve o yalnız
+ortada başka bir şey yokken görülüyor.
+
+Sunucu tarafının tamamı (arka uçlar + iki vekil) `taskset` ile
+sabitlenmiş bir **çocuk süreçte**; yük bu süreçten, kalan çekirdeklerden
+sürülüyor. Ve sabitleme **doğrulanıyor**: çocuk kendi `GOMAXPROCS`'unu
+READY satırında bildiriyor, ebeveyn kendi maskesini `/proc/self/status`'tan
+geri okuyor. Kimsenin bakmadığı bir `taskset` olmamış olabilir ve
+sessizce **daha büyük bir makineyi** rapor eder.
+
+Protokol iki tarafta da HTTP/1.1, ve ölçümden önce **soruluyor** (bir
+istek atılıp `resp.Proto` okunuyor): bir kip h2, öteki http/1.1
+konuşuyorsa aradaki fark protokolün olur ve ürünün diye bildirilirdi.
+HTTP/2 **ölçülmedi**, gerekçesi dosyanın başında yazılı.
+
+### Dört kez yanlış ölçtüm, dördü de aynı sınıftan
+
+**1. Yük üreteci ölçtüğü sunucunun çekirdeğini paylaşıyordu.** İlk hâl
+`runtime.GOMAXPROCS(n)` ile süreç içinde ölçüyordu: altmış dört istemci
+goroutine'i, vekil ve arka uç aynı bütçenin içinde. Bildirdiği oran
+0,27–0,33'tü ve o sayı vekilin maliyeti değildi, **tek çekirdeğe üç taraf
+koymanın** maliyetiydi. Kendi kuralım, bu test yazılmadan önce
+yazılmıştı: *ölçtüğü şeyi aç bırakan bir yük üreteci kendi yükünü
+ölçüyordur.*
+
+**2. Kapasiteyi tek bir eşzamanlılıkta okudum.** İkinci hâl her şeye 64
+bağlantı sürüyordu. Boşluk denetimi tek çekirdekli tam vekili **daha
+küçük** bir yük üreteciyle %18,5 (bir önceki turda %26,6) **daha hızlı**
+bildirdi. İstemciden bir CPU almak sunucuyu hızlandıramaz; yaptığı şey
+daha az yük sunmak, ve dizini geçmiş bir çekirdek daha çok itildikçe daha
+az iş çıkarıyor:
+
+| tam vekil, 1 çekirdek | istek/s | p50 |
+|---|---:|---:|
+| 8 bağlantı | 14.053 | 471 µs |
+| 32 bağlantı | 10.523 | 3,17 ms |
+| 128 bağlantı | 10.142 | 12,66 ms |
+
+64, bir kapasite değil, dizinin öbür yanındaki bir noktaydı. Artık her
+kip merdiven boyunca taranıyor (1, 8, 16, 32, 64, 128) ve kapasitesi
+**kendi eğrisinin tepesinden** okunuyor. Merdivenin tepesinde kalan oran
+da bildiriliyor — ve o oran limiter'ın niye bir *sabit* değil bir **ayar**
+olduğunun cevabı.
+
+**3. Gecikmeyi iki farklı yükte ölçüp çıkardım.** Kapasiteyi her kipin
+kendi tepesinde okumak gecikme karşılaştırmasını bozdu: 8 bağlantıda
+ölçülmüş bir p50'den 128 bağlantıda ölçülmüş bir p50'yi çıkarınca **"tam
+vekil -1,174 ms ekliyor"** çıktı — istekleri gönderilmeden önce vardıran
+bir vekil. *İki farklı sunulan yükte ölçülen iki gecikmenin farkı,
+maliyet farkı değil kuyruk farkıdır.* Gecikme artık **tek bağlantıda**
+ölçülüyor; orada hiçbir yerde kuyruk yok ve sayı gidiş-dönüşün kendisi.
+Fark da küçüldü: 8 bağlantıda "342 µs" görünen şey tek bağlantıda
+**58 µs.** Yani o 342'nin altı yedisi kuyruktu.
+
+**4. Payı doğruladım, paydayı doğrulamadım.** Boşluk denetimi yalnız
+ürünün sayısına soruluyordu, taban çizgisine değil. Boşluğu gösteren şey
+tabanın kendisi oldu: bir çekirdekten ikiye geçince **%4** arttı —
+sunucuya bağlı bir sayı iki katına çıkardı. Yani oranın **paydası**
+üretecin sınırıydı ve vekil olduğundan iyi görünüyordu. *Payı doğrulayıp
+paydayı doğrulamamak, oranı doğrulamamaktır.*
+
+Soru her kipe sorulunca cevap beklediğimden büyük çıktı: üreteç, **sabit
+eşzamanlılıkta** cevabı %32'ye kadar değiştiriyor, iki yönde ve kipe göre
+farklı. Tam vekilde sayı üreteç küçüldükçe **monoton artıyor** (3 CPU
+11.625 → 2 CPU 12.159 → 1 CPU 13.476); tabanda ise tersi (62.798 →
+55.065 → 39.157). Mekanizma iddia etmiyorum, ama loopback'te uyandırmanın
+gönderenin CPU'sunda işlendiği düşünülürse üç kaynaktan uyandırılan bir
+çekirdeğin iki kaynaktan uyandırılandan pahalıya gelmesi şaşırtıcı değil.
+
+Sonuç: **hiçbir tek düzenek yapılandırması sunucuyu ölçmüyor.** Hepsinin
+üzerinde anlaştığı tek şey, sunucunun en az bunların en iyisi kadar
+yapabildiği. Kapasite artık üreteç boyları üzerinden **en iyisi** olarak
+bildiriliyor ve **"en az"** diye yazılıyor.
+
+Bir de beşincisi, kuralın kendisinde: boşluk denetiminin ilk hâli yalnız
+**düşme** arıyordu ve %26,6'lık bir **yükselmeye** "geçti" dedi. *Bir
+eşiği yalnız tek yönden geçen bir durum, eşiği tutmuyordur* — bu kez
+eşiğin kendisi tek yönlüydü.
+
+### Ölçülen
+
+Konteyner: 4 CPU, 16 GB, PostgreSQL bu ölçümde yok (istek yolu
+veritabanına dokunmuyor). Her sayı üç tekrarın **ortası**, aralığı
+yanında.
+
+**Sunucu 1 çekirdek** (CPU 0), yük kalan üçünden:
+
+| kip | tepe | kapasite (en az) | en iyisini veren üreteç | aralık | 128 bağlantıda tepenin |
+|---|---:|---:|---|---|---:|
+| doğrudan arka uç (TLS) | 64 | **62.798** istek/s | 3 CPU | 62.724 – 64.891 | %100 |
+| geçişli vekil | 16 | **40.568** istek/s | 2 CPU | 39.843 – 43.926 | %78 |
+| tam vekil | 8 | **13.476** istek/s | 1 CPU | 13.204 – 13.650 | %66 |
+
+**Sunucu 2 çekirdek** (CPU 0-1), yük kalan ikisinden:
+
+| kip | tepe | kapasite (en az) | üreteç | aralık | 128 bağlantıda |
+|---|---:|---:|---|---|---:|
+| doğrudan arka uç (TLS) | 64 | **63.236** istek/s | 2 CPU | 62.988 – 63.645 | %99 |
+| geçişli vekil | 128 | **44.105** istek/s | 2 CPU | 42.551 – 48.537 | %100 |
+| tam vekil | 8 | **14.607** istek/s | 1 CPU | 14.286 – 16.143 | %95 |
+
+**Gecikme, tek bağlantı** (hiçbir yerde kuyruk yok):
+
+| kip | 1 çekirdek | ekledigi | 2 çekirdek | ekledigi |
+|---|---:|---:|---:|---:|
+| doğrudan arka uç (TLS) | 108 µs | — | 113 µs | — |
+| geçişli vekil | 123 µs | **+16 µs** | 130 µs | **+18 µs** |
+| tam vekil | 166 µs | **+58 µs** | 180 µs | **+67 µs** |
+
+### İki bağımsız yol tek çekirdekte aynı cevabı verdi
+
+Doygun bir çekirdekte istek başına çekirdek zamanı = 1 sn / (istek/s).
+Tek çekirdekte:
+
+- taban: 1 / 62.798 = **15,9 µs**
+- tam vekil: 1 / 13.476 = **74,2 µs**
+- fark: **58,3 µs**
+
+Ve tek bağlantıda ölçülen gecikme farkı **58 µs.** İki tamamen ayrı
+ölçüm, aynı sayı. Yani "tam vekil istek başına ~58 µs çekirdek zamanı
+ekliyor" cümlesi iki yerden geliyor.
+
+İki çekirdekte **uyuşmuyor** (2 / 14.607 − 2 / 63.236 = 105 µs, gecikme
+farkı 67 µs) ve sebebi bilinen: o tabloda **taban** üretecin sınırında
+(1 çekirdekten 2 çekirdeğe %0,7 artıyor), yani istek başına çekirdek
+zamanı olduğundan büyük hesaplanıyor. Uyuşmazlığın kendisi, "bu sayılar
+alt sınır" çerçevesinin kanıtı.
+
+### Oran hakkında dürüst olmak
+
+Tablodaki 0,21 ve 0,65 oranları **iki alt sınırın bölümü**, yani hata
+yönü bilinmiyor: taban da alt sınır, pay da. Savunulabilir olan şey her
+mutlak sayının kendisi ve tek bağlantıdaki gecikme farkı. Oranı bir
+büyüklük mertebesi olarak okuyun, bir katsayı olarak değil.
+
+### Ne anlama geliyor
+
+Günde bir milyon sayfa gösterimi olan bir site, sayfa başına on istekle
+günde on milyon istek eder: ortalaması saniyede **116 istek**, günün en
+yoğun saati ortalamanın on katı olsa saniyede **1.160**. Tek çekirdekli
+tam vekil (en az 13.476) bunun on katının üstünde; geçişli vekil (en az
+40.568) otuz katının.
+
+Ama **tepe bir eğrinin tepesidir.** Aynı tek çekirdek, tepesinin çok
+üstünde bir yükle itildiğinde daha **az** iş çıkarıyor: 128 eşzamanlı
+bağlantıda tam vekil tepesinin %66'sını geçiriyor ve p50 471 µs'den
+12,66 ms'ye çıkıyor. Sunucuyu dizinin ötesine geçmeden durduran şey
+`[limits]`, ve bu ölçüm o ayarın niye sabit olmadığının sayısal cevabı.
+
+### Ne ölçülmedi
+
+- **Başka bir analitik ürünüyle karşılaştırma.** Bu makinede hiçbiri
+  koşmadı, ve bu ürünün bir sayısının yanına başkasının yayımladığı bir
+  sayıyı koymak karşılaştırma değildir.
+- **HTTP/2.** Bir karşılaştırmanın iki tarafı aynı protokolü konuşmak
+  zorunda, ve `httptest`'in h2 kablolaması `fullproxy`'nin kod yolu
+  değil.
+- **Beacon yolu** (`internal/beacon`) ve **veritabanına yazma.** Bu ölçüm
+  vekilin kendi maliyetini yalıtıyor; toplu yazmanın maliyeti ayrı bir
+  soru ve ayrı bir faz.
+- **Dört çekirdek ve üstü.** Sunucuya verilen her CPU üreteçten
+  gidiyordu; bu makinede en büyük dürüst sunucu boyu 2 çekirdek.
+
+### Niye gecelikte değil
+
+Gecelik bu paketi `-race -count=3` ile koşuyor ve ikisi de bir verim
+sayısı için yanlış: yarış dedektörü ölçülen şeyin maliyetini değiştirir,
+ve beş dakikalık bir taramanın üç koşusu geceliğin çoğu eder. Paylaşımlı
+bir bulut koşucusu da kendini ölçerdi. Bu yüzden test `CA_THROUGHPUT`
+yoksa atlıyor ve buradaki sayılar geldikleri makineyi adıyla söylüyor.

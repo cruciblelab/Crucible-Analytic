@@ -90,6 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **Y** İstek yolu yük altında | 🟡 **1/2** | Y2 — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4421,6 +4422,67 @@ parçaya bölünüyor: ham baş, eskiz orta, ham kuyruk.
 İnsan sayısı kendi eskizini taşımak zorunda (çıkarmanın hatası patlıyor),
 yani disk iki katı. Ve panel `bot_score_min` göndermediği için eskiz
 varsayılan eşikte kurulabilir; başka eşik soran çağrı ham tabloya düşer.
+
+---
+
+### Y. İstek yolu yük altında *(planda yoktu; sahibin sorusu açtı)*
+
+Sahip sordu: *"Bu proje her seviyede ne kadar performanslı, çoğu
+analitikten performanslı mı, küçük sunucularda yüksek istekleri kaldırır
+mı."* Cevap arayınca ortaya çıkan şey **cevabın hiç olmadığı** oldu:
+`internal/loadtest` limiter'ın doğruluğunu eşzamanlılık altında
+kanıtlıyor, bu bölümün "gerçek eşzamanlı yük testi yapıldı" cümlesi de
+tam olarak onu söylüyor — saniyede kaç istek geçtiğini değil. O grubu
+**okuma** tarafını ölçtü. Ziyaretçi isteğinin geçtiği yol, ürünün her
+müşteride her saniye çalışan yarısı, hiç ölçülmemişti.
+
+#### Y1 — Verim ve istek başına maliyet ✅ **bitti (2026-09-10)**
+
+Yeni dosya `internal/loadtest/throughput_test.go`: sunucunun tamamı
+`taskset` ile sabitlenmiş bir çocuk süreçte, yük kalan çekirdeklerden.
+Üç kip (doğrudan TLS arka uç / geçişli vekil / tam vekil) aynı işleyiciye
+gidiyor ve üçü de TLS konuşuyor, yoksa fark Go'nun el sıkışması olurdu.
+
+Ölçülen (4 CPU konteyner, üç tekrarın ortası, **hepsi alt sınır**):
+
+| kip | 1 çekirdek | 2 çekirdek | tek bağlantıda eklediği |
+|---|---:|---:|---:|
+| arka uç yalnız | 62.798 istek/s | 63.236 istek/s | — |
+| geçişli vekil | **40.568** istek/s | **44.105** istek/s | +16–18 µs |
+| tam vekil | **13.476** istek/s | **14.607** istek/s | +58–67 µs |
+
+Tek çekirdekte iki bağımsız yol aynı cevabı verdi: doygun çekirdekte
+istek başına çekirdek zamanı 74,2 − 15,9 = **58,3 µs**, tek bağlantıda
+ölçülen gecikme farkı **58 µs**.
+
+**Dört ölçüm hatası fazın içinden çıktı**, dördü de "ölçen taraf ölçtüğü
+şeye karışıyor" sınıfından: (1) yük üreteci sunucunun çekirdeğini
+paylaşıyordu, (2) kapasite tek bir eşzamanlılıkta okunuyordu ve o nokta
+dizinin ötesindeydi, (3) gecikme iki farklı yükte ölçülüp çıkarılıyordu
+(*"vekil −1,174 ms ekliyor"*), (4) boşluk denetimi paya soruluyordu,
+paydaya değil — ve taban 1 çekirdekten 2'ye yalnız %4 arttığı için
+paydanın kendisi üretecin sınırıydı. Beşincisi kuralda: denetim yalnız
+**düşme** arıyordu ve %26,6'lık bir yükselmeye "geçti" dedi. Ayrıntı ve
+sayılar NOTES.md'de.
+
+**Bulgu, ürün için:** tek çekirdek tepesinin çok üstünde itildiğinde daha
+**az** iş çıkarıyor (128 bağlantıda tepenin %66'sı, p50 0,47 → 12,66 ms).
+Yani `[limits]` bir konfor ayarı değil, dizinin ötesine geçmeyi
+engelleyen şey. Bu, sahibin **özgürlük tadilinin** ("gerçek bir zarar
+yoksa engelleme") sayısal sınırı: burada gerçek bir zarar var ve
+varsayılanlar onu karşılıyor.
+
+**Ölçülmedi, açıkça:** başka bir analitik ürünüyle karşılaştırma (bu
+makinede hiçbiri koşmadı — sahibin sorusunun bu yarısı **cevapsız**),
+HTTP/2, beacon yolu, veritabanına yazmanın maliyeti, ve 4+ çekirdek.
+
+#### Y2 — Beacon yolu ve yazma maliyeti *(sıradaki, ölçülmedi)*
+
+Bu ölçüm vekilin kendi maliyetini yalıttı. Bir ziyaretçi isteğinin geri
+kalanı — beacon'ın JSON'u ayrıştırması, ziyaretçi kimliğinin HMAC'i, ve
+toplu yazmanın TimescaleDB'ye maliyeti — ayrı bir soru. Aynı düzenek
+kullanılabilir (çocuk süreç + sabitleme), ama veritabanı da sabitlenmeli
+yoksa ölçülen şey Postgres'in payı olur.
 
 ---
 
