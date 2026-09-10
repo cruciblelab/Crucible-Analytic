@@ -214,6 +214,14 @@ ara işleri, noktalı **AI.2/AI.3** ise faz araları. İsimler commit
 mesajlarında geçtiği için değiştirilmedi; ayrımı burada yazmak
 düzeltmekten ucuz.)*
 
+- **Canlı test kusuru** *(2026-09-10, sahibin isteğinden)*: iki sayfalık
+  test sitesi + gerçek Chromium + panele giriş. Panonun kapsam tablosu
+  her bantta sıfır çiziyordu; panelin çözücüsü bant içinde `unique_ips` /
+  `ran_js` arıyordu, API `ips_seen` / `ips_ran_js` yazıyor. Var olan test
+  de aynı iki yanlış adı elle yazdığı için geçiyordu. Yeni koruma tel adı
+  yazmıyor: `api.CrossoverSummary` marshal edilip panelin çözücüsünden
+  geçiyor. İki mutasyon, ikisi de kırmızı; canlı kurulumda doğrulandı.
+  Bütün panel↔API alan adları denetlendi, tek uyuşmazlık buydu.
 - **AI-1** Sunucu otoritesi — denetlendi, ihlal yok; güven kararları
   iddia+karar birlikte kaydediliyor
 - **AI-2** Log ağacı — `<dir>/<servis>/<gün>/<kategori>.log`, 9 kategori,

@@ -244,11 +244,21 @@ func (c *Client) crossover(ctx context.Context, site string, from, to time.Time)
 		IPsSilent     int     `json:"ips_silent"`
 		JSCoverage    float64 `json:"js_coverage"`
 		BeaconOnlyIPs int     `json:"beacon_only_ips"`
-		Bands         []struct {
-			Min       int `json:"min"`
-			Max       int `json:"max"`
-			UniqueIPs int `json:"unique_ips"`
-			RanJS     int `json:"ran_js"`
+		// Field names copied from api.CoverageBand, not from the
+		// neighbouring score-distribution decoder above - which really
+		// does read "unique_ips", and is where these two came from. The
+		// crossover endpoint emits "ips_seen" and "ips_ran_js", so the
+		// borrowed names decoded every band as zero and the panel's
+		// coverage table drew a row of zeros on every deployment,
+		// underneath a summary from the same response that was correct.
+		// JSON decoding is silent about a name it cannot find;
+		// TestTheCoverageBandsSurviveTheApisOwnJson now marshals the
+		// API's own type through this one so neither list is trusted.
+		Bands []struct {
+			Min      int `json:"min"`
+			Max      int `json:"max"`
+			IPsSeen  int `json:"ips_seen"`
+			IPsRanJS int `json:"ips_ran_js"`
 		} `json:"bands"`
 	}
 	var out Crossover
@@ -261,7 +271,7 @@ func (c *Client) crossover(ctx context.Context, site string, from, to time.Time)
 	out.Coverage, out.BeaconOnly = body.JSCoverage, body.BeaconOnlyIPs
 	for _, b := range body.Bands {
 		out.Bands = append(out.Bands, CoverageBand{
-			Min: b.Min, Max: b.Max, Addresses: b.UniqueIPs, RanJS: b.RanJS,
+			Min: b.Min, Max: b.Max, Addresses: b.IPsSeen, RanJS: b.IPsRanJS,
 		})
 	}
 	return out

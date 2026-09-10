@@ -72,6 +72,8 @@ var documentClass = map[string]docClass{
 	"SECURITY.md":            {true, "describes the current reporting process and the current guarantees"},
 	"CONTRIBUTING.md":        {true, "describes how the repository works today"},
 	"VERSIONING.md":          {true, "describes the scheme in force"},
+	"KARSILASTIRMA.md": {true, "compares this product against Umami as both are today; " +
+		"its measurements name the file that produced them and must keep resolving"},
 
 	"PLAN.md":  {false, "a record: phases as they were planned and carried out, naming the files of the day"},
 	"NOTES.md": {false, "a record: why each decision was made, at the time it was made"},

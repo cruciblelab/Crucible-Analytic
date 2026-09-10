@@ -18,6 +18,24 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
 
+### Panonun kapsam tablosu sıfır çiziyordu — düzeltildi
+
+Panonun teknik bölümünde, *"Sunucunun gördüğü, ölçüm kodunun duyduğu"*
+başlığı altındaki skor bandı tablosu **her bantta 0 adres** gösteriyordu.
+İki satır yukarıdaki özet doğruydu; tablo yanlıştı, ve ikisi aynı cevaptan
+geliyordu.
+
+Sebep panelin okuma API'sinden gelen cevabı çözerken iki alan adını
+yanlış aramasıydı. Veri hep doğru kaydedildi ve doğru hesaplandı — yalnız
+o tablo çizilirken kayboluyordu. Veritabanınızda düzeltilecek bir şey yok;
+yeni panel ikilisi yeterli.
+
+Nasıl bulundu: iki sayfalık bir test sitesi kurulup gerçek bir tarayıcıyla
+gezildi, sonra panele girilip **ekrana bakıldı.** Hiçbir test bunu
+yakalamıyordu, çünkü o tablonun testi de aynı iki yanlış adı kullanıyordu.
+Yeni koruma artık alan adlarını hiç yazmıyor: API'nin kendi tipini
+panelin çözücüsünden geçiriyor, yani iki taraf bir daha ayrışamaz.
+
 ### Kaç istek kaldırdığı ölçüldü — davranış değişmedi
 
 Bir soru vardı ve cevabı yoktu: küçük bir sunucu ne kadar yük kaldırır.

@@ -16924,3 +16924,122 @@ silecek.** P5 ya sayıyı silmeden önce sayarak bulmalı, ya da
 `drop_chunks` gibi başka bir mekanizma kullanmalı — ve hangisi olursa
 olsun **sıkıştırılmış bir hypertable'a karşı, kendi veritabanında**
 sınanmalı.
+
+## Canlı test: iki sayfalık site, gerçek tarayıcı, panele giriş — ve bir kusur
+
+Sahip istedi: *"ürünümüzü canlı teste tabi tutar mısın, test sitesi
+hazırla iki sayfalık, ona ekle, sayfaları ziyaret et gez bak, sonra panel
+girişi yapıp durumu kontrol et."* Yapıldı, ve **bir kusur buldu** —
+hiçbir testin yakalamadığı, yalnız ekrana bakınca görülen bir kusur.
+
+### Düzenek: gerçek zincir, taze veritabanı
+
+Kendi kuralımı bu kez baştan uyguladım: **taze veritabanı** (`ca_live`),
+şema dosyaları sırayla + `release/sql/grants.sql`, dört rolün parolası,
+dört yapılandırma dosyası, ve gerçek dağıtımın şekli:
+
+```
+tarayıcı → collector (tam vekil, TLS 8443) → ön sunucu (8080)
+                                              ├── /_ca/* → beacon (8081)
+                                              └── statik iki sayfa
+           analytics-api (8082) ← panel (8090)
+```
+
+Ön sunucu, gerçek kurulumda nginx olan parçanın yerine geçen kırk
+satırlık bir yönlendirici; `/_ca/` beacon'a, gerisi siteye. Böylece
+snippet **aynı kaynaktan** geliyor ve karışık içerik uyarısı yok.
+
+Test sitesi: iki sayfa (ana sayfa + hakkımızda), aralarında bağlantılar,
+bir de özel olay gönderen düğme. Snippet `<script src="/_ca/ca.js"
+data-site="canli-deneme">`, ve gizlilik kartı için `<div
+data-crucible-privacy></div>`.
+
+**Gerçek Chromium** (Playwright) iki sayfayı gezdi, ileri geri gitti,
+düğmeye bastı, gizlilik sayfasını açtı. Beş istek, hepsi 204; konsolda
+tek hata `/favicon.ico` 404'ü, o da test sitemin eksiği.
+
+### Bir tur bot, bir tur insan — ve ürün ikisini ayırdı
+
+İlk tur varsayılan Playwright kimliğiyle koştu ve **ürün onu bot saydı**,
+doğru olarak: `Headless Chrome` bir bot imzası, ve `classifyDevice` bota
+form faktörü atamıyor. Yani ilk turda kendi tarayıcım ölçüm kodunun bot
+yolundaydı ve fark etmemiştim.
+
+İkinci tur gerçekçi bir masaüstü kimliğiyle koştu. Aynı tarayıcı, iki
+kimlik, iki sonuç:
+
+| tur | tarayıcı | işletim | cihaz | `is_bot_ua` | ziyaretçi kimliği |
+|---|---|---|---|---|---|
+| 1 | Headless Chrome | Linux | *(boş)* | **evet** | `d0f8e658` |
+| 2 | Chrome | Windows | desktop | hayır | `74505f5b` |
+
+Ziyaretçi kimliğinin değişmesi de doğru: HMAC kullanıcı ajanını da
+içeriyor.
+
+Panoda: **1 ziyaretçi, 4 sayfa görüntüleme, 1 oturum, `/` %75 ve
+`/hakkinda.html` %25**, kaynak "Doğrudan" %100, cihaz "desktop" %100,
+olay `bulten-kaydol` 1 kez. Bot turunun sayfa görüntülemeleri
+**dışarıda** — varsayılan bot süzgeci çalışıyor. Sağlık sayfası dört
+servisi de raporladı (beacon: 10 kabul, 10 yazıldı, 0 düşürüldü, 0
+reddedildi).
+
+Ve gizlilik kartı müşterinin sayfasının içinde çizildi: adres maskeleme
+(`IPv4 /24, IPv6 /64`), çerez yok, hepsi **canlı ayardan türetilmiş.**
+
+### KUSUR: kapsam tablosu her kurulumda sıfır çiziyordu
+
+Panonun teknik bölümünde, "Sunucunun gördüğü, ölçüm kodunun duyduğu"
+altındaki skor bandı tablosu **her bantta 0** gösteriyordu — ve iki satır
+yukarıdaki özet aynı cevaptan gelen doğru sayıları gösteriyordu (1 adres,
+1 JavaScript çalıştıran, kapsam %100).
+
+API'ye doğrudan sorunca doğru çıktı:
+
+```json
+"bands": [{"min":0,"max":9,"ips_seen":1,"ips_ran_js":1,"js_coverage":1}, ...]
+```
+
+Sebep: `internal/panel/analytics/technical.go`'daki çözücü bant içinde
+**`unique_ips`** ve **`ran_js`** arıyordu; API **`ips_seen`** ve
+**`ips_ran_js`** yazıyor. JSON çözümlemesi bulamadığı bir ad hakkında
+hiçbir şey söylemez, o yüzden her bant sıfır geliyordu.
+
+**Adların nereden geldiği de belli:** hemen üstteki `scoreDistribution`
+çözücüsü gerçekten `unique_ips` okuyor. İki komşu çözücü, biri doğru,
+biri komşusundan kopyalanmış.
+
+**Ve asıl ders bunun testinde:** `TestCrossoverCarriesTheConfigurationSignalSeparately`
+bantları **kontrol ediyordu** (`got.Bands[1].RanJS != 1`) ve **geçiyordu**
+— çünkü fikstürü elle yazılmıştı ve *aynı iki yanlış adı* kullanıyordu.
+Test ile kod birbirleriyle anlaşmıştı; ikisi de üreticiyle anlaşmıyordu.
+
+> *Bir tel biçimini elle yazan bir fikstür, yazıldığı anda doğrudur ve
+> ondan sonra yalnız kazara doğru kalır.*
+
+Düzeltme: çözücü API'nin adlarına çevrildi, o fikstür düzeltildi, ve yeni
+koruma **hiçbir tel adı yazmıyor** —
+`TestTheCoverageBandsSurviveTheApisOwnJson` `api.CrossoverSummary`'yi
+JSON'a çevirip panelin çözücüsünden geçiriyor. İki taraftan biri bir alanı
+yeniden adlandırırsa test kırmızı verir. İki mutasyon (eski adlara dönüş,
+ve eşlemede alanların takası), ikisi de kırmızı.
+
+**Canlı kurulumda doğrulandı:** panel yeniden derlendi, aynı veriyle aynı
+sayfa artık `0–9 | 1 | 1 | %100,0` çiziyor.
+
+### Bütün yüzey denetlendi, tek uyuşmazlık buydu
+
+Aynı kopyala-yapıştır sınıfı başka çözücülerde de olabilirdi. Panelin
+beklediği bütün alan adları API'nin yazdıklarıyla karşılaştırıldı, ve
+kalan altı şüpheli ad canlı API'ye sorularak elendi: `buckets`,
+`browser`, `os` gerçekten öyle geliyor; `label`, `empty`, `ja4_label`
+API'de `,omitempty` ile duruyor, yani canlı cevapta sıfır oldukları için
+görünmüyorlardı. **Kapsam bantları tek uyuşmazlıktı.**
+
+### Ne ölçülmedi
+
+- **Kalıcı bir tarayıcı testi yazılmadı.** Bulduğu kusurun sınıfı artık
+  birim testiyle kapalı, ve `e2e` zinciri HTTP istemcisiyle zaten
+  koşuyor; ama *gerçek snippet'i gerçek tarayıcıda* koşturan kalıcı bir
+  süit yok, ve bu kusuru bulan tam olarak o eksik parçaydı.
+- Ülke/ASN kırılımı (`hafif` profil, aralık tablosu yüklü değil),
+  kampanya parametreleri, çok ziyaretçili oturum davranışı.

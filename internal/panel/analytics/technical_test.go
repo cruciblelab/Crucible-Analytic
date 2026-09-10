@@ -2,10 +2,13 @@ package analytics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/cruciblelab/crucible-analytic/internal/api"
 )
 
 // TestTheScoreHistogramKeepsItsEmptyBands.
@@ -52,10 +55,20 @@ func TestTheScoreHistogramKeepsItsEmptyBands(t *testing.T) {
 // Decoded into its own field rather than folded into the counts, so the
 // panel can say what it is rather than draw it as a fourth number.
 func TestCrossoverCarriesTheConfigurationSignalSeparately(t *testing.T) {
+	// Band keys are "ips_seen" and "ips_ran_js", which is what
+	// api.CoverageBand emits. This fixture used to say "unique_ips" and
+	// "ran_js" - the same two wrong names the decoder was reading - so
+	// the test and the code agreed with each other and both disagreed
+	// with the producer. It passed for as long as that lasted, and the
+	// coverage table drew zeros on every real deployment.
+	//
+	// Fixed here, and derived rather than restated in
+	// TestTheCoverageBandsSurviveTheApisOwnJson: a hand-typed wire name
+	// is right when it is typed and only stays right by accident.
 	const body = `{"site_id":"s","ips_seen":100,"ips_ran_js":40,"ips_silent":60,
 		"js_coverage":0.4,"beacon_only_ips":7,
-		"bands":[{"min":0,"max":9,"unique_ips":50,"ran_js":38},
-		         {"min":90,"max":100,"unique_ips":20,"ran_js":1}]}`
+		"bands":[{"min":0,"max":9,"ips_seen":50,"ips_ran_js":38},
+		         {"min":90,"max":100,"ips_seen":20,"ips_ran_js":1}]}`
 
 	from, to := window()
 	c := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -239,5 +252,71 @@ func TestAHostileSiteIDIsEscaped(t *testing.T) {
 
 	if strings.Contains(got, "../") {
 		t.Errorf("the path is %q; a site id climbed out of its segment", got)
+	}
+}
+
+// TestTheCoverageBandsSurviveTheApisOwnJson ties this decoder to the
+// producer instead of to a fixture.
+//
+// The bug this closes: the decoder read "unique_ips" and "ran_js" while
+// api.CoverageBand emits "ips_seen" and "ips_ran_js". JSON decoding says
+// nothing about a name it cannot find, so every band arrived as zero and
+// the panel's coverage table drew a row of zeros - underneath a summary,
+// from the same response, that was correct. It was found by looking at a
+// screenshot of a live deployment, not by any test, because the test
+// beside it had been given the same two wrong names by hand.
+//
+// So this one does not name the wire format at all. It marshals the
+// API's own type and requires the numbers to arrive, which is a claim
+// neither side can satisfy alone: rename a field on either side and this
+// fails.
+func TestTheCoverageBandsSurviveTheApisOwnJson(t *testing.T) {
+	produced := api.CrossoverSummary{
+		SiteID: "s", IPsSeen: 70, IPsRanJS: 40, IPsSilent: 30, JSCoverage: 0.4,
+		Bands: []api.CoverageBand{
+			{Min: 0, Max: 9, IPsSeen: 50, IPsRanJS: 38, JSCoverage: 0.76},
+			{Min: 90, Max: 100, IPsSeen: 20, IPsRanJS: 2, JSCoverage: 0.1},
+		},
+	}
+	body, err := json.Marshal(produced)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	from, to := window()
+	c := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	got := c.FetchTechnical(context.Background(), "s", from, to,
+		TechnicalRequest{Crossover: true}).Crossover
+	if got.Err != nil {
+		t.Fatalf("crossover: %v", got.Err)
+	}
+
+	if len(got.Bands) != len(produced.Bands) {
+		t.Fatalf("decoded %d bands from %d produced", len(got.Bands), len(produced.Bands))
+	}
+	for i, want := range produced.Bands {
+		g := got.Bands[i]
+		if g.Min != want.Min || g.Max != want.Max {
+			t.Errorf("band %d range = %d-%d, want %d-%d", i, g.Min, g.Max, want.Min, want.Max)
+		}
+		// The two that were silently dropped. Named in the failure so a
+		// future rename reads as a rename rather than as a zero.
+		if g.Addresses != want.IPsSeen {
+			t.Errorf("band %d addresses = %d, want %d; the API emits this as ips_seen",
+				i, g.Addresses, want.IPsSeen)
+		}
+		if g.RanJS != want.IPsRanJS {
+			t.Errorf("band %d ran-JS = %d, want %d; the API emits this as ips_ran_js",
+				i, g.RanJS, want.IPsRanJS)
+		}
+	}
+
+	// And the summary, from the same bytes: it was always right, and a
+	// fix that broke it while fixing the bands would be a worse trade.
+	if got.Seen != produced.IPsSeen || got.RanJS != produced.IPsRanJS {
+		t.Errorf("summary = seen %d, ran %d; want %d, %d",
+			got.Seen, got.RanJS, produced.IPsSeen, produced.IPsRanJS)
 	}
 }
