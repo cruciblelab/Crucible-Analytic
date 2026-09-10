@@ -90,7 +90,7 @@ gerekçe değil bahane olur.
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
-| **Y** İstek yolu yük altında | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
+| **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4492,6 +4492,29 @@ taşmadı.
 | beacon, satır/s | **22.445–23.982** | **30.157–30.402** |
 | tek bağlantı p50 | 182–189 µs | 194–215 µs |
 
+#### Y4 — Tarafsız karşılaştırma tablosu ✅ **bitti (2026-09-10)**
+
+Sahip: *"Umami'yle bir karşılaştırma tablosu yapsak tablo nasıl olurdu,
+gerçekçi tarafsız hazırlanacak."* → `KARSILASTIRMA.md`.
+
+Tarafsızlığın üç kuralı belgenin içinde: **Umami'nin önde olduğu bölüm
+önce geliyor** (52 arayüz dili karşısında 2; huni/kohort/segment/atıf/
+gelir raporları, oturum kaydı, ısı haritası, 2FA, paylaşım bağlantısı,
+ClickHouse seçeneği, gerçek zamanlı sayfa, ve arkasındaki şirket ile
+topluluk — biz 1.0 öncesi, 255 commit, tek geliştirici); **ölçülen /
+kaynağından doğrulanan / bakılmayan** ayrı işaretli; ve **her hız
+iddiasının yanında bedeli** yazılı.
+
+Bir satır taşınmak zorunda kaldı: "gerçek zamanlı görünüm"ü ikisinde de
+var diye yazmıştım, kaynağa bakınca bizde olmadığı çıktı.
+
+Bellek ve dağıtım boyutu da ölçüldü: beacon 15,7 MB boşta / 18,9 MB 400
+olay sonrası, Umami 129-203 MB / 347-405 MB; dağıtım 72,5 MB karşısında
+~296 MB (Node dahil).
+
+**Tabloyu hazırlarken iki veritabanı bulgusu çıktı** ve biri P5'i
+bağlıyor — aşağıya bak.
+
 #### Y3 — Başka bir analitikle karşılaştırma ✅ **bitti (2026-09-10)**
 
 Sahip: *"umumi yükleyip test edebilir misin peki karşılaştırma
@@ -7312,6 +7335,27 @@ olur."*
 
 Yani **varsayılan dokunmamak**, üstüne bir uyarı, ve ayrıca **açıkça
 onaylanan** bir temizleme. İkisi birlikte.
+
+##### ÖNKOŞUL, Y4'ten geldi (2026-09-10): temizleme silinen satır sayısına bakamaz
+
+Ölçüldü: TimescaleDB 2.17.2, `compress_segmentby = 'site_id'` ile
+**sıkıştırılmış** `beacon_events` üzerinde `DELETE ... WHERE site_id =
+'x'` beş yüz satırın beşyüzünü siliyor ve **`DELETE 0`** bildiriyor. Aynı
+veri düz tabloda `DELETE 500` diyor. Sıkıştırma varsayılan olarak yedi
+gün sonra açık, yani bu **her kurulumun** hâli.
+
+Sonucu P5 için doğrudan: onaylı temizleme, kaç satır sildiğini sahibe
+gösterecekse o sayıyı **silmeden önce sayarak** bulmalı, ya da
+`drop_chunks` gibi başka bir mekanizma kullanmalı. Etkilenen satır
+sayısına güvenen bir akış, binlerce satır silip **"0 satır silindi"**
+diyecek.
+
+Ve ikinci önkoşul: aynı ifade biçimi (`DELETE ... WHERE site_id =
+ANY($1)`) sıkıştırılmış bir hypertable üzerinde **iki kez** PostgreSQL'i
+sinyal 11 ile düşürdü (O1'de bir kez, Y4'te bir kez; ikisinde de
+kurtarma moduna girdi). Yalıtılmış tekrarlanamadı, sebep kanıtlanmadı —
+ama P5'in temizlemesi **sıkıştırılmış bir hypertable'a karşı, kendi
+veritabanında** sınanmadan yazılmamalı.
 
 ##### Fazı yazarken ölçülen şey: sorun sandığımdan büyük
 

@@ -16812,3 +16812,115 @@ anında tamponunu kaybeder, Umami kaybetmez.**
 - **Beacon'ın ASN/ülke açık hâli** ölçülmedi.
 - **Umami'nin kendi yayımladığı bir verim sayısı yok**, yani bu sayı
   onların iddiasıyla değil yalnız bu makineyle karşılaştırılabilir.
+
+## Karşılaştırma tablosu, ve onu hazırlarken çıkan iki veritabanı bulgusu
+
+Sahip tarafsız bir karşılaştırma tablosu istedi; `KARSILASTIRMA.md`
+oldu. Tablonun kendisi orada. Buraya iki şey yazıyorum: tabloya girmek
+için yapılan ölçümler, ve o ölçümlerin **yol açtığı** bir çökme ile
+ondan çıkan iki bulgu.
+
+### Tarafsızlığı nasıl kurdum
+
+Bir karşılaştırma tablosu, hazırlayanın kendi ürünü hakkındaysa
+varsayılan olarak taraflıdır. Üç kural koydum:
+
+1. **Umami'nin önde olduğu bölüm önce gelir.** Ve gerçekten önde: 52
+   arayüz dili (bizde 2), huni/kohort/segment/atıf/gelir raporları,
+   oturum kaydı, ısı haritası, 2FA, paylaşım bağlantısı, kısa bağlantı
+   ve pixel, ClickHouse seçeneği, gerçek zamanlı sayfa, ve arkasında bir
+   şirketle büyük bir topluluk. Biz 1.0 öncesiyiz, 255 commit ve tek
+   geliştirici.
+2. **Ölçülen / kaynağından doğrulanan / bakılmayan ayrı işaretlendi.**
+   Umami'nin özellik listesi rota ve API ağacından sayıldı, tahminle
+   değil. Denetim kaydı için "bakılmadı, iddia yok" yazdım.
+3. **Her hız iddiasının yanına bedeli yazıldı:** beacon cevap verdiğinde
+   olay bellekte, Umami'de diskte.
+
+**Ve bir satırı taşımak zorunda kaldım.** "İkisinde de var" listesine
+*gerçek zamanlı görünüm* yazmıştım; iki tarafın kaynağına bakınca
+Umami'de ayrı bir sayfa ve `api/realtime` ucu olduğu, bizde ise panonun
+yalnız aralık seçtiği çıktı. Satır §1'e taşındı. *Doğrulanmamış bir
+"ikisinde de var" satırı, tabloyu sessizce lehe çeviren şeydir.*
+
+### Ölçülen: bellek ve dağıtım boyutu
+
+| | Crucible (beacon) | Umami |
+|---|---:|---:|
+| boşta RSS | **15,7 MB** | 129 – 203 MB |
+| 400 olay sonrası | **18,9 MB** | 347 – 405 MB |
+| 45 sn dinlendikten sonra | — | 350 MB |
+| dağıtım boyutu | **72,5 MB** (dört ikili) | ~296 MB (Node dahil) |
+
+Umami'nin sayısı iki başlatmada 129 ile 203 MB arasında değişti — V8'in
+yığını çöp toplamaya bağlı, yani aralık. Ve 350 MB "gereken" değil,
+"bırakmadığı".
+
+### Ölçüm kendi hatasını gösterdi: statik yapılandırma canlı ayarla eziliyor
+
+İlk denemede beacon 400 olayı da reddetti ve ayak izini **reddetme
+yolunda** ölçmüş olacaktım. Sebep ürünün doğru davranışı:
+`beacon.sites` panelden geldiğinde statik dosyayı **eziyor**
+(`Server.sites()`), ve paylaşılan geliştirme veritabanında başka bir
+süitin bıraktığı `["devir-testi"]` satırı vardı. Log satırı bunu
+doğrudan söylüyordu: `unknown site "footprint-bench"`.
+
+*Ölçtüğü şeyin çalıştığını doğrulamayan bir ayak izi ölçümü, hata
+yolunun ayak izini ölçüyordur.* Yazılan satır sayısı kontrol edildi:
+400/400.
+
+### Ve çökme: kapı kırmızı verdi, sebebi bendim
+
+Ayak izi ölçümü **gerçek `beacon` ikilisini** paylaşılan `analytics`
+veritabanına bağladı. O ikili saklama döngüsünü koşturuyor, ve döngü
+`beacon_events`'in **11 parçasını sıkıştırdı**. Sonraki kapı koşusunda
+PostgreSQL **sinyal 11 ile çöktü** ve kurtarma moduna girdi. Günlükteki
+satır tam olarak şu:
+
+```
+LOG:  server process (PID 21268) was terminated by signal 11: Segmentation fault
+DETAIL:  Failed process was running: DELETE FROM beacon_events WHERE site_id = ANY($1)
+```
+
+Bu, O1'de "sebebi iddia edilmiyor" diye bıraktığım çökmenin **aynı
+ifadesi** — `testdb.CleanSite`'ın silmesi, sıkıştırılmış bir hypertable
+üzerinde. İkinci kez oldu, ve bu kez çöken ifade kayıtlı.
+
+**Yalıtılmış tekrarlamayı denedim, çökmedi.** Koşullar aynı değil: benim
+denemede 120 parçanın hepsi sıkıştırılmıştı, çökmede 13 parçanın 11'i;
+ve kapı süitleri paralel koşarken çökmüştü, denemem tek oturumdu. Yani
+**sebep hâlâ kanıtlanmadı** — ama artık ifade biliniyor.
+
+Kural, kendi kuralımın tekrarı ve bu kez ben çiğnedim: *bir süit, başka
+süitlerin koştuğu bir veritabanının fiziksel şeklini değiştiriyorsa, o
+veritabanında koşmamalıdır.* **Ürünün gerçek ikilisi de bir süittir bu
+anlamda:** saklama döngüsünü koşturuyor ve veritabanını sıkıştırıyor.
+Ayak izi/duman ölçümleri kendi veritabanını kurmalı. Onarım:
+`decompress_chunk` + `compress = false`, sonra kapı yeşil.
+
+### Bulgu: sıkıştırılmış hypertable'da DELETE satır sayısını YANLIŞ bildiriyor
+
+Çökmeyi araştırırken çıktı ve ürünü ilgilendiriyor. TimescaleDB 2.17.2,
+`compress_segmentby = 'site_id'` ile sıkıştırılmış `beacon_events`
+üzerinde:
+
+| | bildirdiği | gerçekte |
+|---|---|---|
+| `DELETE ... WHERE site_id = 'x'` (sıkıştırılmış) | **`DELETE 0`** | 500 satırın **500'ü silindi** |
+| aynı veri, düz tablo | `DELETE 500` | 500 silindi |
+
+Yani silme **çalışıyor**, ama etkilenen satır sayısı sıfır dönüyor.
+
+**Bugün canlı bir kusur değil, ölçüldü:** üründe sıkıştırılmış bir
+tablodan silip satır sayısına bakan hiçbir yer yok. `Rollup.Prune`
+`traffic_rollup`'tan siliyor ve o **düz** tablo; yedek yolu `COPY` ile
+okuyor ve `COPY` sıkıştırılmış hypertable'da **doğru** sayıyor (700
+satır, 700 bildirdi).
+
+**Ama P5'in önkoşulu.** P5 mod değişiminin geçmişine onaylı temizleme
+getirecek, yani tam olarak site başına bir `DELETE`. O akış satır
+sayısını sahibe gösterirse **"0 satır silindi" diyip binlerce satır
+silecek.** P5 ya sayıyı silmeden önce sayarak bulmalı, ya da
+`drop_chunks` gibi başka bir mekanizma kullanmalı — ve hangisi olursa
+olsun **sıkıştırılmış bir hypertable'a karşı, kendi veritabanında**
+sınanmalı.
