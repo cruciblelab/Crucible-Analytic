@@ -133,7 +133,8 @@ tercihin sonucu.
 |---|---|---|
 | **JavaScript'siz sayım** | Collector vekili her isteği görüyor: bot, tarayıcı, JS kapalı ziyaretçi | **Göremiyor** — JS koşmazsa olay hiç doğmuyor |
 | **TLS parmak izi (JA4)** | Var, kırılım olarak da | Yok |
-| **Bot skoru** | 0-100, hız + parmak izi + UA + ASN'den; bot **sayılıyor** ve ayrılıyor | UA'ya göre `isbot`, ve bot olayı **reddediliyor** (sayılmıyor) |
+| **Bot skoru** | 0-100, **hız + JA4 parmak izi + ASN**'den — kullanıcı ajanı skora hiç girmiyor; bot **sayılıyor** ve ayrılıyor | UA'ya göre `isbot`, ve bot olayı **reddediliyor** (sayılmıyor) |
+| **Kimlik taklidi** | Ölçüldü: Chrome kullanıcı ajanı gönderen üç tarayıcı-dışı istemcinin üçü de farklı JA4 verdi, ikisi bilinen-bot kümesinde çıktı (biri veri kümesinin kendi `ua_spoof` etiketiyle) | Kullanıcı ajanı Chrome diyorsa Chrome sayılıyor |
 | **ASN kırılımı** | Var (yerel aralık tabloları) | Yok (ülke/şehir var) |
 | **Ülke/ASN engelleme** | Var, aşırı yük politikasından bağımsız | Yok |
 | **Kendini koruma** | `[limits]`: eşzamanlı bağlantı ve saniyedeki istek tavanları, fail-open / fail-closed / throttle politikaları, panelden değiştirilebilir | Yok |

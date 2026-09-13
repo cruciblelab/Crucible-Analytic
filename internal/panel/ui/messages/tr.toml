@@ -728,6 +728,12 @@ parmak_izi = "Parmak izi"
 istemci = "İstemci"
 son = "Son görülme"
 bot_ua = "kendini bot olarak bildiriyor"
+# Bir adres bir istemci degildir: maskeli kipte satir bir /24, yani 256
+# makineye kadar. O yuzden parmak izi sutunu bir ornek gosterir, cevabi
+# degil - ve kac tane oldugunu soylemek, gostermedigini saklamamanin tek
+# yolu. Gosterilen her zaman bayragi koyan parmak izidir.
+parmak_izi_sayisi = "%d parmak izinden biri"
+parmak_izi_sayisi_aciklama = "Bu adresten %d farklı parmak izi görüldü. Bir adres bir istemci değildir: maskeli kipte satır bir /24, yani 256 makineye kadar. Gösterilen, aralarında bot olarak işaretlenen varsa odur, yoksa en son görülendir."
 
 [metin.pano.aralik]
 baslik = "Dönem"

@@ -46,6 +46,21 @@ listen_addr = "127.0.0.1:8082"
 # running yet.
 timescale_dsn = "postgres://analytics_reader:change-me@localhost:5432/analytics"
 
+# Collector'ın getirdiği bilinen-bot dosyası. API bunu yalnız **okur**:
+# cevaplarındaki JA4 parmak izlerine isim koymak için. Boş bırakılırsa
+# parmak izleri yine raporlanır, sadece isimsiz olur.
+#
+# Dosyayı getiren komut collector'da: collector -update-bot-data
+# Bu proje bu veri kümesini dağıtmaz; bkz. internal/botdata.
+#
+# NOT: bu satır **[[tokens]]'in üstünde** durmak zorunda. TOML'da bir
+# başlıktan sonraki her anahtar o tabloya aittir, yani aşağı taşınırsa
+# `tokens.bot_data_path` olur ve hiçbir yere gitmez. Tam olarak öyleydi:
+# canlı bir kurulumda yol dosyada yazılıyken API "bilinen-bot dosyası
+# yok" diyordu; satır yukarı alınınca 52 parmak izi yüklendi. Kural
+# artık internal/invariants/exampleconfig_test.go'da.
+# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
+
 # One entry per caller. Generate the token and its hash with:
 #
 #   analytics-api -hash-token
@@ -67,11 +82,3 @@ sites = ["*"]
 # name = "ahmet-teknoloji-readonly"
 # sha256 = "..."
 # sites = ["ahmetteknoloji"]
-
-# Collector'ın getirdiği bilinen-bot dosyası. API bunu yalnız **okur**:
-# cevaplarındaki JA4 parmak izlerine isim koymak için. Boş bırakılırsa
-# parmak izleri yine raporlanır, sadece isimsiz olur.
-#
-# Dosyayı getiren komut collector'da: collector -update-bot-data
-# Bu proje bu veri kümesini dağıtmaz; bkz. internal/botdata.
-# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"

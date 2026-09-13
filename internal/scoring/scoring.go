@@ -18,13 +18,42 @@ const (
 	// maxJA4Score is the flat bonus applied when the JA4 fingerprint
 	// matches a known-bot signature - a high-confidence signal, since a
 	// JA4 match is a specific fingerprint match.
-	maxJA4Score = 30
+	//
+	// # Why it is exactly api.DefaultBotScoreMin and not less
+	//
+	// It was 30 against a default cutoff of 50, which meant the strongest
+	// signal this package has could never, on its own, produce the
+	// verdict the product's own default draws. Measured on a live
+	// deployment rather than argued: three non-browser clients, all
+	// sending a current Chrome User-Agent, fetched two pages each. Two of
+	// the three matched the fetched known-bot set - one of them under the
+	// dataset's own label "ua_spoof" - and the API's summary for that
+	// window reported bot_ips 0, human_ips 4. The product had caught them
+	// and then counted them as people, because 30 < 50.
+	//
+	// A rate burst alone could cross the cutoff; a confirmed fingerprint
+	// alone could not. That inversion is what changed, and nothing else:
+	// the score is still only ever read (nothing in this project blocks
+	// on it), so the effect is on what the panel counts, never on who is
+	// served.
+	//
+	// The relationship is the point, not the number. It is held by
+	// api.TestAKnownBotFingerprintAloneReachesTheDefaultCutoff, which
+	// asks this package for a score and internal/api for its cutoff
+	// rather than restating either.
+	maxJA4Score = 50
 	// maxASNScore is the flat bonus applied when the ASN matches
 	// known_bot_asns. Weighted below maxJA4Score deliberately: an ASN
 	// match is a weaker, more circumstantial signal than a JA4 fingerprint
 	// match - plenty of legitimate traffic also originates from cloud/
 	// hosting ASNs (corporate VPNs, CI runners, etc.), so this nudges the
 	// score rather than asserting a specific match the way JA4 does.
+	//
+	// "Nudges rather than asserts" is a claim about a number, so it is
+	// tested as one: the same test that requires a JA4 match to reach the
+	// default cutoff requires an ASN match on its own to fall short of
+	// it. One half of that rule without the other would let both weights
+	// drift to the same meaning.
 	maxASNScore = 20
 
 	// rateScoreSaturationRPS is the estimated requests/second (from the

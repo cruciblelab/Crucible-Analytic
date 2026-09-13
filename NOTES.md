@@ -17043,3 +17043,207 @@ görünmüyorlardı. **Kapsam bantları tek uyuşmazlıktı.**
   süit yok, ve bu kusuru bulan tam olarak o eksik parçaydı.
 - Ülke/ASN kırılımı (`hafif` profil, aralık tablosu yüklü değil),
   kampanya parametreleri, çok ziyaretçili oturum davranışı.
+
+## R grubu — "Bu kadar basit belirlemiyoruz değil mi?" Taklit altında bot kararı
+
+Sahibin sorusu, canlı testin hemen ardından: *"Bu kadar basit
+belirlemiyoruz değil mi, taklitler yaparak kandırmayı dener kişiler."*
+Haklı bir soru, çünkü canlı testte **tek bir kullanıcı ajanı dizesini
+değiştirdim ve ürün "bot" demekten "masaüstü insan" demeye geçti.**
+
+Cevabı tahminle değil ölçümle verdim. Ölçüm üç kusur çıkardı; üçü de bu
+fazda kapatıldı.
+
+### Düzenek
+
+Canlı yığın (`collector → ön sunucu → {beacon, statik site}` + API +
+panel), gerçek TLS, gerçek Chromium. Beş istemci, **hepsi aynı güncel
+Chrome kullanıcı ajanını gönderiyor**, her biri iki sayfa çekiyor:
+
+1. gerçek Chromium, kendi kimliğiyle (`HeadlessChrome`)
+2. gerçek Chromium, insan gibi görünen kimlikle
+3. `curl`, Chrome kimliğiyle
+4. Go `net/http` istemcisi, Chrome kimliğiyle
+5. Python `http.client`, Chrome kimliğiyle
+
+Her tarayıcı-dışı istemci kendi `/24`'ünden (`127.1.0.1`, `127.2.0.1`,
+`127.3.0.1`) bağlanıyor, çünkü maskeleme /24 ve aksi hâlde üçü tek satırda
+birleşirdi.
+
+**İlk turu çöpe attım, ve sebebi kendi dersimin tekrarıydı:** istemciler
+`https://127.0.0.1:8443`'e bağlanıyordu. Bir **adrese** bağlanan istemci
+SNI göndermez, ve JA4 bunu ikinci karakterinde `i` diye yazar. Bilinen-bot
+kümesindeki her kayıt `d` (SNI var). Yani ölçtüğüm şey ürün değil, benim
+`127.0.0.1` yazmış olmamdı: üç taklitçinin hiçbiri eşleşmedi ve "JA4
+sinyali işe yaramıyor" diye yazacaktım. Bir ada (`canli.deneme`)
+bağlanınca tablo tersine döndü.
+
+*Bir ölçümün adresi, ölçtüğü şeyin bir parçası olabilir.*
+
+### Ölçüm
+
+| istemci | ne diyor | JA4 | bilinen | etiket | skor |
+|---|---|---|---|---|---|
+| Chromium, dürüst | HeadlessChrome | `t13d1516h2_8daaf6152771_d8a2da3f94cd` | hayır | — | 1 |
+| Chromium, taklit | Chrome 140 | **aynı** | hayır | — | 1 |
+| curl | Chrome 140 | `t13d3112h2_e8f1e7e78f70_b26ce05bbdd6` | **evet** | **`ua_spoof`** | 30 |
+| python | Chrome 140 | `t13d181100_85036bcba153_d41ae481755e` | **evet** | `cloud_script` | 30 |
+| Go | Chrome 140 | `t13d131000_f57a46bbacb6_e7c285222651` | hayır | — | 0 |
+
+İki satır bu tablonun tamamını anlatıyor:
+
+- **Kimlik dizesi serbesttir, TLS yığını değildir.** Aynı motorun iki
+  kimliği aynı parmak izini veriyor; üç farklı yığının hepsi Chrome
+  olduğunu söylerken üç farklı parmak izi veriyor.
+- **Kullanıcı ajanı skora hiç girmiyor.** `scoring.Score` üç şey
+  alıyor: hız, JA4, ASN. `is_bot_ua` beacon tarafında ayrı bir sütun ve
+  kendi belgesinde şöyle yazıyor: *"bir bot tespit mekanizması değildir
+  ve öyle okunmamalıdır."* Canlı testte değişen buydu — kararın kendisi
+  değil, istemcinin kendi beyanı.
+- Veri kümesinin curl parmak izine verdiği etiket **`ua_spoof`**. Yani
+  üçüncü taraf o yığını tam olarak "tarayıcı olduğunu iddia ederken
+  görüldü" diye sınıflandırmış.
+
+### R1 — Onaylanmış bir parmak izi, ürünün kendi kararının altında kalıyordu
+
+Yukarıdaki tabloda skorlar 30. Varsayılan bot eşiği **50**. Aynı
+pencerenin API özeti:
+
+```
+unique_ips 4, bot_ips 0, human_ips 4
+```
+
+Yani **ürün üç taklitçinin ikisini yakaladı ve sonra ikisini de insan
+saydı.** Kodun kendi yorumu JA4 eşleşmesini *"yüksek güvenli bir sinyal,
+çünkü belirli bir parmak izi eşleşmesi"* diye anlatıyordu; aritmetiği ise
+ona kendi başına karar verdirmiyordu. Buna karşılık en dolaylı sinyal —
+istek hızı — tek başına eşiği geçebiliyordu (10,7 istek/sn). Sabitler
+ayrı ayrı makuldü; yanlış olan ilişkileriydi.
+
+`maxJA4Score` 30 → **50**: onaylanmış bir parmak izi varsayılan eşiğe
+**tam olarak** yetiyor, fazlasına değil. Eşiği yükselten bir işletmeci
+"bana parmak izi tek başına yetmez" diyebiliyor, bu hâlâ onun kararı.
+
+Aynı makinede, aynı istemcilerle, sonra:
+
+```
+unique_ips 3, bot_ips 2, human_ips 1
+```
+
+Kalan "insan" Go istemcisi — parmak izi gerçekten veri kümesinde yok.
+
+**Skor hiçbir yerde engelleme yapmıyor**, yalnız okunuyor (grep'le
+doğrulandı: `bot_score` sadece sayımlarda ve listelerde geçiyor). Yani
+değişen şey panonun saydığı sayı, kimseye verilen hizmet değil —
+sahibin "gerçek bir zarar yoksa engelleme" kuralına uygun.
+
+Kural iki yönlü yazıldı ve iki pakete birden soruluyor
+(`internal/api/botverdict_test.go`): JA4 tek başına eşiğe **ulaşmalı**,
+ASN tek başına eşiğin **altında kalmalı**. Tek yönlü olsaydı bütün
+ağırlıkları 100 yapmak da testi geçerdi, ve "dolaylı" ile "belirli" aynı
+şey olurdu.
+
+### R2 — Bayrak bir satırdan, parmak izi başka bir satırdan
+
+Fazın ortasında panelin sessiz adresler sayfasının ekran görüntüsünü
+aldım. Satır şunu diyordu:
+
+```
+127.1.0.0   skor 50   t13i3111h2_e8f1e7e78f70_b26ce05bbdd6
+```
+
+Skoru 50 yapan parmak izi `t13d3112h2_...` (SNI'li, kümede var). Sayfanın
+çizdiği `t13i3111h2_...` (SNI'siz, kümede **yok**, o yüzden etiketsiz).
+İşletmeci "bilinen bot" verdiktini, onu üretmeyen bir kanıtın yanında
+görüyordu — ve niye puanlandığını sayfadan anlamasının yolu yoktu.
+
+Sebep: beş sorgu `COALESCE(max(ja4), '')` ile `bool_or(is_known_bot_ja4)`
+yan yana kullanıyordu. İkisi **aynı grup üzerinde birbirinden bağımsız
+toplama işlemleri**; birinin seçtiği satır diğerininkiyle aynı olmak
+zorunda değil. `max()` yanına yazılmış yorum da bunu açıkça yanlış
+gerekçelendiriyordu: *"adres başına zaten sabit olan sütunlar için
+kararlı bir temsilci"* — ülke ve ASN için doğru (her flush'ta aynı
+aramadan geliyorlar), parmak izi için değil. **Parmak izi istemcinin
+özelliğidir, ve bir adres bir istemci değildir:** maskeli kipte satır bir
+/24, yani 256 makineye kadar.
+
+Beş sorgu, beş farklı zamanda, her biri yanındakinden kopyalayarak.
+
+Düzeltme yeni bir sütun değil bir **sıralama**:
+
+```sql
+COALESCE((array_agg(ja4 ORDER BY is_known_bot_ja4 DESC, time DESC)
+          FILTER (WHERE ja4 <> ''))[1], '')
+```
+
+Bayrak doğruysa gösterilen parmak izi onu koyandır; değilse en son
+görülendir. Yanına `ja4_count` eklendi: sayfa tek parmak izini **tek**
+olduğunu ima etmeden çiziyor ("2 parmak izinden biri", tam açıklama
+`title` içinde).
+
+Beşinci çağrı yerini elle bulmadım — **yapısal test buldu**
+(`TestNoQueryAggregatesAFingerprintWithMax`, paketin kendi kaynağını
+okuyor). Altıncısını da o bulacak.
+
+Panel tarafında iki test eklendi, ikisi de aynı derse dayanıyor: adres
+satırları artık **üreticinin kendi JSON'undan** çözülüyor
+(`api.IPStat`/`api.JSBot` marshal edilip tüketicinin çözücüsünden
+geçiyor), ve sayfa gerçek veritabanında iki parmak izli bir adresle
+çiziliyor. Var olan fikstürler elle yazılmıştı — kapsam tablosu kusuru
+tam olarak böyle doğmuştu.
+
+### R3 — Örnek yapılandırmada sessizce yok sayılan ayar
+
+Ölçüm sırasında API "bilinen-bot dosyası yok" dedi, ama yol dosyada
+yazılıydı. Sebep: `bot_data_path` satırı `[[tokens]]`'in **altındaydı**.
+TOML'da bir başlıktan sonraki her anahtar o tabloya aittir, yani ayar
+`tokens.bot_data_path` olarak çözülüyor ve hiçbir yere gitmiyordu. Satırı
+tek başına yukarı taşımak 52 parmak izini yükledi.
+
+Bu kural `panel.example.toml`'da **zaten yazılıydı** — çünkü aynısı bir
+kez `secret_key` ile olmuştu. Yazı o dosyayı korudu, kardeşini korumadı.
+
+Ve yazılı olduğu dosyada bile **ikinci bir örneği duruyordu:**
+`language = "tr"` satırı `[roles]`'un altındaydı. Ölçtüm:
+`toml.DecodeFile` sonrası `cfg.Language` boş, `md.Undecoded()` içinde
+`roles.language`. Görünmemesinin tek sebebi varsayılanın da `"tr"`
+olması; `"en"` yazan biri Türkçe alır ve hata görmezdi. Dosyanın kendi
+cümlesi de tersini vaat ediyordu ("boş bırakırsanız kararı tarayıcı
+verir" — oysa boş bırakmak varsayılanı verir).
+
+Kural artık bir yazıda değil bir testte:
+`internal/invariants/exampleconfig_test.go`. Üst düzey ayarların listesi
+her yapılandırma yapısından **yansımayla türetiliyor** (struct olmayan ve
+struct dilimi olmayan her alan), dosya↔yapı eşlemesi ise gerekçeli elle
+liste — paketin kendi kuralı bu. Depodaki kayıtsız bir `*.example.toml`
+de kırmızı veriyor.
+
+*Bir kuralın bir dosyada yazı olarak durması, o dosyayı korur; kardeşini
+korumaz.*
+
+### Yakalanmayan: gerçek tarayıcı motoru süren otomasyon
+
+Dürüst sınır: Playwright'ın sürdüğü gerçek Chromium, kullanıcı ajanı
+değiştirilmiş hâlde, bugün ürünün baktığı **hiçbir katmanda** insandan
+ayrılmıyor. TLS parmak izi gerçek Chrome'un parmak izi (çünkü gerçekten
+Chrome), JavaScript çalışıyor, hız insan hızında. Bu her analitik ürünün
+sınırı — Umami'nin `isbot`'u yalnız kullanıcı ajanına bakıyor, yani bu
+durumu hiç görmez — ama bizim sınırımız olduğunu yazmak bizim işimiz.
+
+Yakalanabilecek yer beacon betiği içindeki otomasyon işaretleri
+(`navigator.webdriver`, headless izleri, CDP artıkları). Ayrı bir faz, ve
+ilkeyle çelişmediği için değil, çelişmemek şartıyla: *istemciye güvenme.*
+Böyle bir sinyal ancak bir **işaret** olabilir, bir kapı olamaz, çünkü
+istemci onu yamalayabilir.
+
+### Sayılar
+
+| ölçüm | önce | sonra |
+|---|---|---|
+| aynı pencere, bot sayılan adres | 0 | 2 |
+| aynı pencere, insan sayılan adres | 4 | 1 |
+| curl skoru (0,2 istek/sn) | 30 | 50 |
+| `max(ja4)` kullanan sorgu | 5 | 0 |
+| örnek yapılandırmada sessiz yok sayılan ayar | 2 | 0 |
+
+On beş mutasyon, on beşi de kırmızı.

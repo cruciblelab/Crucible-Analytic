@@ -91,6 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
+| **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
@@ -4558,6 +4559,62 @@ göründü, ısıtınca fark kayboldu; geo yolunun gerçek maliyeti 0,064 ms.
 
 **Ölçülmedi:** Umami'nin okuma tarafı/panosu, iki tarafta da ayar,
 beacon'ın ülke çözümü açık hâli.
+
+---
+
+### R. Taklit altında bot kararı *(planda yoktu; sahibin sorusu açtı)*
+
+Sahip sordu: *"Bu kadar basit belirlemiyoruz değil mi, taklitler
+yaparak kandırmayı dener kişiler."* Canlı testte tek bir kullanıcı ajanı
+dizesi değişince ürün "bot" demekten "masaüstü insan" demeye geçmişti.
+
+Ölçüldü: beş istemci, hepsi aynı Chrome kullanıcı ajanıyla, gerçek TLS
+üzerinden. Sonuç ve gerekçeler NOTES.md'de; üç kusur çıktı, üçü de
+kapatıldı.
+
+#### R1 — Onaylanmış bir parmak izi kararın altında kalıyordu ✅ **bitti (2026-09-13)**
+
+`maxJA4Score` 30 iken varsayılan eşik 50'ydi: ürünün en güçlü sinyali
+tek başına ürünün kendi kararını veremiyordu, en dolaylısı (istek hızı)
+verebiliyordu. Canlı özet `bot_ips 0 / human_ips 4` diyordu ve o dördün
+ikisi ürünün kendi işaretlediği botlardı.
+
+`maxJA4Score` = 50: tam yeter, fazlası değil. Skor hiçbir yerde
+engelleme yapmıyor, yalnız sayılıyor. Kural iki yönlü ve iki pakete
+birden soruluyor (JA4 tek başına eşiğe **ulaşır**, ASN tek başına
+**ulaşmaz**), artı gerçek veritabanında özet sorgusundan geçiriliyor.
+Sonra: `bot_ips 2 / human_ips 1`.
+
+#### R2 — Bayrak bir satırdan, parmak izi başka satırdan ✅ **bitti (2026-09-13)**
+
+Beş sorgu `max(ja4)` ile `bool_or(is_known_bot_ja4)`'ü yan yana
+kullanıyordu; ikisi aynı grup üzerinde bağımsız toplamalar. Panel "skor
+50, bilinen bot" satırının yanına, o grubun kümede **olmayan** parmak
+izini çiziyordu. Bir adres bir istemci değildir: maskeli kipte satır bir
+/24.
+
+`representativeJA4` (bayraklı olan, yoksa en son görülen) + `ja4_count`.
+Sayfa "2 parmak izinden biri" diyor. Beşinci çağrı yerini yapısal test
+buldu; altıncısını da o bulacak.
+
+#### R3 — Örnek yapılandırmada sessizce yok sayılan ayar ✅ **bitti (2026-09-13)**
+
+`analytics-api.example.toml`'da `bot_data_path`, `[[tokens]]`'in
+altındaydı: TOML'da o anahtar `tokens.bot_data_path` olur ve hiçbir yere
+gitmez. Aynı kural `panel.example.toml`'da yazılıydı — ve **o dosyada
+bile ikinci bir örneği duruyordu**: `language` satırı `[roles]`'un
+altında, `md.Undecoded()` ile doğrulandı.
+
+`internal/invariants/exampleconfig_test.go`: üst düzey ayarların listesi
+her yapılandırma yapısından yansımayla türetiliyor, dosya↔yapı eşlemesi
+gerekçeli elle liste, kayıtsız bir `*.example.toml` kırmızı veriyor.
+
+#### Yakalanmayan, ve yazıldı
+
+Gerçek tarayıcı motorunu süren otomasyon (Playwright + Chromium, kimliği
+değiştirilmiş) bugün hiçbir katmanda insandan ayrılmıyor. Beacon içi
+otomasyon işaretleri ayrı bir faz olabilir; ancak **işaret** olabilir,
+kapı olamaz — istemciye güvenilmez.
 
 ---
 

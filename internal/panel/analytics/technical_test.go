@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/api"
 )
@@ -318,5 +319,92 @@ func TestTheCoverageBandsSurviveTheApisOwnJson(t *testing.T) {
 	if got.Seen != produced.IPsSeen || got.RanJS != produced.IPsRanJS {
 		t.Errorf("summary = seen %d, ran %d; want %d, %d",
 			got.Seen, got.RanJS, produced.IPsSeen, produced.IPsRanJS)
+	}
+}
+
+// The same rule the coverage bands now live under, applied to the two
+// address lists: every field the panel reads comes from the producer's
+// own JSON, not from a name somebody typed here.
+//
+// The fixtures above are hand-written, which is how the coverage table
+// drew a row of zeros on every deployment for weeks: the test and the
+// decoder agreed with each other and neither agreed with the API. A
+// fixture like that is correct the day it is written and only stays
+// correct by accident.
+//
+// JA4Count is the field this was added for. It arrives as "ja4_count",
+// it is the difference between "this address had one fingerprint" and
+// "this is one of several", and nothing else on the page would look
+// wrong if it silently decoded as zero.
+func TestTheAddressRowsSurviveTheApisOwnJson(t *testing.T) {
+	silent := api.IPStat{
+		IP: "198.51.100.0/24", PeakScore: 88, PeakRequestRate: 4.5,
+		Country: "US", ASN: 15169, ASNName: "Google LLC",
+		JA4: "t13d3112h2_e8f1e7e78f70_b26ce05bbdd6", JA4Label: "ua_spoof", JA4Count: 3,
+		IsKnownBotJA4: true, LastSeen: time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC),
+	}
+	jsBot := api.JSBot{
+		IP: "203.0.113.0/24", PeakScore: 72, IsBotUA: true,
+		Browser: "Headless Chrome", OS: "Linux",
+		JA4: "t13d1516h2_8daaf6152771_d8a2da3f94cd", JA4Count: 2,
+		Country: "DE", LastSeen: time.Date(2026, 8, 20, 11, 0, 0, 0, time.UTC),
+	}
+
+	cases := []struct {
+		kind  AddressListKind
+		key   string
+		row   any
+		check func(*testing.T, AddressRow)
+	}{
+		{ListSilent, "ips", silent, func(t *testing.T, r AddressRow) {
+			if r.Address != silent.IP || r.PeakScore != silent.PeakScore {
+				t.Errorf("silent row = %+v, want the produced address and score", r)
+			}
+			if r.JA4 != silent.JA4 || r.JA4Label != silent.JA4Label {
+				t.Errorf("fingerprint = %q/%q, want %q/%q", r.JA4, r.JA4Label, silent.JA4, silent.JA4Label)
+			}
+			if r.JA4Count != silent.JA4Count {
+				t.Errorf("JA4Count = %d, want %d - the API emits this as ja4_count, and a "+
+					"silent zero reads as \"one fingerprint\" on the page", r.JA4Count, silent.JA4Count)
+			}
+		}},
+		{ListJSBots, "bots", jsBot, func(t *testing.T, r AddressRow) {
+			if r.Browser != jsBot.Browser || !r.BotUA {
+				t.Errorf("js-bot row = %+v, want the produced browser and bot-UA flag", r)
+			}
+			if r.JA4Count != jsBot.JA4Count {
+				t.Errorf("JA4Count = %d, want %d", r.JA4Count, jsBot.JA4Count)
+			}
+		}},
+	}
+
+	from, to := window()
+	for _, tc := range cases {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			rows, err := json.Marshal([]any{tc.row})
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := json.Marshal(map[string]json.RawMessage{
+				"total": json.RawMessage("1"),
+				tc.key:  rows,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			c := clientFor(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write(body)
+			}))
+			got := c.FetchTechnical(context.Background(), "s", from, to,
+				TechnicalRequest{List: tc.kind, Limit: 10}).List
+			if got.Err != nil {
+				t.Fatalf("list: %v", got.Err)
+			}
+			if len(got.Rows) != 1 {
+				t.Fatalf("decoded %d rows from one produced", len(got.Rows))
+			}
+			tc.check(t, got.Rows[0])
+		})
 	}
 }

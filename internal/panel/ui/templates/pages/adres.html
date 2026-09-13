@@ -72,7 +72,8 @@ neither was ever looked for. */}}
 <td>{{.Country}}</td>
 <td>{{.Network}}</td>
 <td class="ad">{{.JA4}}
-{{- if .JA4Label}} <span class="ayrinti">{{.JA4Label}}</span>{{end}}</td>
+{{- if .JA4Label}} <span class="ayrinti">{{.JA4Label}}</span>{{end}}
+{{- if gt .JA4Count 1}} <span class="ayrinti" title="{{tf "pano.adres.parmak_izi_sayisi_aciklama" .JA4Count}}">{{if .JA4Label}}· {{end}}{{tf "pano.adres.parmak_izi_sayisi" .JA4Count}}</span>{{end}}</td>
 <td class="soluk">{{.Last}}</td>
 </tr>
 {{- end}}

@@ -109,7 +109,8 @@ func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, lim
 
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
-		    SELECT ip, max(ja4) AS ja4, bool_or(is_known_bot_ja4) AS known_bot, max(bot_score) AS peak_score
+		    SELECT ip, `+representativeJA4+` AS ja4,
+		           bool_or(is_known_bot_ja4) AS known_bot, max(bot_score) AS peak_score
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
@@ -218,13 +219,16 @@ type IPDetail struct {
 	AvgRequestRate     float64 `json:"avg_request_rate"`
 	PeakWindowRequests int     `json:"peak_window_requests"`
 
-	Country       string `json:"country"`
-	ASN           int    `json:"asn"`
-	ASNName       string `json:"asn_name"`
-	JA4           string `json:"ja4"`
-	JA4Label      string `json:"ja4_label,omitempty"`
-	IsKnownBotJA4 bool   `json:"is_known_bot_ja4"`
-	IsKnownBotASN bool   `json:"is_known_bot_asn"`
+	Country  string `json:"country"`
+	ASN      int    `json:"asn"`
+	ASNName  string `json:"asn_name"`
+	JA4      string `json:"ja4"`
+	JA4Label string `json:"ja4_label,omitempty"`
+	// JA4Count is how many distinct fingerprints this address showed in
+	// range - see representativeJA4.
+	JA4Count      int  `json:"ja4_count"`
+	IsKnownBotJA4 bool `json:"is_known_bot_ja4"`
+	IsKnownBotASN bool `json:"is_known_bot_asn"`
 
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
@@ -246,7 +250,8 @@ func (s *Store) IPDetail(ctx context.Context, siteID string, ip netip.Addr, from
 		       COALESCE(max(country), ''),
 		       COALESCE(max(asn), 0),
 		       COALESCE(max(asn_org), ''),
-		       COALESCE(max(ja4), ''),
+		       `+representativeJA4+`,
+		       `+distinctJA4s+`,
 		       COALESCE(bool_or(is_known_bot_ja4), false),
 		       COALESCE(bool_or(is_known_bot_asn), false),
 		       min(time), max(time)
@@ -254,7 +259,7 @@ func (s *Store) IPDetail(ctx context.Context, siteID string, ip netip.Addr, from
 		WHERE site_id = $1 AND ip = $2 AND time >= $3 AND time < $4`,
 		siteID, ip, from, to,
 	).Scan(&out.Snapshots, &out.PeakScore, &out.PeakRequestRate, &out.AvgRequestRate,
-		&out.PeakWindowRequests, &out.Country, &out.ASN, &out.ASNName, &out.JA4,
+		&out.PeakWindowRequests, &out.Country, &out.ASN, &out.ASNName, &out.JA4, &out.JA4Count,
 		&out.IsKnownBotJA4, &out.IsKnownBotASN, &nullableTime{&out.FirstSeen}, &nullableTime{&out.LastSeen})
 	if err != nil {
 		return IPDetail{}, fmt.Errorf("api: ip detail: %w", err)

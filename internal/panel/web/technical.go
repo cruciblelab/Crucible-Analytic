@@ -115,6 +115,12 @@ type addressRowView struct {
 	Network  string
 	JA4      string
 	JA4Label string
+	// JA4Count is how many distinct fingerprints the address showed. More
+	// than one means JA4 above is a representative rather than the
+	// answer, and the row says so. Which one is chosen is decided where
+	// the query lives, not here; this page only reports the count it was
+	// given.
+	JA4Count int
 	Client   string
 	BotUA    bool
 	Last     string
@@ -382,6 +388,7 @@ func (s *Server) addressListData(ctx context.Context, lang *ui.Language, siteID 
 			Country:  row.Country,
 			JA4:      row.JA4,
 			JA4Label: row.JA4Label,
+			JA4Count: row.JA4Count,
 			BotUA:    row.BotUA,
 			Last:     f.DateTime(row.Last),
 		}

@@ -92,6 +92,12 @@ type AddressRow struct {
 	ASNName   string
 	JA4       string
 	JA4Label  string
+	// JA4Count is how many distinct fingerprints the collector saw from
+	// this address in range. An address is not a client - a masked row is
+	// a /24 - so JA4 above is a representative, chosen to be the one that
+	// set the known-bot flag. The page says how many there were rather
+	// than drawing one as though it were the only one.
+	JA4Count int
 	// Browser and OS are set only in the JS-bot list, where the beacon
 	// heard a User-Agent. Silent addresses ran no JavaScript, so nothing
 	// ever reported one.
@@ -331,6 +337,7 @@ func (c *Client) addressList(ctx context.Context, site string, req TechnicalRequ
 		ASNName         string    `json:"asn_name"`
 		JA4             string    `json:"ja4"`
 		JA4Label        string    `json:"ja4_label"`
+		JA4Count        int       `json:"ja4_count"`
 		Browser         string    `json:"browser"`
 		OS              string    `json:"os"`
 		IsBotUA         bool      `json:"is_bot_ua"`
@@ -344,7 +351,7 @@ func (c *Client) addressList(ctx context.Context, site string, req TechnicalRequ
 		out.Rows = append(out.Rows, AddressRow{
 			Address: r.IP, PeakScore: r.PeakScore, Rate: r.PeakRequestRate,
 			Country: r.Country, ASN: r.ASN, ASNName: r.ASNName,
-			JA4: r.JA4, JA4Label: r.JA4Label,
+			JA4: r.JA4, JA4Label: r.JA4Label, JA4Count: r.JA4Count,
 			Browser: r.Browser, OS: r.OS, BotUA: r.IsBotUA, Last: r.LastSeen,
 		})
 	}

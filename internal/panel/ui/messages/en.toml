@@ -699,6 +699,12 @@ parmak_izi = "Fingerprint"
 istemci = "Client"
 son = "Last seen"
 bot_ua = "identifies itself as a bot"
+# An address is not a client: in masked mode a row is a /24, so up to 256
+# machines. The fingerprint column therefore shows one representative,
+# and saying how many there were is the only way not to hide the rest.
+# The one shown is always the fingerprint that set the flag.
+parmak_izi_sayisi = "one of %d fingerprints"
+parmak_izi_sayisi_aciklama = "This address showed %d distinct fingerprints. An address is not a client: in masked mode a row is a /24, so up to 256 machines. The one shown is whichever of them was flagged as a bot, or the most recent if none was."
 
 [metin.pano.aralik]
 baslik = "Period"

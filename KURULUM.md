@@ -1093,6 +1093,41 @@ Cron önerisi (haftada bir):
 0 4 * * 1 /opt/crucible-analytic/bin/collector -config /etc/crucible-analytic/collector.toml -update-bot-data
 ```
 
+Aynı dosyayı okuma API'si de okur — cevaplarındaki parmak izlerine isim
+koymak için. Yolu `analytics-api.toml`'da `bot_data_path`, ve **satır
+`[[tokens]]`'in üstünde olmak zorunda**: TOML'da bir başlıktan sonraki
+her anahtar o tabloya aittir, yani aşağıda durursa sessizce yok sayılır.
+Örnek dosya doğru sırada geliyor ve bir test bunu koruyor.
+
+### Kimlik taklidini ne yakalar, ne yakalamaz
+
+Bot skoru **üç** şeyden geliyor: istek hızı, TLS parmak izi (JA4), ve
+ASN. **Kullanıcı ajanı skora hiç girmiyor** — o yalnızca istemcinin
+kendisi hakkındaki beyanı (`is_bot_ua`), ayrı bir sütun, ve
+değiştirilmesi bir dakikalık iş.
+
+Canlı bir kurulumda ölçüldü. Beş istemci, hepsi aynı güncel Chrome
+kullanıcı ajanını gönderiyor:
+
+| istemci | parmak izi kümede mi | skor |
+|---|---|---|
+| gerçek Chromium (kimliği ne olursa olsun) | hayır | 0-1 |
+| curl | evet (`ua_spoof`) | 50 |
+| python | evet (`cloud_script`) | 50 |
+| Go istemcisi | hayır | 0 |
+
+Üç tarayıcı-dışı istemcinin üçü de farklı bir parmak izi verdi, çünkü
+kimlik dizesi serbesttir ama TLS yığını değildir. İkisi veri kümesinde
+çıktı. **Veri kümesini hiç indirmediyseniz bu sütun boştur ve üçü de
+0 alır** — bu yüzden `-update-bot-data` bir süs değil.
+
+Yakalanmayan durum, ve dürüstçe yazılması gereken: **gerçek bir tarayıcı
+motorunu süren otomasyon.** Playwright'ın sürdüğü Chromium gerçek
+Chrome'un parmak izini verir, JavaScript'i çalıştırır, insan hızında
+gezer. Bugün ürünün baktığı hiçbir katmanda ayrılmıyor. Yalnız ölçüm
+koduna bakan araçlar bu durumu hiç göremez; biz de göremiyoruz, ama
+göremediğimizi biliyoruz ve yazıyoruz.
+
 ---
 
 ## 12. Ayarları panele taşıyın

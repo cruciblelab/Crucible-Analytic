@@ -18,6 +18,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
 
 const technicalSite = "d3-teknik"
@@ -544,5 +545,90 @@ func TestTheTechnicalSectionsStayOffTheDefaultView(t *testing.T) {
 		if strings.Contains(body, shown(lang.T(key))) {
 			t.Errorf("the default view shows %q to somebody who has not turned developer mode on", key)
 		}
+	}
+}
+
+// One address, two fingerprints, and the page has to name the right one.
+//
+// An address in these tables is not a client: privacy.ip_storage =
+// "masked" stores a /24, so a row can stand for an office, a household
+// or a carrier's pool. Two of the machines behind one address showing
+// different TLS stacks is the ordinary case.
+//
+// The page used to take the fingerprint from one snapshot and the
+// known-bot flag from another, because max(ja4) and
+// bool_or(is_known_bot_ja4) are independent aggregates. Seen live: a row
+// reading score 50 and "known bot", beside the one fingerprint in the
+// group that is not in the known-bot set and so carries no label.
+//
+// The fixture is built so that plain max() fails it: ja4Browser sorts
+// above ja4Googlebot, and it is the innocent one.
+func TestOneAddressWithTwoFingerprintsNamesTheFlaggedOne(t *testing.T) {
+	const site = "d3-karisik"
+	if !(ja4Browser > ja4Googlebot) {
+		t.Fatalf("the fixture no longer defeats max(): %q must sort above %q",
+			ja4Browser, ja4Googlebot)
+	}
+
+	srv, store := setupTestServer(t)
+	withRealAPI(t, srv)
+
+	when := time.Now().Add(-3 * time.Hour)
+	pool := testdb.Pool(t, testdb.Collector)
+	t.Cleanup(pool.Close)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM traffic_snapshots WHERE site_id = $1`, site)
+	})
+	rows := []struct {
+		ja4      string
+		knownBot bool
+		score    int
+	}{
+		{ja4Googlebot, true, 95},
+		// Later, and sorting higher: both of the orders a naive pick
+		// could use would choose this one.
+		{ja4Browser, false, 4},
+	}
+	for i, r := range rows {
+		if _, err := pool.Exec(context.Background(), `
+			INSERT INTO traffic_snapshots
+			  (time, site_id, ip, ja4, prev_window_count, curr_window_count,
+			   request_rate, bot_score, is_known_bot_ja4, country, asn, asn_org)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			when.Add(time.Duration(i)*time.Minute), site, "198.51.100.10", r.ja4,
+			0, 10+i, float64(10+i)/60, r.score, r.knownBot, "US", 15169, "Google LLC",
+		); err != nil {
+			t.Fatalf("seeding the mixed address: %v", err)
+		}
+	}
+
+	client, base := developerOwner(t, srv, store, site, "d3-karisik-sahip")
+	status, body := get(t, client, base+addressListPath(site, analytics.ListSilent))
+	if status != http.StatusOK {
+		t.Fatalf("the silent list answered %d", status)
+	}
+	if !strings.Contains(body, shown(ja4Googlebot)) {
+		t.Errorf("the page does not name the flagged fingerprint %q; it shows the row's "+
+			"known-bot verdict without the fingerprint that produced it", ja4Googlebot)
+	}
+	if strings.Contains(body, shown(ja4Browser)) {
+		t.Errorf("the page names %q, the one fingerprint from this address that was not "+
+			"flagged - the verdict and the evidence beside it must come from one snapshot",
+			ja4Browser)
+	}
+	// And it must not present the one it chose as the only one there was.
+	//
+	// The expected sentence comes from the catalogue rather than from a
+	// string typed here, so rewording the message moves both sides at
+	// once and only dropping it fails.
+	cats, err := ui.LoadCatalogs()
+	if err != nil {
+		t.Fatalf("loading the message catalogues: %v", err)
+	}
+	wantCount := cats.Base().Tf("pano.adres.parmak_izi_sayisi", 2)
+	if !strings.Contains(body, shown(wantCount)) {
+		t.Errorf("the page does not say %q; one fingerprint drawn alone reads as the "+
+			"answer rather than a representative", wantCount)
 	}
 }

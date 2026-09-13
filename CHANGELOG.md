@@ -18,6 +18,38 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
 aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
 
+### Bot kararı: taklit eden istemciler artık bot sayılıyor
+
+Bir soru vardı: *"Bu kadar basit belirlemiyoruz değil mi, taklitler
+yaparak kandırmayı dener kişiler."* Ölçüldü, ve üç şey çıktı.
+
+**Kullanıcı ajanı zaten skora girmiyordu** — bot skoru istek hızı, TLS
+parmak izi ve ASN'den geliyor. Kimlik dizesini değiştirmek skoru
+değiştirmiyor. Ama onaylanmış bir parmak izi eşleşmesi 100 üzerinden 30
+puan alıyordu ve bot eşiği 50'ydi: **ürün taklitçiyi yakalıyor, sonra
+insan sayıyordu.** Canlı bir kurulumda ölçüldü — Chrome kullanıcı ajanı
+gönderen üç tarayıcı-dışı istemciden ikisi bilinen-bot kümesinde çıktı
+(biri veri kümesinin kendi `ua_spoof` etiketiyle), ve özet yine de
+`bot: 0, insan: 4` diyordu. Artık `bot: 2, insan: 1`.
+
+**Kuran kişinin yapması gereken:** yok, ama bir hatırlatma — bilinen-bot
+parmak izi dosyası indirilmemişse bu sinyal hiç çalışmaz ve taklitçiler
+0 puan alır. `collector -update-bot-data`, haftada bir cron önerisi
+kurulum kılavuzunda.
+
+**Adres listelerinde parmak izi sütunu** artık verdikti üreten parmak
+izini gösteriyor. Bir adres bir istemci değildir — maskeli kipte satır
+bir /24, yani 256 makineye kadar — ve sayfa bir tanesini çizerken kaç
+tane olduğunu da söylüyor ("2 parmak izinden biri"). Önceden sayfa,
+skoru üretmeyen bir parmak izini verdiktin yanına koyabiliyordu.
+
+**Örnek yapılandırma dosyalarında iki sessiz ayar düzeltildi.**
+`analytics-api.example.toml`'da `bot_data_path` ve
+`panel.example.toml`'da `language`, bir tablo başlığının altında
+kaldıkları için hiç okunmuyorlardı. Kendi dosyanızda bu satırlar bir
+`[başlık]`'ın altındaysa yukarı taşıyın; panel ve API açılışta ne
+okuduklarını günlüğe yazıyor.
+
 ### Panonun kapsam tablosu sıfır çiziyordu — düzeltildi
 
 Panonun teknik bölümünde, *"Sunucunun gördüğü, ölçüm kodunun duyduğu"*

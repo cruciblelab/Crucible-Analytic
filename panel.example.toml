@@ -99,14 +99,35 @@ timezone = "Europe/Istanbul"
 # "baktık ve yoktu" ile aynı şey değil.
 # bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
 
-# NOT: buradan aşağısı tablolara ait. secret_key ve bot_data_path
-# üst düzey ayarlar - yani [roles], [developer_gate] ve [logging]
-# başlıklarının **üstünde** olmak zorundalar. Bir zamanlar
+# Kurulumun tercih ettiği dil. Kısıt değil tercih: tarayıcısı bu
+# derlemede bulunan başka bir dili isteyen bir okuyucu onu görür — aynı
+# ekipte herkes aynı dili okumuyorsa istenen budur. Burası, tarayıcı
+# sunabildiğimiz bir tercih belirtmediğinde verilecek cevaptır. Boş
+# bırakırsanız kararı tamamen tarayıcı verir.
+#
+# Bu derlemedeki diller: tr, en. Yeni dil eklemek,
+# internal/panel/ui/messages/ dizinine bir .toml dosyası koyup yeniden
+# derlemektir — Go tarafında güncellenecek bir liste yok. Var olmayan
+# bir kod yazarsanız panel açılmaz ve elindeki dilleri söyler; yoksa
+# kurulum, config dosyası başka bir şey derken temel dilde çalışırdı.
+language = "tr"
+
+# NOT: buradan aşağısı tablolara ait. secret_key, bot_data_path ve
+# language üst düzey ayarlar - yani [roles], [developer_gate] ve
+# [logging] başlıklarının **üstünde** olmak zorundalar. Bir zamanlar
 # [developer_gate]'in altındaydılar: install.sh secret_key'i üretip
 # "yazdım" diyor, panel açılıyor, ve anahtarı hiç görmüyordu - çünkü
 # TOML'da bir başlıktan sonraki her anahtar o tabloya ait. Panel tek
 # satır log basıp devam ediyordu, posta hesabı kaydedilemiyordu, ve
 # hiçbir şey hata vermiyordu.
+#
+# Aynısı ikinci kez oldu ve bu not onu durduramadı: `language` satırı
+# tam burada, `[roles]`in altında duruyordu, yani `roles.language`
+# olarak çözülüyor ve hiçbir yere gitmiyordu. Görünmemesinin sebebi
+# varsayılanın da "tr" olmasıydı; `"en"` yazan biri Türkçe alır ve hata
+# görmezdi. Bu yüzden kural artık bir yazıda değil bir testte:
+# internal/invariants/exampleconfig_test.go her örnek yapılandırmayı
+# okuyor ve üst düzey ayarların listesini Go yapısından türetiyor.
 
 # Servislerin bağlandığı veritabanı rolleri. Panel bunlarla bağlanmaz;
 # kendi DSN'i var. Kurulum kontrollerinin **başka** bir rolün ne
@@ -121,19 +142,6 @@ collector = "collector"
 beacon = "beacon_writer"
 api = "analytics_reader"
 panel = "panel_user"
-
-# Kurulumun tercih ettiği dil. Kısıt değil tercih: tarayıcısı bu
-# derlemede bulunan başka bir dili isteyen bir okuyucu onu görür — aynı
-# ekipte herkes aynı dili okumuyorsa istenen budur. Burası, tarayıcı
-# sunabildiğimiz bir tercih belirtmediğinde verilecek cevaptır. Boş
-# bırakırsanız kararı tamamen tarayıcı verir.
-#
-# Bu derlemedeki diller: tr, en. Yeni dil eklemek,
-# internal/panel/ui/messages/ dizinine bir .toml dosyası koyup yeniden
-# derlemektir — Go tarafında güncellenecek bir liste yok. Var olmayan
-# bir kod yazarsanız panel açılmaz ve elindeki dilleri söyler; yoksa
-# kurulum, config dosyası başka bir şey derken temel dilde çalışırdı.
-language = "tr"
 
 # Hukuki ağırlığı olan ayarların önündeki geliştirici şifresi.
 # Hash'i şu komut üretir:

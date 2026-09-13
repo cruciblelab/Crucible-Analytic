@@ -40,6 +40,39 @@ const DefaultBotScoreMin = 50
 // request can't ask for an unbounded response.
 const maxRows = 1000
 
+// representativeJA4 and distinctJA4s are how a group of snapshots
+// answers "which fingerprint" and "how many".
+//
+// Every query here groups snapshots by address, and an address is not a
+// client. privacy.ip_storage = "masked" stores a /24, so one row can
+// stand for 256 machines; even in full mode a household or an office is
+// one address. So the fingerprints in a group are genuinely several, and
+// that is ordinary rather than exceptional.
+//
+// It used to be max(ja4) wrapped in a COALESCE, sitting among the
+// country and ASN columns under a comment explaining that max() picks a
+// stable representative for values that are constant per address. That
+// is true of country and ASN, which come from the same lookup every
+// flush. It is not true of a TLS fingerprint, which is a property of the
+// client. The result: bool_or(is_known_bot_ja4) and max(ja4) were
+// independent aggregates over the same group, so the flag and the
+// fingerprint printed beside it did not have to come from the same row.
+//
+// Seen on a live deployment, on the page rather than in a query: an
+// address showing score 50 and "known bot", next to the one fingerprint
+// in its group that is not in the known-bot set and therefore carries no
+// label. Nothing on the page could explain why it had been scored.
+//
+// The fix is an order, not a new column: prefer a fingerprint that was
+// flagged, then the most recent. So whenever the flag is true, the
+// fingerprint shown is one that made it true. distinctJA4s is what stops
+// the answer from pretending to be the only one - a caller that draws
+// the fingerprint can say how many the group had.
+const representativeJA4 = `COALESCE(
+	(array_agg(ja4 ORDER BY is_known_bot_ja4 DESC, time DESC) FILTER (WHERE ja4 <> ''))[1], '')`
+
+const distinctJA4s = `count(DISTINCT ja4) FILTER (WHERE ja4 <> '')`
+
 // Store answers read-only questions about traffic_snapshots.
 type Store struct {
 	pool *pgxpool.Pool
@@ -302,7 +335,12 @@ type IPStat struct {
 	// JA4Label is the human-readable bot name for JA4 where it's a
 	// recognised fingerprint, so a table can show "Googlebot" rather than
 	// a 40-character hash.
-	JA4Label  string    `json:"ja4_label,omitempty"`
+	JA4Label string `json:"ja4_label,omitempty"`
+	// JA4Count is how many distinct fingerprints this address showed in
+	// range. One is the ordinary case; more than one means JA4 above is a
+	// representative rather than the answer, and a page drawing it should
+	// say so. See representativeJA4.
+	JA4Count  int       `json:"ja4_count"`
 	LastSeen  time.Time `json:"last_seen"`
 	Snapshots int       `json:"snapshots"`
 }
@@ -331,7 +369,8 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 		       COALESCE(max(asn_org), ''),
 		       bool_or(is_known_bot_ja4),
 		       bool_or(is_known_bot_asn),
-		       COALESCE(max(ja4), ''),
+		       `+representativeJA4+`,
+		       `+distinctJA4s+`,
 		       max(time),
 		       count(*)
 		FROM traffic_snapshots
@@ -353,7 +392,8 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 			ip   netip.Addr
 		)
 		if err := rows.Scan(&ip, &stat.PeakScore, &stat.PeakRequestRate, &stat.Country, &stat.ASN,
-			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.LastSeen, &stat.Snapshots); err != nil {
+			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.JA4Count,
+			&stat.LastSeen, &stat.Snapshots); err != nil {
 			return nil, 0, fmt.Errorf("api: scan ip stat: %w", err)
 		}
 		stat.IP = ip.String()

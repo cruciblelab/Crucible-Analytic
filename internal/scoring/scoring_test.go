@@ -111,8 +111,17 @@ func TestScore_RateJA4AndASNCombine(t *testing.T) {
 	knownBots := map[string]string{"bad-ja4": "test-bot"}
 	knownBotASNs := map[int]struct{}{64512: {}}
 
-	r := Score(rateScoreSaturationRPS/2, "bad-ja4", knownBots, 64512, knownBotASNs)
-	want := maxRateScore/2 + maxJA4Score + maxASNScore
+	// A quarter of saturation rather than a half, so the three components
+	// still sum to less than MaxScore once maxJA4Score reached 50. At a
+	// half they add to 105 and this would be testing the cap - which
+	// TestScore_NeverExceedsMaxScore owns - instead of testing that they
+	// combine at all.
+	r := Score(rateScoreSaturationRPS/4, "bad-ja4", knownBots, 64512, knownBotASNs)
+	want := maxRateScore/4 + maxJA4Score + maxASNScore
+	if want > MaxScore {
+		t.Fatalf("the components now sum to %d, past MaxScore %d: lower the rate this test uses, "+
+			"or this stops measuring that they add up", want, MaxScore)
+	}
 	if r.Score != want {
 		t.Errorf("Score = %d, want %d (RateScore %d + JA4Score %d + ASNScore %d)", r.Score, want, r.RateScore, r.JA4Score, r.ASNScore)
 	}

@@ -227,7 +227,7 @@ func (s *Store) SilentIPs(ctx context.Context, siteID string, from, to time.Time
 		SELECT max(ip), max(bot_score), max(request_rate),
 		       COALESCE(max(country), ''), COALESCE(max(asn), 0), COALESCE(max(asn_org), ''),
 		       bool_or(is_known_bot_ja4), bool_or(is_known_bot_asn),
-		       COALESCE(max(ja4), ''), max(time), count(*)
+		       `+representativeJA4+`, `+distinctJA4s+`, max(time), count(*)
 		FROM silent
 		GROUP BY join_key
 		ORDER BY max(bot_score) DESC, max(request_rate) DESC, max(ip)
@@ -246,7 +246,8 @@ func (s *Store) SilentIPs(ctx context.Context, siteID string, from, to time.Time
 			ip   netip.Addr
 		)
 		if err := rows.Scan(&ip, &stat.PeakScore, &stat.PeakRequestRate, &stat.Country, &stat.ASN,
-			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.LastSeen, &stat.Snapshots); err != nil {
+			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.JA4Count,
+			&stat.LastSeen, &stat.Snapshots); err != nil {
 			return nil, 0, fmt.Errorf("api: scan silent ip: %w", err)
 		}
 		stat.IP = ip.String()
@@ -271,6 +272,10 @@ type JSBot struct {
 
 	JA4      string `json:"ja4,omitempty"`
 	JA4Label string `json:"ja4_label,omitempty"`
+	// JA4Count is how many distinct fingerprints the collector saw from
+	// this address in range - see representativeJA4 for why it is not
+	// always one, and why JA4 above is chosen rather than arbitrary.
+	JA4Count int `json:"ja4_count"`
 
 	Country string `json:"country,omitempty"`
 	ASN     int    `json:"asn,omitempty"`
@@ -316,7 +321,8 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 		),
 		collector_agg AS (
 		    SELECT ` + joinKey + ` AS join_key, max(bot_score) AS peak_score,
-		           COALESCE(max(ja4), '') AS ja4,
+		           ` + representativeJA4 + ` AS ja4,
+		           ` + distinctJA4s + ` AS ja4_count,
 		           COALESCE(max(country), '') AS country,
 		           COALESCE(max(asn), 0) AS asn,
 		           COALESCE(max(asn_org), '') AS asn_org,
@@ -329,7 +335,8 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 		suspects AS (
 		    SELECT b.ip, COALESCE(c.peak_score, 0) AS peak_score, b.bot_ua,
 		           b.browser, b.os,
-		           COALESCE(c.ja4, '') AS ja4, COALESCE(c.country, '') AS country,
+		           COALESCE(c.ja4, '') AS ja4, COALESCE(c.ja4_count, 0) AS ja4_count,
+		           COALESCE(c.country, '') AS country,
 		           COALESCE(c.asn, 0) AS asn, COALESCE(c.asn_org, '') AS asn_org,
 		           COALESCE(c.known_ja4, false) AS known_ja4,
 		           COALESCE(c.known_asn, false) AS known_asn,
@@ -347,7 +354,7 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 	}
 
 	rows, err := s.pool.Query(ctx, jsBotsCTE+`
-		SELECT ip, peak_score, bot_ua, browser, os, ja4, country, asn, asn_org,
+		SELECT ip, peak_score, bot_ua, browser, os, ja4, ja4_count, country, asn, asn_org,
 		       known_ja4, known_asn, pageviews, visitors, first_seen, last_seen
 		FROM suspects
 		ORDER BY peak_score DESC, pageviews DESC, ip
@@ -366,7 +373,7 @@ func (s *Store) JSBots(ctx context.Context, siteID string, from, to time.Time, l
 			ip  netip.Addr
 		)
 		if err := rows.Scan(&ip, &bot.PeakScore, &bot.IsBotUA, &bot.Browser, &bot.OS, &bot.JA4,
-			&bot.Country, &bot.ASN, &bot.ASNName, &bot.IsKnownBotJA4, &bot.IsKnownBotASN,
+			&bot.JA4Count, &bot.Country, &bot.ASN, &bot.ASNName, &bot.IsKnownBotJA4, &bot.IsKnownBotASN,
 			&bot.Pageviews, &bot.Visitors, &bot.FirstSeen, &bot.LastSeen); err != nil {
 			return nil, 0, fmt.Errorf("api: scan js bot: %w", err)
 		}
