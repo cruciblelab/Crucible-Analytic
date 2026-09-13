@@ -97,7 +97,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | ✅ **3/3** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü)* |
+| **L** Yükseltme yolu | ✅ **4/4** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | 🟡 **4/5** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
@@ -6467,6 +6467,33 @@ aşamaya hiç girilmemişti.
 Plandaki A–E sırasına ait olmayan, ama ikisi de her maddeyi etkileyen iki
 iş. Ara iş olarak adlandırıldı çünkü faz değiştirmiyorlar; altlarına
 yazılacak her şeyin üzerinde durduğu zemini değiştiriyorlar.
+
+#### L4 — Yükseltilen kurulum, taze kurulumla aynı olmalı ✅ **bitti (2026-09-13)**
+
+Sürüm öncesi sağlamlaştırmada bulundu, ve planda yoktu.
+
+Bir veritabanı iki yoldan şekil alıyor: `install.sh` bütün şema
+dosyalarını ve ardından `release/sql/grants.sql`'i uyguluyor; `upgrader`
+yalnız şema dosyalarını — çünkü DDL çalıştırmaya yetkili tek bileşen o ve
+yalnız parmak izinin kapsadığını çalıştırıyor. İkisinin sonucunu hiçbir
+şey karşılaştırmıyordu.
+
+v0.23.0'dan bu ağaca yükseltilerek ölçüldü. Üç tablo, yükseltilen
+kurulumda hiçbir rolün dokunamadığı hâlde çıkıyordu:
+
+| tablo | eksik olan | sonucu |
+|---|---|---|
+| `traffic_rollup` | collector'ın yazma, okuyucunun okuma hakkı | O2 özeti, yani panonun uzun dönemleri |
+| `traffic_rollup_state` | aynısı | su işareti okunamıyor |
+| `panel_member_invites` | panel_user'ın hepsi + dizi | üye daveti hiç çalışmıyor |
+
+Yetkiler artık tabloyu yaratan şema dosyasında, `grants.sql` kendi
+kopyasını koruyor, ve `internal/upgradepath` iki veritabanını gerçekten
+kurup dört yetki yüzeyini karşılaştırıyor: tablo, sütun, dizi, işlev.
+Taban sürüm elle yazılmıyor, `git tag --merged HEAD` ile türetiliyor —
+yarın kesilen bir sürüm kendiliğinden taban oluyor.
+
+Beş mutasyon, beşi de kırmızı. Şema **21**.
 
 ### AI-1 — İstemciye asla güvenme, yalnız sunucuya güven
 

@@ -17247,3 +17247,91 @@ istemci onu yamalayabilir.
 | örnek yapılandırmada sessiz yok sayılan ayar | 2 | 0 |
 
 On beş mutasyon, on beşi de kırmızı.
+
+## L4 — Yükseltilen kurulum, taze kurulumla aynı değildi
+
+Sahip "iyice bir sağlamlaştırma yapalım, stabil sürüm yayınlayalım"
+dedi. Sürüm öncesi sorulacak en değerli soru belliydi ve hiç
+sorulmamıştı: **var olan bir müşteri yükseltince ne oluyor?**
+
+Kapı bunu ölçmüyor. Bütün entegrasyon testleri taze kurulmuş bir
+veritabanında koşuyor; hiçbiri önceki sürümün şemasından başlamıyor.
+
+### Ölçüm
+
+v0.23.0'ın şema dosyaları (kendi `schemafiles.go`'sundan okunan kendi
+sırasıyla) + v0.23.0'ın `grants.sql`'i ile bir veritabanı kuruldu, içine
+satır yazıldı, sonra bu ağacın şema dosyaları **`schema_admin` olarak**
+uygulandı — `cmd/upgrader` ne yapıyorsa o. Yanına taze kurulum kuruldu
+(`install.sh` sırası), ve iki veritabanının yetki matrisi karşılaştırıldı.
+
+Fark:
+
+```
+< analytics_reader | traffic_rollup       | SELECT
+< analytics_reader | traffic_rollup_state | SELECT
+< collector        | traffic_rollup       | DELETE,INSERT,SELECT,UPDATE
+< collector        | traffic_rollup_state | INSERT,SELECT,UPDATE
+< panel_user       | panel_member_invites | DELETE,INSERT,SELECT,UPDATE
+```
+
+(`<` = taze kurulumda var, yükseltmede yok.)
+
+Sebep tek cümle: **yükseltme `grants.sql`'i çalıştırmıyor.** Bir şema
+dosyasında yaratılan ama yetkisi yalnız `grants.sql`'de yazılı olan her
+nesne, yükseltilen kurulumda erişilemez hâlde doğuyor. Üç tablo bu
+durumdaydı; ikisi O2'nin özet tabloları (panonun uzun dönemleri), biri
+C9.1'in davet tablosu (özelliğin tamamı).
+
+Hepsi bu yayımlanmamış pencerede eklendi, yani **yayımlanmış hiçbir
+sürüm etkilenmiyor** — ama v0.23.0'dan yükselten herkes etkilenirdi.
+
+### İlk ölçümüm yanlıştı, ve kendi kuralımı hatırlattı
+
+İlk turda şemayı `postgres` olarak uyguladım. Fark listesine
+`schema_admin`'in sahiplik satırları da düştü (`REFERENCES`, `TRIGGER`,
+`TRUNCATE`) ve bir an onları da kusur sandım. Değillerdi: gerçek
+yükseltmeyi `schema_admin` koşuyor, yani yeni nesnelerin sahibi zaten o
+oluyor. **Ölçümü ürünün koştuğu rolle koşmayan bir ölçüm, kendi rolünü
+ölçüyor.**
+
+### Düzeltme, ve niye iki kopya
+
+Yetkiler tabloyu yaratan şema dosyasının içine kondu (`DO` bloğu + rol
+var mı + `has_table_privilege` sorusu — `internal/retention`'daki
+yerleşik desen; ikincisi iki uygulayıcının aynı anda ACL satırını
+yeniden yazıp çarpışmasını engelliyor).
+
+`grants.sql` kendi kopyasını koruyor. İki kopya normalde kötü bir fikir,
+ve burada kabul edilebilir olmasının tek sebebi **karşılaştırılıyor
+olmaları**: `internal/upgradepath` iki veritabanını gerçekten kurup dört
+yetki yüzeyini diff'liyor — tablo, sütun, dizi, işlev. *Kimsenin
+karşılaştırmadığı ikinci bir kopya, bu projenin defalarca kırık bulduğu
+şekil.*
+
+Taban sürüm elle yazılmıyor: `git tag --merged HEAD --sort=-v:refname`
+ile HEAD'in kendisi olmayan en yeni etiket. Yarın kesilen bir sürüm
+kendiliğinden taban oluyor, ve test o gün müşterilerin gerçekten soracağı
+soruyu cevaplıyor.
+
+Üç ek iddia, üçü de "boş karşılaştırma" deliğini kapatıyor:
+
+- yetki sorgusu taze kurulumda **boş dönerse** test düşüyor (iki boş
+  küme eşittir, ve hiçbir şey kanıtlamaz),
+- fark **iki yönlü** aranıyor (yükseltmeyle *kazanılan* bir yetki de
+  kusurdur),
+- taban sürümün şeması bu ağacınkinden **gerçekten farklı** olmalı
+  (12 dosyanın 5'i farklı; aynı olsalardı taze kurulumu taze kurulumla
+  karşılaştırıyor olurduk).
+
+### Değişmezin muafiyeti de sınandı
+
+`TestEverySuiteThatWritesASharedRowTakesItsLock` yeni paketi yakaladı:
+`panel_users`'a yazıyor ve paylaşılan kilidi almıyor. Doğru cevap kilidi
+almak değildi — paket kendi veritabanını kuruyor, açmadığı bir
+veritabanındaki kilit hiçbir şeyi korumaz. Muafiyet bir isim listesi
+değil **iki koşul** olarak yazıldı, ki inanılmak yerine kontrol
+edilebilsin: paket kendi veritabanını kurmalı **ve** `internal/testdb`'ye
+hiç uzanmamalı. İkisi de mutasyonla sınandı, ikisi de yük taşıyor.
+
+Beş mutasyon, beşi de kırmızı. Şema 21.

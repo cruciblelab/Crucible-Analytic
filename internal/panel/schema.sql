@@ -390,6 +390,37 @@ CREATE INDEX IF NOT EXISTS idx_panel_member_invites_by
     ON panel_member_invites (created_by)
     WHERE used_at IS NULL AND revoked_at IS NULL;
 
+-- The panel's privileges on the table above, here rather than only in
+-- release/sql/grants.sql.
+--
+-- A fresh install runs every schema file and then grants.sql; an
+-- upgrade runs the schema files and nothing else (cmd/upgrader). So a
+-- table whose GRANT lives only in grants.sql appears on an upgraded
+-- deployment with no role able to touch it. Measured on a database
+-- built at v0.23.0 and upgraded to this tree: panel_user held nothing
+-- on panel_member_invites, which is the whole invitation feature,
+-- broken on every existing installation and only there.
+--
+-- The sequence too, and it is the half that is easy to forget: INSERT
+-- on the table without USAGE on its sequence fails at the first row
+-- with "permission denied for sequence", which reads like a bug in the
+-- form rather than a missing grant.
+--
+-- internal/upgradepath keeps this copy and grants.sql's equal by
+-- building both kinds of database and diffing their privileges.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user') THEN
+        IF NOT has_table_privilege('panel_user', 'panel_member_invites', 'INSERT') THEN
+            GRANT SELECT, INSERT, UPDATE, DELETE ON panel_member_invites TO panel_user;
+        END IF;
+        IF NOT has_sequence_privilege('panel_user', 'panel_member_invites_id_seq', 'USAGE') THEN
+            GRANT USAGE, SELECT ON SEQUENCE panel_member_invites_id_seq TO panel_user;
+        END IF;
+    END IF;
+END
+$$;
+
 -- Login attempts, for throttling and for seeing an attack in progress.
 --
 -- A table rather than an in-memory counter, for two reasons: an

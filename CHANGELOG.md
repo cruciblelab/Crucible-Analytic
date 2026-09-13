@@ -9,14 +9,39 @@ yapacağım".
 
 ---
 
-## Yayımlanmamış
+## v0.24.0+L4 — 2026-09-13
 
-Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+**Şema sürümü: 21.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Üç tablo, iki sütun, bir veritabanı işlevi
+ve eksik kalmış yetkiler ekleniyor; veri değişmiyor, servis durmuyor.
+Yükseltmeden sonra aşağıdaki ayarlar yazılmazsa başka hiçbir davranış
+değişmiyor.
 
-**Şema sürümü: 20.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Üç tablo, iki sütun ve bir veritabanı
-işlevi ekleniyor; veri değişmiyor, servis durmuyor. Yükseltmeden sonra
-aşağıdaki ayarlar yazılmazsa başka hiçbir davranış değişmiyor.
+### Yükseltilen kurulum, taze kurulumla aynı değildi — düzeltildi
+
+Bir veritabanı iki yoldan şekil alıyor ve ikisi farklı dosyalar
+çalıştırıyor: **taze kurulum** `install.sh` ile bütün şema dosyalarını ve
+ardından yetki matrisini (`grants.sql`) uyguluyor; **yükseltme** ise
+yalnız şema dosyalarını. İkisinin sonucunu hiçbir şey karşılaştırmıyordu.
+
+Sonuç: bir şema dosyasında yaratılan ama yetkisi yalnız `grants.sql`'de
+yazılı olan bir tablo, yükseltilen kurulumda **hiçbir rolün
+dokunamadığı** bir tablo olarak ortaya çıkıyordu. v0.23.0'dan bu ağaca
+yükseltilerek ölçüldü, üç tablo bu durumdaydı:
+
+- `traffic_rollup` ve `traffic_rollup_state` — collector yazamıyor,
+  okuma API'si okuyamıyor. Panonun uzun dönem özetlerinin dayandığı yol.
+- `panel_member_invites` — panel hiçbir şey yapamıyor, yani **üye daveti
+  özelliği** yükseltilmiş her kurulumda çalışmıyor.
+
+Üçü de taze kurulumda doğruydu, yükseltmede değildi, ve yükseltme yarısı
+hiç koşulmuyordu. Yetkiler artık tabloyu yaratan şema dosyasının içinde;
+`grants.sql` kendi kopyasını koruyor, ve `internal/upgradepath` iki
+veritabanını gerçekten kurup dört yetki yüzeyini (tablo, sütun, dizi,
+işlev) karşılaştırarak ikisinin ayrışmasını engelliyor.
+
+Bu sürüm çıkmadan bulundu; yayımlanmış hiçbir sürüm etkilenmiyor.
+
 
 ### Bot kararı: taklit eden istemciler artık bot sayılıyor
 

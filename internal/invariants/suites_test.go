@@ -391,6 +391,20 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 			// the package is the honest granularity.
 			writers := map[string][]string{} // package dir -> files that write
 			locks := map[string]bool{}       // package dir -> somebody names the lock
+			// A suite that builds its own database is not writing the
+			// shared one, and a lock on a database it never opens would
+			// protect nothing. The exemption is two conditions rather
+			// than a name in a list, so it can be checked rather than
+			// believed: the package must create a database of its own,
+			// and it must never reach for internal/testdb, which is the
+			// only way in this repository to open the shared one.
+			//
+			// internal/retention's compression suite and
+			// internal/upgradepath are the two that qualify, and both
+			// exist because a suite that changes a database's shape must
+			// not run in the database other suites are using.
+			ownDB := map[string]bool{}    // package dir -> creates a database
+			sharedDB := map[string]bool{} // package dir -> opens the shared one
 			err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
 					return nil
@@ -413,6 +427,14 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 				if strings.Contains(string(body), shared.lock) {
 					locks[dir] = true
 				}
+				if strings.Contains(string(body), "CREATE DATABASE ") {
+					ownDB[dir] = true
+				}
+				for _, opener := range []string{"testdb.Pool(", "testdb.DSN(", "testdb.Admin("} {
+					if strings.Contains(string(body), opener) {
+						sharedDB[dir] = true
+					}
+				}
 				if write.MatchString(sqlLiterals(path)) {
 					rel, _ := filepath.Rel(root, path)
 					writers[dir] = append(writers[dir], filepath.ToSlash(rel))
@@ -432,6 +454,9 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 			var missing []string
 			for dir, files := range writers {
 				if locks[dir] {
+					continue
+				}
+				if ownDB[dir] && !sharedDB[dir] {
 					continue
 				}
 				rel, _ := filepath.Rel(root, dir)

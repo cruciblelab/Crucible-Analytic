@@ -69,3 +69,8 @@ gosec.json
 
 # The release package, built by release/build.sh.
 dist/
+
+# Calisma dizini: mutasyon kosucusu, olcum betikleri, yarim kalan
+# dokumler. Gelistiriciye ait, urune degil - ve bir kez kazara
+# commit'lendi (v0.24.0 oncesi uc betik), o yuzden burada yaziyor.
+scratchpad/

@@ -258,3 +258,57 @@ CREATE TABLE IF NOT EXISTS traffic_rollup_state (
     materialized_before TIMESTAMPTZ NOT NULL,
     refreshed_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- The privileges for the two tables above, here rather than only in
+-- release/sql/grants.sql.
+--
+-- # Why a schema file grants at all
+--
+-- There are two ways a deployment's database gets its shape, and only
+-- one of them runs grants.sql:
+--
+--   fresh install   release/install.sh: every schema file, then
+--                   release/sql/grants.sql
+--   upgrade         cmd/upgrader: the embedded schema files, and
+--                   nothing else
+--
+-- So a table created by a schema file whose GRANT lives only in
+-- grants.sql exists on an upgraded deployment with no role able to
+-- touch it. Measured on a database built at v0.23.0 and upgraded to
+-- this tree: traffic_rollup and traffic_rollup_state came out with
+-- collector holding nothing and analytics_reader holding nothing,
+-- which is the collector's refresh cycle and the summary endpoint,
+-- both broken, on every existing installation.
+--
+-- grants.sql keeps its copy: it is the privilege matrix somebody reads
+-- to answer "what can this role do", and it is what a fresh install
+-- applies. The two are held equal by internal/upgradepath, which builds
+-- both kinds of database and diffs their privileges - a second copy
+-- nobody compares is the shape this project has found broken more than
+-- once.
+--
+-- DO blocks and the has_table_privilege question for the reasons
+-- written out in internal/retention/schema.sql: the roles may not exist
+-- in a development database, and a GRANT that changes nothing still
+-- rewrites the ACL tuple, which two appliers running at once collide
+-- on.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
+        IF NOT has_table_privilege('collector', 'traffic_rollup', 'INSERT') THEN
+            GRANT SELECT, INSERT, UPDATE, DELETE ON traffic_rollup TO collector;
+        END IF;
+        IF NOT has_table_privilege('collector', 'traffic_rollup_state', 'INSERT') THEN
+            GRANT SELECT, INSERT, UPDATE ON traffic_rollup_state TO collector;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'analytics_reader') THEN
+        IF NOT has_table_privilege('analytics_reader', 'traffic_rollup', 'SELECT') THEN
+            GRANT SELECT ON traffic_rollup TO analytics_reader;
+        END IF;
+        IF NOT has_table_privilege('analytics_reader', 'traffic_rollup_state', 'SELECT') THEN
+            GRANT SELECT ON traffic_rollup_state TO analytics_reader;
+        END IF;
+    END IF;
+END
+$$;
