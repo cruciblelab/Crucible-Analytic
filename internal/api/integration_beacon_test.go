@@ -912,3 +912,71 @@ func TestBeaconSessionStartsAreBucketedInTheSameZoneAsTheEvents(t *testing.T) {
 			"time_bucket calls produced keys that do not join", buckets[0].Sessions)
 	}
 }
+
+// TestStore_RealTimescaleDB_CountriesTakeTheMostRecentInsideTheRange.
+//
+// Three properties the countries fallback has always had and nothing
+// asserted, which matters now because the query that provides them was
+// rewritten: it used to resolve every address in the range with one
+// DISTINCT ON and now probes the index once per address the beacon
+// heard. Same answer, measured 14 times faster on 12 million rows - but
+// "same answer" is a claim, so here it is as three.
+//
+//   - the most recent snapshot wins, not an arbitrary one
+//   - a snapshot with no country does not win, however recent
+//   - a snapshot outside the requested range does not count at all
+//
+// Each address below fails a different plausible implementation. An
+// implementation picking any row fails the first, one dropping the
+// country <> ” filter fails the second, one resolving addresses over
+// all time rather than the range fails the third.
+func TestStore_RealTimescaleDB_CountriesTakeTheMostRecentInsideTheRange(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	site := "api-beacon-geo-recency"
+
+	from, to := base.Add(-time.Minute), base.Add(time.Hour)
+
+	store := seedBeacon(t, []beaconSeed{
+		{site: site, visitor: "v1", at: base.Add(time.Minute), ip: "198.51.100.10", path: "/a"},
+		{site: site, visitor: "v2", at: base.Add(time.Minute), ip: "198.51.100.11", path: "/a"},
+		{site: site, visitor: "v3", at: base.Add(time.Minute), ip: "198.51.100.12", path: "/a"},
+	})
+	seedSnapshotsFor(t, []seedRow{
+		// .10 moved: the later row is the answer.
+		{site: site, ip: "198.51.100.10", at: base, rate: 1, score: 1, country: "DE"},
+		{site: site, ip: "198.51.100.10", at: base.Add(10 * time.Minute), rate: 1, score: 1, country: "TR"},
+		// .11 was seen again with nothing resolved; the last known
+		// country still stands.
+		{site: site, ip: "198.51.100.11", at: base, rate: 1, score: 1, country: "GB"},
+		{site: site, ip: "198.51.100.11", at: base.Add(10 * time.Minute), rate: 1, score: 1, country: ""},
+		// .12's only snapshot is before the window opens.
+		{site: site, ip: "198.51.100.12", at: from.Add(-time.Hour), rate: 1, score: 1, country: "FR"},
+	})
+
+	countries, _, err := store.BeaconCountries(context.Background(), site, testBeaconParams(from, to))
+	if err != nil {
+		t.Fatalf("BeaconCountries: %v", err)
+	}
+	byKey := map[string]int{}
+	for _, c := range countries {
+		byKey[c.Key] = c.Pageviews
+	}
+
+	if byKey["TR"] != 1 || byKey["DE"] != 0 {
+		t.Errorf("the address that moved resolved as DE=%d TR=%d, want the later snapshot (TR); got %+v",
+			byKey["DE"], byKey["TR"], countries)
+	}
+	if byKey["GB"] != 1 {
+		t.Errorf("GB = %d, want 1 - a later snapshot with no country resolved must not erase "+
+			"the last one that did; got %+v", byKey["GB"], countries)
+	}
+	if byKey["FR"] != 0 {
+		t.Errorf("FR = %d, want 0 - that snapshot is outside the requested range, and a "+
+			"breakdown that reaches outside its range answers a different question",
+			byKey["FR"])
+	}
+	if byKey[""] != 1 {
+		t.Errorf("unresolved = %d, want 1 - the address with nothing inside the range belongs "+
+			"in the empty group rather than disappearing; got %+v", byKey[""], countries)
+	}
+}

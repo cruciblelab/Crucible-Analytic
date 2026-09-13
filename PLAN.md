@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **3/4** | O3 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **4/6** | O3, O4 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -4431,6 +4431,61 @@ parçaya bölünüyor: ham baş, eskiz orta, ham kuyruk.
 İnsan sayısı kendi eskizini taşımak zorunda (çıkarmanın hatası patlıyor),
 yani disk iki katı. Ve panel `bot_score_min` göndermediği için eskiz
 varsayılan eşikte kurulabilir; başka eşik soran çağrı ham tabloya düşer.
+
+---
+
+#### O2b — Ülke kırılımı: aralığı taramak yerine adresi sormak ✅ **bitti (2026-09-13)**
+
+CLAUDE.md'de açık duran madde: *"Ülkeler en pahalı kırılım ve soğukta
+8 sn'lik PageTimeout'u aşıyor."* Ölçüldü ve kapatıldı.
+
+`ca_scale`'e beacon tarafı eklendi (316.480 olay, 15.824 adres —
+snapshot'lardaki 47.500 adresin üçte biri). Ölçüm binary'nin cevabıyla,
+soğuk.
+
+Sorgu, adres hakkındaki bir soruyu zamana göre saklanan bir tabloya
+soruyordu: `DISTINCT ON (ip)` ile aralıktaki **her** adresi çözüyor, üstelik
+iki kez (toplam + sayfa). Yerine adres başına bir indeks sondası
+(`LEFT JOIN LATERAL ... ORDER BY t.time DESC LIMIT 1`) kondu; cevap
+değişmiyor, plan değişiyor.
+
+| aralık | önce | sonra |
+|---|---|---|
+| 30 gün | 4,77 sn | 0,51 sn |
+| 90 gün | 21,40 sn | 1,50 sn |
+
+Ara adım olarak denenen "geo'yu beacon adresleriyle sınırla" 7,65 sn'de
+kaldı: PostgreSQL yine Hash Semi Join ile 10,6 milyon satırı okuyor.
+*Bir sorguyu daraltmak, planı daraltmaz.*
+
+Dört mutasyon, dördü de kırmızı. Biri ilk turda sağ kaldı (`ORDER BY`
+silinince hiçbir test kırılmıyor, çünkü indeks zaten o sırayı veriyor);
+cümlenin yük taşıdığı indekssiz bir tabloda ayrıca ölçüldü ve koruma
+kaynak düzeyine kondu.
+
+#### O4 — Adres boyutlu özet: dört uç hâlâ bütçenin üstünde ⬜ **karar bekliyor**
+
+O2b'den sonra bütün kırılımlar aynı düzenekte ölçüldü. Sınır 8 sn, aralık
+90 gün, 12M satır:
+
+| uç | süre |
+|---|---|
+| `countries` (sunucu ülkeleri) | 7,31 sn — sınırda |
+| `asns` | 9,12 sn — aşıyor |
+| `ja4` | 17,98 sn — aşıyor |
+| `crossover/summary` | **cevap vermiyor** (78 sn sonra bağlantı kapanıyor) |
+
+Dördü de `GROUP BY ip` ile aralığın tamamını tarıyor. O2b'nin numarası
+burada işe yaramaz: orada cevaba giren adresler önceden belliydi, burada
+cevabın kendisi bütün adresler hakkında.
+
+En ağırı sonuncusu: kesişim ölçümü **ürünün varlık sebebi** ve bu ölçekte
+hiç cevap vermiyor.
+
+Çözüm O2'nin tedavisinin aynısı, başka eksende: zaman kovası değil
+**adres boyutu** özeti (site × gün × ülke/ASN/JA4, ve kesişim için
+adres başına "gördü / JS çalıştırdı" bayrakları). Şema gerektiriyor,
+yani **sahibin kararı**. Seçenekler ve maliyetleri ölçülüp sunulacak.
 
 ---
 

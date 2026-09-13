@@ -17335,3 +17335,141 @@ edilebilsin: paket kendi veritabanını kurmalı **ve** `internal/testdb`'ye
 hiç uzanmamalı. İkisi de mutasyonla sınandı, ikisi de yük taşıyor.
 
 Beş mutasyon, beşi de kırmızı. Şema 21.
+
+## O2b — Ülke kırılımı: aralığı taramak yerine adresi sormak
+
+Sürüm sonrası açık kalan riskleri kapatmaya başlarken ele alındı.
+CLAUDE.md'de aylardır şöyle yazıyordu: *"Ülkeler en pahalı kırılım ve
+soğukta 8 sn'lik PageTimeout'u aşıyor. Ölçülüp ayrı faz olarak karara
+bağlanacak."*
+
+### Düzenek
+
+`ca_scale` yalnız collector tarafını taşıyordu (12M snapshot, 90 gün, 3
+site); beacon tablosu hiç yoktu, yani okuma tarafının yarısı ölçülemezdi.
+Beacon şeması uygulandı ve **316.480 olay** üretildi: snapshot'lardaki
+47.500 adresin üçte biri (15.824 adres), her biri 90 güne yayılmış ~20
+sayfa görüntüleme. Şekil gerçek bir kurulumunki: beacon'ın gördüğü adres
+kümesi, collector'ın gördüğünün altkümesi.
+
+Ölçüm **binary'nin cevabıyla ve soğuk**: her turda PostgreSQL ve API
+yeniden başlatılıyor, ilk istek ölçülüyor.
+
+### Bulgu
+
+90 günlük `beacon/countries`: **21,40 sn**. Sayfanın `PageTimeout`'u 8 sn.
+
+Sebep tek satırda: sorgu **adres hakkında bir soruyu, zamana göre
+saklanan bir tabloya** soruyordu.
+
+```sql
+geo AS (SELECT DISTINCT ON (ip) ip, country FROM traffic_snapshots
+        WHERE site_id = $1 AND time >= $2 AND time < $3 AND country <> ''
+        ORDER BY ip, time DESC)
+```
+
+Bu, aralıktaki **her** adresi çözüyor (47.500), oysa cevaba giren yalnız
+beacon'ın duydukları (15.824). Ve uç bunu **iki kez** kuruyor: bir kez
+toplam için, bir kez sayfa için.
+
+Tek başına `geo` CTE'si, soğuk: **28,70 sn.**
+
+### Denenen ve yetmeyen ara adım
+
+`geo`'yu beacon'ın adresleriyle sınırlamak (`ip IN (SELECT ip FROM
+filtered)`) **7,65 sn** verdi — 3,7 kat, ama hâlâ bütçenin üstünde. Plana
+bakınca sebebi görünüyordu: PostgreSQL yine **Hash Semi Join** seçiyor ve
+10,6 milyon satırı okuyup 15.824 adresle hash'liyor. Yani "daha az adres"
+demek, "daha az satır oku" demek değil.
+
+*Bir sorguyu daraltmak, planı daraltmaz.*
+
+### Düzeltme
+
+Aralığı tarayan bir ifade yerine, adres başına bir **indeks sondası**:
+
+```sql
+beacon_ips AS (SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL),
+geo AS (
+    SELECT b.ip, g.country FROM beacon_ips b
+    LEFT JOIN LATERAL (
+        SELECT t.country FROM traffic_snapshots t
+        WHERE t.ip = b.ip AND t.site_id = $1
+          AND t.time >= $2 AND t.time < $3 AND t.country <> ''
+        ORDER BY t.time DESC LIMIT 1) g ON true)
+```
+
+`traffic_snapshots` zaten `(ip, time DESC)` ile indeksli. `LIMIT 1` +
+`ORDER BY` planlayıcıya ne istendiğini doğrudan söylüyor, o da indeksi
+kullanıyor: 10,6 milyon satır yerine 15.824 sonda.
+
+**Cevap değişmiyor** — hâlâ aralık içindeki en yeni boş olmayan ülke.
+Doğrulandı: iki sorgu şekli `ca_scale`'de birebir aynı sekiz satırı
+veriyor.
+
+| aralık | önce (soğuk) | sonra (soğuk) |
+|---|---|---|
+| 30 gün | 4,77 sn | 0,51 sn |
+| 90 gün | 21,40 sn | 1,50 sn |
+
+### 7 günlük ölçüm hiçbir şey ölçmüyordu
+
+İlk turda 7 gün 0,006 sn verdi ve bir an "demek ki kısa aralık zaten
+hızlı" diye yazacaktım. Sordum: o pencerede **sıfır** beacon olayı vardı,
+çünkü ürettiğim veri 09-09'da bitiyor. Boş girdiyle alınan bir süre, bir
+süre değil. Tabloya alınmadı.
+
+### Sağ kalan mutasyon bir soruydu ve cevabı ölçüldü
+
+`ORDER BY t.time DESC` silindiğinde **hiçbir test kırılmadı.** Sebep:
+`(ip, time DESC)` indeksini kullanan her plan zaten en yeni satırı önce
+veriyor, ve gerçek veriyle planlayıcı hep o indeksi seçiyor.
+
+Yani iddia doğru ama **bu şemada gözlenemez.** Gözlenebilir olduğu ayrı
+ölçüldü: indekssiz bir tabloda, eski satır fiziksel olarak önce yazılmış:
+
+```
+ORDER BY ile      → TR  (sonraki ülke, doğru)
+ORDER BY olmadan  → DE  (önceki)
+```
+
+Yani cümle yük taşıyor, ve onu koruyan şey bir sonuç testi olamaz —
+indeks bir gün değişirse sonuç testi sessizce yanlışa döner, kırmızı
+vermez. Koruma kaynak düzeyinde:
+`TestTheCountryProbeAsksForTheMostRecentRow`.
+
+*Bir testin göremediği bir garanti, yazılmamış bir garanti değildir; ama
+onu koruyan şeyin ne olduğu söylenmelidir.*
+
+Dört mutasyon, dördü de kırmızı.
+
+### Ve asıl bulgu: aynı soruyu soran dört uç daha
+
+Düzeltmeden sonra **bütün kırılımlar** aynı düzenekte, soğuk, 90 günlük
+aralıkla ölçüldü. Sınır 8 sn:
+
+| uç | süre | durum |
+|---|---|---|
+| `beacon/campaigns` | 0,10 sn | |
+| `beacon/events` | 0,12 sn | |
+| `beacon/pages` | 0,66 sn | |
+| `beacon/devices` | 0,66 sn | |
+| `beacon/referrers` | 0,67 sn | |
+| `beacon/countries` | **1,45 sn** | bu fazda düzeltildi (21,40 idi) |
+| `summary` | 3,25 sn | O2'nin özeti çalışıyor |
+| `countries` (sunucu) | **7,31 sn** | sınırda |
+| `asns` | **9,12 sn** | **aşıyor** |
+| `ja4` | **17,98 sn** | **aşıyor** |
+| `crossover/summary` | **cevap vermiyor** | 78 sn sonra bağlantı kapanıyor |
+
+Dördü de aynı şekle sahip: `GROUP BY ip` ile **aralığın tamamını**
+tarayan bir `per_ip` CTE'si. Ülke kırılımındaki numara bunlara
+uygulanamaz — oradaki kazanç "cevaba giren adresler zaten belli"
+olmasından geliyordu; burada cevabın kendisi bütün adresler hakkında.
+
+En ağırı `crossover/summary`: ürünün **varlık sebebi olan ölçüm**, 12M
+satırda hiç cevap vermiyor.
+
+Çözüm O2'nin verdiği tedavinin aynısı ama başka bir eksende: zaman
+kovalarına göre değil, **adres boyutlarına göre** bir özet. Şema
+gerektiriyor, yani sahibin kararı. PLAN'a **O4** olarak yazıldı, sayılarla.

@@ -650,12 +650,42 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error) {
 	// One representative country per IP, most recent first - the same
 	// "effectively constant per IP" reasoning TopIPs documents.
+	//
+	// # Why this asks per address instead of resolving them all
+	//
+	// It used to be one DISTINCT ON (ip) over every snapshot in the
+	// range. That is a question about addresses asked of a table stored
+	// by time, so it read the whole range: measured on 12 million rows
+	// over 90 days, 28,70 s cold, for a breakdown whose page gives up
+	// after 8. And it ran twice, once for the total and once for the
+	// page.
+	//
+	// The addresses that matter are only the ones the beacon heard, and
+	// traffic_snapshots is indexed on (ip, time DESC). So the shape that
+	// fits is a probe per address rather than a pass over the range:
+	// 15.824 probes instead of 10,6 million rows, 1,79 s instead of
+	// 28,70. Restricting the old DISTINCT ON to the same addresses was
+	// measured too and is not the same thing - PostgreSQL still chose a
+	// hash semi-join over the whole table, 7,65 s.
+	//
+	// The answer is unchanged: still the most recent non-empty country
+	// for that address inside the requested range. LATERAL with LIMIT 1
+	// says that directly, which is why the planner can use the index.
 	const geoCTE = `,
+		beacon_ips AS (
+		    SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL
+		),
 		geo AS (
-		    SELECT DISTINCT ON (ip) ip, country
-		    FROM traffic_snapshots
-		    WHERE site_id = $1 AND time >= $2 AND time < $3 AND country <> ''
-		    ORDER BY ip, time DESC
+		    SELECT b.ip, g.country
+		    FROM beacon_ips b
+		    LEFT JOIN LATERAL (
+		        SELECT t.country
+		        FROM traffic_snapshots t
+		        WHERE t.ip = b.ip AND t.site_id = $1
+		          AND t.time >= $2 AND t.time < $3 AND t.country <> ''
+		        ORDER BY t.time DESC
+		        LIMIT 1
+		    ) g ON true
 		),
 		resolved AS (
 		    SELECT COALESCE(NULLIF(f.country, ''), g.country, '') AS country,

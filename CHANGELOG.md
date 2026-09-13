@@ -9,6 +9,41 @@ yapacağım".
 
 ---
 
+## Yayımlanmamış
+
+Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
+
+**Şema sürümü: 21** (değişmedi). **Kuran kişinin yapması gereken:** yok.
+
+### Ülke kırılımı 14 kat hızlandı — panonun vazgeçtiği yerdeydi
+
+Panodaki **Ülkeler** kırılımı, uzun dönemlerde sayfanın beklediğinden
+uzun sürüyor ve sayfa "okunamadı" diyordu. 12 milyon satırlık gerçek bir
+veri kümesinde ölçüldü: 90 günlük aralık **21,4 saniye**, sayfanın sınırı
+8 saniye.
+
+Sebep, sorunun sorulma şekliydi: her ziyaretçinin ülkesi, aralıktaki
+bütün trafiğin taranmasıyla bulunuyordu. Artık yalnız ölçüm kodunu
+çalıştırmış adresler için, doğrudan indeksten soruluyor.
+
+| aralık | önce | sonra |
+|---|---|---|
+| 30 gün | 4,77 sn | 0,51 sn |
+| 90 gün | 21,40 sn | 1,50 sn |
+
+**Gösterilen sayılar değişmedi** — aynı veri kümesinde iki sorgu da
+birebir aynı sonucu veriyor.
+
+### Aynı ölçüm dört kırılımda daha sorun buldu
+
+Düzeltmeden sonra bütün kırılımlar aynı düzenekte ölçüldü. Sunucu
+ülkeleri (7,3 sn), ağlar (9,1 sn), parmak izleri (18,0 sn) ve
+**kesişim özeti** (hiç cevap vermiyor) bu ölçekte hâlâ yavaş. Bunlar
+şema değişikliği gerektiriyor ve ayrı bir sürümde ele alınacak; küçük ve
+orta veri kümelerinde hepsi çalışıyor.
+
+---
+
 ## v0.24.0+L4 — 2026-09-13
 
 **Şema sürümü: 21.** **Kuran kişinin yapması gereken:** panelde
