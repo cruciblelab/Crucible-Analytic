@@ -98,15 +98,22 @@ func TestMain(m *testing.M) {
 	}())
 }
 
-// privilegeSurfaces are the four surfaces a role can hold something on,
-// each read from the catalogue rather than from a list written here - so
-// a table, column, sequence or function added tomorrow is covered the
-// day it is added.
+// surfaces are everything a deployment's shape is made of, each read
+// from the catalogue rather than from a list written here - so a table,
+// column, sequence, function, policy, constraint or index added
+// tomorrow is covered the day it is added.
 //
-// One definition, two tests: the newest-release comparison below and the
-// walk over every release. Two copies of this SQL would be two
-// definitions of what "the same privileges" means.
-var privilegeSurfaces = []struct {
+// The first four are privileges: what a role may do. The rest are the
+// shape the privileges sit in, and they were missing at first, which was
+// the wrong way round - an unapplied GRANT breaks a feature and somebody
+// notices, while unforced row security leaves a door open and nobody
+// does, because the feature works.
+//
+// One definition, several tests: the newest-release comparison below,
+// the walk over every release, and the row-security rule at the bottom.
+// Two copies of this SQL would be two definitions of what "the same
+// deployment" means.
+var surfaces = []struct {
 	what string
 	sql  string
 }{
@@ -182,6 +189,19 @@ var privilegeSurfaces = []struct {
 			FROM pg_constraint c
 			WHERE c.connamespace = 'public'::regnamespace AND $1::text[] IS NOT NULL
 			ORDER BY 1`},
+	// Indexes, because a missing one is the O group's entire subject:
+	// a deployment that answers correctly and too slowly, which the
+	// panel reports as "could not be read" - a sentence about the
+	// database for a query that is merely scanning.
+	//
+	// Definitions rather than names: an index that survived the upgrade
+	// under the same name with a different column order is the case a
+	// name comparison would pass.
+	{"index", `
+			SELECT schemaname || '.' || indexname || ' | ' || indexdef
+			FROM pg_indexes
+			WHERE schemaname = 'public' AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
 	{"columnshape", `
 			SELECT a.attrelid::regclass::text || '.' || a.attname || ' | ' ||
 			       format_type(a.atttypid, a.atttypmod) ||
@@ -196,25 +216,25 @@ var privilegeSurfaces = []struct {
 			ORDER BY 1`},
 }
 
-// TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall.
+// TestAnUpgradedDeploymentHasTheSameShapeAsAFreshInstall.
 //
 // A difference in either direction is a failure. Missing is the defect
 // this was written for; extra is the other half of the same problem, a
 // deployment that upgraded into rights a fresh install would not give
 // it.
-func TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall(t *testing.T) {
+func TestAnUpgradedDeploymentHasTheSameShapeAsAFreshInstall(t *testing.T) {
 	requireReady(t)
 
-	for _, s := range privilegeSurfaces {
+	for _, s := range surfaces {
 		t.Run(s.what, func(t *testing.T) {
-			comparePrivileges(t, s.what, s.sql, upgradedDB, previousTag)
+			compareSurface(t, s.what, s.sql, upgradedDB, previousTag)
 		})
 	}
 }
 
-// comparePrivileges is the one definition of "an upgrade ended up where
-// an install would have".
-func comparePrivileges(t *testing.T, what, sql, db, tag string) {
+// compareSurface is the one definition of "an upgrade ended up where an
+// install would have", for one surface.
+func compareSurface(t *testing.T, what, sql, db, tag string) {
 	t.Helper()
 
 	fresh := rowsOf(t, freshDB, sql)
@@ -223,7 +243,7 @@ func comparePrivileges(t *testing.T, what, sql, db, tag string) {
 	// A surface that reads empty on both sides would compare equal and
 	// prove nothing.
 	if len(fresh) == 0 {
-		t.Fatalf("the %s privilege query returned nothing on a fresh install; "+
+		t.Fatalf("the %s query returned nothing on a fresh install; "+
 			"an empty comparison passes whatever the upgrade did", what)
 	}
 
@@ -238,23 +258,28 @@ func comparePrivileges(t *testing.T, what, sql, db, tag string) {
 
 	for _, row := range fresh {
 		if !have[row] {
-			t.Errorf("a fresh install has %s privilege %q and an upgrade from %s does not.\n"+
-				"The upgrade path runs the schema files and nothing else, so this privilege "+
-				"is written only in release/sql/grants.sql. Put it in the schema file that "+
-				"creates the object, guarded the way internal/storage/schema.sql does.",
-				what, row, tag)
+			t.Errorf("a fresh install has this %s and an upgrade from %s does not:\n"+
+				"    %s\n"+
+				"The upgrade path runs the schema files and nothing else, so whatever "+
+				"produces this is written only in release/sql/grants.sql. Put it in the "+
+				"schema file that creates the object, guarded the way "+
+				"internal/storage/schema.sql does.",
+				what, tag, row)
 		}
 	}
 	for _, row := range upgraded {
 		if !want[row] {
-			t.Errorf("an upgrade from %s has %s privilege %q and a fresh install does not; "+
-				"a deployment must not gain rights by upgrading that installing would not give it",
+			t.Errorf("an upgrade from %s has this %s and a fresh install does not:\n"+
+				"    %s\n"+
+				"Upgrading must not leave a deployment holding something installing "+
+				"would not give it - for a privilege that is a right nobody granted, "+
+				"and for anything else it is a shape this tree no longer describes.",
 				tag, what, row)
 		}
 	}
 }
 
-// TestEveryReleasedVersionUpgradesToTheSamePrivileges walks the whole
+// TestEveryReleasedVersionUpgradesToTheSameShape walks the whole
 // tag history rather than the newest release.
 //
 // # Why one baseline is not enough
@@ -278,7 +303,7 @@ func comparePrivileges(t *testing.T, what, sql, db, tag string) {
 // The cost is one database per release, built and dropped in turn -
 // measured at about a second each on this machine, and the reason they
 // are not all built at once.
-func TestEveryReleasedVersionUpgradesToTheSamePrivileges(t *testing.T) {
+func TestEveryReleasedVersionUpgradesToTheSameShape(t *testing.T) {
 	requireReady(t)
 	ctx := context.Background()
 
@@ -321,8 +346,8 @@ func TestEveryReleasedVersionUpgradesToTheSamePrivileges(t *testing.T) {
 			if err := buildUpgraded(ctx, db, tag); err != nil {
 				t.Fatalf("building a deployment upgraded from %s: %v", tag, err)
 			}
-			for _, s := range privilegeSurfaces {
-				comparePrivileges(t, s.what, s.sql, db, tag)
+			for _, s := range surfaces {
+				compareSurface(t, s.what, s.sql, db, tag)
 			}
 		})
 	}

@@ -20,6 +20,17 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Yükseltme karşılaştırması on yüzeye çıktı
+
+Yükseltilen kurulumun taze kurulumla karşılaştırıldığı yüzeyler dörtten
+ona çıktı: satır güvenliği (açık + zorlanmış), politikalar, sahiplik,
+kısıtlar, **indeksler** ve sütun şekli. Hepsi katalogdan türetiliyor,
+yani yarın eklenen bir tablo/indeks/politika eklendiği gün kapsanıyor.
+
+Yayımlanmış **21 sürümün 21'i** on yüzeyi de geçti — yükseltme yolu bu
+yönden temiz. Eksik bir indeks, doğru cevap veren ve çok yavaş olan bir
+kurulum demek olurdu; artık ölçülüyor.
+
 ### İki tabloda satır güvenliği sahibi kapsamıyordu
 
 `service_heartbeat` ve `panel_logs` tablolarında satır güvenliği

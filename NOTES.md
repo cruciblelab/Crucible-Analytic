@@ -17487,7 +17487,7 @@ ağacın bugünkü hatasını da taşır.
 
 ### Yeni şekil
 
-`TestEveryReleasedVersionUpgradesToTheSamePrivileges`: HEAD'den
+`TestEveryReleasedVersionUpgradesToTheSameShape`: HEAD'den
 erişilebilen **her** sürüm için bir veritabanı kuruyor, o sürümün şema
 dosyalarını ve o sürümün `grants.sql`'ini uyguluyor (yani müşterinin
 gerçekten kurduğu şey), satır tohumluyor, sonra bu ağacın şemasını
@@ -17570,14 +17570,29 @@ O yüzey hiç sorulmuyordu. Ve aradaki fark sadece kapsam değil:
 
 ### Ne eklendi
 
-Beş yüzey: `rls` (enabled + forced), `policy` (ad, komut, roller,
+Altı yüzey: `rls` (enabled + forced), `policy` (ad, komut, roller,
 USING, WITH CHECK), `owner`, `constraint` (`pg_get_constraintdef`),
-`columnshape` (tip, notnull, default). Hepsi katalogdan; hiçbiri isim
-listesi değil.
+`index` (`indexdef`), `columnshape` (tip, notnull, default). Hepsi
+katalogdan; hiçbiri isim listesi değil.
 
-**Yükseltme yolu bu yönden temiz çıktı: 21 sürümün 21'i dokuz yüzeyi de
-geçti**, 19,9 saniyede. Bu bir sonuç, bulgu değil — ve ölçülmüş olması
+`index` en son eklendi ve gerekçesi O grubunun tamamı: **eksik bir
+indeks, doğru cevap veren ve çok yavaş olan bir kurulum üretir** — ve
+panel bunu "okunamadı" diye anlatır, yani yalnızca tarama yapan bir
+sorgu için veritabanı hakkında bir cümle. Ad yerine **tanım**
+karşılaştırılıyor: aynı adı taşıyıp sütun sırası değişmiş bir indeks, ad
+karşılaştırmasının geçireceği durumdur (mutasyonla gösterildi — yüzey
+yalnız ada bakarsa sütun sırası değişikliği sağ kalıyor).
+
+**Yükseltme yolu bu yönden temiz çıktı: 21 sürümün 21'i on yüzeyi de
+geçti**, ~20 saniyede. Bu bir sonuç, bulgu değil — ve ölçülmüş olması
 onu bir cevap yapıyor.
+
+Yüzey sayısı ikiye katlanınca mesajlar yanlış kelimeyi kullanmaya
+başlamıştı: hata satırı **"index privilege"** diyordu. Onun için
+`privilegeSurfaces` → `surfaces`, `comparePrivileges` → `compareSurface`,
+ve iki testin adı `...SamePrivileges...` → `...SameShape...`.
+*Bir mesajın yanlış kelimesi, tam onu okuyan kişinin en çok yanlış
+yöne bakacağı anda oradadır.*
 
 ### Bulgu, taze kurulumun kendisinden çıktı
 

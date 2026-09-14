@@ -6595,9 +6595,11 @@ L5 dört **yetki** yüzeyini karşılaştırıyordu. Sahibin bir numaralı kural
 yetki değil: *"veritabanında açık uç bırakmayalım — her tablo RLS +
 FORCE."* O yüzey hiç sorulmuyordu.
 
-Beş yüzey eklendi — `rls`, `policy`, `owner`, `constraint`,
-`columnshape` — ve **21 sürümün 21'i dokuz yüzeyi de geçti.** Yükseltme
-yolu bu yönden temizdi. Ama yüzeyi eklemek taze kurulumun kendisine
+Altı yüzey eklendi — `rls`, `policy`, `owner`, `constraint`, `index`,
+`columnshape` — ve **21 sürümün 21'i on yüzeyi de geçti.** Yükseltme
+yolu bu yönden temizdi. (`index` tanımla karşılaştırılıyor, adla değil:
+sütun sırası değişmiş bir indeks ad karşılaştırmasından geçer,
+mutasyonla gösterildi.) Ama yüzeyi eklemek taze kurulumun kendisine
 bakmayı gerektirdi, ve bulgu oradan çıktı:
 
 | | tablo | durum |
