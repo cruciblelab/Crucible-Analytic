@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **4/6** | O3, O4 — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **4/6** | O3 (karar verildi, kod bekliyor), O4 (planlandı, O3'e bağımlı) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -99,7 +99,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **6/6** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu; L6 yetki yüzeylerine RLS/politika/sahiplik/kısıt ekledi ve iki tabloda zorlanmayan satır güvenliği buldu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **4/5** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **5/6** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden doğdu)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -4464,7 +4464,53 @@ silinince hiçbir test kırılmıyor, çünkü indeks zaten o sırayı veriyor);
 cümlenin yük taşıdığı indekssiz bir tabloda ayrıca ölçüldü ve koruma
 kaynak düzeyine kondu.
 
-#### O4 — Adres boyutlu özet: dört uç hâlâ bütçenin üstünde ⬜ **karar bekliyor**
+##### Karar (2026-09-14): günlük p=16384 eskiz, ve eklentisiz kurulum için kesin sayı
+
+Sahip *"halledelim, iyice planla"* dedi; karar bana bırakıldı. Ölçülmüş
+üç seçenekten seçilen ve **niye**:
+
+| seçenek | disk (90 gün, site başına) | std hata | en kötü | seçildi mi |
+|---|---:|---:|---:|---|
+| günlük p=16384 | 528 kB | %0,80 | %1,77 | ✅ |
+| günlük p=4096 | 133 kB | %1,84 | %3,91 | ✗ |
+| eskiz yok, aralık sınırı | 0 | %0 | %0 | ✗ (ama yedek yol) |
+
+Gerekçe tek cümle: **sahibin kabul ettiği pay %1,2 ve p=4096 onu
+tutamıyor** (std %1,84, en kötü %3,91 — yirmi gerçekten farklı kümede
+ölçüldü). p=16384 tutuyor, ve bedeli 395 kB. 133 kB ile 528 kB arasındaki
+fark bir karar değil, yuvarlama; %1,84 ile %0,80 arasındaki fark ise tam
+olarak sahibin şart koyduğu şey.
+
+**Üç şart, ve üçü de fazın bitti tanımına giriyor:**
+
+1. **`timescaledb_toolkit` bir kurulum şartı, ve olmayabilir.** Apache
+   yapısında çalıştığı ölçüldü (TSL kapısının arkasında değil), ama ayrı
+   bir eklenti. Yoksa: eskiz kurulmaz, okuma yolu **kesin sayıya** düşer,
+   ve uzun aralık O2'nin su işareti mantığıyla *yavaşlar* — bayatlamaz.
+   Yani eklentinin yokluğu bir hata değil bir kip. Şema tarafı O1'in
+   dersini tekrar etmek zorunda: **eklenti gerektiren bir ifade şema
+   dosyasında koşulsuz durmamalı**, yoksa eklentisiz her kurulumda şema
+   yükseltmesi bir daha çalışmaz.
+2. **Hangi sayı gösteriliyorsa sayfa onu söylemeli.** Kesin ve yaklaşık
+   iki farklı sayı; hangisinin çizildiği görünmezse sayfa kendi
+   doğruluğunu anlatamaz. Bu, P grubunun *"tahmini kesin gibi
+   göstermeyeceksin"* kuralının aynısı.
+3. **`HumanIPs = UniqueIPs − BotIPs` kalkıyor.** İki yaklaşık sayının
+   farkı yaklaşık değil: 10.000±120 eksi 9.500±114 = 500±%47. İnsan
+   sayısı kendi eskizini taşır → kova başına iki eskiz, disk iki katı
+   (1,1 MB). Hâlâ ham tablonun binde biri.
+
+**Panel `bot_score_min` göndermiyor**, hep varsayılan 50 — yani eskiz
+varsayılan eşikte kurulabilir. Başka bir eşik isteyen istek ham tabloya
+düşer ve bunu sayfanın söylemesi gerekir (şart 2'nin aynısı).
+
+Sıra: şema (eskiz sütunları + koşullu eklenti) → doldurma (O2'nin
+saklama döngüsüne binen işi) → okuma yolu (üç parça: eskiz + iki ham
+kenar) → panel (hangi sayı olduğunu söyleyen etiket) → mutasyonlar.
+
+---
+
+#### O4 — Adres boyutlu özet: dört uç hâlâ bütçenin üstünde ⬜ **planlandı (2026-09-14)**
 
 O2b'den sonra bütün kırılımlar aynı düzenekte ölçüldü. Sınır 8 sn, aralık
 90 gün, 12M satır:
@@ -4484,9 +4530,44 @@ En ağırı sonuncusu: kesişim ölçümü **ürünün varlık sebebi** ve bu ö
 hiç cevap vermiyor.
 
 Çözüm O2'nin tedavisinin aynısı, başka eksende: zaman kovası değil
-**adres boyutu** özeti (site × gün × ülke/ASN/JA4, ve kesişim için
-adres başına "gördü / JS çalıştırdı" bayrakları). Şema gerektiriyor,
-yani **sahibin kararı**. Seçenekler ve maliyetleri ölçülüp sunulacak.
+**adres boyutu** özeti.
+
+##### Plan (2026-09-14) — sahibin "halledelim" demesiyle
+
+**Şekil: site × gün × boyut, ve boyut başına bir tablo değil bir sütun
+kümesi.** Dört uç dört ayrı soru soruyor ama üçü aynı biçimde
+(ülke/ASN/JA4 → "bu boyutta hangi değer, kaç adres, kaç istek"), ve
+dördüncüsü (kesişim) adres başına iki bayrak.
+
+    traffic_dim_rollup(site_id, day, dim, value, ips, requests, bot_ips)
+       dim: 'country' | 'asn' | 'ja4'
+    traffic_crossover_rollup(site_id, day, seen_only, ran_js, both)
+
+**Niye tek tablo + `dim` sütunu, üç tablo değil:** üç tablonun şeması
+birebir aynı olurdu, ve birebir aynı üç şema O2'nin kendi dersini
+tekrarlamak demek — *iki kopya ancak karşılaştırılıyorsa kabul
+edilebilir.* Tek tablo, tek doldurma sorgusu, tek su işareti.
+
+**Niye kesişim ayrı:** onun satırı bir boyut değeri değil bir **adres
+sınıflandırması** (yalnız gördü / JS çalıştırdı / ikisi). Aynı tabloya
+sokmak `value` sütununa anlam yüklemek olurdu.
+
+**Boyut: benzersiz adres sayısı toplanabilir değil** — O3'ün tam
+problemi, aynı eksende. İki gün toplanırken `ips` toplanamaz. Yani bu
+özet O3'ün eskizine **bağımlı**: `ips` bir sayı değil bir eskiz sütunu
+olmak zorunda, yoksa 90 günlük cevap yanlış olur. **Bu yüzden O4 O3'ten
+sonra gelir**, ve sırayı bu belirliyor — tercih değil.
+
+**Ölçülecek, uygulanmadan önce:** (a) `dim` üzerinden bölümlenmiş bir
+indeksin plana gerçekten girdiği (O2b'nin dersi: *daraltmayı ölçme, planı
+oku*), (b) doldurmanın çağrı başına sınırlı olduğu (O2'nin dersi:
+*sınırsız bir yakalama işi kesilebilir*), (c) `ca_scale`'de önce/sonra
+süreleri **binary'nin cevabıyla ve soğuk**.
+
+**Bilinen ön koşul:** sıkıştırılmış hypertable'da `DELETE` satır sayısını
+yanlış bildiriyor (TimescaleDB 2.17.2, ölçüldü). Özet budama yolu satır
+sayısına bakarsa bu tuzağa düşer; `CleanSite` tarafında O2'nin yaptığı
+gibi sayıya değil koşula bakılacak.
 
 ---
 
@@ -7666,6 +7747,55 @@ uyarının kaybolduğunu doğrula)*; temizleme geliştirici parolası olmadan
 reddediliyor; panel rolünün hâlâ bu sütunlara yazamadığını doğrulayan
 rol testi; temizleme sonrası aynı aralığın kesişimi /24 çözünürlüğünde
 çalışmaya devam ediyor (boşalmıyor).
+
+---
+
+#### P6 — Açıklama sayfası ne olmadığını da söylüyor ✅ **bitti (2026-09-14)**
+
+Sahibin isteği: *"Biz hukuk danışmanı ya da uzmanı değiliz, ona göre bu
+sadece taslaktır, basitleştirilmiş bir şeydir falan uyarı koyalım."*
+
+Ölçüldü ve boşluk gerçekti. `<önek>/privacy.html` dikkatli yazılmış,
+canlı moddan türüyor, cümlelerle konuşuyor — ve bu üçü birlikte onu
+sitenin gizlilik politikası gibi okunabilir yapıyor. Kodda biliniyordu
+(`notice.go`'nun yorumu *"what to say about them is theirs"* diyor) ama
+**bu bir Go yorumu**, ziyaretçiye söylenmiyordu.
+
+Tehlikeli hal `privacy.policy_url`'un **yazılmadığı** durumdu, ki
+desteklenen bir durum: bölüm tamamen gizleniyordu, yani ziyaretçinin
+bulacağı tek gizlilik görünümlü sayfa buydu ve bir şeyin yerine
+geçmediğini söylemiyordu.
+
+| eklenen | nerede |
+|---|---|
+| "bu bir gizlilik politikası değil / hukuki metin değil / yazanlar hukuk danışmanı değil" | sayfanın başı, **iki durumda da** |
+| "bu kurulum ayrı bir gizlilik metni adresi tanımlamamış" | `policy_url` yokken, gizlemek yerine |
+| "bu belge hukuki tavsiye vermiyor", varsayılanlar taslak sayılmalı | `KURULUM.md` §0 |
+| aynısının İngilizcesi | README'nin gizlilik bölümü |
+
+**Gizlilik prose değişmezi doğru tasarımı dayattı.** Aynı cümleyi hem
+sayfaya hem belgeye yazmak kopyayı yasaklayan testi kırardı — ve
+kırmaması gerekirdi, çünkü ziyaretçiye söylenen ("bu sayfa politika
+değil") ile işletmeciye söylenen ("biz hukukçu değiliz, uyum
+değerlendirmesi sizin") aynı şey değil. Değişmez ayrı cümle yazmaya
+zorladı.
+
+Var olan bir test çakıştı ve haklıydı
+(`TestThePageLinksToTheOperatorsOwnPolicyOnlyWhenThereIsOne`): amacı
+"yazılmamış bir politikayı sunma"ydı ama iddiası **başlığa** bakıyordu.
+İddia anlamına çekildi — adres yoksa sayfa yokluğu *yazmak* ve ayrı bir
+sayfa *vaat etmemek* zorunda. Öncekinden güçlü.
+
+Dört davranışsal mutasyon, dördü de kırmızı. Bir kozmetik mutasyon
+(başlığı `{{if}}` içine taşımak) sağ kaldı — hiçbir iddiayı
+değiştirmiyor.
+
+**UI adayı, ekran görüntüsünden çıktı:** "Ne saklanıyor" listesi ham
+sütun adlarını basıyor ve içinde `ip` var; üstteki paragraf "ham IP
+adresiniz hiçbir zaman kaydedilmiyor" derken listeye atlayan okuyucu
+çelişki görür. Sütunun içinde maskeli ağ duruyor, yani cümle doğru,
+görünen çelişkili. Adları güzelleştirmek listeyi *türetilmiş* olmaktan
+çıkarma riski taşıyor — sahibin kararı.
 
 ---
 

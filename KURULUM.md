@@ -27,6 +27,34 @@ yazar.
 **Ne kadar sürer:** ilk kurulum, elinizde bir sunucu ve bir veritabanı
 varsa, 30–45 dakika. Çoğu zaman veritabanı rollerinde geçer.
 
+### Hukuk hakkında: bu belge tavsiye vermiyor
+
+Bu belgede ve panelde "hukuki ağırlığı olan ayar" diye geçen yerler var
+— IP saklama biçimi, ziyaret kaydı saklama süresi, ziyaretçiye gösterilen
+açıklama. O ifade, **o ayarların sonucunun sizi ilgilendirdiğini**
+söylemek için; bir hukuki değerlendirme olduğunu söylemek için değil.
+
+Bu projeyi yazanlar hukuk danışmanı ya da uzmanı değil. Varsayılanlar
+temkinli seçildi (IP maskeli, çerez yok, kalıcı kimlik yok, saklama
+tavanı 730 gün) ve **niye** öyle seçildikleri yazıldı — ama hangi
+mevzuatın nerede ne istediği, hangi ülkede neyin yeterli olduğu, ve
+sizin kurulumunuzun uyumlu olup olmadığı bu belgenin cevaplayabileceği
+sorular değil.
+
+Pratik sonucu üç madde:
+
+- **Ziyaretçiye gösterilen açıklama sayfası bir gizlilik politikası
+  değil.** Ölçümün ne kaydettiğini ayarlardan türetip anlatan teknik bir
+  özet. Sitenin politikası ayrı bir metindir, onu siz (ya da müşteriniz)
+  yazar; adresini `privacy.policy_url` ayarına koyarsanız sayfa oraya
+  yönlendirir. Koymazsanız sayfa bunu da açıkça yazar.
+- **Varsayılanları bir uyum iddiası gibi okumayın.** Taslak sayın:
+  başlangıç noktası, son söz değil.
+- **Emin olmanız gereken bir nokta varsa bir hukukçuya sorun.** Bu
+  belgenin işi, sorması gerekene *ne yaptığını tam olarak* söylemek —
+  envanter `docs/VERI-ENVANTERI.md`'de, ve kod↔belge bağı bir testle
+  tutuluyor.
+
 ---
 
 ## 1. Ne kuruyorsunuz

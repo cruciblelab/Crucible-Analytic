@@ -220,6 +220,13 @@ ul{padding-left:1.2rem} .not{color:#444}
 bu kurulumun <em>şu anki ayarından</em> türetilmiştir; ayar değişirse bu
 sayfa da değişir.</p>
 
+<p class="not"><strong>Bu bir gizlilik politikası değil.</strong> Burada
+yazanlar yalnız ölçüm aracının ne kaydettiğini anlatan, ayarlardan
+otomatik üretilmiş teknik bir özet. Hukuki bir metin değil ve hukuki
+tavsiye yerine geçmez — bu yazılımı yazanlar hukuk danışmanı değil.
+Sitenin kendi politikası ve onunla ilgili sorumluluk siteyi işleten
+kişiye ait.</p>
+
 <h2>Adresiniz</h2>
 <p>Ham IP adresiniz hiçbir zaman kaydedilmiyor. Kaydedilen, adresin ağ
 kısmı: <code>{{.AddressMaskedTo}}</code>.</p>
@@ -256,11 +263,15 @@ onu yapmıyor.</p>
 tarayıcıda saklanır ve bir daha hiçbir şey gönderilmez. Geri açmak için
 <code>window.crucible.optIn()</code>.</p>
 
-{{if .PolicyURL}}
 <h2>Bu sitenin kendi gizlilik metni</h2>
+{{if .PolicyURL}}
 <p>Yukarıdakiler ölçümün kendisi hakkında. Bu sitenin işleten kişinin
 kendi yazdığı gizlilik metni ayrı bir sayfada:
 <a href="{{.PolicyURL}}">{{.PolicyURL}}</a></p>
+{{else}}
+<p class="not">Bu kurulum ayrı bir gizlilik metni adresi tanımlamamış.
+Yokluğu burada yazıyor, çünkü bu sayfanın onun yerine geçtiği
+sanılmasın.</p>
 {{end}}
 {{if .Contact}}
 <h2>Soru sormak isterseniz</h2>

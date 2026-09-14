@@ -17552,6 +17552,93 @@ yürümenin yük taşıdığının ayrı bir kanıtı.
 
 Şema **22**.
 
+## P6 — Dikkatli yazılmış bir sayfa, tam o yüzden yanlış okunabilir
+
+Sahip sordu: *"Tam ney, hukuki bir şey mi? Biz hukuk danışmanı ya da
+uzmanı değiliz, ona göre bu sadece taslaktır, basitleştirilmiş bir şeydir
+falan uyarı koyalım."*
+
+İlk iş soruyu düzeltmek oldu: sorduğu maddenin (RLS'siz 21 tablo) hukukla
+ilgisi yok, veritabanı mekanizması. Ama **istediği uyarının gerçekten
+gerektiği bir yer var** ve orası ölçülünce çıktı.
+
+### Boşluk
+
+`<önek>/privacy.html`, ziyaretçiye gösterilen sayfa. Dikkatli yazılmış,
+canlı moddan türüyor, cümlelerle konuşuyor — ve bu üçü birlikte onu
+sitenin gizlilik politikası gibi okunabilir yapıyor. Değil:
+
+- tek dilli (Türkçe), ayarlardan üretilmiş teknik bir özet,
+- yazanların hiçbiri hukukçu değil,
+- ve sitenin politikası ayrı bir belge.
+
+Kodda bu biliniyordu. `notice.go`'nun yorumu diyor: *"A customer printing
+this on their own privacy page needs it in their own language and their
+own design — so the JSON endpoint carries facts, and what to say about
+them is theirs."* **Ama bu bir Go yorumu.** Sayfayı okuyan ziyaretçiye
+söylenmiyordu.
+
+Ve tehlikeli hal `policy_url`'un yazılmadığı durumdu — desteklenen bir
+durum. Adres varken sayfa başka bir yere işaret ediyordu; yokken bölüm
+tamamen gizleniyordu, yani ziyaretçinin bulacağı tek gizlilik görünümlü
+sayfa buydu ve bir şeyin yerine geçmediğini söylemiyordu.
+
+> **Bir tasarım kararının kodda yazılı olması, o kararı okuyucuya
+> söylemez.** Ve *yokluğu gizlemek*, kurulum sihirbazının servis
+> sorusuyla aynı kusur: sorulmamış bir soru, sorulmamış görünmeli.
+
+### Kopya yasağı doğru tasarımı dayattı
+
+`internal/invariants/privacyprose_test.go` sayfanın cümlelerinin başka
+dosyalara kopyalanmasını yasaklıyor (gerekçesi: kopya dallanmaz, ve
+müşteri modu değiştirince kopya yanlış cümle söylemeye devam eder).
+
+Yani uyarıyı hem sayfaya hem KURULUM'a **aynı sözlerle** yazmak
+değişmezi kırardı — ve kırmaması gerekirdi, çünkü ikisi zaten aynı şey
+değil:
+
+| okuyucu | söylenen |
+|---|---|
+| ziyaretçi (sayfa) | *bu sayfa sitenin politikası değil, hukuki metin değil* |
+| işletmeci (KURULUM §0, README) | *biz hukukçu değiliz, varsayılanlar taslak, uyum değerlendirmesi sizin* |
+
+Değişmez, ayrı cümle yazmaya zorladı ve doğrusu buydu.
+
+### Var olan bir test çakıştı, ve haklıydı
+
+`TestThePageLinksToTheOperatorsOwnPolicyOnlyWhenThereIsOne` kırmızı
+verdi: *"the page offers the operator's own policy when none is set."*
+Amacı doğru — yazılmamış bir politikayı sunmamak. Ama **iddiası başlığa
+bakıyordu**, ve benim `{{else}}` dalı politika sunmuyor, yokluğunu
+söylüyor.
+
+İddia anlamına çekildi: adres yoksa sayfa *yokluğu yazmak zorunda*
+(`tanımlamamış`) ve ayrı bir sayfa *vaat etmemek zorunda*
+(`ayrı bir sayfada`). Öncekinden güçlü, çünkü artık pozitif bir şey
+istiyor.
+
+### Mutasyonlar
+
+Dört davranışsal mutasyon, dördü de kırmızı: uyarı paragrafını silmek,
+"hukuk danışmanı değil" cümlesini çıkarmak, yokluk dalını kaldırmak
+(eski davranış), ve yokluk dalını "politika ayrı sayfada yayımlanmıştır"
+diye yalan söyletmek.
+
+Bir mutasyon sağ kaldı ve **cevabı var**: başlığı `{{if}}`'in içine
+taşımak. Hiçbir iddiayı değiştirmiyor — yalnız "tanımlamamış"
+paragrafının üstünde başlık olup olmaması. Kozmetik bir mutasyonun sağ
+kalması bir kusur değil.
+
+### Ekran görüntüsü yine bir şey gösterdi
+
+İki varyantı da çektim ve baktım. Uyarı yerinde, yokluk cümlesi yerinde.
+Ama **"Ne saklanıyor" listesi ham sütun adlarını basıyor** ve içinde
+`ip` var — üstteki paragraf "ham IP adresiniz hiçbir zaman
+kaydedilmiyor" derken listeye atlayan bir okuyucu çelişki görür. Sütunun
+içinde maskeli ağ duruyor, yani cümle doğru; görünen çelişkili. PLAN'a
+UI adayı olarak yazıldı, kendi başıma değiştirmedim: liste ne saklandığını
+*türetiyor* ve adları güzelleştirmek türetmeyi bozabilir.
+
 ## L6 — Yetkiyi karşılaştırmak güvenliği karşılaştırmak değildir
 
 Sahip *"riskleri değerlendir"* dedi. Değerlendirmenin kendisi bir ölçüm

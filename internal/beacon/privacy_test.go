@@ -579,8 +579,25 @@ func TestThePageLinksToTheOperatorsOwnPolicyOnlyWhenThereIsOne(t *testing.T) {
 	if strings.Contains(page, `href=""`) || strings.Contains(page, "href=\"#ZgotmplZ\"") {
 		t.Errorf("the page carries a link with no target:\n%s", page)
 	}
-	if strings.Contains(page, "kendi gizlilik metni") {
-		t.Error("the page offers the operator's own policy when none is set")
+	// The section itself stays, and this assertion moved with it.
+	//
+	// It used to require that the heading be absent, which read as "do
+	// not offer a policy that does not exist" and was checked by
+	// looking for the words. Then the page grew a sentence saying the
+	// operator configured no separate policy - the opposite of offering
+	// one, and the reason the section is now unconditional: a visitor
+	// who is not told the site's policy is elsewhere reads *this* page
+	// as the policy.
+	//
+	// So the claim is asserted rather than the wording: with nothing
+	// set, the page must say the address is missing and must not
+	// promise a separate page.
+	if !strings.Contains(page, "tanımlamamış") {
+		t.Errorf("with no policy URL the page does not say so:\n%s", page)
+	}
+	if strings.Contains(page, "ayrı bir sayfada") {
+		t.Error("the page promises the operator's own policy on a separate page " +
+			"when no address for one is set")
 	}
 	said := privacyJSON(t, s, prefix)
 	if _, ok := said["policy_url"]; ok {
@@ -650,5 +667,62 @@ func TestTheContactIsLinkedTheWayItsKindRequires(t *testing.T) {
 	}
 	if !strings.Contains(page, `href="https://acme.example/iletisim"`) {
 		t.Errorf("a form page is not linked:\n%s", page)
+	}
+}
+
+// The page says what it is not, whether or not a policy URL is set.
+//
+// # Why this needed asking
+//
+// The page is careful, derived from the live mode, and reads like
+// sentences a visitor can use - which is exactly why it could be taken
+// for the site's privacy policy. It is not one: it describes what the
+// measurement records, in one language, generated from settings, and
+// nobody who wrote it is a lawyer.
+//
+// The dangerous case is the one with no policy URL, which is a supported
+// state. With a URL the page at least points somewhere else; without
+// one it was the only privacy-looking page a visitor would find, and it
+// said nothing about standing in for anything.
+//
+// So both branches are asserted, and the absence is stated rather than
+// left blank - the same rule the setup wizard's service check ended up
+// following: a question nobody answered must not look like a question
+// nobody had.
+func TestThePageRefusesToBeReadAsAPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		policyURL string
+	}{
+		{"no policy url", ""},
+		{"policy url set", "https://musteri.example/gizlilik"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, prefix := newPrivacyServer(t, privacy.IPMasked)
+			s.SetDisclosure(Disclosure{Enabled: true, PolicyURL: tc.policyURL})
+			_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+
+			for _, want := range []string{
+				"gizlilik politikası değil",
+				"Hukuki bir metin değil",
+				"hukuk danışmanı değil",
+			} {
+				if !strings.Contains(page, want) {
+					t.Errorf("the page never says %q.\n"+
+						"A page that describes what is collected about somebody, in "+
+						"sentences, is a page a visitor can reasonably take for the "+
+						"site's policy. Saying it is not one costs three lines.", want)
+				}
+			}
+
+			if tc.policyURL == "" {
+				if !strings.Contains(page, "tanımlamamış") {
+					t.Error("with no policy URL the page says nothing about the absence, " +
+						"so it reads as the site's only privacy page")
+				}
+			} else if !strings.Contains(page, tc.policyURL) {
+				t.Errorf("the configured policy URL %q is not on the page", tc.policyURL)
+			}
+		})
 	}
 }

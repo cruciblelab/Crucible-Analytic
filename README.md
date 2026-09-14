@@ -714,6 +714,16 @@ has to be reconfigured to have them:
 | `GET <prefix>/privacy` | JSON. Facts, no prose — for a site that wants to print this on its own privacy page in its own language and design. `Access-Control-Allow-Origin: *`, so a page on the site's own origin can read it. |
 | `GET <prefix>/privacy.html` | A ready-made page in Turkish. Link to it, frame it, or ignore it. |
 
+**That page is not a privacy policy and nothing here is legal advice.**
+It is a generated technical summary of what the measurement records,
+derived from the settings in force. Nobody who wrote this software is a
+lawyer; the defaults are conservative and their reasoning is written
+down, but whether a deployment satisfies a particular law is not a
+question this repository answers. The site's own policy is a separate
+document belonging to whoever runs the site — `privacy.policy_url`
+points the page at it, and when it is unset the page says so rather than
+leaving the reader to assume.
+
 To put it inside your own privacy page, add an anchor anywhere in the
 page that already carries the snippet:
 
@@ -749,7 +759,7 @@ stored.
 | Setting | Effect |
 | --- | --- |
 | `privacy.visitor_surface` | Default **on**. Off means both endpoints answer 404 and the embedded block draws nothing. |
-| `privacy.policy_url` | The operator's own privacy page. Set, the disclosure links to it; empty, it shows no link at all. |
+| `privacy.policy_url` | The operator's own privacy page. Set, the disclosure links to it; empty, the disclosure says that no separate policy address was configured — because a page that silently omits the link is a page a visitor reads as the policy itself. |
 | `privacy.contact` | An email address or a form page. Set, the disclosure offers it; empty, no contact section. |
 
 The switch is live: nothing restarts, and event collection is not

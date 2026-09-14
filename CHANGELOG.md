@@ -20,6 +20,34 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Gizlilik sayfası artık ne olmadığını da söylüyor
+
+Ziyaretçiye gösterilen açıklama sayfası dikkatli yazılmıştı, canlı
+ayardan türüyordu ve cümlelerle konuşuyordu — **tam bu yüzden sitenin
+gizlilik politikası sanılabilirdi.** Değil: ölçümün ne kaydettiğini
+ayarlardan üretip anlatan tek dilli teknik bir özet, ve yazanların
+hiçbiri hukukçu değil.
+
+Tehlikeli durum `privacy.policy_url` **yazılmamış** olan haldi — ki
+desteklenen bir durum. Adres varken sayfa en azından başka bir yere
+işaret ediyordu; yokken ziyaretçinin bulacağı tek gizlilik görünümlü
+sayfaydı ve bir şeyin yerine geçmediğini söylemiyordu.
+
+İki şey eklendi:
+
+- Sayfanın başına, **iki durumda da** görünen bir çerçeve: bu bir
+  gizlilik politikası değil, hukuki metin değil, hukuki tavsiye yerine
+  geçmez, ve sitenin kendi politikası siteyi işleten kişiye ait.
+- `policy_url` yokken sayfa artık **yokluğu yazıyor** ("bu kurulum ayrı
+  bir gizlilik metni adresi tanımlamamış"), gizlemek yerine. Sorulmamış
+  bir soru, sorulmamış görünmeli.
+
+Belgelere de işletmeciye dönük — ve ayrı sözlerle yazılmış — bir bölüm
+eklendi: `KURULUM.md` §0'da "Hukuk hakkında: bu belge tavsiye vermiyor",
+ve README'nin gizlilik bölümünde aynısının İngilizcesi. Varsayılanlar
+temkinli ve gerekçeleri yazılı; hangi mevzuatın ne istediği bu deponun
+cevaplayabileceği bir soru değil.
+
 ### Yükseltme karşılaştırması on yüzeye çıktı
 
 Yükseltilen kurulumun taze kurulumla karşılaştırıldığı yüzeyler dörtten
