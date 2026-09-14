@@ -97,7 +97,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | ✅ **5/5** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu)* |
+| **L** Yükseltme yolu | ✅ **6/6** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu; L6 yetki yüzeylerine RLS/politika/sahiplik/kısıt ekledi ve iki tabloda zorlanmayan satır güvenliği buldu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | 🟡 **4/5** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
@@ -6588,6 +6588,57 @@ korumadır sanılır.
 Üç mutasyon, üçü de yürüyen test tarafından yakalandı ve **üçü de tek
 tabanlı testten geçti** — yürümenin yük taşıdığının kanıtı bu.
 Şema **22**.
+
+#### L6 — Yükseltme yolu yetkiyi karşılaştırıyordu, güvenliği değil ✅ **bitti (2026-09-14)**
+
+L5 dört **yetki** yüzeyini karşılaştırıyordu. Sahibin bir numaralı kuralı
+yetki değil: *"veritabanında açık uç bırakmayalım — her tablo RLS +
+FORCE."* O yüzey hiç sorulmuyordu.
+
+Beş yüzey eklendi — `rls`, `policy`, `owner`, `constraint`,
+`columnshape` — ve **21 sürümün 21'i dokuz yüzeyi de geçti.** Yükseltme
+yolu bu yönden temizdi. Ama yüzeyi eklemek taze kurulumun kendisine
+bakmayı gerektirdi, ve bulgu oradan çıktı:
+
+| | tablo | durum |
+|---|---|---|
+| 7 tablo | RLS + FORCE | doğru |
+| **2 tablo** | **RLS var, FORCE yok** | `service_heartbeat`, `panel_logs` |
+| 21 tablo | RLS yok | ölçüldü, **doğru** (aşağıda) |
+
+FORCE olmadan **tablonun sahibi politikaları hiç görmez**, ve `grants.sql`
+bütün tabloları `schema_admin`'e devrediyor — `upgrader.toml`'un
+`schema_admin_dsn` ile bağlandığı rol. Ölçüldü: `schema_admin` olarak
+`service = 'collector'` etiketli bir kalp atışı ve bir log satırı
+**kabul edildi**; aynı satırlar FORCE açıkken **reddediliyor**, ve
+`schema_admin`'in kendi satırı FORCE ile de geçiyor (üç durumlu kontrollü
+ölçüm).
+
+`heartbeat/schema.sql`'in kendi yorumu bunun olamayacağını yazıyordu —
+*"kurulumu yapan süper kullanıcı tabloyu sahipleniyor ... hiçbir servisin
+bağlandığı bir rol değil"* — ve iki yarısı da sonradan yanlışa döndü.
+
+**RLS'siz 21 tablo ölçüldü ve savunulabilir:** iki yazarlı olanların
+hepsinde ikinci yazar `schema_admin` (bakım rolü), ya da satır sahipliği
+kavramı olmayan paylaşımlı referans verisi (`ip_asn_ranges`,
+`ip_country_ranges`, `ip_range_fetches` — hem collector hem beacon
+yeniliyor). Gerçek "yalnız kendi satırın" kuralı olan tek iki tablo,
+FORCE'u eksik olan o ikisiydi.
+
+**Fazdan ikinci bir bulgu çıktı, ve daha sinsi olanı:** C9.2'nin
+sıfır-sahip koruması bir veritabanı CHECK'i, ve onu **hiçbir şey
+sınamıyordu.** Var olan test `AddMember`'dan geçiyor, Go katmanı isteği
+reddediyor ve ifade veritabanına hiç ulaşmıyor. CHECK'i şemadan silmek
+`internal/panel`'de tek bir testi bile kırmıyordu — ölçüldü. Kısıt
+*"bu tabloya dört yol yazıyor"* diye veritabanında; Go reddi bir
+tanesini kapsıyor. Yeni test SQL'i **doğrudan** yazıyor (panel_user
+olarak, araya Go girmeden) ve dört iddiayı da sınıyor — INSERT, sahip
+ama bitişsiz, yönetici ama bitişli, ve **Go'nun önünde durmadığı UPDATE
+yolu**: bitişi olan bir yöneticiyi sahibe yükseltmek.
+
+Beş mutasyon yakalandı; biri (`rls` yüzeyini listeden çıkarıp aynı
+mutasyonu tekrarlamak) bilerek **sağ kaldı** — yükü o yüzeyin taşıdığının
+kanıtı. Şema **23**.
 
 ### AI-1 — İstemciye asla güvenme, yalnız sunucuya güven
 

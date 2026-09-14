@@ -139,6 +139,61 @@ var privilegeSurfaces = []struct {
 			FROM pg_proc p, pg_roles r
 			WHERE p.pronamespace = 'public'::regnamespace AND r.rolname = ANY($1)
 			ORDER BY 1`},
+
+	// Row-level security, and the four surfaces below it, are not
+	// privileges - which is why they were missing here and why that
+	// mattered more than the privileges did.
+	//
+	// A GRANT that an upgrade failed to apply leaves a feature broken,
+	// and somebody notices. RLS that an upgrade failed to enable leaves
+	// the door open and nobody notices, because the feature works. This
+	// project's first rule is that no table is left open, and the walk
+	// that checked whether an upgrade ends up where an install would
+	// have was not asking it.
+	//
+	// $1 is accepted and unused on these five, so every surface has the
+	// same signature and rowsOf can pass the role list to all of them.
+	{"rls", `
+			SELECT c.relname || ' | enabled:' || c.relrowsecurity::text ||
+			       ' forced:' || c.relforcerowsecurity::text
+			FROM pg_class c
+			WHERE c.relnamespace = 'public'::regnamespace
+			  AND c.relkind IN ('r', 'p')
+			  AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
+	{"policy", `
+			SELECT tablename || ' | ' || policyname || ' | ' || cmd ||
+			       ' | to:' || COALESCE((SELECT string_agg(r::text, ',' ORDER BY r::text) FROM unnest(roles) r), '') ||
+			       ' | using:' || COALESCE(qual, '') ||
+			       ' | check:' || COALESCE(with_check, '')
+			FROM pg_policies
+			WHERE schemaname = 'public' AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
+	{"owner", `
+			SELECT c.relkind::text || ' ' || c.relname || ' | ' || pg_get_userbyid(c.relowner)
+			FROM pg_class c
+			WHERE c.relnamespace = 'public'::regnamespace
+			  AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
+			  AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
+	{"constraint", `
+			SELECT c.conrelid::regclass::text || ' | ' || c.conname || ' | ' ||
+			       pg_get_constraintdef(c.oid)
+			FROM pg_constraint c
+			WHERE c.connamespace = 'public'::regnamespace AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
+	{"columnshape", `
+			SELECT a.attrelid::regclass::text || '.' || a.attname || ' | ' ||
+			       format_type(a.atttypid, a.atttypmod) ||
+			       ' | notnull:' || a.attnotnull::text ||
+			       ' | default:' || COALESCE(pg_get_expr(d.adbin, d.adrelid), '')
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid
+			LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+			WHERE c.relnamespace = 'public'::regnamespace
+			  AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+			  AND $1::text[] IS NOT NULL
+			ORDER BY 1`},
 }
 
 // TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall.
@@ -373,6 +428,79 @@ func TestTheUpgradeStartedFromAnOlderSchema(t *testing.T) {
 			previousTag)
 	}
 	t.Logf("upgrading from %s: %d of %d schema files differ", previousTag, differs, len(schemafiles.InOrder))
+}
+
+// TestNoTableEnablesRowSecurityWithoutForcingIt.
+//
+// # Why a rule rather than a list
+//
+// Row security that is enabled and not forced does nothing to the
+// table's owner, and after release/sql/grants.sql runs the owner of
+// every table is schema_admin - a role cmd/upgrader connects as. So
+// "enabled, not forced" is not a weaker version of the rule the policies
+// state; it is that rule being false for the one role holding the
+// deployment's DDL credential.
+//
+// The shape this was found in is the shape this project keeps finding:
+// seven tables had ENABLE and FORCE, two had only ENABLE. Nothing said
+// which was intended, and both were written by the same hand. A list of
+// the seven would have to be edited for the eighth; this asks the
+// catalogue instead, so a table that enables row security tomorrow is
+// covered the day it does.
+//
+// # Why it lives in this package
+//
+// Because the fixture is here. freshDB is built the way install.sh
+// builds a deployment - every schema file, then the privilege matrix -
+// and this question is about that database's shape. Building a
+// twenty-second database to ask one more question of the same schema
+// would be waste, and asking it of the shared development database
+// would be asking about whatever shape other suites left behind.
+func TestNoTableEnablesRowSecurityWithoutForcingIt(t *testing.T) {
+	requireReady(t)
+
+	rows := rowsOf(t, freshDB, `
+		SELECT c.relname || ' | enabled:' || c.relrowsecurity::text ||
+		       ' forced:' || c.relforcerowsecurity::text
+		FROM pg_class c
+		WHERE c.relnamespace = 'public'::regnamespace
+		  AND c.relkind IN ('r', 'p')
+		  AND $1::text[] IS NOT NULL
+		ORDER BY 1`)
+	if len(rows) == 0 {
+		t.Fatal("no tables found in the fresh install; this check is reading nothing")
+	}
+
+	var enabled, forced int
+	for _, row := range rows {
+		if !strings.Contains(row, "enabled:true") {
+			continue
+		}
+		enabled++
+		if strings.Contains(row, "forced:true") {
+			forced++
+			continue
+		}
+		name := strings.SplitN(row, " | ", 2)[0]
+		t.Errorf("%s has row security enabled and not forced.\n"+
+			"Its policies therefore do not apply to its owner, which is schema_admin "+
+			"in every deployment (release/sql/grants.sql transfers every table to it) "+
+			"and the role cmd/upgrader connects as. Add:\n"+
+			"    ALTER TABLE %s FORCE ROW LEVEL SECURITY;\n"+
+			"or, if this table's policies are deliberately advisory, say so where the "+
+			"ENABLE is and give this check a reason to skip it.", name, name)
+	}
+
+	// A table count of zero would make the loop above vacuous, and this
+	// project has met that: a surface everybody trusts, asserting
+	// nothing, because the thing it filters on stopped matching.
+	if enabled == 0 {
+		t.Fatal("no table in the fresh install has row security enabled at all.\n" +
+			"Either the policies were removed - which is a much larger finding than " +
+			"this test was written for - or this check no longer recognises the " +
+			"catalogue's answer.")
+	}
+	t.Logf("%d of %d tables use row security, %d of those force it", enabled, len(rows), forced)
 }
 
 func requireReady(t *testing.T) {

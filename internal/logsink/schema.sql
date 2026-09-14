@@ -88,7 +88,25 @@ CREATE INDEX IF NOT EXISTS idx_panel_logs_operation ON panel_logs (operation_id,
 -- alone.
 CREATE INDEX IF NOT EXISTS idx_panel_logs_time ON panel_logs (at);
 
+-- Row-level security, forced, for the reason
+-- internal/heartbeat/schema.sql writes out at length: without FORCE the
+-- table's owner bypasses every policy below, the owner is schema_admin
+-- after grants.sql runs, and schema_admin is the role cmd/upgrader
+-- connects as - with this very sink attached to that pool.
+--
+-- Measured before the FORCE was added: as schema_admin, a row labelled
+-- service = 'collector' was accepted into this table, which makes the
+-- write policy's "only your own row" false for the one role holding the
+-- deployment's DDL credential. A log line whose service column can be
+-- chosen by its writer is not evidence of anything, and this table is
+-- what the panel shows an operator asking what happened.
+--
+-- Forcing it costs nothing: the sink labels every row from SELECT
+-- current_user, so each writer's own rows still pass, and the retention
+-- sweep is panel_user's (panel_logs_sweep below) rather than the
+-- owner's, so it is not bypassing anything either.
 ALTER TABLE panel_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE panel_logs FORCE ROW LEVEL SECURITY;
 
 -- Reading is open to anything granted SELECT; the panel needs every row
 -- and a service seeing another's costs nothing.

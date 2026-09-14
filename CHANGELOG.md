@@ -13,11 +13,43 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 22.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Yalnız yetki düzeltmeleri; tablo, sütun ve
-veri değişmiyor, servis durmuyor. **v0.20.0 veya daha eskisinden
-yükselttiyseniz bu sürüm sizi ilgilendiriyor** — aşağıdaki iki kusur tam
-olarak o kurulumlarda duruyor.
+**Şema sürümü: 23.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Yalnız yetki ve satır güvenliği
+düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
+**v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
+kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
+ise bütün kurulumları** ilgilendiriyor.
+
+### İki tabloda satır güvenliği sahibi kapsamıyordu
+
+`service_heartbeat` ve `panel_logs` tablolarında satır güvenliği
+**açıktı ama zorlanmıyordu** (`FORCE` yok). PostgreSQL'de bir tablonun
+sahibi, zorlanmadıkça o tablonun politikalarına tabi değildir — ve
+`grants.sql` bütün tabloları `schema_admin`'e devrediyor, yani sahibi
+`schema_admin`. O da `upgrader.toml`'daki `schema_admin_dsn` ile bağlanan
+gerçek bir rol.
+
+Sonucu ölçüldü: `schema_admin` olarak
+
+- `service_heartbeat`'e **`service = 'collector'`** satırı yazıldı —
+  yani sağlık sayfasının "collector ayakta" demesini sağlayan satır,
+- `panel_logs`'a **collector'ın yazmadığı bir log satırı** yazıldı —
+  yani bir işlemi hangi servisin yaptığını söyleyen tek sütun.
+
+İkisi de `heartbeat/schema.sql`'in kendi yorumunun *"olamaz"* dediği
+şeydi; o yorum yazıldığında doğruydu ve sonradan yanlışa döndü (sahiplik
+süper kullanıcıdan `schema_admin`'e geçti, ve `schema_admin` bir
+bileşenin bağlandığı rol oldu).
+
+`FORCE` eklendi. Hiçbir şey kısıtlanmıyor: her yazar satırını
+`current_user`'dan etiketliyor, yani kendi satırını yazmaya devam ediyor
+(upgrader'ın log satırları dâhil — ölçüldü). RLS'i açık olup
+zorlanmayan bir tablo artık yapısal bir testle reddediliyor.
+
+**Not:** RLS'i hiç olmayan 21 tablo ölçüldü ve **doğru**: satır sahipliği
+kuralı olan tek iki tablo bunlardı. Diğerlerinde iki yazardan biri
+`schema_admin` (bakım rolü) ya da veri paylaşımlı referans verisi
+(`ip_*_ranges`, hem collector hem beacon yeniliyor, satırın sahibi yok).
 
 ### Kurulum sihirbazı artık servislere gerçekten istek atıyor
 

@@ -17552,6 +17552,148 @@ yürümenin yük taşıdığının ayrı bir kanıtı.
 
 Şema **22**.
 
+## L6 — Yetkiyi karşılaştırmak güvenliği karşılaştırmak değildir
+
+Sahip *"riskleri değerlendir"* dedi. Değerlendirmenin kendisi bir ölçüm
+olmalıydı, liste okumak değil; ve en yüksek değerli soru belliydi: L5
+dört **yetki** yüzeyini karşılaştırıyor, peki sahibin bir numaralı
+kuralı?
+
+> *"veritabanında açık uç bırakmayalım — her tablo RLS + FORCE, sütun
+> bazlı GRANT, rol ayrımı."*
+
+O yüzey hiç sorulmuyordu. Ve aradaki fark sadece kapsam değil:
+
+> **Yükseltmenin uygulamadığı bir GRANT bir özelliği bozar ve biri fark
+> eder. Yükseltmenin açmadığı bir RLS kapıyı açık bırakır ve kimse fark
+> etmez — çünkü özellik çalışıyor.**
+
+### Ne eklendi
+
+Beş yüzey: `rls` (enabled + forced), `policy` (ad, komut, roller,
+USING, WITH CHECK), `owner`, `constraint` (`pg_get_constraintdef`),
+`columnshape` (tip, notnull, default). Hepsi katalogdan; hiçbiri isim
+listesi değil.
+
+**Yükseltme yolu bu yönden temiz çıktı: 21 sürümün 21'i dokuz yüzeyi de
+geçti**, 19,9 saniyede. Bu bir sonuç, bulgu değil — ve ölçülmüş olması
+onu bir cevap yapıyor.
+
+### Bulgu, taze kurulumun kendisinden çıktı
+
+Yüzeyi yazmak için taze bir kurulumun RLS tablosunu basmak gerekti:
+
+| | tablo |
+|---|---|
+| RLS + FORCE | 7 tablo (`panel_backups`, `panel_release_requests`, …) |
+| **RLS var, FORCE yok** | **`service_heartbeat`, `panel_logs`** |
+| RLS yok | 21 tablo |
+
+7'ye 2. Bu defterin en sık gördüğü şekil: *dördün üçü doğru yapmış,
+biri yapmamış.*
+
+**FORCE olmadan tablonun sahibi politikaları hiç görmez.** Ve sahip artık
+`schema_admin`: `grants.sql` satır 211 her tabloyu ona devrediyor. O da
+`upgrader.example.toml`'un `schema_admin_dsn` ile bağlandığı rol, ve
+`cmd/upgrader` **log deposunu tam o havuza** bağlıyor.
+
+Üç durumlu kontrollü ölçüm, `install.sh`'in kurduğu gibi kurulmuş bir
+veritabanında, `schema_admin` olarak:
+
+| | sonuç |
+|---|---|
+| FORCE yok, `service='collector'` satırı | **kabul edildi** |
+| FORCE var, aynı satır | reddedildi (`violates row-level security policy`) |
+| FORCE var, `service='schema_admin'` (kendi satırı) | kabul edildi |
+
+Yani hem kusur hem düzeltmenin bedeli ölçüldü: FORCE kimseyi kilitlemiyor,
+çünkü **her yazar satırını `SELECT current_user`'dan etiketliyor** —
+`heartbeat.Options` ve `logsink.Config` ikisi de bunu yazıyor, ve tam bu
+sebeple.
+
+`service_heartbeat`'e yazılan satır, `heartbeat/schema.sql`'in kendi
+yorumunun *"olamaz"* dediği şeydi:
+
+> *"Without it, a compromised beacon could write 'collector: healthy,
+> beat_at: now' over the collector's row and hide an outage from the one
+> page built to show it. That is a small hole and this project's habit is
+> not to argue that a hole is small."*
+
+Üç satır aşağıda da gerekçe duruyordu: *"The installing superuser owns
+the table and bypasses these policies, which is correct: it is the role
+that applies the schema, and it is not a role any service connects as."*
+
+> **Bir gerekçenin iki yarısı da sonradan yanlışa dönebilir, ve dönerken
+> ses çıkarmaz.** Sahiplik süper kullanıcıdan `schema_admin`'e geçti
+> (grants.sql), ve `schema_admin` bir bileşenin bağlandığı rol oldu
+> (upgrader). Yorum, kendi ölçütünü yazmıştı — ve o ölçüt artık
+> başarısız.
+
+### RLS'siz 21 tablo: ölçüldü, doğru
+
+Buraya "hepsine RLS koy" diye dalmak sahibin kuralını uygulamak değil,
+belgelenmiş bir kararı benim yorumumla ezmek olurdu. Gerekçe şemada
+yazılı: *tek yazar varsa GRANT kuralın tamamı.* Sınadım — her tabloda
+kaç rol INSERT/UPDATE tutuyor:
+
+- İki yazarlı olanların hepsinde ikinci yazar **`schema_admin`** (bakım
+  rolü, tabloların sahibi zaten).
+- Üç yazarlı üç tablo var: `ip_asn_ranges`, `ip_country_ranges`,
+  `ip_range_fetches` — hem collector hem beacon yeniliyor. Ama bunlar
+  **paylaşımlı referans verisi**: satırın sahibi yok, yani "yalnız kendi
+  satırın" diye bir kural da yok. RLS orada hiçbir şey ifade etmezdi.
+
+Gerçek satır sahipliği kuralı olan tek iki tablo, FORCE'u eksik olan o
+ikisiydi. Yani tasarım **nerede** RLS gerektiğini doğru bilmiş, gerektiği
+iki yerde de FORCE'u atlamış.
+
+### Fazın ikinci bulgusu: sınanmayan bir CHECK
+
+Kısıt yüzeyinin yük taşıdığını göstermek için C9.2'nin sıfır-sahip
+korumasını mutasyona uğrattım — `panel_site_members_owner_never_expires`
+CHECK'ini şemadan sildim. **`internal/panel`'de hiçbir test kırılmadı.**
+
+Sebebi kendi kurallarımdan biri: *bir korumanın arkasına saklanan bir
+test, koruduğu şeyi sınamaz.* Var olan test `AddMember`'dan geçiyor,
+`members.go:256` Go'da reddediyor ve `ErrOwnershipCannotExpire` dönüyor —
+ifade veritabanına **hiç ulaşmıyor.** CHECK ise şemada, ve niye şemada
+olduğu da yorumunda yazılı: *"it is in the database rather than in Go
+because four paths write this table."* Go reddi o dörtten birini
+kapsıyor.
+
+Yeni test SQL'i doğrudan yazıyor (panel_user olarak, araya Go girmeden)
+ve dört şeyi sınıyor: sahip+bitiş INSERT'i reddedilir, bitişsiz sahip
+kabul edilir, bitişli yönetici kabul edilir, ve **Go'nun önünde hiç
+durmadığı UPDATE yolu** — bitişi olan bir yöneticiyi sahibe yükseltmek —
+reddedilir. İki CHECK mutasyonu, ikisi de kırmızı.
+
+> **Bir kuralı iki katman birden uyguluyorsa, testin hangisine
+> ulaştığını sor.** İyi hata mesajını sınayan bir test, kuralı
+> sınamıyordur.
+
+### Bir mutasyon bilerek sağ kaldı
+
+`rls` yüzeyini listeden **gerçekten çıkarıp** aynı ENABLE mutasyonunu
+tekrarladım: sağ kaldı. Yani M49'u yakalayan şey yan etki değil o
+yüzeyin kendisi. (İlk denememde yüzeyi çıkarmak yerine adını
+değiştirmiştim — yüzey koşmaya devam ediyordu ve "yine yakalandı" diye
+yazacaktım. *Bir iddiayı kaldırdığınızı sanmak, kaldırmak değildir.*)
+
+### Ve bir tuzak, mutasyon koşucusunda
+
+`FORCE` satırını silmek `NO FORCE` yazmaz. heartbeat/logsink testleri
+paylaşılan `analytics` veritabanında koşuyor, ve önceki koşudan kalan
+FORCE yerinde duruyordu — yani mutasyon **sağ kalmış gibi** görünüyordu,
+ölçtüğü şey dosya değil veritabanının bayat hâliydi. Koşucu artık her
+mutasyondan önce paylaşılan veritabanında FORCE'u kapatıyor.
+
+> **Veritabanı durumunu değiştiren bir mutasyon geri alınmaz** — bunu
+> biliyordum. Yeni yarısı: **bir şey *eklemeyen* mutasyon da veritabanı
+> durumuna güvenir.** Silinen bir satırın etkisi, o satırın daha önce
+> bıraktığı iz duruyorsa görünmez.
+
+Şema **23**.
+
 ## O2b — Ülke kırılımı: aralığı taramak yerine adresi sormak
 
 Sürüm sonrası açık kalan riskleri kapatmaya başlarken ele alındı.

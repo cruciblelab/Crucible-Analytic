@@ -79,10 +79,40 @@ CREATE TABLE IF NOT EXISTS service_heartbeat (
 -- page built to show it. That is a small hole and this project's habit
 -- is not to argue that a hole is small.
 --
--- The installing superuser owns the table and bypasses these policies,
--- which is correct: it is the role that applies the schema, and it is
--- not a role any service connects as.
+-- The owner bypasses these policies unless the table forces them, and
+-- the sentence that used to stand here said that was fine:
+--
+--     The installing superuser owns the table and bypasses these
+--     policies, which is correct: it is the role that applies the
+--     schema, and it is not a role any service connects as.
+--
+-- True when it was written, and false by the time anybody looked. Two
+-- things moved underneath it. release/sql/grants.sql transfers every
+-- table to schema_admin, so the installing superuser is not the owner
+-- of this table in any deployment. And schema_admin *is* a role a
+-- component connects as: upgrader.example.toml carries
+-- schema_admin_dsn, and cmd/upgrader attaches the log sink to that same
+-- pool.
+--
+-- So the hole this file's own comment calls small was open. Measured,
+-- as schema_admin, on a database installed the way install.sh installs
+-- one:
+--
+--     INSERT INTO service_heartbeat (service, version, ...)
+--     VALUES ('collector', 'made up', ...)      -->  accepted
+--
+-- which is precisely "write collector: healthy, beat_at: now over the
+-- collector's row and hide an outage from the one page built to show
+-- it" - the sentence three lines above, describing what could not
+-- happen.
+--
+-- FORCE closes it, and closes nothing else: the same insert under FORCE
+-- is refused, and schema_admin writing its *own* row still succeeds,
+-- because every writer labels the row from SELECT current_user rather
+-- than from configuration (internal/heartbeat's Options and
+-- internal/logsink's Config both say so, and for this reason).
 ALTER TABLE service_heartbeat ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_heartbeat FORCE ROW LEVEL SECURITY;
 
 -- Reading is open to anything granted SELECT. The panel needs every row;
 -- a service seeing another service's row costs nothing.
