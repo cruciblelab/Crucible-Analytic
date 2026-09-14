@@ -61,6 +61,15 @@ var timingVerdicts = map[string]string{
 		"PostgreSQL's deadlock_timeout, a property of the database rather than of " +
 		"the machine; and judgeStall's floor is max(250ms, how long the upgrade " +
 		"actually took), which is the fix for the first of the three red builds above",
+	"internal/beacon/flushcancel_integration_test.go": "self-referential, both ways: " +
+		"the ceiling is flushTimeout + 5s and the floor is flushTimeout/2, where " +
+		"flushTimeout is the bound the code under test passed to its own context - " +
+		"not a fact about this machine. The floor is the half that matters and it is " +
+		"the reason there is a floor at all: without it a pool failing fast for some " +
+		"unrelated reason would satisfy the ceiling while measuring nothing. " +
+		"Measured: 10.01s against a listener that accepts and never answers, i.e. " +
+		"the deadline is what ended the wait, and a correct fast failure would land " +
+		"two orders of magnitude below the floor",
 	"internal/botdata/live_test.go": "an hour, against data freshly fetched over the " +
 		"network in the same test - about the age of a file, not the speed of anything",
 	"internal/devgate/devgate_test.go": "measured: fifteen empty submissions must not " +

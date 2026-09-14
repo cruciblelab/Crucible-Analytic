@@ -14,6 +14,14 @@ import (
 
 const tableName = "beacon_events"
 
+// flushTimeout bounds a write that has been detached from cancellation.
+//
+// Ten seconds: the value the shutdown drain already used before this
+// rule moved into flush, kept so a clean stop waits no longer than it
+// used to. Detached is not unbounded - a database that has stopped
+// answering must not hold shutdown open.
+const flushTimeout = 10 * time.Second
+
 // The two columns holding something derived from the visitor's address.
 //
 // Named rather than spelled twice because the disclosure page has to say
@@ -175,6 +183,14 @@ func (w *Writer) Counters() (written, dropped uint64) {
 // Run consumes the buffer until ctx is cancelled, then drains whatever
 // is left and performs one final write, so a clean shutdown loses
 // nothing. It returns when that drain is done.
+//
+// "Loses nothing" covers two things and used to cover one. The rows
+// still in the buffer are drained below; the batch that was *already
+// going out* when the cancel landed is covered by flush, which detaches
+// from cancellation - see the comment there and
+// TestAWriteAlreadyGoingOutIsNotAbandonedOnShutdown. Until that fix this
+// sentence was half true, and the half that was false cost up to
+// batchSize events on every clean stop.
 func (w *Writer) Run(ctx context.Context) {
 	ticker := time.NewTicker(w.flushInterval)
 	defer ticker.Stop()
@@ -193,19 +209,17 @@ func (w *Writer) Run(ctx context.Context) {
 				case row := <-w.events:
 					batch = append(batch, row)
 					if len(batch) >= w.batchSize {
-						batch = w.flush(context.WithoutCancel(ctx), batch)
+						batch = w.flush(ctx, batch)
 					}
 					continue
 				default:
 				}
 				break
 			}
-			// A fresh, bounded context: ctx is already cancelled, so
-			// reusing it would abort the very write this drain exists
-			// to perform.
-			flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			w.flush(flushCtx, batch)
-			cancel()
+			// No fresh context built here any more: flush detaches from
+			// cancellation itself, for every caller, which is what the
+			// two call sites below needed as well. One rule, one place.
+			w.flush(ctx, batch)
 			return
 
 		case row := <-w.events:
@@ -237,7 +251,26 @@ func (w *Writer) flush(ctx context.Context, batch []Row) []Row {
 	if len(batch) == 0 {
 		return batch
 	}
-	n, err := w.WriteRows(ctx, batch)
+	// A write that has started finishes.
+	//
+	// Cancellation stops new work; it must not abort a COPY that is
+	// already going out, because those rows have left the buffer and
+	// nothing will send them again. Measured before this line existed:
+	// a cancel landing during the COPY discarded the whole batch, up to
+	// batchSize events on every clean stop - and Run's own contract says
+	// a clean shutdown loses nothing.
+	//
+	// Found by a CI flake (run 357 red, run 358 green, same commit) and
+	// pinned by TestAWriteAlreadyGoingOutIsNotAbandonedOnShutdown, which
+	// reaches the losing interleaving on purpose rather than by racing.
+	//
+	// Bounded, because detached is not the same as unbounded: a database
+	// that has stopped answering must not hold shutdown open for longer
+	// than the drain was already willing to wait.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
+	defer cancel()
+
+	n, err := w.WriteRows(writeCtx, batch)
 	if err != nil {
 		// The batch is discarded rather than retried. Retrying in place
 		// would stall the drain loop while the buffer behind it keeps

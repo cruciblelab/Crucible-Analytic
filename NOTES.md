@@ -18270,3 +18270,61 @@ kılavuz, biri sürüm notu. İçlerinden yalnız biri risk taşıyor
 kabuk komutu, %96 örtüşme): kılavuzu okuyan müşteri onu uygular, sürüm
 notu ise geçmiş — biri değişirse öteki sessizce yanlış kalır. Kayda
 geçti, düzeltilmedi; çözümü bir testtir ve bedeli bu turun dışında.
+
+## CI 357: kararsız bir test, gerçek bir kusur
+
+`main` yeşil (358), dal kırmızı (357), **aynı commit**. İki sonuç: yarış.
+Ama yarış testte değildi.
+
+`TestTheVisitorSwitchInARealBrowser` 4 satır bekliyor, 3 buldu, ve bir
+satır yukarıda şu vardı:
+
+```
+beacon: write failed, batch dropped err="beacon: copy rows: context canceled" rows=1
+```
+
+`Writer.flush` üç yerden çağrılıyor. `Run`'ın drenaj dalı **taze** bir
+context kuruyordu ve yorumu doğruydu: *"ctx is already cancelled, so
+reusing it would abort the very write this drain exists to perform."*
+Diğer iki çağrı yeri — yığın doldu ve tik — `ctx`'in kendisini
+geçiyordu. Run'ın goroutine'i ya select'te ya COPY'nin içinde; iptal
+COPY'nin içine denk gelirse yazma ölüyor. Yani **her temiz kapanışta**,
+o ana denk gelirse, `batchSize` kadar olay (varsayılan 500) düşüyordu.
+
+`Run`'ın kendi doküman yorumu *"so a clean shutdown loses nothing"*
+diyordu. Tampondaki satırlar için doğru, yola çıkmış yığın için yanlış,
+ve **farkı ölçen hiçbir şey yoktu.** Yorumun kendi ölçütü teste çevrildi.
+
+### Ölçüm, yarışmadan
+
+Test hiçbir şeyle yarışmıyor: context **önce** iptal ediliyor, flush
+sonra çağrılıyor — kaybeden serpiştirmenin ulaştığı durum, kasten
+kuruldu.
+
+| | satır | dropped |
+|---|---|---|
+| düzeltmeden önce | 0/2 | 2 |
+| sonra | 2/2 | 0 |
+
+Düzeltme `flush`'in içinde, tek yerde: `context.WithoutCancel` +
+`flushTimeout`. Drenaj dalı artık kendi 10 saniyesini kurmuyor — iki
+kopya vardı, biri kayabilirdi.
+
+### Ve bir mutasyon ikinci yarıyı istedi
+
+Zaman sınırını kaldırmak (ayrılmış ama sınırsız) **hiçbir testi
+kırmadı**: ilk test yalnız "iptal artık kesmiyor" diyor, ve sınırsız bir
+yazma da bunu sağlıyor. Kuralın iki yarısı iki ayrı iddia.
+
+İkincisi bir canlılık iddiası ve kodda sınırın var olma sebebi:
+`systemctl stop` varsayılanda 90 saniye verip öldürüyor, ve sonsuza
+kadar bekleyen bir drenaj elindeki yığını kurtarmıyor — **yığını da**
+öldürmenin kestiği şeyi de kaybediyor. Ölçümü: bağlantıyı kabul edip
+hiç cevap vermeyen bir dinleyici (reddedilen bağlantı hızlı düşer ve
+hiçbir şey göstermez), `NewWriter` yerine doğrudan kurulan bir havuz
+(`NewWriter` ping atıyor, haklı olarak). Üç iddia: dinleyiciye gerçekten
+ulaşıldı, bekleme sınırın içinde bitti, ve sınırın **çok içinde**
+bitmedi — üçüncüsü olmadan hızlı düşen herhangi bir hata testi geçirir.
+10,01 saniye ölçüldü, yani bitiren şey gerçekten süre sınırı.
+
+İki mutasyon, ikisi de kırmızı.

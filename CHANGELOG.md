@@ -20,6 +20,26 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Temiz kapanışta bir yığın olay kaybolabiliyordu
+
+Beacon olayları tamponluyor ve toplu yazıyor; `Run`'ın sözleşmesi
+*"temiz kapanış hiçbir şey kaybetmez"* diyordu. **Yarısı doğruydu.**
+Tampondaki satırlar kapanışta boşaltılıyordu, ama o anda **yola çıkmış**
+bir yazma iptal ediliyordu: `systemctl stop` her seferinde, yazmanın
+tam ortasına denk gelirse, o yığını (en fazla 500 olay) düşürüyordu.
+
+Bir CI kararsızlığından çıktı ve tesadüf değildi: aynı commit `main`'de
+yeşil, dalda kırmızı. Kırmızının söylediği şey gerçekti.
+
+Artık başlamış bir yazma bitiyor: iptal yeni işi durduruyor, giden bir
+`COPY`'yi kesmiyor — o satırlar tampondan çıkmış ve onları bir daha
+gönderecek bir şey yok. Sınırlı da: cevap vermeyen bir veritabanı
+kapanışı 10 saniyeden uzun tutamıyor (öncesinde de drenajın kullandığı
+süre buydu, artık tek yerde yazılı).
+
+**Kuran kişinin yapması gereken: bir şey yok.** Yükseltmeden sonra
+kendiliğinden geçerli.
+
 ### Belgedeki iki sayı yanlıştı, ikisi de artık teste bağlı
 
 Baştan sona bir inceleme istendi ve ölçüldü. İki müşteriye dönük sayı
