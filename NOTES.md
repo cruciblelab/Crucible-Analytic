@@ -18328,3 +18328,36 @@ bitmedi — üçüncüsü olmadan hızlı düşen herhangi bir hata testi geçir
 10,01 saniye ölçüldü, yani bitiren şey gerçekten süre sınırı.
 
 İki mutasyon, ikisi de kırmızı.
+
+### Komşu ölçüldü: aynı kusur collector'da da vardı
+
+Kendi kuralım: *bir fazı bitirdikten sonra aynı düzenekte komşularını da
+ölç.* Beacon'ın `flush`'i düzeltildikten sonra `internal/storage`'a
+bakıldı ve **satır satır aynıydı**: `Run`'ın `ctx.Done()` dalı taze bir
+context kuruyor (5 sn), tik dalı `ctx`'in kendisini geçiyor.
+
+Ve orada daha ağır, üç sebepten:
+
+1. Collector **her isteği** görüyor, yalnız JS koşanı değil.
+2. `Run`, `lastFlush`'ı yazma başarısız olsa da ilerletiyor.
+3. `Snapshot(since, now)` tüketmiyor, `lastSeen.Before(since)` ile
+   seçiyor — yani kaybedilen pencere bir daha gelmiyor (o adresler
+   yeniden görünmedikçe).
+
+Üçü birlikte: kesilen bir yazma, hiçbir şeyin yeniden denemediği bir
+pencere.
+
+Düzeltme aynı şekilde `flushOnce`'un içinde, tek yerde, ve `Run`'ın
+kendi 5 saniyesi kaldırıldı.
+
+**Ölçüm burada boundary'de:** taklit yazıcı artık `ctx.Err()`'i
+*girişte* kaydediyor, çünkü pgx'in iptal edip etmeyeceğine karar veren
+tek şey o. Gerçek veritabanına satırın düştüğünü yeniden kanıtlamıyor —
+onu beacon tarafındaki test gerçek TimescaleDB'ye karşı aynı mekanizma
+için yapıyor, ve ikinci kez yapmak bu paketi değil pgx'i ölçmek olurdu.
+
+Üç mutasyon: kusurun kendisi ve taklidin context'i kaydetmemesi
+yakalandı. Üçüncüsü (`len(snapshots) == 0` erken dönüşünü silmek) **sağ
+kaldı ve cevabı var:** o dönüş doğruluk değil **log gürültüsü**
+koruyor — boş aralıkta her tikte "flush complete rows=0" satırı. Bir
+optimizasyona test yazmıyorum; gerekçesi burada.

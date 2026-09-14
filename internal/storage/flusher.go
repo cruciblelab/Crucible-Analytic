@@ -76,6 +76,14 @@ func (f *Flusher) knownBotASNs() map[int]struct{} {
 	return f.KnownBotASNs
 }
 
+// flushTimeout bounds a write that has been detached from cancellation.
+//
+// Five seconds: the value Run's shutdown branch used before this rule
+// moved into flushOnce, kept so a clean stop waits no longer than it
+// used to. Detached is not unbounded - a database that has stopped
+// answering must not hold shutdown open past what systemd allows.
+const flushTimeout = 5 * time.Second
+
 // Run flushes every f.Interval until ctx is cancelled, then performs one
 // best-effort final flush (bounded to 5s) so the last partial interval's
 // activity isn't silently dropped on shutdown.
@@ -93,9 +101,11 @@ func (f *Flusher) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			f.flushOnce(shutdownCtx, lastFlush, time.Now())
-			cancel()
+			// No fresh context built here: flushOnce detaches from
+			// cancellation itself, for both call sites. The ticker path
+			// needed the same thing and did not have it - see the
+			// comment in flushOnce.
+			f.flushOnce(ctx, lastFlush, time.Now())
 			return
 		case <-ticker.C:
 			now := time.Now()
@@ -119,7 +129,26 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		IPMode:       f.IPMode,
 		IPHashKey:    f.IPHashKey,
 	})
-	n, err := f.Writer.WriteRows(ctx, rows)
+	// A write that has started finishes.
+	//
+	// Cancellation stops new work; it must not abort a write already
+	// going out. These rows came from Snapshot(since, now) and Run
+	// advances lastFlush whether this succeeded or not, so a write
+	// killed here is a window nothing retries: the requests in it are
+	// gone from the collector's history.
+	//
+	// The same defect as the beacon's, found by measuring the
+	// neighbour after fixing that one. There the shutdown branch built
+	// a fresh context and the ticker branch did not; here it was
+	// identical, line for line.
+	//
+	// Bounded, because detached is not unbounded: five seconds, the
+	// value the shutdown branch already used, so a clean stop waits no
+	// longer than it used to.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout)
+	defer cancel()
+
+	n, err := f.Writer.WriteRows(writeCtx, rows)
 	if err != nil {
 		f.logger().Error("flush failed", "err", err, "attempted_rows", len(rows))
 		return

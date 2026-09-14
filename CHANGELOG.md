@@ -20,22 +20,31 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
-### Temiz kapanışta bir yığın olay kaybolabiliyordu
+### Temiz kapanışta bir yığın veri kaybolabiliyordu — iki serviste
 
-Beacon olayları tamponluyor ve toplu yazıyor; `Run`'ın sözleşmesi
-*"temiz kapanış hiçbir şey kaybetmez"* diyordu. **Yarısı doğruydu.**
-Tampondaki satırlar kapanışta boşaltılıyordu, ama o anda **yola çıkmış**
-bir yazma iptal ediliyordu: `systemctl stop` her seferinde, yazmanın
-tam ortasına denk gelirse, o yığını (en fazla 500 olay) düşürüyordu.
+Beacon ve collector ikisi de tamponluyor ve toplu yazıyor. Beacon'ın
+`Run`'ının sözleşmesi *"temiz kapanış hiçbir şey kaybetmez"* diyordu ve
+**yarısı doğruydu:** tampondaki satırlar boşaltılıyordu, ama o anda
+**yola çıkmış** bir yazma iptal ediliyordu. `systemctl stop` her
+seferinde, yazmanın tam ortasına denk gelirse, o yığını (beacon'da en
+fazla 500 olay) düşürüyordu.
+
+**Aynı kusur collector'da da vardı ve orada daha ağır.** Collector JS
+koşmayan trafiği de görüyor, yani her isteği; ve zamanlayıcısı yazma
+başarısız olsa da pencereyi ilerletiyor (`lastFlush`), anlık görüntü ise
+tüketmiyor, `lastSeen`'e göre seçiyor. Yani kesilen bir yazma **hiçbir
+şeyin yeniden denemediği** bir pencere demek. Beacon'ın kusuru
+düzeltildikten sonra komşusu ölçüldü ve satır satır aynıydı.
 
 Bir CI kararsızlığından çıktı ve tesadüf değildi: aynı commit `main`'de
 yeşil, dalda kırmızı. Kırmızının söylediği şey gerçekti.
 
-Artık başlamış bir yazma bitiyor: iptal yeni işi durduruyor, giden bir
-`COPY`'yi kesmiyor — o satırlar tampondan çıkmış ve onları bir daha
-gönderecek bir şey yok. Sınırlı da: cevap vermeyen bir veritabanı
-kapanışı 10 saniyeden uzun tutamıyor (öncesinde de drenajın kullandığı
-süre buydu, artık tek yerde yazılı).
+Artık ikisinde de başlamış bir yazma bitiyor: iptal yeni işi
+durduruyor, giden bir yazmayı kesmiyor — o satırlar tampondan çıkmış ve
+onları bir daha gönderecek bir şey yok. Sınırlı da: cevap vermeyen bir
+veritabanı kapanışı beacon'da 10, collector'da 5 saniyeden uzun
+tutamıyor (ikisi de öncesinde drenajın kullandığı süre, artık her
+servis için tek yerde yazılı).
 
 **Kuran kişinin yapması gereken: bir şey yok.** Yükseltmeden sonra
 kendiliğinden geçerli.

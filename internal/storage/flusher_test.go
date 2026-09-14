@@ -20,16 +20,29 @@ type fakeWriter struct {
 	mu    sync.Mutex
 	calls [][]Row
 	err   error
+	// sawErr is ctx.Err() as each call found it, one entry per call.
+	sawErr []error
 }
 
 func (w *fakeWriter) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	// What the writer sees, recorded before anything else: the claim
+	// below is about the context that reaches this call, and a fake that
+	// discarded it could not tell a cancelled write from a live one.
+	w.sawErr = append(w.sawErr, ctx.Err())
 	if w.err != nil {
 		return 0, w.err
 	}
 	w.calls = append(w.calls, append([]Row(nil), rows...))
 	return int64(len(rows)), nil
+}
+
+// contextsSeen returns ctx.Err() as it was on entry to each call.
+func (w *fakeWriter) contextsSeen() []error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]error(nil), w.sawErr...)
 }
 
 func (w *fakeWriter) callCount() int {
@@ -334,4 +347,63 @@ func TestSetKnownBotASNsIsSafeAlongsideReads(t *testing.T) {
 	}
 	close(stop)
 	wg.Wait()
+}
+
+// A flush that has started is not abandoned because the process was
+// asked to stop.
+//
+// # Where this came from
+//
+// The beacon's writer had the same defect and a CI flake found it: the
+// shutdown branch built a fresh context because a cancelled one "would
+// abort the very write this drain exists to perform", and the ticker
+// branch passed ctx straight through. Fixed there, then measured here -
+// the rule is "after finishing a phase, measure its neighbours" - and
+// this flusher was identical, line for line.
+//
+// It matters more here than there. The collector sees every request,
+// not only the ones that ran JavaScript; and Run advances lastFlush
+// whether the write succeeded or not, while Snapshot selects by
+// lastSeen rather than draining. So a write killed mid-flight is a
+// window nothing retries.
+//
+// # What this measures, and what it does not
+//
+// What the writer sees: ctx.Err() on entry, which is the only thing
+// that decides whether pgx aborts. It does not re-prove that rows then
+// land in a real database - the beacon's
+// TestAWriteAlreadyGoingOutIsNotAbandonedOnShutdown does that against a
+// real TimescaleDB, for the same mechanism, and doing it twice would
+// measure pgx rather than this package.
+//
+// Deterministic: the context is cancelled first and flushOnce called
+// after, which is the interleaving the flake reached by accident.
+func TestAFlushAlreadyGoingOutIsNotAbandonedOnShutdown(t *testing.T) {
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	store.RecordRequest(netip.MustParseAddr("203.0.113.9"), "some-ja4", time.Now())
+
+	writer := &fakeWriter{}
+	f := &Flusher{Store: store, Writer: writer, Interval: time.Hour}
+
+	stopping, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	f.flushOnce(stopping, time.Time{}, time.Now())
+
+	seen := writer.contextsSeen()
+	if len(seen) != 1 {
+		t.Fatalf("the writer was called %d times, want once - nothing was measured",
+			len(seen))
+	}
+	if seen[0] != nil {
+		t.Errorf("the writer was handed an already-cancelled context (%v).\n"+
+			"pgx aborts on that, and these rows are a window nothing retries: Run "+
+			"advances lastFlush whether the write succeeded or not, and Snapshot "+
+			"selects by lastSeen rather than draining.", seen[0])
+	}
+	if len(writer.calls) != 1 || len(writer.calls[0]) == 0 {
+		t.Errorf("no rows reached the writer, so the assertion above passed on an "+
+			"empty call: %v", writer.calls)
+	}
 }
