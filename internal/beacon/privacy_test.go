@@ -726,3 +726,364 @@ func TestThePageRefusesToBeReadAsAPolicy(t *testing.T) {
 		})
 	}
 }
+
+// The disclosure says when the setting was last written, and says it the
+// same way in both modes.
+//
+// # Why a date belongs on a page about now
+//
+// Every other sentence here describes the current mode, so the page is
+// correct the moment it is served and silent about being new. Moving
+// privacy.ip_storage from masked to full means more personal data from
+// the next request on, and the page changes underneath a visitor who
+// read it yesterday with nothing marking the change.
+//
+// The date is the smallest honest fix. It crosses no boundary -
+// panel_settings.updated_at sits in the row the service already reads -
+// and it needs no second copy of a history.
+//
+// # Why the sentence must not depend on the mode
+//
+// Because the direction is not knowable here, and the first version of
+// this page claimed it anyway: in full mode it said the deployment used
+// to store less. It does not know that. The date is when the row was
+// written, and writing the same value counts - a deployment already in
+// full mode that re-saved the setting would have been told, on its own
+// page, about an escalation that never happened. Notice.EffectiveSince
+// says in its own comment why the direction is left out; the page then
+// said it.
+//
+// So the claim is the negative one, and it is measured by rendering the
+// same date under both modes and comparing the paragraph byte for byte.
+// A test that only read the masked page would not have caught the
+// sentence that was wrong.
+func TestTheDisclosureSaysSinceWhenTheSettingWasWritten(t *testing.T) {
+	since := time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
+	said := map[privacy.IPMode]string{}
+
+	for _, mode := range []privacy.IPMode{privacy.IPMasked, privacy.IPFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			s, prefix := newPrivacyServer(t, mode)
+			s.SetDisclosure(Disclosure{Enabled: true, ModeEffectiveSince: since})
+			_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+
+			if !strings.Contains(page, "14.03.2026") {
+				t.Fatalf("the page does not carry the date the setting was written:\n%s", page)
+			}
+			if !strings.Contains(page, "yazıldı") {
+				t.Error("the page carries a date without saying what it is the date of. " +
+					"A bare date on a privacy page is read as whatever the reader " +
+					"assumes it is.")
+			}
+			said[mode] = paragraphAround(t, page, "14.03.2026")
+
+			// And the JSON carries the instant itself, which is the half
+			// a customer's own page consumes.
+			raw, ok := privacyJSON(t, s, prefix)["effective_since"].(string)
+			if !ok {
+				t.Fatal("the JSON does not carry effective_since as a string, so a " +
+					"customer's own page cannot notice the setting moved")
+			}
+			at, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				t.Fatalf("effective_since = %q is not a timestamp: %v", raw, err)
+			}
+			if !at.Equal(since) {
+				t.Errorf("effective_since = %v, want %v", at, since)
+			}
+		})
+	}
+
+	// And the day is UTC's day, because the page says "(UTC)" beside it.
+	//
+	// An instant late in the evening west of Greenwich falls on the next
+	// UTC day, so the two readings of the same row differ - and the page
+	// carries the label whether or not the code honours it. Formatted in
+	// whatever zone the row happens to arrive in, the sentence would be
+	// wrong for half the day on every deployment east or west of here,
+	// and nothing about a UTC fixture would show it.
+	evening := time.Date(2026, 3, 14, 23, 30, 0, 0,
+		time.FixedZone("kayıtta yazan ofset", -5*60*60))
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+	s.SetDisclosure(Disclosure{Enabled: true, ModeEffectiveSince: evening})
+	if _, page := fetchPrivacy(t, s, prefix+"/privacy.html"); !strings.Contains(page, "15.03.2026") {
+		t.Errorf("the page dates an instant of 2026-03-15T04:30Z as something other "+
+			"than 15.03.2026, although it labels the date UTC:\n%s",
+			paragraphAround(t, page, "yazıldı"))
+	}
+
+	if said[privacy.IPMasked] == "" || said[privacy.IPFull] == "" {
+		return // a subtest already failed and said why
+	}
+	if said[privacy.IPMasked] != said[privacy.IPFull] {
+		t.Errorf("the paragraph about the date is worded differently in the two modes, "+
+			"so it is saying something about the change and not about the date.\n"+
+			"This service cannot know which way the setting moved - the previous value "+
+			"is in the panel's audit log, which the beacon must not read - and writing "+
+			"the same value counts as a write.\nmasked: %s\nfull:   %s",
+			said[privacy.IPMasked], said[privacy.IPFull])
+	}
+}
+
+// The mode that stores more says so before the detail.
+//
+// # What the owner asked for
+//
+// That the page be arranged according to the mode, because an escalated
+// mode means more personal data. The page was already mode-dependent -
+// the "Adresiniz" section has said what the token adds since P2 - but a
+// visitor who reads the first screen learned nothing about which of the
+// two modes is in force. The sentence that matters was below the fold,
+// under a neutral heading.
+//
+// So the claim has two halves and the second is the one worth measuring:
+// the escalated mode carries a summary, *and* it carries it above the
+// section that explains the mechanism. A summary at the bottom of the
+// page is the same as no summary for the reader who stops reading, and
+// nothing about assertion order would have caught that.
+func TestTheModeThatStoresMoreSaysSoBeforeTheDetail(t *testing.T) {
+	const summary = "çok saklayanında"
+	const detail = "<h2>Adresiniz</h2>"
+
+	for _, tc := range []struct {
+		mode      privacy.IPMode
+		escalated bool
+	}{
+		{privacy.IPMasked, false},
+		{privacy.IPFull, true},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			s, prefix := newPrivacyServer(t, tc.mode)
+			s.SetDisclosure(Disclosure{Enabled: true})
+			_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+
+			at := strings.Index(page, summary)
+			if !tc.escalated {
+				if at >= 0 {
+					t.Errorf("the masked mode's page says it is the one that stores more, "+
+						"which is a claim about the other mode:\n%s", page)
+				}
+				return
+			}
+			if at < 0 {
+				t.Fatalf("the escalated mode's page has no summary saying so; a visitor "+
+					"has to reach the address section to find out:\n%s", page)
+			}
+			if d := strings.Index(page, detail); d < 0 {
+				t.Fatalf("the address section is missing from the page entirely:\n%s", page)
+			} else if at > d {
+				t.Error("the summary about the escalated mode comes after the section " +
+					"that explains it, so the reader who stops early is the reader it " +
+					"was written for and never sees it")
+			}
+		})
+	}
+}
+
+// paragraphAround returns the <p> element the needle sits inside.
+//
+// Compared as a whole element rather than as a line, because that is the
+// unit a claim about wording is made of: a sentence added or removed
+// inside the same paragraph changes it, and reformatting the template's
+// line breaks does not.
+func paragraphAround(t *testing.T, page, needle string) string {
+	t.Helper()
+	at := strings.Index(page, needle)
+	if at < 0 {
+		t.Fatalf("the page does not contain %q", needle)
+	}
+	start := strings.LastIndex(page[:at], "<p")
+	end := strings.Index(page[at:], "</p>")
+	if start < 0 || end < 0 {
+		t.Fatalf("%q is not inside a paragraph, so this test is measuring the wrong "+
+			"unit of text", needle)
+	}
+	return page[start : at+end+len("</p>")]
+}
+
+// With no date, the page says nothing about one.
+//
+// A deployment that never changed the setting from the panel has no
+// settings row, so the mode comes from its config file and the table
+// never held a date. Printing the install time or the process start
+// would be a date about something else - and a disclosure that invents
+// a fact is worse than one that omits it.
+func TestWithNoRecordedDateTheDisclosureOffersNone(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+	s.SetDisclosure(Disclosure{Enabled: true})
+	_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+
+	if strings.Contains(page, "yürürlükte") {
+		t.Errorf("the page claims a date it does not have:\n%s", page)
+	}
+	said := privacyJSON(t, s, prefix)
+	if _, ok := said["effective_since"]; ok {
+		t.Errorf("the JSON carries effective_since = %v when nothing recorded one",
+			said["effective_since"])
+	}
+}
+
+// A customer's own page can ask "has this changed" in one request.
+//
+// This endpoint is the one a consumer polls - the ready-made page is
+// read once by a visitor, the JSON is printed by a site in its own
+// language - so the consumer is the one who has to notice an escalation
+// without being told by a person. A validator makes that one comparison
+// instead of a body and a diff.
+//
+// Both halves asserted: the tag is offered, an identical tag gets 304,
+// and a changed notice gets a different tag. A validator that never
+// changed would be worse than none - it would answer 304 to a consumer
+// whose page is now wrong.
+func TestTheJSONEndpointCanBeAskedWhetherItChanged(t *testing.T) {
+	s, prefix := newPrivacyServer(t, privacy.IPMasked)
+	s.SetDisclosure(Disclosure{Enabled: true,
+		ModeEffectiveSince: time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)})
+
+	first := httptest.NewRecorder()
+	s.Handler().ServeHTTP(first, httptest.NewRequest(http.MethodGet, prefix+"/privacy", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("the first request answered %d", first.Code)
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("no ETag, so a consumer has to re-read the whole notice to find out " +
+			"whether anything moved")
+	}
+	if lm := first.Header().Get("Last-Modified"); lm == "" {
+		t.Error("no Last-Modified, although the mode's date is known")
+	}
+
+	// Same tag: nothing to send.
+	again := httptest.NewRequest(http.MethodGet, prefix+"/privacy", nil)
+	again.Header.Set("If-None-Match", etag)
+	second := httptest.NewRecorder()
+	s.Handler().ServeHTTP(second, again)
+	if second.Code != http.StatusNotModified {
+		t.Errorf("a conditional request with the current tag answered %d, want 304",
+			second.Code)
+	}
+	if second.Body.Len() != 0 {
+		t.Errorf("a 304 carried %d bytes of body", second.Body.Len())
+	}
+
+	// A list of tags, which is what a consumer sends after a redeploy.
+	list := httptest.NewRequest(http.MethodGet, prefix+"/privacy", nil)
+	list.Header.Set("If-None-Match", `"stale", `+etag)
+	third := httptest.NewRecorder()
+	s.Handler().ServeHTTP(third, list)
+	if third.Code != http.StatusNotModified {
+		t.Errorf("a conditional request listing the current tag answered %d, want 304",
+			third.Code)
+	}
+
+	// The mode escalates: the tag must move, or the consumer polling it
+	// would be told nothing changed on the one change that matters.
+	s.SetIPMode(privacy.IPFull)
+	after := httptest.NewRecorder()
+	s.Handler().ServeHTTP(after, httptest.NewRequest(http.MethodGet, prefix+"/privacy", nil))
+	if after.Header().Get("ETag") == etag {
+		t.Error("the ETag did not change when the mode escalated from masked to full, " +
+			"so a consumer asking 'has this changed' is told no")
+	}
+	if after.Code != http.StatusOK {
+		t.Errorf("the request after the change answered %d", after.Code)
+	}
+}
+
+// The two address columns are not printed bare.
+//
+// # The defect
+//
+// The stored list is the writer's own column list, and that is the
+// property to keep: a hand-typed list would tell a visitor less is
+// collected than is. But `ip` is the database's word, and the page said
+// "your raw IP address is never recorded" and then listed a field called
+// `ip` three sections below. Every fact on the page was true and the page
+// contradicted itself.
+//
+// What that column holds is the masked address, and the gloss says so
+// with the same prefix lengths the page prints higher up - so it cannot
+// claim a mask the code does not apply.
+//
+// # Why the pair is derived and not typed here
+//
+// Because a rename in the writer that left the gloss behind would put
+// the gloss on a column that no longer exists, and the page would go
+// back to printing `ip` bare with nothing failing. So the test asks the
+// writer's list for the names, and asks the response which names it
+// glosses - and the two have to be the same pair.
+func TestTheAddressColumnsSayWhatTheyHold(t *testing.T) {
+	for _, mode := range []privacy.IPMode{privacy.IPMasked, privacy.IPFull} {
+		t.Run(string(mode), func(t *testing.T) {
+			s, prefix := newPrivacyServer(t, mode)
+			s.SetDisclosure(Disclosure{Enabled: true})
+			_, page := fetchPrivacy(t, s, prefix+"/privacy.html")
+
+			// Every column the response glosses is glossed on the page,
+			// right where the visitor reads the name.
+			notice := s.privacyNotice()
+			glossed := 0
+			for _, column := range columns {
+				note := notice.NoteFor(column)
+				entry := "<code>" + column + "</code>"
+				if note == "" {
+					continue
+				}
+				glossed++
+				if !strings.Contains(page, entry+" — "+note) {
+					t.Errorf("the page lists %s without the note %q beside it.\n"+
+						"A visitor reading the bare column name reads it as the whole "+
+						"address, under a heading that says the opposite.\n%s",
+						entry, note, paragraphAround(t, page, entry))
+				}
+			}
+			if glossed != 2 {
+				t.Errorf("%d columns carry a note, want the two address ones. The pair "+
+					"is derived from the writer's list; if a column was renamed, the "+
+					"gloss is now attached to a name nothing writes.", glossed)
+			}
+
+			// The mask the gloss claims is the mask the page claims,
+			// which is the mask the code applies - privacy.maskedTo
+			// builds it from the constants that do the masking.
+			if !strings.Contains(notice.NoteFor(colIP), notice.AddressMaskedTo) {
+				t.Errorf("the note on %s (%q) does not name the prefix lengths the page "+
+					"prints above it (%q)", colIP, notice.NoteFor(colIP),
+					notice.AddressMaskedTo)
+			}
+
+			// And the token column's note follows the mode, because in
+			// masked mode the column is written as null on every row -
+			// less than the list suggests, and a page that can say so
+			// should.
+			note := notice.NoteFor(colIPHash)
+			if mode.Tokenises() != strings.Contains(note, "jeton") {
+				t.Errorf("in %s mode the note on %s is %q", mode, colIPHash, note)
+			}
+			if !mode.Tokenises() && !strings.Contains(note, "boş") {
+				t.Errorf("in masked mode %s is null on every row and the page does not "+
+					"say so: %q", colIPHash, note)
+			}
+		})
+	}
+}
+
+// The glossed names are names the writer actually writes.
+//
+// The other half of the mirror above, and the half that fails on a
+// rename: a gloss keyed on a column nothing writes is a gloss nobody
+// sees, and the page goes quietly back to printing the bare name.
+func TestTheGlossedColumnsAreColumnsTheWriterWrites(t *testing.T) {
+	inList := map[string]bool{}
+	for _, c := range columns {
+		inList[c] = true
+	}
+	for _, c := range []string{colIP, colIPHash} {
+		if !inList[c] {
+			t.Errorf("the disclosure glosses %q, which is not in the writer's column "+
+				"list. Either the column was renamed and the gloss was left behind, "+
+				"or the gloss is about a field this build does not write.", c)
+		}
+	}
+}

@@ -1,11 +1,14 @@
 package beacon
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"html/template"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
@@ -73,6 +76,74 @@ type privacyResponse struct {
 // Anything else falls back to the duration's own form, which is ugly and
 // correct - a page that guessed "her 36 saatte bir" as "her gün" would
 // be a disclosure that rounds.
+// EffectiveSinceHuman is the day the mode's setting was last written, as
+// a date rather than a timestamp.
+//
+// A day because the hour is not the point, and printing it would invite
+// a visitor to compare clocks with a server. In UTC because the JSON
+// beside it is: two encodings of one instant that disagreed about the
+// day would be worse than either alone.
+//
+// # Why digits and not "14 Mart 2026"
+//
+// Month names are in the panel's language pack, which this binary does
+// not have and must not reach into - the beacon is the public-facing
+// service and the pack is a file the panel loads. Spelling twelve names
+// again here would be a second copy of a list nothing compares, and the
+// numeric form is the same one the Turkish pack already uses for its
+// short date (kisa_tarih = "02.01.2006").
+//
+// Empty when there is no date, and the template's branch on this is
+// what keeps the sentence off a page that has nothing to put in it.
+func (p privacyResponse) EffectiveSinceHuman() string {
+	if p.EffectiveSince.IsZero() {
+		return ""
+	}
+	return p.EffectiveSince.UTC().Format("02.01.2006")
+}
+
+// NoteFor glosses a stored column name that a visitor would otherwise
+// read as more than it holds.
+//
+// # The defect this fixes
+//
+// The stored list is the writer's own column list, which is the property
+// worth keeping: a second list typed here would tell a visitor less is
+// collected than is. But column names are the database's words, not a
+// visitor's, and one of them is `ip`. The page said "your raw IP address
+// is never recorded" and then, three sections down, listed a field
+// called `ip` - a contradiction on a page whose whole purpose is not to
+// be misread. Found by looking at a screenshot; no assertion could have
+// found it, because every fact on the page was true.
+//
+// What that column holds is the masked address (storedAddress →
+// privacy.MaskIP), and the prefix lengths come from the same string the
+// page prints above, so the gloss cannot claim a mask the code does not
+// apply.
+//
+// # And ip_hash in masked mode
+//
+// Empty. storedIPHash returns nil unless the mode tokenises, so in
+// masked mode the column exists and every row's value is null. That is
+// less than the list suggests, which is the harmless direction - but a
+// disclosure that can say so should.
+//
+// Returns "" for every other column: a gloss on all thirty names would
+// be a second description of the product in a place nothing compares,
+// and these two are the ones that read as something they are not.
+func (p privacyResponse) NoteFor(column string) string {
+	switch column {
+	case colIP:
+		return "adresin yalnız ağ kısmı (" + p.AddressMaskedTo + "), tamamı değil"
+	case colIPHash:
+		if p.TokenFromWholeAddress {
+			return "yukarıda anlatılan jeton; adresin kendisi değil"
+		}
+		return "bu kipte hiç yazılmıyor, boş kalıyor"
+	}
+	return ""
+}
+
 func (p privacyResponse) RotatesHuman() string {
 	switch d := p.IdentifierRotatesEvery; {
 	case d == 24*time.Hour:
@@ -113,6 +184,7 @@ func (s *Server) privacyNotice() privacyResponse {
 	d := s.disclosure()
 	out.PolicyURL = privacy.ShownPolicyURL(d.PolicyURL)
 	out.Contact = privacy.ShownContact(d.Contact)
+	out.EffectiveSince = d.ModeEffectiveSince
 	return out
 }
 
@@ -160,11 +232,75 @@ func (s *Server) handlePrivacyJSON(w http.ResponseWriter, r *http.Request) {
 	// minutes ago.
 	w.Header().Set("Cache-Control", "public, max-age=60")
 
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(s.privacyNotice()); err != nil {
+	notice := s.privacyNotice()
+
+	// A validator, so a customer's own privacy page can ask "has this
+	// changed" without re-reading and re-diffing the whole notice.
+	//
+	// # Why this endpoint of all of them
+	//
+	// Because it is the one a *consumer* polls. The ready-made page is
+	// for a visitor, who reads it once; this JSON is for a site that
+	// prints the same facts in its own language and design, and that
+	// site has to notice a mode escalation - more personal data from
+	// the next request on - without being told by a person.
+	//
+	// Last-Modified is the date the mode came into force, so a
+	// conditional GET is one comparison rather than a body and a diff.
+	// ETag covers everything else: the operator's policy URL and
+	// contact can change without the mode moving, and a validator that
+	// ignored them would answer 304 to a consumer whose page is now
+	// showing a dead link.
+	//
+	// # Why the tag is derived rather than counted
+	//
+	// It is a hash of the encoded notice. A version number would be a
+	// second piece of state to keep equal to the first, and this
+	// project's own rule is that two copies are acceptable only when
+	// something compares them. The body is the thing; its hash cannot
+	// disagree with it.
+	body, err := json.MarshalIndent(notice, "", "  ")
+	if err != nil {
+		s.logger().Warn("beacon: encoding the privacy notice", "err", err)
+		http.Error(w, "", http.StatusInternalServerError)
+		return
+	}
+	sum := sha256.Sum256(body)
+	etag := `"` + hex.EncodeToString(sum[:16]) + `"`
+	w.Header().Set("ETag", etag)
+	if !notice.EffectiveSince.IsZero() {
+		w.Header().Set("Last-Modified", notice.EffectiveSince.UTC().Format(http.TimeFormat))
+	}
+	// Vary is not set and that is deliberate: nothing here varies by
+	// request header. Saying otherwise would tell a cache to keep as
+	// many copies as it sees header combinations, for one answer.
+	if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
+	if _, err := w.Write(append(body, '\n')); err != nil {
 		s.logger().Warn("beacon: writing the privacy notice", "err", err)
 	}
+}
+
+// etagMatches compares an If-None-Match header against this answer's tag.
+//
+// The header may carry a list, and each entry may be weak (W/ prefix).
+// Handled rather than compared whole, because a consumer sending two
+// tags - the ordinary shape after a redeploy - would otherwise always
+// get a full body, which is the thing the validator exists to avoid.
+func etagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" {
+			return true
+		}
+		if strings.TrimPrefix(candidate, "W/") == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handlePrivacyPage(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +363,22 @@ tavsiye yerine geçmez — bu yazılımı yazanlar hukuk danışmanı değil.
 Sitenin kendi politikası ve onunla ilgili sorumluluk siteyi işleten
 kişiye ait.</p>
 
+{{if .TokenFromWholeAddress}}
+<p><strong>Bu kurulum, iki kipten çok saklayanında.</strong> Ham adresiniz
+yine hiçbir zaman kaydedilmiyor; ama maskeli adresin yanına, adresin
+tamamından anahtarla üretilmiş bir jeton da yazılıyor. Pratik sonucu:
+aynı ağın arkasındaki iki ziyaretçi birbirinden ayrılabiliyor. Diğer
+kipte ayrılamıyor. Ayrıntısı aşağıda.</p>
+{{end}}
+
+{{with .EffectiveSinceHuman}}
+<p><strong>Adresin nasıl saklandığına dair ayar en son {{.}} tarihinde
+yazıldı</strong> (UTC). Bu sayfa her zaman o anda yürürlükte olan ayarı
+anlatır; o tarihten önce okuduysanız, okuduğunuz metin bundan farklı
+olabilir. Ayarın hangi yöne değiştiğini bu sayfa söylemez, çünkü bu
+servis önceki değeri görmüyor.</p>
+{{end}}
+
 <h2>Adresiniz</h2>
 <p>Ham IP adresiniz hiçbir zaman kaydedilmiyor. Kaydedilen, adresin ağ
 kısmı: <code>{{.AddressMaskedTo}}</code>.</p>
@@ -246,7 +398,10 @@ yenilediği bir sırdan türetiliyor. O sır hiçbir yere yazılmıyor ve
 yenilendiğinde kayboluyor.</p>
 
 <h2>Ne saklanıyor</h2>
-<ul>{{range .Stored}}<li><code>{{.}}</code></li>{{end}}</ul>
+<p class="not">Aşağıdakiler veritabanı sütunlarının adları — bu kurulumun
+yazdığı alanların listesi, elle yazılmış bir özet değil. Adları teknik
+olduğu için, adresle ilgili ikisinin ne tuttuğu yanlarında yazıyor.</p>
+<ul>{{range .Stored}}<li><code>{{.}}</code>{{with $.NoteFor .}} — {{.}}{{end}}</li>{{end}}</ul>
 
 <h2>Silme talebi neden yok</h2>
 <p class="not">Bu sistemde size ait bir kayıt kümesini gösterebilecek

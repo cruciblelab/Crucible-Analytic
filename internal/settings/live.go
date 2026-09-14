@@ -75,6 +75,28 @@ type Source struct {
 	// closed registry and site ids are validated against a character
 	// set - so no two different pairs can collide into one entry.
 	values map[string]json.RawMessage
+	// updated is keyed the same way and holds panel_settings.updated_at
+	// for each row.
+	//
+	// # Why a service needs the time a setting was written
+	//
+	// Because one of these settings changes what is collected about a
+	// stranger. privacy.ip_storage moving from masked to full means more
+	// personal data from the next request on, and the disclosure the
+	// beacon serves derives from the mode in force - so it changes
+	// underneath a visitor who read it yesterday, silently, with nothing
+	// on the page saying the sentences are new.
+	//
+	// The column was always there and this query never read it. Reading
+	// it lets the disclosure carry "in force since", which is what makes
+	// a change detectable by the person it is about and by a customer's
+	// own page polling the JSON endpoint.
+	//
+	// A key with no row has no entry here: absent is the honest answer,
+	// because the value then comes from the service's config file and
+	// this table never carried a date for it. Inventing one - install
+	// time, process start - would be a date about something else.
+	updated map[string]time.Time
 	// loadedAt is when the cache last succeeded, so a service can say
 	// how stale it is rather than pretending it is current.
 	loadedAt time.Time
@@ -138,7 +160,8 @@ func (s *Source) Run(ctx context.Context) {
 // failed halfway - must not leave a service with some settings current
 // and some stale, because the combination is a state nobody designed.
 func (s *Source) Refresh(ctx context.Context) error {
-	rows, err := s.pool.Query(ctx, `SELECT key, site_id, value FROM panel_settings`)
+	rows, err := s.pool.Query(ctx,
+		`SELECT key, site_id, value, updated_at FROM panel_settings`)
 	if err != nil {
 		s.recordFailure()
 		return fmt.Errorf("settings: query: %w", err)
@@ -146,14 +169,17 @@ func (s *Source) Refresh(ctx context.Context) error {
 	defer rows.Close()
 
 	fresh := map[string]json.RawMessage{}
+	freshUpdated := map[string]time.Time{}
 	for rows.Next() {
 		var key, site string
 		var raw []byte
-		if err := rows.Scan(&key, &site, &raw); err != nil {
+		var updatedAt time.Time
+		if err := rows.Scan(&key, &site, &raw, &updatedAt); err != nil {
 			s.recordFailure()
 			return fmt.Errorf("settings: scan: %w", err)
 		}
 		fresh[cacheKey(key, site)] = json.RawMessage(raw)
+		freshUpdated[cacheKey(key, site)] = updatedAt
 	}
 	if err := rows.Err(); err != nil {
 		s.recordFailure()
@@ -174,10 +200,30 @@ func (s *Source) Refresh(ctx context.Context) error {
 	// it says why.
 	s.mu.Lock()
 	s.values = fresh
+	s.updated = freshUpdated
 	s.loadedAt = s.now()
 	s.failures = 0
 	s.mu.Unlock()
 	return nil
+}
+
+// UpdatedAt is when this key's row was last written, and whether there
+// is one.
+//
+// Falls back the way every other reader does - the site's own row first,
+// then the deployment-wide one - so the time belongs to the value the
+// service would actually read. Returning the global row's time beside a
+// site's own value would be a date about a different setting.
+func (s *Source) UpdatedAt(key, site string) (time.Time, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if site != "" {
+		if at, ok := s.updated[cacheKey(key, site)]; ok {
+			return at, true
+		}
+	}
+	at, ok := s.updated[cacheKey(key, "")]
+	return at, ok
 }
 
 func (s *Source) recordFailure() {

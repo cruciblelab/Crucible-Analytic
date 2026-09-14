@@ -280,3 +280,112 @@ func TestSource_StringsReturnsACopy(t *testing.T) {
 		t.Errorf("mutating a returned slice changed the cache: %v", second)
 	}
 }
+
+// TestSource_UpdatedAtIsTheRowsOwnTime.
+//
+// # Why a service needs the time a setting was written
+//
+// Because one of these settings changes what is collected about a
+// stranger. The beacon's disclosure page derives every sentence from the
+// mode in force, so it is correct the moment it is served and silent
+// about being new: privacy.ip_storage moving to full means more personal
+// data from the next request on, and the page changes underneath a
+// visitor who read it yesterday with nothing marking the change. The
+// date is what makes that detectable - on the page, and in the JSON a
+// customer's own page polls.
+//
+// # What is measured here and what is not
+//
+// That the time comes from the row rather than from this process. The
+// times below are written explicitly and read back: a UpdatedAt that
+// returned time.Now(), or the refresh time, would pass any assertion
+// that only checked "not zero" - and would then report every deployment
+// as having changed its privacy setting seconds ago, forever.
+//
+// Absence is asserted as its own case, because absence is the ordinary
+// state: a deployment that never touched the setting from the panel has
+// no row, the mode comes from its config file, and the honest answer is
+// that there is no date. Reporting the install time or the process
+// start would be a date about something else.
+func TestSource_UpdatedAtIsTheRowsOwnTime(t *testing.T) {
+	pool := testPool(t)
+	const key = testKeyPrefix + "logs.retention_days"
+
+	global := time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
+	site := time.Date(2026, 5, 2, 11, 0, 0, 0, time.UTC)
+	writeAt(t, pool, key, "", "30", global)
+	writeAt(t, pool, key, "site-a", "10", site)
+
+	src := New(context.Background(), pool, Config{})
+
+	// ---- a key with no row at all ----
+	if at, ok := src.UpdatedAt(testKeyPrefix+"logs.level", ""); ok {
+		t.Errorf("a key with no row reports a date (%v); a deployment that never "+
+			"wrote the setting would be told on its own disclosure page that it "+
+			"changed one", at)
+	}
+
+	// ---- the row's own time, not this process's ----
+	at, ok := src.UpdatedAt(key, "")
+	if !ok {
+		t.Fatal("a key with a row reports no date")
+	}
+	if !at.Equal(global) {
+		t.Errorf("UpdatedAt = %v, want the row's own %v.\n"+
+			"A time taken from this process instead would report every deployment "+
+			"as having just changed its privacy setting.", at, global)
+	}
+
+	// ---- the same fallback the values take ----
+	//
+	// Or the time would belong to a different row than the value beside
+	// it: a site reading its own setting would be shown the date the
+	// deployment-wide one was written.
+	if at, ok := src.UpdatedAt(key, "site-a"); !ok || !at.Equal(site) {
+		t.Errorf("site-a's UpdatedAt = %v (%v), want its own row's %v", at, ok, site)
+	}
+	if at, ok := src.UpdatedAt(key, "site-b"); !ok || !at.Equal(global) {
+		t.Errorf("site-b has no row of its own; UpdatedAt = %v (%v), want the "+
+			"deployment-wide %v", at, ok, global)
+	}
+
+	// ---- and the row going away takes the date with it ----
+	//
+	// The same shape as TestSource_ADeletedSettingGoesBackToTheDefault
+	// and for the same reason, in the new map: a refresh that merged
+	// instead of replacing would keep answering with a date for a
+	// setting that has gone back to the config file's value. Every
+	// assertion above would still pass.
+	if _, err := pool.Exec(context.Background(),
+		`DELETE FROM panel_settings WHERE key = $1`, key); err != nil {
+		t.Fatalf("deleting %s: %v", key, err)
+	}
+	if err := src.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh after the delete: %v", err)
+	}
+	if at, ok := src.UpdatedAt(key, ""); ok {
+		t.Errorf("the row was deleted and UpdatedAt still answers %v", at)
+	}
+}
+
+// writeAt writes a row with an explicit updated_at.
+//
+// Explicit rather than defaulted so the assertion is about the column
+// and not about two calls to now() landing in different microseconds -
+// and so a reader can see which value the test expects back.
+func writeAt(t *testing.T, pool *pgxpool.Pool, key, site, jsonValue string, at time.Time) {
+	t.Helper()
+	scope := "global"
+	if site != "" {
+		scope = "site"
+	}
+	_, err := pool.Exec(context.Background(), `
+		INSERT INTO panel_settings (scope, site_id, key, value, updated_at)
+		VALUES ($1, $2, $3, $4::jsonb, $5)
+		ON CONFLICT (scope, site_id, key)
+		DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+		scope, site, key, jsonValue, at)
+	if err != nil {
+		t.Fatalf("writing %s: %v", key, err)
+	}
+}

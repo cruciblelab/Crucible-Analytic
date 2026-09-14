@@ -1116,6 +1116,38 @@ değişir. **Metni kopyalayıp kendi sayfanıza yapıştırmayın** — kopya ay
 değiştiğinde değişmez, ve o zaman ziyaretçiye yanlış şey söyler. Kendi
 diliniz için JSON ucunu kullanın.
 
+#### Değiştiğini nasıl anlarsınız
+
+Sayfa her zaman *o anki* ayarı anlatıyor; yani doğru, ama yeni olduğunu
+söylemiyor. `privacy.ip_storage`'ı `full` yapmak bir sonraki istekten
+itibaren daha çok kişisel veri demek, ve bunu işaretleyen bir şey
+olmazsa değişiklik sayfayı dün okumuş bir ziyaretçinin altından geçer.
+Üç yerde işaretli:
+
+- **Hazır sayfada**, adres ayarının en son ne zaman yazıldığı (UTC) ve
+  sayfanın her zaman o anki ayarı anlattığını söyleyen bir cümle. `full`
+  kipinde sayfa ayrıca en üstte "iki kipten çok saklayanında" özetiyle
+  açılıyor — mekanizmayı anlatan bölümün *üstünde*, çünkü erken bırakan
+  okuyucu tam o özet için yazılmış olan okuyucu.
+- **JSON'da `effective_since`** — aynı an, RFC 3339. Ayarı panelden hiç
+  yazmamış bir kurulumda **anahtar hiç yok** (boş değil, yok): kip o
+  zaman yapılandırma dosyasından geliyor ve bu tabloda bir tarih hiç
+  olmadı.
+- **JSON'un `ETag` ve `Last-Modified` başlıkları.** Kendi sayfasını bu
+  uçtan üreten bir site "değişti mi" sorusunu tek koşullu istekle
+  soruyor; gövdeyi indirip karşılaştırması gerekmiyor. `ETag` cevabın
+  özeti olduğu için politika adresi veya iletişim adresi değişince de
+  kımıldıyor; `Last-Modified` yalnız kipin tarihi. `If-None-Match`
+  destekli (liste ve `W/` dahil).
+
+Tarih, satırın **yazıldığı** an — değiştiği an değil: aynı değeri
+yeniden kaydetmek de tarihi ilerletiyor, ve sayfa tam o yüzden
+"yazıldı" diyor. Ayarın hangi **yöne** gittiğini sayfa söylemiyor,
+çünkü beacon bunu bilemez: önceki değer panelin denetim kaydında ve bu
+servisin o tabloyu okuma yetkisi yok. Yönü iddia eden bir sayfa
+uydurmuş olurdu. İki tarihi de görmüş olan taraf — yani JSON'u takip
+eden sizin sayfanız — yönü kendisi hesaplayabilir.
+
 Panelde **Ayarlar → Gizlilik** altında üç ayar bunları yönetiyor, ve üçü
 de müşteriye ait (geliştirici parolası istenmiyor):
 

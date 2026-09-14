@@ -105,6 +105,51 @@ type Notice struct {
 	// Contact is where a visitor's request should go when the operator
 	// handles those by hand. An address or a page; empty when unset.
 	Contact string `json:"contact,omitempty"`
+
+	// EffectiveSince is when the mode above was last written, when that
+	// is known.
+	//
+	// # Why a disclosure needs a date
+	//
+	// Every other field here says what is collected *now*, and a page
+	// built from them is correct the moment it is served. What it cannot
+	// say is that it is new. privacy.ip_storage moving from masked to
+	// full means more personal data from the next request on, and this
+	// notice changes underneath a visitor who read it yesterday with
+	// nothing marking the change.
+	//
+	// The date is what makes that detectable at both ends: a visitor
+	// reads it on the page, and a customer's own page - which consumes
+	// the JSON rather than the prose - can compare it against the one it
+	// last saw and, having both, compute *which way* the mode moved from
+	// the fields beside it.
+	//
+	// # Why not the direction itself
+	//
+	// Because the previous value is in the audit log and the beacon must
+	// not be able to read the panel's tables. Saying "escalated from
+	// masked" here would mean either crossing that boundary or keeping a
+	// second copy of the history where the beacon can see it - and a
+	// second copy of a history is a history that can disagree with
+	// itself. The date crosses nothing: panel_settings.updated_at is in
+	// the same row as the value, which the service already reads.
+	//
+	// Zero when unknown, and unknown is an ordinary state: a deployment
+	// that never changed the setting from the panel has no row, so the
+	// mode comes from the service's config file and this table never
+	// carried a date for it. Reporting the install time or the process
+	// start instead would be a date about something else.
+	//
+	// # omitzero, not omitempty
+	//
+	// omitempty does nothing to a struct field, and time.Time is a
+	// struct: written that way the key is always present, carrying
+	// 0001-01-01T00:00:00Z on every deployment that never set the mode
+	// from the panel. A consumer comparing that against the date it
+	// last saw would read a change where there was none, and the only
+	// reader of this field is exactly such a consumer. omitzero (Go
+	// 1.24) consults IsZero and leaves the key out.
+	EffectiveSince time.Time `json:"effective_since,omitzero"`
 }
 
 // NoDeletionNoIdentity is the reason id.

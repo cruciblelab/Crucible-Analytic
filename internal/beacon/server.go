@@ -525,6 +525,20 @@ type Disclosure struct {
 	// Contact is where a request goes when the operator handles them by
 	// hand. Also checked at the point of use.
 	Contact string
+	// ModeEffectiveSince is when privacy.ip_storage was last written,
+	// zero when the panel never wrote it.
+	//
+	// Carried in this struct rather than read here because the beacon
+	// does not reach the settings table itself - cmd/beacon builds the
+	// live source and pushes what it read. The same shape as every other
+	// field here, and for the same reason: this process is told, it does
+	// not ask.
+	//
+	// Zero is an ordinary state, not a missing value. A deployment whose
+	// mode comes from its config file has no settings row, so there is
+	// no date - and the disclosure then says nothing about one rather
+	// than inventing the install time.
+	ModeEffectiveSince time.Time
 }
 
 // SetDisclosure swaps the visitor-facing surface's settings.

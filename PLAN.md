@@ -99,7 +99,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **6/6** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu; L6 yetki yüzeylerine RLS/politika/sahiplik/kısıt ekledi ve iki tabloda zorlanmayan satır güvenliği buldu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **5/6** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden doğdu)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **7/8** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden, P7 "sayfa dinamik olmalı" isteğinden doğdu, P7b P6'nın UI adayını kapattı)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -7795,7 +7795,73 @@ sütun adlarını basıyor ve içinde `ip` var; üstteki paragraf "ham IP
 adresiniz hiçbir zaman kaydedilmiyor" derken listeye atlayan okuyucu
 çelişki görür. Sütunun içinde maskeli ağ duruyor, yani cümle doğru,
 görünen çelişkili. Adları güzelleştirmek listeyi *türetilmiş* olmaktan
-çıkarma riski taşıyor — sahibin kararı.
+çıkarma riski taşıyor — ✅ **P7b'de çözüldü**, adlar değişmeden.
+
+---
+
+#### P7 — Açıklama dinamik: ne zamandan beri, ve makine görebilsin ✅ **bitti (2026-09-14)**
+
+Sahibin isteği: *"dinamik derken mod yükseltilirse daha çok kişisel veri
+demek olacak, bunun ona göre düzenlenmesi lazım; ya da kendi sayfaları
+varsa uçlar ile kontrol ederler."* İki yarı, ikisi de yapıldı.
+
+**Boşluk ölçüldü.** Sayfanın her cümlesi yürürlükteki kipten türüyor,
+yani sunulduğu anda doğru ve **yeni olduğu hakkında sessiz.**
+`panel_settings.updated_at` sütunu baştan beri vardı ve
+`internal/settings/live.go`'nun sorgusu onu hiç okumuyordu.
+
+| yarı | ne yapıldı |
+|---|---|
+| sayfa, kipe göre düzenlenmiş | `full` kipinde en üstte özet: "bu kurulum, iki kipten çok saklayanında", ne eklendiği + pratik sonucu. Mekanizmayı anlatan bölümün **üstünde** |
+| sayfa, ne zamandan beri | adres ayarının en son yazıldığı gün (UTC) + sayfanın o anki ayarı anlattığı cümlesi |
+| uçtan kontrol | JSON'da `effective_since`, başlıklarda `ETag` (cevabın özeti) + `Last-Modified` (kipin tarihi), `If-None-Match` → 304 |
+
+**Yönü söylemiyor, ve bu bir eksiklik değil.** İlk yazdığım hâl `full`
+kipinde "o tarihten önce daha azını saklıyordu" diyordu — beacon bunu
+bilemez: önceki değer panelin denetim kaydında ve bu servisin o tabloyu
+okuma yetkisi yok, üstelik aynı değeri yeniden kaydetmek de tarihi
+ilerletiyor. Kendi `notice.go` yorumum zaten "yönü söylemiyoruz" diyordu
+ve sayfa söylüyordu. Kaldırıldı, ve yerine **ölçülebilir olumsuz bir
+iddia** kondu: aynı tarih iki kipte de basılıp paragraf bayt bayt
+karşılaştırılıyor. Yönü hesaplayabilecek taraf iki tarihi de görmüş olan
+taraftır — JSON'u takip eden müşterinin kendi sayfası.
+
+**Zincirin her halkası ayrı ölçüldü**, çünkü hiçbiri diğerini
+göstermiyor: panelin yazması tarihi kımıldatıyor mu
+(`internal/panel`, `updated_at = now()` satırı artık yük taşıyor) →
+`Source.UpdatedAt` satırın kendi saatini mi veriyor (sürecin değil) ve
+satır silinince susuyor mu → `LiveDisclosure` **hangi anahtarın**
+satırından alıyor (iki anahtar, iki farklı tarih; tek satırla her yanlış
+kablolama doğru okunur) → sayfa ve JSON.
+
+**`omitempty` bir struct alanını atlamıyor.** `EffectiveSince` zaman
+alanı ve `json:"...,omitempty"` hiçbir şey yapmıyordu: anahtar her
+kurulumda `0001-01-01T00:00:00Z` ile gidiyordu — yani tarihi hiç
+yazmamış kurulumlar, o alanı geçen sürümle karşılaştıran bir tüketiciye
+her seferinde "değişti" diyordu. `omitzero` (Go 1.24) doğrusu. Sınıf
+kapatıldı: `internal/invariants/jsonomit_test.go` bütün ağaçta
+`omitempty` taşıyan struct/dizi alanlarını arıyor, ve **dedektörün
+aradığını görebildiği** ayrı bir pozitif kontrolle sınanıyor.
+
+Yirmi iki mutasyon, yirmi ikisi de kırmızı. Biri ilk turda sağ kaldı ve
+sebebi mutasyonun kendisiydi: özeti *taşımak* yerine aşağıya yeni bir
+paragraf ekliyordum, yani sınadığı koşulu hiç kurmadı.
+
+#### P7b — "Ne saklanıyor" listesi kendi kendiyle çelişiyordu ✅ **bitti (2026-09-14)**
+
+P6'nın UI adayı, P7'nin ekran görüntüsünde tekrar görüldü ve çözüldü.
+Sayfa üç paragraf arayla "ham IP adresiniz hiçbir zaman kaydedilmiyor"
+diyor, sonra `ip` diye bir sütun sayıyordu.
+
+Liste **türetilmiş kalıyor** — değişen, adların yanına ne tuttuklarının
+yazılması: `ip` için maskeli ağ kısmı (maske, sayfanın yukarısında yazan
+**aynı dizeden**, yani uygulanmayan bir maske iddia edilemiyor),
+`ip_hash` için kipe göre "jeton" ya da "bu kipte hiç yazılmıyor". İki
+sütunun adı `writer.go`'da sabit; hangi sütunların açıklandığı yazıcının
+listesinden türetiliyor, ve adı değişip açıklaması geride kalan bir sütun
+yapısal olarak yakalanıyor (M73).
+
+Beş mutasyon, beşi de kırmızı.
 
 ---
 

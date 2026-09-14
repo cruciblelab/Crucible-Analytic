@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
@@ -1161,5 +1162,78 @@ func TestTheVisitorSurfaceAddressesAreCheckedBeforeTheyAreStored(t *testing.T) {
 	if err := store.ApplySetting(ctx, customer, KeyPrivacyPolicyURL, "", "",
 		devgate.Authorization{}, nil); err != nil {
 		t.Errorf("the customer could not clear the policy address: %v", err)
+	}
+}
+
+// TestSettings_EveryWriteMovesUpdatedAt.
+//
+// # Why this column is load-bearing now
+//
+// Because the beacon's disclosure page prints it. Every other sentence
+// on that page describes the mode in force, so the page is correct the
+// moment it is served and silent about being new - and privacy.ip_storage
+// moving to full means more personal data from the next request on. The
+// date is what makes that detectable, on the page and in the JSON a
+// customer's own page polls.
+//
+// Which makes this UPDATE's third line load-bearing in a package that
+// has no idea the page exists. Drop `updated_at = now()` and the column
+// keeps the first write's time forever: the disclosure then shows a date
+// that never moves, with no error anywhere and nothing to notice. The
+// value read back would still be right, which is what every other test
+// in this file checks.
+//
+// # And why "written" rather than "changed"
+//
+// Because there is no short-circuit here: saving the same value again
+// writes the row again and moves the time. That is measured below, and
+// it is the reason the page says the setting was last *written* on a
+// date rather than last changed - and the reason it must not say which
+// way it moved. A page that read this date as a change would tell a
+// deployment that never touched its mode that it had just escalated.
+func TestSettings_EveryWriteMovesUpdatedAt(t *testing.T) {
+	ctx := context.Background()
+	store := settingsStore(t)
+
+	written := func() time.Time {
+		t.Helper()
+		var at time.Time
+		if err := store.Pool().QueryRow(ctx, `
+			SELECT updated_at FROM panel_settings
+			WHERE key = $1 AND site_id = ''`,
+			string(KeyPrivacyIPStorage)).Scan(&at); err != nil {
+			t.Fatalf("reading updated_at: %v", err)
+		}
+		return at
+	}
+
+	if err := setGuarded(t, store, KeyPrivacyIPStorage, "", "masked"); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	first := written()
+
+	// A different value.
+	if err := setGuarded(t, store, KeyPrivacyIPStorage, "", "full"); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	second := written()
+	if !second.After(first) {
+		t.Errorf("the mode changed from masked to full and updated_at did not move "+
+			"(%v then %v).\nThe beacon's disclosure page prints this column as the "+
+			"date the setting was last written; a column that stops moving is a page "+
+			"that shows the first write's date forever, with nothing to notice.",
+			first, second)
+	}
+
+	// The same value again, which is the case that decides the page's
+	// wording: this is a write, not a change.
+	if err := setGuarded(t, store, KeyPrivacyIPStorage, "", "full"); err != nil {
+		t.Fatalf("third write: %v", err)
+	}
+	if third := written(); !third.After(second) {
+		t.Errorf("saving the same value again left updated_at at %v.\n"+
+			"Not a defect in itself - but the disclosure page's wording depends on "+
+			"which of the two this column means, and it says 'written' because "+
+			"this write path has no short-circuit.", third)
 	}
 }

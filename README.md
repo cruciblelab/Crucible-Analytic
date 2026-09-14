@@ -749,6 +749,30 @@ to update. A structural test refuses a second copy of that prose
 anywhere in this repository, so "copy the paragraph into your own page"
 is deliberately not the supported path: the JSON is.
 
+#### Noticing that it changed
+
+A disclosure derived from the mode in force is correct the moment it is
+served and silent about being new. `privacy.ip_storage` moving from
+masked to full means more personal data from the next request on, and
+without something marking the change it happens underneath a visitor who
+read the page yesterday. Three things carry it:
+
+| Where | What it says |
+| --- | --- |
+| The ready-made page | The date the address setting was last written, in UTC, plus a line saying the page always describes the setting in force at that moment. In full mode it also opens with a summary saying this is the mode that stores more, above the section explaining the mechanism. |
+| `effective_since` in the JSON | The same instant, RFC 3339. **Absent** — the key is not present at all — on a deployment that has never written the setting from the panel, which is the ordinary state: the mode then comes from the service's config file and nothing recorded a date for it. |
+| `ETag` and `Last-Modified` on the JSON | So a site polling the endpoint asks "has this changed" in one conditional request rather than fetching and diffing. The tag is a hash of the answer, so it also moves when the operator's policy URL or contact changes; `Last-Modified` is the mode's own date. `If-None-Match` is honoured, lists and `W/` included. |
+
+The date is when the row was **written**, not when the value changed:
+saving the same mode again moves it, and the page says so in those words
+for that reason. Which *way* the mode moved is deliberately not on the
+page — the beacon cannot know it. The previous value is in the panel's
+audit log, which this service must not be able to read, so a page
+claiming a direction would be inventing a fact. A consumer that keeps
+the last `effective_since` it saw has both values and can compute the
+direction itself, which is the half of the problem that belongs to the
+half that has the history.
+
 ### The three settings behind it
 
 **Settings → Gizlilik**, and all three belong to the customer: no

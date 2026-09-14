@@ -17933,3 +17933,163 @@ satırda hiç cevap vermiyor.
 Çözüm O2'nin verdiği tedavinin aynısı ama başka bir eksende: zaman
 kovalarına göre değil, **adres boyutlarına göre** bir özet. Şema
 gerektiriyor, yani sahibin kararı. PLAN'a **O4** olarak yazıldı, sayılarla.
+
+## P7 — Doğru olduğu anda doğru, yeni olduğu hakkında sessiz
+
+Sahip: *"Bu sayfası dinamik olmalı — dinamik derken mod yükseltilirse
+daha çok kişisel veri demek olacak, bunun ona göre düzenlenmesi lazım;
+ya da kendi sayfaları varsa uçlar ile kontrol ederler."*
+
+### Boşluk neydi
+
+Açıklama sayfasının **her** cümlesi yürürlükteki kipten türüyor. Bu iyi
+bir özellik ve tam bir eksiklik: sunulduğu anda doğru, ve **yeni olduğu
+hakkında hiçbir şey söylemiyor.** `privacy.ip_storage` `masked`'dan
+`full`'e geçmek bir sonraki istekten itibaren daha çok kişisel veri
+demek, ve sayfayı dün okumuş bir ziyaretçinin altından sessizce geçiyor.
+
+Tarih zaten vardı: `panel_settings.updated_at`, `NOT NULL DEFAULT now()`,
+şemanın ilk günlerinden. `internal/settings/live.go`'nun tazeleme sorgusu
+`key, site_id, value` okuyordu. Yani ölçülecek bir şey yoktu, okunacak
+bir sütun vardı.
+
+### Sayfanın söyleyebileceği ve söyleyemeyeceği
+
+Kritik ayrım, ve ilk yazdığım hâl bunu ihlal ediyordu.
+
+**Söyleyebileceği:** hangi kipte olduğu ve o kipin ne demek olduğu.
+`full` kipte "bu kurulum iki kipten çok saklayanında" bir **şimdi**
+cümlesi, ürünün diğer kipiyle karşılaştırması, ve `TokenFromWholeAddress`
+alanından türüyor.
+
+**Söyleyemeyeceği: hangi yöne gittiği.** Tarih, satırın *yazıldığı* an.
+Önceki değer panelin denetim kaydında ve beacon'ın o tabloyu okuma
+yetkisi yok — yetkisi olması da istenmez, bu ayrım ürünün kendisi.
+Üstelik yazma yolunda kısa devre yok: aynı değeri yeniden kaydetmek de
+`updated_at`'i ilerletiyor (`internal/panel/settings.go`, `DO UPDATE SET
+... updated_at = now()`). Yani "o tarihten önce daha azını saklıyordu"
+cümlesi iki ayrı sebepten uydurma.
+
+İlk hâlim tam o cümleyi yazıyordu. `notice.go`'ya **yönü niye
+söylemediğimizi** uzun uzun yazdım, sonra sayfada söyledim. Ders:
+
+> *Bir gerekçeyi yazdığınız dosya, gerekçeye uyduğunuz dosya değildir.*
+
+Düzeltme yalnız cümleyi silmek değil, yerine **ölçülebilir olumsuz bir
+iddia** koymak oldu: aynı tarih iki kipte de basılıp paragraf bayt bayt
+karşılaştırılıyor. Yalnız maskeli kipi okuyan bir test yanlış cümleyi
+göremezdi.
+
+### Uçtan kontrol: tüketici kim
+
+İkinci yarı, ve sahibin cümlesindeki "kendi sayfaları varsa" kısmı. Hazır
+sayfayı bir **ziyaretçi** okuyor, bir kez. JSON'u bir **site** okuyor,
+kendi dilinde basmak için, ve bir kip yükselmesini kimse söylemeden
+fark etmesi gerekiyor.
+
+- `effective_since`: aynı an, RFC 3339.
+- `ETag`: cevabın sha256'sı (ilk 16 bayt, hex). Sürüm numarası değil,
+  çünkü sürüm numarası birinciye eşit tutulması gereken ikinci bir
+  durum olurdu; gövdenin özeti gövdeyle çelişemez. Politika adresi ya da
+  iletişim adresi değişince de kımıldıyor — kipe bağlı bir doğrulayıcı,
+  sayfası artık ölü bağlantı gösteren bir tüketiciye 304 derdi.
+- `Last-Modified`: yalnız kipin tarihi.
+- `If-None-Match`: liste ve `W/` öneki ayrıştırılıyor. Yeniden dağıtım
+  sonrası bir tüketicinin gönderdiği olağan şekil iki etikettir; bütünü
+  karşılaştıran bir uygulama o tüketiciye hep tam gövde verirdi, yani
+  doğrulayıcının var olma sebebini ortadan kaldırırdı.
+- `Vary` **yok**, ve bilerek: burada hiçbir şey istek başlığına göre
+  değişmiyor. Yazmak, tek bir cevap için önbelleğe gördüğü başlık
+  kombinasyonu kadar kopya tutmasını söylemek olurdu.
+
+### `omitempty` bir struct alanını atlamaz
+
+Asıl kusur burada çıktı. `EffectiveSince time.Time` ve
+`json:"effective_since,omitempty"`:
+
+```
+omitempty: {"t":"0001-01-01T00:00:00Z"}
+omitzero:  {}
+```
+
+`encoding/json` bir alanı false, 0, "", nil işaretçi/arayüz, ya da boş
+dizi/dilim/harita/dize olduğunda atlıyor — struct bunların hiçbiri
+değil. Hata yok, `go vet` uyarısı yok, ve alan **doğru** marshal
+oluyor: etiket yalnız yazıldığı işi yapmıyor.
+
+Sonucu tam olarak bu alanın tek okuyucusunu vuruyordu. Ayarı panelden hiç
+yazmamış bir kurulumda (çoğu kurulum) anahtar `0001-01-01T00:00:00Z` ile
+gidiyor; onu son gördüğü değerle karşılaştıran bir müşteri sayfası,
+olmayan bir değişikliği her yoklamada okuyordu.
+
+Doğrusu `omitzero` (Go 1.24), `IsZero`'yu soruyor. Ve sınıf kapatıldı:
+`internal/invariants/jsonomit_test.go` bütün ağaçta `omitempty` taşıyan
+struct ve sabit-boyutlu dizi alanlarını arıyor, iki yönlü bir aynayla
+(gerekçeli muafiyet haritası bugün boş). Tarayıcının **aradığını
+görebildiği** ayrı bir pozitif kontrolle sınanıyor — beş şekli yakalaması
+ve omitempty'nin doğru çalıştığı dört yazımı **raporlamaması** gerekiyor;
+yoksa hiçbir şey okumayan bir yürüyüş de "temiz" derdi.
+
+Ağaçta o alan dışında tek örnek yoktu, yani kural bugün boş bir liste
+koruyor. Değeri gelecekte: iki yazım da derleniyor, ikisi de bilinçli
+görünüyor, ve fark yalnız bu depoda olmayan bir tüketicide belli oluyor.
+
+### Zincirin her halkası ayrı ölçüldü
+
+Hiçbiri diğerini göstermiyor, ve bir tanesinin sessiz kalması tarihin
+hiç kımıldamaması demek:
+
+| halka | ölçüm | nerede |
+|---|---|---|
+| panelin yazması tarihi kımıldatıyor | iki farklı değer + aynı değer yeniden | `internal/panel`, `TestSettings_EveryWriteMovesUpdatedAt` |
+| tarih satırın kendi saati, sürecin değil | `updated_at` elle yazılıp geri okunuyor | `internal/settings`, `TestSource_UpdatedAtIsTheRowsOwnTime` |
+| satır silinince tarih de gidiyor | tazeleme birleştirmiyor, değiştiriyor | aynı test |
+| **hangi** anahtarın satırı | iki anahtar, iki farklı tarih | `internal/beacon`, `TestTheDisclosuresDateIsTheModesOwnRow` |
+| sayfa ve JSON | tarih, UTC günü, 304, etiketin kımıldaması | `internal/beacon/privacy_test.go` |
+
+Dördüncüsü tek satırla kurulamaz: tek bir satır varken **her** yanlış
+kablolama doğru okunur. O yüzden diğer anahtar ayrı bir tarihle yazılıyor
+ve iddia "tarih o değil".
+
+`internal/panel/settings.go`'daki `updated_at = now()` satırı artık yük
+taşıyor ve bunu bilen bir testi var — silinse sayfa ilk yazmanın
+tarihini sonsuza kadar gösterirdi, ve okunan değer doğru kalacağı için
+dosyadaki diğer bütün testler yeşil geçerdi.
+
+### Türkçe tarih, ve niye rakamla
+
+Ay adları panelin dil paketinde (`internal/panel/ui/messages/tr.toml`).
+Beacon o paketi taşımıyor ve taşımamalı — halka açık servis, paket
+panelin yüklediği bir dosya. On iki adı burada tekrar yazmak, hiçbir
+şeyin karşılaştırmadığı ikinci bir kopya olurdu. Rakamlı biçim
+(`02.01.2006`) Türkçe paketin kendi kısa tarihiyle aynı. UTC, çünkü
+yanındaki JSON öyle ve tek bir anın iki yazımının güne dair ayrışması
+ikisinden de kötü — sayfa "(UTC)" yazıyor, ve bir test o etiketi yük
+taşır hâle getiriyor: UTC'de bir sonraki güne düşen bir an.
+
+### P7b — liste kendi kendiyle çelişiyordu
+
+Ekran görüntüsüne bakarken görüldü (P6'da UI adayı olarak yazılmıştı).
+Sayfa "ham IP adresiniz hiçbir zaman kaydedilmiyor" diyor, üç paragraf
+sonra saklanan alanlar arasında `ip` sayıyordu. **Sayfadaki her olgu
+doğruydu ve sayfa çelişiyordu** — hiçbir iddia bunu bulamaz.
+
+Liste yazıcının kendi sütun listesinden türüyor ve öyle kalmalı: elle
+yazılmış bir liste ziyaretçiye toplanandan azını söyler, ki buradaki tek
+hukuki şekli olan hata o. Çözüm adları değiştirmek değil, **ne
+tuttuklarını yanlarına yazmak**:
+
+- `ip` → maskeli ağ kısmı, maske **sayfanın yukarısında yazan aynı
+  dizeden**. Yani uygulanmayan bir maske iddia edilemiyor: maskeleme
+  sabitleri değişirse iki yazım ayrışır ve test kırılır.
+- `ip_hash` → kipe göre "jeton" ya da "bu kipte hiç yazılmıyor, boş
+  kalıyor". İkincisi doğru ve listeden *az*: `storedIPHash` maskeli kipte
+  `nil` döndürüyor.
+
+İki sütunun adı `writer.go`'da sabit (`colIP`, `colIPHash`), hem listede
+hem açıklamada aynı sabit. Yazıcıda adı değişip açıklaması geride kalan
+bir sütun yapısal olarak yakalanıyor — mutasyonla ölçüldü.
+
+> *Bir sayfanın bütün olguları doğru olabilir ve sayfa yanlış okunabilir;
+> o yüzden ekran görüntüsünün değeri betiğin iddialarında değil,
+> bakmakta.*

@@ -118,10 +118,24 @@ func (p PrivacyConfig) LiveDisclosure(source *settings.Source) Disclosure {
 	if source == nil {
 		return Disclosure{Enabled: true}
 	}
+	// The mode's own row time, not this struct's other keys'.
+	//
+	// The disclosure's date is about privacy.ip_storage and nothing
+	// else: that is the key whose value decides what is collected. A
+	// date taken from the visitor-surface switch or the policy URL would
+	// move when the customer edited a link, and a visitor would read
+	// "this setting has been in force since" about a setting that had
+	// not changed.
+	//
+	// Dropped when absent rather than defaulted - see
+	// Disclosure.ModeEffectiveSince for why a zero value here is an
+	// answer.
+	since, _ := source.UpdatedAt(settings.KeyPrivacyIPStorage, "")
 	return Disclosure{
-		Enabled:   source.Bool(settings.KeyPrivacyVisitorSurface, "", true),
-		PolicyURL: source.String(settings.KeyPrivacyPolicyURL, "", "", nil),
-		Contact:   source.String(settings.KeyPrivacyContact, "", "", nil),
+		Enabled:            source.Bool(settings.KeyPrivacyVisitorSurface, "", true),
+		PolicyURL:          source.String(settings.KeyPrivacyPolicyURL, "", "", nil),
+		Contact:            source.String(settings.KeyPrivacyContact, "", "", nil),
+		ModeEffectiveSince: since,
 	}
 }
 

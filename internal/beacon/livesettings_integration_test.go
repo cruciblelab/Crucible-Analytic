@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -307,4 +308,94 @@ func TestTheVisitorSurfaceSettingsReachTheBeaconFromTheDatabase(t *testing.T) {
 	if code != http.StatusNotFound {
 		t.Errorf("a server given the stored settings answers %d for the page", code)
 	}
+}
+
+// TestTheDisclosuresDateIsTheModesOwnRow.
+//
+// The last link the phase claims, against the real table: the panel
+// writes privacy.ip_storage, and the date the beacon puts on its
+// disclosure is *that* row's.
+//
+// # Why two keys and two times
+//
+// Because one key cannot tell the right wiring from the wrong one. The
+// disclosure's date has to belong to the setting that decides what is
+// collected; a date taken from the visitor-surface switch or the policy
+// URL would move when the customer edited a link, and the page would
+// then tell a visitor that the address setting had just been written
+// when nobody had touched it. With a single row stored, every mistake of
+// that kind reads back correct.
+//
+// So the other key is written first and at a different time, and the
+// assertion is that the date is not it.
+func TestTheDisclosuresDateIsTheModesOwnRow(t *testing.T) {
+	pool := settingsPool(t)
+	var cfg PrivacyConfig
+
+	// ---- nothing stored: no date, and that is an answer ----
+	//
+	// A deployment whose mode comes from its config file has no row
+	// here. The page then says nothing about a date rather than
+	// printing the install time, which would be a date about something
+	// else.
+	if got := cfg.LiveDisclosure(liveSource(t, pool)); !got.ModeEffectiveSince.IsZero() {
+		t.Errorf("with nothing stored the disclosure carries %v", got.ModeEffectiveSince)
+	}
+
+	other := time.Date(2026, 1, 9, 8, 0, 0, 0, time.UTC)
+	mode := time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
+	storeSettingAt(t, settings.KeyPrivacyPolicyURL, "https://acme.example/gizlilik", other)
+	storeSettingAt(t, settings.KeyPrivacyIPStorage, "full", mode)
+
+	got := cfg.LiveDisclosure(liveSource(t, pool))
+	if !got.ModeEffectiveSince.Equal(mode) {
+		t.Errorf("the disclosure's date is %v, want privacy.ip_storage's own %v.\n"+
+			"The other key in this table was written at %v; a date from any row but "+
+			"the mode's would tell a visitor the address setting changed when "+
+			"somebody edited a link.", got.ModeEffectiveSince, mode, other)
+	}
+
+	// And it reaches the page a visitor reads, which is the point of
+	// carrying it at all.
+	srv := &Server{
+		Sites:    []string{"acme"},
+		Sink:     &fakeSink{},
+		Visitors: newTestVisitorIDs(t),
+	}
+	srv.SetDisclosure(got)
+	code, page := fetchPrivacy(t, srv, DefaultPathPrefix+"/privacy.html")
+	if code != http.StatusOK {
+		t.Fatalf("the page answered %d", code)
+	}
+	if !strings.Contains(page, "14.03.2026") {
+		t.Errorf("the date never reaches the page:\n%s", page)
+	}
+}
+
+// storeSettingAt writes a deployment-wide row with an explicit
+// updated_at.
+//
+// Explicit because the claim above is about which row's time is read,
+// and two rows written by two calls to now() differ by microseconds -
+// a difference a passing assertion could not be built on.
+func storeSettingAt(t *testing.T, key string, value any, at time.Time) {
+	t.Helper()
+	pool := testdb.Pool(t, testdb.Panel)
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(context.Background(), `
+		INSERT INTO panel_settings (scope, site_id, key, value, updated_at)
+		VALUES ('global', '', $1, $2, $3)
+		ON CONFLICT (scope, site_id, key)
+		DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+		key, encoded, at)
+	if err != nil {
+		t.Fatalf("storing %s: %v", key, err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(),
+			`DELETE FROM panel_settings WHERE key = $1 AND site_id = ''`, key)
+	})
 }

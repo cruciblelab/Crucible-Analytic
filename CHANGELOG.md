@@ -20,6 +20,57 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Açıklama sayfası ne zamandan beri geçerli olduğunu söylüyor
+
+Sayfa her zaman **o anki** ayarı anlatıyordu: yani doğruydu, ama yeni
+olduğunu söylemiyordu. `privacy.ip_storage`'ı `full` yapmak bir sonraki
+istekten itibaren daha çok kişisel veri demek, ve bunu işaretleyen bir
+şey olmadığı için değişiklik sayfayı dün okumuş bir ziyaretçinin altından
+geçiyordu. Üç ucu da kapandı:
+
+- **Sayfada** adres ayarının en son ne zaman yazıldığı (UTC), ve sayfanın
+  her zaman o anki ayarı anlattığını söyleyen bir cümle.
+- **`full` kipinde sayfa en üstte özetle açılıyor**: "bu kurulum, iki
+  kipten çok saklayanında", ne eklendiği ve pratik sonucuyla —
+  mekanizmayı anlatan bölümün *üstünde*. Erken bırakan okuyucu tam o
+  özetin yazıldığı okuyucu.
+- **JSON'da `effective_since`**, ve uçta `ETag` + `Last-Modified`. Kendi
+  sayfasını bu uçtan üreten bir site "değişti mi" sorusunu tek koşullu
+  istekle soruyor. `If-None-Match` destekli (liste ve `W/` dahil).
+
+Tarih satırın **yazıldığı** an, değiştiği an değil — aynı değeri yeniden
+kaydetmek de ilerletiyor, ve sayfa tam o yüzden "yazıldı" diyor. Ayarın
+hangi **yöne** gittiği sayfada yazılı değil ve bu bir eksiklik değil:
+önceki değer panelin denetim kaydında, beacon'ın o tabloyu okuma yetkisi
+yok, yani yönü iddia eden bir sayfa uydurmuş olurdu. İlk yazdığım hâl tam
+bunu yapıyordu (`full` kipinde "o tarihten önce daha azını saklıyordu"),
+ve kendi gerekçesiyle çelişiyordu; kaldırıldı. İki tarihi de görmüş olan
+taraf — JSON'u takip eden sitenin kendi sayfası — yönü kendisi
+hesaplayabilir.
+
+Ayarı panelden hiç yazmamış bir kurulumda **anahtar JSON'da hiç yok** ve
+sayfa tarihten söz etmiyor: kip o zaman yapılandırma dosyasından geliyor
+ve bu tabloda bir tarih hiç olmadı. Kurulum anını ya da süreç başlangıcını
+basmak başka bir şeyin tarihini basmak olurdu.
+
+**Kuran kişinin yapması gereken: bir şey yok.** Yeni ayar, yeni tablo,
+yeni sütun yok; `panel_settings.updated_at` zaten vardı ve okunmuyordu.
+
+### "Ne saklanıyor" listesi kendi kendiyle çelişiyordu
+
+Aynı sayfa üç paragraf arayla "ham IP adresiniz hiçbir zaman
+kaydedilmiyor" diyor, sonra saklanan alanlar arasında `ip` diye bir
+sütun sayıyordu. Sayfadaki her cümle doğruydu ve sayfa çelişiyordu.
+O sütunda duran şey maskeli adres; artık listede ne tuttuğu yanında
+yazıyor — maskeyi sayfanın yukarısında yazan aynı dizeden alarak, yani
+uygulanmayan bir maskeyi iddia edemiyor. `ip_hash` de kipi izliyor:
+maskeli kipte o sütun her satırda boş kalıyor, sayfa artık bunu söylüyor.
+
+Liste yine **yazıcının kendi sütun listesinden** türüyor; değişen yalnız
+adların yanına ne tuttuklarının yazılması. Ekran görüntüsüne bakarken
+bulundu; hiçbir iddia bunu bulamazdı, çünkü sayfadaki bütün olgular
+doğruydu.
+
 ### Gizlilik sayfası artık ne olmadığını da söylüyor
 
 Ziyaretçiye gösterilen açıklama sayfası dikkatli yazılmıştı, canlı

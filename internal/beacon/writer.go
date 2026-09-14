@@ -14,12 +14,30 @@ import (
 
 const tableName = "beacon_events"
 
+// The two columns holding something derived from the visitor's address.
+//
+// Named rather than spelled twice because the disclosure page has to say
+// what they hold: a visitor reading `ip` in a list of stored fields
+// reads "they keep my IP address", three paragraphs under a sentence
+// saying the opposite. What is written is the masked address - see
+// storedAddress - and the page glosses these two names for that reason.
+//
+// Constants so the writer and the page cannot disagree about which
+// columns those are. A rename here that left the page behind would leave
+// the gloss attached to a column that no longer exists, and the page
+// would go back to printing `ip` bare; an invariant in this package
+// checks both names are still in the list below.
+const (
+	colIP     = "ip"
+	colIPHash = "ip_hash"
+)
+
 // columns must stay in sync with the field order Writer.flush encodes in
 // and with schema.sql's column list.
 var columns = []string{
 	"time", "site_id", "visitor_id", "event_type", "event_name",
 	"path", "query", "title", "referrer_host", "referrer_path",
-	"ip", "ip_hash", "browser", "os", "device", "is_bot_ua",
+	colIP, colIPHash, "browser", "os", "device", "is_bot_ua",
 	"screen_w", "screen_h", "language", "country", "asn", "asn_org",
 	"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
 	"ref", "click_source", "click_id",
