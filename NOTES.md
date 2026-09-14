@@ -18361,3 +18361,33 @@ yakalandı. Üçüncüsü (`len(snapshots) == 0` erken dönüşünü silmek) **s
 kaldı ve cevabı var:** o dönüş doğruluk değil **log gürültüsü**
 koruyor — boş aralıkta her tikte "flush complete rows=0" satırı. Bir
 optimizasyona test yazmıyorum; gerekçesi burada.
+
+### Süpürme bir kurala çevrildi
+
+İki örneği düzeltip durmak listeyi türetmek değil. Ağaçta **tik atan ve
+bir context'i izleyen** her fonksiyon sayıldı: **on tane.** Hepsi
+incelendi, ikisi kusurdu.
+
+Ayırt eden özellik tek soru: **verinin başka bir kopyası var mı?**
+
+| döngü | neden güvenli |
+|---|---|
+| `internal/beacon/writer.go:Run` | **kusurdu** — tamponlanmış satır, tek kopya |
+| `internal/storage/flusher.go:Run` | **kusurdu** — aynısı, ve pencere yeniden denenmiyor |
+| `internal/settings/live.go:Run` | okuma; iptal edilen tazeleme son değerleri koruyor |
+| `internal/heartbeat/heartbeat.go:Run` | canlılık, veri değil; `ctx.Done()` dalı hiç yazmıyor |
+| `internal/asnlookup/asnlookup.go:Run` | işlem içinde içe alma; iptal bütünüyle geri sarılıyor, kaynak yeniden indirilebilir |
+| `internal/limiter/limiter.go:throttleWait` | bekleme; iptal edilmek istenen davranışın kendisi |
+| `cmd/collector/main.go:main` | saklama geçişi (geri sarılıp tekrarlanır) + ayar okuması |
+| `cmd/beacon/main.go:main` | aynısı |
+| `cmd/upgrader/main.go:main` | istek satırı sahiplenilmemiş kalıyor, sonraki tur alıyor |
+| `cmd/panel/main.go:runHousekeeping` | kendi iki dakikalık süresi olan, tanımı gereği idempotent temizlik |
+
+"Bu tek kopya mı" sorusunu bir sözdizimi ağacı cevaplayamaz, o yüzden
+liste elle — ama **diğer yarı türetilmiş**: yeni bir periyodik döngü
+gerekçesiz eklenirse kırmızı, ve listede kalan bayat bir satır da
+kırmızı. `internal/invariants/periodicwrites_test.go`.
+
+Dört mutasyon, dördü de kırmızı: listeden bir girdi düşürmek, listeye
+olmayan bir döngü eklemek, tarayıcının tek koşula bakması, ve
+tarayıcının hiçbir dosya okumaması.
