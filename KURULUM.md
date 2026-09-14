@@ -550,7 +550,7 @@ Kalın yazılanlar tesadüf değil, tasarım:
 Bu blok gerçek bir TimescaleDB'ye (16.6 / 2.17.2) uygulanarak
 doğrulandı, çıkan matris yukarıdaki tablodur.
 
-### 4.5 Kimsenin vermediği yetkiler
+### 4.6 Kimsenin vermediği yetkiler
 
 Yukarıdaki matris `GRANT`'ların ne yaptığını gösteriyor. Bir de
 **hiç `GRANT` edilmediği hâlde açık gelen** üç şey var; hiçbiri bir yetki
@@ -585,7 +585,7 @@ bağlanabilir. Tabloda yetkisi olmaz; ama TimescaleDB'nin kataloğu
 tasarım gereği herkese okunabilir olduğu için hypertable'ları, chunk
 adlarını ve zaman aralıklarını sayabilir.
 
-### 4.6 Uzak veritabanı kullanıyorsanız: `sslmode`
+### 4.7 Uzak veritabanı kullanıyorsanız: `sslmode`
 
 Örnek DSN'lerin hepsi `localhost` gösteriyor ve orada şifreleme
 gerekmez — baytlar ağ arayüzüne hiç çıkmaz.
@@ -2035,6 +2035,6 @@ Tamamı ve güncel hali için `PLAN.md` §0.5 ve `SECURITY.md`.
 | Neden böyle yapıldı, hangi karar niye | `NOTES.md` |
 | Ne bitti, ne kaldı, hangi risk kimin | `PLAN.md` |
 | Güvenlik: ne denetlendi, ne açık | `SECURITY.md` |
-| Hangi veri neden saklanıyor | `README.md` → "Privacy model" ve §879'daki `privacy.ip_storage` satırı |
+| Hangi veri neden saklanıyor | `README.md` → "Privacy model" (neden) ve "Configuration" tablosundaki `privacy.ip_storage` satırı (ne) |
 | Lisans, atıf ve dağıtım kapsamı | `LICENSE`, `NOTICE`, `THIRD-PARTY.md` |
 | Üçüncü taraf veri ve lisanslar | `THIRD-PARTY.md` |

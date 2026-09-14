@@ -73,6 +73,15 @@ func TestNoJSONTagUsesOmitemptyOnATypeItCannotOmit(t *testing.T) {
 	}
 
 	for _, v := range found.violations {
+		if v.undecided {
+			t.Errorf("%s (%s:%d) carries `omitempty` on a %s, and this rule cannot "+
+				"tell from the spelling whether omitempty can omit it.\n"+
+				"Classify it: add the type to stdlibStructs if it is a struct (the "+
+				"tag then does nothing and the field needs omitzero), or leave a note "+
+				"in `deliberate` saying it is not. Passing it over silently is the "+
+				"answer that under-reports.", v.id, v.file, v.line, v.kind)
+			continue
+		}
 		if why, ok := deliberate[v.id]; ok {
 			t.Logf("%s: omitempty on %s, deliberate: %s", v.id, v.kind, why)
 			continue
@@ -91,7 +100,9 @@ func TestNoJSONTagUsesOmitemptyOnATypeItCannotOmit(t *testing.T) {
 	// longer written that way.
 	live := map[string]bool{}
 	for _, v := range found.violations {
-		live[v.id] = true
+		if !v.undecided {
+			live[v.id] = true
+		}
 	}
 	for id := range deliberate {
 		if !live[id] {
@@ -158,6 +169,93 @@ type Sample struct {
 			"Missing entries mean the rule above cannot see that shape; extra ones "+
 			"mean it reports a spelling omitempty handles correctly.", got, want)
 	}
+
+	// The undecided verdict fires, and says which type it could not
+	// classify.
+	//
+	// Asserted because an unexercised branch is a branch that can be
+	// wrong for free - and this one is the rule's whole defence against
+	// a type it has never heard of: without it such a field is passed
+	// over as "omitempty works here", which is the answer that hides
+	// the defect.
+	const outside = `package p
+
+import "github.com/somebody/else/thing"
+
+type Q struct {
+	Unknown thing.Value ` + "`json:\"unknown,omitempty\"`" + `
+}
+`
+	of, err := parser.ParseFile(token.NewFileSet(), "outside.go", outside, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := omitemptyIn(token.NewFileSet(), of, "p", "outside.go",
+		map[string]bool{"p.Q": true}, map[string]string{})
+	switch {
+	case len(unknown) != 1:
+		t.Errorf("a field of a type from outside this module produced %d findings, "+
+			"want one question", len(unknown))
+	case !unknown[0].undecided:
+		t.Error("a type this rule cannot classify was reported as a violation rather " +
+			"than as a question; the message would tell somebody to use omitzero on a " +
+			"type where omitempty may be exactly right")
+	case !strings.Contains(unknown[0].kind, "thing.Value"):
+		t.Errorf("the question does not name the type it could not classify: %q",
+			unknown[0].kind)
+	}
+
+	// And every entry of stdlibStructs, not just the two the source
+	// above happens to name.
+	//
+	// The first version of this test checked time.Time and netip.Addr
+	// and the comment on stdlibStructs said the list was checked here.
+	// Five of its seven entries were not: a typo in any of them - or a
+	// type that stopped being a struct - would have been a hole in the
+	// rule with a comment claiming otherwise. The fixture is generated
+	// from the map so the two cannot drift.
+	for named := range stdlibStructs {
+		pkg, name, ok := strings.Cut(named, ".")
+		if !ok {
+			t.Errorf("stdlibStructs key %q is not pkg.Type", named)
+			continue
+		}
+		source := "package q\n\nimport \"" + stdlibImport[pkg] + "\"\n\n" +
+			"type S struct {\n\tF " + named + " `json:\"f,omitempty\"`\n}\n"
+		qf, err := parser.ParseFile(token.NewFileSet(), "q.go", source, 0)
+		if err != nil {
+			t.Errorf("stdlibStructs entry %q does not make a parseable field: %v", named, err)
+			continue
+		}
+		found := omitemptyIn(token.NewFileSet(), qf, "q", "q.go",
+			map[string]bool{"q.S": true}, map[string]string{})
+		if len(found) != 1 {
+			t.Errorf("the scan does not report `omitempty` on a %s field, although "+
+				"stdlibStructs says it is a struct.\nEvery entry of that map is a "+
+				"promise the rule can see; an entry it cannot see is a hole with a "+
+				"comment over it.", named)
+			continue
+		}
+		if !strings.Contains(found[0].kind, name) {
+			t.Errorf("the scan reports a %s field as %q, which does not name the type",
+				named, found[0].kind)
+		}
+	}
+}
+
+// stdlibImport is the import path each qualifier in stdlibStructs comes
+// from, for the generated fixture above.
+//
+// Here rather than derived from the qualifier because "big" is
+// math/big and "netip" is net/netip - a qualifier is not a path, and
+// guessing would make the fixture fail to parse for a reason that has
+// nothing to do with the rule.
+var stdlibImport = map[string]string{
+	"time":  "time",
+	"netip": "net/netip",
+	"url":   "net/url",
+	"big":   "math/big",
+	"sync":  "sync",
 }
 
 type omitemptyUse struct {
@@ -165,6 +263,10 @@ type omitemptyUse struct {
 	kind string // what the field's type is, for the message
 	file string
 	line int
+	// undecided is set when the type could not be classified from the
+	// spelling - a type from outside this module that stdlibStructs
+	// does not name. Not a violation and not a pass: a question.
+	undecided bool
 }
 
 type omitemptyScan struct {
@@ -320,15 +422,16 @@ func omitemptyIn(fset *token.FileSet, f *ast.File, pkg, rel string, structs map[
 				continue
 			}
 			kind, never := neverEmpty(field.Type, pkg, structs, imports)
-			if !never {
-				continue
+			if kind == "" {
+				continue // omitempty means something for this type
 			}
 			for _, name := range field.Names {
 				out = append(out, omitemptyUse{
-					id:   pkg + "." + spec.Name.Name + "." + name.Name,
-					kind: kind,
-					file: rel,
-					line: fset.Position(name.Pos()).Line,
+					id:        pkg + "." + spec.Name.Name + "." + name.Name,
+					kind:      kind,
+					file:      rel,
+					line:      fset.Position(name.Pos()).Line,
+					undecided: !never,
 				})
 			}
 		}
@@ -368,7 +471,23 @@ func neverEmpty(expr ast.Expr, pkg string, structs map[string]bool, imports map[
 		if stdlibStructs[named] {
 			return "struct (" + named + ")", true
 		}
-		return "", false
+		// A type from outside this module that nothing here classifies.
+		//
+		// Reported rather than passed over, and that is the whole
+		// direction of this rule. Treating an unknown type as omittable
+		// is the answer that under-reports: the day somebody adds an
+		// `omitempty` to a field of some dependency's struct type, a
+		// silent "not a struct" would let it through, and the key would
+		// be written on every encode with nothing failing.
+		//
+		// It also fixes the hole a mutation found here. The positive
+		// control below checks that every entry of stdlibStructs is
+		// recognised, but it cannot see an entry *removed* - nothing in
+		// the standard library will tell this test what is a struct. So
+		// removing url.URL from the list must not make the rule quietly
+		// weaker; with this branch it makes the rule say "I cannot
+		// decide this one", which is a sentence a person reads.
+		return "unclassified type " + named, false
 	}
 	// Pointers, maps, interfaces, channels, functions and the basic
 	// types: omitempty means something for all of them.

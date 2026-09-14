@@ -298,7 +298,7 @@ type ja4Row struct {
 // Separate from decodeAddressGroups for one character: the unresolved
 // group arrives as "0" here and as "" there, because the API selects
 // asn::text out of an INTEGER column that defaults to 0, while country is
-// TEXT defaulting to ”. Both mean "never determined" and neither is a
+// TEXT defaulting to "". Both mean "never determined" and neither is a
 // real group.
 //
 // Discovered by a test rather than by reading: sharing the decoder drew

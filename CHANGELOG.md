@@ -20,6 +20,29 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Belgedeki iki sayı yanlıştı, ikisi de artık teste bağlı
+
+Baştan sona bir inceleme istendi ve ölçüldü. İki müşteriye dönük sayı
+bayatmış:
+
+- **Snippet boyutu.** README "2,1 KB gzip'li, Umami ile aynı boyut
+  sınıfında" diyordu. Ölçüm: **16,4 KB servis edilen, 5,6 KB gzip'li**
+  (Umami v3.3.1'in kendi betiği aynı aletle 4,6 / 2,3 KB). Üstelik bu
+  serving yolunda **hiçbir yerde gzip yok** — "over the wire" ancak ön
+  vekil sıkıştırıyorsa doğru. README artık iki kolonu da veriyor ve
+  kimin sıkıştırdığını söylüyor.
+- **Rota sayısı.** "28 rotanın hepsi eksik token'ı reddediyor" — rotalar
+  34. İddia doğruydu (liste yönlendiriciden türetiliyor), sayı bayattı,
+  ve o yönde yanlış olması altı rotanın kapsanmadığını söylüyordu.
+
+İkisi de artık gömülü dosyaya ve yönlendiriciye bağlı; elle tutulan bir
+sayı kayar.
+
+**Kuran kişinin yapması gereken: bir şey yok.** Ürün davranışı
+değişmedi; değişen, belgenin doğruyu söylemesi. Betiği ön vekilinizde
+gzip'liyorsanız ziyaretçi 5,6 KB indiriyor, gzip'lemiyorsanız 16,4 KB —
+nginx'te `gzip_types application/javascript`.
+
 ### Açıklama sayfası ne zamandan beri geçerli olduğunu söylüyor
 
 Sayfa her zaman **o anki** ayarı anlatıyordu: yani doğruydu, ama yeni

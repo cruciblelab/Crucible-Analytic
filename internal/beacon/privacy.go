@@ -76,6 +76,19 @@ type privacyResponse struct {
 // Anything else falls back to the duration's own form, which is ugly and
 // correct - a page that guessed "her 36 saatte bir" as "her gün" would
 // be a disclosure that rounds.
+func (p privacyResponse) RotatesHuman() string {
+	switch d := p.IdentifierRotatesEvery; {
+	case d == 24*time.Hour:
+		return "günde"
+	case d%(24*time.Hour) == 0:
+		return "her " + strconv.Itoa(int(d/(24*time.Hour))) + " günde"
+	case d%time.Hour == 0:
+		return "her " + strconv.Itoa(int(d/time.Hour)) + " saatte"
+	default:
+		return "her " + d.String() + "'de"
+	}
+}
+
 // EffectiveSinceHuman is the day the mode's setting was last written, as
 // a date rather than a timestamp.
 //
@@ -142,19 +155,6 @@ func (p privacyResponse) NoteFor(column string) string {
 		return "bu kipte hiç yazılmıyor, boş kalıyor"
 	}
 	return ""
-}
-
-func (p privacyResponse) RotatesHuman() string {
-	switch d := p.IdentifierRotatesEvery; {
-	case d == 24*time.Hour:
-		return "günde"
-	case d%(24*time.Hour) == 0:
-		return "her " + strconv.Itoa(int(d/(24*time.Hour))) + " günde"
-	case d%time.Hour == 0:
-		return "her " + strconv.Itoa(int(d/time.Hour)) + " saatte"
-	default:
-		return "her " + d.String() + "'de"
-	}
 }
 
 // privacyNotice builds the answer from what this process is doing now.
@@ -364,19 +364,17 @@ Sitenin kendi politikası ve onunla ilgili sorumluluk siteyi işleten
 kişiye ait.</p>
 
 {{if .TokenFromWholeAddress}}
-<p><strong>Bu kurulum, iki kipten çok saklayanında.</strong> Ham adresiniz
-yine hiçbir zaman kaydedilmiyor; ama maskeli adresin yanına, adresin
-tamamından anahtarla üretilmiş bir jeton da yazılıyor. Pratik sonucu:
-aynı ağın arkasındaki iki ziyaretçi birbirinden ayrılabiliyor. Diğer
-kipte ayrılamıyor. Ayrıntısı aşağıda.</p>
+<p><strong>Bu kurulum, iki kipten çok saklayanında:</strong> aynı ağın
+arkasındaki iki ziyaretçi birbirinden ayrılabiliyor, diğer kipte
+ayrılamıyor. Ham adresiniz yine kaydedilmiyor; nasıl olduğu aşağıda,
+&#8220;Adresiniz&#8221; başlığı altında.</p>
 {{end}}
 
 {{with .EffectiveSinceHuman}}
 <p><strong>Adresin nasıl saklandığına dair ayar en son {{.}} tarihinde
-yazıldı</strong> (UTC). Bu sayfa her zaman o anda yürürlükte olan ayarı
-anlatır; o tarihten önce okuduysanız, okuduğunuz metin bundan farklı
-olabilir. Ayarın hangi yöne değiştiğini bu sayfa söylemez, çünkü bu
-servis önceki değeri görmüyor.</p>
+yazıldı</strong> (UTC). O tarihten önce okuduysanız, okuduğunuz metin
+bundan farklı olabilir. Hangi yöne değiştiğini bu sayfa söylemez: bu
+servis ayarın önceki değerini görmüyor.</p>
 {{end}}
 
 <h2>Adresiniz</h2>

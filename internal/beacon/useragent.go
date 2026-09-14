@@ -5,7 +5,7 @@ import "strings"
 // UserAgent is what the User-Agent header could be classified into.
 //
 // Every field is "" when nothing matched, never a guess and never
-// "Unknown": ” means this classifier did not recognize the string,
+// "Unknown": "" means this classifier did not recognize the string,
 // which is a different and more useful statement than inventing a
 // bucket. A panel showing "browser: (unrecognized) 4%" is telling the
 // truth; one showing "Other 4%" invites the reader to assume it was

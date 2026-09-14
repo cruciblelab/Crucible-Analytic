@@ -18093,3 +18093,180 @@ bir sütun yapısal olarak yakalanıyor — mutasyonla ölçüldü.
 > *Bir sayfanın bütün olguları doğru olabilir ve sayfa yanlış okunabilir;
 > o yüzden ekran görüntüsünün değeri betiğin iddialarında değil,
 > bakmakta.*
+
+## Baştan sona inceleme (2026-09-14) — tekrar, saçmalama, halüsinasyon
+
+Sahip istedi: *"Baştan sona bir inceleme yap; tekrarlar, saçmalanan
+yerler, halüsinasyon olan yerler, hatalı yazılan yerleri tespit et."*
+
+Tahmin etmek yerine ölçtüm: her iddia için bir tarayıcı, ve tarayıcının
+kendisi için bir doğrulama. On bulgu çıktı. Sırayla ve ağırlığına göre.
+
+### 1. Ürün, belgenin söylediği boyutta değil
+
+README: *"It is **2.1 KB over the wire** (gzipped), the same size class
+as Umami and Plausible."* Üç iddia, üçü de yanlış:
+
+| | ham | gzip |
+|---|---|---|
+| `beacon.js` | 16.764 B | 5.743 B |
+| Umami v3.3.1 `script.js` (aynı makinede, aynı aletle) | 4.733 B | 2.317 B |
+
+- **Sayı yanlış:** 2,1 KB değil 5,6 KB.
+- **Mekanizma yanlış:** bu serving yolunda hiçbir yerde gzip yok
+  (`internal/beacon`, `internal/fullproxy`, `internal/proxy` — üçünde de
+  ne `gzip` ne `Content-Encoding`). Ölçtüm: `Accept-Encoding: gzip` ile
+  gelen isteğe de 16.764 bayt, başlıksız. Yani "over the wire" bir ön
+  vekilin gzip'ine bağlı, ve onu ne KURULUM'un nginx bölümü söylüyor ne
+  örnek yapılandırma açıyor.
+- **Karşılaştırma yanlış:** Umami 2,3 KB, biz gzip'liyken 2,5 katı.
+
+Sebep: P1 `optOut`/`optIn`/`status` ekledi, P2 gömülü açıklamayı ekledi,
+cümle yerinde kaldı. **Yorumlanmayan bir sayı, kayan bir sayıdır.**
+README artık iki kolonu da veriyor, kimin sıkıştırdığını söylüyor, ve
+sayı `internal/beacon/scriptsize_test.go` ile gömülü dosyaya bağlı
+(tolerans 0,1 KB; mutasyonla doğrulandı).
+
+**Not, sahibin kararına:** bunu *ürün* tarafında kapatmak da mümkün —
+beacon `Accept-Encoding` gördüğünde gzip'lese ziyaretçi 16,4 KB yerine
+5,6 KB indirir. Yapmadım, çünkü tek gömülü dosya için sıkıştırmanın
+doğru yeri TLS'i sonlandıran katman; ama bugün o katmanda gzip'i
+açtığımızı söyleyen bir yer de yok. Karar sahibin.
+
+### 2. "28 rota" — ürün 34 sunuyor
+
+README: *"every one of the 28 routes is asserted to reject a missing
+token"*. İddianın kendisi doğru (liste yönlendiriciden türetiliyor,
+`perSiteRoutes`), **sayı** bayat: O2'nin özeti ve R2'nin parmak izi uçları
+sonrası 34. Ve bu yönde yanlış olması kötü: cümlenin işi kapsamanın
+eksiksiz olduğunu söylemek, 28 yazması altı rotanın kapsanmadığını
+söylüyor. Düzeltildi ve `internal/api/readmeroutes_test.go` ile bağlandı
+(yardımcı o pakette ve unexported, otorite orada).
+
+### 3. `gofmt` akıllı tırnağı *kendisi* yapıyor — ve ilk teşhisim yanlıştı
+
+Üç dosyada doküman yorumunda `”` duruyordu, hepsi SQL'de boş dize
+anlatmaya çalışıyordu. CLAUDE.md'deki dersim *"Go yorumuna `''` yazarsan
+akıllı tırnak **olabilir**"* diyordu — yanlış: olabilir değil, **her
+zaman**, ve sebep benim yazımım değil `gofmt`. Ölçtüm:
+
+| yer | sonuç |
+|---|---|
+| bildirime bağlı doküman yorumu | iki tek tırnak → U+201D |
+| aynısı backtick içinde | yine U+201D |
+| girintili kod bloğu (tab) | dokunulmuyor |
+| fonksiyon gövdesindeki yorum | dokunulmuyor |
+| çift tırnak `""` | her yerde dokunulmuyor |
+
+Bu yüzden ilk "düzeltmem" yanlıştı: `''` yazınca `gofmt -l` dosyayı
+işaretledi, yani kapı kırmızı verirdi. İkisi `""` ile (metin İngilizce,
+boş dize anlatıyor), SQL olanı **girintili blokla** düzeltildi. Ve o
+bloğun yanına yazdığım açıklama cümlesi de aynı tuzağa düştü — içinde
+iki tek tırnak vardı, `gofmt` onu da çevirdi; cümle yeniden yazıldı.
+
+### 4. Kendi tarayıcım saçmaladı ve neredeyse rapor edecektim
+
+Bozuk karakter taramasının ikinci turunda arama kümesine yazdığım
+kirilmaz boşluk **sade boşluğa** dönüşmüştü. Sonuç: tarayıcı
+`docker/setup.sh`'ın her satırını işaretledi — saf ASCII bir dosya.
+"85 bulgu" diye yazmaya bir adım kalmıştı. Düzeltme: görünmez karakteri
+harfle değil **kodla** yaz (`chr(0x00A0)`), ve tarayıcıya kendi kontrolünü
+koy (`assert ' ' not in susp`). *Bir dedektörün gürültüsü de sessizliği
+kadar yalan söyleyebilir.*
+
+### 5. P7'nin mutasyon sayısı yanlış yazılmış
+
+Betikler sayıldı: `mutasyon-p7.py` **17** (M52–M68), `mutasyon-p7b.py`
+**5** (M69–M73), toplam **22**. PLAN ve CLAUDE.md P7 için "yirmi iki"
+diyordu (yani toplamı faza yazmışım), commit mesajı da 22+5=**27**
+diyerek beşi iki kez saymış. Belgeler düzeltildi. Commit mesajı
+`main`'de duruyor ve **geçmiş yeniden yazılmıyor** (2026-09-09 kararı);
+kaydı burada.
+
+### 6. Doküman yorumu yanlış fonksiyona bağlanmış
+
+P7'de `EffectiveSinceHuman`'ı `RotatesHuman`'ın yorumunun **altına**
+eklemişim: araya boş satır girmediği için `RotatesHuman`'ın yorumu yeni
+fonksiyona geçmiş, `RotatesHuman` yorumsuz kalmış, ve yeni fonksiyonun
+godoc'u alakasız bir paragrafla başlıyormuş.
+
+**Ve onarırken ikinci bir hata yaptım:** fonksiyonu taşırken gövdesini
+*hatırlayarak* yazdım. Gerçek gövde farklıydı — `"her "` öneki ve
+`d == time.Hour` dalının olmaması. `git diff`'e bakmasam sessizce
+davranış değiştirmiş olurdum. Kural: bir gövdeyi taşırken `git diff`'in
+**saf taşıma** göstermesi tek kabul ölçütü.
+
+### 7. Sayfa `full` kipinde aynı üç olguyu iki kez söylüyordu
+
+P7'nin eklediği özet paragrafı mekanizmayı da anlatıyordu, ve
+"Adresiniz" bölümü üç paragraf sonra aynı üçünü tekrar anlatıyor: ham
+adres kaydedilmiyor, jeton yazılıyor, aynı ağdaki ikisi ayrılabiliyor.
+Özetin işi özet olmak; mekanizma aşağıda. Kısaltıldı: verdikt + sonuç +
+"nasıl olduğu aşağıda". Ayrıca tarih paragrafındaki *"bu sayfa her zaman
+o anda yürürlükte olan ayarı anlatır"* cümlesi giriş paragrafının
+tekrarıydı, silindi. Testler (bayt bayt karşılaştırma dâhil) yeşil kaldı.
+
+### 8. Yeni değişmezin yorumu listeyi sınadığını söylüyordu, ikisini
+sınıyordu
+
+`stdlibStructs` yedi girdi taşıyor; pozitif kontrol ikisini
+(`time.Time`, `netip.Addr`) sınıyordu ve yorum "liste burada
+kontrol ediliyor" diyordu. Fikstür artık **haritadan üretiliyor**, yedisi
+de sınanıyor.
+
+**Ve bir mutasyon daha derin bir şey buldu:** `url.URL`'i listeden
+*silmek* hiçbir testi kırmadı — çünkü kontrol listeyi geziyor, listeden
+çıkanı göremez. Doğru cevap listeyi büyütmek değil, **kuralın yönünü
+düzeltmek**: sınıflandırılamayan bir tip artık "atlanabilir" sayılmıyor,
+**soru** olarak bildiriliyor (`undecided`). Böylece bir bağımlılığın
+struct tipine `omitempty` yazan biri sessizce geçmiyor. O dalın kendisi
+de ayrı bir pozitif kontrolle sınanıyor — *sınanmayan bir dal bedavaya
+yanlış olabilir.*
+
+### 9. KURULUM: var olmayan bir bölüme gönderim, ve iki kez 4.5
+
+- §17'nin "nereye bakmalı" tablosu `README.md` → *"§879'daki
+  `privacy.ip_storage` satırı"* diyordu. Hiçbir belgede §879 yok: o bir
+  **satır numarası**, bölüm numarası gibi yazılmış, ve satır o zamandan
+  beri kaymış. Artık bölüm adıyla: "Configuration" tablosu.
+- İki ayrı `### 4.5` vardı ("Panelin analitiği okuyamadığını
+  doğrulayın" ve "Kimsenin vermediği yetkiler"), yani §4.5 gönderimi
+  belirsiz. İkincisi 4.6, `sslmode` 4.7 oldu; §4.6'ya gönderim yoktu
+  (kontrol edildi), §4.5 gönderimi birincisini kastediyor.
+
+### 10. CLAUDE.md'de var olmayan bir araç
+
+*"Mutasyon koşucusu: `scratchpad/mutate.py`"* — öyle bir dosya yok ve
+hiç olmamış. Her faz kendi betiğini yazıyor (`mutasyon-*.py`), ortak bir
+koşucu yok, ve notun ikinci yarısı (`-count=1`'i nereye koyduğu) o
+olmayan dosyayı tarif ediyordu. Kendi notumdaki halüsinasyon, ve sonraki
+oturumda ona göre davranırdım. Düzeltildi; `ca_scale` de 826 → **949 MB**
+(O2 özetleri ve beacon verisi eklendikten sonra hiç güncellenmemiş).
+
+### Kasten dokunulmayanlar
+
+`internal/docs/inventory_test.go`'nun `documentClass` haritası PLAN,
+NOTES ve CHANGELOG'u **kontrol edilmeyen kayıt** diye işaretliyor:
+*"phases as they were planned and carried out, naming the files of the
+day."* O yüzden bu üçünde bulduğum bayat yollar ve test adları
+(`internal/asnlookup/sources.go` → bugün `internal/ipsources/`,
+`TestOneLogDirectoryFamily` → bugün `TestOneNamePerDirectoryFamily`,
+`TestConnectionEncryptionPassesLocally`,
+`TestHousekeepingIsCalledBySomething`) **kusur değil** — o adlar
+yazıldıkları gün doğruydu, ve üçünü düzeltip otuzunu bırakmak geri
+kalanların güncel olduğunu ima ederdi. Ölçüm kayıt için: belgelerde
+geçen 178 test adının 6'sı bugün yok, 4'ü bu sınıfta, 1'i planlanmış bir
+ad (`TestBeaconIngest(site)`), 1'i silindiği açıkça yazılmış.
+
+PLAN'ın ayar sayısı parantezi bu sınıfın **istisnası**ydı: "bugün 31"
+diyordu, yani kaydın içinde canlı bir iddia, ve yanlıştı (registry'ye
+soruldu: 8 kategori, 37 ayar). Tarihlendirildi.
+
+Birebir tekrar eden paragraf: **0** (belgeler arası tam eşleşme
+taraması). Yakın tekrar 18 çift, hepsi PLAN↔NOTES ya da
+KURULUM↔CHANGELOG — tasarım gereği: biri plan, biri gerekçe, biri
+kılavuz, biri sürüm notu. İçlerinden yalnız biri risk taşıyor
+(KURULUM §1868 ile CHANGELOG'daki `systemd-tmpfiles` bloğu birebir aynı
+kabuk komutu, %96 örtüşme): kılavuzu okuyan müşteri onu uygular, sürüm
+notu ise geçmiş — biri değişirse öteki sessizce yanlış kalır. Kayda
+geçti, düzeltilmedi; çözümü bir testtir ve bedeli bu turun dışında.

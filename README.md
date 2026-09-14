@@ -674,10 +674,26 @@ country, ASN and visitor ID.
 
 `internal/beacon/beacon.js`, served verbatim from the binary via
 `go:embed` - what ships is what is in the file, with no build step. It is
-**2.1 KB over the wire** (gzipped), the same size class as Umami and
-Plausible. It is served with its comments intact rather than minified:
-for a script site owners are right to be suspicious of, being readable in
-a browser's view-source is worth more than the ~1 KB.
+served with its comments intact rather than minified: for a script site
+owners are right to be suspicious of, being readable in a browser's
+view-source is worth more than the bytes.
+
+What that costs, measured rather than estimated:
+
+| | as served | gzipped |
+| --- | --- | --- |
+| this snippet | 16.4 KB | 5.6 KB |
+| Umami v3.3.1's `script.js`, for scale | 4.6 KB | 2.3 KB |
+
+**The beacon does not compress it.** There is no gzip anywhere in this
+serving path, deliberately - it is one embedded file behind whatever the
+deployment already terminates TLS with, and that is where compression
+belongs. So the gzipped column is what a visitor downloads *if* the front
+proxy is configured for it (`gzip_types application/javascript` in
+nginx), and the served column is what they download otherwise. Both
+numbers are asserted by a test against the embedded file, because a size
+nobody measures is a size that drifts: this paragraph said 2.1 KB for
+months after two features had been added to the script.
 
 It sends an automatic pageview on load, follows SPA navigation by hooking
 `history.pushState`/`replaceState` and `popstate`, and exposes
@@ -2360,7 +2376,7 @@ collector-side addresses of which one had run the snippet gave
 and the headless context in `js-bots`.
 
 `internal/api`'s route lists are deliberately exhaustive rather than
-sampled - every one of the 28 routes is asserted to reject a missing
+sampled - every one of the 34 routes is asserted to reject a missing
 token, to reject a token whose grant doesn't cover the site, to refuse
 non-`GET`, and to return JSON. The seven `/beacon/` breakdowns share one
 handler wired from a map, so there is also a test that each route

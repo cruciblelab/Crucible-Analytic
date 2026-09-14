@@ -7167,9 +7167,11 @@ kategoriye ait, ve kategorisiz tanım kırmızı)*.
 ##### Nasıl bitti
 
 Yedi kategori, 28 ayar: görünüm 4, toplama 2, bot 4, gizlilik 7,
-sınırlar 8, tanılama 2, bakım 1. *(D4c günündeki dağılım. M1 toplamaya üç
-kaynak ayarı ekledi: bugün 31 — toplama 5. Kategori sayısı değişmedi,
-kabuk da değişmedi; kabuğun işe yaradığının ölçüsü zaten bu.)*
+sınırlar 8, tanılama 2, bakım 1. *(D4c günündeki dağılım — bu bir kayıt,
+güncel sayı değil. 2026-09-14'te registry'ye soruldu: 8 kategori, 37
+ayar. Kabuk değişmedi ve kabuğun işe yaradığının ölçüsü zaten bu. Bu
+parantez daha önce "bugün 31" diyordu ve elle tutulduğu için kaymıştı;
+sayıyı yazan yer artık `registry`, burası tarihiyle birlikte duruyor.)*
 
 Akordeon `<details>/<summary>` — betik değil. CSP'de ne unsafe-inline
 var ne unsafe-eval, yani tıklama işleyicisiyle kurulan bir akordeon
@@ -7843,7 +7845,8 @@ kapatıldı: `internal/invariants/jsonomit_test.go` bütün ağaçta
 `omitempty` taşıyan struct/dizi alanlarını arıyor, ve **dedektörün
 aradığını görebildiği** ayrı bir pozitif kontrolle sınanıyor.
 
-Yirmi iki mutasyon, yirmi ikisi de kırmızı. Biri ilk turda sağ kaldı ve
+On yedi mutasyon, on yedisi de kırmızı (P7b'nin beşiyle birlikte 22).
+Biri ilk turda sağ kaldı ve
 sebebi mutasyonun kendisiydi: özeti *taşımak* yerine aşağıya yeni bir
 paragraf ekliyordum, yani sınadığı koşulu hiç kurmadı.
 

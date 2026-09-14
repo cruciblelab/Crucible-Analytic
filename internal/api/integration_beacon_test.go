@@ -928,8 +928,17 @@ func TestBeaconSessionStartsAreBucketedInTheSameZoneAsTheEvents(t *testing.T) {
 //
 // Each address below fails a different plausible implementation. An
 // implementation picking any row fails the first, one dropping the
-// country <> ” filter fails the second, one resolving addresses over
-// all time rather than the range fails the third.
+// filter that skips snapshots with no country of their own fails the
+// second, one resolving addresses over all time rather than the range
+// fails the third. That filter is, in the query:
+//
+//	country <> ''
+//
+// written as an indented block rather than inline because gofmt turns a
+// pair of single quotes into a right double quote anywhere in a doc
+// comment, backticks included, and leaves them alone only in a block
+// like this one. A comment quoting SQL that is not SQL is worse than no
+// quote - this sentence had to be rewritten once for the same reason.
 func TestStore_RealTimescaleDB_CountriesTakeTheMostRecentInsideTheRange(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
 	site := "api-beacon-geo-recency"
