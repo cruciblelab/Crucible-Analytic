@@ -18265,11 +18265,24 @@ soruldu: 8 kategori, 37 ayar). Tarihlendirildi.
 Birebir tekrar eden paragraf: **0** (belgeler arası tam eşleşme
 taraması). Yakın tekrar 18 çift, hepsi PLAN↔NOTES ya da
 KURULUM↔CHANGELOG — tasarım gereği: biri plan, biri gerekçe, biri
-kılavuz, biri sürüm notu. İçlerinden yalnız biri risk taşıyor
-(KURULUM §1868 ile CHANGELOG'daki `systemd-tmpfiles` bloğu birebir aynı
-kabuk komutu, %96 örtüşme): kılavuzu okuyan müşteri onu uygular, sürüm
-notu ise geçmiş — biri değişirse öteki sessizce yanlış kalır. Kayda
-geçti, düzeltilmedi; çözümü bir testtir ve bedeli bu turun dışında.
+kılavuz, biri sürüm notu.
+
+**Bunlardan birini risk diye yazmıştım ve ölçünce küçüldü.** KURULUM
+§1868 ile CHANGELOG'daki `systemd-tmpfiles` bloğu aynı üç kabuk komutu
+(%96 örtüşme) ve "biri değişirse öteki sessizce yanlış kalır" demiştim.
+Ölçüldü: komutların **adlandırdığı her şey zaten teste bağlı.**
+`release/install_test.go:2604` kurulmuş paketin
+`tmpfiles/crucible-analytic.conf` taşıdığını, 2616 ise onun
+`/etc/tmpfiles.d`'de **olmadığını** doğruluyor — ki kılavuzdaki o komutun
+var olma sebebi tam bu; `release/release_test.go:558` birim adları
+kümesinde `crucible-restart.path` var. Yani kılavuz, paketin
+göndermediği bir dosyayı ya da birimi adlandıramıyor.
+
+Geriye kalan tek şey CHANGELOG'un kopyasının kılavuzdan ayrışması, ve o
+bir kusur değil: CHANGELOG bir **kayıt**, kılavuz sonradan değişirse
+eski kopya doğru tarihtir. Yani yazacak bir test yok. *Bir riski
+ölçmeden yazmak, onu olduğundan büyük yazmaktır* — bu satır o dersin
+kendi örneği.
 
 ## CI 357: kararsız bir test, gerçek bir kusur
 
