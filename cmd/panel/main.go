@@ -272,6 +272,7 @@ func main() {
 			LogDir:      cfg.Logging.Dir,
 			DataDir:     cfg.Logging.Dir,
 			BotDataPath: cfg.BotDataPath,
+			ServiceURLs: cfg.ServiceURLs,
 			GuardedKeys: guardedKeyNames(),
 			Roles: preflight.Roles{
 				Collector: cfg.Roles.Collector,

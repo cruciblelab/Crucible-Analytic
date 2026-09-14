@@ -268,3 +268,89 @@ timezone = "Local"
 		t.Errorf("the error does not name the value: %v", err)
 	}
 }
+
+// A mistyped service address must fail at startup, not on the last page
+// of the setup wizard.
+//
+// The two failures read identically to an installer and have different
+// causes: "collector is not answering" is a sentence about the
+// deployment, and a scheme-less URL in panel.toml would produce it about
+// a line in a file. So the file is refused while the operator is still
+// looking at the terminal.
+func TestServiceAddressesAreRefusedAtStartupWhenTheyCannotBeFetched(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			// The mistake an installer actually makes: host and port
+			// with no scheme. net/url refuses it before the scheme
+			// check can, so what this asserts is the part that matters
+			// either way - the message names the key that is wrong.
+			name: "host and port with no scheme",
+			body: "[service_urls]\napi = \"127.0.0.1:8081/healthz\"",
+			want: "service_urls.api",
+		},
+		{
+			name: "a path with no scheme or host",
+			body: "[service_urls]\napi = \"/healthz\"",
+			want: "scheme",
+		},
+		{
+			name: "scheme nothing can fetch",
+			body: "[service_urls]\napi = \"ftp://127.0.0.1/healthz\"",
+			want: "scheme",
+		},
+		{
+			name: "no host",
+			body: "[service_urls]\napi = \"http:///healthz\"",
+			want: "host",
+		},
+		{
+			name: "a name that would build a nonsense systemctl line",
+			body: "[service_urls]\n\"api; rm -rf /\" = \"http://127.0.0.1:8081/healthz\"",
+			want: "service name",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t,
+				"panel_dsn = \"postgres://panel@localhost/crucible\"\n"+tc.body+"\n")
+			_, err := LoadConfig(path)
+			if err == nil {
+				t.Fatalf("accepted %s; the setup wizard would then report a healthy "+
+					"service as unreachable", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the error does not say what is wrong (%q not in %q)", tc.want, err)
+			}
+		})
+	}
+}
+
+// And a well-formed one survives, with the names and addresses intact.
+//
+// The pair matters: a validator that rejected everything would pass the
+// test above and make the setting unusable.
+func TestServiceAddressesReachTheConfig(t *testing.T) {
+	path := writeConfig(t, `
+panel_dsn = "postgres://panel@localhost/crucible"
+
+[service_urls]
+api = "http://127.0.0.1:8081/healthz"
+beacon = "https://olcum.musteri.example/_ca/healthz"
+`)
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ServiceURLs["api"]; got != "http://127.0.0.1:8081/healthz" {
+		t.Errorf("service_urls.api = %q", got)
+	}
+	if got := cfg.ServiceURLs["beacon"]; got != "https://olcum.musteri.example/_ca/healthz" {
+		t.Errorf("service_urls.beacon = %q", got)
+	}
+	if len(cfg.ServiceURLs) != 2 {
+		t.Errorf("service_urls has %d entries, want 2: %v", len(cfg.ServiceURLs), cfg.ServiceURLs)
+	}
+}

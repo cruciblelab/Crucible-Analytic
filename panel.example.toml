@@ -159,3 +159,28 @@ password_hash = ""
 [logging]
 dir = "/var/log/crucible-analytic"
 level = "info"
+
+
+# Servislerin ayakta olup olmadığını kurulum sihirbazı buradan sorar.
+#
+# Her satır bir servis: sol taraf adı, sağ taraf panelin GET isteği
+# atacağı adres. 200 dönmezse kurulum sihirbazında kırmızı satır çıkar ve
+# devretme durur.
+#
+# Bölüm hiç yoksa sihirbaz **hiçbir servise istek yapmaz** ve bunu tek
+# satırlık bir uyarıyla söyler — engellemez, ama sorulmadığını saklamaz.
+# Adresleri panel kendi başına bilemez: beacon dağıtımın koyduğu vekilin
+# arkasında, istediği önekte durur, collector ise müşterinin sitesi için
+# TLS sonlandırır ve kendi sağlık ucu yoktur.
+#
+# Soldaki ad iki yerde kullanılıyor: satırın etiketinde ve önerilen
+# `systemctl` satırında. O yüzden servisin kendi adı olmalı.
+#
+# api ve beacon /healthz sunuyor. collector için sağlık ucu yok; oraya
+# müşterinin sitesinin bir adresini yazmak collector'ın ayakta olduğunu
+# gösterir ama müşterinin sitesi düştüğünde de kırmızı verir — o yüzden
+# örnekte yok, kararı dağıtımı yapanın.
+
+[service_urls]
+api = "http://127.0.0.1:8081/healthz"
+# beacon = "https://olcum.musteri.example/_ca/healthz"

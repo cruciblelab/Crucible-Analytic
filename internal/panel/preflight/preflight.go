@@ -204,6 +204,9 @@ func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		checkBackups(),
 	}
+	if len(cfg.ServiceURLs) == 0 {
+		results = append(results, noServiceURLs())
+	}
 	for _, name := range sortedKeys(cfg.ServiceURLs) {
 		results = append(results, checkService(ctx, cfg.HTTPClient, name, cfg.ServiceURLs[name]))
 	}
@@ -1095,6 +1098,36 @@ func checkFreeSpace(paths map[string]string, minFree uint64) CheckResult {
 	return result
 }
 
+// noServiceURLs is what the wizard says when nobody told it where the
+// services are.
+//
+// It exists because the alternative was silence. checkService was
+// written and tested, and cmd/panel never passed an address, so the
+// loop above produced no results at all - fourteen checks about the
+// database, the disk and the logs, and not one request to a service.
+// Nothing in the list said a question was missing, which is the only
+// kind of gap a checklist cannot show by itself.
+//
+// Recommended and a warning, not required and a skip, and the
+// difference is the owner's own rule: do not block on something that
+// is not doing real harm - warn, and leave it. A deployment whose
+// services are all running is not broken because panel.toml does not
+// list their addresses, and a wizard that could not be finished is one
+// people work around. The other unset-configuration checks (the roles)
+// block because what they leave unverified is the isolation the design
+// rests on; an unasked health question leaves the deployment exactly as
+// healthy as it was.
+func noServiceURLs() CheckResult {
+	return CheckResult{
+		ID: "service.configured", Severity: SeverityRecommended, Status: CheckWarn,
+		Label: "Servislerin ayakta olup olmadığı",
+		Detail: "Servislerin adresleri verilmedi, o yüzden hiçbirine istek yapılmadı. " +
+			"Bu liste collector, beacon ve API hakkında hiçbir şey söylemiyor.",
+		Fix: "panel.toml'a [service_urls] bölümünü ekleyin, örn: api = " +
+			"\"http://127.0.0.1:8081/healthz\"",
+	}
+}
+
 func checkService(ctx context.Context, client *http.Client, name, url string) CheckResult {
 	result := CheckResult{
 		ID: "service." + name, Severity: SeverityRequired,
@@ -1245,8 +1278,22 @@ func ManualSteps() []ManualStep {
 			Why: "Panelin süreç başlatma yetkisi yoktur ve olmamalıdır - yalnızca temiz " +
 				"çıkabilir, systemd yeniden başlatır. Başlatabilen bir onarım yüzeyi, " +
 				"rastgele bir şey başlatan bir yüzeye çevrilebilirdi.",
-			Command:   "deploy/systemd/*.service dosyalarını /etc/systemd/system/ altına kopyalayın",
-			CheckedBy: "service.collector, service.beacon, service.api",
+			Command: "deploy/systemd/*.service dosyalarını /etc/systemd/system/ altına kopyalayın",
+			// service.configured and not the three per-service IDs.
+			//
+			// Those exist only for the services somebody named in
+			// panel.toml, under whatever names they chose - so this
+			// column used to promise "service.collector,
+			// service.beacon, service.api" and a deployment could
+			// produce none of them. The only reason the promise looked
+			// kept is that the test asserting it passed all three names
+			// in its own fixture: the test and the page agreed with
+			// each other and neither agreed with a deployment.
+			//
+			// service.configured is the line that is always there. It
+			// either says nobody was asked, or it is absent because the
+			// per-service lines took its place.
+			CheckedBy: "service.configured",
 		},
 		{
 			ID: "tls", Label: "TLS sertifikası ve yenilemesi",

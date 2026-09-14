@@ -13,7 +13,68 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 21** (değişmedi). **Kuran kişinin yapması gereken:** yok.
+**Şema sürümü: 22.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Yalnız yetki düzeltmeleri; tablo, sütun ve
+veri değişmiyor, servis durmuyor. **v0.20.0 veya daha eskisinden
+yükselttiyseniz bu sürüm sizi ilgilendiriyor** — aşağıdaki iki kusur tam
+olarak o kurulumlarda duruyor.
+
+### Kurulum sihirbazı artık servislere gerçekten istek atıyor
+
+Sihirbazın son adımı 14 kontrol çalıştırıyordu ve **hiçbiri bir servise
+istek atmıyordu.** Kontrol kodu (`checkService`) yazılmış ve testleri
+vardı; panel binary'si ona hiçbir adres vermiyordu, çünkü `panel.toml`'da
+böyle bir alan yoktu. Liste eksik olduğunu da söylemiyordu: kontroller
+yapılandırmadan üretiliyor, yani verilmeyen bir adres **başarısız bir
+satır değil, hiç satır** demek.
+
+`panel.toml`'a `[service_urls]` eklendi:
+
+```toml
+[service_urls]
+api = "http://127.0.0.1:8081/healthz"
+beacon = "https://olcum.musteri.example/_ca/healthz"
+```
+
+Her satır bir GET isteği; 200 dönmezse kırmızı satır çıkar ve devir
+teslim durur. Bölüm hiç yoksa tek satırlık bir **uyarı** çıkıyor —
+"sorulmadı" ile "soruldu, cevap yok" artık aynı görünmüyor — ve o uyarı
+devri engellemiyor: adresleri yazmamak kurulumu bozmaz.
+
+Gerçek yığında ölçüldü: adres verilen API `geçti`, kapalı porta bakan
+beacon `başarısız`, ve devir teslim adımı beacon'ı adıyla söyleyerek
+kapandı.
+
+**Kuran kişinin yapması gereken:** `panel.toml`'a bu bölümü eklemek —
+eklemezseniz hiçbir şey bozulmaz, yalnız sihirbaz o soruyu sormaz.
+
+### Yükseltilen kurulumda iki yetki kusuru — 21 sürümün 17'si etkileniyordu
+
+L4 yükseltilen kurulumu taze kurulumla karşılaştırmaya başlamıştı, ama
+**yalnız bir önceki sürümden**. Bütün yayımlanmış sürümlerden ayrı ayrı
+yükseltip karşılaştırınca 21 sürümün **17'si** taze kurulumdan ayrıştı.
+
+**Birincisi: sürüm isteği tablosu yetkisiz doğuyordu.**
+`panel_release_requests` tablosunun bütün yetkileri yalnız `grants.sql`'de
+yazılıydı ve yükseltme o dosyayı çalıştırmıyor. v0.9.0+L3 ile v0.20.0
+arası bir sürümden yükselten her kurulumda tablo vardı, `panel_user`'ın
+üzerinde **hiçbir yetkisi yoktu** — yani **Sağlık → Sürüm güncellemesi**
+sayfası istek satırı yazamıyordu. Taze kurulumlarda sorun yoktu, o yüzden
+görünmüyordu.
+
+**İkincisi: sertleştirme yükseltilen kurulumlara ulaşmıyordu.** Yüzey
+denetimi (H5) `panel_logs_id_seq` ve `panel_upgrade_requests_id_seq`
+dizilerini dört rolden geri almıştı — ama bu geri alma yalnız
+`grants.sql`'de yazılıydı. Bir kurulum bir kez verilen yetkiyi
+kaybetmiyor; yükseltme onu geri almazsa duruyor. v0.20.0'a kadar her
+sürümden yükselten kurulumda `collector`, `beacon_writer`,
+`analytics_reader` ve `panel_user` o diziler üzerinde hâlâ USAGE ve
+SELECT taşıyordu.
+
+İkisi de artık şema dosyalarında, koşullu bloklar hâlinde: yükseltme
+onları her seferinde uyguluyor. Ölçüm artık **bütün sürüm geçmişi**
+üzerinde koşuyor (21 sürüm, 21 veritabanı, 20 saniye) — bir tanesi değil,
+çünkü bir müşteri "bir önceki sürüm" değildir.
 
 ### Ülke kırılımı 14 kat hızlandı — panonun vazgeçtiği yerdeydi
 

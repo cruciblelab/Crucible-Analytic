@@ -158,3 +158,37 @@ DROP POLICY IF EXISTS upgrade_sweep ON panel_upgrade_requests;
 CREATE POLICY upgrade_sweep ON panel_upgrade_requests
     FOR DELETE TO panel_user
     USING (true);
+
+
+-- The request table's sequence stays closed to the panel.
+--
+-- panel_user inserts rows here - upgrade_ask above is the policy that
+-- lets it - and an INSERT into a table with a serial column does not
+-- need any privilege on the sequence behind it. Holding the sequence
+-- would be a second, wider right: the ability to advance the counter
+-- and read where it stands, on a table whose row count is a record of
+-- what the operator asked for.
+--
+-- release/sql/grants.sql says the same thing, and cannot reach a
+-- deployment that upgraded rather than reinstalled: the applier runs the
+-- schema files and nothing else. Measured by upgrading from each
+-- released version in turn - every release up to v0.20.0 arrived with
+-- panel_user still holding USAGE and SELECT here.
+--
+-- Conditioned for the reasons panel_logs' block records: an unnecessary
+-- REVOKE still rewrites the ACL tuple, and the role may not exist.
+DO $$
+DECLARE
+    role_name text;
+BEGIN
+    FOREACH role_name IN ARRAY ARRAY['panel_user'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = role_name)
+           AND (has_sequence_privilege(role_name, 'panel_upgrade_requests_id_seq', 'USAGE')
+                OR has_sequence_privilege(role_name, 'panel_upgrade_requests_id_seq', 'SELECT')
+                OR has_sequence_privilege(role_name, 'panel_upgrade_requests_id_seq', 'UPDATE')) THEN
+            EXECUTE format('REVOKE ALL ON SEQUENCE panel_upgrade_requests_id_seq FROM %I',
+                           role_name);
+        END IF;
+    END LOOP;
+END
+$$;

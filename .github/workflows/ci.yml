@@ -206,7 +206,28 @@ jobs:
           --health-retries 20
 
     steps:
+      # Full history and tags, for the same reason the unit job needs
+      # them and one more.
+      #
+      # internal/upgradepath builds a database from the *previous
+      # release's* schema and then upgrades it with this tree's, which
+      # means it has to find the previous release - `git tag --merged
+      # HEAD` - and read files out of it. A depth-1 checkout fetches no
+      # tags at all, so the suite found none, and the message it gave
+      #
+      #     finding the previous release: no tag reachable from HEAD
+      #     points anywhere but HEAD
+      #
+      # named the symptom rather than the cause. The whole job went red
+      # on the commit that added the package, for a reason that had
+      # nothing to do with the code being tested.
+      #
+      # Failing rather than skipping is deliberate there: an upgrade
+      # invariant that skips itself when the checkout is wrong is an
+      # invariant nobody ever runs. This line is what makes it run.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod

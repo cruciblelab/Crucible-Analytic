@@ -22,6 +22,10 @@ import (
 const (
 	freshDB    = "ca_upgradepath_fresh"
 	upgradedDB = "ca_upgradepath_upgraded"
+	// walkDB is reused by every subtest of the walk over the whole tag
+	// history: one at a time, dropped after each, so the run leaves
+	// three databases behind at worst rather than one per release.
+	walkDB = "ca_upgradepath_walk"
 )
 
 // roles are the five service roles, which exist cluster-wide already;
@@ -85,7 +89,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintf(os.Stderr, "building the fresh install: %v\n", err)
 			return 1
 		}
-		if err := buildUpgraded(ctx); err != nil {
+		if err := buildUpgraded(ctx, upgradedDB, previousTag); err != nil {
 			fmt.Fprintf(os.Stderr, "building the upgraded deployment: %v\n", err)
 			return 1
 		}
@@ -94,11 +98,50 @@ func TestMain(m *testing.M) {
 	}())
 }
 
-// TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall.
+// privilegeSurfaces are the four surfaces a role can hold something on,
+// each read from the catalogue rather than from a list written here - so
+// a table, column, sequence or function added tomorrow is covered the
+// day it is added.
 //
-// The four surfaces a role can hold something on, each read from the
-// catalogue rather than from a list written here - so a table, column,
-// sequence or function added tomorrow is covered the day it is added.
+// One definition, two tests: the newest-release comparison below and the
+// walk over every release. Two copies of this SQL would be two
+// definitions of what "the same privileges" means.
+var privilegeSurfaces = []struct {
+	what string
+	sql  string
+}{
+	{"table", `
+			SELECT grantee || ' | ' || table_name || ' | ' ||
+			       string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)
+			FROM information_schema.role_table_grants
+			WHERE grantee = ANY($1) AND table_schema = 'public'
+			GROUP BY grantee, table_name
+			ORDER BY 1`},
+	{"column", `
+			SELECT grantee || ' | ' || table_name || '.' || column_name || ' | ' ||
+			       string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)
+			FROM information_schema.column_privileges
+			WHERE grantee = ANY($1) AND table_schema = 'public'
+			GROUP BY grantee, table_name, column_name
+			ORDER BY 1`},
+	{"sequence", `
+			SELECT r.rolname || ' | ' || c.relname || ' | USAGE:' ||
+			       has_sequence_privilege(r.rolname, c.oid, 'USAGE')::text || ' SELECT:' ||
+			       has_sequence_privilege(r.rolname, c.oid, 'SELECT')::text
+			FROM pg_class c, pg_roles r
+			WHERE c.relkind = 'S' AND c.relnamespace = 'public'::regnamespace
+			  AND r.rolname = ANY($1)
+			ORDER BY 1`},
+	{"function", `
+			SELECT r.rolname || ' | ' || p.proname || '(' ||
+			       pg_get_function_identity_arguments(p.oid) || ') | ' ||
+			       has_function_privilege(r.rolname, p.oid, 'EXECUTE')::text
+			FROM pg_proc p, pg_roles r
+			WHERE p.pronamespace = 'public'::regnamespace AND r.rolname = ANY($1)
+			ORDER BY 1`},
+}
+
+// TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall.
 //
 // A difference in either direction is a failure. Missing is the defect
 // this was written for; extra is the other half of the same problem, a
@@ -107,80 +150,156 @@ func TestMain(m *testing.M) {
 func TestAnUpgradedDeploymentHasTheSamePrivilegesAsAFreshInstall(t *testing.T) {
 	requireReady(t)
 
-	surfaces := []struct {
-		what string
-		sql  string
-	}{
-		{"table", `
-			SELECT grantee || ' | ' || table_name || ' | ' ||
-			       string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)
-			FROM information_schema.role_table_grants
-			WHERE grantee = ANY($1) AND table_schema = 'public'
-			GROUP BY grantee, table_name
-			ORDER BY 1`},
-		{"column", `
-			SELECT grantee || ' | ' || table_name || '.' || column_name || ' | ' ||
-			       string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)
-			FROM information_schema.column_privileges
-			WHERE grantee = ANY($1) AND table_schema = 'public'
-			GROUP BY grantee, table_name, column_name
-			ORDER BY 1`},
-		{"sequence", `
-			SELECT r.rolname || ' | ' || c.relname || ' | USAGE:' ||
-			       has_sequence_privilege(r.rolname, c.oid, 'USAGE')::text || ' SELECT:' ||
-			       has_sequence_privilege(r.rolname, c.oid, 'SELECT')::text
-			FROM pg_class c, pg_roles r
-			WHERE c.relkind = 'S' AND c.relnamespace = 'public'::regnamespace
-			  AND r.rolname = ANY($1)
-			ORDER BY 1`},
-		{"function", `
-			SELECT r.rolname || ' | ' || p.proname || '(' ||
-			       pg_get_function_identity_arguments(p.oid) || ') | ' ||
-			       has_function_privilege(r.rolname, p.oid, 'EXECUTE')::text
-			FROM pg_proc p, pg_roles r
-			WHERE p.pronamespace = 'public'::regnamespace AND r.rolname = ANY($1)
-			ORDER BY 1`},
+	for _, s := range privilegeSurfaces {
+		t.Run(s.what, func(t *testing.T) {
+			comparePrivileges(t, s.what, s.sql, upgradedDB, previousTag)
+		})
+	}
+}
+
+// comparePrivileges is the one definition of "an upgrade ended up where
+// an install would have".
+func comparePrivileges(t *testing.T, what, sql, db, tag string) {
+	t.Helper()
+
+	fresh := rowsOf(t, freshDB, sql)
+	upgraded := rowsOf(t, db, sql)
+
+	// A surface that reads empty on both sides would compare equal and
+	// prove nothing.
+	if len(fresh) == 0 {
+		t.Fatalf("the %s privilege query returned nothing on a fresh install; "+
+			"an empty comparison passes whatever the upgrade did", what)
 	}
 
-	for _, s := range surfaces {
-		t.Run(s.what, func(t *testing.T) {
-			fresh := rowsOf(t, freshDB, s.sql)
-			upgraded := rowsOf(t, upgradedDB, s.sql)
+	have := map[string]bool{}
+	for _, row := range upgraded {
+		have[row] = true
+	}
+	want := map[string]bool{}
+	for _, row := range fresh {
+		want[row] = true
+	}
 
-			// A surface that reads empty on both sides would compare
-			// equal and prove nothing.
-			if len(fresh) == 0 {
-				t.Fatalf("the %s privilege query returned nothing on a fresh install; "+
-					"an empty comparison passes whatever the upgrade did", s.what)
-			}
+	for _, row := range fresh {
+		if !have[row] {
+			t.Errorf("a fresh install has %s privilege %q and an upgrade from %s does not.\n"+
+				"The upgrade path runs the schema files and nothing else, so this privilege "+
+				"is written only in release/sql/grants.sql. Put it in the schema file that "+
+				"creates the object, guarded the way internal/storage/schema.sql does.",
+				what, row, tag)
+		}
+	}
+	for _, row := range upgraded {
+		if !want[row] {
+			t.Errorf("an upgrade from %s has %s privilege %q and a fresh install does not; "+
+				"a deployment must not gain rights by upgrading that installing would not give it",
+				tag, what, row)
+		}
+	}
+}
 
-			have := map[string]bool{}
-			for _, row := range upgraded {
-				have[row] = true
-			}
-			want := map[string]bool{}
-			for _, row := range fresh {
-				want[row] = true
-			}
+// TestEveryReleasedVersionUpgradesToTheSamePrivileges walks the whole
+// tag history rather than the newest release.
+//
+// # Why one baseline is not enough
+//
+// The test above asks about the newest release whose schema differs
+// from this tree's, and that baseline moves with the tree - which makes
+// it able to hide the exact defect it exists to catch. Measured: delete
+// the guarded GRANT block from internal/storage/schema.sql - the whole
+// point of L4 - and the newest release's schema is suddenly *different*
+// from this tree's, so it becomes the baseline, and applying it puts
+// the block back. The comparison passed. The invariant had healed
+// itself around the mutation.
+//
+// A customer is not a moving baseline. Somebody is on v0.19.0 and
+// upgrades to this; somebody else is on v0.23.0. So every reachable
+// release gets its own database, and each is asked the same four
+// questions. A privilege that lives only in grants.sql then has
+// nowhere to hide: the releases from before it was written are still
+// in the list.
+//
+// The cost is one database per release, built and dropped in turn -
+// measured at about a second each on this machine, and the reason they
+// are not all built at once.
+func TestEveryReleasedVersionUpgradesToTheSamePrivileges(t *testing.T) {
+	requireReady(t)
+	ctx := context.Background()
 
-			for _, row := range fresh {
-				if !have[row] {
-					t.Errorf("a fresh install has %s privilege %q and an upgrade from %s does not.\n"+
-						"The upgrade path runs the schema files and nothing else, so this privilege "+
-						"is written only in release/sql/grants.sql. Put it in the schema file that "+
-						"creates the object, guarded the way internal/storage/schema.sql does.",
-						s.what, row, previousTag)
+	tags, err := releasesReachableFromHEAD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) < 2 {
+		t.Fatalf("only %d release(s) reachable from HEAD; this test is a walk over the "+
+			"history and a walk of one is the test above", len(tags))
+	}
+
+	admin, err := pgxpool.New(ctx, superDSN)
+	if err != nil {
+		t.Fatalf("connecting as the superuser: %v", err)
+	}
+	defer admin.Close()
+
+	for _, tag := range tags {
+		t.Run(tag, func(t *testing.T) {
+			db := walkDB
+			for _, sql := range []string{
+				`DROP DATABASE IF EXISTS ` + db + ` WITH (FORCE)`,
+				`CREATE DATABASE ` + db,
+			} {
+				if _, err := admin.Exec(ctx, sql); err != nil {
+					t.Fatalf("%s: %v", sql, err)
 				}
 			}
-			for _, row := range upgraded {
-				if !want[row] {
-					t.Errorf("an upgrade from %s has %s privilege %q and a fresh install does not; "+
-						"a deployment must not gain rights by upgrading that installing would not give it",
-						previousTag, s.what, row)
+			// Dropped on the way out, not left for the next subtest to
+			// find: a database this suite abandoned is a database the
+			// next run fails in its fixture.
+			t.Cleanup(func() {
+				if _, err := admin.Exec(context.Background(),
+					`DROP DATABASE IF EXISTS `+db+` WITH (FORCE)`); err != nil {
+					t.Errorf("dropping %s: %v", db, err)
 				}
+			})
+
+			if err := buildUpgraded(ctx, db, tag); err != nil {
+				t.Fatalf("building a deployment upgraded from %s: %v", tag, err)
+			}
+			for _, s := range privilegeSurfaces {
+				comparePrivileges(t, s.what, s.sql, db, tag)
 			}
 		})
 	}
+}
+
+// releasesReachableFromHEAD is every release tag in this history except
+// one pointing at HEAD itself, oldest first.
+//
+// Oldest first on purpose: the oldest release is the longest upgrade and
+// the most likely to break, and a reader watching the subtests scroll
+// past wants that answer before the easy ones.
+func releasesReachableFromHEAD() ([]string, error) {
+	out, err := git("tag", "--merged", "HEAD", "--sort=v:refname")
+	if err != nil {
+		return nil, err
+	}
+	head, err := git("rev-parse", "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	var tags []string
+	for _, tag := range strings.Fields(out) {
+		at, err := git("rev-list", "-n", "1", tag)
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(at) == strings.TrimSpace(head) {
+			continue
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
 }
 
 // TestTheRowsSurviveTheUpgrade.
@@ -219,6 +338,18 @@ func TestTheRowsSurviveTheUpgrade(t *testing.T) {
 // trees: if the previous tag ever resolved to HEAD, or its schema
 // happened to equal this one, the privilege test above would be
 // comparing a fresh install against a fresh install.
+//
+// lastRelease now picks its baseline on that same property, so this
+// reads like a restatement of it - and is deliberately not derived from
+// it. The two are independent: the fixture chooses, and this asserts
+// what the choice has to be true of. Deriving the second from the first
+// would make it pass by construction the day somebody loosens the
+// choice, which is the only day it matters. Measured: making the
+// difference check return true unconditionally is caught here and
+// nowhere else.
+//
+// It also prints the span, which is the one number a reader wants when
+// this package fails: how far back the upgrade being tested reaches.
 func TestTheUpgradeStartedFromAnOlderSchema(t *testing.T) {
 	requireReady(t)
 
@@ -301,24 +432,27 @@ func buildFresh(ctx context.Context) error {
 	return nil
 }
 
-// buildUpgraded does what a real deployment did: install the previous
+// buildUpgraded does what a real deployment did: install the given
 // release, put rows in it, then apply this tree's schema the way
 // cmd/upgrader does - as schema_admin, schema files only, no grants.sql.
-func buildUpgraded(ctx context.Context) error {
-	if err := prepare(ctx, upgradedDB); err != nil {
+//
+// The database and the release are both arguments because two tests
+// need it: one for the newest release, one for every release in turn.
+func buildUpgraded(ctx context.Context, db, tag string) error {
+	if err := prepare(ctx, db); err != nil {
 		return err
 	}
 
-	old, err := schemaAt(previousTag)
+	old, err := schemaAt(tag)
 	if err != nil {
 		return err
 	}
-	order, err := schemaOrderAt(previousTag)
+	order, err := schemaOrderAt(tag)
 	if err != nil {
 		return err
 	}
 
-	pool, err := pgxpool.New(ctx, swapDatabase(superDSN, upgradedDB))
+	pool, err := pgxpool.New(ctx, swapDatabase(superDSN, db))
 	if err != nil {
 		return err
 	}
@@ -326,15 +460,15 @@ func buildUpgraded(ctx context.Context) error {
 
 	for _, path := range order {
 		if _, err := pool.Exec(ctx, old[path]); err != nil {
-			return fmt.Errorf("applying %s at %s: %w", path, previousTag, err)
+			return fmt.Errorf("applying %s at %s: %w", path, tag, err)
 		}
 	}
-	oldGrants, err := fileAt(previousTag, "release/sql/grants.sql")
+	oldGrants, err := fileAt(tag, "release/sql/grants.sql")
 	if err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, oldGrants); err != nil {
-		return fmt.Errorf("applying grants.sql at %s: %w", previousTag, err)
+		return fmt.Errorf("applying grants.sql at %s: %w", tag, err)
 	}
 
 	// Rows a customer would already have. Written as the superuser
@@ -357,7 +491,7 @@ func buildUpgraded(ctx context.Context) error {
 	// the superuser instead would make every new object owned by
 	// postgres and invent an ownership difference this test would then
 	// report as a defect.
-	admin, err := pgxpool.New(ctx, schemaAdminDSN(upgradedDB))
+	admin, err := pgxpool.New(ctx, schemaAdminDSN(db))
 	if err != nil {
 		return fmt.Errorf("connecting as schema_admin: %w", err)
 	}
@@ -389,12 +523,61 @@ func prepare(ctx context.Context, db string) error {
 	return nil
 }
 
-// lastRelease is the newest tag reachable from HEAD that HEAD is not.
+// lastRelease is the newest release reachable from HEAD whose schema is
+// not already this tree's.
 //
 // Derived rather than written down: a release cut tomorrow becomes the
 // baseline without anybody editing this file, and the test then answers
 // the question customers will actually be asking.
+//
+// # Why "whose schema differs" and not simply "the newest"
+//
+// The newest is what this asked first, and it made the suite fail on
+// every commit that does not touch a schema file. The day after
+// v0.24.0+L4 was cut, the newest release's twelve schema files were
+// byte-identical to this tree's, so the database built by "upgrading"
+// from it was built by applying the same files twice - and
+// TestTheUpgradeStartedFromAnOlderSchema said so, correctly, and went
+// red on a commit that had changed one Go query.
+//
+// Walking back to the last release whose schema actually differs fixes
+// both halves of that. The fixture stops being vacuous between
+// releases, and the span it covers is the one a customer really
+// traverses: somebody on the last version with a different schema,
+// arriving at this one. A release that changed no schema file needs no
+// upgrade path tested, because there is no upgrade in it.
+//
+// # Why the failures below name the checkout
+//
+// This suite cannot run without the history it reads out of, and there
+// are two ways to arrive without it. Both were met for real: the job
+// that runs this package checked out at the default depth, which fetches
+// no tags, and the message was
+//
+//	finding the previous release: no tag reachable from HEAD points
+//	anywhere but HEAD
+//
+// - true, and about the wrong thing. There was no tag reachable from
+// HEAD at all, because there was no tag. Diagnosing it took reading the
+// workflow.
+//
+// It fails rather than skipping on purpose. An upgrade invariant that
+// excuses itself when the checkout is thin is one that never runs, and
+// the defect it exists to catch - a table whose GRANT lives only in
+// grants.sql - is invisible on the fresh installs everything else
+// tests. So: fail, and say which line of which file fixes it.
 func lastRelease() (string, error) {
+	shallow, err := git("rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(shallow) == "true" {
+		return "", fmt.Errorf("this is a shallow checkout, and the previous release's " +
+			"schema files cannot be read out of history that was never fetched; " +
+			"a CI job that runs this package needs `fetch-depth: 0` on its " +
+			"actions/checkout step, and a local clone needs `git fetch --unshallow`")
+	}
+
 	out, err := git("tag", "--merged", "HEAD", "--sort=-v:refname")
 	if err != nil {
 		return "", err
@@ -403,16 +586,64 @@ func lastRelease() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, tag := range strings.Fields(out) {
+	tags := strings.Fields(out)
+	if len(tags) == 0 {
+		return "", fmt.Errorf("this checkout has no tags, so there is no previous " +
+			"release to upgrade from; actions/checkout fetches none at the default " +
+			"depth, so a CI job that runs this package needs `fetch-depth: 0`, and " +
+			"a local clone needs `git fetch --tags`")
+	}
+
+	var skipped []string
+	for _, tag := range tags {
 		at, err := git("rev-list", "-n", "1", tag)
 		if err != nil {
 			return "", err
 		}
-		if strings.TrimSpace(at) != strings.TrimSpace(head) {
-			return tag, nil
+		if strings.TrimSpace(at) == strings.TrimSpace(head) {
+			skipped = append(skipped, tag+" (is HEAD)")
+			continue
+		}
+		differs, err := schemaDiffersFromThisTree(tag)
+		if err != nil {
+			return "", err
+		}
+		if !differs {
+			skipped = append(skipped, tag+" (same schema)")
+			continue
+		}
+		return tag, nil
+	}
+	return "", fmt.Errorf("no release reachable from HEAD has a schema this tree "+
+		"would upgrade; skipped %s. Either every release carries this tree's schema "+
+		"- in which case there is no upgrade to test and this package has nothing to "+
+		"say - or the tags are unreachable", strings.Join(skipped, ", "))
+}
+
+// schemaDiffersFromThisTree reports whether a release's schema files are
+// something this tree's would change.
+//
+// Byte comparison, not the schema version: a release that bumped the
+// version without changing a file is not an upgrade, and a file edited
+// without a version bump is one - and the second is the case worth
+// catching, since it is how a GRANT gets added to a schema file.
+//
+// Asked in one direction only, from this tree's list. A release that
+// *removed* a file and changed nothing else reads as "same schema" here
+// and the walk goes further back - to a release that still has the file,
+// which covers the removal as well and more besides. The other
+// direction would be a branch no fixture can reach.
+func schemaDiffersFromThisTree(tag string) (bool, error) {
+	old, err := schemaAt(tag)
+	if err != nil {
+		return false, err
+	}
+	for _, f := range schemafiles.InOrder {
+		if old[f.Path] != f.SQL {
+			return true, nil
 		}
 	}
-	return "", fmt.Errorf("no tag reachable from HEAD points anywhere but HEAD")
+	return false, nil
 }
 
 // schemaOrderAt reads the previous release's own ordering, out of its

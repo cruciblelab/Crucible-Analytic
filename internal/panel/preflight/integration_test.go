@@ -294,13 +294,21 @@ func TestPreflight_WorstResultsComeFirst(t *testing.T) {
 // Every check a manual step claims to be verified by must actually
 // exist, or the wizard tells the installer something is checked when
 // nothing checks it.
+// Every manual step's "verified by" column names a check that exists.
+//
+// Deliberately run with no ServiceURLs, which is the shape of a
+// deployment that configured none. The earlier version of this test
+// passed three service names in its fixture, and the systemd step's
+// column named exactly those three - so the promise held in the test
+// and could hold in no deployment but one that had chosen the same
+// three names. A fixture that supplies what production may not is a
+// fixture that agrees with the code instead of checking it.
 func TestManualSteps_ReferenceRealChecks(t *testing.T) {
 	c := newTestChecker(t)
 	results := c.Run(context.Background(), Config{
-		ServiceURLs: map[string]string{"collector": "http://127.0.0.1:1", "beacon": "http://127.0.0.1:1", "api": "http://127.0.0.1:1"},
-		Roles:       Roles{Panel: "nobody", API: "nobody"},
-		LogDir:      t.TempDir(),
-		DataDir:     t.TempDir(),
+		Roles:   Roles{Panel: "nobody", API: "nobody"},
+		LogDir:  t.TempDir(),
+		DataDir: t.TempDir(),
 	})
 	known := map[string]bool{}
 	for _, r := range results {

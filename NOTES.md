@@ -17336,6 +17336,222 @@ hiç uzanmamalı. İkisi de mutasyonla sınandı, ikisi de yük taşıyor.
 
 Beş mutasyon, beşi de kırmızı. Şema 21.
 
+## Var olan, testi olan, ve hiç koşmayan bir kontrol — kapatıldı
+
+Sahip sordu: *"preflight.checkService ne, tam anlamadım onu halledelim."*
+2026-08-18'de KURULUM.md yazılırken bulunmuş, PLAN'ın açık risk
+tablosunda duruyordu. Yukarıdaki "A check that exists, is tested, and
+never runs" bölümü onu anlatıyor; bu bölüm kapanışı.
+
+### Boşluğun şekli, ve niye hiçbir şey fark etmedi
+
+`checkService` tamamen `Config.ServiceURLs`'den sürülüyor. `cmd/panel` o
+alanı hiç doldurmuyordu, `panel.toml`'da karşılığı yoktu. Sonuç:
+
+> Verilmeyen bir adres **başarısız bir kontrol değil, hiç kontrol**
+> demek. Ve bir kontrol listesi, kimsenin yazmadığı bir satırın
+> yokluğunu gösteremez.
+
+14 kontrol vardı, hiçbiri bir servise istek atmıyordu, ve liste bunu
+söylemiyordu. Sessizlik onay gibi okunuyordu.
+
+### Üç parça
+
+1. **`panel.toml`'a `[service_urls]`**, oradan `PreflightConfig`'e.
+   Türetilmedi: `analytics_api_url` panelin kendi kullandığı adres,
+   `beacon_url` ise parçacığın içindeki genel adres — ama beacon
+   dağıtımın koyduğu vekilin arkasında, istediği önekte durur, collector
+   ise başkasının sitesi için TLS sonlandırır ve kendi sağlık ucu yoktur.
+   Bir yol tahmin edip **zorunlu** bir kontrolü o tahmine dayandırmak,
+   devir teslimi bu dosyanın fikrine bağlamak olurdu.
+2. **Yokluğu görünür kıldık:** adres verilmemişse tek satırlık bir
+   `service.configured` uyarısı. *Önerilen* ve *uyarı*, bilerek — sahibin
+   kendi kuralı: gerçek bir zarar yoksa engelleme, uyar ve bırak. Üç
+   servisi de çalışan bir kurulum, `panel.toml` adresleri saymadığı için
+   bozuk değil. (Rol kontrolleri engelliyor, çünkü onların doğrulamadığı
+   şey tasarımın dayandığı yalıtım; sorulmamış bir sağlık sorusu
+   kurulumu olduğundan daha az sağlıklı yapmıyor.)
+3. **Sınıfı kapattık:** `internal/invariants/preflightconfig_test.go`.
+   `preflight.Config`'in alan listesi tipten yansımayla, `cmd/panel`'in
+   verdiği alanlar kaynaktan AST ile okunuyor; her alan ya doldurulmuş ya
+   da gerekçesiyle listelenmiş olmak zorunda. İki yön: listede olup
+   tipte olmayan bir ad da kırmızı.
+
+### Gerçek yığında ölçüldü
+
+Taklit değil: gerçek `analytics-api` (8082) + gerçek `panel` + gerçek
+`ca_live` veritabanı, `-dev-link` ile giriş, sihirbazın 7. adımında
+düğmeye basıldı.
+
+| satır | durum | bulunan |
+|---|---|---|
+| `api servisi çalışıyor mu` | **geçti** | `http://127.0.0.1:8082/healthz yanıt veriyor.` |
+| `beacon servisi çalışıyor mu` (kapalı port) | **başarısız** | `…adresine ulaşılamadı: connection refused` |
+
+Ve devir teslim adımı: *"Zorunlu kontroller geçmediği için devir teslim
+kapalı: beacon servisi çalışıyor mu."* Bölüm kaldırıldığında: tek uyarı
+satırı, ve devir teslim **açık.**
+
+### Ekran görüntüsü bir kusur daha buldu
+
+Sayfayı çekip *baktım*. "Panelin asla yapamayacakları" tablosunda
+systemd satırının **Doğrulayan kontrol** sütunu
+`service.collector, service.beacon, service.api` yazıyordu — yani
+kurulumun kendi seçtiği adlara bağlı üç kimlik. Adres vermemiş bir
+kurulumda o üçü de yok; başka adlar seçmiş bir kurulumda da yok.
+
+Ve bunu tutan test **geçiyordu**, çünkü fikstürü tam o üç adı kendisi
+veriyordu. Test ile sayfa birbirleriyle anlaşmış, ikisi de bir kurulumla
+anlaşmamıştı — bu defterde üçüncü kez aynı şekil.
+
+> **Bir sütunun vaadi okuyucunun kendi yapılandırmasına bağlıysa, o bir
+> vaat değildir.** Sütun artık her zaman var olan tek kimliği söylüyor
+> (`service.configured`), ve test **hiç adres vermeyen** bir koşuda
+> sınıyor.
+
+### Mutasyonlar
+
+Altı mutasyon, altısı da kırmızı: adresi geçirmemek, uyarıyı kaldırmak,
+uyarıyı zorunlu yapmak, adres doğrulamasını kaldırmak, servis adı
+kalıbını her şeye açmak, ve elle adımı yine üç kimliğe bağlamak.
+
+## CI kırmızısı — bir işin checkout derinliği bir testin girdisidir
+
+Sahip "runfailed verdi" dedi. Kırmızı olan iş **integration + browser
+(-race)**, ve L4'ü getiren commit'ten itibaren kırmızı. Mesaj:
+
+```
+finding the previous release: no tag reachable from HEAD points
+anywhere but HEAD
+```
+
+Doğru cümle, yanlış şey hakkında. HEAD'den erişilebilir etiket yoktu
+çünkü **hiç etiket yoktu:** `actions/checkout` varsayılan derinlikte tek
+commit ve sıfır etiket getiriyor, ve o iş `fetch-depth: 0` yazmıyordu.
+Teşhis ancak iş akışını okuyunca çıktı.
+
+**Ölçümle doğrulandı, tahminle değil:** `git init` + `fetch --no-tags
+--depth=1` ile CI'nin yaptığı checkout elle kuruldu, paket koşturuldu,
+mesaj birebir aynı çıktı. Sonra `--unshallow` ile derin-ama-etiketsiz
+hâli kuruldu ve ikinci dal da doğrulandı.
+
+### Üç yarı
+
+1. **İş akışı:** entegrasyon işine `fetch-depth: 0`.
+2. **Mesaj:** `lastRelease()` artık sığ depoyu ve etiketsiz depoyu ayrı
+   ayrı tanıyor, ve ikisinde de **hangi dosyanın hangi satırının**
+   düzelteceğini yazıyor.
+3. **Değişmez:** `internal/invariants/checkoutdepth_test.go` — git'e soru
+   soran suitleri kaynak taramasıyla, onları koşturan işleri iş
+   akışlarındaki `go test` komutlarından (build etiketleri hesaba
+   katılarak) buluyor, ve o işlerin `fetch-depth: 0` yazmasını istiyor.
+
+Atlamak yerine düşmek bilerek seçildi: checkout yanlışken kendini
+affeden bir yükseltme değişmezi, hiç koşmayan bir değişmezdir. Ama
+`internal/docs`'un etiket testleri **atlıyor**, ve o atlamanın tek
+panzehiri unit işindeki `fetch-depth: 0` satırıydı — onu da hiçbir şey
+tutmuyordu. Şimdi ikisi de aynı değişmezin arkasında.
+
+Yedi mutasyon, yedisi de kırmızı. İkisi kayda değer: **derinlik 1**
+(yalnız "satır yok" değil) ve **sığ bir gecelik işteki pakete git
+çağrısı eklemek** — ikincisi kuralın iki işe sabitlenmediğini gösteriyor.
+
+> **Bir işin checkout derinliği, o işte koşan testlerin girdisidir.**
+> Girdisini görmeyen bir test, göremediği bir sebeple kırmızı verir.
+
+## L5 — Bir müşteri "bir önceki sürüm" değildir
+
+L4'ün kendi tabanı L5'i buldu, ve bulma şekli önemli: bir mutasyon sağ
+kaldı.
+
+### Mutasyonun söylediği
+
+`internal/storage/schema.sql`'deki korumalı GRANT bloğunu — L4'ün bütün
+işini — silip L4'ün testini koşturdum. **Yeşil.** Sebep şu zincirdi:
+
+1. `lastRelease()` HEAD'e en yakın sürümü taban alıyor.
+2. Blok silinince bu ağacın şeması en yeni sürümün şemasından *farklı*
+   hâle geliyor — yani o sürüm "yükseltilecek bir şey var" testini
+   geçiyor ve taban oluyor.
+3. `buildUpgraded` tabanın şema dosyalarını uyguluyor, **ve o dosyalarda
+   blok duruyor.**
+4. Karşılaştırma eşit çıkıyor.
+
+Değişmez mutasyonun etrafından **kendini onardı.** Bu, taban hareketli
+olduğu sürece kaçınılmaz: ağacın bugünkü hâlinden türetilen bir taban,
+ağacın bugünkü hatasını da taşır.
+
+> **Hareketli bir taban, kendisiyle karşılaştırıldığında her zaman
+> doğrudur.** Bir yükseltme iddiası, ağaçtan bağımsız bir noktadan
+> ölçülmek zorundadır — ve o noktalar sürüm etiketleridir, hepsi.
+
+### Yeni şekil
+
+`TestEveryReleasedVersionUpgradesToTheSamePrivileges`: HEAD'den
+erişilebilen **her** sürüm için bir veritabanı kuruyor, o sürümün şema
+dosyalarını ve o sürümün `grants.sql`'ini uyguluyor (yani müşterinin
+gerçekten kurduğu şey), satır tohumluyor, sonra bu ağacın şemasını
+`schema_admin` olarak uyguluyor, ve dört yetki yüzeyini taze kurulumla
+karşılaştırıyor. Veritabanı sırayla kurulup **düşürülüyor** —
+21 veritabanı bir arada durmuyor.
+
+Maliyet ölçüldü: **21 sürüm, 20,7 saniye**, sürüm başına ~0,8 sn.
+
+### İlk koşu: 21 sürümün 17'si kırmızı
+
+İki ayrı kusur, ikisi de aynı kökten — `grants.sql` yükseltmede
+çalışmıyor:
+
+**(a) `panel_release_requests`'in bütün yetkileri yalnız
+`grants.sql`'de.** v0.9.0+L3 ile v0.20.0 arası bir sürümden yükselten her
+kurulumda tablo var, `panel_user`'ın üzerinde hiçbir yetkisi yok. L3'ün
+sürüm isteği sayfası istek satırı yazamıyor. v0.21.0 sonrası sürümler
+geçiyordu — çünkü **kendi** `grants.sql`'leri yetkiyi yükseltmeden önce
+vermiş oluyor. Yani kusur tam olarak "bir önceki sürüme bakan" bir teste
+görünmez.
+
+**(b) Kaldırma da her yükseltmede tekrar söylenmeli.** H5'in yüzey
+denetimi `panel_logs_id_seq`'i dört rolden, `panel_upgrade_requests_id_seq`'i
+`panel_user`'dan geri almıştı — yalnız `grants.sql`'de. Bir kurulum bir
+kez verilen yetkiyi kaybetmiyor. v0.20.0'a kadar her sürümden yükselten
+kurulumda o yetkiler duruyordu.
+
+İşin ironisi: `grants.sql`'in o satırların üstündeki yorumu kuralı
+doğru anlatıyor — *"kaldırma bir kez, burada, yüksek sesle
+söylenmeli; yoksa 'o yetkiyi kaldırdık' cümlesi depo için doğru, her
+kurulum için yanlış olur."* Yorum doğru, **`burada` yanlıştı:** o dosya
+yalnız taze kuruluma ulaşıyor.
+
+> **Bir yetkiyi geri almak, vermekten daha zor bir iştir: verme bir
+> kez, geri alma sonsuza kadar her yükseltmede tekrarlanmalıdır.**
+
+### Silinen dördüncü blok
+
+Simetri için `panel_release_requests_id_seq` için de bir REVOKE bloğu
+yazdım. Mutasyonu **sağ kaldı**, ve sebebi ölçüldü: yayımlanmış 21
+`grants.sql`'in hiçbiri o diziyi hiçbir role vermiyor. Yani blok var olan
+hiçbir kurulumda hiçbir şey yapmıyor. Silindi, yerine sebebi yazıldı.
+
+> **Sınanamayan bir koruma, koruma sanılır.** Bir mutasyonun sağ kalması
+> bir cevap değil bir sorudur; cevabı "bu kod hiçbir şey yapmıyor" ise
+> doğru hamle kodu savunmak değil kaldırmaktır.
+
+### Mutasyonlar
+
+Üçü de **yürüyen** test tarafından yakalandı, ve üçü de **tek tabanlı**
+testten geçti:
+
+| mutasyon | yürüyen | tek taban |
+|---|---|---|
+| `panel_release_requests` grant bloğu silindi | kırmızı | geçti |
+| `panel_logs_id_seq` revoke bloğu silindi | kırmızı | geçti |
+| `panel_upgrade_requests_id_seq` revoke bloğu silindi | kırmızı | geçti |
+
+Sağ taraftaki "geçti" sütunu tesadüf değil, fazın gerekçesi: her satır,
+yürümenin yük taşıdığının ayrı bir kanıtı.
+
+Şema **22**.
+
 ## O2b — Ülke kırılımı: aralığı taramak yerine adresi sormak
 
 Sürüm sonrası açık kalan riskleri kapatmaya başlarken ele alındı.

@@ -259,3 +259,61 @@ CREATE POLICY available_forget ON panel_release_available
 
 GRANT SELECT ON panel_release_available TO panel_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON panel_release_available TO schema_admin;
+
+
+-- The request table's privileges, said here as well as in
+-- release/sql/grants.sql.
+--
+-- # Why this block exists
+--
+-- Because the two paths into a deployment's shape run different files.
+-- A fresh install runs every schema file and then grants.sql; an
+-- upgrade runs the schema files and nothing else, because the applier
+-- is the only component allowed to run DDL and it runs exactly what its
+-- fingerprint covers. So a privilege written only in grants.sql is a
+-- privilege a fresh install has and an upgrade does not.
+--
+-- This table was in that state. Measured by upgrading a deployment from
+-- each released version in turn and comparing it with a fresh install:
+-- every release from v0.9.0+L3 to v0.20.0 arrived here with
+-- panel_release_requests created and panel_user holding nothing on it,
+-- which means the release-request page - the one thing L3 built - could
+-- not write a row. The releases after that pass only because their own
+-- grants.sql happened to grant it before the upgrade, so the defect was
+-- invisible to a test that looked one release back.
+--
+-- The DO block and the has_table_privilege question for the reasons
+-- internal/storage/schema.sql writes out: the roles may not exist in a
+-- development database, and a GRANT that changes nothing still rewrites
+-- the ACL tuple, which two appliers running at once collide on.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'panel_user') THEN
+        IF NOT has_table_privilege('panel_user', 'panel_release_requests', 'INSERT') THEN
+            GRANT SELECT, INSERT, DELETE ON panel_release_requests TO panel_user;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'schema_admin') THEN
+        IF NOT has_table_privilege('schema_admin', 'panel_release_requests', 'UPDATE') THEN
+            GRANT SELECT, UPDATE ON panel_release_requests TO schema_admin;
+        END IF;
+    END IF;
+END
+$$;
+
+-- There is deliberately no REVOKE for panel_release_requests_id_seq
+-- here, although grants.sql carries one.
+--
+-- The sibling blocks in internal/logsink/schema.sql and
+-- internal/upgrade/schema.sql re-state removals because a deployment
+-- keeps what it was once given and an upgrade is the only chance to take
+-- it back. This sequence was never given: asked of every released
+-- grants.sql, from v0.9.0+L3 to v0.24.0+L4, not one of them grants it to
+-- any role. So the same block here changes nothing on any deployment
+-- that exists, and deleting it breaks no test - measured, as a mutation
+-- that survived. Unexercised SQL that looks like a safeguard is worse
+-- than none: the next person reads it as one.
+--
+-- grants.sql's line stays, because there a REVOKE also closes PUBLIC,
+-- which install.sh's verify step checks and this file's tests do not
+-- measure.

@@ -123,3 +123,41 @@ DROP POLICY IF EXISTS panel_logs_sweep ON panel_logs;
 CREATE POLICY panel_logs_sweep ON panel_logs
     FOR DELETE TO panel_user
     USING (true);
+
+
+-- The log table's sequence stays closed to every service role.
+--
+-- The same REVOKE is in release/sql/grants.sql, and that is not where it
+-- can do the job. A fresh install runs grants.sql; an upgrade runs the
+-- schema files and nothing else, so a removal written only there is true
+-- of the repository and false of every deployment that upgraded.
+--
+-- Measured by upgrading a deployment from each released version in turn
+-- and comparing it with a fresh install: every release up to v0.20.0
+-- arrived with collector, beacon_writer, analytics_reader and panel_user
+-- all still holding USAGE and SELECT on this sequence - privileges the
+-- surface audit removed, on deployments that had already been installed
+-- when it was removed. They keep what they were once given, unless an
+-- upgrade takes it back.
+--
+-- So it is taken back here, and it has to be taken back on every
+-- upgrade, forever. The condition is what keeps it cheap: a REVOKE that
+-- changes nothing still rewrites the ACL tuple, which two appliers
+-- running at once collide on, and the roles may not exist at all in a
+-- development database.
+DO $$
+DECLARE
+    role_name text;
+BEGIN
+    FOREACH role_name IN ARRAY
+        ARRAY['collector', 'beacon_writer', 'analytics_reader', 'panel_user']
+    LOOP
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = role_name)
+           AND (has_sequence_privilege(role_name, 'panel_logs_id_seq', 'USAGE')
+                OR has_sequence_privilege(role_name, 'panel_logs_id_seq', 'SELECT')
+                OR has_sequence_privilege(role_name, 'panel_logs_id_seq', 'UPDATE')) THEN
+            EXECUTE format('REVOKE ALL ON SEQUENCE panel_logs_id_seq FROM %I', role_name);
+        END IF;
+    END LOOP;
+END
+$$;

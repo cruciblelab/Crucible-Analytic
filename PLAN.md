@@ -97,7 +97,7 @@ gerekçe değil bahane olur.
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
-| **L** Yükseltme yolu | ✅ **4/4** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi)* |
+| **L** Yükseltme yolu | ✅ **5/5** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
 | **P** Ziyaretçiye dönük veri yönetimi | 🟡 **4/5** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
@@ -334,7 +334,8 @@ düzeltmekten ucuz.)*
   olarak** bloke), ilk taslaktaki `ALL SEQUENCES` grant'ı analitik
   rollerine panelin dizilerini açıyordu (bu veritabanındaki altı dizinin
   altısı da panelin; analitik tablolarında `BIGSERIAL` yok),
-  `preflight.checkService` binary'de ölü (aşağıdaki risk tablosu),
+  `preflight.checkService` binary'de ölüydü (2026-09-14'te kapatıldı,
+  aşağıdaki risk tablosu),
   README iki yerde eskimişti (Go 1.23+ → `go.mod` 1.25.0; "pano yok" →
   D1'den bir commit sonra). §4'ün tamamı gerçek TimescaleDB'ye
   uygulanarak doğrulandı: dört rol × beş tablo yetki matrisi basıldı,
@@ -467,7 +468,7 @@ bir eksik, unutulmuş bir eksiktir.
 | Risk | Sahibi |
 |---|---|
 | **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe** | açık (`CheckResult.ID` anahtara çevrilebilir; `Detail` dinamik) |
-| **`preflight.checkService` binary'de ölü** — yazılmış, testleri var, `cmd/panel` ona hiç adres vermiyor ve `panel.toml`'da o alan yok. Sihirbaz 14 kontrol gösteriyor ve hiçbiri "collector/beacon/API ayakta mı" sorusunu sormuyor | **açık** (KURULUM.md yazılırken bulundu, 2026-08-18; `panel.toml`'a `[service_urls]` eklemek + `PreflightConfig`'e geçirmek — küçük, ama kurulum kontrol yüzeyini genişlettiği için kendi fazını hak ediyor) |
+| ~~**`preflight.checkService` binary'de ölü**~~ | ✅ **kapandı (2026-09-14).** `panel.toml`'a `[service_urls]`, oradan `PreflightConfig`'e. Adres verilmezse tek satırlık **uyarı** çıkıyor (engellemiyor — özgürlük tadili), verilirse gerçek GET isteği atılıyor ve cevap vermeyen servis devir teslimi durduruyor. Gerçek yığında ölçüldü. **Sınıfı da kapatıldı:** `internal/invariants/preflightconfig_test.go` artık `preflight.Config`'in her alanının bir yerde doldurulmasını istiyor — doldurulmayan bir alan *başarısız bir kontrol değil, hiç kontrol* demek ve bunu hiçbir liste gösteremez. Altı mutasyon, altısı da kırmızı |
 | Doğrulanamayan 5 kurulum adımı ayrı gösterilmeli | C2.5 (`UncheckedSteps()` hazır) |
 | **Kesişim görünümleri "maskeli" uyarısını göstermeli** | **D5** (yeni — maskeli varsayılan olduğu için artık her kurulumda geçerli) |
 | ~~Collector'da saklama süresi yalnız dosyadan okunuyor~~ | ✅ **kapandı — ama diğer uçtan.** İki tablo artık aynı yerden yapılandırılıyor: ikisi de dosyadan. Panelin saklama ayarı eklenmedi, **kaldırıldı** — ziyaret kayıtlarının ne kadar tutulacağı hukuki ağırlıklı tek ayar ve sunucuya erişmeyi gerektirmeli. Tavan 3650 → 730 |
@@ -6549,6 +6550,44 @@ Taban sürüm elle yazılmıyor, `git tag --merged HEAD` ile türetiliyor —
 yarın kesilen bir sürüm kendiliğinden taban oluyor.
 
 Beş mutasyon, beşi de kırmızı. Şema **21**.
+
+#### L5 — Bir müşteri "bir önceki sürüm" değildir ✅ **bitti (2026-09-14)**
+
+L4'ün kendi eksiğinden doğdu, ve onu bulan L4'ün taban seçimiydi.
+
+L4 tek bir tabana bakıyordu: HEAD'e en yakın sürüm. O taban **ağaçla
+birlikte hareket ediyor**, ve tam olarak yakalamak için var olduğu kusuru
+saklayabiliyor. Ölçüldü: `internal/storage/schema.sql`'deki korumalı
+GRANT bloğunu — L4'ün bütün işini — silince en yeni sürümün şeması
+ağaçtan *farklı* hâle geliyor, o yüzden taban oluyor, ve uygulandığında
+bloğu geri koyuyor. Karşılaştırma geçti. Değişmez mutasyonun etrafından
+kendini onarmıştı.
+
+Bir müşteri hareketli bir taban değildir. Biri v0.19.0'da, biri
+v0.23.0'da. O yüzden ölçüm artık **HEAD'den erişilebilir her sürüm** için
+ayrı bir veritabanı kuruyor ve dördünü de aynı dört soruyla sınıyor.
+21 sürüm, 20 saniye.
+
+İlk koşuda 21 sürümün **17'si** kırmızı verdi, iki ayrı kusurla:
+
+| kusur | nerede yazılıydı | yükseltende sonucu |
+|---|---|---|
+| `panel_release_requests`'in bütün yetkileri | yalnız `grants.sql` | L3'ün sürüm isteği sayfası satır yazamıyor (v0.9.0+L3 → v0.20.0) |
+| `panel_logs_id_seq` + `panel_upgrade_requests_id_seq` geri alması | yalnız `grants.sql` | H5'in kaldırdığı dizi yetkileri duruyor, dört rolde |
+
+İkincisi birincinin aynadaki hâli: **bir kaldırma da her yükseltmede
+tekrar söylenmek zorunda**, çünkü bir kurulum bir kez verileni
+kaybetmiyor. `grants.sql`'in kendi yorumu bunu "bir kez, burada, yüksek
+sesle" diye anlatıyordu — ve `burada` yalnız taze kuruluma ulaşıyor.
+
+Bir dördüncü blok (`panel_release_requests_id_seq`) yazıldı ve
+**silindi**: mutasyonu sağ kaldı, ve sebebi ölçüldü — hiçbir yayımlanmış
+`grants.sql` o diziyi hiçbir role vermemiş. Sınanamayan bir koruma
+korumadır sanılır.
+
+Üç mutasyon, üçü de yürüyen test tarafından yakalandı ve **üçü de tek
+tabanlı testten geçti** — yürümenin yük taşıdığının kanıtı bu.
+Şema **22**.
 
 ### AI-1 — İstemciye asla güvenme, yalnız sunucuya güven
 

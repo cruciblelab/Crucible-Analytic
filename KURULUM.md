@@ -975,13 +975,41 @@ Sonradan değiştirmek için bu adıma geri dönebilirsiniz.
 **Her adım değiştirdiğini anında kaydeder.** Yarıda bırakırsanız yarım
 bir kurulum kalır — saklanan bir taslak değil.
 
-7. adım **14 kontrol** çalıştırır. Kontrol listesi eksik olan her satırın
-yanına çalıştırılacak komutu yazar.
+7. adım **on altı kontrol** çalıştırır. Buna ek olarak
+`[service_urls]`'de adres verdiğiniz her servis için bir satır daha —
+hiç adres vermediyseniz onların yerine tek bir uyarı satırı. Kontrol
+listesi eksik olan her satırın yanına çalıştırılacak komutu yazar.
 
-**Bu 14'ün içinde "servisler ayakta mı" yok.** Kontrol kodu yazılmış ve
-test edilmiş durumda, ama panel binary'si ona hiçbir adres vermiyor —
-`panel.toml`'da böyle bir alan yok. Yani sihirbaz collector'ın, beacon'ın
-ve API'nin çalıştığını **doğrulamaz**; onu §13'ten elle yapın.
+*(Bu sayı bir teste bağlı: `internal/docs` onu buradan okuyup kodun
+gerçekten ürettiği kontrol sayısıyla karşılaştırıyor. Bu satır aylarca
+**14** diyordu ve kod on altı üretiyordu.)*
+
+**Servislerin ayakta olup olmadığı `[service_urls]` ile sorulur:**
+
+```toml
+[service_urls]
+api = "http://127.0.0.1:8081/healthz"
+beacon = "https://olcum.musteri.example/_ca/healthz"
+```
+
+Soldaki ad satırın etiketinde ve önerilen `systemctl` komutunda
+kullanılıyor, o yüzden servisin kendi adı olmalı. Panel her adrese bir
+GET isteği atar; 200 dönmezse satır **kırmızı** olur ve devir teslim
+durur.
+
+Bölüm hiç yoksa sihirbaz hiçbir servise istek atmaz ve bunu tek satırlık
+bir **uyarıyla** söyler — devri engellemez. Adresleri panel kendi başına
+bilemez: beacon dağıtımın koyduğu vekilin arkasında, istediği önekte
+durur; collector ise müşterinin sitesi için TLS sonlandırır ve kendi
+sağlık ucu yoktur. Collector için oraya müşterinin sitesinin bir adresini
+yazmak collector'ın ayakta olduğunu gösterir, ama müşterinin sitesi
+düştüğünde de kırmızı verir — karar dağıtımı yapanın.
+
+Ölçüldü (2026-09-14, gerçek yığın): adres verilen API `geçti`
+(*"…/healthz yanıt veriyor"*), kapalı bir porta bakan beacon
+`başarısız` (*"…adresine ulaşılamadı: connection refused"*), ve devir
+teslim adımı **"Zorunlu kontroller geçmediği için devir teslim kapalı:
+beacon servisi çalışıyor mu"** diyerek kapandı.
 
 Zorunlu kontrollerin hepsi geçmeden devir teslim adımı açılmaz. Burada
 "geçti" ile "bakılamadı" aynı şey değil: **bakılamayan zorunlu bir
@@ -1924,12 +1952,6 @@ belge, okuyana **gerçek** eksikler hakkındakilere de inanmamayı
 öğretiyor, ve bu liste tam da inanılmak için var. Silinenler
 CHANGELOG'da.)*
 
-- **"Servisler ayakta mı" kontrolü binary'ye bağlı değil.**
-  `preflight.checkService` yazılmış ve testleri var, ama `cmd/panel`
-  ona hiç adres vermiyor ve `panel.toml`'da o adresleri yazacak bir alan
-  yok. Kurulum sihirbazı bu yüzden "collector çalışıyor mu" sorusunu
-  sormuyor. *(Sağlık sayfası aynı soruyu kalp atışı satırlarından
-  cevaplıyor, ve daha iyi cevaplıyor — ama sihirbazdaki boşluk duruyor.)*
 - **Parola değişikliği diğer cihazlardaki oturumları kapatmıyor.**
 - **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe.**
   Panelin geri kalanı Türkçe ve İngilizce.

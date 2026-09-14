@@ -12,7 +12,9 @@ package web
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -121,6 +123,38 @@ type Config struct {
 	// from the panel by anyone, which is the safe direction.
 	DeveloperGate devgate.Config `toml:"developer_gate"`
 
+	// ServiceURLs maps a service name to a URL the setup wizard fetches
+	// to find out whether that service is answering.
+	//
+	// The setup checks could ask about the schema, the roles, the disk
+	// and the logs, and could not ask the simplest question of all -
+	// "is the collector running" - because the check that does it was
+	// written, tested, and never given an address. Fourteen checks, and
+	// none of them a request to a service.
+	//
+	// # Why this is configuration and not derived
+	//
+	// Because the panel cannot know these addresses. analytics_api_url
+	// is the one it uses itself, and beacon_url is the public address in
+	// the snippet - but the beacon sits behind whatever proxy the
+	// deployment put there, under whatever prefix, and the collector is
+	// a TLS terminator for somebody else's website with no health
+	// endpoint of its own. Guessing a path and failing a required check
+	// on the guess would block handover on this file's opinion.
+	//
+	// # What to put in it
+	//
+	// The name is used in the check's label and in the systemctl line it
+	// offers as a fix, so it should be the service's own name:
+	// collector, beacon, api. The URL must answer 200; the api and the
+	// beacon both serve /healthz.
+	//
+	// Empty is a supported state. The wizard then says, in one
+	// recommended warning, that nobody asked - which is the difference
+	// between a question with no answer and a question that was never
+	// put.
+	ServiceURLs map[string]string `toml:"service_urls"`
+
 	// SecretKey encrypts the one secret this product stores that it has
 	// to be able to read back: the outgoing SMTP password. 32 bytes, as
 	// 64 hex characters or base64. See internal/sealed.
@@ -198,6 +232,47 @@ func (c Config) validate() error {
 	// nobody has cause to re-read.
 	if _, err := c.Secrets(); err != nil && !errors.Is(err, sealed.ErrNoKey) {
 		return fmt.Errorf("panel: secret_key: %w", err)
+	}
+	if err := c.validateServiceURLs(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// serviceName is what a service may be called in [service_urls].
+//
+// Narrow because the name is not only a label: it goes into the
+// systemctl line the check offers as its fix, so a name with a space or
+// a shell metacharacter in it would produce advice that does something
+// other than what it reads as.
+var serviceName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
+
+// validateServiceURLs refuses at startup what would otherwise surface as
+// a failed check.
+//
+// A mistyped address here produces "collector is not answering" on the
+// last page of the setup wizard - a sentence about the deployment,
+// caused by a line in a file. The two must not be confusable, so a URL
+// that cannot be fetched at all is a startup error and only a URL that
+// could be fetched and was not is a check that fails.
+func (c Config) validateServiceURLs() error {
+	for name, raw := range c.ServiceURLs {
+		if !serviceName.MatchString(name) {
+			return fmt.Errorf("panel: service_urls: %q is not a usable service name "+
+				"(lowercase letters, digits and dashes; it names a systemd unit in the "+
+				"advice the setup check prints)", name)
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			return fmt.Errorf("panel: service_urls.%s: %w", name, err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("panel: service_urls.%s: %q has no http or https scheme; "+
+				"the setup check makes a GET request to it", name, raw)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("panel: service_urls.%s: %q has no host", name, raw)
+		}
 	}
 	return nil
 }

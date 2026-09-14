@@ -194,14 +194,14 @@ import (
 // a schema file without failing every install and every upgrade on the
 // other build. The reasoning is written out where the tables are, in
 // internal/storage/schema.sql.
-const Version = 21
+const Version = 22
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "106547fce85d51ba6a874a1ac7d0b70dbdd9fae1b8af5385d8168620ccd09f53"
+const Fingerprint = "80c6efcca6db9594d6a1807e6e15b9f53e12be7e4eb6e50c252a7352c8d9482f"
 
 // FingerprintOf hashes a set of schema files.
 //
