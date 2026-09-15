@@ -1,6 +1,8 @@
 package beacon
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -12,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,10 +34,69 @@ var scriptSource []byte
 // instead of re-downloading the script on every cache expiry, and it
 // changes automatically when the file does - no version string to
 // remember to bump.
-var scriptETag = func() string {
-	sum := sha256.Sum256(scriptSource)
+var scriptETag = etagOf(scriptSource)
+
+// scriptGzip is the same script, compressed once at startup, and its own
+// validator.
+//
+// # Why the beacon compresses this itself
+//
+// Because nothing else was. Measured: the script is 16.4 KB and gzips to
+// 5.6 KB, and there was no gzip anywhere in this serving path - not in
+// the beacon, not in the collector's full-proxy mode, and not in the
+// nginx guidance KURULUM gives. README claimed "2.1 KB over the wire
+// (gzipped)" for months, so the expectation was already documented; the
+// delivery was not. Every cold visitor on every deployment whose
+// operator had not thought about gzip_types was downloading 10.7 KB
+// more than they needed to, for one static file.
+//
+// Compressed once, at init, not per request: the bytes are embedded and
+// cannot change while the process runs, so there is nothing to
+// recompute and no CPU on the request path. The cost is one 5.6 KB
+// buffer for the life of the process.
+//
+// # Why it needs its own ETag
+//
+// Because an entity tag identifies a *representation*, not a resource.
+// Two encodings sharing one tag is the shape that poisons a shared
+// cache: a proxy stores whichever body it saw first, and then answers
+// a client's conditional request for the other encoding with 304 - so
+// the client keeps a body in an encoding it never asked for. The
+// identity and gzip bodies are different bytes and get different tags,
+// and Vary: Accept-Encoding tells the cache to key on the header that
+// decides between them.
+var (
+	scriptGzip     = gzipOnce(scriptSource)
+	scriptGzipETag = etagOf(scriptGzip)
+)
+
+func etagOf(body []byte) string {
+	sum := sha256.Sum256(body)
 	return `"` + hex.EncodeToString(sum[:8]) + `"`
-}()
+}
+
+// gzipOnce compresses at startup, panicking on failure.
+//
+// A panic rather than a fallback, and the reason is that there is no
+// third state worth having: gzip.Write on an in-memory buffer cannot
+// fail for any reason a running process could recover from, and a
+// beacon that silently started serving 16 KB because a compressor it
+// built at init returned an error would be a deployment nobody could
+// tell from a healthy one. This runs once, before the listener opens.
+func gzipOnce(body []byte) []byte {
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestCompression)
+	if err != nil {
+		panic("beacon: gzip writer: " + err.Error())
+	}
+	if _, err := zw.Write(body); err != nil {
+		panic("beacon: gzip the snippet: " + err.Error())
+	}
+	if err := zw.Close(); err != nil {
+		panic("beacon: close the gzip writer: " + err.Error())
+	}
+	return buf.Bytes()
+}
 
 // maxBodyBytes caps an event payload. Generous next to a real event
 // (a few hundred bytes) and small enough that flooding the endpoint
@@ -233,18 +295,61 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) handleScript(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("ETag", scriptETag)
 	// An hour: long enough that repeat visitors rarely re-fetch, short
 	// enough that a change to the snippet reaches the world the same
 	// day. The ETag makes the revalidation itself nearly free.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// Set whether or not this answer is compressed: it says the answer
+	// depends on the header, which is true of the resource even on the
+	// request that happens to take the identity branch. A cache that
+	// stored one variant without it would hand it to every client.
+	w.Header().Set("Vary", "Accept-Encoding")
 
-	if match := r.Header.Get("If-None-Match"); match != "" && strings.Contains(match, scriptETag) {
+	body, etag := scriptSource, scriptETag
+	if acceptsGzip(r.Header.Get("Accept-Encoding")) {
+		body, etag = scriptGzip, scriptGzipETag
+		w.Header().Set("Content-Encoding", "gzip")
+	}
+	w.Header().Set("ETag", etag)
+
+	// etagMatches rather than a substring test, which is what this used
+	// to do: the rule about lists and W/ prefixes is written once, in
+	// privacy.go, and a second spelling of it here is a second thing to
+	// keep correct.
+	if match := r.Header.Get("If-None-Match"); match != "" && etagMatches(match, etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(scriptSource)
+	_, _ = w.Write(body)
+}
+
+// acceptsGzip reports whether the client will take a gzipped body.
+//
+// Parsed rather than searched for. `Accept-Encoding: gzip;q=0` is a
+// client saying *do not send me gzip*, and a substring test reads it as
+// consent - which would hand a compressed body to the one client that
+// asked not to have one. Rare, and the rare case is the whole reason to
+// parse: a visitor whose browser or proxy is telling us something
+// specific is not a visitor to guess about.
+func acceptsGzip(header string) bool {
+	for _, part := range strings.Split(header, ",") {
+		token, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(strings.TrimSpace(token), "gzip") {
+			continue
+		}
+		for _, p := range strings.Split(params, ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(p), "=")
+			if !ok || !strings.EqualFold(strings.TrimSpace(key), "q") {
+				continue
+			}
+			if q, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil && q == 0 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 func (s *Server) handlePreflight(w http.ResponseWriter, r *http.Request) {

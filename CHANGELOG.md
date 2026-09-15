@@ -20,6 +20,34 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Snippet artık sıkıştırılmış gidiyor
+
+Ziyaretçi **16,4 KB** indiriyordu. Bu serving yolunda hiçbir yerde gzip
+yoktu — ne beacon'da, ne collector'ın tam vekil kipinde, ne de KURULUM'un
+verdiği nginx yapılandırmasında. README aylarca "2,1 KB over the wire
+(gzipped)" diyordu; yani **beklenti belgeliydi, teslim değildi.**
+
+Artık beacon kendisi sıkıştırıyor: **5,7 KB** telde, gzip kabul eden bir
+istemciye. Ön vekilde bir şey ayarlamanız gerekmiyor; ayarlıysa da zarar
+yok.
+
+- **Bir kez, açılışta sıkıştırılıyor**, istek başına değil: baytlar
+  gömülü ve süreç koşarken değişemiyor, yani istek yolunda CPU yok.
+  Bedeli süreç ömrü boyunca tek bir 5,7 KB'lık tampon.
+- **`Accept-Encoding: gzip;q=0`** gönderen istemci sıkıştırılmamış
+  gövdeyi alıyor — o başlık bir ret, formalite değil.
+- **İki kodlama iki ayrı temsil**, yani ayrı `ETag`'leri var ve yanlarında
+  `Vary: Accept-Encoding` duruyor. Bu titizlik değil: tek bir paylaşılan
+  etiket, bir önbelleğin elinde olmayan kodlama için gelen koşullu
+  isteğe 304 demesinin yolu — ve o istemci gzip akışını JavaScript
+  sanarak ayrıştırmaya çalışır.
+
+Gerçek Chromium'la ölçüldü: tarayıcı `gzip, deflate, br, zstd`
+gönderiyor, `content-encoding: gzip` alıyor, çözünce 16.764 baytın
+tamamını buluyor ve betik koşuyor.
+
+**Kuran kişinin yapması gereken: bir şey yok.**
+
 ### Temiz kapanışta bir yığın veri kaybolabiliyordu — iki serviste
 
 Beacon ve collector ikisi de tamponluyor ve toplu yazıyor. Beacon'ın

@@ -3,10 +3,13 @@ package beacon
 import (
 	"bytes"
 	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -28,12 +31,18 @@ import (
 //
 // # What is asserted, and what is not
 //
-// Both numbers in README's table, against the embedded file: what a
-// visitor downloads when nothing compresses, and what they download when
-// the front proxy does. Not Umami's row - that is a measurement of
-// another repository taken on a named version, and this suite cannot
-// re-measure it. It is labelled "for scale" in the document for that
-// reason.
+// Both numbers in README's table, against the embedded file, plus the
+// sentence beside them about who does the compressing. Not Umami's row -
+// that is a measurement of another repository taken on a named version,
+// and this suite cannot re-measure it. It is labelled "for scale" in the
+// document for that reason.
+//
+// The sentence is in scope because it went stale inside a day. The
+// paragraph used to say "The beacon does not compress it. There is no
+// gzip anywhere in this serving path, deliberately" - which was true
+// when it was written and false as soon as the beacon started
+// compressing. A claim about behaviour ages exactly like a number
+// does.
 //
 // The tolerance is one tenth of a KB either way, which is what the
 // document's own precision is. A change that moves the script by more
@@ -86,13 +95,29 @@ func TestTheSnippetSizeInTheReadmeIsTheSizeItIs(t *testing.T) {
 		}
 	}
 
-	// And the claim beside the numbers: that nothing here compresses.
-	// If a gzip layer is ever added to this path, the served column
-	// stops being what a visitor downloads and the paragraph has to be
-	// rewritten rather than left to age.
 	if compressed >= served {
 		t.Errorf("gzip made the script bigger (%.1f KB vs %.1f KB), which means this "+
 			"measurement is not measuring what it thinks", compressed, served)
+	}
+
+	// And the sentence: README says the beacon compresses this itself,
+	// so the handler has to. The pair is the point - either half moving
+	// alone is the defect, and the half that moves silently is the
+	// document.
+	saysBeacon := strings.Contains(readme, "beacon compresses it itself")
+	r := httptest.NewRequest(http.MethodGet, DefaultPathPrefix+"/ca.js", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	(&Server{Sites: []string{"acme"}, Sink: &fakeSink{}, Visitors: newTestVisitorIDs(t)}).
+		Handler().ServeHTTP(w, r)
+	doesCompress := w.Header().Get("Content-Encoding") == "gzip"
+
+	if saysBeacon != doesCompress {
+		t.Errorf("README says the beacon compresses the snippet: %v. It does: %v.\n"+
+			"Whichever of the two moved, the other has to move with it: the gzipped "+
+			"column means 'what a visitor downloads' only while the beacon is the "+
+			"thing producing it, and otherwise it means 'if your proxy is set up "+
+			"for it', which is a different promise.", saysBeacon, doesCompress)
 	}
 }
 

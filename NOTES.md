@@ -18404,3 +18404,62 @@ kırmızı. `internal/invariants/periodicwrites_test.go`.
 Dört mutasyon, dördü de kırmızı: listeden bir girdi düşürmek, listeye
 olmayan bir döngü eklemek, tarayıcının tek koşula bakması, ve
 tarayıcının hiçbir dosya okumaması.
+
+## Snippet'i kim sıkıştırıyor — ve "temsil" ne demek
+
+İncelemede bulunan riski kapattım. Ölçüm şuydu: betik 16,4 KB ham,
+5,7 KB gzip'li, ve **bu yolda hiçbir yerde gzip yoktu**
+(`internal/beacon`, `internal/fullproxy`, `internal/proxy` — üçünde de ne
+`gzip` ne `Content-Encoding`), KURULUM'un nginx bölümü de açmıyordu.
+README aylarca sıkıştırılmış boyutu vaat ediyordu: beklenti belgeliydi,
+teslim değildi.
+
+### Niye ürünün kendisi
+
+"Sıkıştırmanın doğru yeri TLS'i sonlandıran katman" cümlesi doğru ama
+burada boşa çıkıyor: bu **tek bir gömülü dosya**, ve o katmanda gzip'in
+açık olduğunu söyleyen hiçbir yer yoktu. Yani doğru yer teoride başkası,
+pratikte kimse. Bir kez, açılışta sıkıştırmanın bedeli tek bir 5,7 KB'lık
+tampon ve istek yolunda sıfır CPU; kazancı her soğuk yüklemede 10,7 KB.
+
+### Asıl tuzak: ETag bir kaynağı değil bir temsili adlandırır
+
+İki kodlama tek etiketi paylaşırsa, paylaşılan bir önbellek ilk gördüğü
+gövdeyi saklar ve sonra **öteki** kodlama için gelen koşullu isteğe 304
+der. O istemci elinde hiç istemediği bir kodlamada gövdeyle kalır — bir
+betik için bu, birinin sitesinde sözdizimi hatası demek.
+
+Üç şey birlikte gerekiyor: ayrı etiketler, `Vary: Accept-Encoding`, ve
+koşullu isteğin **kendi varyantının** etiketine göre yargılanması.
+Testteki çapraz çift asıl iddia: identity etiketi bir gzip isteğini
+tatmin **etmemeli**. Tek etiketle üç iddia yine geçiyordu.
+
+### `q=0` bir ret
+
+`Accept-Encoding: gzip;q=0` "bana bunu gönderme" demek, ve `"gzip"` diye
+alt-dize aramak bunu onay olarak okuyor. Nadir — ve nadir olması tam
+olarak ayrıştırma sebebi: tarayıcısı ya da vekili bize özel bir şey
+söyleyen ziyaretçi, hakkında tahmin yürütülecek ziyaretçi değil.
+
+### Gerçek tarayıcıyla ölçüldü, çünkü varsaymak yetmezdi
+
+İki tarayıcı testi geçiyordu, ama ikisi de "betik koşuyor" diyordu —
+tarayıcının **gzip dalına düştüğünü** söylemiyordu. Chromium bizim
+ayrıştırıcımızın reddettiği bir başlık gönderse identity alır, testler
+yine geçer, ve "gerçek tarayıcı sıkıştırılmışını kabul ediyor" iddiam
+ölçülmemiş kalırdı. Ölçüldü: Chromium
+`Accept-Encoding: gzip, deflate, br, zstd` gönderiyor,
+`content-encoding: gzip` + `vary: Accept-Encoding` + gzip etiketi
+alıyor, çözünce 16.764 baytın tamamını buluyor.
+
+Yan not: Go'nun `BestCompression`'ı 5.692 bayt üretiyor, `gzip -9`
+komutu 5.743. README'deki sayı testin ölçtüğü sayı, yani Go'nunki.
+
+### İkinci bir kopya da silindi
+
+`handleScript`'in `If-None-Match` kontrolü `strings.Contains` ile
+yapılıyordu — P7'de aynı kuralın doğrusunu (`etagMatches`, liste ve `W/`
+önekleri) zaten yazmıştım. İki yazım vardı, biri artık öteki.
+
+Altı mutasyon, altısı da kırmızı — paylaşılan etiket tuzağı ve
+README↔davranış bağı dâhil.

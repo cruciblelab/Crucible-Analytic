@@ -685,15 +685,24 @@ What that costs, measured rather than estimated:
 | this snippet | 16.4 KB | 5.6 KB |
 | Umami v3.3.1's `script.js`, for scale | 4.6 KB | 2.3 KB |
 
-**The beacon does not compress it.** There is no gzip anywhere in this
-serving path, deliberately - it is one embedded file behind whatever the
-deployment already terminates TLS with, and that is where compression
-belongs. So the gzipped column is what a visitor downloads *if* the front
-proxy is configured for it (`gzip_types application/javascript` in
-nginx), and the served column is what they download otherwise. Both
-numbers are asserted by a test against the embedded file, because a size
-nobody measures is a size that drifts: this paragraph said 2.1 KB for
-months after two features had been added to the script.
+**The beacon compresses it itself**, so the gzipped column is what a
+visitor actually downloads - no front-proxy configuration required. It
+is compressed once at startup rather than per request: the bytes are
+embedded and cannot change while the process runs, so there is no CPU on
+the request path and the cost is one 5.6 KB buffer for the life of the
+process. A client sending `Accept-Encoding: gzip;q=0` gets the identity
+body, because that header is a refusal and not a formality.
+
+The two encodings are two representations and carry **different ETags**,
+with `Vary: Accept-Encoding` beside them. That is not pedantry: one
+shared tag is how a cache ends up answering 304 to a conditional request
+for the encoding it does not hold, leaving a client to parse a gzip
+stream as JavaScript.
+
+Both numbers are asserted by a test against the embedded file, because a
+size nobody measures is a size that drifts - this paragraph said 2.1 KB
+for months after two features had been added to the script, and it also
+said nothing here compressed, which was true until it was not.
 
 It sends an automatic pageview on load, follows SPA navigation by hooking
 `history.pushState`/`replaceState` and `popstate`, and exposes
