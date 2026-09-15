@@ -18717,3 +18717,60 @@ On bir mutasyon, on biri de kırmızı. İkisi ilk turda boşa gitti ve ikisi
 de benim hatamdı: biri metni bulamadı (girinti), biri derlenmedi
 (kaldırdığım koşul iki değişkeni kullanılmaz bıraktı). **Uygulanmayan bir
 mutasyon bir sonuç değil**, o yüzden ikisi düzeltilip tekrar koşturuldu.
+
+---
+
+## C3 — Aylardır sağ kalan mutasyon: boş bir tablo bir cevaptır
+
+Açık risk listemin 7. maddesi. `Source.Refresh` önbelleği **değiştiriyor**,
+birleştirmiyor, ve yanındaki yorum sebebini uzun uzun anlatıyor: panel bir
+ayarı "varsayılan demek" bir değerle saklamak yerine satırı siliyor, yani
+giden bir ayar burada da gitmeli. Birleştirmek, müşterinin bir sınırı
+indirip bir daha asla yükseltememesi demek.
+
+**Yarısı ölçülmüştü.** `TestSource_ADeletedSettingGoesBackToTheDefault`
+sıradan durumu tutuyor — birkaç satırdan biri silinince — ve birleştiren
+bir `Refresh`'i yakalıyor. Ulaşamadığı şey **sınır**: atamayı
+`if len(fresh) > 0` ile sarmak o testi geçiyor, çünkü onun tablosunda
+hâlâ satır var.
+
+O mutasyon C3'ten beri ayakta duruyordu ve sebebi düzenekti:
+`panel_settings` üç entegrasyon süitinin paylaştığı bir tablo ve her biri
+içinde satır tutuyor. Mutasyona ulaşmak için **üçünün aynı anda boş
+olması** gerekiyordu.
+
+### Düzenek: ayrı bir veritabanı değil, ayrı bir şema
+
+İlk düşündüğüm şey ayrı bir veritabanıydı (`internal/retention`'ın
+sıkıştırma süiti gibi). Daha hafif ve daha güvenli olanı çıktı: kendi
+şeması.
+
+- `CREATE TABLE ca_settings_empty.panel_settings (LIKE
+  public.panel_settings INCLUDING ALL)` — **şekli türetilmiş**, elle
+  yazılmamış. Elle yazılmış bir kopya yazıldığı gün doğru olur ve ondan
+  sonra yalnız kazara doğru kalır; bu projenin bir kez ödediği fatura.
+- Source'un havuzu `search_path`'i o şemayla başlatıyor, yani
+  `Refresh`'teki niteliksiz `panel_settings` oraya çözülüyor.
+- **Küme içinde başka hiçbir şey görmüyor:** diğer süitler
+  `search_path = public` ile koşuyor. Yani bu tabloyu boşaltmak onlara
+  görünmez — asıl olanı boşaltmak görünür olurdu, ki mesele tam bu.
+- Yazma süper kullanıcıyla, okuma `panel_user` ile: üründeki bölüşümün
+  aynısı.
+
+Ve fikstürün iddia ettiği yere ulaştığı **ayrıca** sınanıyor: havuz
+`panel_settings`'i hangi şemaya çözüyor diye `regclass`'a soruyor. Bu
+satır olmasa test, `public`'in satırlarını okuyarak da geçebilirdi — ve
+o zaman boş tablo hakkında hiçbir şey ölçmüyor olurdu. (Mutasyonla
+gösterildi: `search_path`'i `public` yapınca kırmızı.)
+
+### Komşu kural aynı testte
+
+"Boş bir okuma önbelleği boşaltır" ile "başarısız bir okuma
+boşaltmamalı" yan yana duruyor, ve ikisi tek yerde birden ulaşılabilir.
+Yoksa "koşulsuz değiştir" kuralı "sorgu başarısız olsa da değiştir"
+diye uygulanabilirdi ve ilk iddia bunu görmezdi. (Mutasyonla gösterildi.)
+
+Beş mutasyon, beşi de kırmızı — tarihi olan dâhil. İkisi düzenek
+kontrolü: biri `search_path`, biri `INCLUDING ALL`. İkincisi bir ürün
+kusuru değil; fikstür bozulursa **sessizce değil gürültüyle** bozulsun
+diye orada.
