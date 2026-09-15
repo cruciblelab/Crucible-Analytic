@@ -48,9 +48,39 @@ type Flusher struct {
 	liveASNs atomic.Pointer[map[int]struct{}]
 	// IPMode decides how much of each address is written. The zero value
 	// masks - see storage.RowOptions.
+	//
+	// Settable at construction and replaceable afterwards with SetIPMode,
+	// through the atomic below, for the same reason KnownBotASNs is: the
+	// field is read once per flush, so a mode arriving mid-flush applies
+	// to the next batch rather than to half of this one. A batch written
+	// half in each mode would be two key spaces inside one interval.
 	IPMode privacy.IPMode
+	// liveIPMode holds the replacement, if SetIPMode was ever called.
+	liveIPMode atomic.Pointer[privacy.IPMode]
 	// IPHashKey keys the token stored in full mode.
 	IPHashKey []byte
+}
+
+// SetIPMode swaps how much of each address is written, while the
+// collector runs.
+//
+// The beacon's server has had this since A6 and this did not exist, so
+// privacy.ip_storage reached one writer of the crossover join and not
+// the other - see collector.PrivacyConfig.Live for what that cost.
+//
+// No validation here: the caller resolves the mode through Live, which
+// admits only the two declared values, and privacy.ParseIPMode maps
+// anything else to masked. A setter that re-checked would be a second
+// place for that decision to live.
+func (f *Flusher) SetIPMode(mode privacy.IPMode) { f.liveIPMode.Store(&mode) }
+
+// ipMode is the mode in force: whatever SetIPMode last published, or the
+// field the Flusher was built with.
+func (f *Flusher) ipMode() privacy.IPMode {
+	if live := f.liveIPMode.Load(); live != nil {
+		return *live
+	}
+	return f.IPMode
 }
 
 // SetKnownBotASNs replaces the scoring signal while the collector runs.
@@ -126,7 +156,7 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 		KnownBots:    f.KnownBots,
 		KnownBotASNs: f.knownBotASNs(),
 		Resolver:     f.Resolver,
-		IPMode:       f.IPMode,
+		IPMode:       f.ipMode(),
 		IPHashKey:    f.IPHashKey,
 	})
 	// A write that has started finishes.

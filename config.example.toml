@@ -181,7 +181,17 @@ known_bot_asns = []      # e.g. [16509] (AWS) - example only, not a recommendati
 # without explanation.
 #
 # Changing this from the panel requires the developer password - see the
-# [developer] section in the panel's config and cmd/devpass.
+# [developer] section in the panel's config and cmd/devpass. The panel's
+# value takes effect within one [settings] interval, with no restart, and
+# the value below is the fallback for a deployment whose settings table
+# is unreachable or ungranted.
+#
+# Live since P5a, and it was not before: this process read the line below
+# at startup and never asked the panel, while the beacon did. So one
+# click moved one of the two writers of the crossover join and left this
+# one where it was - and since a token and a network never compare equal,
+# the two tables then shared no keys at all. If you run the two services
+# on different builds, this is the setting to check first.
 # ip_storage = "masked"
 
 # ---------------------------------------------------------------------

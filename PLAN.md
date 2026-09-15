@@ -99,7 +99,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **6/6** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu; L6 yetki yüzeylerine RLS/politika/sahiplik/kısıt ekledi ve iki tabloda zorlanmayan satır güvenliği buldu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **7/8** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden, P7 "sayfa dinamik olmalı" isteğinden doğdu, P7b P6'nın UI adayını kapattı)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **8/9** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden, P7 "sayfa dinamik olmalı" isteğinden doğdu, P7b P6'nın UI adayını kapattı, P5a ise P5'i hazırlarken çıktı: kipin kendisi collector'a hiç ulaşmıyordu)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -192,7 +192,7 @@ geçer.
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 6.5 | ~~**P1** çağrılar~~ ✅ ~~**P2** açıklama yüzeyi~~ ✅ ~~**P3** panel ayarları~~ ✅ → **P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
-| 7.5 | **P5** mod değişiminin geçmişi | uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
+| 7.5 | ~~**P5a** kip gerçekten uygulanıyor~~ ✅ → **P5** mod değişiminin geçmişi | P5a P5'in önkoşuluydu ve planda yoktu: bir kip değişiminin geçmişe etkisini anlatmadan önce kipin **değişiyor** olması gerekiyor, ve collector onu hiç okumuyordu. P5'in uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
 | 10 | **E1** | *bilinçli karar ister* — ne zaman yapılırsa öncesi yeniden yazılır |
@@ -7645,6 +7645,95 @@ yönü bu); bir belge sınıflandırılmadan kalsın.
 **Ölçüm:** 139 yol çözülüyor, 30 ayar adı gerçek. Kontrol edilmeyen 25
 aday (import yolları, Go simgeleri, dış dosyalar) sayı olarak yazılıyor —
 bu kontrolün kendi sınırı, ve saklanmıyor.
+
+---
+
+#### P5a — Kipin kendisi collector'a hiç ulaşmıyordu ✅ **bitti (2026-09-15)**
+
+**Planda yoktu.** P5'i hazırlarken çıktı, ve P5'in önkoşulu olduğu için
+önüne geçti: *bir kip değişiminin geçmişe etkisini anlatabilmek için
+kipin değişiyor olması gerekir.*
+
+**Bulgu.** Panel `privacy.ip_storage`'ı `Live: true` diye gösteriyor,
+beacon onu A6'dan beri canlı uyguluyor, **collector hiç uygulamıyordu**
+— `cfg.Privacy.IPMode()` açılışta bir kez okunuyor, `applySettings`
+beşinci ayarı uyguluyor ve bu altıncısı listede yok. `internal/collector`
+için bir `Live` metodu **hiç yazılmamıştı.**
+
+Ve canlı ayar bloğunun kendi yorumu tam bunu anlatıyor:
+*"the panel could offer a setting the collector would never see - and the
+two tables this system writes were configured from two different
+places."* Gerekçe doğru yazılmıştı ve bir ayar için yanlışa dönmüştü.
+
+**Bedeli.** Kesişim `COALESCE(ip_hash, inet_send(ip))` üzerinden
+birleşiyor; jeton ile ağ hiçbir zaman eşit değil. İki yazar farklı
+kipteyken iki tablonun **hiç ortak anahtarı kalmıyor**: kapsama %0,
+beacon'ın her adresi `beacon_only_ips`'e düşüyor, ve panel bunu
+*"collector yolda değil ya da `trusted_proxies` yanlış"* diye anlatıyor.
+
+**Ve ziyaretçiye ulaşan yön, bugün erişilebilir olan.** `full`
+panelden hiç seçilemiyor (aşağıdaki açık bulgu), ama `masked`
+seçilebiliyor: iki dosyasında da `full` ile kurulmuş bir sistemde müşteri
+`masked` seçerse beacon jeton üretmeyi bırakıyor, collector bırakmıyordu
+— ve açıklama sayfası beacon'dan türüyor. Sayfa *"yalnız maskeli ağ"*
+derken `traffic_snapshots.ip_hash` yazılmaya devam ediyordu. **Bir
+sayfanın sakladığından azını söylemesi**, bu yüzeyin olmaması gereken
+tek hâli.
+
+**Yapılan.** `collector.PrivacyConfig.Live` (beacon'ın aynısı),
+`storage.Flusher.SetIPMode` + atomik (tur ortasında gelen kip **sonraki**
+yığına uygulanıyor — yarısı bir kipte yazılmış bir yığın tek aralıkta iki
+anahtar uzayı olurdu), ve `cmd/collector`'ın her ayar turunda çözüp
+uygulaması, kip değişince beacon'ınki gibi tek satır log.
+
+**Ölçüm.** Gerçek `panel_settings` + gerçek `traffic_snapshots`, üç yön:
+hiçbir şey saklı değilken dosya karar veriyor · panel `full` yazınca
+satırda jeton **ve** maskeli ağ birlikte çıkıyor · panel `masked`'a
+döndürünce jeton kesiliyor. Yedi mutasyon, yedisi de kırmızı.
+
+**Yapısal yarım, ve gerekli:** ölçüm `cmd/collector`'ın çağrısını
+göremiyor (bir test `main()` içindeki bir kapanışa ulaşamaz), yani iki
+satırı binary'den silmek bütün işlevsel testleri yeşil bırakır.
+`internal/invariants/livemode_test.go` bunu tutuyor, ve **yazar listesi
+türetilmiş**: yazar = yapılandırmasında `toml:"ip_storage"` etiketi olan
+paket. Üçüncü bir yazar eklendiği gün kimsenin buraya dönmesi gerekmiyor.
+
+**Ölçülemeyen bir şey, dürüstçe:** iki süitin aynı `privacy.ip_storage`
+satırını yazması `testdb.IPModeSettingLock` ile seri hâle getirildi.
+Bunu mutasyonla göstermek mümkün değil — yarışı kaybetmeyen bir makinede
+kilitsiz hâl de yeşil verir. Doğrulanabilen tek şey artık
+ayrışamamaları, ve iki paket birlikte koşuluyor.
+
+##### Açık bulgu, sahibin kararını bekliyor: `full` panelden hiç seçilemiyor
+
+Aynı zinciri ölçerken çıktı ve **düzeltilmedi**, çünkü düzeltmesi bir
+kanal kararı gerektiriyor.
+
+`Store.checkPrecondition` `full`'ü yalnız `ipTokenKeyConfigured`
+doğruysa kabul ediyor. O alanı kuran tek şey `SetIPTokenKeyConfigured`,
+ve **onu ürün kodunda hiç kimse çağırmıyor** — `cmd/panel` yalnız
+`store.IPTokenKeyConfigured()` diye *okuyor*. Yani alan her kurulumda
+`false`, `full` her kurulumda reddediliyor, ve kurulum sihirbazının IP
+anahtarı kontrolü de her zaman "bize söylenmedi" dalından geçiyor.
+`preflight.checkService`'in sınıfı (2026-09-14) — bu kez
+`preflight.Config`'in bir alanı değil, `preflight.New`'un bir argümanı
+olduğu için o turda kurulan değişmez onu görmedi. *Bir kuralın bir
+dosyada durması kardeşini korumaz.*
+
+Gerekçe sağlam: anahtar yoksa `full` başarısız olmuyor, **bozuluyor** —
+maskeli satır yazılır, jeton yazılmaz, ve kurulum ayarının söylediğinden
+başka bir kipte kalır. Panel de iki servisin yapılandırma dosyasını
+okuyamaz. Yani panele **söylenmesi** gerekiyor, ve soru şu: kim söyler?
+
+- **(a) `service_heartbeat`'e bir sütun** (şema 24). Doğru kaynak: gerçek
+  soru "iki yazar jeton üretebiliyor mu", ve bunu yalnız onlar bilir.
+  Bedeli bir şema sürümü. `counters` JSONB'si sayı taşıyor, bayrak değil;
+  bir yeteneği sayı kılığında yazmak veriye yanlış şekil vermek olur.
+- **(b) `panel.toml`'a bir alan.** Bedeli yok, ama insanın elle doğru
+  yazmasına bağlı bir güvence — ve yanlış yazıldığında sessiz.
+
+**Benim önerim (a)**, çünkü (b) tam olarak bu kusurun tekrarı: bir
+gerçeği, onu bilmeyen bir yere yazmak. Ama şema sürümü sahibin kararı.
 
 ---
 

@@ -20,6 +20,44 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### IP saklama kipi collector'a hiç ulaşmıyordu
+
+Panel `privacy.ip_storage`'ı **canlı** diye gösteriyor, beacon onu A6'dan
+beri canlı uyguluyordu — **collector hiç uygulamıyordu.** Kendi
+yapılandırma dosyasını açılışta okuyor, sonra bir daha sormuyordu. Yani
+paneldeki tek tık, kesişim sorgusunun **iki yazarından birini**
+oynatıyor, diğerini yerinde bırakıyordu.
+
+Bedeli "biraz yanlış sayı" değil. Kesişim `COALESCE(ip_hash,
+inet_send(ip))` üzerinden birleşiyor; bir jeton ile bir ağ hiçbir zaman
+eşit olmaz. İki yazar farklı kipteyken iki tablonun **hiç ortak anahtarı
+kalmıyor**: kapsama %0, beacon'ın gördüğü her adres "collector'ın hiç
+görmediği" hanesine düşüyor — ve pano bunu *"collector yolda değil ya da
+`trusted_proxies` yanlış"* diye anlatıyor. Ayardaki bir kusur için ağı
+gösteren bir teşhis.
+
+**Ziyaretçiye ulaşan yön daha ağırı, ve bugün erişilebilir olan da o.**
+İki dosyasında da `ip_storage = "full"` ile kurulmuş bir sistemde müşteri
+panelden `masked` seçerse: beacon jeton üretmeyi bırakıyor, collector
+bırakmıyordu. Açıklama sayfası beacon'dan türediği için *"yalnız maskeli
+ağ saklanıyor"* diyor, `traffic_snapshots.ip_hash` ise yazılmaya devam
+ediyordu. Bir sayfanın **sakladığından azını söylemesi**, bu yüzeyin
+olmaması gereken tek hâli.
+
+Artık collector da her ayar turunda kipi paneldan okuyup yazma yoluna
+uyguluyor, ve kip değiştiğinde beacon'ınki gibi tek satır log basıyor.
+Kip tur ortasında gelirse **sonraki** yığına uygulanıyor: yarısı bir
+kipte yazılmış bir yığın, tek aralığın içinde iki anahtar uzayı olurdu.
+
+Gerçek veritabanına karşı ölçüldü, üç yönde: hiçbir şey saklı değilken
+dosya karar veriyor, panel `full` yazınca satırda jeton çıkıyor, panel
+`masked`'a döndürünce jeton kesiliyor.
+
+**Kuran kişinin yapması gereken: bir şey yok.** İki servis farklı
+sürümdeyse (biri bu yapıyı almış, diğeri almamış) kip değişimi yine
+ayrışabilir; belirti "kesişim hiç sonuç vermiyor" ve KURULUM'un sorun
+giderme tablosunda yazıyor.
+
 ### Snippet artık sıkıştırılmış gidiyor
 
 Ziyaretçi **16,4 KB** indiriyordu. Bu serving yolunda hiçbir yerde gzip

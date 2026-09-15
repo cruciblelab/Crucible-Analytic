@@ -18463,3 +18463,143 @@ yapılıyordu — P7'de aynı kuralın doğrusunu (`etagMatches`, liste ve `W/`
 
 Altı mutasyon, altısı da kırmızı — paylaşılan etiket tuzağı ve
 README↔davranış bağı dâhil.
+
+---
+
+## P5a — Canlı diye gösterilen bir ayarın bir yazarıya hiç ulaşmaması
+
+P5'i (mod değişiminin geçmişe etkisi) hazırlarken açtım ve önüne geçti.
+Sebep basit: **bir kip değişiminin geçmişe etkisini anlatabilmek için
+kipin değişiyor olması gerekir.** Önce "kim bu tabloya yazıyor" diye
+baktım — kendi kuralım — ve iki yazardan birinin ayarı hiç okumadığını
+gördüm.
+
+### Bulgu
+
+Panel `privacy.ip_storage`'ı `Live: true` diye gösteriyor. Beacon A6'dan
+beri canlı uyguluyor: `cfg.Privacy.Live(live)` + `srv.SetIPMode`.
+Collector'ın `applySettings`'i beş şey uyguluyor — limitler, blok
+listesi, veri kümesi seçimi, bilinen-bot ASN'leri, log seviyesi — ve
+altıncısı listede yok. `internal/collector` için bir `Live` metodu
+**hiç yazılmamış.** `cmd/collector/main.go:228`'de
+`IPMode: cfg.Privacy.IPMode()`, açılışta bir kez.
+
+Canlı ayar bloğunun kendi yorumu tam bu kusuru anlatıyor:
+
+> *until then this process read its config file and nothing else, so the
+> panel could offer a setting the collector would never see - and the two
+> tables this system writes were configured from two different places.*
+
+Gerekçe doğru yazılmış ve bir ayar için yanlışa dönmüş. L6'daki dersin
+tekrarı: **bir gerekçenin yarısı sonradan yanlışa döner ve dönerken ses
+çıkarmaz** — fark şu ki burada yanlışa dönen şey yorumun *ölçütü* değil,
+kapsamı.
+
+### Bedeli iki katmanda, ve ağır olanı ikincisi
+
+**Ölçüm katmanı.** Kesişim `COALESCE(ip_hash, inet_send(ip))` üzerinden
+birleşiyor. Bir jeton 16 bayt, bir ağ `inet_send(/24)`; hiçbir zaman eşit
+değiller. İki yazar farklı kipteyken iki tablonun **hiç ortak anahtarı
+kalmıyor** — "az sonuç" değil, sıfır. Kapsama %0, beacon'ın gördüğü her
+adres `beacon_only_ips`'e düşüyor, ve o sayının panelde yazılı açıklaması
+*"collector yolda değil ya da `trusted_proxies` yanlış"*. Yani ürün, bir
+ayar kusuru için **ağı gösteren** bir teşhis basıyor. Panonun
+"Okunamadı" kusuruyla aynı sınıf: *var olan bir sayı için olmayan bir
+sebep.*
+
+**Ziyaretçi katmanı, ve bugün erişilebilir olan bu.** `full` panelden hiç
+seçilemiyor (aşağıya bak), ama `masked` seçilebiliyor. İki dosyasında da
+`ip_storage = "full"` ile kurulmuş bir sistemde müşteri panelden `masked`
+seçerse:
+
+- beacon jeton üretmeyi bırakıyor (canlı),
+- collector bırakmıyordu (dosyasını okuyor),
+- ve açıklama sayfası **beacon'dan** türüyor.
+
+Sayfa *"yalnız maskeli ağ saklanıyor"* derken `traffic_snapshots.ip_hash`
+yazılmaya devam ediyordu. **Bir sayfanın sakladığından azını söylemesi**,
+bu yüzeyin olmaması gereken tek hâli — P7b'de "sayfanın bütün olguları
+doğru olabilir ve sayfa yanlış okunabilir" derken bahsettiğim şeyin bir
+üstü: burada olgu da yanlış.
+
+### Yapılan
+
+- `collector.PrivacyConfig.Live(source)` — beacon'ın aynısı, aynı enum
+  kısıtıyla.
+- `storage.Flusher.SetIPMode` + `liveIPMode` atomiği, `liveASNs`'in
+  deseni. Tur ortasında gelen kip **sonraki** yığına uygulanıyor: yarısı
+  bir kipte yazılmış bir yığın, tek aralığın içinde iki anahtar uzayı
+  olurdu.
+- `cmd/collector` her ayar turunda çözüp uyguluyor, ve kip değişince
+  beacon'ınkiyle aynı tek satır logu basıyor. Açılış satırı dosyanın
+  kipini söylüyor, bu satır ondan sapmayı.
+
+### Ölçüm
+
+Gerçek `panel_settings` + gerçek `traffic_snapshots`
+(`internal/storage/livemode_integration_test.go`), üç yön:
+
+| Saklanan | Dosya | Yazılan satır |
+|---|---|---|
+| (yok) | masked | `ip_hash` NULL |
+| `full` | masked | jeton **ve** maskeli ağ birlikte |
+| `masked` | full | `ip_hash` NULL |
+
+Üç yön, çünkü **tek yön ölçen bir test yanlış kodu geçirir**: yalnız
+yükselteni ölçen bir test koşulsuz jeton üreten bir yazma yolunu da
+yeşil verir, yalnız düşüreni ölçen hiç jeton üretmeyen birini.
+
+Yedi mutasyon, yedisi de kırmızı: yazma yolunun canlı değeri okuması,
+setter'ın gerçekten yayımlaması, `Live`'ın kaynağı sorması, binary'nin
+çözmesi, binary'nin uygulaması, anahtar adının sabitten gelmesi, ve
+yazar listesinin türetilmiş olması.
+
+### Yapısal yarım neden gerekli
+
+Ölçüm `cmd/collector`'ın çağrısını **göremiyor**: `applySettings` bir
+kapanış, `main()` içinde, ve bir test ona ulaşamaz. İki satırı
+binary'den silsem bütün işlevsel testler yeşil kalır.
+
+`internal/invariants/livemode_test.go` iki yarımı birlikte tutuyor —
+config paketi kipi canlı çözebiliyor mu, **ve** ikilisi hem çözüyor hem
+uyguluyor mu. Yazar listesi türetilmiş: yazar = yapılandırmasında
+`toml:"ip_storage"` etiketi olan paket. Üçüncü bir yazar eklendiği gün
+kimsenin buraya dönmesi gerekmiyor — bu paketin var olma sebebi tam bu
+(*üç paket hatırladı, dördüncüsü hatırlamadı*).
+
+### Ölçemediğim bir şey, dürüstçe
+
+İki süit aynı `privacy.ip_storage` satırını yazıyor:
+`internal/beacon`'ın açıklama tarihi testi ve bu yeni zincir testi. Bir
+veritabanı, iki paket, ve `go test` paketleri paralel koşuyor. Kilit
+kondu (`testdb.IPModeSettingLock`). **Mutasyonla gösteremem** — yarışı
+kaybetmeyen bir makinede kilitsiz hâl de yeşil verir; doğrulanabilen tek
+şey artık ayrışamamaları, ve iki paketi birlikte koşturdum. `doorbellIn`
+fikstüründeki durumla aynı: kanıtlanamayan bir kural, kanıtlanabilir bir
+eşdeğerine bağlanır.
+
+### Kapatılmayan: `full` panelden hiç seçilemiyor
+
+Aynı zinciri ölçerken çıktı, **düzeltilmedi**, ve sebebi PLAN §P5a'da
+yazılı: düzeltmesi bir kanal kararı gerektiriyor (şema 24'te bir
+`service_heartbeat` sütunu mu, `panel.toml`'da bir alan mı), ve şema
+sürümü sahibin kararı.
+
+Kısaca: `checkPrecondition` `full`'ü yalnız `ipTokenKeyConfigured`
+doğruysa kabul ediyor, o alanı kuran tek şey `SetIPTokenKeyConfigured`,
+ve onu **ürün kodunda hiç kimse çağırmıyor**. Alan her kurulumda `false`.
+Kurulum sihirbazının IP anahtarı kontrolü de aynı yüzden her zaman
+"bize söylenmedi" dalından geçiyor.
+
+Bu, `preflight.checkService`'in sınıfı — ve o tur kurulan değişmez
+(`internal/invariants/preflightconfig_test.go`) bunu **görmedi**, çünkü
+o test `preflight.Config`'in *alanlarını* istiyor ve bu bir
+`preflight.New` *argümanı*. Ders yine aynı ve bu kez kendi kurduğum
+korumada: *bir kuralın bir dosyada yazı olarak durması, o dosyayı korur;
+kardeşini korumaz.*
+
+Ve bir şey daha: bu kusur, yukarıdaki kusurun ziyaretçiye ulaşan yönünü
+**şu an için** dar tutuyor (`full` seçilemediği için ayrışma ancak
+dosyadan `full` kurulmuş bir sistemde, `masked` yönünde olabiliyor).
+Yani (a)'yı düzeltip bunu düzeltmemek, tam olarak yanlış sıra olurdu —
+kapıyı açıp arkasındaki boşluğu bırakmak.

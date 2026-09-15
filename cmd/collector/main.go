@@ -344,6 +344,7 @@ func main() {
 	lastCountries, lastASNs := cfg.ASNLookup.LiveBlocklist(nil)
 	lastCountrySrc, lastASNSrc, lastFallbacks := cfg.ASNLookup.LiveSources(nil)
 	lastBotASNs := knownBotASNs
+	lastIPMode := cfg.Privacy.IPMode()
 
 	// # Every setting below is applied on every poll, and compared only
 	// to decide whether to say so
@@ -381,6 +382,27 @@ func main() {
 				"throttle_queue", limits.ThrottleQueueSize)
 			lastLimits = limits
 		}
+
+		// How much of each address is written.
+		//
+		// Applied here since P5a and read only from the file before
+		// that, which made privacy.ip_storage the one live setting that
+		// reached one writer of the crossover join and not the other -
+		// see collector.PrivacyConfig.Live for what that cost and for
+		// the direction of it that reaches a visitor.
+		//
+		// Logged on change rather than every poll, the beacon's wording
+		// and the beacon's reason: this decides what personal data the
+		// process writes, so a silent switch would be the one change
+		// nobody could account for afterwards. The startup line above
+		// reports the file's mode; this one reports the move away from
+		// it, including the move that happens on the first poll.
+		if mode := cfg.Privacy.Live(live); mode != lastIPMode {
+			logger.Info("ip storage mode changed",
+				"from", lastIPMode.String(), "to", mode.String())
+			lastIPMode = mode
+		}
+		flusher.SetIPMode(lastIPMode)
 
 		// The blocklist. Logged at Info for the same reason as the
 		// limits and more so: this one refuses traffic outright, and

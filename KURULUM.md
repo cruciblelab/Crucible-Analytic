@@ -1990,7 +1990,7 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 | Devir teslim düğmesi hiç çıkmıyor | `panel.toml`'daki `[roles]` boş. Kontroller "bakamadım" diyor, o da bloke ediyor |
 | Panelde her ziyaretçi aynı IP | `trusted_proxies` boş ya da yanlış |
 | `/beacon/` uçları 500 dönüyor | `analytics_reader`'a yalnız `traffic_snapshots` verilmiş |
-| Kesişim sorguları hiçbir şey bulmuyor | Collector ve beacon'ın `ip_hash_key`'i farklı |
+| Kesişim sorguları hiçbir şey bulmuyor | Collector ve beacon'ın `ip_hash_key`'i farklı — ya da `privacy.ip_storage`'ı biri uygularken diğeri uygulamıyor (iki servis farklı sürümdeyse; collector'ın canlı ayarı P5a'da geldi). Jeton ile ağ hiçbir zaman eşit olmaz, o yüzden belirti "az sonuç" değil **hiç sonuç**, ve pano bunu "collector yolda değil" diye anlatır |
 | Panelden ayar değişiyor, servis umursamıyor | `GRANT SELECT ON panel_settings` verilmemiş |
 | İzolasyon kontrolü "bakamadım" diyor | Panel ayrı bir veritabanında — §4.1 |
 | Panel açılmıyor, "unknown time zone" | `timezone` bu makinede tanınmıyor; zoneinfo paketi eksik olabilir |

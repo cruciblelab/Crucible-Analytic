@@ -298,6 +298,45 @@ func (p PrivacyConfig) HashKey() []byte { return []byte(p.IPHashKey) }
 // IPMode resolves the configured value, defaulting to masked.
 func (p PrivacyConfig) IPMode() privacy.IPMode { return privacy.ParseIPMode(p.IPStorage) }
 
+// Live resolves the mode in force, preferring the panel's setting over
+// the config file and falling back to the file when nothing is stored.
+//
+// # This method did not exist, and its absence was the defect
+//
+// The beacon has had one since A6. This process read ip_storage from its
+// file at startup and nothing else, while the panel showed the setting as
+// Live and the beacon honoured it - so one click in the panel moved one
+// of the two writers of the crossover join and left the other where it
+// was.
+//
+// What that costs is not a stale number. The join keys on
+// COALESCE(ip_hash, inet_send(ip)): a tokenised row and a masked row
+// never compare equal, so with the two writers in different modes the
+// two tables share no keys at all. Coverage reads 0%, every beacon
+// address lands in beacon_only_ips, and the panel explains that number
+// as "the collector is not in the path" - a diagnosis pointing at the
+// network for a defect in a setting.
+//
+// The direction that reaches a visitor is worse. A deployment installed
+// with ip_storage = "full" in both files, whose customer then selects
+// masked in the panel, has a beacon that stops tokenising and a
+// collector that does not - and the disclosure page derives from the
+// beacon, so it says only the masked network is kept while
+// traffic_snapshots.ip_hash keeps being written. A page that understates
+// what is stored is the one kind of wrong this surface must not be.
+//
+// Both halves of the fix are needed and neither is enough: this resolves
+// the value, and cmd/collector applies it to the flusher on every poll.
+// internal/invariants/livemode_test.go holds the pair together.
+func (p PrivacyConfig) Live(source *settings.Source) privacy.IPMode {
+	if source == nil {
+		return p.IPMode()
+	}
+	return privacy.ParseIPMode(source.String(
+		settings.KeyPrivacyIPStorage, "", string(p.IPMode()),
+		[]string{string(privacy.IPFull), string(privacy.IPMasked)}))
+}
+
 // RetentionConfig bounds how long traffic_snapshots is kept.
 //
 // Read from this file and nowhere else, which used to be the odd half of

@@ -329,6 +329,13 @@ func TestTheVisitorSurfaceSettingsReachTheBeaconFromTheDatabase(t *testing.T) {
 // So the other key is written first and at a different time, and the
 // assertion is that the date is not it.
 func TestTheDisclosuresDateIsTheModesOwnRow(t *testing.T) {
+	// The deployment-wide privacy.ip_storage row is written by this
+	// suite and by internal/storage's, which measures that the mode a
+	// panel stores changes what the collector writes. One database, two
+	// packages, and `go test` runs packages in parallel - see
+	// testdb.IPModeSettingLock.
+	testdb.Lock(t, testdb.Admin(t), testdb.IPModeSettingLock)
+
 	pool := settingsPool(t)
 	var cfg PrivacyConfig
 

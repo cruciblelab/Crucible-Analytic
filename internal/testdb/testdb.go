@@ -371,6 +371,29 @@ const SchemaApplyLock = dblock.SchemaApply
 // this, then SchemaApplyLock.
 const SchemaRaceLock = 0x736368656D617263 // "schemarc"
 
+// IPModeSettingLock serialises the suites that write the deployment-wide
+// privacy.ip_storage row.
+//
+// A seventh lock, and the one setting row that needed one. Two suites
+// write it: internal/beacon measures that the disclosure's date comes
+// from that row rather than a neighbouring key, and internal/storage
+// measures that the mode a panel stores changes what the collector
+// writes. Both need to see their own value in a global row, both run
+// against one database, and `go test` runs packages in parallel - so
+// without this each is capable of reading the other's write and
+// reporting a product defect, in whichever package lost the race.
+//
+// Scoped to the row rather than to settings in general: every other key
+// these suites touch is written by exactly one of them, and a lock that
+// covered all of settings would serialise suites that never collide.
+//
+// # Ordering
+//
+// Nothing takes this together with the others. If something ever does,
+// take it after AccountsLock and before SchemaRaceLock - it guards a
+// row, so it belongs inside the locks that guard whole schemas.
+const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.
