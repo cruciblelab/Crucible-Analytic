@@ -66,11 +66,24 @@ type crossoverView struct {
 	// correct value and drawing "0" invites somebody to read it as a
 	// measurement rather than as the absence of a fault.
 	BeaconOnly string
-	Bands      []coverageBandView
-	SilentURL  string
-	BotsURL    string
-	Empty      emptiness
-	Text       string
+	// KeyNotice says that this window's addresses are not all keyed the
+	// same way, which decides whether the four numbers above can be
+	// compared at all.
+	//
+	// Drawn *above* them for that reason, and the order is asserted: a
+	// caveat underneath a number is a caveat most readers never reach,
+	// and this one is not a footnote - it says the number is lower than
+	// the site's was.
+	//
+	// Empty in the ordinary case. A permanent line saying "the keys are
+	// consistent" would be one more thing to read on every page whose
+	// keys always are.
+	KeyNotice string
+	Bands     []coverageBandView
+	SilentURL string
+	BotsURL   string
+	Empty     emptiness
+	Text      string
 }
 
 type coverageBandView struct {
@@ -221,6 +234,22 @@ func (s *Server) crossoverSection(lang *ui.Language, f *ui.Formatter, siteID str
 	view.RanJS = f.Number(int64(cross.RanJS))
 	view.Silent = f.Number(int64(cross.Silent))
 	view.Coverage = f.Share(int64(cross.RanJS), int64(cross.Seen))
+
+	// How the addresses are keyed, when they are not all keyed alike.
+	//
+	// Two situations and two different things to do about them, told
+	// apart in analytics.KeySpaces rather than here: one is a seam in
+	// time that ends by itself when retention passes it, the other is a
+	// live misconfiguration. Only one line is drawn, because they cannot
+	// both hold - SourcesDisagree is false while a source holds both
+	// kinds, since a window that spans a change is not evidence about
+	// what the two writers are doing now.
+	switch {
+	case cross.Keys.SourcesDisagree():
+		view.KeyNotice = lang.T("pano.kesisim.kip_ayrisiyor")
+	case cross.Keys.SpansAModeChange():
+		view.KeyNotice = lang.T("pano.kesisim.dikis")
+	}
 
 	// Only when it is not zero. Zero is the correct value, and drawing it
 	// beside the others invites a reader to treat a fault indicator as a

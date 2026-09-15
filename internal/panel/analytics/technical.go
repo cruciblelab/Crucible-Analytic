@@ -74,7 +74,68 @@ type Crossover struct {
 	// number beside the others.
 	BeaconOnly int
 	Bands      []CoverageBand
-	Err        error
+	// Keys is how this window's addresses are keyed, which decides
+	// whether the numbers above can be compared at all - see KeySpaces.
+	Keys KeySpaces
+	Err  error
+}
+
+// KeySpaces is each source's join keys counted by which kind they are.
+//
+// # What this is for
+//
+// The join keys on the sharpest form of the address a row has: the
+// keyed token in full mode, the masked network otherwise. The two never
+// compare equal, so a row written in one mode never joins a row written
+// in the other. Correct - nothing can say whether they are the same
+// visitor - and not free: a window holding both kinds reports coverage
+// lower than the site's really was, by an amount nothing can compute,
+// because the addresses that would answer it were never stored.
+//
+// So the page says so instead of drawing a smaller number without
+// explanation, which is the habit this panel keeps everywhere else too.
+type KeySpaces struct {
+	CollectorTokenised   int
+	CollectorNetworkOnly int
+	BeaconTokenised      int
+	BeaconNetworkOnly    int
+}
+
+// SpansAModeChange reports that one source holds both kinds of key, so
+// privacy.ip_storage changed inside this window.
+//
+// Derived from the data rather than from a record of the change, and
+// that is the better question by two measures: it is about the effect
+// still being in force rather than the event having happened, and it
+// stops being true by itself, the day retention drops the last row on
+// the older side of the seam. Nothing has to remember to withdraw it.
+func (k KeySpaces) SpansAModeChange() bool {
+	return (k.CollectorTokenised > 0 && k.CollectorNetworkOnly > 0) ||
+		(k.BeaconTokenised > 0 && k.BeaconNetworkOnly > 0)
+}
+
+// SourcesDisagree reports that each source is keyed one way and not the
+// same way - the two writers are in different modes right now.
+//
+// A different situation from the one above and a different thing to do
+// about it: not a seam in time that ends by itself, but a live
+// misconfiguration whose symptom is that coverage reads 0% and every
+// beacon address lands in BeaconOnly. That number's explanation on this
+// page is "the collector is probably not in the path", which is the
+// right guess when the modes agree and the wrong one here - so the two
+// are told apart before either is shown.
+//
+// Both sources must have rows for the claim to mean anything: with one
+// side empty there is nothing to disagree with, and a page saying "your
+// writers are in different modes" about a site whose beacon has not
+// been installed yet would be inventing a fault.
+func (k KeySpaces) SourcesDisagree() bool {
+	collector, beacon := k.CollectorTokenised+k.CollectorNetworkOnly,
+		k.BeaconTokenised+k.BeaconNetworkOnly
+	if collector == 0 || beacon == 0 || k.SpansAModeChange() {
+		return false
+	}
+	return (k.CollectorTokenised > 0) != (k.BeaconTokenised > 0)
 }
 
 // AddressRow is one address in the silent or JS-bot lists.
@@ -266,6 +327,12 @@ func (c *Client) crossover(ctx context.Context, site string, from, to time.Time)
 			IPsSeen  int `json:"ips_seen"`
 			IPsRanJS int `json:"ips_ran_js"`
 		} `json:"bands"`
+		KeySpaces struct {
+			CollectorTokenised   int `json:"collector_tokenised"`
+			CollectorNetworkOnly int `json:"collector_network_only"`
+			BeaconTokenised      int `json:"beacon_tokenised"`
+			BeaconNetworkOnly    int `json:"beacon_network_only"`
+		} `json:"key_spaces"`
 	}
 	var out Crossover
 	if err := c.get(ctx, "/api/v1/sites/"+url.PathEscape(site)+"/crossover/summary",
@@ -275,6 +342,12 @@ func (c *Client) crossover(ctx context.Context, site string, from, to time.Time)
 	}
 	out.Seen, out.RanJS, out.Silent = body.IPsSeen, body.IPsRanJS, body.IPsSilent
 	out.Coverage, out.BeaconOnly = body.JSCoverage, body.BeaconOnlyIPs
+	out.Keys = KeySpaces{
+		CollectorTokenised:   body.KeySpaces.CollectorTokenised,
+		CollectorNetworkOnly: body.KeySpaces.CollectorNetworkOnly,
+		BeaconTokenised:      body.KeySpaces.BeaconTokenised,
+		BeaconNetworkOnly:    body.KeySpaces.BeaconNetworkOnly,
+	}
 	for _, b := range body.Bands {
 		out.Bands = append(out.Bands, CoverageBand{
 			Min: b.Min, Max: b.Max, Addresses: b.IPsSeen, RanJS: b.IPsRanJS,

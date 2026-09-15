@@ -18603,3 +18603,117 @@ Ve bir şey daha: bu kusur, yukarıdaki kusurun ziyaretçiye ulaşan yönünü
 dosyadan `full` kurulmuş bir sistemde, `masked` yönünde olabiliyor).
 Yani (a)'yı düzeltip bunu düzeltmemek, tam olarak yanlış sıra olurdu —
 kapıyı açıp arkasındaki boşluğu bırakmak.
+
+---
+
+## P5 uyarı yarısı — Doğru bir sayıyı düşük gösteren şeyi söylemek
+
+P5'in kararı sahibin: *"Dokunmayalım, o zamanki kurallar geçerli olur,
+uyarı notu ekleriz, bunu bildirin belirtin diye ekleyelim."* Geçmişe
+dokunmuyoruz; eksik olan, dokunmamanın bedelinin hiçbir yerde
+yazmamasıydı.
+
+### Bedelin ne olduğu
+
+Kesişim `COALESCE(ip_hash, inet_send(ip))` üzerinden birleşiyor: satırın
+elindeki en keskin adres. Tam kipte jeton, maskeli kipte ağ, ve **ikisi
+hiçbir zaman eşit değil.** Yani bir kip değişimini içine alan aralıkta
+aynı ziyaretçinin iki satırı birleşmiyor — kapsam sitenin gerçekte
+olduğundan düşük görünüyor, **ve ne kadar düşük olduğu hesaplanamıyor**,
+çünkü eşleşmeyi kuracak adresler hiçbir zaman saklanmadı. (Bu, ürünün
+doğru davranışı: iki satırın aynı ziyaretçi olduğunu söyleyebilecek
+hiçbir şey yok.)
+
+Bu bugüne kadar yalnız `store_crossover.go`'nun yorumunda yazıyordu.
+P6'nın dersi harfiyen buydu: **bir tasarım kararının kodda yazılı olması,
+o kararı okuyucuya söylemez.**
+
+### Ölçülmemiş olan şey
+
+Yorumun iddiası ("bir modda yazılmış satır diğer modda yazılmışla asla
+birleşmez") **hiçbir testte yoktu.** Akıl yürütmeyle doğru kabul edilmiş
+bir iddia, ve bir iddia tam yanlış çıkmadan önce bu hâlde bulunur.
+Ölçüldü: aynı adres iki modda yazılınca birleşmiyor, aynı modda yazılınca
+birleşiyor. **İki yarım birden**, çünkü yalnız birleşmeyeni ölçen bir
+test hiçbir şeyi birleştirmeyen bir join'le de yeşil verir.
+
+### Uyarının koşulu: veri, kayıt değil
+
+Dört sayı eklendi — her kaynağın jetonlu ve yalnız-ağ anahtarları — ve
+bunlar iki ayrı durumu ayırıyor:
+
+- **Bir kaynakta iki tür birden:** kip bu aralıkta değişmiş. Geçici, ve
+  saklama süresi dikişin eski tarafını geçtiği gün **kendiliğinden**
+  bitiyor.
+- **Her kaynak tek tür ve aynı tür değil:** iki yazar şu anda farklı
+  kipte. Zaman dikişi değil, canlı bir yapılandırma sorunu. Belirtisi
+  kapsamın %0 okunması ve bütün beacon adreslerinin `beacon_only_ips`'e
+  düşmesi — ve o sayının sayfadaki açıklaması *"collector yolda değil"*.
+  Yani ürün, bir ayar kusuru için **ağı gösteren** bir teşhis basıyordu.
+  (P5a'dan sonra bu durum yalnız iki servis farklı sürümdeyse ya da ayar
+  tablosuna erişim yoksa oluşabiliyor. Yani uyarı, P5a'nın kapattığı
+  kusurun **kalan kuyruğunu** da görünür kılıyor.)
+
+İkinci durumun "iki kaynağın da satırı olmalı" koşulu var: bir tarafı boş
+olan bir kurulumda çelişecek bir şey yok, ve *"yazarlarınız farklı
+kipte"* diyen bir sayfa, beacon'ı henüz kurulmamış bir müşteriye
+olmayan bir kusur uyduruyor olurdu. Ve dikiş varken ikinci durum hiç
+sorulmuyor: bir kaynağın iki tür taşıdığı bir pencere, iki yazarın **şu
+an** ne yaptığı hakkında kanıt değil. Bu ayrıksamayı bir mutasyon istedi
+— testin ilk hâlinde o satırı sildiğimde hiçbir durum kırmızı vermedi,
+çünkü tabloda "bir kaynak tek tür, diğeri iki tür" diye bir satır yoktu.
+*Bir koşulun yük taşıdığını, onu tetikleyen durumu tabloya koymadan
+gösteremezsiniz.*
+
+### PLAN'dan bilerek sapılan yer
+
+PLAN "saklama penceresi içinde iki tür var mı" diyordu; uygulanan kural
+"**seçilen aralıkta** iki tür var mı". Bir kip değişiminden *sonrasına*
+bakan bir pencerede sayılar doğru, ve doğru bir sayının üstüne uyarı
+koymak insanlara uyarıyı atlamayı öğretmektir. PLAN'ın istediği
+"kendiliğinden kalkma" özelliği aynen duruyor: saklama süresi eski tarafı
+sildiği gün hiçbir pencere iki tür içeremez. (Testte silme, saklama
+süresinin yerine geçiyor — aradaki tek fark doksan gün beklemek.)
+
+### Maliyet
+
+Sıfıra yakın: `bool_or(ip_hash IS NOT NULL)` zaten yapılan gruplamaya
+biniyor, dört sayım da materyalize edilmiş CTE'lerin üstünde. Bu uç
+grubun en yavaşı (§O4 bu endpoint'i "hiç cevap vermiyor" diye yazıyor),
+o yüzden ek bir tablo taraması kabul edilemezdi.
+
+### Ekran görüntüsü yine bir kusur buldu
+
+Metnin ilk hâli *"ziyaretçilerinizi bilgilendirirken bu tarihi de
+belirtin"* diyordu. **Sayfa tarihi göstermiyor.** Dahası: panelde denetim
+kaydı *sayfası* da yok (tablo var, sayfa yok), yani okuyucuyu
+gönderecek bir yer bile yoktu. Bakmasam bulamazdım — hiçbir iddia bunu
+bulamaz, çünkü çelişki olguda değil: her cümle doğru.
+
+Düzeltmesi tarihi hesaplamak değil, **sayfanın bildiği şeyi söylemek**:
+iki biçim bir arada, geriye dönük hiçbir şey değişmedi, ve tarihi bulmak
+isteyen aralığı daraltsın. Kural: *sayfanın okuyucudan istediği şey,
+sayfanın verebildiği şey olmalı.*
+
+(Tarihi gerçekten göstermek mümkün — kaynak başına iki `min/max(time)`
+daha — ama o dört sütun daha, dört iddia daha, ve sahibin istediği şey
+"bunu bildirin" nudge'ıydı. Yapılmadı, sebebi burada yazılı.)
+
+### Fikstür ayrışması: benim testim ürünü suçladı
+
+`seedRow`'a `ipHash` eklendi ve test ilk turda *"ürün jetonu saymadı"*
+diye kırmızı verdi. Ürün doğruydu: `traffic_snapshots`'a INSERT eden
+**iki kopya** vardı (`seedStore` ve `seedSnapshotsFor`), ben birini
+güncelledim, diğeri eski sütun listesiyle yazmaya devam etti — yani
+fikstür hiç jeton saklamadı ve test onu üründe aradı.
+
+Depoya kendi yazdığım kural: *iki kopya ancak karşılaştırılıyorsa kabul
+edilebilir.* Kopyalar birleştirildi; `insertSnapshots` artık o tablonun
+sütunlarını adlandıran tek yer. Ve ders şu: **bir fikstür ayrışması,
+ürün kusuru gibi görünür** — ve inanılırsa, düzeltilecek şey yanlış
+yerde aranır.
+
+On bir mutasyon, on biri de kırmızı. İkisi ilk turda boşa gitti ve ikisi
+de benim hatamdı: biri metni bulamadı (girinti), biri derlenmedi
+(kaldırdığım koşul iki değişkeni kullanılmaz bıraktı). **Uygulanmayan bir
+mutasyon bir sonuç değil**, o yüzden ikisi düzeltilip tekrar koşturuldu.

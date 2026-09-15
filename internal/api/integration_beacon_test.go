@@ -39,6 +39,9 @@ type beaconSeed struct {
 	botUA     bool
 	language  string
 	country   string
+	// ipHash is the token full mode stores beside the masked network -
+	// see seedRow.ipHash, which is the same field on the other writer.
+	ipHash []byte
 
 	// Campaign dimensions. Left empty by tests that do not care, which
 	// is the same "no acquisition context" a plain visit produces.
@@ -98,13 +101,14 @@ func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 		_, err := pool.Exec(context.Background(), `
 			INSERT INTO beacon_events
 			  (time, site_id, visitor_id, event_type, event_name, path, query, title,
-			   referrer_host, referrer_path, ip, browser, os, device, is_bot_ua,
+			   referrer_host, referrer_path, ip, ip_hash, browser, os, device, is_bot_ua,
 			   screen_w, screen_h, language, country, asn, asn_org,
 			   utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, click_source)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8,'',$9,$10,$11,$12,$13,1920,1080,$14,$15,0,'',
-			        $16,$17,$18,$19,$20,$21,$22)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8,'',$9,$10,$11,$12,$13,$14,1920,1080,$15,$16,0,'',
+			        $17,$18,$19,$20,$21,$22,$23)`,
 			r.at, r.site, r.visitor, eventType, r.eventName, path, r.query,
-			r.referrer, ip, r.browser, r.os, r.device, r.botUA, r.language, r.country,
+			r.referrer, ip, nilIfEmpty(r.ipHash), r.browser, r.os, r.device, r.botUA,
+			r.language, r.country,
 			r.utmSource, r.utmMedium, r.utmCampaign, r.utmTerm, r.utmContent, r.ref, r.clickSource)
 		if err != nil {
 			t.Fatalf("seeding beacon row %+v: %v", r, err)
@@ -117,21 +121,16 @@ func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 // seedBeacon already set up cleanup for.
 func seedSnapshotsFor(t *testing.T, rows []seedRow) {
 	t.Helper()
-	// As the collector: these are its rows.
-	pool := testdb.Pool(t, testdb.Collector)
-
-	for _, r := range rows {
-		_, err := pool.Exec(context.Background(), `
-			INSERT INTO traffic_snapshots
-			  (time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate,
-			   bot_score, is_known_bot_ja4, country, asn, asn_org, is_known_bot_asn)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-			r.at, r.site, r.ip, r.ja4, r.prevWin, r.currWin, r.rate,
-			r.score, r.botJA4, r.country, r.asn, r.asnOrg, r.botASN)
-		if err != nil {
-			t.Fatalf("seeding snapshot row %+v: %v", r, err)
-		}
-	}
+	// Through the one inserter, which is in integration_test.go beside
+	// seedRow itself.
+	//
+	// It used to be a second copy of the same INSERT, and the copies
+	// drifted the moment one of them gained a column: seedRow.ipHash was
+	// added for the key-space tests, the other copy wrote it, this one
+	// silently did not, and the test failed reporting the product had
+	// not counted a token nobody had stored. Two copies of a wire format
+	// are acceptable only while something compares them.
+	insertSnapshots(t, rows, func(r seedRow) string { return r.ja4 })
 }
 
 func testBeaconParams(from, to time.Time) beaconParams {

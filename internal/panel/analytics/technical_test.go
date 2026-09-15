@@ -278,6 +278,16 @@ func TestTheCoverageBandsSurviveTheApisOwnJson(t *testing.T) {
 			{Min: 0, Max: 9, IPsSeen: 50, IPsRanJS: 38, JSCoverage: 0.76},
 			{Min: 90, Max: 100, IPsSeen: 20, IPsRanJS: 2, JSCoverage: 0.1},
 		},
+		// Four more names on this wire, added by P5, and they get the
+		// same treatment for the same reason: the notice the page draws
+		// from them is invisible when they decode as zero, because zero
+		// means "the keys are consistent" - the answer that prints
+		// nothing. A silently misnamed field here would look exactly
+		// like a healthy deployment.
+		KeySpaces: api.KeySpaces{
+			CollectorTokenised: 12, CollectorNetworkOnly: 58,
+			BeaconTokenised: 9, BeaconNetworkOnly: 31,
+		},
 	}
 	body, err := json.Marshal(produced)
 	if err != nil {
@@ -319,6 +329,26 @@ func TestTheCoverageBandsSurviveTheApisOwnJson(t *testing.T) {
 	if got.Seen != produced.IPsSeen || got.RanJS != produced.IPsRanJS {
 		t.Errorf("summary = seen %d, ran %d; want %d, %d",
 			got.Seen, got.RanJS, produced.IPsSeen, produced.IPsRanJS)
+	}
+
+	want := KeySpaces{
+		CollectorTokenised:   produced.KeySpaces.CollectorTokenised,
+		CollectorNetworkOnly: produced.KeySpaces.CollectorNetworkOnly,
+		BeaconTokenised:      produced.KeySpaces.BeaconTokenised,
+		BeaconNetworkOnly:    produced.KeySpaces.BeaconNetworkOnly,
+	}
+	if got.Keys != want {
+		t.Errorf("key spaces = %+v, want %+v.\n"+
+			"These four decide whether the page says the window spans a mode "+
+			"change. A name that does not match the producer's decodes as zero, "+
+			"and zero is the value that prints no notice - so the failure would "+
+			"be a page that looks fine.", got.Keys, want)
+	}
+	// The verdict too, not only the numbers: the four counts above have
+	// both kinds on both sides, which is a seam.
+	if !got.Keys.SpansAModeChange() {
+		t.Error("the decoded counts hold both kinds of key and SpansAModeChange() " +
+			"is false")
 	}
 }
 
@@ -405,6 +435,102 @@ func TestTheAddressRowsSurviveTheApisOwnJson(t *testing.T) {
 				t.Fatalf("decoded %d rows from one produced", len(got.Rows))
 			}
 			tc.check(t, got.Rows[0])
+		})
+	}
+}
+
+// The two verdicts the key-space counts support, and the cases that
+// separate them.
+//
+// # Why a table and not two assertions
+//
+// Because the interesting rows are the ones that must produce *no*
+// notice, and there are more of those than of the notices: a rule that
+// warns too readily is a rule people learn to scroll past. The four
+// silent rows below are the substance of this test - one mode
+// throughout, in either mode, and either source having no rows at all.
+//
+// The last two are the ones a naive rule gets wrong. "The collector is
+// tokenised and the beacon is not" is true of a site whose beacon has
+// not been installed yet, where the beacon's count is zero and nothing
+// disagrees with anything. A page telling that customer their writers
+// are misconfigured would be inventing a fault out of an empty table.
+func TestTheKeySpaceVerdictsSeparateASeamFromAMisconfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		keys         KeySpaces
+		wantSeam     bool
+		wantDisagree bool
+	}{
+		{
+			name: "masked throughout",
+			keys: KeySpaces{CollectorNetworkOnly: 40, BeaconNetworkOnly: 25},
+		},
+		{
+			name: "full throughout",
+			keys: KeySpaces{CollectorTokenised: 40, BeaconTokenised: 25},
+		},
+		{
+			name: "no data at all",
+			keys: KeySpaces{},
+		},
+		{
+			name: "the beacon has no rows yet",
+			keys: KeySpaces{CollectorTokenised: 40},
+		},
+		{
+			name: "the collector has no rows",
+			keys: KeySpaces{BeaconNetworkOnly: 25},
+		},
+		{
+			name:     "the collector holds both kinds",
+			keys:     KeySpaces{CollectorTokenised: 10, CollectorNetworkOnly: 30, BeaconTokenised: 10},
+			wantSeam: true,
+		},
+		{
+			name:     "the beacon holds both kinds",
+			keys:     KeySpaces{CollectorTokenised: 10, BeaconTokenised: 4, BeaconNetworkOnly: 6},
+			wantSeam: true,
+		},
+		{
+			// A seam where one source's rows in range are all on the
+			// older side of it: the collector has only masked keys, the
+			// beacon has both. Uniform-looking on one side and not the
+			// same as the other, so a disagreement rule that did not
+			// first exclude a seam would call this a misconfiguration
+			// and send somebody to check two settings that are both
+			// correct.
+			name:     "one source is uniform and the other spans the change",
+			keys:     KeySpaces{CollectorNetworkOnly: 40, BeaconTokenised: 4, BeaconNetworkOnly: 6},
+			wantSeam: true,
+		},
+		{
+			// The live misconfiguration: each source uniform, and not
+			// the same. This is the shape a deployment had whenever
+			// privacy.ip_storage reached one writer and not the other.
+			name:         "the collector tokenises and the beacon does not",
+			keys:         KeySpaces{CollectorTokenised: 40, BeaconNetworkOnly: 25},
+			wantDisagree: true,
+		},
+		{
+			name:         "the beacon tokenises and the collector does not",
+			keys:         KeySpaces{CollectorNetworkOnly: 40, BeaconTokenised: 25},
+			wantDisagree: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.keys.SpansAModeChange(); got != tc.wantSeam {
+				t.Errorf("SpansAModeChange() = %v, want %v", got, tc.wantSeam)
+			}
+			if got := tc.keys.SourcesDisagree(); got != tc.wantDisagree {
+				t.Errorf("SourcesDisagree() = %v, want %v", got, tc.wantDisagree)
+			}
+			// Never both. The page draws one line, and the two say
+			// different things to do - so a state that claimed both
+			// would be a state the page cannot render honestly.
+			if tc.keys.SpansAModeChange() && tc.keys.SourcesDisagree() {
+				t.Error("both verdicts hold at once")
+			}
 		})
 	}
 }

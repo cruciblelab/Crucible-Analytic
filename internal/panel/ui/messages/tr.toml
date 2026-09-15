@@ -708,6 +708,8 @@ bant = "Skor bandı"
 adres = "Adres"
 yalniz_beacon = "%s adres ölçüm kodundan görüldü ama sunucuya hiç ulaşmadı. Bu bir ölçüm değil, bir yapılandırma işareti: ya collector trafiğin yolunda değil, ya da beacon'ın trusted_proxies ayarı yanlış ve ziyaretçinin adresi yerine vekilinkini kaydediyor."
 aciklama = "Yalnız ölçüm koduna dayanan analitik araçları, kodu çalıştırmayan ziyaretçiyi hiç göremez — dolayısıyla kaçırdığı kitlenin büyüklüğünü de bildiremez. Bu bölüm o farkı sayıyor."
+dikis = "Bu aralıkta adresler iki ayrı biçimde saklanmış: bir kısmı jetonlu, bir kısmı yalnız maskeli ağ. Yani adres saklama ayarı bu aralığın içinde bir gün değişmiş. İki biçim birbirine eşleşemez — jeton ile ağ aynı şey değil — yani aşağıdaki kapsam, sitenin gerçekte olduğundan düşük görünüyor; ne kadar düşük olduğu hesaplanamaz, çünkü eşleşmeyi kuracak adresler hiçbir zaman saklanmadı. Değişiklikten önceki kayıtlar o gün yürürlükte olan biçimde duruyor ve öyle kalacak — geriye dönük hiçbir şey değişmedi; ziyaretçilerinizi bilgilendirirken bu ayrımı da belirtin. Uyarı kendiliğinden kalkacak: saklama süresi dikişin eski tarafındaki son satırı sildiği gün. Aralığı daraltarak değişimin hangi güne düştüğünü görebilirsiniz."
+kip_ayrisiyor = "İki kaynak şu anda farklı adres saklama biçiminde: biri jeton yazıyor, diğeri yalnız maskeli ağ. Bu bir zaman dikişi değil, canlı bir yapılandırma sorunu — iki biçim eşleşemediği için kapsam %%0 görünür ve bütün beacon adresleri \"sunucuya hiç ulaşmadı\" hanesine düşer. İki servisin de privacy.ip_storage değerini ve ayar tablosuna erişimini kontrol edin; farklı sürümdeyseler bu ayarı ilk sırada kontrol edin."
 
 [metin.pano.adres.sessiz]
 baslik = "Sessiz adresler"

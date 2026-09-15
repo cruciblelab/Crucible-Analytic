@@ -20,6 +20,42 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Kesişim görünümü artık kip değişimini söylüyor
+
+Adres saklama biçimini değiştirmek geçmişe dokunmuyor — bu karar aynen
+duruyor. Ama bedeli vardı ve hiçbir yerde yazmıyordu: kesişim sorgusu
+adresin en keskin hâli üzerinden birleşiyor (tam kipte jeton, diğerinde
+maskeli ağ), ve **jeton ile ağ hiçbir zaman eşit olmaz.** Yani bir kip
+değişimini içine alan aralıkta, aynı ziyaretçinin iki satırı
+birleşemiyor: kapsam sitenin gerçekte olduğundan düşük görünüyor, ve
+sayfa bunu söylemiyordu.
+
+Artık söylüyor. Kesişim bölümünün **en üstünde** (sayıların altında
+değil — oraya konan bir çekince, sayıları zaten okumuş birine
+söylenmiş olur) iki durumdan biri yazıyor:
+
+- **Aralık bir kip değişimini içine alıyorsa:** neyin neden düşük
+  göründüğü, geriye dönük hiçbir şeyin değişmediği, ve ziyaretçileri
+  bilgilendirirken bu ayrımın da belirtilmesi gerektiği. Uyarı
+  **kendiliğinden** kalkıyor: saklama süresi dikişin eski tarafındaki son
+  satırı sildiği gün. Panel "kip şu tarihte değişti" diye bir kayıt
+  tutmuyor; koşul verinin kendisi, yani uyarı etkisi sürerken var,
+  bittiğinde yok.
+- **İki kaynak şu anda farklı kipteyse:** bu bir zaman dikişi değil,
+  canlı bir yapılandırma sorunu. Belirtisi kapsamın **%0** okunması ve
+  bütün beacon adreslerinin "sunucuya hiç ulaşmadı" hanesine düşmesi — ve
+  o sayının yanındaki açıklama *"collector yolda değil"* diyor, yani
+  ayardaki bir kusur için ağı gösteriyordu. İkisi artık ayırt ediliyor.
+
+Aralık kapsamlı, bilerek: bir kip değişiminden *sonrasına* bakan pencerede
+sayılar doğru, ve doğru bir sayının üstüne uyarı koymak insanlara uyarıyı
+atlamayı öğretir. Aralığı daraltmak değişimin hangi güne düştüğünü de
+gösteriyor.
+
+Ek maliyeti yok — dört sayı, sorgunun zaten yaptığı gruplamanın üstünde.
+
+**Kuran kişinin yapması gereken: bir şey yok.**
+
 ### IP saklama kipi collector'a hiç ulaşmıyordu
 
 Panel `privacy.ip_storage`'ı **canlı** diye gösteriyor, beacon onu A6'dan

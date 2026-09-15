@@ -48,6 +48,13 @@ type seedRow struct {
 	ja4     string
 	prevWin int
 	currWin int
+	// ipHash is the token full mode stores beside the masked network.
+	//
+	// Empty means masked mode, which is what every test that does not
+	// mention it wants - and what a deployment that never turned the
+	// setting on has. The crossover join keys on this column when it is
+	// set, so a test about two key spaces needs to be able to set it.
+	ipHash []byte
 }
 
 // newTestStore opens a Store and seeds rows, cleaning them up afterwards.
@@ -94,21 +101,47 @@ func seedStore(t *testing.T, rows []seedRow, ja4For func(seedRow) string) *Store
 	}
 	testdb.CleanSite(t, testdb.Admin(t), seededSites...)
 
+	insertSnapshots(t, rows, ja4For)
+	return store
+}
+
+// insertSnapshots writes traffic_snapshots rows as the collector.
+//
+// The only place in these suites that names that table's columns. The
+// second copy - seedSnapshotsFor's - is gone: it was written for the
+// beacon-side tests, and when seedRow gained ipHash it kept inserting
+// the old column list, so a test asserting that the product counted a
+// token failed against a fixture that had never stored one.
+func insertSnapshots(t *testing.T, rows []seedRow, ja4For func(seedRow) string) {
+	t.Helper()
 	pool := testdb.Pool(t, testdb.Collector)
 
 	for _, r := range rows {
 		_, err := pool.Exec(context.Background(), `
 			INSERT INTO traffic_snapshots
-			  (time, site_id, ip, ja4, prev_window_count, curr_window_count, request_rate,
-			   bot_score, is_known_bot_ja4, country, asn, asn_org, is_known_bot_asn)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-			r.at, r.site, r.ip, ja4For(r), r.prevWin, r.currWin, r.rate,
-			r.score, r.botJA4, r.country, r.asn, r.asnOrg, r.botASN)
+			  (time, site_id, ip, ip_hash, ja4, prev_window_count, curr_window_count,
+			   request_rate, bot_score, is_known_bot_ja4, country, asn, asn_org,
+			   is_known_bot_asn)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+			r.at, r.site, r.ip, nilIfEmpty(r.ipHash), ja4For(r), r.prevWin, r.currWin,
+			r.rate, r.score, r.botJA4, r.country, r.asn, r.asnOrg, r.botASN)
 		if err != nil {
 			t.Fatalf("seeding row %+v: %v", r, err)
 		}
 	}
-	return store
+}
+
+// nilIfEmpty turns an empty token into a real SQL NULL.
+//
+// A zero-length bytea is not NULL, and the crossover join would key on
+// it: COALESCE would pick the empty token over the network, so every
+// such row would share one key. Masked mode writes NULL, so the fixture
+// has to as well.
+func nilIfEmpty(token []byte) any {
+	if len(token) == 0 {
+		return nil
+	}
+	return token
 }
 
 func TestStore_RealTimescaleDB_SummaryCountsDistinctIPs(t *testing.T) {

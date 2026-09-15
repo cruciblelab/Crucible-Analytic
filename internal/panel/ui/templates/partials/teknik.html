@@ -43,6 +43,13 @@ of the population it is missing. */}}
 {{- if .Empty}}
 <p class="kirilim-bos durum-{{.Empty}}">{{.Text}}</p>
 {{- else}}
+{{- /* Above the numbers, not below them: this line says the coverage
+underneath is lower than the site's really was, and a caveat printed
+after a number is a caveat most readers never reach. Empty in the
+ordinary case - see crossoverView.KeyNotice. */}}
+{{- if .KeyNotice}}
+<p class="uyari-satiri">{{.KeyNotice}}</p>
+{{- end}}
 <dl class="kesisim-ozet">
 <div><dt>{{t "pano.kesisim.gorulen"}}</dt><dd>{{.Seen}}</dd></div>
 <div><dt>{{t "pano.kesisim.js_calistiran"}}</dt><dd>{{.RanJS}}</dd></div>

@@ -99,7 +99,7 @@ gerekçe değil bahane olur.
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
 | **L** Yükseltme yolu | ✅ **6/6** | — *(altıncı binary + systemd timer; "hiçbir servis durmuyor" ölçüldü; L4 yükseltilen kurulumu taze kurulumla eşitledi, L5 bunu bütün sürüm geçmişine yaydı — 21 sürümün 17'si ayrışıyordu; L6 yetki yüzeylerine RLS/politika/sahiplik/kısıt ekledi ve iki tabloda zorlanmayan satır güvenliği buldu)* |
 | **M** Veri kaynakları | ✅ **3/3** | — *(kütüphane, çekim kaydı, yenile düğmesi)* |
-| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **8/9** | P5 — *(planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden, P7 "sayfa dinamik olmalı" isteğinden doğdu, P7b P6'nın UI adayını kapattı, P5a ise P5'i hazırlarken çıktı: kipin kendisi collector'a hiç ulaşmıyordu)* |
+| **P** Ziyaretçiye dönük veri yönetimi | 🟡 **8/9** | P5'in temizleme yarısı — *(P5'in uyarı yarısı bitti, o yüzden sayaç 8/9 kalıyor: bir faz ancak iki yarısı da bitince ✅ oluyor; temizleme B2'nin operasyon kanalını bekliyor. Planda yoktu; A9'un yerine geçti, gerekçesi §P; P6 sahibin uyarı isteğinden, P7 "sayfa dinamik olmalı" isteğinden doğdu, P7b P6'nın UI adayını kapattı, P5a ise P5'i hazırlarken çıktı: kipin kendisi collector'a hiç ulaşmıyordu)* |
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
@@ -192,7 +192,7 @@ geçer.
 | 6 | **A3 → A2 → D5** | kendi içinde kapalı zincir; A3'süz A2 yalan söyler |
 | 6.5 | ~~**P1** çağrılar~~ ✅ ~~**P2** açıklama yüzeyi~~ ✅ ~~**P3** panel ayarları~~ ✅ → **P4** | bağımsız *(P3'ün kabuğu D4c ile hazır)*; ziyaretçiye dönük tek yüzey ve hukuki ağırlığı olan tek eksik — A9'un yerine geçti |
 | 7 | **B3** 39 operasyon | B2 ve D4a üstünde |
-| 7.5 | ~~**P5a** kip gerçekten uygulanıyor~~ ✅ → **P5** mod değişiminin geçmişi | P5a P5'in önkoşuluydu ve planda yoktu: bir kip değişiminin geçmişe etkisini anlatmadan önce kipin **değişiyor** olması gerekiyor, ve collector onu hiç okumuyordu. P5'in uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
+| 7.5 | ~~**P5a** kip gerçekten uygulanıyor~~ ✅ → ~~**P5** uyarı~~ ✅ → **P5** temizleme | P5a P5'in önkoşuluydu ve planda yoktu: bir kip değişiminin geçmişe etkisini anlatmadan önce kipin **değişiyor** olması gerekiyor, ve collector onu hiç okumuyordu. P5'in uyarı kısmı bağımsız; **temizleme B2'nin operasyon kanalını bekliyor** — panel bu tablolara yazamaz ve yazmayacak |
 | 8 | **H1 · H3 · E2** | bağımsız; herhangi bir yere sıkışır |
 | 9 | **D4b · D6 · D7 · D8** | yüzey işleri, altları hazır olunca |
 | 10 | **E1** | *bilinçli karar ister* — ne zaman yapılırsa öncesi yeniden yazılır |
@@ -7838,6 +7838,51 @@ uyarının kaybolduğunu doğrula)*; temizleme geliştirici parolası olmadan
 reddediliyor; panel rolünün hâlâ bu sütunlara yazamadığını doğrulayan
 rol testi; temizleme sonrası aynı aralığın kesişimi /24 çözünürlüğünde
 çalışmaya devam ediyor (boşalmıyor).
+
+##### Uyarı yarısı ✅ **bitti (2026-09-15)**
+
+Kesişim özeti artık dört sayı daha taşıyor — her kaynağın **jetonlu** ve
+**yalnız ağ** anahtarları (`key_spaces`) — ve bu dört sayı iki ayrı
+durumu ayırt ediyor:
+
+- **Bir kaynakta iki tür birden:** `privacy.ip_storage` bu aralığın
+  içinde değişmiş. Beklenen, geçici, ve saklama süresi dikişin eski
+  tarafını geçtiği gün kendiliğinden bitiyor.
+- **Her kaynak tek tür ve aynı tür değil:** iki yazar **şu anda** farklı
+  kipte. Zaman dikişi değil, canlı bir yapılandırma sorunu — ve belirtisi
+  kapsamın %0 okunması ve bütün beacon adreslerinin `beacon_only_ips`'e
+  düşmesi. O sayının sayfadaki açıklaması *"collector yolda değil"*, yani
+  **yanlış teşhis**; artık ikisi ayırt edilip doğru cümle yazılıyor.
+  (P5a'dan sonra bu durum yalnız iki servis farklı sürümdeyse ya da ayar
+  tablosuna erişim yoksa oluşabiliyor.)
+
+**Pencere kapsamlı, ve bu PLAN'ın yukarıdaki cümlesinden bilerek
+sapıyor.** Yukarısı "saklama penceresi içinde iki tür var mı" diyordu;
+uygulanan kural "**seçilen aralıkta** iki tür var mı". Sebebi: bir kip
+değişiminden *sonrasına* bakan bir pencerede sayılar doğru, ve doğru bir
+sayının üstüne uyarı koymak insanlara uyarıyı atlamayı öğretmektir.
+"Kendiliğinden kalkma" özelliği de aynen duruyor — saklama süresi eski
+tarafı sildiği gün hiçbir pencere iki tür içeremez.
+
+**Maliyet yok:** dört sayı var olan iki CTE'nin üstünde, `bool_or(ip_hash
+IS NOT NULL)` zaten yapılan gruplamaya biniyor. Bu uç grubun en yavaşı
+(§O4), o yüzden ek bir tarama kabul edilemezdi.
+
+**Ölçüm.** `internal/api`: aynı adres iki modda yazılınca kesişim
+**eşleşmiyor** (jeton ile ağ), aynı modda yazılınca eşleşiyor — iki yarım
+birden, çünkü yalnız eşleşmeyeni ölçen bir test hiçbir şeyi eşleştirmeyen
+bir join'le de yeşil verir. `internal/panel/web`: gerçek satırlarla
+sayfa çiziliyor, beş durum (iki sessiz, iki gürültülü, bir de "saklama
+dikişi geçti" hâli), ve uyarının **sayıların üstünde** olduğu iddiası
+ayrıca ölçülüyor. On bir mutasyon, on biri de kırmızı.
+
+**Ekran görüntüsüne bakınca bir kusur çıktı ve düzeltildi:** ilk metin
+*"ziyaretçilerinizi bilgilendirirken bu tarihi de belirtin"* diyordu ve
+sayfa **tarihi göstermiyor.** Panelde denetim kaydı sayfası da yok, yani
+okuyucuyu gönderecek bir yer bile yoktu. Metin artık sayfanın bildiği
+şeyi söylüyor (iki biçim bir arada, geriye dönük hiçbir şey değişmedi) ve
+tarihi bulmanın yolunu veriyor: aralığı daralt. *Sayfanın okuyucudan
+istediği şey, sayfanın verebildiği şey olmalı.*
 
 ---
 

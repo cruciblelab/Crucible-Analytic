@@ -69,6 +69,55 @@ type CrossoverSummary struct {
 	// the interesting anomaly: automation sophisticated enough to render
 	// pages.
 	Bands []CoverageBand `json:"bands"`
+
+	// KeySpaces says how this window's addresses are keyed, which is
+	// what decides whether the numbers above can be compared at all.
+	KeySpaces KeySpaces `json:"key_spaces"`
+}
+
+// KeySpaces counts each source's join keys by which kind they are.
+//
+// # Why a crossover summary has to report this
+//
+// The join keys on COALESCE(ip_hash, inet_send(ip)): the token when the
+// row has one, the /24 otherwise. A token is 16 bytes and a network is
+// not, so the two never compare equal - a row written in masked mode
+// never joins a row written in full mode. That is correct, because
+// nothing can tell whether they are the same visitor, and it is not
+// free: a window containing both kinds is a window whose coverage is
+// lower than the site's really was, by an amount this endpoint cannot
+// compute.
+//
+// It cannot compute it because the missing matches are missing: the
+// question "would this token have matched that network" has no answer
+// once the address is gone, which is the entire point of storing
+// neither. So the honest thing is to report the shape of the keys and
+// let the page say what it means - PLAN.md §P5.
+//
+// # Two different situations, and the same four numbers tell them apart
+//
+//   - One source holding both kinds: privacy.ip_storage changed inside
+//     this window. Expected, temporary, and it ends by itself when
+//     retention drops the older side.
+//   - Each source holding one kind and not the same kind: the two
+//     writers are in different modes *right now*. Not a seam in time but
+//     a live misconfiguration - and its symptom is that coverage reads
+//     0% and every beacon address lands in BeaconOnlyIPs, which the
+//     panel used to explain as "the collector is not in the path". A
+//     diagnosis pointing at the network for a defect in a setting.
+//
+// The verdict is drawn in internal/panel/analytics rather than here:
+// there is one consumer, and a rule with two definitions is a rule that
+// gets to disagree with itself.
+type KeySpaces struct {
+	// CollectorTokenised and CollectorNetworkOnly count the collector's
+	// distinct join keys; the Beacon pair counts the beacon's. Keys
+	// rather than rows, because a key is what the join compares - a
+	// thousand rows from one address are one key either way.
+	CollectorTokenised   int `json:"collector_tokenised"`
+	CollectorNetworkOnly int `json:"collector_network_only"`
+	BeaconTokenised      int `json:"beacon_tokenised"`
+	BeaconNetworkOnly    int `json:"beacon_network_only"`
 }
 
 // CrossoverSummary computes JavaScript coverage for one site over
@@ -114,20 +163,31 @@ func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to ti
 
 	// Shared by both queries below: one row per IP the collector saw,
 	// tagged with whether the beacon also heard from it.
+	// tokenised rides along on the grouping that is already happening.
+	//
+	// bool_or rather than a column, because ip_hash is not in the GROUP
+	// BY - and it need not be: the key already decides the answer, since
+	// a group keyed by a token contains only tokenised rows and one
+	// keyed by a network only untokenised ones. bool_and would give the
+	// same result here, and saying bool_or keeps it true if that ever
+	// stops holding.
 	const joinedCTE = `
 		WITH collector_ips AS (
-		    SELECT ` + joinKey + ` AS join_key, max(bot_score) AS peak_score
+		    SELECT ` + joinKey + ` AS join_key, max(bot_score) AS peak_score,
+		           bool_or(ip_hash IS NOT NULL) AS tokenised
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ` + joinKey + `
 		),
 		beacon_ips AS (
-		    SELECT DISTINCT ` + joinKey + ` AS join_key
+		    SELECT ` + joinKey + ` AS join_key,
+		           bool_or(ip_hash IS NOT NULL) AS tokenised
 		    FROM beacon_events
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
+		    GROUP BY ` + joinKey + `
 		),
 		joined AS (
-		    SELECT c.join_key, c.peak_score, (b.join_key IS NOT NULL) AS ran_js
+		    SELECT c.join_key, c.peak_score, c.tokenised, (b.join_key IS NOT NULL) AS ran_js
 		    FROM collector_ips c
 		    LEFT JOIN beacon_ips b ON b.join_key = c.join_key
 		)`
@@ -137,9 +197,18 @@ func (s *Store) CrossoverSummary(ctx context.Context, siteID string, from, to ti
 		    (SELECT count(*) FROM joined),
 		    (SELECT count(*) FROM joined WHERE ran_js),
 		    (SELECT count(*) FROM beacon_ips b
-		       WHERE NOT EXISTS (SELECT 1 FROM collector_ips c WHERE c.join_key = b.join_key))`,
+		       WHERE NOT EXISTS (SELECT 1 FROM collector_ips c WHERE c.join_key = b.join_key)),
+		    -- The four key-space counts, off the same two CTEs: no extra
+		    -- pass over either table, which matters because this
+		    -- endpoint is already the slowest one here (PLAN.md §O4).
+		    (SELECT count(*) FROM joined WHERE tokenised),
+		    (SELECT count(*) FROM joined WHERE NOT tokenised),
+		    (SELECT count(*) FROM beacon_ips WHERE tokenised),
+		    (SELECT count(*) FROM beacon_ips WHERE NOT tokenised)`,
 		siteID, from, to,
-	).Scan(&out.IPsSeen, &out.IPsRanJS, &out.BeaconOnlyIPs)
+	).Scan(&out.IPsSeen, &out.IPsRanJS, &out.BeaconOnlyIPs,
+		&out.KeySpaces.CollectorTokenised, &out.KeySpaces.CollectorNetworkOnly,
+		&out.KeySpaces.BeaconTokenised, &out.KeySpaces.BeaconNetworkOnly)
 	if err != nil {
 		return CrossoverSummary{}, fmt.Errorf("api: crossover summary: %w", err)
 	}
