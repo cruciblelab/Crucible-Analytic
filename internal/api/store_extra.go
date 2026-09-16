@@ -102,11 +102,6 @@ type JA4Stat struct {
 // first - the view that's specific to what this collector does, as
 // opposed to country/ASN, which any IP-geolocation tool could produce.
 func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]JA4Stat, int, error) {
-	total, err := s.countDistinct(ctx, countJA4, siteID, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, `+representativeJA4+` AS ja4,
@@ -114,11 +109,16 @@ func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, lim
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
+		),
+		grouped AS (
+		    SELECT ja4, bool_or(known_bot) AS known_bot, count(*) AS ips,
+		           count(*) FILTER (WHERE peak_score >= $6) AS bot_ips
+		    FROM per_ip
+		    GROUP BY ja4
 		)
-		SELECT ja4, bool_or(known_bot), count(*), count(*) FILTER (WHERE peak_score >= $6)
-		FROM per_ip
-		GROUP BY ja4
-		ORDER BY count(*) DESC, ja4
+		SELECT ja4, known_bot, ips, bot_ips, `+pageTotal+`
+		FROM grouped
+		ORDER BY ips DESC, ja4
 		LIMIT $4 OFFSET $5`,
 		siteID, from, to, limit, offset, botScoreMin,
 	)
@@ -128,9 +128,11 @@ func (s *Store) JA4s(ctx context.Context, siteID string, from, to time.Time, lim
 	defer rows.Close()
 
 	stats := []JA4Stat{}
+	var total int
 	for rows.Next() {
 		var stat JA4Stat
-		if err := rows.Scan(&stat.JA4, &stat.IsKnownBotJA4, &stat.UniqueIPs, &stat.BotIPs); err != nil {
+		if err := rows.Scan(&stat.JA4, &stat.IsKnownBotJA4, &stat.UniqueIPs, &stat.BotIPs,
+			&total); err != nil {
 			return nil, 0, fmt.Errorf("api: scan ja4 stat: %w", err)
 		}
 		stat.Empty = stat.JA4 == ""
@@ -370,43 +372,19 @@ func (s *Store) Snapshots(ctx context.Context, siteID string, from, to time.Time
 	return out, total, rows.Err()
 }
 
-// countColumn is a column this package may count distinct values of.
+// countDistinct and its countColumn guard used to live here, and both
+// are gone as of O4a.
 //
-// A named type with unexported values, not a string. The column name is
-// interpolated into SQL - Postgres has no placeholder for an identifier -
-// so the only thing standing between this query and CWE-89 is that no
-// request-derived string can ever arrive here. A comment saying so is a
-// comment; a type saying so is checked by the compiler, and a future
-// handler that tries to pass a query parameter through does not build.
-type countColumn string
-
-const (
-	countIP      countColumn = "ip"
-	countCountry countColumn = "country"
-	countASN     countColumn = "asn"
-	countJA4     countColumn = "ja4"
-)
-
-// countDistinct counts the distinct values of one column for a site in a
-// range, so paginated breakdowns can report a total.
-func (s *Store) countDistinct(ctx context.Context, column countColumn, siteID string, from, to time.Time) (int, error) {
-	// Belt and braces on top of the type. If somebody adds a value to
-	// countColumn without adding it here, the query is refused rather
-	// than run - which is the failure direction that matters when the
-	// alternative is interpolating an unreviewed identifier.
-	switch column {
-	case countIP, countCountry, countASN, countJA4:
-	default:
-		return 0, fmt.Errorf("api: %q is not a countable column", column)
-	}
-
-	var total int
-	err := s.pool.QueryRow(ctx,
-		fmt.Sprintf(`SELECT count(DISTINCT %s) FROM traffic_snapshots WHERE site_id = $1 AND time >= $2 AND time < $3`, column),
-		siteID, from, to,
-	).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("api: count distinct %s: %w", column, err)
-	}
-	return total, nil
-}
+// It answered "how many distinct values does this breakdown have", as a
+// second query beside every paginated breakdown - see pageTotal for why
+// that was two passes and, worse, two different definitions. Now the
+// total comes out of the breakdown's own pass.
+//
+// The guard went with it, and that is the point rather than a side
+// effect: countColumn existed because the column name was interpolated
+// into SQL, and the interpolation is what disappeared. A closed type
+// defending a query that no longer exists is not defence in depth, it
+// is a thing to keep in step for no reason. The hazard it was built for
+// still exists on the beacon side, where a breakdown really does
+// interpolate a column, and internal/api/store_beacon.go carries both
+// the type and the switch for it.

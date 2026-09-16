@@ -4672,8 +4672,17 @@ gerçek: aynı adresin ASN/ülke çözümü pencere içinde değişebiliyor, ve
 onu değiştiren şey D3'ün aralık kümesi yenilemesi.)
 
 Düzeltme: tek geçiş, toplam `count(*) OVER ()` ile aynı gruplamadan.
-Ölçülen: 2,93 + 4,16 = **7,1 sn → 2,76 sn**, ve iki sayı artık aynı
-tanımdan geliyor. **Şema gerekmiyor.**
+
+| asn ucu | süre |
+|---|---:|
+| bugün (iki sorgu) | 2,93 + 4,16 = **7,1 sn** |
+| tek geçiş | **4,37 sn** |
+| tek geçiş + `jit=off` | **2,76 sn** |
+
+İki kol ayrı ayrı yazılı, çünkü ilk turda 2,76'yı tek geçişin hanesine
+yazmıştım ve o sayı `jit=off` ile ölçülmüştü — *iki değişikliğin toplam
+etkisini birine yazmak, ikisini de yanlış bildirmektir.* Ve iki sayı
+artık aynı tanımdan geliyor. **Şema gerekmiyor.**
 
 **Bulgu 2 — JIT derlemesi saf gider.** 13 parçalık plan 226 işlev
 derliyor: üretim 35 ms, inlining 615 ms, optimizasyon 1.418 ms, emisyon

@@ -18822,8 +18822,10 @@ içinde birkaç ASN veriyor). Ama **mekanizma üründe gerçek**: adresin
 ASN/ülke çözümü pencere içinde değişebilir, ve onu değiştiren şey D3'ün
 aralık kümesi yenilemesi. Yapısal kusur — iki tanım — veriden bağımsız.
 
-Tek geçiş + `count(*) OVER ()`: **7,1 → 2,76 sn**, ve iki sayı artık tek
-tanımdan.
+Tek geçiş + `count(*) OVER ()`: **7,1 → 4,37 sn**, ve iki sayı artık tek
+tanımdan. (`jit=off` ile birlikte 2,76 sn — ilk turda o sayıyı tek
+geçişin hanesine yazmıştım ve yanlıştı: *iki değişikliğin toplam etkisini
+birine yazmak, ikisini de yanlış bildirmektir.*)
 
 ### Bulgu 2: JIT derlemesi saf gider
 

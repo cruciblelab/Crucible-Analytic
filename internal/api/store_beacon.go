@@ -278,10 +278,16 @@ const (
 //
 // Added during the H5 audit, which found the same pattern defended two
 // different ways in the same package: countDistinct in store_extra.go
-// has both the closed type and a switch, with a comment calling the
-// switch "belt and braces", while this path had only the type. Two
-// standards for one hazard is how the weaker one survives a review - so
-// the stronger one is now what both use.
+// had both the closed type and a switch, while this path had only the
+// type. Two standards for one hazard is how the weaker one survives a
+// review - so the stronger one became what both used.
+//
+// That neighbour is gone (O4a removed the query, and with it the
+// interpolation), so this is now the only place in the package that
+// names a column inside SQL. Which makes the pair below the whole of
+// the defence rather than half of a convention: a closed type no other
+// package can construct, and a switch that refuses a value somebody
+// adds to the type without thinking about this line.
 func (e breakdownExpr) valid() error {
 	switch e {
 	case byPath, byTitle, byReferrerHost, byBrowser, byOS, byDevice, byLanguage,

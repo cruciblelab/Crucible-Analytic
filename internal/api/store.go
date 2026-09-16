@@ -68,6 +68,40 @@ const maxRows = 1000
 // fingerprint shown is one that made it true. distinctJA4s is what stops
 // the answer from pretending to be the only one - a caller that draws
 // the fingerprint can say how many the group had.
+// pageTotal is how a paginated breakdown reports its own size.
+//
+// # Why it is in the same query and not a second one
+//
+// It used to be a second query: count(DISTINCT <column>) over the raw
+// rows, run just before the breakdown. That was two full passes over the
+// window instead of one - measured on 11,1M rows over 90 days, 2,93 s
+// for the count and 4,16 s for the breakdown - and PostgreSQL answers
+// count(DISTINCT x) by *sorting*, which is the expensive form.
+//
+// But the reason it changed is not the seconds. The two queries were
+// counting different things, and the page showed them side by side:
+//
+//	asn      | the page said 855 | 95 rows could be paged through
+//	country  |                 8 | 8
+//	ja4      |               380 | 380
+//
+// The count looked at the raw rows; the breakdown looks at one row per
+// address (max(asn), max(country), the representative fingerprint). So
+// an address whose ASN resolution changed inside the window contributed
+// two values to the count and one to the breakdown - and in this
+// product a resolution changes when the range dataset is refreshed
+// (D3), which is a feature rather than an anomaly.
+//
+// A total that is not the total of the thing being paged is worse than a
+// slow one: somebody pages to the end and finds empty pages, with no way
+// to tell which of the two numbers lied. Now there is one definition,
+// and the page and its total cannot disagree because they are one pass.
+//
+// Window functions run after GROUP BY and before LIMIT, so this counts
+// the groups the query would have returned unpaginated - which is
+// exactly what a pager needs.
+const pageTotal = `count(*) OVER () AS total`
+
 const representativeJA4 = `COALESCE(
 	(array_agg(ja4 ORDER BY is_known_bot_ja4 DESC, time DESC) FILTER (WHERE ja4 <> ''))[1], '')`
 
@@ -349,11 +383,6 @@ type IPStat struct {
 // most suspicious first, alongside the total number of distinct IPs so a
 // caller can page through them.
 func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
-	total, err := s.countDistinct(ctx, countIP, siteID, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	rows, err := s.pool.Query(ctx, `
 		SELECT ip,
 		       max(bot_score),
@@ -372,7 +401,13 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 		       `+representativeJA4+`,
 		       `+distinctJA4s+`,
 		       max(time),
-		       count(*)
+		       count(*),
+		       -- The number of addresses this breakdown has, from the same
+		       -- pass - see pageTotal. Here the old second query and this
+		       -- one agreed (both count distinct addresses, and this query
+		       -- groups by address), so the change is the pass that was
+		       -- saved rather than a number that was wrong.
+		       `+pageTotal+`
 		FROM traffic_snapshots
 		WHERE site_id = $1 AND time >= $2 AND time < $3
 		GROUP BY ip
@@ -386,6 +421,7 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 	defer rows.Close()
 
 	stats := []IPStat{}
+	var total int
 	for rows.Next() {
 		var (
 			stat IPStat
@@ -393,7 +429,7 @@ func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, l
 		)
 		if err := rows.Scan(&ip, &stat.PeakScore, &stat.PeakRequestRate, &stat.Country, &stat.ASN,
 			&stat.ASNName, &stat.IsKnownBotJA4, &stat.IsKnownBotASN, &stat.JA4, &stat.JA4Count,
-			&stat.LastSeen, &stat.Snapshots); err != nil {
+			&stat.LastSeen, &stat.Snapshots, &total); err != nil {
 			return nil, 0, fmt.Errorf("api: scan ip stat: %w", err)
 		}
 		stat.IP = ip.String()
@@ -418,22 +454,22 @@ type GroupStat struct {
 // IPs whose country never resolved are grouped under an empty key rather
 // than dropped, so the numbers still add up to the site's total.
 func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
-	total, err := s.countDistinct(ctx, countCountry, siteID, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, max(country) AS country, max(bot_score) AS peak_score
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
+		),
+		grouped AS (
+		    SELECT country, count(*) AS ips,
+		           count(*) FILTER (WHERE peak_score >= $6) AS bot_ips
+		    FROM per_ip
+		    GROUP BY country
 		)
-		SELECT country, count(*), count(*) FILTER (WHERE peak_score >= $6)
-		FROM per_ip
-		GROUP BY country
-		ORDER BY count(*) DESC, country
+		SELECT country, ips, bot_ips, `+pageTotal+`
+		FROM grouped
+		ORDER BY ips DESC, country
 		LIMIT $4 OFFSET $5`,
 		siteID, from, to, limit, offset, botScoreMin,
 	)
@@ -442,28 +478,27 @@ func (s *Store) Countries(ctx context.Context, siteID string, from, to time.Time
 	}
 	defer rows.Close()
 
-	stats, err := scanGroupStats(rows, false)
-	return stats, total, err
+	return scanGroupStats(rows, false)
 }
 
 // ASNs breaks a site's distinct IPs down by ASN, busiest first.
 func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, limit, offset, botScoreMin int) ([]GroupStat, int, error) {
-	total, err := s.countDistinct(ctx, countASN, siteID, from, to)
-	if err != nil {
-		return nil, 0, err
-	}
-
 	rows, err := s.pool.Query(ctx, `
 		WITH per_ip AS (
 		    SELECT ip, max(asn) AS asn, max(asn_org) AS asn_org, max(bot_score) AS peak_score
 		    FROM traffic_snapshots
 		    WHERE site_id = $1 AND time >= $2 AND time < $3
 		    GROUP BY ip
+		),
+		grouped AS (
+		    SELECT asn, max(asn_org) AS asn_org, count(*) AS ips,
+		           count(*) FILTER (WHERE peak_score >= $6) AS bot_ips
+		    FROM per_ip
+		    GROUP BY asn
 		)
-		SELECT asn::text, max(asn_org), count(*), count(*) FILTER (WHERE peak_score >= $6)
-		FROM per_ip
-		GROUP BY asn
-		ORDER BY count(*) DESC, asn
+		SELECT asn::text, asn_org, ips, bot_ips, `+pageTotal+`
+		FROM grouped
+		ORDER BY ips DESC, asn
 		LIMIT $4 OFFSET $5`,
 		siteID, from, to, limit, offset, botScoreMin,
 	)
@@ -472,8 +507,7 @@ func (s *Store) ASNs(ctx context.Context, siteID string, from, to time.Time, lim
 	}
 	defer rows.Close()
 
-	stats, err := scanGroupStats(rows, true)
-	return stats, total, err
+	return scanGroupStats(rows, true)
 }
 
 // scanGroupStats reads the shared shape Countries and ASNs both return.
@@ -483,20 +517,25 @@ func scanGroupStats(rows interface {
 	Next() bool
 	Scan(...any) error
 	Err() error
-}, withLabel bool) ([]GroupStat, error) {
+}, withLabel bool) ([]GroupStat, int, error) {
 	stats := []GroupStat{}
+	// The total rides on every row, because a window function has
+	// nowhere else to put it. Every row carries the same value, so the
+	// last one read is the answer - and with no rows it stays 0, which
+	// is the right total for a breakdown that has no groups.
+	var total int
 	for rows.Next() {
 		var stat GroupStat
 		var err error
 		if withLabel {
-			err = rows.Scan(&stat.Key, &stat.Label, &stat.UniqueIPs, &stat.BotIPs)
+			err = rows.Scan(&stat.Key, &stat.Label, &stat.UniqueIPs, &stat.BotIPs, &total)
 		} else {
-			err = rows.Scan(&stat.Key, &stat.UniqueIPs, &stat.BotIPs)
+			err = rows.Scan(&stat.Key, &stat.UniqueIPs, &stat.BotIPs, &total)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("api: scan group stat: %w", err)
+			return nil, 0, fmt.Errorf("api: scan group stat: %w", err)
 		}
 		stats = append(stats, stat)
 	}
-	return stats, rows.Err()
+	return stats, total, rows.Err()
 }

@@ -20,6 +20,37 @@ düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Kırılım sayfalarının toplamı artık sayfalananın toplamı
+
+Sayfalanan her kırılım (ülkeler, ASN'ler, parmak izleri, adresler) iki
+sorgu koşuyordu: biri toplamı `count(DISTINCT sütun)` ile ham satırlardan
+sayıyor, diğeri sayfayı adres başına bir satırdan üretiyor. **İkisi aynı
+şeyi saymıyordu.**
+
+12M satırlık ölçüm kümesinde ASN kırılımı **855** yazıyor ve **95**
+satırını gösteriyordu. Sebebi ürünün doğru davranışı: aynı adresin ASN
+ya da ülke çözümü pencere içinde değişebiliyor (aralık veri kümesi
+yenilendiğinde), ve o adres ham sayıda iki değer, sayfada bir satır
+oluyor.
+
+Bir sayfaya kadar gidip boş sayfalar bulan biri, iki sayıdan hangisinin
+yanlış olduğunu anlayamaz. Artık tek tanım var: toplam, sayfanın kendi
+geçişinden geliyor (`count(*) OVER ()`), yani sayfa ile toplamı
+**ayrışamaz.**
+
+Yan etkisi hız: iki tam tarama bire indi. Aynı kümede, soğuk, üç
+tekrarın ortası:
+
+| asn kırılımı | süre |
+|---|---:|
+| eski (iki sorgu) | 2,93 + 4,16 = **7,1 sn** |
+| tek geçiş | **4,37 sn** |
+
+**Kuran kişinin yapması gereken: bir şey yok.** Ama **panelde göreceğiniz
+bir değişiklik var:** kırılımların toplam sayısı, adres çözümü pencere
+içinde değişmiş bir kurulumda **düşecek** — düşen sayı doğru olan, yani
+sayfalayabildiğiniz satır sayısı.
+
 ### Kesişim görünümü artık kip değişimini söylüyor
 
 Adres saklama biçimini değiştirmek geçmişe dokunmuyor — bu karar aynen
