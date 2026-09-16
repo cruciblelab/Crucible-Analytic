@@ -111,7 +111,12 @@ Sahip: *"Ne yapacağız şemayı kararlaştır, diğer kararları bir zemine
 oturt, ona göre hareket edebiliriz."* Karar aşağıda; her satırın
 gerekçesi ölçüm, tahmin değil.
 
-**Şema 24'e giren tek şey: `service_heartbeat`'e bir yetenek sütunu.**
+**Şema 24'e girenler (2026-09-16 akşamı güncellendi):**
+**(a)** `service_heartbeat`'e bir yetenek sütunu, **(b)** O3'ün günlük
+eskiz tablosu — sahip O3'ü cevapladıktan sonra ikincisi de ölçülmüş bir
+ihtiyaç oldu, ve söz verdiğim şey buydu: üç bump yerine bir bump.
+
+**(a) `service_heartbeat`'e bir yetenek sütunu.**
 
 Sebebi bir özellik değil bir **kusur**: `privacy.ip_storage = "full"`
 panelden hiç seçilemiyor, çünkü `checkPrecondition`
@@ -140,13 +145,15 @@ DDL sınıfından — sıkıştırılmış bir kurulumda çalışıyor ve hipert
    JIT derlemesi 3,2 sn saf gider (kesişim 30,98 → 8,17 sn). Karar:
    **önce O4a, sonra yeniden ölç.** Özet tablosu ölçülmüş bir ihtiyaç
    olursa O3'le birlikte tek sürümde gelir.
-2. **O3 (benzersiz ziyaretçi) — sahibin kararı, ve şimdi tek soruya
-   indi.** Teknik her şey ölçülü (§O3). Kalan soru şema değil ürün
-   tanımı: *sayfa yaklaşık bir sayı mı göstersin, yoksa aralık mı
-   daralsın?* Eskiz seçilirse `timescaledb_toolkit` bir kurulum şartı
-   olur ve eklenti yoksa **ikinci bir sayı tanımı** doğar; o yüzden
-   sayfanın hangisini gösterdiğini söylemesi şart. Bu karar verilmeden
-   şemaya sütun koymak, kararı şemaya gömmek olur.
+2. **O3 (benzersiz ziyaretçi) — KARAR GELDİ (2026-09-16), artık şema 24'e
+   giriyor.** Sahip *"hatasız sistem olmaz ama olabildiğince minimum
+   hata, mantıklı bir oran orantı"* dedi; eğri ölçülüp **günlük
+   p=65536** seçildi (%0,41 tavan, 4,4 MB/90 gün = ham tablonun %0,55'i,
+   87,8 ms birleştirme = bütçenin %1,8'i; p=262144 birleştirmesi 9,5 sn
+   olduğu için elendi — ayrıntı §O3'ün 2026-09-16 karar bloğunda).
+   Yani **şema 24 = yetenek sütunu + O3'ün günlük eskiz tablosu**, tek
+   bump. Eklentisiz kurulum bir hata değil bir kip: eskiz kurulmaz,
+   okuma kesin sayıya düşer, ve sayfa hangisini gösterdiğini söyler.
 3. **RLS'siz 21 tablo — üç ayrı cevap, biri imkânsızlık.** Ölçüldü
    (2026-09-16): 21 tablonun **2'si hypertable** (`traffic_snapshots`,
    `beacon_events`) ve O1'de ölçtüğüm gibi sıkıştırılmış bir hypertable
@@ -4530,16 +4537,62 @@ silinince hiçbir test kırılmıyor, çünkü indeks zaten o sırayı veriyor);
 cümlenin yük taşıdığı indekssiz bir tabloda ayrıca ölçüldü ve koruma
 kaynak düzeyine kondu.
 
-##### Karar (2026-09-14): günlük p=16384 eskiz, ve eklentisiz kurulum için kesin sayı
+##### Karar güncellendi (2026-09-16): günlük **p=65536**, ve sebebi bir eğri
+
+Sahip O3'ü şöyle cevapladı: *"bilmiyorum, hatasız sistem olmaz ama
+olabildiğince minimum hata, mantıklı bir oran orantı kurmalıyız."* Yani
+ölçüt verildi: **hatayı en küçük tut, bedelin oranı makul kalsın.**
+
+Aşağıdaki 2026-09-14 tablosu iki noktadan oluşuyordu ve **iki nokta bir
+eğri değil.** Dört hassasiyet, yirmi gerçekten farklı çekiliş, ve —asıl
+eksik olan— **sayfanın gösterdiği şey ölçüldü: birleşimin hatası**, tek
+bir günün değil.
+
+| hassasiyet | teori 1,04/√m | ölçülen (yoğun kip) | 90 gün / site | birleştirme | seçildi mi |
+|---|---:|---:|---:|---:|---|
+| p=4096 | %1,62 | %1,15 ort · %2,08 en kötü | 279 kB | 5,5 ms | ✗ |
+| p=16384 | %0,81 | %0,57 ort · %1,38 en kötü | 1,08 MB | 19,5 ms | ✗ |
+| **p=65536** | **%0,41** | **%0,36** | **4,4 MB** | **87,8 ms** | ✅ |
+| p=262144 | %0,20 | (yalnız seyrek kipte) | 8,4 MB | **9.537 ms** | ✗ ölçümle elendi |
+
+**Niye p=65536:** hata p=16384'ün yarısı, ve bedelin her iki oranı da
+küçük kalıyor — 4,4 MB ham tablonun (792 MB) **%0,55'i**, 87,8 ms
+istemci sınırının (5 sn) **%1,8'i**. Eğrinin bir sonraki adımı (p=262144)
+hatayı yine yarıya indiriyor ama **birleştirme 9,5 saniye**, yani tek
+başına bütçeyi yiyor. Elenmesi bir tercih değil, bir ölçüm.
+
+**Ve bir tuzak bulundu, kararı o belirledi.** p=65536 ilk ölçümde
+451 binlik bir birleşimde **%0,010** verdi — teorinin kırk katı iyi.
+Sebebini sordum: birleşik eskizin boyutu 733 kB, yani **seyrek** kalmış
+(yoğun hâli 48 kB). Seyrek bir HLL neredeyse kesindir; ama:
+
+- o doğruluk **müşteri büyüdükçe kaybolur** — aynı hassasiyet 3 milyonluk
+  birleşimde yoğuna düşüyor ve %0,36'ya çıkıyor;
+- ve seyrek kalmak **birleştirmeyi pahalılaştırıyor** — p=262144'ün
+  9,5 saniyesi tam bu.
+
+Yani seyrek kipin doğruluğuna göre seçim yapmak, *başarıyla birlikte
+sessizce kötüleşen* bir sayı seçmek olurdu. Seçim **yoğun kipin garanti
+ettiği** hatayla yapıldı; küçük sitelerde ürün bundan daha iyisini
+verecek, ve bu doğru yön.
+
+*(Mekanizma iddiası ölçülerek kuruldu — birleşik eskizin baytı soruldu —
+çünkü bir mekanizma yorumu, sayıları doğru olsa da yanlış olabilir.)*
+
+##### Karar (2026-09-14, **yukarıdaki ölçümle aşıldı**): günlük p=16384 eskiz, ve eklentisiz kurulum için kesin sayı
 
 Sahip *"halledelim, iyice planla"* dedi; karar bana bırakıldı. Ölçülmüş
 üç seçenekten seçilen ve **niye**:
 
 | seçenek | disk (90 gün, site başına) | std hata | en kötü | seçildi mi |
 |---|---:|---:|---:|---|
-| günlük p=16384 | 528 kB | %0,80 | %1,77 | ✅ |
+| günlük p=16384 | 528 kB | %0,80 | %1,77 | ~~✅~~ → p=65536 |
 | günlük p=4096 | 133 kB | %1,84 | %3,91 | ✗ |
 | eskiz yok, aralık sınırı | 0 | %0 | %0 | ✗ (ama yedek yol) |
+
+*(Bu tablodaki paylar **tek bir günün** eskizinin hatası; sayfa
+birleşimi gösteriyor ve onun hatası ayrı ölçüldü — yukarıdaki güncel
+karara bak. Sayılar yanlış değildi, yanlış nesnede ölçülmüştü.)*
 
 Gerekçe tek cümle: **sahibin kabul ettiği pay %1,2 ve p=4096 onu
 tutamıyor** (std %1,84, en kötü %3,91 — yirmi gerçekten farklı kümede

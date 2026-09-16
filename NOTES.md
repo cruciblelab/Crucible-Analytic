@@ -18867,3 +18867,68 @@ hash birleşimi kuruyor. Kayda geçiyor: denenmemiş gibi durmasın.
 **birden fazla rolün dokunduğu** tablolar (kuyruk/istek tabloları,
 `service_heartbeat`). Yani bugünkü ayrım rastgele değil, ölçütü var:
 *RLS, GRANT'in ifade edemediği yerde.*
+
+---
+
+## O3'ün hassasiyeti (2026-09-16) — eğriyi ölçmek, ve seyrek kipin tuzağı
+
+Sahip O3'ü *"bilmiyorum, hatasız sistem olmaz ama olabildiğince minimum
+hata, mantıklı bir oran orantı kurmalıyız"* diye cevapladı. Ölçüt
+verildi; seçim bana kaldı.
+
+Elimde 2026-09-10'dan iki nokta vardı (p=4096 ve p=16384) ve **iki nokta
+bir eğri değil.** Üstelik ikisi de **tek bir günün** eskizinin hatasıydı,
+sayfa ise **birleşimi** gösteriyor. Yani ölçtüğüm şey gösterilen şey
+değildi.
+
+### Ölçülen: dört hassasiyet, yirmi çekiliş, ve birleşim
+
+| hassasiyet | teori 1,04/√m | ölçülen (yoğun) | 90 gün/site | birleştirme |
+|---|---:|---:|---:|---:|
+| p=4096 | %1,62 | %1,15 ort · %2,08 en kötü | 279 kB | 5,5 ms |
+| p=16384 | %0,81 | %0,57 ort · %1,38 en kötü | 1,08 MB | 19,5 ms |
+| p=65536 | %0,41 | %0,36 | 4,4 MB | 87,8 ms |
+| p=262144 | %0,20 | (yalnız seyrekte) | 8,4 MB | **9.537 ms** |
+
+Çekilişler gerçekten farklı: her adres `md5(çekiliş/gün:i)`'den geliyor.
+Ve gerçek kardinalite **aynı küme üzerinde sayıldı**, 50.000 diye
+varsayılmadı — md5 çakışmaları yoksa eskizin hanesine yazılırdı.
+
+### Seyrek kipin tuzağı, ve kararı belirleyen şey bu
+
+p=65536 ilk turda 451 binlik birleşimde **%0,010** verdi. Teorinin kırk
+katı iyi. Bir mekanizma iddiası gerekiyordu ve **onu da ölçtüm**:
+birleşik eskizin boyutu 733 kB — yoğun hâli 48 kB. Yani eskiz **seyrek**
+kalmış, ve seyrek bir HLL neredeyse kesin (açık hash kümesi tutuyor).
+
+İki sonucu var:
+
+1. **O doğruluk müşteri büyüdükçe kaybolur.** Aynı hassasiyet 3 milyonluk
+   birleşimde yoğuna düşüyor (48 kB) ve hata %0,36'ya çıkıyor. Yani
+   seyrek kipe göre seçim yapmak, *başarıyla birlikte sessizce
+   kötüleşen* bir sayı seçmek demek.
+2. **Seyrek kalmak birleştirmeyi pahalılaştırıyor.** p=262144'ün
+   9,5 saniyesi tam bu: günlük eskizler seyrek (97 kB) ve 90 tanesini
+   birleştirmek seyrek→yoğun dönüşümünü ödüyor. Yani o hassasiyet **en
+   yavaş olduğu yer küçük siteler** — ters bir özellik.
+
+Seçim bu yüzden **yoğun kipin garanti ettiği** hatayla yapıldı:
+**p=65536**, %0,41 tavan, 4,4 MB (ham tablonun %0,55'i), 87,8 ms
+(5 sn sınırın %1,8'i). Küçük sitelerde ürün bundan iyisini verecek, ve
+bu doğru yön — kötüleşen değil iyileşen taraf.
+
+p=262144 bir tercihle değil **bir ölçümle** elendi: hatayı yine yarıya
+indiriyor ve birleştirmesi tek başına bütçeyi yiyor.
+
+### Kendi kurallarımdan üçü bu turda iş gördü
+
+- *İki örnek bir eğri değildir* — iki noktaya bakıp p=16384 seçmiştim.
+- *Bir hata payını iki çekilişle ölçmek, hata payını ölçmemektir* —
+  yirmi çekiliş, ve çekilişlerin gerçekten farklı olduğu kontrol edildi.
+- *Bir mekanizma yorumu, sayıları doğru olsa da yanlış olabilir* —
+  "%0,010 demek ki seyrek" iddiası tahmin değil, birleşik eskizin baytı
+  soruldu.
+
+Ve bir yenisi: **bir hata payı, kardinaliteye bağlıysa, en kötü
+kardinalitede bildirilmeli.** Bir ürünün doğruluğu müşteri büyüdükçe
+düşüyorsa, küçük müşteride ölçülmüş pay bir vaat değil bir tesadüftür.
