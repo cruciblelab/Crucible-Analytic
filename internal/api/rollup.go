@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
 )
@@ -195,19 +194,9 @@ func (s *Store) rollupWatermark(ctx context.Context, siteID string) (time.Time, 
 		return *t, nil
 	case err == nil:
 		return time.Time{}, nil
-	case errors.Is(err, pgx.ErrNoRows), isMissingTable(err):
+	case errors.Is(err, pgx.ErrNoRows), storage.IsMissingTable(err):
 		return time.Time{}, nil
 	default:
 		return time.Time{}, fmt.Errorf("api: rollup watermark: %w", err)
 	}
-}
-
-// isMissingTable reports whether err is PostgreSQL's undefined_table.
-//
-// Matched on the structured code rather than on the message text: the
-// message is localised and has been reworded between releases, and this
-// decides whether a deployment gets its numbers or an error page.
-func isMissingTable(err error) bool {
-	var pgErr *pgconn.PgError
-	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }

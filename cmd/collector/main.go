@@ -282,6 +282,16 @@ func main() {
 		// thing to notice has stopped, and this one runs inside the
 		// process on the traffic path.
 		rollup := storage.NewRollup(writer.Pool())
+		// And the visitor sketches (O3) ride the same cycle, for the
+		// same three reasons: one schedule, one failure policy, one
+		// number configuring both. A separate ticker would be a second
+		// thing to notice has stopped, inside a process on the traffic
+		// path.
+		//
+		// Its own type rather than a step inside Rollup: the two keep
+		// different tables, and one of them may not exist on this
+		// deployment at all.
+		sketch := storage.NewSketch(writer.Pool())
 		apply := func() {
 			report, err := manager.Apply(ctx, retention.Policy{Days: cfg.Retention.Resolved()})
 			if err != nil {
@@ -301,6 +311,7 @@ func main() {
 			// process maintaining numbers for a site it knows nothing
 			// about, on a schedule that site's own collector already has.
 			rollup.LogRefresh(ctx, logger, cfg.SiteID, cfg.Retention.Resolved())
+			sketch.LogRefresh(ctx, logger, cfg.SiteID, cfg.Retention.Resolved())
 		}
 		apply()
 

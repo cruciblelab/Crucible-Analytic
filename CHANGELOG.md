@@ -13,12 +13,60 @@ yapacağım".
 
 Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
-**Şema sürümü: 23.** **Kuran kişinin yapması gereken:** panelde
-**Sağlık → Şema yükseltmesi**. Yalnız yetki ve satır güvenliği
-düzeltmeleri; tablo, sütun ve veri değişmiyor, servis durmuyor.
+**Şema sürümü: 24.** **Kuran kişinin yapması gereken:** panelde
+**Sağlık → Şema yükseltmesi**. Yeni iki tablo ekleniyor (aşağıdaki
+"Uzun aralıklarda ziyaretçi sayısı" maddesi), var olan tablolara
+dokunulmuyor, veri yeniden yazılmıyor, servis durmuyor.
 **v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
+
+### Uzun aralıklarda ziyaretçi sayısı (O3)
+
+**Sorun ölçüldü:** 90 günlük aralıkta özet ucu, tek bir site için 11,0
+milyon satır üzerinde **5,68 saniye** sürüyordu (binary'nin kendi cevabı,
+soğuk önbellek, üç tekrarın ortası). Panelin tek bir çağrı için beklediği
+süre **5 saniye**, yani panonun "90 gün" düğmesi çalışmıyor ve panel bunu
+*"veri kaynağına ulaşılamıyor"* diye anlatıyor — orada duran sayılar için
+doğru olmayan bir sebep.
+
+Sebebi tek bir sayının cinsi: `count(distinct ip)` toplanamıyor. İki
+günün ziyaretçisi, her günün ziyaretçisinin toplamı değil — aynı kişi iki
+gün de gelmiş olabilir. O2'nin özet tablosu bu yüzden dört sayı taşıyor,
+altı değil.
+
+**Ne eklendi:** site başına, UTC günü başına bir **HyperLogLog eskizi**
+(65.536 kayıt) ve bot eşiğini geçen adresler için bir ikincisi. Eskizler
+**birleşebiliyor**, yani bir aralığın cevabı günlerinin birleşiminin
+tahmini. Yerel gün sınırının kestiği en fazla iki kırık uç ham tablodan
+okunup kendi eskizine dönüşüyor ve birleşime katılıyor, bu yüzden hem bir
+uçta hem tam bir günde görünen adres **bir kez** sayılıyor.
+
+**Ölçülen sonuç** (aynı düzenek, aynı binary, sonradan): 90 günlük
+aralık **5,68 → 0,47 saniye**, ve tahmin kesin sayıdan **%0,032**
+uzakta. Disk bedeli site başına 91 gün için **6,0 MB** — o sitenin ham
+tablosunun (792 MB) **%0,76'sı.** 30 günlük aralık **yerinde kaldı ve
+hâlâ tam sayılıyor** (2,24 → 2,43 sn, tekrarlar arası yayılım 0,2 sn).
+
+**Kesin sayı kaybolmuyor, ve hangisini gördüğünüz yazıyor.** Aralık
+ucuz olduğu sürece (4 milyon satıra kadar, burada ~2,1 saniye) sayılar
+**tam** olarak sayılmaya devam ediyor; yalnız onun ötesinde tahmine
+geçiliyor. API her cevapta `visitor_counts` alanıyla hangisini
+kullandığını, `visitor_count_error` ile de payını söylüyor, ve panel bunu
+yazıyor.
+
+**`timescaledb_toolkit` eklentisi gerekiyor** ve **zorunlu değil.**
+Kurulu değilse iki tablo hiç oluşturulmuyor, ürün bugün ne yapıyorsa onu
+yapıyor: kesin sayı, yavaş. Kurmak için:
+
+```
+# Debian/Ubuntu, TimescaleDB deposu ekliyse:
+apt-get install timescaledb-toolkit-postgresql-16
+psql "$DATABASE_URL" -c "CREATE EXTENSION timescaledb_toolkit"
+```
+
+sonra panelde **Sağlık → Şema yükseltmesi**. Yeni kurulumlarda
+`install.sh` eklentiyi varsa kendisi kuruyor.
 
 ### Kırılım sayfalarının toplamı artık sayfalananın toplamı
 

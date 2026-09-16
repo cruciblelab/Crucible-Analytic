@@ -12,6 +12,30 @@ const (
 	// MaxScore is the ceiling of the combined score.
 	MaxScore = 100
 
+	// BotCutoff is the score at or above which an address is counted as
+	// a bot. A heuristic starting point, not a tuned threshold - the
+	// same caveat the other constants here carry - which is why a
+	// caller of the read API can override it per request.
+	//
+	// # Why it lives in this package
+	//
+	// It was api.DefaultBotScoreMin, which was the right home while the
+	// cutoff was only ever applied when somebody asked a question. O3
+	// changed that: the collector now stores a sketch of the addresses
+	// that reached this number, so a *writer* needs it too, and
+	// internal/storage cannot import internal/api - the dependency runs
+	// the other way.
+	//
+	// api.DefaultBotScoreMin still exists and is this constant, so no
+	// caller and no test had to learn a new name. What the move buys is
+	// that the two sides cannot drift: the number the sketch is built
+	// from and the number a request defaults to are one declaration.
+	// (What happens when this declaration *changes* is not left to
+	// trust either - visitor_sketch_state stores the cutoff its rows
+	// were built at, and the read path will not merge a sketch built at
+	// another one.)
+	BotCutoff = 50
+
 	// maxRateScore is the most points the request-rate component can
 	// contribute.
 	maxRateScore = 70
@@ -19,7 +43,7 @@ const (
 	// matches a known-bot signature - a high-confidence signal, since a
 	// JA4 match is a specific fingerprint match.
 	//
-	// # Why it is exactly api.DefaultBotScoreMin and not less
+	// # Why it is exactly BotCutoff and not less
 	//
 	// It was 30 against a default cutoff of 50, which meant the strongest
 	// signal this package has could never, on its own, produce the

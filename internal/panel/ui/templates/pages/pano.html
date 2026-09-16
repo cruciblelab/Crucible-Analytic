@@ -88,6 +88,13 @@ was never installed is a setup step nobody did; an empty period is a
 measurement; an unreachable API is neither. Collapsing them would show a
 missing installation as a result. */}}
 <p class="kart-bos durum-{{.Empty}}">{{.EmptyText}}</p>
+{{- else if .Approx}}
+{{- /* An estimate says so where the number is, not in a footnote. The
+sign is in the markup rather than in the formatted value so that a
+reader, a stylesheet and a test can each find it; the sentence beside it
+carries the margin. */}}
+<p class="kart-deger kart-yaklasik"><span class="yaklasik-isareti" aria-hidden="true">≈</span> {{.Value}}</p>
+<p class="kart-pay">{{.ApproxText}}</p>
 {{- else}}
 <p class="kart-deger">{{.Value}}</p>
 {{- end}}

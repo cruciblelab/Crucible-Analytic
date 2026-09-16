@@ -673,6 +673,37 @@ func prepare(ctx context.Context, db string) error {
 			return fmt.Errorf("%s: %w", sql, err)
 		}
 	}
+
+	// timescaledb_toolkit where the cluster has it, in both databases
+	// identically.
+	//
+	// # Why it belongs in this comparison
+	//
+	// O3's two tables are created only where this extension is present,
+	// and their GRANTs live in two places - the schema file and
+	// release/sql/grants.sql - which is the exact arrangement L4 found
+	// broken: an upgrade runs the schema files and nothing else, so a
+	// table whose privileges are written only in grants.sql comes out of
+	// an upgrade untouchable. Without the extension here, neither
+	// database would have the tables and the diff would compare nothing.
+	//
+	// Asked of pg_available_extensions rather than attempted and
+	// ignored, so that a cluster which has it never quietly skips the
+	// comparison - and a cluster which does not still runs every other
+	// surface. Both databases get the same answer because they are
+	// prepared by this same function; if one had it and the other did
+	// not, every surface would differ and the report would be noise.
+	var available bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM pg_available_extensions
+		                WHERE name = 'timescaledb_toolkit')`).Scan(&available); err != nil {
+		return fmt.Errorf("asking for timescaledb_toolkit: %w", err)
+	}
+	if available {
+		if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit`); err != nil {
+			return fmt.Errorf("timescaledb_toolkit: %w", err)
+		}
+	}
 	return nil
 }
 

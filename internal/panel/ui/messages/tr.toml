@@ -755,6 +755,9 @@ aciklama = "Seçilen dönemde günlük hareket. Boş kalan yerler ölçüm eksik
 ulasilamiyor = "Sayılar şu an okunamıyor: panel, analitik servisine ulaşamıyor. Veriler eksik değil, henüz gelmedi — servis geri geldiğinde sayfa kendiliğinden dolacak."
 reddedildi = "Analitik servisi bu paneli tanımadı. Bu bir veri sorunu değil, yapılandırma sorunu: panelin API anahtarının yenilenmesi gerekiyor. Sunucuyu kuran kişiye iletin."
 
+[metin.pano.kart]
+yaklasik = "Yaklaşık sayı, standart pay ±%s. Daha kısa bir aralıkta tam olarak sayılır."
+
 [metin.pano.kart.ziyaretci]
 baslik = "Ziyaretçi"
 aciklama = "Sitenizi açan farklı kişi sayısı. Çerez kullanılmıyor; günlük değişen bir anahtarla sayılıyor."

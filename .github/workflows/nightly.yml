@@ -352,3 +352,117 @@ jobs:
       # untouched by it.
       - name: from the container image
         run: go test -tags docker -count=1 -timeout 30m -v ./e2e/
+
+  # The visitor sketches, on a cluster that actually has
+  # timescaledb_toolkit.
+  #
+  # # Why this is not in the gate
+  #
+  # Because the gate's database image does not carry the extension, and
+  # the suite asks the cluster for it rather than guessing: on that image
+  # it says so and skips, which leaves O3's fast path measured nowhere in
+  # CI. That is the half this job supplies.
+  #
+  # The other half is measured in the gate without anything being added
+  # there: a database *without* the extension is the state most
+  # deployments upgrade into, and internal/storage asserts it directly -
+  # the sketch tables exist exactly where the extension does, the refresh
+  # reports itself unavailable exactly where they do not, and every
+  # visitor count comes back exact. Both branches are therefore real
+  # assertions rather than one assertion and one comment.
+  #
+  # # Why this image and not the gate's
+  #
+  # timescale/timescaledb-ha carries the toolkit; timescale/timescaledb
+  # does not. The tag pins the same TimescaleDB the gate uses - 2.17.2 -
+  # because a suite measuring a different engine version than the rest of
+  # the product is a suite whose red can mean either thing. `-all` is the
+  # variant that bundles the extra extensions.
+  sketches:
+    name: the visitor sketches, with timescaledb_toolkit present
+
+    runs-on: ubuntu-latest
+
+    services:
+      toolkit:
+        image: timescale/timescaledb-ha:pg16.6-ts2.17.2-all
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    steps:
+      # Full history and tags, because the last step runs
+      # internal/upgradepath, which builds a database from the previous
+      # release's schema and therefore has to find that release. The
+      # invariant in internal/invariants said so before this job had
+      # ever run - the line was missing on the first attempt.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: psql, for the install script
+        run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client
+
+      # The same installation the gate performs, so the privileges under
+      # test are a deployment's rather than a superuser's - and the same
+      # password convention, because internal/testdb and the sketch
+      # fixture both connect as each role by name.
+      - name: install the database the way a customer does
+        env:
+          PGPASSWORD: postgres
+          SUPERUSER_DSN: postgres://postgres:postgres@localhost:5432/postgres
+          DB_NAME: analytics
+        run: |
+          CONF_DIR="$(mktemp -d)" PREFIX="$(mktemp -d)" \
+            LOG_DIR="$(mktemp -d)" STATE_DIR="$(mktemp -d)" \
+            ./release/install.sh --no-systemd
+          for role in collector beacon_writer analytics_reader panel_user schema_admin; do
+            psql "postgres://postgres:postgres@localhost:5432/analytics" \
+              -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ${role} PASSWORD '${role}'"
+          done
+          echo "CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/analytics" >> "$GITHUB_ENV"
+
+      # The extension has to be there, and this says so before the suite
+      # runs rather than letting it skip.
+      #
+      # A skip is the failure mode this job exists to prevent: the suite
+      # reports "this cluster does not have timescaledb_toolkit" and
+      # exits green, which on the one job whose entire purpose is that
+      # extension would be a green nobody should trust. install.sh
+      # creates the extension when the cluster offers it, so a missing
+      # one here means the image changed under us.
+      - name: the extension is really installed
+        run: |
+          psql "postgres://postgres:postgres@localhost:5432/analytics" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb_toolkit'" \
+            | grep -q . || {
+              echo "timescaledb_toolkit is not installed in this database."
+              echo "install.sh creates it when pg_available_extensions offers it, so"
+              echo "either the image stopped carrying it or the install step failed."
+              psql "postgres://postgres:postgres@localhost:5432/analytics" -tAc \
+                "SELECT name, default_version FROM pg_available_extensions WHERE name LIKE '%toolkit%'"
+              exit 1
+            }
+
+      - name: the sketch suite
+        run: go test -tags integration -count=1 -timeout 20m -v -run "RealToolkit|MeasuredRowBudget" ./internal/api/
+
+      # And the neighbours that read the same tables, on the same
+      # cluster: the refresh and the prune from the writer's side, and
+      # the upgrade path, which compares a fresh install against an
+      # upgraded one and can only compare the two new tables where they
+      # exist.
+      - name: the writer and the upgrade path
+        run: |
+          go test -tags integration -count=1 -timeout 20m -v -run "Sketch" ./internal/storage/
+          go test -tags integration -count=1 -timeout 30m ./internal/upgradepath/

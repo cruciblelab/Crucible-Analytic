@@ -1461,12 +1461,134 @@ rollup: still catching up, and further along than last cycle
 
 **Bir sayı hâlâ uzun aralıkta yavaş:** benzersiz ziyaretçi. İki günün
 ziyaretçi sayısı toplanamaz, çünkü aynı kişi iki gün de gelmiş olabilir.
-90 günlük özette kalan 3,6 saniyenin 3,1'i o sayı.
+90 günlük özette kalan 3,6 saniyenin 3,1'i o sayı. **Şema 24'ten beri
+onun da bir cevabı var; aşağıdaki bölüm.**
 
 **Bir de PostgreSQL yapısı hakkında:** özet düz bir tablo, TimescaleDB'nin
 "sürekli toplama"sı değil. Sebebi ölçüldü — sürekli toplama Apache
 lisanslı yapıda yok, ve orada çalışmayan bir şey şema dosyasında
 duramaz. Yani bu hızlanma **her iki yapıda** aynı şekilde çalışıyor.
+
+### Ziyaretçi eskizleri: uzun aralıkta benzersiz ziyaretçi (şema 24)
+
+**Bu bölüm bir seçim anlatıyor: eklentiyi kurarsanız uzun aralıklar
+hızlanır, kurmazsanız ürün bugün ne yapıyorsa onu yapmaya devam eder.**
+Zorunlu değil.
+
+**Sorun ne:** `count(distinct ip)` toplanamıyor. İki günün ziyaretçisi,
+her günün ziyaretçisinin toplamı değil — aynı kişi iki gün de gelmiş
+olabilir. O yüzden yukarıdaki özet tablosu dört sayı taşıyor, altı değil,
+ve 90 günlük aralıkta kalan süre neredeyse tamamen bu sayının.
+
+Ölçüldü (11,0 milyon satır, tek site, `analytics-api`'nin kendi cevabı,
+soğuk önbellek, üç tekrarın ortası):
+
+| Aralık | Satır | Süre |
+|---|---:|---:|
+| 30 gün | 3,70 M | 2,24 sn |
+| 90 gün | 10,96 M | **5,68 sn** |
+
+Panelin tek bir çağrı için beklediği süre **5 saniye**, yani o son satır
+panoda *"veri kaynağına ulaşılamıyor"* olarak görünüyor.
+
+**Çözüm:** site başına, UTC günü başına bir **HyperLogLog eskizi** —
+sayıları değil, "kaç farklı" sorusunu cevaplayabilen sıkıştırılmış bir
+özet. Eskizler birleşebiliyor, yani bir aralığın cevabı günlerinin
+birleşiminden çıkıyor. Yerel gün sınırının kestiği en fazla iki kırık uç
+ham tablodan okunuyor, bu yüzden hem bir uçta hem tam bir günde görünen
+adres bir kez sayılıyor.
+
+Aynı veride, aynı düzenekle sonradan ölçüldü:
+
+| Aralık | Önce | Sonra | Nasıl sayıldı |
+|---|---:|---:|---|
+| 30 gün | 2,24 sn | 2,43 sn | **tam** (değişmedi) |
+| 90 gün | 5,68 sn | **0,47 sn** | tahmin |
+
+Tahmin kesin sayıdan **%0,032** uzakta çıktı, disk bedeli 91 gün için
+**6,0 MB** (o sitenin ham tablosunun %0,76'sı). 30 günlük aralıktaki
+0,2 saniyelik fark tekrarlar arası yayılımın içinde; eklenen iş tek
+satırlık bir sorgu.
+
+**Kesin sayı kaybolmuyor.** Aralık ucuz olduğu sürece — 4 milyon satıra
+kadar, ki bu referans makinede ~2,1 saniye — sayılar tam olarak
+sayılmaya devam ediyor. Yani kısa aralıklarda hiçbir şey değişmiyor;
+yalnız o eşiğin ötesinde tahmine geçiliyor.
+
+**Ve hangisini gördüğünüz yazıyor.** API her cevapta `visitor_counts`
+alanıyla (`exact` / `estimated`) hangisini kullandığını, `visitor_count_
+error` ile de standart payı (%0,41) söylüyor. Pano tahmin olan kartın
+başına **≈** koyuyor ve payı kartın altına yazıyor. Bir sayının sayılmış
+mı tahmin mi olduğunu ekrandan görebilmeniz gerekiyor; bir sürüm notu bunu
+söyleyemez, çünkü hangisi olduğu aralığa ve sitenin trafiğine bağlı.
+
+**Hassasiyet neden 65.536 kayıt:** eğri ölçüldü (dört hassasiyet, her
+biri için yirmi farklı küme, yoğun kipte — bir site büyüdükçe girdiği kip):
+
+| Hassasiyet | Hata | 90 gün / site | Birleştirme |
+|---|---:|---:|---:|
+| 4.096 | %1,15 ort · %2,08 en kötü | 279 kB | 5,5 ms |
+| 16.384 | %0,57 ort · %1,38 en kötü | 1,08 MB | 19,5 ms |
+| **65.536** | **%0,36** | **4,40 MB** | **87,8 ms** |
+| 262.144 | (yalnız seyrek kipte) | 8,40 MB | **9.537 ms** |
+
+Seçilen hassasiyet, hatayı bir öncekinin yarısına indirirken bedelin iki
+oranını da küçük tutuyor: ham tablonun %0,55'i, 5 saniyelik sınırın
+%1,8'i. Bir sonraki adım hatayı yine yarıya indiriyor ama birleştirmesi
+tek başına bütçeyi yiyor — tercih değil, ölçüm.
+
+#### Eklentiyi kurmak
+
+`timescaledb_toolkit` ayrı bir eklenti ve `hyperloglog` tipini o
+sağlıyor. **Yoksa iki tablo hiç oluşturulmuyor** ve ürün kesin sayıyı
+yavaşça vermeye devam ediyor — yani bu bir hata değil bir kip.
+
+Yeni kurulumlarda `install.sh` eklentiyi **varsa kendisi kuruyor** ve
+yoksa ne kaçırdığınızı yazıyor. Var olan bir kurulumda:
+
+```bash
+# Debian/Ubuntu, TimescaleDB deposu ekliyse:
+sudo apt-get install timescaledb-toolkit-postgresql-16
+sudo systemctl restart postgresql
+
+psql "$DSN" -c "CREATE EXTENSION timescaledb_toolkit"
+```
+
+sonra panelde **Sağlık → Şema yükseltmesi**. Yükseltme iki tabloyu
+oluşturuyor; toplayıcı bir sonraki saklama turunda doldurmaya başlıyor.
+
+Kurulu mu, nasıl bakılır:
+
+```bash
+psql "$DSN" -c "SELECT extversion FROM pg_extension
+                WHERE extname = 'timescaledb_toolkit';"
+psql "$DSN" -c "SELECT site_id, materialized_before, bot_score_min
+                FROM visitor_sketch_state;"
+```
+
+Eklenti kurulu değilse toplayıcının günlüğünde **süreç başına bir kez**
+şu satır var:
+
+```
+visitor sketch: not installed on this database, so visitor counts over
+long ranges are computed exactly and slowly
+```
+
+**İlk tur geçmişi baştan hesaplıyor** ve çağrı başına 30 günle sınırlı,
+tıpkı özet tablosu gibi. 11 milyon satır / 91 gün için ölçüldü: dört tur,
+sırasıyla 5,4 · 5,9 · 6,7 · 0,5 saniye, toplam 18,6 saniye — ve her tur
+kendi işini commit ediyor, yani yarıda kesilen bir tur ilerlemeyi
+kaybetmiyor. Bu arada uzun aralık yalnız eskisi kadar yavaş olur.
+
+**Eskizler de özetlediği satırlarla aynı yaşta budanıyor**, ve **bot
+eşiği değişirse** (ürünün varsayılanı 50) eskizler kendiliğinden baştan
+hesaplanıyor — çünkü "bot" eskizi belirli bir eşikte hesaplanmış bir küme
+ve başka bir eşiğin cevabı olarak sunulamaz. Günlükte görürsünüz:
+
+```
+visitor sketch: the bot cutoff changed, so the sketches are being
+rebuilt from the start of this site's history
+```
 
 ---
 

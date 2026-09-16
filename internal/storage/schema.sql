@@ -312,3 +312,206 @@ BEGIN
     END IF;
 END
 $$;
+
+-- visitor_sketch is the one question the rollup above could not hold: how
+-- many different people, over a range nobody has counted yet.
+--
+-- # Why count(distinct ip) needed something else entirely
+--
+-- Two days' visitors are not the sum of each day's - the same person may
+-- have come on both - so a distinct count cannot be added up the way a
+-- sum or a maximum can. That is why traffic_rollup carries four figures
+-- and not six, and why, after O2 had removed twelve seconds from the
+-- summary endpoint, this half was still the slow one.
+--
+-- Measured 2026-09-16 with the analytics-api binary's own response time,
+-- cold (PostgreSQL stopped, caches dropped, restarted), three repeats,
+-- against 11,0 million rows for one site over 90 days:
+--
+--	 30 days   3,70 M rows   2,24 s
+--	 90 days  10,96 M rows   5,68 s
+--
+-- The panel's per-call timeout is 5 s. So the 90-day button does not
+-- work, and the panel reports it as "the data source cannot be
+-- reached" - a reason that is not true for numbers that are sitting
+-- right there.
+--
+-- # What this table holds, and what it costs
+--
+-- One HyperLogLog sketch per site per UTC day, at 65.536 registers, and
+-- a second one restricted to the addresses that reached the default bot
+-- threshold. Sketches merge: the estimate for a range is the estimate of
+-- the union of its days' sketches, which is the property a distinct
+-- count does not have.
+--
+-- Measured on the same data, same harness, after the fact: 91 days for
+-- one site is 6,0 MB - 0,76 % of the 792 MB the raw table takes for it -
+-- and the 90-day summary answers in 0,47 s instead of 5,68 s, with the
+-- estimate landing 0,032 % from the exact count. The 30-day range did
+-- not move and is still counted exactly (2,24 s before, 2,43 s after,
+-- against a spread of 0,2 s between repeats): the budget below is what
+-- keeps it that way.
+--
+-- # Why the precision is 65.536 and not less
+--
+-- Because the owner's criterion was "as little error as possible, with
+-- a sensible ratio", and the curve was measured (twenty genuinely
+-- different draws per precision, in the dense regime, which is the one
+-- a growing site ends up in):
+--
+--	p=4096     1,15 % avg   2,08 % worst    279 kB/90d    5,5 ms
+--	p=16384    0,57 % avg   1,38 % worst   1,08 MB/90d   19,5 ms
+--	p=65536    0,36 %                      4,40 MB/90d   87,8 ms
+--	p=262144   (sparse only)               8,40 MB/90d   9.537 ms
+--
+-- p=262144 was excluded by measurement rather than by taste: its merge
+-- alone eats the whole budget. p=65536 halves p=16384's error while
+-- both of its cost ratios stay small - 0,55 % of the raw table, 1,8 % of
+-- the 5 s the panel will wait.
+--
+-- # Why daily buckets when the rollup above needed quarter-hours
+--
+-- Because a sketch is three orders of magnitude bigger than four
+-- numbers. A quarter-hour sketch at this precision would be 4,4 MB per
+-- site per *day*, and merging 8.640 of them per 90-day query. The
+-- rollup's grid has to divide a local midnight because its buckets are
+-- all it reads; this one does not, because the ragged ends a local day
+-- leaves - at most two partial UTC days - are read from the raw table
+-- and turned into sketches of their own before the merge. An address
+-- appearing both in an edge and in a whole day is therefore counted
+-- once, which is the property that made this design possible at all.
+--
+-- # Why the second sketch is bot_ips and there is no third for humans
+--
+-- An address counts as a bot if *any* snapshot of it in range reached
+-- the threshold, and a maximum over a range is the maximum of the
+-- per-day maxima - so the union of the daily bot sketches is exactly the
+-- range's bot set. The human set is the one that does not survive:
+-- "never reached the threshold in range" is an *intersection* of the
+-- daily human sets, and HyperLogLog cannot intersect. A daily
+-- human-sketch would count an address that was quiet on Monday and
+-- noisy on Tuesday in both halves, and the page's three numbers would
+-- stop adding up.
+--
+-- So the human figure is a subtraction, and the read path takes the
+-- consequence seriously: see internal/api/sketch.go for why bot is
+-- clamped to unique before subtracting, and why all three figures are
+-- reported as estimated together or not at all.
+--
+-- # Why the whole thing is conditional
+--
+-- hyperloglog comes from timescaledb_toolkit, a separate extension that
+-- an existing deployment will not have. A schema file that named that
+-- type unconditionally would abort on every install and - worse - on
+-- every schema upgrade of a database without it, which is the wall O1
+-- hit with compression and O2 hit with continuous aggregates.
+--
+-- The difference from O2 is that a *missing summary* can be skipped
+-- here, and skipping it does not give the read path two shapes free to
+-- disagree: the exact count is still the definition, this is an
+-- approximation of it, and the API says in every response which one a
+-- given number is. A deployment without the extension gets exact
+-- numbers slowly - precisely what it has today.
+--
+-- EXECUTE rather than a plain CREATE TABLE inside the IF: PL/pgSQL
+-- resolves a type name when it first prepares the statement, and a
+-- branch that is never taken is never prepared - but this project has
+-- already been bitten by assuming a guard reaches a name resolver
+-- (`WHERE false` does not stop PostgreSQL from resolving a missing
+-- table). A dollar-quoted string cannot be resolved early by
+-- construction.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'timescaledb_toolkit') THEN
+        RETURN;
+    END IF;
+
+    EXECUTE $ddl$
+        CREATE TABLE IF NOT EXISTS visitor_sketch (
+            -- The UTC day this sketch covers, at midnight.
+            day     TIMESTAMPTZ NOT NULL,
+            site_id TEXT        NOT NULL,
+            -- Every address seen that day.
+            ips     hyperloglog NOT NULL,
+            -- Those that reached the default bot threshold that day.
+            -- Nullable, because a day with no bots has no sketch rather
+            -- than an empty one, and rollup() skips a NULL input.
+            bot_ips hyperloglog,
+            -- site first, for the same reason traffic_rollup does it:
+            -- every query is one site over a range of days.
+            PRIMARY KEY (site_id, day)
+        )
+    $ddl$;
+
+    -- How far the sketch has been materialized, per site. The reasoning
+    -- is traffic_rollup_state's, word for word: a stored split makes a
+    -- refresh that is behind answer *slower* rather than shorter, and a
+    -- guessed one makes the dashboard quietly drop rows. Its own table
+    -- rather than a column on the one above, because a day with no
+    -- traffic writes no sketch row at all, so max(day) says nothing
+    -- about how far a refresh got.
+    EXECUTE $ddl$
+        CREATE TABLE IF NOT EXISTS visitor_sketch_state (
+            site_id             TEXT        PRIMARY KEY,
+            materialized_before TIMESTAMPTZ NOT NULL,
+            -- The bot threshold the rows for this site were built at.
+            --
+            -- # Why a stored aggregate has to carry it
+            --
+            -- bot_ips is the set of addresses that reached a particular
+            -- cutoff, so the sketch means nothing without the number it
+            -- was built from. Without this column, changing the
+            -- product's default cutoff would leave the panel showing
+            -- bot counts computed at the old one while labelling them
+            -- with the new - two definitions of one figure, which is
+            -- the failure C9.3 was about.
+            --
+            -- It is also the whole of the read path's condition. A
+            -- request may ask for any cutoff; the sketch may be used
+            -- exactly when the one it was built at is the one being
+            -- asked for. That single comparison covers both "this
+            -- caller wants a different threshold" and "the product's
+            -- default has moved since these rows were written", and
+            -- neither needs a rule of its own.
+            --
+            -- A mismatch is self-healing and needs no DELETE: the
+            -- refresh resets the watermark to the site's oldest row and
+            -- walks forward again, overwriting each day. Rows ahead of
+            -- the watermark are stale, and the read path does not read
+            -- past a watermark - which is the same property that makes
+            -- a refresh that is merely behind safe.
+            bot_score_min       SMALLINT    NOT NULL,
+            refreshed_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    $ddl$;
+
+    -- The privileges, here as well as in release/sql/grants.sql, for the
+    -- reason written out above traffic_rollup's: an upgrade runs the
+    -- schema files and nothing else, so a table whose GRANT lives only
+    -- in grants.sql exists on an upgraded deployment with no role able
+    -- to touch it.
+    --
+    -- No RLS on either, and the criterion is the one measured in L6
+    -- rather than an omission: RLS is what this schema uses where a
+    -- GRANT cannot express the rule - a table more than one tenant's
+    -- role touches. These two are written by the collector, read by
+    -- analytics_reader, and touched by nobody else, which is the same
+    -- class traffic_rollup is in.
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'collector') THEN
+        IF NOT has_table_privilege('collector', 'visitor_sketch', 'INSERT') THEN
+            GRANT SELECT, INSERT, UPDATE, DELETE ON visitor_sketch TO collector;
+        END IF;
+        IF NOT has_table_privilege('collector', 'visitor_sketch_state', 'INSERT') THEN
+            GRANT SELECT, INSERT, UPDATE ON visitor_sketch_state TO collector;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'analytics_reader') THEN
+        IF NOT has_table_privilege('analytics_reader', 'visitor_sketch', 'SELECT') THEN
+            GRANT SELECT ON visitor_sketch TO analytics_reader;
+        END IF;
+        IF NOT has_table_privilege('analytics_reader', 'visitor_sketch_state', 'SELECT') THEN
+            GRANT SELECT ON visitor_sketch_state TO analytics_reader;
+        END IF;
+    END IF;
+END
+$$;

@@ -158,6 +158,44 @@ Collector bir ters vekildir, yani trafik onun üzerinden geçer.
 Bu ayrım hukuken sorulabilir: veri *aktarım sırasında işlenir*, fakat
 *saklanmaz*.
 
+### 1.7 Bu tablodan türetilen özet tabloları
+
+**Eklendi (2026-09-16).** Bu bölüm daha önce yoktu ve iki tablo
+envanterde hiç geçmiyordu; üçüncüsü bu sürümde geliyor. Hiçbiri yeni bir
+veri **toplamıyor** — üçü de yukarıdaki tablodan hesaplanıyor ve
+kaynağıyla aynı yaşta siliniyor — ama "veritabanında ne var" sorusunun
+cevabı eksik kalmasın.
+
+| Tablo | Ne var | Adres var mı |
+|---|---|---|
+| `traffic_rollup` | çeyrek saat başına dört sayı: kayıt sayısı, istek hızı toplamı/tepesi, en yoğun pencere | **yok**, yalnız sayılar |
+| `traffic_rollup_state` | site başına "özet nereye kadar hesaplandı" | **yok** |
+| `visitor_sketch` | UTC günü başına bir **HyperLogLog eskizi**: "kaç farklı adres" sorusunu cevaplayan sabit boyutlu bir yapı | aşağıya bakın |
+| `visitor_sketch_state` | site başına su işareti ve eskizlerin hesaplandığı bot eşiği | **yok** |
+
+**`visitor_sketch` hakkında, çünkü sorulması gereken soru bu.** Eskiz
+adreslerden **türetiliyor** ama adres listesi değil: 65.536 küçük sayaç
+tutuluyor, her biri o kovaya düşen değerlerin hash'indeki bir özelliğin
+en büyüğü. Bu yapıdan
+
+- **bir adres geri getirilemez** — kayıtlar sayaç, kayıt değil;
+- **"şu adres burada var mıydı" sorusu cevaplanamaz** — HyperLogLog
+  üyelik sorusunu değil yalnız *kaç farklı* sorusunu cevaplar. Bu bir
+  ayar ya da bir kısıtlama değil, yapının kendisinin sınırı.
+
+Ve eskize giren şey zaten **maskeli ağ** (ya da `full` modda maskeli ağ
+artı anahtarlı jeton) — yani yukarıdaki 1.6'nın kuralı burada da
+geçerli, bir kademe daha dolaylı olarak.
+
+**Neden var:** 90 günlük bir aralıkta "kaç farklı ziyaretçi" sorusu ham
+satırlardan 5,68 saniye sürüyordu ve panelin beklediği süre 5 saniye.
+Eskizle 0,47 saniye. Panel, sayının sayılmış mı tahmin mi olduğunu her
+zaman ekranda yazıyor.
+
+**Saklama:** kaynağıyla aynı. Saklama süresi `traffic_snapshots`'tan
+satır sildiğinde bu tablolar da aynı yaşta budanıyor, yani özet
+kaynağından uzun yaşamıyor.
+
 ---
 
 ## 2. `beacon_events` — Tarayıcı (JavaScript) kayıtları

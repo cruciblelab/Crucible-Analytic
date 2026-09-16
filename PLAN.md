@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **4/6** | O4a (ölçüldü 2026-09-16, sıradaki iş — şema gerektirmiyor), O3 (sahibin tek kararı bekliyor: yaklaşık sayı mı, dar aralık mı), O4 (O4a'dan sonra yeniden ölçülecek) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **5/6** | O4a'nın kalan iki kolu (JIT ayarı, ja4'ün grup içi sıralaması — ikisi de şemasız), O4 (O4a'dan sonra yeniden ölçülecek) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -115,6 +115,15 @@ gerekçesi ölçüm, tahmin değil.
 **(a)** `service_heartbeat`'e bir yetenek sütunu, **(b)** O3'ün günlük
 eskiz tablosu — sahip O3'ü cevapladıktan sonra ikincisi de ölçülmüş bir
 ihtiyaç oldu, ve söz verdiğim şey buydu: üç bump yerine bir bump.
+
+> **Durum (2026-09-16 gecesi): (b) yazıldı, (a) yazılmadı, ve şema 24
+> hâlâ 24.** `schemaver.Version` O3 ile 24'e çıktı. Yetenek sütunu
+> geldiğinde **25'e çıkarılmayacak**: 24 henüz etiketlenmiş bir sürümde
+> yayımlanmadı, şema dosyaları bütünüyle yeniden uygulanabilir
+> (`IF NOT EXISTS`), ve sürüm numarası bir müşterinin koşturduğu
+> yükseltmeyi adlandırıyor — aynı yükseltmenin iki adı olması, "bende
+> hangisi var" sorusunu cevapsız bırakır. Parmak izi değişecek, ayna
+> testi onu zaten isteyecek.
 
 **(a) `service_heartbeat`'e bir yetenek sütunu.**
 
@@ -4383,7 +4392,54 @@ parametresinin hiç okunmadığı bir yapıda da yeşil verirdi.
 
 ---
 
-#### O3 — Benzersiz ziyaretçi: yaklaşık, ve yaklaşık olduğunu söyleyen ⬜
+#### O3 — Benzersiz ziyaretçi: yaklaşık, ve yaklaşık olduğunu söyleyen ✅
+
+**Bitti (2026-09-16). Şema 24.** Aşağıdaki plan büyük ölçüde uygulandı;
+iki yerde ölçümle saptı ve bir yerde plan **yanlıştı**. Ayrıntı
+NOTES.md'de; özeti:
+
+**Sorun, bugünkü binary ile yeniden ölçüldü** (aşağıdaki eski rakamlar
+O1/O2'den önceki turlara ait): `ca_scale`/`buyuk-site`, 11,0M satır,
+soğuk, üç tekrarın ortası → 30 gün 2,24 sn, **90 gün 5,68 sn**. Panelin
+tek çağrı sınırı 5 sn, yani 90 gün düğmesi çalışmıyordu.
+
+**Sonuç:** 90 gün **0,47 sn** (tahmin), 30 gün **2,43 sn** ve hâlâ
+**kesin**. Doğruluk +%0,032. Disk 91 gün / site için 6,0 MB (ham
+tablonun %0,76'sı). Yirmi iki mutasyon, yirmi ikisi de kırmızı.
+
+**Planın yanlış olan yeri: üçüncü eskiz imkânsız.** "İnsan sayısı kendi
+eskizini taşımalı" diye yazmıştım. Taşıyamaz: "aralıkta hiç eşiği
+geçmedi" bir **kesişim**, birleşim değil, ve HyperLogLog kesişim
+yapamaz. Günlük insan eskizlerinin birleşimi, bir gün sessiz bir gün
+gürültülü adresi iki yarıda birden sayar ve sayfanın üç sayısı toplamayı
+bırakır. Bot yönü sağlam (aralığın maksimumu, günlerin maksimumlarının
+maksimumudur), o yüzden **iki eskiz** var ve insan bir çıkarma — üstüne
+bir tutarlılık kelepçesiyle, çünkü iki bağımsız tahmin kapsamayı
+bilmiyor ve insan sayısı negatif çıkabiliyor.
+
+**Plandan iki sapma, ikisi de ölçümle:**
+1. **Kesin sayı korunuyor.** Her zaman tahmin etmek "olabildiğince
+   minimum hata" ölçütüne aykırıydı: 24 saatlik aralık ve küçük bir
+   sitenin 90 günü bugün kesin ve hızlı. Satır bütçesi (4 milyon satır ≈
+   2,1 sn, bütçenin %42'si) ölçülerek konuldu, ve satır sayısı rollup'tan
+   bedava geliyor.
+2. **Cevap hangisini kullandığını söylüyor** (`visitor_counts`,
+   `visitor_count_error`) ve pano tahmin olan kartın başına ≈ koyuyor.
+   Bunu bir sürüm notu söyleyemez: hangisi olduğu aralığa, sitenin
+   trafiğine ve eklentinin kurulu olup olmadığına bağlı.
+
+**Eklentisiz kurulum bir kip, bir hata değil:** `timescaledb_toolkit`
+yoksa iki tablo hiç oluşturulmuyor (şema dosyasında `EXECUTE` ile koşullu),
+okuma kesin sayıya düşüyor. **İki taraf da ölçülüyor:** paylaşılan
+geliştirme veritabanında eklenti yok, yani olağan entegrasyon işi
+"eklentisiz" dalını her koşuda sınıyor; eskiz yolu kendi veritabanında
+`install.sh` sırasıyla kurulup `collector` rolüyle koşuyor; ve gecelikte
+toolkit taşıyan bir imajla ayrı bir iş var (eklentiyi bulamazsa atlamıyor,
+**düşüyor** — tek işi eklenti olan bir işin atlaması güvenilmeyecek bir
+yeşildir).
+
+---
+
 
 **Karar verildi (2026-09-09, sahip):** *"%1,2 hata payı oldukça ufak,
 tolere edilemez mi."* Edilebilir. Ama iki koşulla, ve koşulların ikincisi

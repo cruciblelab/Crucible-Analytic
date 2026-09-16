@@ -82,6 +82,30 @@ type cardDef struct {
 	Source cardSource
 	// Value is the figure as text, already formatted for this language.
 	Value func(analytics.Dashboard, *ui.Formatter) string
+	// Estimated reports whether this card's figure came back as an
+	// estimate rather than a count. Nil for a card whose figure is never
+	// one.
+	//
+	// # Why this is per card and not per page
+	//
+	// Because only some of the numbers on this page can be estimates.
+	// Since O3 the read API answers a visitor count either exactly or
+	// from merged daily sketches, depending on how many rows the range
+	// holds - and it says which in every response. The beacon's figures
+	// are never estimated. A page-wide marker would tell a customer
+	// their pageview count was approximate, which would be false.
+	//
+	// # Why a function and not a boolean on the card
+	//
+	// Because it is a property of the answer, not of the card: the same
+	// card is exact for a 24-hour range and estimated for a 90-day one
+	// on a busy site, and exact for both on a quiet one.
+	//
+	// A card that reads a visitor figure and forgets this is caught
+	// rather than reviewed for: TestEveryCardThatReadsAVisitorCountSaysWhenItIsAnEstimate
+	// perturbs the three visitor figures, sees which cards' values move,
+	// and requires each of those to carry the marker.
+	Estimated func(analytics.Dashboard) bool
 }
 
 // cards is every card this panel knows how to draw.
@@ -119,13 +143,29 @@ var cards = map[cardID]cardDef{
 		Value: func(d analytics.Dashboard, f *ui.Formatter) string {
 			return f.Number(int64(d.Traffic.HumanIPs))
 		},
+		Estimated: estimatedVisitors,
 	},
 	cardBotIPs: {
 		ID: cardBotIPs, Source: sourceTraffic,
 		Value: func(d analytics.Dashboard, f *ui.Formatter) string {
 			return f.Number(int64(d.Traffic.BotIPs))
 		},
+		Estimated: estimatedVisitors,
 	},
+}
+
+// estimatedVisitors reads the read API's own word for it.
+//
+// The constant lives in internal/panel/analytics, which is this panel's
+// side of the wire format. Nothing in this binary imports the read
+// service's own package - they are separately deployable processes and a
+// compile-time dependency would say otherwise; a test in this package
+// holds that rule structurally. What keeps the two spellings from
+// drifting is a different test, one that marshals the producer's type
+// and decodes it with the consumer's, which is the only arrangement this
+// project has found that neither side can pass alone.
+func estimatedVisitors(d analytics.Dashboard) bool {
+	return d.Traffic.VisitorCounts == analytics.VisitorCountsEstimated
 }
 
 // defaultCards is what a deployment shows before anybody configures it.
@@ -198,6 +238,15 @@ type cardView struct {
 	// EmptyText is the sentence for Empty, already in the reader's
 	// language.
 	EmptyText string
+	// Approx is true when Value is an estimate rather than a count, and
+	// ApproxText says so in the reader's language with the margin in it.
+	//
+	// Beside the number rather than in a footnote: a reader who takes
+	// one figure off this page and puts it in a report will not have
+	// read the footnote, and the difference between a count and an
+	// estimate is exactly the thing they would want to have known.
+	Approx     bool
+	ApproxText string
 }
 
 // dashboardPage is Data for the template.
@@ -414,6 +463,14 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		view.Empty = emptinessFor(def.Source, board, presence)
 		if view.Empty == hasData {
 			view.Value = def.Value(board, f)
+			// Only on a card that has a number. Marking an empty card
+			// as approximate would be labelling the absence of a
+			// figure, which is not a quantity and has no margin.
+			if def.Estimated != nil && def.Estimated(board) {
+				view.Approx = true
+				view.ApproxText = lang.Tf("pano.kart.yaklasik",
+					f.Percent(board.Traffic.VisitorCountError, 2))
+			}
 		} else {
 			view.EmptyText = lang.T("pano.bos." + string(view.Empty) + "." + string(def.Source))
 		}

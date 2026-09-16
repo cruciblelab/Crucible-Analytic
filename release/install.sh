@@ -481,6 +481,33 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     psql_super -c "CREATE DATABASE ${DB_NAME}"
   fi
   psql_db -c "CREATE EXTENSION IF NOT EXISTS timescaledb"
+
+  # timescaledb_toolkit, if this cluster has it. Optional, and the
+  # optionality is the point.
+  #
+  # It supplies the hyperloglog type the visitor sketches are stored in
+  # (O3), which is what makes a 90-day visitor count answer in half a
+  # second instead of five and a half. Without it the schema creates no
+  # sketch tables and the read API counts distinct addresses exactly and
+  # slowly - correct either way, which is why a missing extension must
+  # not stop an install.
+  #
+  # Asked of pg_available_extensions rather than attempted and caught:
+  # `set -e` is on, and a CREATE EXTENSION that fails for some other
+  # reason - a broken package, a permissions problem - should stop the
+  # install rather than be swallowed by an `|| true` that cannot tell the
+  # two apart.
+  if [ -n "$(psql_super -tAc "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb_toolkit'")" ]; then
+    psql_db -c "CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit"
+    say "timescaledb_toolkit installed (fast visitor counts over long ranges)"
+  else
+    say "timescaledb_toolkit not available on this cluster, so visitor counts over
+    long ranges will be computed exactly and slowly. To turn on the fast path
+    later, install the extension (on Debian/Ubuntu with the TimescaleDB
+    repository: apt-get install timescaledb-toolkit-postgresql-16), run
+    CREATE EXTENSION timescaledb_toolkit in ${DB_NAME}, and then apply the
+    schema upgrade from the panel's Health page."
+  fi
 fi
 
 # ROLE_CREDENTIAL says, once, where each role's password lives: the

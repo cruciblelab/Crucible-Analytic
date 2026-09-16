@@ -132,6 +132,16 @@ func New(base, token string) (*Client, error) {
 // nil client, which is what a panel with no API address gets.
 func (c *Client) Configured() bool { return c != nil }
 
+// VisitorCountsEstimated is the value Summary.VisitorCounts carries when
+// the read API estimated the visitor figures rather than counting them.
+//
+// Spelled here rather than imported from internal/api: this binary
+// imports nothing from that package, because the two are separate
+// processes that can be upgraded apart. What keeps the two spellings
+// equal is a test that marshals the API's own type and decodes it with
+// this one, so neither side can pass on its own.
+const VisitorCountsEstimated = "estimated"
+
 // Summary is the collector's headline numbers for one site.
 //
 // Only the fields the panel draws. Decoding the API's whole struct would
@@ -145,6 +155,19 @@ type Summary struct {
 	UniqueIPs int `json:"unique_ips"`
 	BotIPs    int `json:"bot_ips"`
 	HumanIPs  int `json:"human_ips"`
+
+	// VisitorCounts is "exact" or "estimated", and VisitorCountError is
+	// the standard relative error to attach to the three figures above -
+	// zero when they were counted.
+	//
+	// Read rather than assumed, because which one a range gets depends
+	// on the range, on how much traffic the site has, and on whether the
+	// database has the sketch extension at all. A page that printed
+	// these numbers without saying which kind they are would be
+	// presenting an estimate as a count on exactly the ranges where the
+	// difference is largest.
+	VisitorCounts     string  `json:"visitor_counts"`
+	VisitorCountError float64 `json:"visitor_count_error"`
 
 	PeakRequestRate    float64 `json:"peak_request_rate"`
 	PeakWindowRequests int     `json:"peak_window_requests"`

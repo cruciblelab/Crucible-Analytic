@@ -49,6 +49,30 @@ GRANT SELECT ON traffic_snapshots, beacon_events TO analytics_reader;
 -- everything", and those differ by the whole table.
 GRANT SELECT ON traffic_rollup, traffic_rollup_state TO analytics_reader;
 
+-- The visitor sketches (O3), if this deployment has them.
+--
+-- Guarded, and the guard is not optional: the two tables are created by
+-- internal/storage/schema.sql only where timescaledb_toolkit is
+-- installed, because the hyperloglog type comes from it. An
+-- unconditional GRANT here would abort install.sh on every deployment
+-- without the extension - which is every existing one - and the failure
+-- would come from the privilege step of an install whose schema was
+-- already applied.
+--
+-- The same rights as the rollup above, for the same reasons: the
+-- collector upserts and prunes, the read API reads, and nobody else
+-- touches either table.
+DO $$
+BEGIN
+    IF to_regclass('visitor_sketch') IS NULL THEN
+        RETURN;
+    END IF;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON visitor_sketch TO collector;
+    GRANT SELECT, INSERT, UPDATE ON visitor_sketch_state TO collector;
+    GRANT SELECT ON visitor_sketch, visitor_sketch_state TO analytics_reader;
+END
+$$;
+
 -- The panel: its own tables only. Never the analytics ones.
 GRANT SELECT, INSERT, UPDATE, DELETE ON
   panel_users, panel_sessions, panel_site_members,

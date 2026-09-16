@@ -18932,3 +18932,246 @@ indiriyor ve birleştirmesi tek başına bütçeyi yiyor.
 Ve bir yenisi: **bir hata payı, kardinaliteye bağlıysa, en kötü
 kardinalitede bildirilmeli.** Bir ürünün doğruluğu müşteri büyüdükçe
 düşüyorsa, küçük müşteride ölçülmüş pay bir vaat değil bir tesadüftür.
+---
+
+## O3 — benzersiz ziyaretçi: günlük eskiz, ve iki cevaptan hangisi olduğunu söylemek (2026-09-16)
+
+Sahip kararı verdi (§"O3'ün hassasiyeti"), kod bu turda yazıldı. Şema
+**24**.
+
+### Sorunun bugünkü hâli, binary ile ölçüldü
+
+Ölçmeden başlamadım, çünkü PLAN'daki rakamlar O1/O2'den önceki turlara
+aitti. `ca_scale` / `buyuk-site` (11,0M satır, 91 gün), `analytics-api`
+binary'sinin kendi cevabı, **soğuk** (PG durdur → `drop_caches` →
+başlat), üç tekrar, ortası:
+
+| Aralık | Satır | Süre |
+|---|---:|---:|
+| 30 gün | 3,70 M | 2,24 sn |
+| 90 gün | 10,96 M | **5,68 sn** |
+
+Panelin **tek bir çağrı** için verdiği süre 5 sn (`RequestTimeout`), yani
+90 gün düğmesi çalışmıyor. Yani O3 bir "baş üstü boşluğu" işi değil;
+kırık bir düğme.
+
+*(Not: PLAN'da O2 sonrası için "90 gün 3,63 sn" yazıyordu. Bugünkü soğuk
+ölçüm 5,68 veriyor. Aradaki farkı iddia etmiyorum — O2'nin ölçümü özet
+tablosunu **doldurduktan hemen sonra** alınmıştı ve doldurma işi
+önbelleği ısıtıyor; bu tam olarak o dosyada yazılı olan tuzak. Bugünkü
+sayı kendi düzeneğinde tekrarlanabilir.)*
+
+### Neden eskiz: `count(distinct ip)` toplanamaz
+
+İki günün ziyaretçisi, her günün ziyaretçisinin toplamı değil. O2'nin
+özet tablosu bu yüzden dört sayı taşıyor. HyperLogLog **birleşebilir**:
+iki günün eskizini birleştirmek, iki günün birleşiminin eskizidir.
+
+**Günlük UTC kova, ve kırık uçlar ham tablodan.** O2'nin ızgarası yerel
+gece yarısını bölmek zorundaydı çünkü okuduğu tek şey kovalardı. Eskiz
+bir kovadan üç mertebe büyük (48 kB), yani çeyrek saatlik olsa site
+başına **günde** 4,4 MB ve 90 günlük sorguda 8.640 birleştirme olurdu.
+Günlük kova çalışıyor çünkü yerel gece yarısının kestiği en fazla iki
+kırık uç ham tablodan okunup **kendi eskizine** dönüşüyor ve birleşime
+katılıyor. Eskizler birleştiği için hem uçta hem tam günde görünen adres
+**bir kez** sayılıyor — bütün tasarım bu özelliğe yaslanıyor.
+
+### Fazın bulduğu şey: üçüncü eskiz imkânsız
+
+2026-09-10'daki planım "kova başına iki eskiz: insan ve bot" diyordu.
+**Yanlıştı, ve sebebi bu turda çıktı.**
+
+Bir adres aralıkta bot sayılıyor mu? Kuralı: aralıktaki **herhangi** bir
+anlık görüntüsü eşiği geçtiyse. Ve bir aralığın maksimumu, günlerin
+maksimumlarının maksimumudur — yani **günlük bot eskizlerinin birleşimi
+tam olarak aralığın bot kümesi.** Bu yön sağlam.
+
+İnsan yönü sağlam değil: "aralıkta hiç eşiği geçmedi" bir **kesişim**,
+birleşim değil. Pazartesi sessiz, salı gürültülü bir adres, günlük insan
+eskizinin *birleşiminde* insan olarak da görünür — ve sayfanın üç sayısı
+toplamayı bırakır (bot + insan > benzersiz). HyperLogLog kesişim
+yapamaz.
+
+Yani: **iki eskiz** (`ips`, `bot_ips`), ve insan sayısı bir çıkarma.
+Çıkarmanın bedeli açıkça yazıldı: iki bağımsız tahminin farkı, mutlak
+olarak hâlâ bir pay kadar (toplamın ~%0,6'sı), ama insan sayısı küçükse
+oranı büyür. Sayfa üç sayıyı da "yaklaşık" diye işaretliyor.
+
+**Ve iki tahmin tutarsız olabilir:** bot tahmini benzersiz tahmininin
+üstüne çıkabilir (ikisi de payının içinde), ve insan sayısı **negatif**
+olur. Müşterinin yorumlayamayacağı bir sayı. Kelepçe konuldu —
+`splitVisitors`, bot ≤ benzersiz, insan = benzersiz − bot — ve **kendi
+fonksiyonuna çıkarıldı**, çünkü o dalı tetikleyen çift hiçbir fikstürle
+güvenilir şekilde kurulamaz. *Tetikleyen durumu tabloya koyamıyorsan,
+aritmetiği tabloya götür.*
+
+### Kesin sayı kaybolmuyor: satır bütçesi
+
+Her zaman tahmin etmek kolay olurdu ve **gereksiz hata** olurdu: 24
+saatlik aralık, ya da küçük bir sitenin 90 günü, bugün kesin ve hızlı.
+Sahibin ölçütü "olabildiğince minimum hata".
+
+Maliyet satır sayısında doğrusal, soğuk ölçüldü:
+
+| Satır | Süre |
+|---:|---:|
+| 123 k | 0,33 sn |
+| 863 k | 0,78 sn |
+| 3,70 M | 2,25 sn |
+| 11,0 M | 6,14 sn |
+
+Milyon satır başına ~0,53 sn. **4 milyon satır** (~2,1 sn) bütçenin
+%42'si, gerisi bu makineden yavaş bir makineye kalıyor. O sınıra kadar
+kesin sayılıyor, ötesinde tahmin.
+
+Ve satır sayısı **bedava geliyor**: rollup zaten sayıyor (`agg.Snapshots`).
+Nasıl sayacağına karar vermek için satırları bir daha saymak, kararın
+kendisinden pahalı olurdu.
+
+**Bu sayı bir donanım vaadi değil**, ölçülen bir vekil — ve yanlış tahmin
+etmenin iki yönü de eşit değil: yüksek olursa bir uzun istek yavaşlar
+(bugünün davranışı), düşük olursa kesin olabilecek bir sayı yaklaşık olur
+**ve öyle olduğunu söyler.** İkisi de sessiz değil.
+
+### Cevap hangisini kullandığını söylüyor
+
+`visitor_counts` (`exact` / `estimated`) ve `visitor_count_error` her
+cevapta. Pano tahmin olan kartın değerinin başına **≈** koyuyor, payı
+altına yazıyor.
+
+Bunu bir sürüm notu söyleyemez: hangisi olduğu aralığa, sitenin
+trafiğine ve eklentinin kurulu olup olmadığına bağlı. *Aynı sayıyı bazen
+sayıp bazen tahmin eden bir ürün, söylemezse iki doğrusu olan bir
+üründür.*
+
+Panelin işaretlediği kartların listesi **türetilmiş**: test üç ziyaretçi
+sayısını oynatıyor, hangi kartların değeri kıpırdıyorsa onların
+`Estimated` taşıması gerekiyor. Yeni bir kart eklemeyi kimsenin
+hatırlamasına gerek yok.
+
+### Hassasiyet ile pay arasındaki ilişki teste bağlandı
+
+`VisitorSketchRelativeError` = 1,04/√`SketchPrecision`, ve bir test bunu
+tutuyor. R1'in dersi: iki sabit ayrı ayrı makul, ilişkileri yanlış
+olabilir. Hassasiyeti diskten tasarruf için yarıya indiren biri, panelin
+yazdığı payı yerinde bırakırdı — sayfa, verinin sahip olmadığı bir
+hassasiyeti yazıyor olurdu.
+
+### Eklenti yoksa: bir hata değil, bir kip
+
+`hyperloglog` `timescaledb_toolkit`'ten geliyor ve var olan hiçbir
+kurulumda yok. Şema dosyası tipi koşulsuz adlandırsa **her yükseltme**
+düşerdi — O1'in sıkıştırmada, O2'nin sürekli toplamada çarptığı duvar.
+
+O2'den farkı: burada atlanabilir olmak okuma yoluna **ayrışabilir iki
+şekil** vermiyor. Kesin sayı hâlâ tanım, eskiz onun bir yaklaşımı, ve
+cevap hangisi olduğunu söylüyor. Eklentisiz kurulum bugün ne yapıyorsa
+onu yapıyor.
+
+`EXECUTE` ile, `IF` içinde düz `CREATE TABLE` ile değil: PL/pgSQL bir
+ifadeyi ilk hazırladığında tip adını çözüyor ve alınmayan dal hiç
+hazırlanmıyor — ama bu proje "koruma ad çözücüye ulaşmaz" varsayımını bir
+kez ödedi (`WHERE false` var olmayan tabloyu kurtarmıyor). Dolar
+kotalı bir dize tanımı gereği erken çözülemez.
+
+**İki tarafı da ölçülüyor, ve hiçbiri simüle edilmiyor:**
+- Paylaşılan geliştirme veritabanında eklenti **yok** — yani olağan
+  entegrasyon işi "eklentisiz" dalını her koşuda ölçüyor:
+  `internal/storage/sketchabsent_integration_test.go` tabloların eklenti
+  neredeyse orada olduğunu, yenilemenin tam orada kendini
+  "unavailable" bildirdiğini soruyor.
+- Eskiz yolu kendi veritabanında (`ca_sketch_suite`), `install.sh`
+  sırasıyla kurulmuş, eklenti şema dosyalarından **önce**, ve yenileme
+  `collector` rolüyle koşuyor. Süper kullanıcıyla yazılmış bir eskiz
+  yetkiler hakkında hiçbir şey kanıtlamazdı.
+- Gecelikte `timescale/timescaledb-ha:pg16.6-ts2.17.2-all` ile ayrı bir
+  iş: aynı TimescaleDB sürümü, artı toolkit. Ve o işin kendi adımı var —
+  eklenti gerçekten kurulu mu — çünkü **tek işi eklenti olan bir işin
+  "bu kümede toolkit yok" diye yeşil çıkması** güvenilmeyecek bir
+  yeşildir.
+
+### Ölçülen sonuç
+
+Aynı düzenek, aynı binary, sonradan:
+
+| Aralık | Önce | Sonra | Nasıl |
+|---|---:|---:|---|
+| 30 gün | 2,24 sn | 2,43 sn | **kesin** (değişmedi) |
+| 90 gün | 5,68 sn | **0,47 sn** | tahmin |
+
+- Doğruluk: 47.515 tahmin, 47.500 kesin → **+%0,032**.
+- Disk: 91 gün / tek site / iki eskiz → **6,0 MB**, o sitenin ham
+  tablosunun (792 MB) **%0,76'sı**.
+- İlk doldurma: dört tur (5,4 · 5,9 · 6,7 · 0,5 sn), toplam 18,6 sn, her
+  tur kendi işini commit ediyor.
+- 30 gündeki 0,19 sn'lik fark tekrarlar arası yayılımın (±0,2 sn) içinde;
+  eklenen iş tek satırlık bir durum sorgusu.
+
+### Bot eşiği eskizin içinde yazılı
+
+`bot_ips` belirli bir eşikte hesaplanmış bir küme, yani eşik olmadan
+anlamsız. `visitor_sketch_state.bot_score_min` onu saklıyor, ve okuma
+yolunun **tek koşulu** bu: eskiz, sorulan eşikte kurulmuşsa kullanılır.
+O tek karşılaştırma iki durumu birden kapatıyor — "bu çağrı başka bir
+eşik istiyor" ve "ürünün varsayılanı bu satırlar yazıldığından beri
+değişti".
+
+Eşik değişirse su işareti sitenin en eski satırına çekiliyor ve eskizler
+baştan hesaplanıyor; DELETE gerekmiyor, çünkü su işaretinin ötesi
+okunmuyor. Kendi kendini onarıyor ve günlükte söylüyor.
+
+### Ölçümün kendisinde iki tuzak
+
+1. **Sıralı üretilmiş adres eskizi çok iyi gösteriyor.** İlk turda 200
+   bin sıralı adreste hata **%0,0025** çıktı — teorinin kırk katı iyi,
+   çünkü sıralı girdi kovalara kusursuz dağılıyor. Dağınık adreslerle
+   aynı ölçüm %0,17'ye döndü, yani teorinin içine. *Üretilen verinin
+   kusuru, ölçümün sonucu gibi görünür* — bu sefer iyi yönde, ki daha
+   tehlikelisi.
+2. **`ca_scale`'de birleşim ölçülemiyor.** 90 günün birleşimi 47.335,
+   tek günün kesin sayısı 47.343 — yani üretecim her adresi her gün
+   yazıyor ve birleşim bir günün kümesi. Süreyi orada ölçmek doğru,
+   **doğruluğu** orada ölçmek değil. Doğruluk sentetik çekilişlerde
+   (yirmi farklı küme) ölçüldü, süre gerçek veride.
+
+### Yirmi iki mutasyon, yirmi ikisi de kırmızı
+
+Altısı ilk turda sağ kaldı ve altısı da **bir soru** oldu:
+
+- **İkisi testin kusuruydu.** (a) Su işareti mutasyonu sağ kaldı çünkü
+  fikstür su işaretinin ötesindeki eskizleri **doğru** bırakıyordu — iki
+  kaynak aynı cevabı verince "hangisini okudun" sorusu ölçülemez.
+  Ötesindeki eskizler artık kimsenin tohumlamadığı bir adresle
+  değiştiriliyor, yani iki kaynak **ayrışıyor**. (b) Sıfır bütçenin ürün
+  değeri okunması hiçbir testte yoktu; elle kurulmuş bir `Store`'un kesin
+  saydığını sınayan bir test eklendi.
+- **Dördü mutasyonun yanlış suite'e yönlendirilmesiydi** — ve bu da bir
+  ders: *bir şema mutasyonu, şemayı uygulamayan bir teste hiçbir şey
+  yaptırmaz.* Şemanın GRANT bloğunu yalnız `internal/upgradepath`
+  görüyor (eskiz suitinin veritabanı `grants.sql`'i de uyguluyor ve aynı
+  yetkiyi veriyor). Koşulsuz `CREATE TABLE`'ı yalnız `internal/applier`
+  görüyor — şema dosyalarını **eklentisiz** bir veritabanına uygulayan
+  tek suit o. `grants.sql`'in korumasını yalnız `internal/retention`
+  görüyor, aynı sebeple. Doğru suite'lere yönlendirilince dördü de
+  kırmızı verdi; M20 tam beklenen cümleyle düştü:
+  `applying release/sql/grants.sql: ERROR: relation "visitor_sketch" does not exist`.
+
+### Bu turda çıkan kurallar
+
+- **Bir tahmin ile bir sayımı aynı alanda sunan bir ürün, hangisi
+  olduğunu cevabın içinde söylemek zorundadır.** Bir sürüm notu
+  söyleyemez: hangisi olduğu aralığa, veriye ve kuruluma bağlı.
+- **Bir toplama birleşimse birleşebilir, kesişimse birleşemez.** "Hiç
+  olmadı" bir kesişimdir; eskizlenemez. Bir özet tablosu tasarlarken
+  sorulacak soru "bu sayı toplanabilir mi" değil, **"bu küme hangi
+  işlemle kuruluyor"**.
+- **İki bağımsız tahmin, biri diğerini kapsıyor olsa bile, kapsamayı
+  bilmez.** Tutarlılığı aritmetik empoze etmeli; etmezse sayfa kendi
+  kendisiyle çelişir.
+- **Sıralı üretilmiş veri bir hash'i olduğundan iyi gösterir.** Bir
+  doğruluk ölçümünde girdinin dağınık olduğunu ayrıca kontrol et.
+- **Bir hata payı bir sabitse, onu üreten hassasiyetle bir test
+  üzerinden bağlı olmalı.** İkisi ayrı ayrı makul, ilişkileri yanlış
+  olabilir.
+- **Tek işi bir eklenti olan bir CI işi, eklentiyi bulamazsa atlamamalı,
+  düşmeli.** Atlayan bir iş, o özelliğin hiç ölçülmediği bir yeşildir.

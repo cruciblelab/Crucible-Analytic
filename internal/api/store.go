@@ -34,7 +34,13 @@ import (
 // bot in summaries. A heuristic starting point, not a tuned threshold -
 // the same caveat internal/scoring documents for its own constants -
 // which is why callers can override it per request.
-const DefaultBotScoreMin = 50
+//
+// Declared in internal/scoring since O3, because the collector builds a
+// sketch of the addresses that reach it and a writer cannot import this
+// package. See scoring.BotCutoff for the whole reason; this name stays
+// so that every caller and test that already asks the read API for its
+// cutoff keeps asking the read API.
+const DefaultBotScoreMin = scoring.BotCutoff
 
 // maxRows caps how many rows any "top N" query will return, so a single
 // request can't ask for an unbounded response.
@@ -117,6 +123,25 @@ type Store struct {
 	// supported state - see internal/botdata. A nil set labels nothing
 	// and breaks nothing.
 	knownBots scoring.KnownBots
+	// exactRows is the row budget below which a visitor count is taken
+	// exactly rather than estimated. Zero means exactVisitorRowBudget,
+	// which is what NewStore sets it to explicitly as well.
+	//
+	// # Why it is a field and not only a constant
+	//
+	// Because a threshold of four million rows cannot be crossed by a
+	// fixture. Left as a constant, every test would take the exact
+	// branch, the estimating branch would never run outside a
+	// measurement done by hand, and the product would ship a path whose
+	// tests all went the other way.
+	//
+	// A seam, then - and a seam is a risk of its own: a field production
+	// forgets to fill is not a weaker check, it is no check. Two things
+	// close that. Zero reads as the measured budget, so a Store built by
+	// hand - which several tests in this package do - behaves like one
+	// the binary built; and TestNewStoreCarriesTheMeasuredRowBudget asks
+	// a Store built the way the binary builds one what its budget is.
+	exactRows int
 }
 
 // SetKnownBots gives the store the fingerprint labels to use. Safe to
@@ -138,7 +163,7 @@ func NewStore(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("api: ping database: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, exactRows: exactVisitorRowBudget}, nil
 }
 
 // Close releases the connection pool. Safe to call once.
@@ -160,14 +185,36 @@ type Summary struct {
 	From   time.Time `json:"from"`
 	To     time.Time `json:"to"`
 
-	// UniqueIPs and the bot/human split are exact: they're distinct-IP
-	// counts, not derived from the overlapping window counters.
+	// UniqueIPs and the bot/human split are distinct-address counts, not
+	// derived from the overlapping window counters - and since O3 they
+	// are either counted or estimated, with VisitorCounts saying which.
 	UniqueIPs int `json:"unique_ips"`
 	BotIPs    int `json:"bot_ips"`
 	HumanIPs  int `json:"human_ips"`
 	// BotScoreMin is the threshold that produced the split above, echoed
 	// back so a caller can tell which cutoff a given response used.
 	BotScoreMin int `json:"bot_score_min"`
+
+	// VisitorCounts is how the three figures above were produced:
+	// "exact" or "estimated". Always set.
+	//
+	// # Why this is in the response and not in a release note
+	//
+	// Because which one a given range gets depends on the range, on the
+	// site's traffic, and on whether the deployment has the sketch
+	// extension - so no document can tell a reader which number they
+	// are looking at, and the panel prints what this says. A product
+	// that quietly switched between an exact and an approximate answer
+	// for the same figure would be a product with two truths.
+	VisitorCounts VisitorCountMethod `json:"visitor_counts"`
+	// VisitorCountError is the standard relative error to attach to
+	// those figures, as a fraction: 0 when they were counted.
+	//
+	// Carried in the response rather than left for the caller to know,
+	// so the margin the panel prints and the precision the collector
+	// built cannot drift apart - they are one constant, reported by the
+	// side that used it.
+	VisitorCountError float64 `json:"visitor_count_error"`
 
 	// PeakRequestRate and AvgRequestRate are in requests/second, taken
 	// across the sampled snapshots - exact as sample statistics.
@@ -219,45 +266,16 @@ func (s *Store) Sites(ctx context.Context) ([]string, error) {
 func (s *Store) Summary(ctx context.Context, siteID string, from, to time.Time, botScoreMin int) (Summary, error) {
 	out := Summary{SiteID: siteID, From: from, To: to, BotScoreMin: botScoreMin}
 
-	// The visitor counts, from the raw table, and there is nowhere else
-	// they can come from.
+	// The four aggregable figures first, from the rollup where it reaches
+	// and the raw table for the rest. The watermark is read first and
+	// passed in, so the decision about which half answers is taken in
+	// one place - see internal/api/rollup.go.
 	//
-	// An IP counts as a bot if *any* snapshot of it in range scored at or
-	// above the threshold - a burst that later decays shouldn't erase the
-	// fact that it happened.
-	//
-	// # Why this half is not rolled up, and what that costs
-	//
-	// count(distinct ip) does not aggregate: two days' visitors are not
-	// the sum of each day's. And bot_ips could not be precomputed even
-	// if it did, because the threshold arrives in the request - see
-	// traffic_rollup's comment in internal/storage/schema.sql.
-	//
-	// Measured on 12 million rows over 90 days, this endpoint's halves:
-	// the counts below 25,36 s, the aggregable figures 1,46 s, the peak
-	// window 10,26 s. O2 removed the second and third. This one is what
-	// O3 is for, and until then a 90-day summary is still slower than
-	// the panel's client will wait.
-	err := s.pool.QueryRow(ctx, `
-		WITH per_ip AS (
-		    SELECT ip, max(bot_score) AS peak_score
-		    FROM traffic_snapshots
-		    WHERE site_id = $1 AND time >= $2 AND time < $3
-		    GROUP BY ip
-		)
-		SELECT (SELECT count(*) FROM per_ip),
-		       (SELECT count(*) FROM per_ip WHERE peak_score >= $4)`,
-		siteID, from, to, botScoreMin,
-	).Scan(&out.UniqueIPs, &out.BotIPs)
-	if err != nil {
-		return Summary{}, fmt.Errorf("api: summary: %w", err)
-	}
-	out.HumanIPs = out.UniqueIPs - out.BotIPs
-
-	// The four aggregable figures, from the rollup where it reaches and
-	// the raw table for the rest. The watermark is read first and passed
-	// in, so the decision about which half answers is taken in one place
-	// - see internal/api/rollup.go.
+	// First, and not for tidiness: agg.Snapshots is how many rows the
+	// range holds, and that is what decides whether the visitor counts
+	// below can afford to be exact. Asking the rollup for a number it
+	// already has costs nothing; counting the rows a second time to
+	// decide how to count them would.
 	watermark, err := s.rollupWatermark(ctx, siteID)
 	if err != nil {
 		return Summary{}, err
@@ -270,6 +288,37 @@ func (s *Store) Summary(ctx context.Context, siteID string, from, to time.Time, 
 	out.PeakRequestRate = agg.PeakRequestRate
 	out.AvgRequestRate = agg.AvgRequestRate
 	out.PeakWindowRequests = agg.PeakWindow
+
+	// The visitor counts: exact while that is affordable, and from the
+	// merged daily sketches when it is not.
+	//
+	// # Why this half needed a table of its own
+	//
+	// count(distinct ip) does not aggregate: two days' visitors are not
+	// the sum of each day's, because the same person may have come on
+	// both. So it could not join the four figures in traffic_rollup, and
+	// after O2 had removed twelve seconds from this endpoint it was the
+	// whole of what was left. Measured 2026-09-16 with this binary,
+	// cold, on 11,0 million rows for one site: 5,68 s at 90 days
+	// against a 5 s per-call timeout in the panel.
+	//
+	// What answers it is a union of HyperLogLog sketches, which *does*
+	// aggregate - see internal/api/sketch.go for the whole rule,
+	// including why the response has to say which of the two answers it
+	// carries.
+	state, err := s.sketchStateOf(ctx, siteID)
+	if err != nil {
+		return Summary{}, err
+	}
+	seen, err := s.visitorsOver(ctx, siteID, from, to, botScoreMin, agg.Snapshots, state)
+	if err != nil {
+		return Summary{}, err
+	}
+	out.UniqueIPs, out.BotIPs, out.HumanIPs = seen.Unique, seen.Bot, seen.Human
+	out.VisitorCounts = seen.Method
+	if seen.Method == VisitorCountEstimated {
+		out.VisitorCountError = VisitorSketchRelativeError
+	}
 
 	return out, nil
 }
