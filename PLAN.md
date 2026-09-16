@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **4/6** | O3 (karar verildi, kod bekliyor), O4 (planlandı, O3'e bağımlı) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **4/6** | O4a (ölçüldü 2026-09-16, sıradaki iş — şema gerektirmiyor), O3 (sahibin tek kararı bekliyor: yaklaşık sayı mı, dar aralık mı), O4 (O4a'dan sonra yeniden ölçülecek) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -104,6 +104,72 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **6/8** | V4b, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+
+### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
+
+Sahip: *"Ne yapacağız şemayı kararlaştır, diğer kararları bir zemine
+oturt, ona göre hareket edebiliriz."* Karar aşağıda; her satırın
+gerekçesi ölçüm, tahmin değil.
+
+**Şema 24'e giren tek şey: `service_heartbeat`'e bir yetenek sütunu.**
+
+Sebebi bir özellik değil bir **kusur**: `privacy.ip_storage = "full"`
+panelden hiç seçilemiyor, çünkü `checkPrecondition`
+`ipTokenKeyConfigured`'a bakıyor ve o alanı kuran
+`SetIPTokenKeyConfigured`'ı ürün kodunda kimse çağırmıyor (§P5a).
+Panel iki servisin yapılandırma dosyasını okuyamaz — okumaması da doğru
+— yani ona **söylenmesi** gerekiyor, ve doğru kaynak servislerin
+kendisi: *"jeton üretebiliyor muyum"* sorusunu yalnız onlar bilir.
+`service_heartbeat` zaten o kanal (§B4/B7) ve zaten *"bir servisin
+kendini anlatması"* diye tanımlı.
+
+`counters` JSONB'sine sığdırmıyorum: o sütun sayı taşıyor, bir yeteneği
+sayı kılığında yazmak veriye yanlış şekil vermek olur (ve şemanın kendi
+yorumu "whatever the service counts" diyor).
+
+**Bedeli ölçülü ve küçük:** `ADD COLUMN`, O1'de ölçtüğüm **kabul edilen**
+DDL sınıfından — sıkıştırılmış bir kurulumda çalışıyor ve hipertabloyu
+**0 bayt** değiştiriyor. `service_heartbeat` hypertable bile değil.
+
+**Şema 24'e girmeyen üçü, ve niye:**
+
+1. **O4 (dört yavaş uç) — şema gerektirdiği gösterilmedi.** 2026-09-16'da
+   ölçtüm (§O4a): iki bağımsız kol var ve ikisi de şemasız — sayfalanan
+   kırılımların iki taraması tek geçişe iniyor (7,1 → 2,76 sn, **ve
+   sayfanın kendi toplamıyla çelişmesi düzeliyor**: 855'e karşı 95), ve
+   JIT derlemesi 3,2 sn saf gider (kesişim 30,98 → 8,17 sn). Karar:
+   **önce O4a, sonra yeniden ölç.** Özet tablosu ölçülmüş bir ihtiyaç
+   olursa O3'le birlikte tek sürümde gelir.
+2. **O3 (benzersiz ziyaretçi) — sahibin kararı, ve şimdi tek soruya
+   indi.** Teknik her şey ölçülü (§O3). Kalan soru şema değil ürün
+   tanımı: *sayfa yaklaşık bir sayı mı göstersin, yoksa aralık mı
+   daralsın?* Eskiz seçilirse `timescaledb_toolkit` bir kurulum şartı
+   olur ve eklenti yoksa **ikinci bir sayı tanımı** doğar; o yüzden
+   sayfanın hangisini gösterdiğini söylemesi şart. Bu karar verilmeden
+   şemaya sütun koymak, kararı şemaya gömmek olur.
+3. **RLS'siz 21 tablo — üç ayrı cevap, biri imkânsızlık.** Ölçüldü
+   (2026-09-16): 21 tablonun **2'si hypertable** (`traffic_snapshots`,
+   `beacon_events`) ve O1'de ölçtüğüm gibi sıkıştırılmış bir hypertable
+   `ENABLE ROW LEVEL SECURITY`'yi **koşulsuz reddediyor** — sıkıştırma
+   varsayılan olarak 7 gün sonra açık, yani bir yükseltme bunu denediği
+   an *her* mevcut kurulumda "Sağlık → Şema yükseltmesi" düşer. Bu bir
+   tercih değil, bir imkânsızlık; harfiyen uygulama o iki tabloda
+   **yapılamaz.** **3'ü** paylaşılan referans verisi (`ip_asn_ranges`,
+   `ip_country_ranges`, `ip_range_fetches`) — satır sahipliği yok, yani
+   politika `USING (true)` olurdu, ki o politika bir şey söylemez ve
+   okuyanı yanlış güvenceye davet eder. Kalan **15'i** yalnız
+   `panel_user`'ın dokunduğu panel tabloları: burada gerçek bir politika
+   *yazılabilir* ve savunulur (bir GRANT hatasının açmadığı ikinci kapı).
+   **Ama bedava değil:** RLS + FORCE tablonun **sahibini de** bağlar,
+   sahip `schema_admin`, ve yedek üretici ile yükseltici o rolle
+   bağlanıyor — politikayı bir yol için yazmayı atlamak, **yedeğin
+   sessizce eksik satırla çıkması** demek. Yani 15 tablo bir şema
+   satırı değil, yedek yolunun ölçüldüğü kendi fazı. Karar: **§7'de
+   sahibe sorulacak soru olarak duruyor, şema 24'e girmiyor.**
+
+**Sırayı belirleyen ilke:** bir şema sürümü müşterinin koşturduğu bir
+yükseltmedir. Üç ayrı bump yerine bir bump, ve bir bump ancak
+**ölçülmüş** bir ihtiyaçla açılır.
 
 ### Kalan fazların sırası — biri diğerine yük bindirmesin diye
 
@@ -4568,6 +4634,78 @@ süreleri **binary'nin cevabıyla ve soğuk**.
 yanlış bildiriyor (TimescaleDB 2.17.2, ölçüldü). Özet budama yolu satır
 sayısına bakarsa bu tuzağa düşer; `CleanSite` tarafında O2'nin yaptığı
 gibi sayıya değil koşula bakılacak.
+
+##### O4a — Özetten önce ölçülmesi gerekenler (2026-09-16), ve şema gerektirmiyorlar
+
+Sahip *"şemayı kararlaştır"* dedi. Şemaya karar vermek için önce
+**şemanın gerçekten gerekip gerekmediğini** ölçmek gerekiyordu, çünkü
+yukarıdaki "O4 şema gerektiriyor" cümlesi ölçülmemiş bir cümleydi —
+ve kendi kuralım: *bir riski ölçmeden yazmak, onu olduğundan büyük
+yazmaktır.*
+
+Ölçüm: `ca_scale`, `buyuk-site` (11,1M satır), 90 gün, **soğuk** (her
+koşudan önce PostgreSQL durdurulup sayfa önbelleği düşürülüyor),
+**üç tekrarın ortası.** Düzenek `/tmp/soguk.sh` kalıbında; psql, yani
+sayılar binary'nin verdiğinden **küçük** (bilinen oran: sıcak psql
+üçte bir, binary yolu üstüne pool + JSON + HTTP ekliyor).
+
+**Bulgu 1 — her sayfalanan kırılım pencereyi iki kez tarıyor.**
+`ASNs`/`Countries`/`JA4s`/`TopIPs` önce `countDistinct` (ayrı bir
+`count(DISTINCT sütun)`, ki PostgreSQL bunu **sıralamayla** yapar),
+sonra `GROUP BY`. Ölçülen: 2,93 sn + 4,16 sn.
+
+**Ve iki tarama birbiriyle çelişiyor.** `countDistinct` ham satırlara
+bakıyor, kırılım ise `per_ip` üzerinden (`max(asn)`) — yani aynı adres
+pencere içinde iki ASN gördüyse biri sayıda var, sayfada yok:
+
+| kırılım | sayfanın yazdığı toplam | sayfalanabilir satır |
+|---|---:|---:|
+| `asn` | **855** | **95** |
+| `country` | 8 | 8 |
+| `ja4` | 380 | 380 |
+
+855'in 95'i sayfalanabiliyor. Bu bir hız kusuru değil, **sayfanın kendi
+sayısıyla çelişmesi** — ve tam olarak kendi kuralımın ihlali: *bir
+durumu hem gösteren hem uygulayan iki sorgu varsa, biri diğerinden
+türetilmeli.* (855 rakamı üretilmiş veriye ait; **mekanizma** üründe
+gerçek: aynı adresin ASN/ülke çözümü pencere içinde değişebiliyor, ve
+onu değiştiren şey D3'ün aralık kümesi yenilemesi.)
+
+Düzeltme: tek geçiş, toplam `count(*) OVER ()` ile aynı gruplamadan.
+Ölçülen: 2,93 + 4,16 = **7,1 sn → 2,76 sn**, ve iki sayı artık aynı
+tanımdan geliyor. **Şema gerekmiyor.**
+
+**Bulgu 2 — JIT derlemesi saf gider.** 13 parçalık plan 226 işlev
+derliyor: üretim 35 ms, inlining 615 ms, optimizasyon 1.418 ms, emisyon
+1.135 ms — **toplam 3,2 sn**, ve bu sorgular ifade değerlendirmesiyle
+değil tarama+hash ile sınırlı, yani JIT'in kazandıracağı bir şey yok.
+
+| uç | bugün | `jit=off` |
+|---|---:|---:|
+| `asn` kırılımı | 4,16 sn | **2,61 sn** |
+| `crossover/summary` | 30,98 sn | **8,17 sn** |
+| `ja4` | 12,08 sn | 11,58 sn *(JIT sebep değil)* |
+
+Kesişimde 3,8 kat. **Şema gerekmiyor** — bir bağlantı ayarı.
+
+**Bulgu 3 — `ja4`'ün derdi başka:** `array_agg(ja4 ORDER BY
+is_known_bot_ja4 DESC, time DESC)` grup **başına bir sıralama**.
+Aynı tarama, aynı gruplama ASN'de 2,61 sn; JA4'te 11,58 sn. Yani
+~9 sn tek başına o toplama. R2 o ifadeyi gerekçeyle seçti (bayraklı
+parmak izi, yoksa en sonuncusu), o yüzden **çözüm ifadeyi silmek değil
+aynı kuralı sıralamasız yazmak** — ve o ayrı bir ölçüm.
+
+**Denendi, benimsenmedi:** kesişimi tek geçişe indirmek (dört alt sorgu
+yerine `FILTER`). 8,17 → 11,10 sn, yani **daha yavaş**: beacon tarafının
+anti-join'i ikinci bir hash birleşimi kuruyor. Kayda geçiyor, çünkü
+denenmemiş gibi durmasın.
+
+**Sonuç, ve şema kararının dayanağı:** dört ucun **hiçbirinin** şema
+gerektirdiği gösterilmemiş durumda. İki kol (tek geçiş + JIT) ölçülü ve
+şemasız; üçüncüsü (JA4'ün toplaması) de şemasız. Sıra: **O4a önce**,
+sonra kalanı yeniden ölç. Özet tablosu ancak *o zaman* ölçülmüş bir
+ihtiyaç olur — ve o noktada zaten O3'ün eskiz kararı gerekir, yani
+ikisi tek şema sürümüne girer.
 
 ---
 

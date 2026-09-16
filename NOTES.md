@@ -18774,3 +18774,94 @@ Beş mutasyon, beşi de kırmızı — tarihi olan dâhil. İkisi düzenek
 kontrolü: biri `search_path`, biri `INCLUDING ALL`. İkincisi bir ürün
 kusuru değil; fikstür bozulursa **sessizce değil gürültüyle** bozulsun
 diye orada.
+
+---
+
+## O4a ölçümü (2026-09-16) — "şema gerektiriyor" ölçülmemiş bir cümleydi
+
+Sahip *"şemayı kararlaştır"* dedi. Şemaya karar vermek için önce şemanın
+gerekip gerekmediğini ölçmem gerekti, çünkü PLAN'daki *"O4 şema
+gerektiriyor"* cümlesini ben ölçmeden yazmıştım. Ölçünce küçüldü — ikinci
+kez aynı ders: *bir riski ölçmeden yazmak, onu olduğundan büyük
+yazmaktır.*
+
+### Düzenek, ve niye böyle
+
+`ca_scale` / `buyuk-site` (11,1M satır) / 90 gün / **soğuk**: her koşudan
+önce PostgreSQL durduruluyor, `drop_caches`, sonra başlatılıyor. Üç
+tekrar, ortası alınıyor.
+
+Bunun sebebi ilk turda yaşadığım şey: aynı sorgu sıcak önbellekte
+**4,06 sn**, soğukta **5,79 sn**, ve `EXPLAIN ANALYZE`'ın kendisi
+önbelleği ısıtıyor — yani ilk ölçümümü kendi teşhisim bozdu. Ve tek
+örnek de yetmedi: ilk soğuk koşu 5,79 verdi, üç tekrarın ortası 4,16.
+*Yeni başlatılmış bir kümede alınan ilk süre, o kümenin süresi değil.*
+
+### Bulgu 1: her sayfalanan kırılım pencereyi iki kez tarıyor
+
+`ASNs`/`Countries`/`JA4s`/`TopIPs` iki sorgu koşuyor: `countDistinct`
+(2,93 sn — ve PostgreSQL `count(DISTINCT x)`'i **sıralamayla** yapar,
+hash'le değil) + `GROUP BY` (4,16 sn). Toplam ~7,1 sn.
+
+**Ve ikisi aynı şeyi saymıyor.** `countDistinct` ham satıra bakıyor,
+kırılım `per_ip`'ye (`max(asn)`):
+
+| kırılım | sayfanın yazdığı | sayfalanabilir |
+|---|---:|---:|
+| asn | 855 | 95 |
+| country | 8 | 8 |
+| ja4 | 380 | 380 |
+
+Yani sayfa "855 ASN" yazıyor ve 95'ini gösteriyor. Hız kusuru değil,
+**sayfanın kendi sayısıyla çelişmesi** — C9.3'ün dersinin aynısı: *bir
+durumu hem gösteren hem uygulayan iki sorgu varsa, biri diğerinden
+türetilmeli.*
+
+855 rakamı üretilmiş veriye ait (benim üretecim aynı adrese pencere
+içinde birkaç ASN veriyor). Ama **mekanizma üründe gerçek**: adresin
+ASN/ülke çözümü pencere içinde değişebilir, ve onu değiştiren şey D3'ün
+aralık kümesi yenilemesi. Yapısal kusur — iki tanım — veriden bağımsız.
+
+Tek geçiş + `count(*) OVER ()`: **7,1 → 2,76 sn**, ve iki sayı artık tek
+tanımdan.
+
+### Bulgu 2: JIT derlemesi saf gider
+
+13 parçalık planda 226 işlev: inlining 615 ms, optimizasyon 1.418 ms,
+emisyon 1.135 ms — **3,2 sn**. Bu sorgular tarama+hash ile sınırlı, yani
+JIT'in hızlandıracağı bir ifade değerlendirmesi yok; sadece derliyor.
+
+| uç | bugün | jit=off |
+|---|---:|---:|
+| asn | 4,16 sn | 2,61 sn |
+| kesişim | 30,98 sn | 8,17 sn |
+| ja4 | 12,08 sn | 11,58 sn |
+
+Kesişimde **3,8 kat**, ve ja4'te hiç — yani "JIT hep kötü" değil,
+"bu planlarda kazandırmıyor". Ayarın yeri ölçümle seçilecek.
+
+### Bulgu 3: ja4'ün derdi başka
+
+Aynı tarama, aynı gruplama: ASN 2,61 sn, JA4 11,58 sn. Fark tek bir
+toplama: `array_agg(ja4 ORDER BY is_known_bot_ja4 DESC, time DESC)`,
+yani **grup başına bir sıralama**. R2 o ifadeyi gerekçeyle seçti, o
+yüzden çözüm onu silmek değil aynı kuralı sıralamasız yazmak.
+
+### Denendi ve benimsenmedi
+
+Kesişimi tek geçişe indirmek (dört alt sorgu yerine `FILTER`):
+8,17 → 11,10 sn, **daha yavaş**. Beacon tarafının anti-join'i ikinci bir
+hash birleşimi kuruyor. Kayda geçiyor: denenmemiş gibi durmasın.
+
+### RLS'siz 21 tablonun ölçümü
+
+| sınıf | sayı | cevap |
+|---|---:|---|
+| hypertable | 2 | **imkânsız** — sıkıştırılmışta `ENABLE ROW LEVEL SECURITY` reddediliyor (O1), yükseltme düşer |
+| paylaşılan referans | 3 | politika `USING (true)` olurdu; bir şey söylemeyen politika yanlış güvence |
+| yalnız `panel_user` | 15 | yazılabilir, ama FORCE **sahibi de** bağlar → yedek/yükseltme yolu; kendi fazı |
+
+İkinci sütun şuraya kadar önemli: RLS'i olan 9 tablonun hepsi
+**birden fazla rolün dokunduğu** tablolar (kuyruk/istek tabloları,
+`service_heartbeat`). Yani bugünkü ayrım rastgele değil, ölçütü var:
+*RLS, GRANT'in ifade edemediği yerde.*
