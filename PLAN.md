@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **5/6** | O4a'nın kalan iki kolu (JIT ayarı, ja4'ün grup içi sıralaması — ikisi de şemasız), O4 (O4a'dan sonra yeniden ölçülecek) — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **5/6** | **O4a kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi — kod değişmedi). Kalan: plan kumarı (§O4a Bulgu 2b, şemasız) ve O4 — ihtiyacı artık **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -4862,16 +4862,40 @@ Aynı tarama, aynı gruplama ASN'de 2,61 sn; JA4'te 11,58 sn. Yani
 parmak izi, yoksa en sonuncusu), o yüzden **çözüm ifadeyi silmek değil
 aynı kuralı sıralamasız yazmak** — ve o ayrı bir ölçüm.
 
+**ÖLÇÜLDÜ (2026-09-17), ve cevap "yapma". Kol kapandı, kod
+değişmedi.** Maliyet parçalandı (psql, üç tur, biçimler dönüşümlü):
+temsilci **hiç yokken 2,56 sn** (taban), düz `max(ja4)` ile
+**5,33 sn**, bugünkü sıralı toplamayla **9,32 sn**. Yani sıralama +
+dizi materyalizasyonu 3,99 sn, ama sütunu *hiç* toplamanın kendisi
+2,77 sn — aksiyona dönüşebilen kısım dokuzun dördü.
+
+Üç aday denendi, üçünün de kuralı bugünküyle aynı: bileşik metin
+üzerinde tek `max` **11,08 sn** (bugünkünden yavaş — satır başına dize
+kurmak grup başına sıralamadan pahalı), iki `FILTER`'lı `max`
+**11,11 sn**, ve adres başına iki indeks sondası (`max(time) FILTER` +
+`(ip, time DESC)` üzerinde iki `LATERAL`) **7,88 sn** — %15 kazanç,
+bütçenin hâlâ %58 üstünde.
+
+**Aritmetik kapatıyor:** taban 2,56 + herhangi bir temsilcinin en az
+2,77'si ≈ 5,3 sn, yani bu uç sorgu yeniden yazılarak 5 sn altına
+**inemez.** Sebep sütunun şekli, ölçüldü: ja4 ortalama 15 karakter,
+11,1M satırda **159 MB** metin, ve yalnız **380 farklı değer** — yani
+(site, gün, ja4) başına bir özet küçük olurdu. **Bu O4'ün ölçülmüş
+ihtiyacı**, ve şema sahibin kararı. Ayrıntı NOTES.md'de.
+
 **Denendi, benimsenmedi:** kesişimi tek geçişe indirmek (dört alt sorgu
 yerine `FILTER`). 8,17 → 11,10 sn, yani **daha yavaş**: beacon tarafının
 anti-join'i ikinci bir hash birleşimi kuruyor. Kayda geçiyor, çünkü
 denenmemiş gibi durmasın.
 
-**Sonuç, ve şema kararının dayanağı:** dört ucun **hiçbirinin** şema
-gerektirdiği gösterilmemiş durumda. İki kol (tek geçiş + JIT) ölçülü ve
-şemasız — ikisi de kapandı; üçüncüsü (JA4'ün toplaması) de şemasız ve
-sıradaki iş. Ondan sonra **plan kumarı** (§Bulgu 2b), sonra kalanı
-yeniden ölç. Özet tablosu ancak *o zaman* ölçülmüş bir
+**Sonuç, ve şema kararının GÜNCELLENMİŞ dayanağı (2026-09-17):**
+O4a'nın üç kolu da kapandı — tek geçiş ✅, JIT ✅, ja4'ün sıralaması
+**ölçülüp reddedildi**. Ve üçüncü kol bir şey gösterdi: `ja4` ucu
+sorgu yeniden yazılarak bütçeye **giremiyor** (taban 2,56 sn + her
+temsilcinin en az 2,77'si). Yani *"O4 ancak ölçülmüş bir ihtiyaç
+olursa"* koşulu **artık sağlanmış durumda** — ve o zaman O3'le tek
+şemada. Sıra: **plan kumarı** (§Bulgu 2b, şemasız ve belki daha büyük
+bir kazanç), sonra O4 için sahibin şema kararı. Özet tablosu ancak *o zaman* ölçülmüş bir
 ihtiyaç olur — ve o noktada zaten O3'ün eskiz kararı gerekir, yani
 ikisi tek şema sürümüne girer.
 

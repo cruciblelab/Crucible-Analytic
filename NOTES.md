@@ -19619,3 +19619,84 @@ kaynaktan alarak sınayan test, o kaynağı sınamıyordur.*
 Dört mutasyon da ilk turda **derlenmedi** (tek kullanımı silinen
 `strings` importu); mutasyon derlenmiyorsa ölçüm değildir, ikinci turda
 import kullanımda tutularak tekrarlandı.
+
+## O4a'nın ja4 kolu: ölçüldü, ve cevap "yapma" (2026-09-17)
+
+PLAN §O4a'nın üçüncü kolu şöyle yazılmıştı: *"ja4'ün kalan 9 sn'si
+`array_agg(... ORDER BY ...)`, yani grup başına sıralama ... çözüm
+ifadeyi silmek değil aynı kuralı sıralamasız yazmak."* Bu tur o cümle
+ölçüldü. **Sıralamasız yazmak yetmiyor, ve iki adayım bugünkü hâlden
+daha yavaş.**
+
+### Önce maliyeti parçala
+
+`ca_scale`/`buyuk-site` (11,1M satır, 90 gün), psql, üç tur, biçimler
+**dönüşümlü** (tek sırayla ölçmek sürüklenmeyi farkın hanesine yazar).
+Bunlar *ilişkiyi* ölçmek için; ucun kendi süresi binary'yle ölçülür ve
+yukarıdaki bölümde duruyor.
+
+| temsilci ifadesi | süre (medyan) | tabana ek |
+|---|---:|---:|
+| **hiç yok** (`''::text`) | **2,56 sn** | — (taban) |
+| `max(ja4)` — toplama, sıralama yok | **5,33 sn** | +2,77 |
+| **bugünkü** `array_agg(... ORDER BY ...)[1]` | **9,32 sn** | +6,76 |
+
+Yani PLAN'ın attığı adres kısmen doğruydu: sıralama + dizi
+materyalizasyonu **3,99 sn**, ama parmak izi sütununu *hiç* toplamanın
+kendisi **2,77 sn**. Aksiyona dönüşebilen kısım dokuzun dördü.
+
+### Üç aday, üçü de yetmedi
+
+1. **Bileşik metin üzerinde tek `max`** (bayrak karakteri + UTC'ye
+   çevrilmiş sabit genişlikli zaman + ja4, sonra `substr`): **11,08 sn**.
+   Bugünkünden **yavaş.** Sebep ölçülebilir: satır başına 20+ karakterlik
+   dize kurmak (11,1 milyon kez `to_char` + birleştirme), grup başına
+   sıralamadan pahalı. Grup başına ~230 satır var, yani sıralama küçük.
+2. **İki `FILTER`'lı `max`** (bayraklı olanların en yenisi, yoksa
+   hepsinin en yenisi — aynı dize kodlaması): **11,11 sn.** Aynı sebep,
+   ve üstüne dizeyi iki kez kuruyor.
+3. **Adres başına iki indeks sondası** — `max(time) FILTER (...)` (ucuz,
+   dize yok) + `(ip, time DESC)` indeksinde iki `LEFT JOIN LATERAL`:
+   **7,88 sn.** Kazandı ama **%15**, ve 5 sn'lik bütçenin hâlâ %58
+   üstünde. O2b'nin kazanan şekli burada 1,44 sn getiriyor.
+
+Üçünün de kuralı bugünküyle aynı ve R2'nin değişmezini koruyor (verdikt
+ile kanıt aynı satırdan). Yani seçim doğruluk değil süre meselesiydi, ve
+süre yetmedi.
+
+### Karar: kod değişmiyor, ve O4'ün ihtiyacı artık ölçülmüş
+
+Aritmetik kapatıyor: **taban 2,56 sn**, ve her satırın parmak izine
+bakan *herhangi* bir biçim üstüne en az **2,77 sn** koyuyor — yani
+mümkün olan en iyi temsilci bile ~5,3 sn, tam bütçenin üstünde. Bu ucu
+sorguyu yeniden yazarak 5 sn altına indirmek **imkânsız**, ve bunu
+göstermek bu turun sonucu.
+
+Sebep sütunun şekli, ve o da ölçüldü: ja4 ortalama **15 karakter**,
+11,1M satırda **159 MB** metin — ve yalnız **380 farklı değer.** Yani
+ham satırları okuyan her cevap 159 MB'ı aggregate'ten geçiriyor, oysa
+(site, gün, ja4) başına bir özet **küçük** olur.
+
+Bu, **O4'ün ölçülmüş ihtiyacı.** Şema kararı *"ancak ölçülmüş bir
+ihtiyaçla açılır"* diyordu; ihtiyaç artık ölçülü, ve şema sahibin
+kararı. *Bir mutasyonun sağ kalması bir cevap değil bir sorudur* —
+burada sağ kalan şey bir mutasyon değil bir varsayımdı: "sıralamayı
+kaldırırsak düzelir". Kaldırıldı, düzelmedi.
+
+### Ve eşdeğerlik ölçümü boş çıktı, sebebi üretilen veri
+
+Eşdeğerliği `ca_scale`'de sormaya çalıştım ve "sıfır ayrışma" aldım.
+Sayı doğru, iddia boş: **o veride birden fazla parmak izi taşıyan adres
+yok** (47.500 adres, hepsi tek ja4). Yani üç biçim de aynı dizeyi
+döndürüyor çünkü seçecek bir şey yok. *Bir eşdeğerlik iddiası, onu
+bozabilecek durumu içermeyen bir veride ölçülemez.*
+
+Ayırt eden durum zaten depoda ve yıllardır orada:
+`TestStore_RealTimescaleDB_TheReportedFingerprintIsTheOneThatWasFlagged`
+fikstürü hem düz `max()`'ı hem "en yeni"yi yanlış yola sokacak şekilde
+seçilmiş (bayraklı olan hem alfabetik olarak küçük hem daha eski). Kod
+değişmediği için yeni bir test de yazılmadı; biçim bir gün değişirse
+sınanacak yer orası, ve ölçülmesi gereken ek durumlar not edildi:
+birden fazla **bayraklı** satır, bayraklı ama boş parmak izi, ve aynı
+ana denk gelen iki farklı parmak izi (bugünkü biçim beraberliği
+belirsiz bırakıyor).
