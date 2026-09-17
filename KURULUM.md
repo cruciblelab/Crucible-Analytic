@@ -768,7 +768,7 @@ alınabilir; diğeri değil.
 | `beacon.toml` | `sites` | Kabul edilen site kimlikleri — **zorunlu**, snippet herkese açık |
 | | `timescale_dsn` | `beacon_writer` rolüyle |
 | | `trusted_proxies` | Aşağıya bakın — **en pahalı yanlış yapılandırma** |
-| `analytics-api.toml` | `timescale_dsn` | `analytics_reader` rolüyle |
+| `analytics-api.toml` | `timescale_dsn` | `analytics_reader` rolüyle — API bu bağlantılarda PostgreSQL'in JIT'ini **kapatıyor**, aşağıya bakın |
 | | `[[tokens]]` | Hash'ler |
 | `panel.toml` | `panel_dsn` | `panel_user` rolüyle, **analitikle aynı veritabanı** |
 | | `analytics_api_url`, `analytics_api_token` | |
@@ -776,6 +776,33 @@ alınabilir; diğeri değil.
 | | `beacon_url` | Snippet'i yazdırmak için |
 | | `[roles]` | Dört rol adı — **boş bırakırsanız devir teslim bloke olur** |
 | | `[developer_gate] password_hash` | `devpass` çıktısı |
+
+### API neden JIT'i kapatıyor, ve nasıl geri açılır
+
+`analytics-api` kendi havuzundaki her bağlantıda `jit = off` kuruyor.
+Sebebi bu servisin sorgularının şekli: hepsi bir sitenin penceresini
+tarayıp toplayan sorgular, yani süreyi belirleyen şey satır okumak ve
+hash'lemek. JIT derlemesi ifade değerlendirmesi ağır olan planlarda
+kazandırır; buradaki planlarda eklediği tek şey kendi derleme süresi.
+
+Ölçüldü (11,1 milyon satır, 90 günlük aralık, dokuz örnek): ASN
+kırılımı **5,689 → 3,837 saniye**. Ölçülebilir kaybı olan bir uç
+çıkmadı.
+
+**Zorlama değil.** DSN'de JIT'i adlandırırsanız sizin yazdığınız
+geçerli olur, iki yazımdan biriyle:
+
+```toml
+# Sunucunun kendi varsayılanına dön:
+timescale_dsn = "postgres://analytics_reader:...@localhost:5432/analytics?jit=on"
+
+# Ya da libpq'nun options biçimiyle:
+timescale_dsn = "postgres://analytics_reader:...@localhost:5432/analytics?options=-c%20jit%3Don"
+```
+
+`jit_above_cost` gibi JIT eşiklerinden birini yazmak da aynı kapıya
+çıkıyor: API o durumda hiçbir şey kurmuyor, sunucunun ayarları geçerli
+oluyor.
 
 ### `trusted_proxies` — kataloğun en üst maddesi
 

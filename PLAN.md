@@ -4819,7 +4819,41 @@ değil tarama+hash ile sınırlı, yani JIT'in kazandıracağı bir şey yok.
 | `crossover/summary` | 30,98 sn | **8,17 sn** |
 | `ja4` | 12,08 sn | 11,58 sn *(JIT sebep değil)* |
 
-Kesişimde 3,8 kat. **Şema gerekmiyor** — bir bağlantı ayarı.
+**DÜZELTİLDİ (2026-09-17): bu tablo psql ölçümüydü ve kesişim satırı
+yanlış.** Binary'nin cevabıyla, dokuz örnek, bloklar dönüşümlü:
+`asns` 5,689 → 3,837 (**−32,6%, dağılımlar ayrık, gerçek**);
+`crossover/summary` 33,835 → 18,866 ama örnekler **6,5–47,8 sn**
+arasında, yani dağılımlar örtüşüyor ve **fark iddia edilemez**;
+`crossover/silent-ips` 21,1 → 19,9 ve `ja4` 9,98 → 9,57, ikisi de
+örtüşüyor. *"Kesişimde 3,8 kat"* bir psql rakamıydı: binary bağlı
+parametreyle genel plan alıyor, psql literal ile daha iyi kestirim
+alıyor. Ayrıntı ve geri alma NOTES.md'de. **Şema gerekmiyor** — bir
+bağlantı ayarı, ve ✅ **kapandı (2026-09-17)**: `internal/api.NewStore`
+`RuntimeParams["jit"]="off"` kuruyor, DSN'de JIT'i adlandıran operatör
+onu koruyor (iki yazım da), koruma gerçek veritabanına `SHOW jit` diye
+soruyor, dokuz mutasyon dokuzu da kırmızı.
+
+**Bulgu 2b — asıl mesele JIT değil: `crossover/summary` bir plan
+kumarı.** Aynı istek, aynı veri, aynı yapılandırma, dokuz örnek:
+**6,5 ile 47,8 saniye** arası. Bu dağılımda üç örneğin medyanı bir sayı
+değil, ve ucun süresini belirleyen şey bir bağlantı ayarı değil aldığı
+plan. Sıradaki ölçüm bu: bağlı parametrelerin genel planı mı, yoksa
+kestirim mi. **Kendi maddesi, ve O4'ün önüne geçti.**
+
+**Bulgu 2c — hiç ölçülmemiş bir uç: `crossover/js-bots` 90 günde
+46,8 sn** (bu dosya kesişim için "hiç cevap vermiyor" diyordu). Üç
+kesişim ucunun üçü de bütçenin çok üstünde, üçü de panelin çağırdığı
+uçlar, ve üçü de **geliştirici kipinde** (`dashboard.go`, `if technical`).
+
+**Bulgu 2d — panonun müşteri tarafı 90 günde temiz, ölçüldü:**
+`summary` 0,10 · `beacon/timeseries` 1,20 · beacon kırılımları
+0,08–1,24 sn. Yani bozuk düğme geliştirici katmanında, müşterinin
+panosunda değil. *(Ve bu ölçümün kendisi bir kusur düzeltti: ilk turda
+`/timeseries`'i varsayılan kova genişliğiyle ölçtüm ve panel o ucu hiç
+çağırmıyor — grafiği `/beacon/timeseries`, genişliği `analytics.Interval`
+seçiyor. Uç listesi artık panelin çağrı yerlerinden türetilmiş, ve
+panelin çağırmadıkları — `/timeseries`, `/top-ips`, `/snapshots` — öyle
+etiketlenmiş.)*
 
 **Bulgu 3 — `ja4`'ün derdi başka:** `array_agg(ja4 ORDER BY
 is_known_bot_ja4 DESC, time DESC)` grup **başına bir sıralama**.
@@ -4835,8 +4869,9 @@ denenmemiş gibi durmasın.
 
 **Sonuç, ve şema kararının dayanağı:** dört ucun **hiçbirinin** şema
 gerektirdiği gösterilmemiş durumda. İki kol (tek geçiş + JIT) ölçülü ve
-şemasız; üçüncüsü (JA4'ün toplaması) de şemasız. Sıra: **O4a önce**,
-sonra kalanı yeniden ölç. Özet tablosu ancak *o zaman* ölçülmüş bir
+şemasız — ikisi de kapandı; üçüncüsü (JA4'ün toplaması) de şemasız ve
+sıradaki iş. Ondan sonra **plan kumarı** (§Bulgu 2b), sonra kalanı
+yeniden ölç. Özet tablosu ancak *o zaman* ölçülmüş bir
 ihtiyaç olur — ve o noktada zaten O3'ün eskiz kararı gerekir, yani
 ikisi tek şema sürümüne girer.
 

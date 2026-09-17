@@ -19503,3 +19503,119 @@ taşıyan bir fikstürde değiştirir, belirli bir satırın içeriğine bakan
 fikstürde değiştirmez. 48 yeri ortak bir deyime taşımak (bir kez
 çağrılan + `t.Cleanup`'a verilen tek kapanış) kendi fazı; PLAN §6'ya
 açık teknik borç olarak yazıldı, sayısıyla.
+
+## O4a'nın JIT kolu: bir kazanç, üç "iddia edilemez", ve iki ölçüm kusuru (2026-09-17)
+
+PLAN §O4a iki kol bırakmıştı: JIT ayarı ve `ja4`'ün grup içi sıralaması.
+Bu tur JIT kolu kapandı, **ve PLAN'daki sayısı düzeltildi.**
+
+### Düzenek: binary'nin cevabı, panelin gerçekten sorduğu soru
+
+`ca_scale` / `buyuk-site` (11,1M satır), `analytics-api`'nin kendi
+cevabı. Pencere bitişleri veriye sabitlendi (traffic 09-10, beacon
+09-01 — *boş bir pencerede alınan süre süre değildir*, ve beacon 08-31'de
+bitiyor).
+
+**Uç listesi elle yazılmadı, `internal/panel/analytics`'ten okundu** —
+ve bu düzeltmenin sebebi bir kusurdu: ilk turda `/timeseries`'i
+*varsayılan* kova genişliğiyle ölçtüm (2.159 saatlik kova, 18 sn) ve
+panel o ucu **hiç çağırmıyor**; grafiği `/beacon/timeseries`, kova
+genişliğini `analytics.Interval` seçiyor (90 gün → "1 day"). Yani yanlış
+ucu yanlış parametreyle ölçüp "panonun grafiği 18 saniye" diye
+yazacaktım. *Ürünün sunmadığı bir yolun ölçümü, düzeneğin ölçümüdür.*
+
+Panelin çağırmadığı üç uç (`/timeseries`, `/top-ips`, `/snapshots`)
+ölçüldü ama **öyle etiketlendi**: genel API'nin parçası, panelde bozuk
+bir düğme değil.
+
+### İkinci ölçüm kusuru: iki betik aynı portta
+
+Arka plana attığım çok satırlı bekleyici tek satıra düzleşti, iki ölçüm
+betiği aynı anda koştu, ikinci API `8098`'e bağlanamadı ve **birincinin
+yapılandırmasına** istek attı — yani "jit=off ile fark yok" diyecek bir
+düzenek. İki koşu da atıldı. Üç kural çıktı ve üçü de betikte:
+
+1. Port tutuluysa ölçüm **başlamadan** reddedilir.
+2. Port araca değil **çekirdeğe** sorulur. İlk hâlim `ss` kullanıyordu ve
+   bu konteynerde `ss` **yok**, yani kontrol sessizce "boş" diyordu.
+   `socket.bind` denemesi cevabı kesin veriyor.
+3. **Ölçülen sürecin o yapılandırmayı kullandığı veritabanına sorulur.**
+   DSN'e `application_name` konuyor ve `pg_stat_activity`'de aranıyor:
+   ad, sınanan ayarla **aynı** başlangıç paketinde gidiyor, yani ad
+   geldiyse ayar da geldi. "İki yapılandırmayı ölçtüm" iddiasını gerçek
+   yapan adım bu.
+
+### Sonuç: bir kazanç gerçek, üçü iddia edilemez
+
+Dokuz örnek, bloklar dönüşümlü (on/off/on/off/on/off — sürüklenme iki
+kipe de aynı düşsün diye), 90 gün:
+
+| uç | jit=on (en iyi–en kötü) | jit=off | fark | verdikt |
+|---|---|---|---:|---|
+| `asns` | 5,689 (5,108–6,191) | 3,837 (3,262–4,135) | **−32,6%** | dağılımlar **ayrık** → gerçek |
+| `ja4` | 9,977 (8,329–10,345) | 9,566 (8,272–10,407) | −4,1% | örtüşüyor → iddia edilemez |
+| `crossover/summary` | 33,835 (26,3–47,6) | 18,866 (6,6–47,8) | −44,2% | örtüşüyor → iddia edilemez |
+| `crossover/silent-ips` | 21,137 (19,4–22,1) | 19,949 (17,7–20,5) | −5,6% | örtüşüyor → iddia edilemez |
+
+**Ve bir geri alma.** Üç örneklik ilk tur `ja4`'ü jit=off ile %8,8
+**yavaş** göstermişti ve bunu bir bulgu gibi yazacaktım; dokuz örnekte
+fark yaşamadı, ve zaten ilk turda da iki dağılımın uç uçları baştan sona
+örtüşüyordu (9,167–10,180 ile 9,299–10,244). *İki örtüşen dağılımın
+medyanları arasındaki fark bir fark değildir* — ve tek başına `jit=on`
+saçılması %13.
+
+**PLAN'ın sayısı yanlıştı:** §O4a *"kesişimde 3,8 kat"* diyordu
+(30,98 → 8,17). O psql ölçümüydü; binary'nin cevabıyla medyan oranı
+1,79 ve dağılımlar örtüşüyor. Sebep tahmin değil: binary bağlı
+parametreyle (`$1..$n`) genel plan alıyor, psql literal ile daha iyi
+kestirim alıyor.
+
+### Asıl bulgu JIT değil: `crossover/summary` bir plan kumarı
+
+Aynı istek, aynı veri, aynı yapılandırma — ve örnekler **6,5 ile 47,8
+saniye** arasında. Üç örneğin medyanı böyle bir dağılımda bir sayı
+değil. Bu ucun süresini belirleyen şey bu ayar değil, aldığı plan; PLAN'a
+kendi maddesi olarak yazıldı ve ölçümü sıradaki iş.
+
+Bir de hiç ölçülmemiş bir uç çıktı: **`crossover/js-bots` 90 günde
+46,8 sn** (PLAN kesişim için "hiç cevap vermiyor" diyordu). Üç kesişim
+ucunun üçü de bütçenin çok üstünde, ve üçü de **panelin çağırdığı**
+uçlar — ama geliştirici kipinde: `dashboard.go` o üç kırılımı yalnız
+`if technical` dalında çekiyor. **Panonun müşteri tarafı 90 günde
+temiz:** `summary` 0,10 · `beacon/timeseries` 1,20 · beacon kırılımları
+0,08–1,24 sn.
+
+### Karar ve kod
+
+`internal/api.NewStore` artık `ParseConfig` + `RuntimeParams["jit"] =
+"off"`. Gerekçe: bir uçta ölçülebilir kazanç, hiçbir uçta ölçülebilir
+kayıp, ve bu paketin bütün sorguları tarama+hash ile sınırlı — JIT'in
+ekleyeceği şey kendi derleme süresi.
+
+**Zorlamıyor:** DSN'de JIT'i adlandıran operatör onu koruyor. İki yazım
+da çalışıyor ve **ikincisi bir kusur ortaya çıkardı.** İlk hâlim yalnız
+`RuntimeParams["jit"]`'e bakıyordu ve yorumu *"PostgreSQL `options`
+alanını parametrelerden sonra uyguluyor, o yüzden kendi başına
+kazanır"* diyordu. Test gerçek veritabanına sordu ve cevap
+`SHOW jit = "off"` oldu: **uygulamıyor**, ve bu paket libpq'nun
+belgelenmiş biçimini yazan operatörü sessizce eziyordu. `operatorNamedJIT`
+iki yazımı da okuyor; `options` alanı ayrıştırılmıyor, alt dize
+aranıyor, ve kabalığın yönü kasıtlı — `jit_above_cost` yazan operatör de
+eşleşir ve sonucu sunucunun kendi varsayılanının kalması olur, yani
+hiçbir şey optimize edilmez ve hiçbir şey bozulmaz.
+
+*Bir yorumun ölçütünü teste çevirmek, L6'nın dersiydi; bu turda o test
+yorumu yanlışladı.*
+
+### Dokuz mutasyon, dokuzu da kırmızı — ve biri gerçek bir test kusuru
+
+`M3 jitValue = "on"` ilk turda **sağ kaldı**, çünkü test veritabanının
+cevabını *kodun kendi sabitiyle* karşılaştırıyordu: karşılaştırmanın iki
+tarafı da sınanan sabitten geliyordu, yani sabit kayarken anlaşmaya
+devam ettiler. 5b'nin `privacy.CanTokenise` ile çarptığı şeklin aynısı.
+Beklenen değer artık harfiyen yazılı. *Bir eşiği iki tarafı da aynı
+kaynaktan alarak sınayan test, o kaynağı sınamıyordur.*
+
+Dört mutasyon da ilk turda **derlenmedi** (tek kullanımı silinen
+`strings` importu); mutasyon derlenmiyorsa ölçüm değildir, ikinci turda
+import kullanımda tutularak tekrarlandı.

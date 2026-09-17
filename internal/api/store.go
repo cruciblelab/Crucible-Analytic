@@ -24,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
@@ -151,11 +152,99 @@ func (s *Store) SetKnownBots(k scoring.KnownBots) { s.knownBots = k }
 // KnownBots reports the set in use.
 func (s *Store) KnownBots() scoring.KnownBots { return s.knownBots }
 
+// jitParam is the runtime parameter this package sets on every
+// connection, and the value it sets.
+//
+// Named rather than inlined because two things have to agree about it:
+// the pool built below, and the test that asks a real database what its
+// sessions actually got. A setting nobody reads back is a setting that
+// may not have arrived.
+const (
+	jitParam = "jit"
+	jitValue = "off"
+)
+
+// operatorNamedJIT reports whether the DSN already says something about
+// JIT, in either spelling pgx produces.
+//
+// # Why two spellings and why a substring
+//
+// pgx routes a DSN's unrecognised keys two different ways: "?jit=on"
+// becomes RuntimeParams["jit"], and libpq's documented
+// "?options=-c%20jit%3Don" becomes RuntimeParams["options"] holding
+// "-c jit=on". The first version of NewStore looked only at the first
+// one, and the test beside this file failed with SHOW jit = "off" on the
+// second - so the code was overriding an operator who had used the form
+// PostgreSQL's own documentation shows. The comment it replaced said
+// PostgreSQL applies options after the individual parameters, which is
+// the opposite of what the database answered. A claim about somebody
+// else's precedence rules is worth exactly as much as the test under it.
+//
+// The options field is matched by substring rather than parsed, and the
+// direction of that crudeness is deliberate. An operator who sets only
+// jit_above_cost also matches, and the consequence is that this pool
+// leaves the server's own default alone - it optimises nothing and
+// breaks nothing. Parsing libpq's option syntax to be more precise would
+// buy a better outcome in a case nobody has, at the price of a parser
+// that can be wrong in cases everybody has.
+func operatorNamedJIT(params map[string]string) bool {
+	if _, ok := params[jitParam]; ok {
+		return true
+	}
+	return strings.Contains(params["options"], jitParam)
+}
+
 // NewStore opens a connection pool to databaseURL and verifies it's
 // reachable, the same startup contract as storage.NewWriter. It never
 // runs DDL and never writes.
+//
+// # Why the pool turns PostgreSQL's JIT off
+//
+// Every query in this package is a scan-and-aggregate over one site's
+// slice of traffic_snapshots or beacon_events. JIT compilation pays off
+// where a plan evaluates expressions millions of times; these plans are
+// bounded by reading rows and hashing them, so what JIT adds is its own
+// compile time and nothing else.
+//
+// One endpoint shows that as a difference a measurement can carry, and
+// it is the only figure claimed here. Nine samples per configuration on
+// the binary's own answers, blocks interleaved so machine drift lands on
+// both (ca_scale, 11,1M rows, 90 days):
+//
+//	asns  5,689 s (5,108-6,191)  ->  3,837 s (3,262-4,135)   -32,6%
+//
+// Disjoint end to end, which is what makes it a difference rather than
+// two medians. Three other endpoints were measured the same way and
+// none of them produced one: ja4, crossover/summary and
+// crossover/silent-ips all came out with overlapping distributions, so
+// for those this setting is neither cost nor benefit as far as this
+// measurement can tell. An earlier three-sample round had reported ja4
+// 8,8% *slower*; nine samples did not survive that either, and the
+// retraction is in NOTES.md beside the reason - a difference between
+// two overlapping distributions is not a difference.
+//
+// crossover/summary is worth a warning to whoever reads this next: its
+// samples span 6,5 to 47,8 seconds within one configuration. That
+// endpoint's time is decided by which plan it gets, not by this setting,
+// and it has its own entry in PLAN.md.
+//
+// # Why it is set here and not in the example config
+//
+// Because it is a property of these queries rather than of a
+// deployment, and a knob in a file is a knob somebody has to know to
+// turn. It is still not forced: an operator who writes jit into the DSN
+// keeps it, in either of the two spellings pgx understands - see
+// operatorNamedJIT, which exists because the first version of this
+// honoured only one of them and the test beside it said so.
 func NewStore(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("api: parse database url: %w", err)
+	}
+	if !operatorNamedJIT(cfg.ConnConfig.RuntimeParams) {
+		cfg.ConnConfig.RuntimeParams[jitParam] = jitValue
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("api: create pool: %w", err)
 	}
