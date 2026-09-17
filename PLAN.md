@@ -9633,6 +9633,7 @@ olursa madde olur.
 | Kesin kümülatif istek sayısı yok | `traffic_snapshots` bir istek kaydı değil, kayan pencerenin periyodik **örneği**. Ardışık örnekler örtüşüyor. Denenen ve reddedilen çözüm: örneklenmiş hızı zamana göre integre etmek — aritmetik doğruydu, sentetik test tam geçti, gerçek çalıştırma 38 isteği 3 olarak raporladı. **Ders: sentetik test aritmetiği doğruladı, öncülü değil.** Kesin toplam, `ratestore`'da monotonik sayaç ister — üç pakete yayılan gerçek bir tasarım değişikliği |
 | ASN skorlama ağırlığı düz bonus | `KnownBotJA4`'ün düz bonus şeklini yansıtıyor; ağırlıklı şekil gerekene kadar yapılmayacak |
 | Ülke/ASN kural motoru yalnız engelleme listesi | Kural başına politika motoru gerçek ek karmaşıklık; gerçek ihtiyaç çıkana kadar bekliyor |
+| Yalnız sonda temizleyen fikstürler | Ölçüldü (2026-09-17, CI 384 sonrası): ağaçta satır silen **48** `t.Cleanup` bloğu var ve `testdb.CleanSite` dışında hiçbiri tohumlamadan önce temizlemiyor. Biri gerçekten ısırdı — `internal/retention`'ın kalıntısı ürün kusuru diye raporlandı — ve o bir tanesi iki uçta temizleyecek şekilde düzeltildi. Sınıfı kapatmak 48 yerin ortak bir deyime (bir kez çağrılan + `t.Cleanup`'a verilen tek kapanış) taşınmasını ister, yani kendi fazı. **Ve yapısal bir kontrol tek başına yetmez:** kalıntının bir iddiayı değiştirip değiştirmediği sözdizimi ağacında yazılı değil — satır sayısı iddiası taşıyan bir fikstürde değiştirir, belirli bir satırın içeriğine bakan fikstürde değiştirmez |
 
 ---
 

@@ -325,15 +325,58 @@ func TestApply_TrimsOnlyTheSiteThatAskedForLess(t *testing.T) {
 	// only way this role can remove anything - which is the property
 	// being tested three tests up. A cleanup that needed DELETE would
 	// need a privilege the product deliberately withholds.
-	clear := func() {
+	//
+	// # Both ends, and the failure that taught it
+	//
+	// This used to clear only afterwards, and a leftover row is exactly
+	// what this test cannot survive: every assertion below is a row
+	// count. Measured on CI run 384, on main, at a commit whose branch
+	// run was green - the second integration pass over the same database
+	// reported
+	//
+	//	ret-uzun has 4 rows, want 2 - it never asked for a shorter retention
+	//
+	// which reads as the product trimming the wrong site and was two
+	// rows the previous pass left behind. testdb.CleanSite's own comment
+	// states the rule this fixture was missing: clear at both ends,
+	// because a suite that only cleans up afterwards inherits whatever a
+	// crashed - or merely unlucky - previous run left there.
+	//
+	// The old cleanup also only *logged* its failure, so a pass whose
+	// clearing silently did nothing looked identical to one that worked.
+	// A cleanup that cannot fail is a cleanup that may not have
+	// happened; the pre-clear below therefore checks the result rather
+	// than the error, which covers both the error and the case
+	// TimescaleDB reports success while removing nothing from a
+	// compressed chunk.
+	clear := func(fatal bool) {
 		for _, site := range []string{shortSite, longSite} {
 			if _, err := writer.Exec(context.Background(),
 				`SELECT ca_trim_site_rows('beacon_events', $1, 1)`, site); err != nil {
+				if fatal {
+					t.Fatalf("clearing %s before seeding: %v", site, err)
+				}
 				t.Logf("cleanup: trimming %s: %v", site, err)
 			}
 		}
+		if !fatal {
+			return
+		}
+		// Asked of the table, not inferred from the call above. The rows
+		// this test seeds are all older than a day, so a clean start is
+		// zero rows for both sites - and if it is not, every count below
+		// would be measuring the previous run.
+		for _, site := range []string{shortSite, longSite} {
+			if n := countRows(t, reader, site); n != 0 {
+				t.Fatalf("%s still has %d row(s) before this test seeded any. "+
+					"Something left them there and clearing did not remove them; every "+
+					"assertion in this test is a row count, so it would report a "+
+					"retention defect that is not there.", site, n)
+			}
+		}
 	}
-	t.Cleanup(clear)
+	clear(true)
+	t.Cleanup(func() { clear(false) })
 
 	// Two rows per site: one inside 30 days, one well outside it.
 	now := time.Now()

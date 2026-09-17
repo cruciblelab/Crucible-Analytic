@@ -19420,3 +19420,86 @@ hangi servisin ne dediğini söylüyor.
 görüntüsüdür.* Ve bunun tersi de doğru: fotoğraflanacak sayfa, müşterinin
 tıkladığı kontrolden geçilerek üretilmeli — başka türlü üretilmiş bir
 sayfa bir maket.
+
+## CI 384 — aynı commit dalda yeşil, main'de kırmızı (2026-09-17)
+
+5b push edildikten sonra iki koşu çıktı, ikisi de `ee8e4fb`: dal koşusu
+(383) yeşil, `main` koşusu (384) kırmızı. Aynı kod, farklı sonuç — yani
+kararsızlık, ve kararsızlık "testi düzelt" demek değil, "hangi
+serpiştirme" demek.
+
+Kırmızı olan adım **"integration, second run against the same
+database"**, ve düşen tek test:
+
+```
+--- FAIL: TestApply_TrimsOnlyTheSiteThatAskedForLess
+    ret-uzun has 4 rows, want 2 - it never asked for a shorter retention
+```
+
+Cümle ürünü suçluyor: *saklama, kısaltma istemeyen siteyi kırpmış.*
+Gerçek sebep dört satırın ikisinin **önceki koşudan kalmış** olması. O
+testin her iddiası bir satır sayısı, yani tek bir kalıntı satır onu
+ürün kusuru bildiren bir teste çeviriyor.
+
+**Fikstür yalnız sonda temizliyordu.** `testdb.CleanSite`'ın kendi yorumu
+kuralı yazıyor ve bu fikstür onu izlemiyordu: *"Both ends, because a
+suite that only cleans up afterwards inherits whatever a crashed previous
+run left behind — and a row from last time inside this run's window is a
+number nobody can explain."* Tam olarak bu oldu.
+
+**İkinci yarısı daha sinsi: temizliğin hatası yalnız loglanıyordu.**
+`ca_trim_site_rows` bir hata dönse (ya da sıkıştırılmış bir parçada
+başarı bildirip hiçbir şey silmese) test yeşil kalıyor ve kalıntı
+sonraki koşuya geçiyor. *Başarısız olamayan bir temizlik, hiç olmamış
+olabilir.*
+
+Düzeltme iki parça:
+
+1. **İki uçta da temizle** — tohumlamadan önce ve testten sonra.
+2. **Ön temizliğin sonucunu tabloya sor**, çağrının hatasına değil. İki
+   durumu birden kapatıyor: çağrı hata verirse, ve çağrı başarı bildirip
+   satırı bırakırsa.
+
+Ölçüldü, iki yönde: trim'in kaldırabildiği bir kalıntı (2 ve 60 gün
+önce) artık sessizce temizleniyor ve test geçiyor; trim'in
+kaldıramadığı bir kalıntı (2 saat önce) **fikstürde** düşüyor ve
+mesajı doğru yeri gösteriyor — *"ret-uzun still has 1 row(s) before this
+test seeded any ... it would report a retention defect that is not
+there."*
+
+**Ve loglanan satır CI'ya hiç ulaşmıyor, ölçüldü.** `ci.yml`'in iki
+adımı da `go test -tags integration -race -count=1 ./...` — **`-v`
+yok.** `go test` bir `t.Logf`'i yalnız düşen testler için basıyor, yani
+birinci paskoru geçtiği için o satır hiçbir yere yazılmadı: `ci384.log`
+7.328 satır ve `cleanup: trimming` hiç geçmiyor (arandı). *Yalnız
+loglayan bir temizlik hatası, hatanın hiç bildirilmemesidir* — bu yüzden
+ön temizlik `t.Logf` değil `t.Fatalf` ile konuşuyor.
+
+Niye dalda yeşil main'de kırmızı: iki iş ayrı konteynerde, ayrı
+veritabanıyla koşuyor. **Mekanizmanın hangisi olduğunu iddia
+etmiyorum, ve iki adayı da elimdeki kanıtla eleyemedim:** birinci koşu
+`ok internal/retention 5.433s` verdi, yani temizliği koştu; dört satırın
+dördü de bir günden yaşlı, yani `ca_trim_site_rows(...,1)`'in
+penceresinde; `ca_check_retention_caller` da o çağrıyı geçirir
+(`beacon_writer` tam o tablonun rolü, `p_days = 1` sınırın içinde). Bir
+ayrıntı yönü daraltıyor: düşen tek iddia `ret-uzun`'un, yani `ret-kisa`
+temiz başlamış — aynı çağrıdan geçen iki siteden biri. İddia edilen şey
+sebep değil, artık hiçbirinin testi yanıltamaması.
+
+**Sınıf sorusu ölçüldü ve sanıldığından büyük çıktı.** İlk yazdığım
+cümle *"ağaçta `ca_trim_site_rows`'u fikstür temizliği olarak kullanan
+tek yer burası"* idi; doğru ama soruyu daraltıyor. Gerçek soru "hangi
+fonksiyon" değil, **"yalnız sonda temizleyen kaç fikstür var"**:
+sayıldı, **48** `t.Cleanup` bloğu satır siliyor (`DELETE FROM`,
+`TRUNCATE`, `drop_chunks`, `ca_trim_site_rows`) ve `testdb.CleanSite`
+dışında hiçbiri tohumlamadan önce aynı işi yapmıyor. `CleanSite`'ın iki
+ucu yapmasının sebebi kendi yorumunda yazılı; onu çağırmayan 48 yer o
+gerekçenin dışında kalıyor.
+
+Sınıfı kapatmak yapısal bir kontrolle **tek başına** olmuyor, ve sebebi
+`periodicwrites`'takiyle aynı: kalıntının bir iddiayı değiştirip
+değiştirmediği sözdizimi ağacında yazılı değil — satır sayısı iddiası
+taşıyan bir fikstürde değiştirir, belirli bir satırın içeriğine bakan
+fikstürde değiştirmez. 48 yeri ortak bir deyime taşımak (bir kez
+çağrılan + `t.Cleanup`'a verilen tek kapanış) kendi fazı; PLAN §6'ya
+açık teknik borç olarak yazıldı, sayısıyla.
