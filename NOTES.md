@@ -19700,3 +19700,49 @@ sınanacak yer orası, ve ölçülmesi gereken ek durumlar not edildi:
 birden fazla **bayraklı** satır, bayraklı ama boş parmak izi, ve aynı
 ana denk gelen iki farklı parmak izi (bugünkü biçim beraberliği
 belirsiz bırakıyor).
+
+## "Plan kumarı" yanlıştı: mekanizma sayfa önbelleğiydi (2026-09-17)
+
+Aynı gün, aynı dosyada, ikinci kez: *bir mekanizma yorumu, sayıları
+doğru olsa da yanlış olabilir.*
+
+JIT ölçümünde `crossover/summary` dokuz örnekte **6,5 ile 47,8 saniye**
+arası verdi ve buna "plan kumarı" dedim — PLAN'a da, commit mesajına
+da yazdım. Hipotez makuldü: pgx adlandırılmış hazır ifade kullanıyor,
+PostgreSQL `plan_cache_mode = auto` ile beşinci çalıştırmadan sonra
+**genel** plana geçebiliyor, ve genel planda `time >= $2 AND time < $3`
+planlama anında sabit olmadığı için TimescaleDB parça elemesi ve satır
+kestirimleri başka çıkıyor.
+
+**Sınandı ve reddedildi.** Düzenek hipotezi görünür yapacak biçimde
+kuruldu — **tek bir bağlantı** alınıp elde tutuldu (hazır ifade
+önbelleği bağlantıya ait; havuz her çağrıda başka bağlantı verirse
+hiçbir ifade beşinci çalıştırmasına ulaşmaz ve hipotez hiç sınanmaz) ve
+aynı sorgu on iki kez koşturuldu, üç kipte:
+
+| kip | 1. | 2. | 5. | oturduğu bant |
+|---|---:|---:|---:|---|
+| varsayılan (`cache_statement`) | 47,52 | 12,66 | 10,74 | 7,9–8,4 |
+| `exec` (adlandırılmış ifade **yok**) | 12,46 | 11,47 | 10,55 | 8,8–11,6 |
+| `force_custom_plan` | 11,19 | 11,53 | 9,04 | 9,0–10,9 |
+
+**Beşinci çalıştırmada sıçrama yok, hiçbir kipte**, ve üçü de aynı
+bantta oturuyor. Plan önbelleğini tamamen devre dışı bırakan kip
+(`exec`) varsayılandan **daha iyi değil.**
+
+Gerçek mekanizma daha sıkıcı ve daha önemli: **sayfa önbelleği.**
+Süreler ilk çağrıdan itibaren tek yönde düşüyor ve orada kalıyor. 47
+saniye soğuk bir taramaydı; 6,5 saniye ise komşu uçların önbelleği
+doğru sayfalarla bıraktığı bir andı. Ölçüm hatası bendeydi: 90 günlük
+bir pencerede ~1 GB veriyi tarayan bir ucu, aynı önbellek için yarışan
+on sekiz başka uçla aynı koşuda ölçtüm.
+
+**Ve bu bir düzeltme, bir ekleme değil:** PLAN §O4a'nın "Bulgu 2b"si ve
+`2d79449`'un mesajı "plan kumarı" diyor. PLAN düzeltildi; commit
+mesajı geçmişte kalıyor (geçmiş yeniden yazılmıyor) ve düzeltmesi
+burada.
+
+**Sonuç, ve O4 ile birleşiyor:** bu uç bir kumar değil, büyük bir
+tarama — sıcakta 8–12 sn, soğukta ~47 sn, bütçe iki durumda da
+aşılıyor. `ja4` ile aynı cevap: bir bağlantı ayarı ya da sorgu hilesi
+kurtarmıyor. Şemasız kollar tükendi.

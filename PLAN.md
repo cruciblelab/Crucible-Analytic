@@ -4833,12 +4833,36 @@ bağlantı ayarı, ve ✅ **kapandı (2026-09-17)**: `internal/api.NewStore`
 onu koruyor (iki yazım da), koruma gerçek veritabanına `SHOW jit` diye
 soruyor, dokuz mutasyon dokuzu da kırmızı.
 
-**Bulgu 2b — asıl mesele JIT değil: `crossover/summary` bir plan
-kumarı.** Aynı istek, aynı veri, aynı yapılandırma, dokuz örnek:
-**6,5 ile 47,8 saniye** arası. Bu dağılımda üç örneğin medyanı bir sayı
-değil, ve ucun süresini belirleyen şey bir bağlantı ayarı değil aldığı
-plan. Sıradaki ölçüm bu: bağlı parametrelerin genel planı mı, yoksa
-kestirim mi. **Kendi maddesi, ve O4'ün önüne geçti.**
+**Bulgu 2b — `crossover/summary` 6,5 ile 47,8 saniye arası veriyor.**
+Aynı istek, aynı veri, aynı yapılandırma, dokuz örnek. Bu dağılımda üç
+örneğin medyanı bir sayı değil.
+
+**"Plan kumarı" diye yazdım ve YANLIŞTI — ölçüldü, 2026-09-17.**
+Hipotez şuydu: pgx adlandırılmış hazır ifade kullanıyor, PostgreSQL
+beşinci çalıştırmadan sonra genel plana geçiyor, ve genel planda
+TimescaleDB parça elemesi başka çıkıyor. **Sınandı ve reddedildi.** Tek
+bir bağlantı elde tutulup aynı sorgu on iki kez koşturuldu, üç kipte:
+varsayılan (`cache_statement`), `exec` (adlandırılmış ifade **yok**,
+yani plan önbelleği hiç devreye girmiyor), ve
+`plan_cache_mode = force_custom_plan`. **Hiçbirinde beşinci
+çalıştırmada sıçrama yok**, ve üçü de aynı bantta oturuyor:
+
+| kip | 1. çağrı | oturduğu bant |
+|---|---:|---|
+| varsayılan | 47,52 sn | 7,9–8,4 |
+| `exec` | 12,46 sn | 8,8–11,6 |
+| `force_custom_plan` | 11,19 sn | 9,0–10,9 |
+
+Gerçek mekanizma **sayfa önbelleği**: süreler ilk çağrıdan itibaren
+tek yönde düşüyor (47,5 → 12,7 → 8,0) ve orada kalıyor. Yani 47 saniye
+soğuk bir taramaydı, 6,5 saniye ise komşu uçların önbelleği doğru
+sayfalarla bıraktığı bir an. *Bir mekanizma yorumu, sayıları doğru olsa
+da yanlış olabilir* — ikinci kez aynı dosyada.
+
+**Sonuç:** bu uç bir kumar değil, **büyük bir tarama** — sıcakta
+8–12 sn, soğukta ~47 sn, ve bütçe iki durumda da aşılıyor. Yani ja4 ile
+aynı cevap: bir bağlantı ayarı ya da sorgu hilesi kurtarmıyor, gereken
+şey özet tablosu (**O4**) ya da daha dar bir soru.
 
 **Bulgu 2c — hiç ölçülmemiş bir uç: `crossover/js-bots` 90 günde
 46,8 sn** (bu dosya kesişim için "hiç cevap vermiyor" diyordu). Üç
@@ -4890,12 +4914,20 @@ denenmemiş gibi durmasın.
 
 **Sonuç, ve şema kararının GÜNCELLENMİŞ dayanağı (2026-09-17):**
 O4a'nın üç kolu da kapandı — tek geçiş ✅, JIT ✅, ja4'ün sıralaması
-**ölçülüp reddedildi**. Ve üçüncü kol bir şey gösterdi: `ja4` ucu
-sorgu yeniden yazılarak bütçeye **giremiyor** (taban 2,56 sn + her
-temsilcinin en az 2,77'si). Yani *"O4 ancak ölçülmüş bir ihtiyaç
-olursa"* koşulu **artık sağlanmış durumda** — ve o zaman O3'le tek
-şemada. Sıra: **plan kumarı** (§Bulgu 2b, şemasız ve belki daha büyük
-bir kazanç), sonra O4 için sahibin şema kararı. Özet tablosu ancak *o zaman* ölçülmüş bir
+**ölçülüp reddedildi** — ve dördüncü bir hipotez (plan kumarı) da
+ölçülüp reddedildi. İki uç için aynı cevap çıktı:
+
+- `ja4` sorgu yeniden yazılarak bütçeye **giremiyor**: taban 2,56 sn +
+  her temsilcinin en az 2,77'si.
+- `crossover/summary` bir plan sorunu **değil**, büyük bir tarama:
+  sıcakta 8–12 sn, soğukta ~47 sn, ve plan önbelleği kipi hiçbir şeyi
+  değiştirmiyor.
+
+Yani *"O4 ancak ölçülmüş bir ihtiyaç olursa"* koşulu **artık sağlanmış
+durumda**, ve şemasız kollar tükendi. Sıra: **O4 için sahibin şema
+kararı** (ve o zaman O3'le tek şemada). Özetin şekli de ölçümden
+çıkıyor: ja4'te 11,1M satırda yalnız 380 farklı parmak izi var, yani
+(site, gün, ja4) başına bir satır küçük. Özet tablosu ancak *o zaman* ölçülmüş bir
 ihtiyaç olur — ve o noktada zaten O3'ün eskiz kararı gerekir, yani
 ikisi tek şema sürümüne girer.
 
