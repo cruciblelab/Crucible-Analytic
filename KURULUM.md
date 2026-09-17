@@ -663,6 +663,35 @@ Yalnız `privacy.ip_storage = "full"` kullanacaksanız gerekir.
 olmalı.** Farklıysa iki veri kaynağı arasındaki kesişim sorgusu hiçbir
 şey bulmaz ve **bunu söyleyen bir hata mesajı olmaz.** Kurulum kontrolü
 anahtarın varlığını görebiliyor, aynılığını göremiyor — bilinen sınır.
+(`install.sh` kurulum anında aynılığı zorluyor ve ayrıysa duruyor;
+dosyalar sonradan elle düzenlenirse bir daha kontrol eden bir şey yok.)
+
+**Anahtarı yazdıktan sonra servisi yeniden başlatın.** Anahtar durumu
+açılışta okunuyor, yani dosyaya eklenip yeniden başlatılmamış bir anahtar
+o sürecin sahip olduğu bir anahtar değil — ve panel ona göre davranıyor:
+
+`full` kipini panelden seçebilmek için **adres yazan her servisin
+kullanılabilir bir anahtar bildirmesi** gerekiyor. Her servis bunu kendi
+kalp atışı satırında söylüyor (`service_heartbeat.ip_token_key_state`,
+şema 24); panel dosyaları okuyamaz, bilerek — o dosyalar panelin asla
+tutmaması gereken rollerin veritabanı parolalarını taşıyor. Satırda
+**anahtar yok, ondan türetilmiş bir şey de yok**: yalnız üç kelimeden
+biri.
+
+Nerede görünüyor:
+
+- **Sağlık → Servisler**, "IP jetonu" sütunu. `var` / `yok` / `—`.
+  Tire, o servisin adres yazmadığı (okuma API'si) ya da sürümünün bu
+  bilgiyi hiç bildirmediği anlamına geliyor; sayfa ikisini ayırt
+  edemiyor ve ediyormuş gibi yapmıyor.
+- **Ayarlar → IP adresi saklama biçimi.** `full` reddedilirse ret,
+  hangi servisin ne dediğini söylüyor: "anahtar bildirmiyor" (o servisin
+  dosyasına anahtar yazın) ile "bu bilgiyi hiç bildirmiyor" (o servisi
+  yükseltin) farklı işler.
+- **Kurulum sihirbazı**, `config.ip_token_key` satırı. Taze kurulumda
+  hiçbir servis henüz koşmadığı için "henüz bildirmedi" diyor, ve bu bir
+  kusur değil — maskeli kip anahtarsız çalışır, anahtar yalnız `full`'e
+  geçmek için gerekir.
 
 ### 5.3 API jetonu
 

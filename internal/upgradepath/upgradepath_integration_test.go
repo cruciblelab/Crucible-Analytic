@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/schemafiles"
+	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -380,6 +381,129 @@ func releasesReachableFromHEAD() ([]string, error) {
 		tags = append(tags, tag)
 	}
 	return tags, nil
+}
+
+// schemaConstants pulls Version and Fingerprint out of a copy of
+// schemaver.go.
+//
+// By regular expression rather than by parsing, because the file being
+// read is the one from a release tag: it cannot be compiled or imported,
+// only read as text. Both patterns are anchored to a whole line so a
+// mention of either name inside the file's prose - and there are several,
+// since that file explains itself at length - cannot be mistaken for the
+// declaration.
+var (
+	schemaVersionLine     = regexp.MustCompile(`(?m)^const Version = (\d+)$`)
+	schemaFingerprintLine = regexp.MustCompile(`(?m)^const Fingerprint = "([0-9a-f]{64})"$`)
+)
+
+func schemaConstants(source string) (version, fingerprint string, err error) {
+	v := schemaVersionLine.FindStringSubmatch(source)
+	f := schemaFingerprintLine.FindStringSubmatch(source)
+	if v == nil || f == nil {
+		return "", "", fmt.Errorf("could not find both constants (version found: %t, "+
+			"fingerprint found: %t)", v != nil, f != nil)
+	}
+	return v[1], f[1], nil
+}
+
+// TestAReleasedSchemaVersionIsNeverEdited.
+//
+// # The rule this enforces
+//
+// A schema version a release tag carries is frozen. Somewhere there is a
+// database whose schema_version row records that number, and
+// schemaver.State.Matches compares this tree's Fingerprint against it -
+// so a released version whose schema changed would put "your schema does
+// not match" and a developer-password-gated upgrade in front of an
+// installation that is in fact correct. Version 7's comment in that file
+// is what it costs when that happens by accident, and that was only a
+// corrected sentence.
+//
+// A version no tag carries is a different thing: nothing outside this
+// tree has ever run it, so it is still being assembled and may grow.
+// Which is not hypothetical - measured on 2026-09-17, the latest release
+// v0.24.0+L4 carries schema 21, so 22, 23 and 24 have never shipped, and
+// 24 came to hold two tables from O3 and one column from 5b for exactly
+// this reason.
+//
+// # Why it lives here
+//
+// Because the answer is in the tags, and this is the package that asks
+// git what each release looked like. Its TestMain already exits rather
+// than skipping when the tags are missing - a shallow checkout is an
+// input to this suite, and internal/invariants/checkoutdepth_test.go
+// keeps the workflow supplying them - so "the rule was not checked"
+// cannot pass as "the rule holds".
+//
+// # What the two halves are
+//
+// Both directions are asserted, because either alone is satisfiable by
+// doing nothing. A tree matching a released version must match its
+// fingerprint; a tree whose version is unreleased is free, and the count
+// of tags actually read is checked so that a walk finding nothing cannot
+// report agreement.
+func TestAReleasedSchemaVersionIsNeverEdited(t *testing.T) {
+	tags, err := releasesReachableFromHEAD()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tags) == 0 {
+		t.Fatal("no release tags reachable from HEAD; this test compares against releases " +
+			"and a comparison against none is not a comparison")
+	}
+
+	this := fmt.Sprint(schemaver.Version)
+	var read int
+	var matched []string
+	for _, tag := range tags {
+		source, err := fileAt(tag, "internal/schemaver/schemaver.go")
+		if err != nil {
+			// A tag from before the file existed is not a failure; a tag
+			// where it exists and cannot be read is. Distinguished by
+			// asking git for the path rather than by guessing.
+			if _, statErr := git("cat-file", "-e", tag+":internal/schemaver/schemaver.go"); statErr != nil {
+				continue
+			}
+			t.Errorf("%s: reading internal/schemaver/schemaver.go: %v", tag, err)
+			continue
+		}
+		version, fingerprint, err := schemaConstants(source)
+		if err != nil {
+			t.Errorf("%s: %v\nIf the declarations were reformatted, schemaConstants has to "+
+				"follow - a pattern that stops matching turns this test green by "+
+				"reading nothing.", tag, err)
+			continue
+		}
+		read++
+		if version != this {
+			continue
+		}
+		matched = append(matched, tag)
+		if fingerprint != schemaver.Fingerprint {
+			t.Errorf(`schema version %s shipped in %s and its schema has changed since.
+
+  %s's fingerprint: %s
+  this tree's:      %s
+
+That version is frozen. A database out there records %s, and
+schemaver.State.Matches compares this tree's fingerprint against it - so
+this tree tells a correct installation that its schema does not match,
+and offers it an upgrade that changes nothing it can name.
+
+Bump schemaver.Version instead, and write what changed under its new
+heading.`, this, tag, tag, fingerprint, schemaver.Fingerprint, this)
+		}
+	}
+
+	if read == 0 {
+		t.Fatalf("none of the %d release tags yielded both constants; this test read nothing",
+			len(tags))
+	}
+	if len(matched) == 0 {
+		t.Logf("schema %s is unreleased (%d releases read, none carries it), so it may still "+
+			"grow - see schemaver.Fingerprint's comment", this, read)
+	}
 }
 
 // TestTheRowsSurviveTheUpgrade.

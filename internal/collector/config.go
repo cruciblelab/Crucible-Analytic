@@ -772,7 +772,7 @@ func (c *Config) validate() error {
 	// is the dangerous direction: full mode with no usable key would
 	// write the masked address and no token, so the deployment would
 	// silently be in masked mode while its config said otherwise.
-	if c.Privacy.IPMode().Tokenises() && len(c.Privacy.HashKey()) < privacy.MinHashKeyLen {
+	if c.Privacy.IPMode().Tokenises() && !privacy.CanTokenise(c.Privacy.HashKey()) {
 		return fmt.Errorf("config: privacy.ip_hash_key must be at least %d bytes when ip_storage = %q "+
 			"- generate one with: go run ./cmd/devpass -ipkey",
 			privacy.MinHashKeyLen, privacy.IPFull)

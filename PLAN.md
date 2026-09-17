@@ -115,15 +115,30 @@ gerekçesi ölçüm, tahmin değil.
 **(a)** `service_heartbeat`'e bir yetenek sütunu, **(b)** O3'ün günlük
 eskiz tablosu — sahip O3'ü cevapladıktan sonra ikincisi de ölçülmüş bir
 ihtiyaç oldu, ve söz verdiğim şey buydu: üç bump yerine bir bump.
+İkisi de yazıldı: (b) `212cc55`'te, (a) 5b ile — ayrıntısı §P5a'nın
+altındaki *"5b"* bölümünde.
 
-> **Durum (2026-09-16 gecesi): (b) yazıldı, (a) yazılmadı, ve şema 24
-> hâlâ 24.** `schemaver.Version` O3 ile 24'e çıktı. Yetenek sütunu
-> geldiğinde **25'e çıkarılmayacak**: 24 henüz etiketlenmiş bir sürümde
+> **Durum (2026-09-17): ikisi de yazıldı, ve şema 24 hâlâ 24.**
+> `schemaver.Version` O3 ile 24'e çıktı; yetenek sütunu **25'e
+> çıkarmadan** aynı sürüme girdi. Gerekçe: 24 etiketlenmiş bir sürümde
 > yayımlanmadı, şema dosyaları bütünüyle yeniden uygulanabilir
 > (`IF NOT EXISTS`), ve sürüm numarası bir müşterinin koşturduğu
 > yükseltmeyi adlandırıyor — aynı yükseltmenin iki adı olması, "bende
-> hangisi var" sorusunu cevapsız bırakır. Parmak izi değişecek, ayna
-> testi onu zaten isteyecek.
+> hangisi var" sorusunu cevapsız bırakır. Parmak izi değişti, ayna
+> testi onu istedi.
+>
+> **Ve "yayımlanmadı" artık bir hatırlama değil, ölçüm.** Ayna testinin
+> kırmızısı *"24 → 25"* diyordu, yani genel tavsiye; doğru cevap
+> etiketlerde yazılı, ve ölçüldü: en yeni sürüm `v0.24.0+L4` şema **21**
+> taşıyor — 22, 23 ve 24 hiç yayımlanmadı. Kural teste bağlandı:
+> `internal/upgradepath.TestAReleasedSchemaVersionIsNeverEdited` her
+> sürüm etiketinden `Version` ile `Fingerprint`'i okuyor ve yayımlanmış
+> bir sürümün şemasının değişmesini reddediyor. Yayımlanmamış bir sürüm
+> büyüyebilir; yayımlanmış olan donuk, çünkü `State.Matches` bu parmak
+> izini oradaki bir veritabanının kaydıyla karşılaştırıyor — ve
+> değiştirirsek doğru kurulmuş bir sisteme "şeman uyuşmuyor" deyip
+> hiçbir şeyi adlandıramayan bir yükseltme öneririz. Sürüm 7'nin
+> yorumu bunun bedelini yazıyor, ve o yalnız düzeltilmiş bir cümleydi.
 
 **(a) `service_heartbeat`'e bir yetenek sütunu.**
 
@@ -7960,7 +7975,7 @@ Bunu mutasyonla göstermek mümkün değil — yarışı kaybetmeyen bir makined
 kilitsiz hâl de yeşil verir. Doğrulanabilen tek şey artık
 ayrışamamaları, ve iki paket birlikte koşuluyor.
 
-##### Açık bulgu, sahibin kararını bekliyor: `full` panelden hiç seçilemiyor
+##### 5b — `full` panelden hiç seçilemiyordu ✅ **bitti (2026-09-17)**
 
 Aynı zinciri ölçerken çıktı ve **düzeltilmedi**, çünkü düzeltmesi bir
 kanal kararı gerektiriyor.
@@ -7990,6 +8005,118 @@ okuyamaz. Yani panele **söylenmesi** gerekiyor, ve soru şu: kim söyler?
 
 **Benim önerim (a)**, çünkü (b) tam olarak bu kusurun tekrarı: bir
 gerçeği, onu bilmeyen bir yere yazmak. Ama şema sürümü sahibin kararı.
+
+**Karar (a), sahip 2026-09-16'da şemayı kararlaştırdı** (§"Şema 24
+kararı"). Yapılan:
+
+**Kanal.** `service_heartbeat.ip_token_key_state`, üç kelimeden biri:
+`''` (bildirmedi) · `present` · `absent`. `TokenKeyState` olarak
+adlandırıldı, `ip_token_key` değil — o tabloyu panel rolünün **tamamı**
+okuyabilir, ve anahtarı (ya da hash'ini) oraya koymaya davet eden bir
+sütun adı istemedim. Tablonun kendi kuralı *"hiçbir şey bir ziyaretçiyi
+anlatmaz"*; bu onun sırlar için karşılığı, ve şema dosyasında yazılı.
+
+**Neden üç değer, iki değil.** Bu sütundan eski bir yapı hiçbir şey
+bildirmiyor, ve bir `BOOLEAN DEFAULT false` bunu *"bu servisin anahtarı
+yok"* diye okutur. İki durum aynı yöne karar veriyor (panel reddediyor),
+yani ayrım kararda değil **cümlede** kazanç: "dosyaya anahtar yaz" ile
+"o servisi yükselt" farklı işler, ve okuyanı yanlış dosyaya gönderen bir
+cümle belirsiz bir cümleden kötüdür.
+
+**Eşik tek yerde.** `privacy.CanTokenise` — `TokenIP`'in kullanım anında
+uyguladığı kuralın kendisi. Üç yer bu soruyu soruyor (collector'ın ve
+beacon'ın açılış doğrulaması, ve artık ikisinin bildirimi), dördüncüsü
+uyguluyor. Ayrı yazılsalardı sessiz ayrışma yönü belli: `TokenIP`'inkinden
+gevşek bir kuralla "anahtarım var" diyen bir bildirici, panele **hiç
+jeton yazmayacak** bir kurulumda `full`'ü açtırır.
+
+**Okuyucu tek yerde.** `internal/tokenkey`, çünkü iki okuyucu var ve
+paket paylaşamıyorlar: ayar kapısı `internal/panel`'de,
+sihirbazın kontrolü `internal/panel/preflight`'ta ve o paket panelden
+hiçbir şey import etmiyor (kendi testi bunu tutuyor). İki kopya, bir
+kuralın iki tanımı olurdu ve ayrışması sessiz: sihirbaz "hazır" derken
+kapının reddetmesi, ya da tersi.
+
+**Ölçüm bir kusur buldu, ve ağırıydı.** Yazarların türetilmesi yalnız
+`has_table_privilege` soruyordu; doğru kurulmuş bir veritabanında **iki
+değil beş** rol dönüyor: `collector`, `beacon_writer`, `postgres`,
+`schema_admin`, `pg_write_all_data`. Son üçü yetkiyi süper kullanıcı
+olmaktan, tabloyu **sahiplenmekten** ve yerleşik bir rol olmaktan alıyor
+— hiçbiri bir GRANT değil. Öyle kalsaydı bu fazın kapattığı kusur
+yeniden kurulmuş olurdu: `schema_admin` bir bileşenin bağlandığı rol
+(`upgrader.example.toml`), yani o rolle bir kalp atışı satırı yazıldığı
+gün `full` bir daha hiç seçilemez, ve sebebi sayfadan bulunamaz.
+Süzgeç: `rolcanlogin` (bir servis bağlanır — yerleşik rolleri adlarına
+bakmadan, doğru gerekçeyle eler) · `NOT rolsuper` · tablonun sahibi
+değil. Ve sahip-eleme bir muafiyet açmıyor: **satırında bir şey yazan**
+bir servis, rolü ne olursa olsun sayılıyor; süzgeç yalnız **sessiz**
+satırları çözmek için var.
+
+**Sayfalar.** Sağlık → Servisler'de "IP jetonu" sütunu (`var` / `yok` /
+`—`; tire, adres yazmayan servis **ve** eski yapı — sayfa ikisini ayırt
+edemiyor ve etmiyormuş gibi yapmıyor). Ayarlar'daki ret artık hangi
+servisin ne dediğini söylüyor; eskiden *"gereken yapılandırma henüz
+yok, ayarın açıklamasında yazıyor"* diyordu, ki açıklama "iki dosyaya da
+aynı anahtarı yaz" diyor — yani collector'ında anahtar varken beacon'ı
+eski olan kurulumda okuyanı **zaten doğru olan dosyaya** gönderiyordu.
+
+**Ölçüldü** (gerçek veritabanı, gerçek roller): kapı beş durumda
+(kimse bildirmedi · collector `present` · beacon `absent` · beacon
+sessiz · ikisi `present`), süzgeç altı rolde (okuma API'si · panel ·
+sahip · süper kullanıcı · `pg_write_all_data` · rolü silinmiş bir satır),
+sihirbazın kontrolü dört durumda, kalp atışının gidiş-dönüşü üç anahtar
+uzunluğunda (eşik `privacy.MinHashKeyLen`'den türetildi, elle yazılmadı),
+ve sağlık sayfası **gerçek satırla çizilerek** iki cevapta.
+
+**Sınıf kapatıldı, ve iki örnek daha buldu.**
+`internal/invariants/unreachablesetters_test.go`: `panel.Store` üzerindeki
+hiçbir `Set*` metodu yalnız testlerden çağrılmış olamaz. İlk koşusunda
+`SetDevAccessPolicy` ve `SetDisabled` çıktı — ikisi de aynı şekil, ikisi
+de aşağıda açık bulgu olarak yazılı, ikisi de gerekçesiyle muafiyet
+haritasında. Setter seçildi çünkü bir dağıtımın gerçeği o yüzeyden
+giriyor ve şablonlar setter çağırmıyor: "ürün kodunda çağıran yok"
+cümlesi yalnız orada söylediği şeyi söylüyor.
+
+**Ve bir yükseltme kuralı teste bağlandı.** Ayna testi kırmızı verirken
+*"24 → 25"* diyordu; doğru cevap 24'te kalmaktı, çünkü **hiçbir sürüm
+etiketi 24 taşımıyor** (ölçüldü: en yeni sürüm `v0.24.0+L4` şema **21**
+taşıyor, yani 22/23/24 hiç yayımlanmadı). Kural artık prose değil:
+`internal/upgradepath.TestAReleasedSchemaVersionIsNeverEdited` her
+sürüm etiketinden iki sabiti okuyor ve yayımlanmış bir sürümün parmak
+izinin değişmesini reddediyor. Yayımlanmamış bir sürüm büyüyebilir;
+yayımlanmış olan donuk, çünkü `State.Matches` bu parmak izini oradaki
+bir veritabanının kaydıyla karşılaştırıyor.
+
+##### Açık bulgular (5b'nin değişmezi buldu, 2026-09-17) — ikisi de aynı şekil
+
+Yeni değişmez, `SetIPTokenKeyConfigured`'ın sınıfından iki örnek daha
+çıkardı. İkisi de yazıldı ve **düzeltilmedi**, çünkü ikisi de bir satır
+kablolama değil:
+
+1. **`SetDisabled` — bir hesap hiçbir zaman devre dışı bırakılamıyor.**
+   Giriş yolu bayrağı **uyguluyor** (`auth.go` iki yerde reddediyor) ve
+   ürün kodunda onu kuran hiçbir şey yok. Yani veritabanı destekliyor,
+   giriş saygı gösteriyor, ve hiçbir kurulumda kullanılamıyor.
+   Düzeltmesi bir faz: üyeler sayfasında bir kontrol, *kim kimi devre
+   dışı bırakabilir* kuralı, ve her üye işleminin sahip olduğu son-sahip
+   koruması (C9.1c tam bu yüzden var — üç yazma yolu o kuralı
+   atlıyordu).
+2. **`SetDevAccessPolicy` — yazıldığı işi artık başka bir yol yapıyor.**
+   Ölçüldü: `access.developer` sıradan, kayıtlı bir enum ayarı, yani
+   sahip politikayı **ayarlar sayfasından değiştirebiliyor** ve kilitli
+   değil. Metodun kendine ait tek işi, politika `open`'dan çıkarken
+   `access.developer_open_until`'u temizlemek; genel yol temizlemiyor,
+   yani bir zamana kadar açık bırakılmış ve şimdi `ask`'te olan bir
+   kurulum o tarihi ayarlar sayfasında görmeye devam ediyor — *"bir
+   kelime uzakta yine açık"* gibi okunuyor. Etkisi yalnız görüntü:
+   `DevAccessPolicyFor` politikayı önce okuyor ve `open` demiyorsa
+   pencereye hiç bakmıyor. Metodun yorumundaki ikinci gerekçe —
+   *"genel ayar yolu hiçbir şey için denetim kaydı yazmaz"* — yazıldığı
+   gün doğruydu ve **artık değil**: B2'nin operasyon kanalı
+   `web/settings.go`'daki `BeginOperation` ile her değişikliği
+   denetliyor. İki dürüst çözüm var ve seçim sahibin: bu anahtarı
+   metottan geçirmek, ya da metodu silip bayat tarihin görünmesini kabul
+   etmek.
 
 ---
 

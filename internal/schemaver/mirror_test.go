@@ -104,16 +104,30 @@ is the first recording, not a change to order against an earlier one:
   recorded: %s
   on disk:  %s
 
-A schema.sql changed. Two things have to move together in
-internal/schemaver/schemaver.go:
+A schema.sql changed. Record it in internal/schemaver/schemaver.go:
 
-  const Version     = %d   ->  %d
   const Fingerprint = ...  ->  %q
 
-Both, not one. The fingerprint is the fact and the version is what makes
-two facts orderable; a fingerprint that moves alone leaves a schema
-change nobody can put in sequence.`,
-		Fingerprint, got, Version, Version+1, got)
+And then answer one question about Version, which is at %d:
+
+  has a release tag shipped %d?
+
+  no   leave it. Nothing outside this tree has ever run that version, so
+       it is still being assembled and this change belongs in it. Write
+       what changed under its heading in Version's comment.
+  yes  bump it to %d. Somewhere there is a database recording %d, and
+       State.Matches compares this fingerprint against it - so editing a
+       released version's schema puts "your schema does not match" in
+       front of an installation that is correct.
+
+Both in one commit either way: the fingerprint is the fact and the
+version is what makes two facts orderable, so a fingerprint that moves
+alone leaves a schema change nobody can put in sequence.
+
+TestAReleasedSchemaVersionIsNeverEdited in internal/upgradepath answers
+the question from the tags rather than from memory, and fails if this
+tree got it wrong.`,
+		Fingerprint, got, got, Version, Version, Version+1, Version)
 }
 
 // TestTheFingerprintIsNotEmpty.

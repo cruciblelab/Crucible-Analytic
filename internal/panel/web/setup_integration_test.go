@@ -171,7 +171,7 @@ func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 		ConfigFileValues: map[string]string{
 			"panel.listen_addr": "127.0.0.1:8090",
 		},
-		Preflight: preflight.New(store.Pool(), false),
+		Preflight: preflight.New(store.Pool()),
 		// The role names the isolation checks need. Without them those
 		// checks skip, a skipped required check blocks handover, and
 		// every test that reaches the last step fails for a reason that

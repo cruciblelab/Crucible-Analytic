@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -596,6 +597,20 @@ func settingErrorText(lang *ui.Language, def panel.Definition, err error) string
 	case errors.Is(err, panel.ErrUnknownSetting):
 		return lang.T("ayarlar.hata.bilinmeyen")
 	case errors.Is(err, panel.ErrPreconditionUnmet):
+		// The IP token key is the one precondition that can name what is
+		// wrong, and the generic sentence below threw that away.
+		//
+		// It said "the setting's own description says what has to be in
+		// place first", and the description says to put the same key in
+		// both services' config files - which is right and is not the
+		// answer when the collector already has one and the beacon's
+		// build is too old to report it. Sending a reader to edit a file
+		// that is already correct is the failure the branch below this
+		// one was written to avoid, one step further in.
+		var unready panel.TokenKeyUnready
+		if errors.As(err, &unready) {
+			return tokenKeyText(lang, unready)
+		}
 		// Its own branch, and it was missing. Without it this fell to
 		// the bounds message below, so refusing privacy.ip_storage=full
 		// on a deployment with no ip_hash_key answered "the value has to
@@ -617,6 +632,39 @@ func settingErrorText(lang *ui.Language, def panel.Definition, err error) string
 	default:
 		return lang.T("ayarlar.hata.gecersiz")
 	}
+}
+
+// tokenKeyText turns the refusal into the sentence for a reader.
+//
+// # Why the role name is printed raw
+//
+// The other places this page names a service look a label up -
+// t "saglik.servis.<role>" - and that is right for a table an owner
+// reads. Here the reader is an operator about to open a file, and the
+// role name is the string they will grep for: it is what the DSN in
+// collector.toml connects as, and on a deployment that renamed its roles
+// the label would be a marked missing key while the name is still true.
+//
+// # Why the two states get two sentences
+//
+// A service reporting no key needs one in its config file; a service
+// reporting nothing needs a newer build. Collapsed into one sentence,
+// half the readers would be sent to edit a file that is already correct
+// - which is the exact failure the generic precondition message makes
+// one step further out.
+func tokenKeyText(lang *ui.Language, unready panel.TokenKeyUnready) string {
+	if len(unready.Missing) == 0 {
+		return lang.T("ayarlar.hata.jeton_anahtari_sessiz")
+	}
+	parts := make([]string, 0, len(unready.Missing))
+	for _, r := range unready.Missing {
+		key := "ayarlar.hata.jeton_anahtari_eski"
+		if r.State == heartbeat.TokenKeyAbsent {
+			key = "ayarlar.hata.jeton_anahtari_yok"
+		}
+		parts = append(parts, lang.Tf(key, r.Service))
+	}
+	return lang.Tf("ayarlar.hata.jeton_anahtari", strings.Join(parts, "; "))
 }
 
 // gateRefusalText says why the password was not accepted.

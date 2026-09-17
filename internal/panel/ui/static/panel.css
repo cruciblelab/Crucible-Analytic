@@ -242,6 +242,31 @@ h2 {
   color: var(--kilit);
 }
 
+/* The same four, used inside a line of text rather than as their own
+   notice.
+ *
+ * Why the modifier exists, measured on a screenshot: the classes above
+ * are notice *boxes* - border, padding, vertical margin - and a bare
+ * inline box's padding does not contribute to the line it sits on, so
+ * one used inside a table cell draws outside its own line. On the
+ * health page's services table, a stale service's "haber alinamiyor"
+ * chip wrapped across two lines and the two fragments overlapped both
+ * the timestamp beside it and the row below: the one row an operator
+ * looks at when something is wrong was the unreadable one.
+ *
+ * inline-block makes the box part of the line's height, nowrap stops it
+ * splitting into two boxes at all, and the vertical margin goes because
+ * a chip on a line has nothing to be separated from. */
+.uyari.satir-ici,
+.hata.satir-ici,
+.bilgi.satir-ici,
+.kilit.satir-ici {
+  display: inline-block;
+  margin: 0;
+  padding: 0 calc(var(--olcu) * 0.5);
+  white-space: nowrap;
+}
+
 .uyari-baslik {
   font-weight: 600;
   display: block;

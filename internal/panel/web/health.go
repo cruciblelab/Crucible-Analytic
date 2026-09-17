@@ -237,6 +237,35 @@ type healthService struct {
 	// nothing at all.
 	Profile string
 
+	// TokenKey is what this service says about its IP token key, already
+	// turned into a word (5b). Empty for the services that write no
+	// addresses and for a build older than the column; the template draws
+	// a dash there.
+	//
+	// # Why it is on this page at all
+	//
+	// Because the question it answers is asked somewhere else. A customer
+	// who cannot switch privacy.ip_storage to full gets a refusal on the
+	// settings page naming the service that said no - and the operator
+	// who has to fix it is reading this page, where every other
+	// per-service fact lives. Without it, the only route to the answer is
+	// to try the switch and read the error, which is a page that can only
+	// be consulted by poking it.
+	//
+	// # Why it is not called IPTokenKey
+	//
+	// TestTheHealthPageCarriesNoVisitorNumbers refused that name, for the
+	// same reason it refused SelfPath: this page may carry no field whose
+	// name reads as a number about a visitor, and it checks names because
+	// checking values would need the field to exist first. "IP" in a field
+	// name on this page is worth losing rather than excusing - the value
+	// here is a yes or no about a configuration file, and the shorter name
+	// says that at least as well.
+	TokenKey string
+	// TokenKeyMissing marks the refusing states, so the template can
+	// draw attention without deciding which words mean trouble.
+	TokenKeyMissing bool
+
 	Counters []healthCounter
 
 	LastError   string
@@ -535,6 +564,18 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 			LastError:   b.LastError,
 			LastErrorAt: b.LastErrorAt,
 			Profile:     profileLabel(b.Profile),
+		}
+		// Only the two services that write an address have an opinion, so
+		// only they get a word here. The read API reports nothing and gets
+		// a dash - which is the same cell an older build produces, and
+		// that is correct: the page cannot tell those apart and must not
+		// pretend to.
+		switch b.IPTokenKey {
+		case heartbeat.TokenKeyPresent:
+			row.TokenKey = lang.T("saglik.jeton_var")
+		case heartbeat.TokenKeyAbsent:
+			row.TokenKey = lang.T("saglik.jeton_yok")
+			row.TokenKeyMissing = true
 		}
 		// Only counters with a label, in a fixed order. A counter a
 		// service invented and nobody has words for would otherwise

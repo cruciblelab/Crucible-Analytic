@@ -62,7 +62,7 @@ func TestTheSetupCheckCountInTheManualIsTheCountTheCodeRuns(t *testing.T) {
 	// a skip and every unconfigured one too, which is exactly right
 	// here - the question is how many lines there are, not what they
 	// say.
-	results := preflight.New(nil, false).Run(context.Background(), preflight.Config{})
+	results := preflight.New(nil).Run(context.Background(), preflight.Config{})
 
 	base := 0
 	for _, r := range results {

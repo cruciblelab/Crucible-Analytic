@@ -90,11 +90,23 @@ adresi ağına indirger:
 
 **`full` moda geçmek ciddi bir iştir ve iki koşulu birden ister:**
 1. Geliştirici şifresi (Bölüm 8.5) — her değişiklikte sorulur.
-2. Jeton anahtarının **önceden** yapılandırma dosyasında bulunması.
-   Anahtar yoksa panel bu değeri **reddeder**; kabul edip sessizce
-   maskeli modda çalışmaz. (Anahtarsız kabul edilseydi kurulum, ayarı
-   "full" diyerek maskeli davranırdı — bir modun sessizce başka bir mod
-   olması, bu ayarın yanlış olabileceği en kötü biçim.)
+2. Jeton anahtarının **önceden** yapılandırma dosyasında bulunması, ve
+   adres yazan **her** servisin onu yüklemiş olması. Anahtar yoksa panel
+   bu değeri **reddeder**; kabul edip sessizce maskeli modda çalışmaz.
+   (Anahtarsız kabul edilseydi kurulum, ayarı "full" diyerek maskeli
+   davranırdı — bir modun sessizce başka bir mod olması, bu ayarın
+   yanlış olabileceği en kötü biçim.)
+
+   Koşul servislerin kendisine soruluyor, bir yapılandırma satırına
+   değil: her servis kalp atışı satırında kullanılabilir bir anahtarı
+   olup olmadığını bildiriyor (`service_heartbeat.ip_token_key_state`,
+   şema 24). **Anahtarın kendisi ya da ondan türetilmiş bir şey o
+   tabloya girmiyor** — o tabloyu panel rolünün tamamı okuyabilir, ve
+   bu dosyanın §1 kuralının sırlar için karşılığı bu. Sorunun neden
+   dosyadan değil servisten sorulduğu: anahtar `collector.toml` ve
+   `beacon.toml`'da duruyor ve panelin rolü o dosyaları okuyamaz
+   (veritabanı parolalarını taşıyorlar). Ayrıca bir dosya kimin ne
+   yazdığını söyler; servis koşan sürecin ne yüklediğini söyler.
 
 Maskeli moddayken anahtar **hiç kullanılmaz** ve gerekmez.
 

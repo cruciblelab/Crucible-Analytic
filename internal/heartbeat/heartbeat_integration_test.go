@@ -11,11 +11,13 @@
 package heartbeat
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -269,14 +271,110 @@ func TestAServiceWithNoProfileReportsNone(t *testing.T) {
 	}
 }
 
+// TestTheIPTokenKeyStateReachesTheRowAndComesBack.
+//
+// The same plain case for the column 5b added, and it carries more than
+// a label: the panel opens full IP mode on this value, so a state that
+// did not survive the round trip would either refuse a deployment that
+// is ready or - the direction that matters - offer full mode to one that
+// is not.
+//
+// Both answers are asserted from one run, because the interesting
+// failure is a writer that always reports the same thing. A test for
+// "present" alone passes against a column hard-wired to it.
+func TestTheIPTokenKeyStateReachesTheRowAndComesBack(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	// The key length is the product's own threshold rather than a number
+	// typed here, so this fixture cannot drift from what TokenIP accepts.
+	usable := bytes.Repeat([]byte{0x5}, privacy.MinHashKeyLen)
+
+	for _, tc := range []struct {
+		name string
+		key  []byte
+		want TokenKeyState
+	}{
+		{"a service that holds a usable key", usable, TokenKeyPresent},
+		{"a service with none", nil, TokenKeyAbsent},
+		{"a service whose key is too short to use", usable[:privacy.MinHashKeyLen-1], TokenKeyAbsent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			New(Options{
+				Pool: pool, Version: "v-tokenkey",
+				IPTokenKey: TokenKeyStateOf(tc.key),
+			}).beat(ctx)
+
+			beats, err := Read(ctx, testdb.Admin(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var found *Beat
+			for i := range beats {
+				if beats[i].Service == testdb.Collector {
+					found = &beats[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("no row for %s after a beat", testdb.Collector)
+			}
+			if found.IPTokenKey != tc.want {
+				t.Errorf("IPTokenKey = %q, want %q", found.IPTokenKey, tc.want)
+			}
+		})
+	}
+}
+
+// TestAServiceThatWritesNoAddressesHasNoOpinion.
+//
+// The read API writes no addresses and sets nothing, and what it must
+// leave behind is unknown rather than absent. The difference is a
+// sentence on the setup wizard's list: absent sends the operator to edit
+// that service's config file, and there is no key to put in it.
+//
+// The panel refuses full mode on either, so nothing here changes a
+// decision - which is exactly why it needs a test. A wrong value costs
+// nobody a feature and costs one person an afternoon.
+func TestAServiceThatWritesNoAddressesHasNoOpinion(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	New(Options{Pool: pool, Version: "v-noaddresses"}).beat(ctx)
+
+	var got string
+	if err := testdb.Admin(t).QueryRow(ctx,
+		`SELECT ip_token_key_state FROM service_heartbeat WHERE service = $1`,
+		testdb.Collector).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if TokenKeyState(got) != TokenKeyUnknown {
+		t.Errorf("ip_token_key_state = %q, want empty for a service that writes no addresses", got)
+	}
+}
+
+// emptyWithoutTheColumn says what each optional column reads back as
+// when the database does not have it.
+//
+// A map rather than a derivation, because no reflection answers "which
+// Beat field does this column fill" - and a list of names with no rule
+// is the shape this project avoids. So the rule is on the other side: the
+// test below fails if optionalColumns grows an entry this map does not
+// have. Adding a column therefore forces somebody to say what it reads
+// back as, which is the question the accommodation is about.
+var emptyWithoutTheColumn = map[string]func(Beat) string{
+	"profile":            func(b Beat) string { return b.Profile },
+	"ip_token_key_state": func(b Beat) string { return string(b.IPTokenKey) },
+}
+
 // TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind.
 //
 // # The window this is about
 //
-// The profile column arrived with schema 8, and this project's upgrade
-// order is schema first, binaries second. Somebody who does it the other
-// way round - or who is simply between the two steps - is running a
-// binary that knows about a column the database does not have.
+// The profile column arrived with schema 8 and ip_token_key_state with
+// 24, and this project's upgrade order is schema first, binaries second.
+// Somebody who does it the other way round - or who is simply between
+// the two steps - is running a binary that knows about a column the
+// database does not have.
 //
 // Every other writer in this repository refuses to start in that state,
 // correctly: a row written with a column missing loses data. The
@@ -286,49 +384,86 @@ func TestAServiceWithNoProfileReportsNone(t *testing.T) {
 // at the exact moment an operator is watching to see whether the upgrade
 // worked.
 //
-// So the label gives way and the row survives. This test drops the
-// column, writes, and checks that the beat is still there.
+// So the label gives way and the row survives.
+//
+// # Why it is a loop over the list, and why it renames rather than drops
+//
+// The accommodation is now a loop in the writer and another in the
+// reader, over optionalColumns - so a test naming one column would leave
+// the second untested while looking complete. This one takes the list
+// itself, which is also what makes the missing-entry check above worth
+// having.
+//
+// The column is renamed out of the way and renamed back, where the first
+// version dropped it and added it again from a typed-out definition.
+// Renaming is exact: the restore cannot reconstruct a slightly different
+// column, and nothing typed here can drift from the schema file. It also
+// keeps the rows, which a drop does not - and this runs against the
+// shared development database.
 func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
 	pool := testPool(t)
 	admin := testdb.Admin(t)
 	ctx := context.Background()
 
-	if _, err := admin.Exec(ctx, `ALTER TABLE service_heartbeat DROP COLUMN profile`); err != nil {
-		t.Fatalf("dropping the column this test is about: %v", err)
-	}
-	t.Cleanup(func() {
-		if _, err := admin.Exec(context.Background(),
-			`ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS profile TEXT NOT NULL DEFAULT ''`); err != nil {
-			t.Fatalf("restoring the column: %v - this database is now on an older shape "+
-				"than the schema files, and every later run in it will be measuring "+
-				"something other than what it thinks", err)
+	for _, column := range optionalColumns {
+		readsBack, ok := emptyWithoutTheColumn[column]
+		if !ok {
+			t.Errorf("%s is optional and nothing here says what it reads back as when the "+
+				"database has no such column; add it to emptyWithoutTheColumn", column)
+			continue
 		}
-	})
 
-	r := New(Options{Pool: pool, Version: "v-behind", Profile: "tam"})
-	r.beat(ctx)
+		t.Run(column, func(t *testing.T) {
+			hidden := column + "__hidden_by_test"
+			if _, err := admin.Exec(ctx,
+				`ALTER TABLE service_heartbeat RENAME COLUMN `+column+` TO `+hidden); err != nil {
+				t.Fatalf("hiding %s, the column this case is about: %v", column, err)
+			}
+			t.Cleanup(func() {
+				if _, err := admin.Exec(context.Background(),
+					`ALTER TABLE service_heartbeat RENAME COLUMN `+hidden+` TO `+column); err != nil {
+					t.Fatalf("restoring %s: %v - this database is now on a different shape "+
+						"than the schema files, and every later run in it will be measuring "+
+						"something other than what it thinks", column, err)
+				}
+			})
 
-	var version string
-	if err := admin.QueryRow(ctx,
-		`SELECT version FROM service_heartbeat WHERE service = $1`,
-		testdb.Collector).Scan(&version); err != nil {
-		t.Fatalf("no heartbeat row was written against the older schema: %v\n"+
-			"The panel would show this service as down for as long as the upgrade "+
-			"takes, which is when somebody is watching it", err)
-	}
-	if version != "v-behind" {
-		t.Errorf("version = %q, want %q", version, "v-behind")
-	}
+			// A fresh reporter each time: the column check is once per
+			// process, so one that had already looked would carry the
+			// answer from before the rename.
+			New(Options{
+				Pool: pool, Version: "v-behind-" + column,
+				Profile: "tam", IPTokenKey: TokenKeyPresent,
+			}).beat(ctx)
 
-	// And the reader survives it too, for the same reason: the panel
-	// binary may be the new one while the database is still the old one.
-	beats, err := Read(ctx, admin)
-	if err != nil {
-		t.Fatalf("Read failed against the older schema: %v", err)
-	}
-	for _, b := range beats {
-		if b.Service == testdb.Collector && b.Profile != "" {
-			t.Errorf("Profile = %q against a database with no such column", b.Profile)
-		}
+			var version string
+			if err := admin.QueryRow(ctx,
+				`SELECT version FROM service_heartbeat WHERE service = $1`,
+				testdb.Collector).Scan(&version); err != nil {
+				t.Fatalf("no heartbeat row was written against the older schema: %v\n"+
+					"The panel would show this service as down for as long as the upgrade "+
+					"takes, which is when somebody is watching it", err)
+			}
+			if version != "v-behind-"+column {
+				t.Errorf("version = %q, want %q", version, "v-behind-"+column)
+			}
+
+			// And the reader survives it too, for the same reason: the
+			// panel binary may be the new one while the database is still
+			// the old one.
+			beats, err := Read(ctx, admin)
+			if err != nil {
+				t.Fatalf("Read failed against the older schema: %v", err)
+			}
+			for _, b := range beats {
+				if b.Service != testdb.Collector {
+					continue
+				}
+				if got := readsBack(b); got != "" {
+					t.Errorf("%s came back as %q against a database with no such column",
+						column, got)
+				}
+			}
+		})
 	}
 }

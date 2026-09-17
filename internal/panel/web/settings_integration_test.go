@@ -16,7 +16,6 @@ package web
 
 import (
 	"context"
-	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -24,8 +23,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 const (
@@ -522,11 +524,66 @@ func TestTheRightPasswordOnTheRightSettingWorks(t *testing.T) {
 // check the thing that is already correct is worse than a vague one:
 // they look, find nothing wrong, and stop believing the page.
 //
+// # Why the deployment state is set up rather than assumed
+//
+// This test used to post the value and expect a refusal, and it passed
+// because nothing on the shared database had ever reported a key. That
+// is an accident, not a condition: since 5b the answer comes from the
+// services' own heartbeat rows, and the neighbouring health test in this
+// package writes a collector row saying it holds one.
+//
+// So both address writers are told to report no key first. Every state
+// other than "present" refuses, which is what makes this robust against
+// whatever else touched those rows: a concurrent writer can only move
+// them to another refusing state.
+//
+// # And the sentence is checked against what the store reports
+//
+// Not against a spelling. The refusal names the service that said no,
+// and the assertion asks internal/panel which service that is - so the
+// page cannot pass by naming a service that is fine, and the test cannot
+// pass by agreeing with a sentence nobody produced.
+//
 // Needs an operator and the real password, because the precondition is
 // only reached once the gate has been passed.
 func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
 	server, client, store := settingsServerAsOperator(t)
 	restoreGlobal(t, store, panel.KeyPrivacyIPStorage)
+	ctx := context.Background()
+
+	// Through the superuser: service_heartbeat forces row-level security
+	// and its policy lets a service write only its own row, so nothing
+	// short of a superuser can say what another service reported. That
+	// policy is the point of the table and has its own suite.
+	admin := testdb.Admin(t)
+	for _, role := range []string{testdb.Collector, testdb.Beacon} {
+		if _, err := admin.Exec(ctx, `
+			INSERT INTO service_heartbeat
+			    (service, version, started_at, beat_at, counters, ip_token_key_state)
+			VALUES ($1, 'onkosul-testi', now(), now(), '{}'::jsonb, $2)
+			ON CONFLICT (service) DO UPDATE SET ip_token_key_state = EXCLUDED.ip_token_key_state`,
+			role, string(heartbeat.TokenKeyAbsent)); err != nil {
+			t.Fatalf("telling %s to report no key: %v", role, err)
+		}
+	}
+
+	// Which services the panel will name, asked of the panel. A list
+	// written here would be a second definition of "address writer", and
+	// the first one is derived from privileges.
+	reports, err := store.TokenKeyReports(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var missing []string
+	for _, r := range reports {
+		if !r.Ready() {
+			missing = append(missing, r.Service)
+		}
+	}
+	if len(missing) == 0 {
+		t.Fatal("no address writer is missing a key, so nothing here would be refused; " +
+			"the fixture above did not reach what the panel reads")
+	}
 
 	status, body := postSetting(t, client, server.URL, url.Values{
 		"islem":           {"kaydet"},
@@ -540,8 +597,18 @@ func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
 	if strings.Contains(body, "şunlardan biri olmalı") {
 		t.Errorf("the refusal blamed the value, which is admissible: %s", noticeOf(body))
 	}
-	if !strings.Contains(body, "gereken yapılandırma henüz yok") {
-		t.Errorf("the refusal does not say what is actually missing: %s", noticeOf(body))
+	// What has to be in place, named. The generic sentence this replaced
+	// said "the setting's own description says what has to be in place
+	// first", which is true of every precondition and sends the reader
+	// somewhere else to find out.
+	if !strings.Contains(body, "ip_hash_key") {
+		t.Errorf("the refusal does not name what is missing: %s", noticeOf(body))
+	}
+	for _, service := range missing {
+		if !strings.Contains(body, service) {
+			t.Errorf("the refusal does not name %s, which is the service that said no: %s",
+				service, noticeOf(body))
+		}
 	}
 }
 

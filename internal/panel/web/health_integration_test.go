@@ -23,6 +23,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
+	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/profile"
 	"github.com/cruciblelab/crucible-analytic/internal/rangerefresh"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
@@ -86,21 +87,42 @@ func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *
 func writeBeat(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error) {
 	t.Helper()
-	writeBeatWithProfile(t, store, version, started, counters, note, "")
+	writeBeatDetail(t, store, version, started, counters, note, "", heartbeat.TokenKeyUnknown)
 }
 
 // writeBeatWithProfile is writeBeat plus the one field the profile test
-// needs. Two functions rather than one more parameter on every existing
-// call site, which would have been six edits saying "no profile here".
+// needs. A named function rather than one more parameter on every
+// existing call site, which would have been six edits saying "no profile
+// here".
 func writeBeatWithProfile(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error, prof string) {
 	t.Helper()
+	writeBeatDetail(t, store, version, started, counters, note, prof, heartbeat.TokenKeyUnknown)
+}
+
+// writeBeatWithTokenKey is the same for 5b's column.
+func writeBeatWithTokenKey(t *testing.T, store *panel.Store, version string, started time.Time,
+	key heartbeat.TokenKeyState) {
+	t.Helper()
+	writeBeatDetail(t, store, version, started, map[string]int64{}, nil, "", key)
+}
+
+// writeBeatDetail is the one implementation the three above call.
+//
+// It arrived when the third was needed: two near-identical copies of
+// this body would have been two things to keep in step, and the second
+// optional field is exactly the kind that goes into the wrong column
+// unnoticed - the reporter itself has a test about that.
+func writeBeatDetail(t *testing.T, store *panel.Store, version string, started time.Time,
+	counters map[string]int64, note error, prof string, key heartbeat.TokenKeyState) {
+	t.Helper()
 
 	r := heartbeat.New(heartbeat.Options{
-		Pool:    testdb.Pool(t, testdb.Collector),
-		Version: version,
-		Profile: prof,
-		Started: started,
+		Pool:       testdb.Pool(t, testdb.Collector),
+		Version:    version,
+		Profile:    prof,
+		IPTokenKey: key,
+		Started:    started,
 		Counters: func() map[string]int64 {
 			return counters
 		},
@@ -112,11 +134,25 @@ func writeBeatWithProfile(t *testing.T, store *panel.Store, version string, star
 	done := make(chan struct{})
 	go func() { r.Run(ctx); close(done) }()
 
+	// The wait names every field this call set, not just the version.
+	//
+	// It used to ask only for the version, and the third caller found
+	// what that costs: two subtests writing the same version differ only
+	// in the token-key column, so the condition was already true before
+	// the second beat had written anything. The helper cancelled, the
+	// reporter logged "context canceled", and the page was asserted
+	// against the *first* subtest's row - reported as the product
+	// drawing the wrong word.
+	//
+	// A fixture whose readiness condition does not mention what it
+	// changed is a fixture that returns before its change landed.
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		var n int
-		if err := store.Pool().QueryRow(context.Background(),
-			`SELECT count(*) FROM service_heartbeat WHERE version = $1`, version).Scan(&n); err == nil && n == 1 {
+		if err := store.Pool().QueryRow(context.Background(), `
+			SELECT count(*) FROM service_heartbeat
+			WHERE version = $1 AND profile = $2 AND ip_token_key_state = $3`,
+			version, prof, string(key)).Scan(&n); err == nil && n == 1 {
 			cancel()
 			<-done
 			return
@@ -125,7 +161,8 @@ func writeBeatWithProfile(t *testing.T, store *panel.Store, version string, star
 	}
 	cancel()
 	<-done
-	t.Fatalf("the heartbeat row for %q never appeared", version)
+	t.Fatalf("the heartbeat row for %q (profile %q, token key %q) never appeared",
+		version, prof, key)
 }
 
 // TestTheHealthPageShowsAServiceAndItsFailure.
@@ -445,6 +482,111 @@ func TestTheHealthPageShowsTheResourceProfile(t *testing.T) {
 	}
 }
 
+// TestTheHealthPageShowsWhetherAServiceHoldsATokenKey.
+//
+// # What this is for, and why it is drawn with a real row
+//
+// 5b's whole subject is a question the panel could not answer: whether
+// privacy.ip_storage may be set to full. The settings page now refuses
+// with a sentence naming the service that said no, and this is where the
+// operator who has to fix it is already looking.
+//
+// Rendered against a real row on purpose. The class of defect this
+// avoids has happened here before: O3 added a field to a view type, the
+// unit tests were green because that page was never drawn with a row in
+// them, and the first render answered 500. A template reads fields by
+// name, so nothing before a render knows whether the name is right.
+//
+// Both answers in one test, because a column hard-wired to either word
+// would pass a test for that word alone.
+func TestTheHealthPageShowsWhetherAServiceHoldsATokenKey(t *testing.T) {
+	srv, client, store := healthServer(t)
+	started := time.Now().Add(-time.Hour)
+
+	// The words come from the catalogue rather than being spelled here.
+	// A second spelling would pass while the two drifted, and this page
+	// is served in two languages.
+	catalogs, err := ui.LoadCatalogs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lang := catalogs.Match("tr")
+	var (
+		column = lang.T("saglik.sutun.jeton")
+		yes    = lang.T("saglik.jeton_var")
+		no     = lang.T("saglik.jeton_yok")
+	)
+	if yes == no {
+		t.Fatal("the two words are the same, so this test cannot tell the answers apart")
+	}
+
+	for _, tc := range []struct {
+		name  string
+		state heartbeat.TokenKeyState
+		want  string
+		not   string
+	}{
+		{"a service that holds one", heartbeat.TokenKeyPresent, yes, no},
+		{"a service with none", heartbeat.TokenKeyAbsent, no, yes},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeBeatWithTokenKey(t, store, "v-tokenkey-page", started, tc.state)
+
+			status, body := get(t, client, srv.URL+HealthPath)
+			if status != http.StatusOK {
+				t.Fatalf("the health page answered %d", status)
+			}
+			if !strings.Contains(body, column) {
+				t.Errorf("the services table has no %q column", column)
+			}
+
+			// Inside this service's own row, and that narrowing is not
+			// tidiness. The first version searched the whole services
+			// table, and the table has a row per service: another test in
+			// this package leaves the beacon reporting no key, so "the
+			// table does not contain the other word" failed while the
+			// page was right. The two words are also short enough that a
+			// page-wide search would match prose elsewhere and call it a
+			// pass.
+			row := serviceRow(t, body, "v-tokenkey-page")
+			if !strings.Contains(row, tc.want) {
+				t.Errorf("the collector's row does not say %q for a service reporting %q:\n%s",
+					tc.want, tc.state, row)
+			}
+			if strings.Contains(row, tc.not) {
+				t.Errorf("the collector's row says %q for a service reporting %q:\n%s",
+					tc.not, tc.state, row)
+			}
+		})
+	}
+}
+
+// serviceRow cuts out the table row carrying a given version string.
+//
+// By version rather than by service name, because the version is what
+// the test controls: the name cell is a translated label and the row's
+// markup carries no id. A version is unique to one beat, so finding it
+// finds exactly one row - which the bounds below assert rather than
+// assume, since a search that ran off the end of the row would quietly
+// widen back to the rest of the table.
+func serviceRow(t *testing.T, body, version string) string {
+	t.Helper()
+	at := strings.Index(body, version)
+	if at < 0 {
+		t.Fatalf("the health page does not mention %q at all, so the beat never reached it",
+			version)
+	}
+	start := strings.LastIndex(body[:at], "<tr")
+	if start < 0 {
+		t.Fatalf("%q is on the page but not inside a table row", version)
+	}
+	end := strings.Index(body[at:], "</tr>")
+	if end < 0 {
+		t.Fatalf("the row carrying %q is not closed", version)
+	}
+	return body[start : at+end]
+}
+
 // TestTheUpgradeSectionPollsOnlyWhileSomethingIsRunning.
 //
 // # What this is for
@@ -761,7 +903,7 @@ func TestAWedgedDatabaseDoesNotHoldTheWholeHealthPage(t *testing.T) {
 	t.Cleanup(stuck.Close)
 
 	srv, client, store := healthServerTweaked(t, func(s *Server) {
-		s.Preflight = preflight.New(stuck, false)
+		s.Preflight = preflight.New(stuck)
 		s.HealthCheckBudget = budget
 	})
 	writeBeat(t, store, "saglik-tikali", time.Now().Add(-time.Minute), nil, nil)

@@ -995,6 +995,11 @@ govde = "Merhaba,\n\nBir analitik panelinde bir siteye erişim için davet edild
 baslik = "Sistem sağlığı"
 giris = "Bu sayfada hiçbir ziyaretçi sayısı yok. Süreçlerin durumu, disk kullanımı ve okuma API'sine erişim — yani terminal açmadan önce bakılacak şeyler. Trafik sayıları site sayfalarında."
 eskimis = "haber alınamıyor"
+# Bir servisin IP jetonu anahtarı olup olmadığı. Sütun boş kalırsa (—)
+# o servis adres yazmıyor ya da sürümü bu bilgiyi hiç bildirmiyor; sayfa
+# ikisini ayırt edemez, o yüzden ayırt ediyormuş gibi yapmıyor.
+jeton_var = "var"
+jeton_yok = "yok"
 surum_yok = "damgasız"
 son_hata = "Son hata:"
 panel_kendisi = "Bu sayfayı gösteren süreç."
@@ -1023,6 +1028,10 @@ genel = "Kurulum genelinde ayarlanmış"
 
 [metin.ayarlar.hata]
 onkosul = "Bu değer bu kurulumda kullanılamıyor: gereken yapılandırma henüz yok. Ayarın açıklamasında neyin önceden hazır olması gerektiği yazıyor."
+jeton_anahtari_sessiz = "Bu değer için IP jeton anahtarı gerekiyor ve adres yazan hiçbir servis henüz kendini bildirmedi — yani anahtarı olup olmadığı bilinmiyor. Collector (ve kullanıyorsanız beacon) bir kez çalıştıktan sonra bu ayar açılır."
+jeton_anahtari = "Bu değer için IP jeton anahtarı gerekiyor: %s. Aynı anahtarı ilgili servisin yapılandırmasındaki [privacy] ip_hash_key alanına yazıp servisi yeniden başlatın; iki serviste de birebir aynı olmalı."
+jeton_anahtari_yok = "%s anahtar bildirmiyor"
+jeton_anahtari_eski = "%s bu bilgiyi hiç bildirmiyor, yani sürümü eski olabilir — o servisi yükseltmek gerekir"
 bilinmeyen = "Böyle bir ayar yok."
 yetki = "Bu ayarı değiştirme yetkiniz yok."
 parola = "Bu ayar geliştirici parolası ister."
@@ -1242,6 +1251,7 @@ okunamadi = "Kurulum kontrolleri çalıştırılamadı."
 servis = "Servis"
 surum = "Sürüm"
 profil = "Profil"
+jeton = "IP jetonu"
 son_haber = "Son haber"
 calisma = "Çalışma süresi"
 sayaclar = "Sayaçlar"

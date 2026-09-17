@@ -43,9 +43,12 @@ func TestDeveloperPasswordInABrowser(t *testing.T) {
 		t.Skip("set CA_BROWSER_TEST=1 to run this; it needs node, playwright and a chromium build")
 	}
 
+	// settingsStore already reports a collector holding a usable IP token
+	// key, which is what this test's switch to full mode needs. It used to
+	// be set again here, with the line that turned out to be the only
+	// thing in the repository that ever set it - see settingsStoreAndBeats.
 	store := settingsStore(t)
 	ctx := context.Background()
-	store.SetIPTokenKeyConfigured(true)
 
 	hash, err := argon2id.Hash(testDevPassword)
 	if err != nil {

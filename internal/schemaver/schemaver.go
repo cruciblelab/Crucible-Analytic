@@ -194,14 +194,61 @@ import (
 // a schema file without failing every install and every upgrade on the
 // other build. The reasoning is written out where the tables are, in
 // internal/storage/schema.sql.
+//
+// # 24
+//
+// Two tables and one column, and the reason they share a number is the
+// rule written under Fingerprint below: no release tag carries 24, so
+// nothing has ever run it.
+//
+//   - visitor_sketch and visitor_sketch_state (O3): the per-day
+//     HyperLogLog sketches behind the unique-visitor figure, and the
+//     watermark saying how far they reach. Both are created inside a
+//     guard that returns early when timescaledb_toolkit is absent, so
+//     the extension is a mode rather than a requirement - a deployment
+//     without it applies this file successfully, gets neither table, and
+//     the read path answers with an exact count as it always did.
+//   - service_heartbeat.ip_token_key_state (5b): whether a service holds
+//     an IP token key it could tokenise with. The channel the panel needs
+//     to stop refusing full IP mode on every deployment there has ever
+//     been; the whole of why is in internal/heartbeat/schema.sql.
+//
+// Additive in the sense that matters on an upgrade. ADD COLUMN is one of
+// the four DDL forms measured in O1 as accepted on a compressed
+// hypertable, and it rewrites nothing: the measurement was 0 bytes and
+// 519 ms across eight compressed chunks. An older binary is unaffected -
+// it never selects the column, and the heartbeat writer degrades to the
+// column list the database has rather than refusing, because monitoring
+// is the one writer that must survive this window.
 const Version = 24
 
 // Fingerprint is the SHA-256 of every schema.sql in this repository,
 // canonically ordered. See FingerprintOf.
 //
+// # The rule, and the one case that looks like an exception
+//
 // Update it together with Version, never alone: a fingerprint that moved
 // without the version moving is a schema change nobody can order.
-const Fingerprint = "8a1bfc083d246b320904f4b9e6436860b31ad1f6e3ac03e7f24678719449f6e1"
+//
+// "Together" means the pair moves in one commit, not that the number
+// always goes up. A version no release tag carries has never reached a
+// database outside this tree, so it is still being assembled and may
+// grow again - which is how 24 came to hold three things from two
+// phases. A version a tag *does* carry is frozen: somewhere there is a
+// database recording that number, and State.Matches compares this value
+// against it, so editing a released version's schema would put "your
+// schema does not match" and a developer-password-gated upgrade in front
+// of an installation that is in fact correct. Version 7's comment is
+// what that costs when it happens by accident.
+//
+// The rule is not left as prose here.
+// TestAReleasedSchemaVersionIsNeverEdited in internal/upgradepath reads
+// both constants out of every release tag reachable from HEAD and
+// refuses a tree whose version matches a released one with a different
+// fingerprint. That package is where it belongs: it already asks git
+// what each release looked like, and it already fails rather than skips
+// when the tags are missing.
+const Fingerprint = "74770fbbaccf055574fc0716c1172caa33490c1e039fb13d48b19909f8ad326d"
 
 // FingerprintOf hashes a set of schema files.
 //

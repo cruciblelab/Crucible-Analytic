@@ -169,3 +169,53 @@ CREATE POLICY heartbeat_write ON service_heartbeat
 -- built before this column existed. Both mean "not reported", which the
 -- panel renders as nothing rather than as a profile named "".
 ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS profile TEXT NOT NULL DEFAULT '';
+
+-- Whether this service could tokenise an address if it were asked to
+-- (5b). Never the key, and never anything derived from it.
+--
+-- # The defect this closes
+--
+-- privacy.ip_storage = "full" could not be selected in the panel. Not
+-- "was hard to select": could not, on any deployment. The gate asked a
+-- field on the panel's store, the field was set by a method
+-- (SetIPTokenKeyConfigured) that no production code ever called, so it
+-- was false everywhere - and the setup wizard's own check for the key
+-- took its "we were not told" branch for the same reason, on every
+-- install.
+--
+-- # Why the answer has to come from the services
+--
+-- Because the question is not "is there a key somewhere", it is "can
+-- both writers of an address produce the same token". The key lives in
+-- collector.toml and beacon.toml, and the panel's role cannot read
+-- either - deliberately: those files carry database passwords, and five
+-- roles exist so that no service holds another's credentials. The same
+-- argument the profile column above makes, with a sharper edge, because
+-- here a wrong answer changes what is written about visitors.
+--
+-- It is also the more truthful answer, for the reason profile gives: a
+-- file says what somebody typed, this says what the running process
+-- loaded. A key added to the file and never restarted into is not a key
+-- the process has.
+--
+-- # What may go in this column, and what must never
+--
+-- One of three words: '' (not reported), 'present', 'absent'. The name
+-- says state for that reason - a column called ip_token_key in a table
+-- the panel reads would be an invitation to put the key, or a hash of
+-- it, in a place the whole panel role can read. Neither belongs here.
+-- This table's own rule at the top of the file is that nothing in it
+-- describes a visitor; this is the matching rule for secrets.
+--
+-- No CHECK constraint on the three values, deliberately: the set lives
+-- in internal/heartbeat as Go constants, and a copy here would be a
+-- second definition nobody compares. The reader treats any other value
+-- as '' - unreported, which is the refusing side - so an unknown word
+-- can only ever cost the fast answer, never grant the dangerous one.
+--
+-- Empty for the read API, which writes no addresses and has no opinion,
+-- and for any build older than this column. Both mean the panel does
+-- not know, and not knowing refuses full mode - the same direction the
+-- unreachable field refused in, now for a reason an operator can read
+-- on the health page.
+ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS ip_token_key_state TEXT NOT NULL DEFAULT '';

@@ -318,7 +318,7 @@ func (c Config) validate() error {
 	// the config file both said full. Nothing would be wrong except
 	// every number that depends on telling two visitors inside one /24
 	// apart.
-	if c.Privacy.IPMode().Tokenises() && len(c.Privacy.HashKey()) < privacy.MinHashKeyLen {
+	if c.Privacy.IPMode().Tokenises() && !privacy.CanTokenise(c.Privacy.HashKey()) {
 		return fmt.Errorf("beacon: privacy.ip_hash_key must be at least %d bytes when "+
 			"ip_storage = %q - it must be the same key the collector carries, or the "+
 			"crossover join silently finds nothing",

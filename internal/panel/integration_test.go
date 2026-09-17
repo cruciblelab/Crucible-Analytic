@@ -46,8 +46,21 @@ const testDatabaseURL = "postgres://panel_user:panel_user@localhost:5432/analyti
 // sites by a per-test id, so concurrent test binaries cannot collide.
 func newTestStore(t *testing.T, ns string) *Store {
 	t.Helper()
+	return newTestStoreAt(t, ns, testDatabaseURL)
+}
 
-	store, err := NewStore(context.Background(), testDatabaseURL)
+// newTestStoreAt is newTestStore against a chosen DSN.
+//
+// The one caller that needs it is the settings suite, which puts a
+// schema of its own first on the search path so that the deployment-wide
+// facts it depends on - see tokenKeyDSN - are its own rather than
+// whatever another package left in a shared table. Everything else in
+// this file is identical, and keeping it identical is the point: a second
+// copy of this cleanup would be a second list of tables to keep in step.
+func newTestStoreAt(t *testing.T, ns, dsn string) *Store {
+	t.Helper()
+
+	store, err := NewStore(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}

@@ -3,8 +3,11 @@ package preflight
 import (
 	"context"
 	"go/build"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestPreflightDoesNotImportThePanel is the test the split exists for.
@@ -48,19 +51,45 @@ func TestPreflightDoesNotImportThePanel(t *testing.T) {
 // constructor's signature is the boundary, and a Checker that grew a
 // *panel.Store parameter would pass the import test above while undoing
 // what it protects.
+//
+// # Why the parameter count is asserted rather than left to the compiler
+//
+// It used to take a second argument, ipTokenKeyConfigured, and that
+// argument is the reason this test changed. A boolean the caller was
+// supposed to know is the shape that failed: cmd/panel read it from a
+// store field no production code set, so the answer was false on every
+// installation and the check below skipped on all of them. What replaced
+// it asks the database.
+//
+// A compile error would catch a third parameter, but it would catch it as
+// "too few arguments in call to New" at every call site and say nothing
+// about why one argument is the rule. The count is asserted so that the
+// next person tempted to pass a fact in gets told where facts come from.
 func TestCheckerNeedsOnlyAPool(t *testing.T) {
+	signature := reflect.TypeOf(New)
+	if got := signature.NumIn(); got != 1 {
+		t.Errorf("New takes %d arguments, want 1 (the pool)", got)
+	}
+	if got := signature.In(0); got != reflect.TypeOf((*pgxpool.Pool)(nil)) {
+		t.Errorf("New's argument is %s, want *pgxpool.Pool: a check learns about a "+
+			"deployment by asking it, not by being told", got)
+	}
+
 	// A nil pool is enough to build one, which is the point - every
 	// non-database check runs without touching Postgres at all.
-	c := New(nil, false)
+	c := New(nil)
 	if c == nil {
 		t.Fatal("New returned nil")
 	}
-	if c.ipTokenKeyConfigured {
-		t.Error("ipTokenKeyConfigured defaulted to true; the safe default is 'we were not told'")
-	}
-	if got := c.checkIPTokenKey(); got.Status != CheckSkip {
-		t.Errorf("status = %s, want skip: a deployment that never leaves masked mode needs no "+
-			"key and is not misconfigured for lacking one", got.Status)
+
+	// And a question that could not be asked is never an answer. The old
+	// version asserted a *default* here, which is what a passed-in fact
+	// has; this one has no default, so what there is to assert is the
+	// direction: no database, no pass.
+	got := c.checkIPTokenKey(context.Background())
+	if got.Status != CheckSkip {
+		t.Errorf("status = %s, want skip: with no database nothing was examined, and "+
+			"%q is a different fact from a key being absent", got.Status, got.Detail)
 	}
 }
 
@@ -83,7 +112,7 @@ func TestRunSurvivesWithoutADatabase(t *testing.T) {
 		checker *Checker
 	}{
 		{"nil checker", nil},
-		{"checker with no pool", New(nil, false)},
+		{"checker with no pool", New(nil)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			results := tc.checker.Run(context.Background(), Config{})

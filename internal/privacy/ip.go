@@ -203,6 +203,25 @@ const HashLen = 16
 // can visit the site can produce for themselves.
 const MinHashKeyLen = 32
 
+// CanTokenise reports whether this key is one TokenIP would actually use.
+//
+// # Why the question has a name
+//
+// Three places have to agree on it and they are in three packages: the
+// collector and the beacon each refuse to start in full mode without a
+// usable key, and since 5b each also *reports* to the panel whether it
+// has one, so the panel can refuse a switch to full that would degrade
+// into masked. A fourth place - TokenIP below - enforces it at the
+// moment of use.
+//
+// Written out three times, those would be three copies of one threshold,
+// and the dangerous drift is silent in a specific direction: a reporter
+// that said "I have a key" by a laxer rule than the one TokenIP applies
+// would let the panel offer full mode to a deployment that then writes
+// no tokens at all. That is the failure the config validation was
+// written to prevent, arriving through the door the reporting opened.
+func CanTokenise(key []byte) bool { return len(key) >= MinHashKeyLen }
+
 // TokenIP turns a whole address into the keyed token stored in full
 // mode, and returns nil in every other mode's circumstances.
 //
@@ -217,7 +236,7 @@ const MinHashKeyLen = 32
 // that looks like a token and reverses in microseconds, which is worse
 // than storing nothing, because it would be believed.
 func TokenIP(ip netip.Addr, key []byte) []byte {
-	if len(key) < MinHashKeyLen || !ip.IsValid() {
+	if !CanTokenise(key) || !ip.IsValid() {
 		return nil
 	}
 	whole := ip

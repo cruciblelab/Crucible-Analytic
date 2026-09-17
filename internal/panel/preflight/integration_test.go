@@ -72,7 +72,7 @@ func newTestChecker(t *testing.T) *Checker {
 		t.Fatalf("ping: %v (is the database up and installed? see internal/testdb)", err)
 	}
 	t.Cleanup(pool.Close)
-	return New(pool, false)
+	return New(pool)
 }
 
 func find(t *testing.T, results []CheckResult, id string) CheckResult {

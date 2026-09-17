@@ -19175,3 +19175,248 @@ Altısı ilk turda sağ kaldı ve altısı da **bir soru** oldu:
   olabilir.
 - **Tek işi bir eklenti olan bir CI işi, eklentiyi bulamazsa atlamamalı,
   düşmeli.** Atlayan bir iş, o özelliğin hiç ölçülmediği bir yeşildir.
+
+## 5b — Bir alanı kimse doldurmuyorsa, o bir kontrol değildir (2026-09-17)
+
+`privacy.ip_storage = "full"` panelden hiç seçilemiyordu. "Zor
+seçiliyordu" değil: **hiçbir kurulumda, hiçbir zaman.** Kapı panelin
+kendi üzerindeki bir alana bakıyordu, o alanı kuran metodu
+(`SetIPTokenKeyConfigured`) ürün kodunda kimse çağırmıyordu, yani alan
+her yerde `false`. Aynı alanı kurulum sihirbazının IP anahtarı kontrolü
+de okuyordu; o da her kurulumda "tanımlı değil" diyordu — anahtarı
+olanlarda da.
+
+Ve testler geçiyordu. Geçmelerinin sebebi tam olarak bu: iki test o
+alanı kuruyor, sonra ondan çıkan davranışı sınıyordu, ve davranış
+çıkıyordu. **Girdisi yalnız kendisini sınayan şeyden gelen bir kapı,
+testin bıraktığı durumda duran bir kapıdır.**
+
+`preflight.checkService`'in sınıfı, aynı hafta. O turda kurulan değişmez
+`preflight.Config`'in **alanlarını** okuyor ve bunu göremedi, çünkü bu
+bir alan değil bir **argümandı.** *Bir kuralın bir dosyada yazı olarak
+durması o dosyayı korur, kardeşini korumaz* — ve bu sefer kardeş, aynı
+yüzeyin öteki yarısıydı.
+
+### Cevap neden servislerden geliyor
+
+Soru "bir yerde anahtar var mı" değil: **"adresin iki yazarı da aynı
+jetonu üretebilir mi."** Anahtar `collector.toml` ve `beacon.toml`'da
+duruyor, ve panelin rolü o dosyaları okuyamaz — bilerek: o dosyalar
+panelin asla tutmaması gereken rollerin veritabanı parolalarını taşıyor,
+beş rol tam bunun için var.
+
+Bir dosya kimin ne yazdığını söyler; servis **koşan sürecin ne
+yüklediğini** söyler. Dosyaya eklenip yeniden başlatılmamış bir anahtar
+o sürecin sahip olduğu bir anahtar değil. `profile` sütununun gerekçesi
+aynı, burada bir derece keskin: orada yanlış cevap bir etiketi
+bozuyordu, burada ziyaretçi hakkında ne yazıldığını değiştiriyor.
+
+Kanal: `service_heartbeat.ip_token_key_state`. **Anahtar değil, ondan
+türetilmiş hiçbir şey de değil** — sütun adı bunun için `..._state`:
+`ip_token_key` diye bir sütun, o tabloyu okuyabilen panel rolünün
+tamamına anahtarı (ya da hash'ini) koymaya davet olurdu. Tablonun kendi
+kuralı *"hiçbir şey bir ziyaretçiyi anlatmaz"*; bu onun sırlar için
+karşılığı.
+
+### Üç değer, ve ortadakinin niye boolean olamadığı
+
+`''` (bildirmedi) · `present` · `absent`.
+
+Bir `BOOLEAN DEFAULT false`, bu sütundan **eski** bir yapıyı *"bu
+servisin anahtarı yok"* diye okuturdu. İki durum aynı yöne karar veriyor
+— panel ikisinde de reddediyor — yani ayrım kararda hiçbir şey
+kazandırmıyor ve **cümlede** her şeyi: "o servisin dosyasına anahtar
+yaz" ile "o servisi yükselt" farklı işler. Okuyanı **zaten doğru olan**
+dosyaya gönderen bir cümle, belirsiz bir cümleden kötüdür: bakar, bir
+şey bulamaz, ve sayfaya inanmayı bırakır.
+
+Sütunda CHECK yok, bilerek: üç değerin kümesi Go sabitlerinde, buraya
+bir kopya ikinci bir tanım olurdu. Okuyucu tanımadığı her kelimeyi `''`
+sayıyor, yani reddeden tarafa — bilinmeyen bir kelime bir kurulumun
+hızlı cevabına mal olabilir, tehlikeli olanı **hiçbir zaman** açamaz.
+
+### Eşik tek yerde: `privacy.CanTokenise`
+
+Dört yer bu eşiği biliyor: collector'ın ve beacon'ın açılış
+doğrulaması, ikisinin bildirimi, ve `TokenIP`'in kullanım anındaki
+kontrolü. Ayrı ayrı yazılsalardı sessiz ayrışmanın yönü belli:
+`TokenIP`'inkinden **gevşek** bir kuralla "anahtarım var" diyen bir
+bildirici, panele hiç jeton yazmayacak bir kurulumda `full`'ü açtırır.
+Yani yapılandırma doğrulamasının önlemek için yazıldığı kusur,
+bildirimin açtığı kapıdan geri gelirdi.
+
+### Okuyucu tek yerde: `internal/tokenkey`
+
+İki okuyucu var ve paket paylaşamıyorlar: ayar kapısı `internal/panel`'de,
+sihirbazın kontrolü `internal/panel/preflight`'ta ve o paket panelden
+hiçbir şey import etmiyor — kendi testi bunu tutuyor, gerekçesi de
+yazılı (preflight *başka* rollerin ne yapabileceğini soruyor ve panelin
+veri API'sini bir sayfa için on iki fonksiyon büyütürdü). İki kopya bir
+kuralın iki tanımı olurdu ve ayrışması sessiz: sihirbaz "hazır" derken
+kapının reddetmesi, ya da tersi.
+
+### Ölçüm bir kusur buldu, ve o kusur bu fazın kendisiydi
+
+Yazarların listesi türetiliyor — "adres yazabilen rol" = adres tutan bir
+tabloya INSERT'i olan rol. İlk hâli yalnız `has_table_privilege`
+soruyordu. Doğru kurulmuş bir veritabanında ölçüldü: **iki değil beş**
+rol dönüyor.
+
+```
+beacon_writer  collector  pg_write_all_data  postgres  schema_admin
+```
+
+Son üçü yetkiyi bir GRANT'ten değil, süper kullanıcı olmaktan, tabloyu
+**sahiplenmekten** ve PostgreSQL'in yerleşik bir rolü olmaktan alıyor.
+Hiçbiri bir servisi tanımlamıyor.
+
+Öyle kalsaydı bu fazın kapattığı kusur **yeniden kurulmuş** olurdu:
+`schema_admin` bir bileşenin bağlandığı rol (`upgrader.example.toml`
+`schema_admin_dsn` taşıyor), yani o rolle bir kalp atışı satırı yazıldığı
+gün `full` bir daha hiç seçilemez — ve bu sefer sebebini sayfadan bulmak
+imkânsız olurdu.
+
+Süzgeç:
+
+- `rolcanlogin` — bir servis **bağlanır.** Yerleşik rolleri adlarına
+  bakmadan, doğru gerekçeyle eliyor. Ve bir grup üzerinden verilmiş
+  yetkiyi kaybetmiyor: `has_table_privilege` kalıtımı izliyor, yani
+  giriş yapan rol kendi adına cevap veriyor.
+- `NOT rolsuper` — süper kullanıcı hiç duymadığı tablolar hakkında bile
+  "evet" der.
+- tablonun sahibi değil.
+
+**Ve sahip-eleme bir muafiyet açmıyor.** Satırında bir şey **yazan** bir
+servis, rolü ne olursa olsun sayılıyor; süzgeç yalnız **sessiz** satırları
+çözmek için var. Yani sahibi olarak koşan yanlış yapılandırılmış bir
+collector yine kurala tabi, çünkü satırı `present` ya da `absent` diyor.
+Ders: *bir yetki sorusunun cevabı sahipliği ve süper kullanıcıyı
+içeriyorsa, sorduğu soru "kim yazar" değil "kim her şeyi yapabilir"dir.*
+
+### Fikstür: paylaşılan bir satıra ihtiyaç duyan bir suit onu paylaşmamalı
+
+Dört suit gerçek kalp atışı satırı yazıyor (`internal/heartbeat` iki
+kez, `internal/relupdate`, `internal/panel/web`) ve hiçbiri bu sütun
+hakkında değil — yani hepsi onu boş bırakıyor. `go test ./...`
+paketleri paralel koşturuyor, yani "collector: present" diye tohumlanmış
+bir satır, o sütunla hiç ilgisi olmayan bir paket tarafından test
+ortasında eziliyor, ve başarısızlık **burada**, bir ürün kusuru gibi,
+yarışı kaybeden koşuda bildiriliyor.
+
+Sekizinci bir kilit yerine C3'ün çözümü: **kendi şemasında türetilmiş
+bir kopya** (`LIKE public.service_heartbeat INCLUDING ALL`), suit'in
+havuzu `search_path`'i onunla başlatıyor. Kopya RLS'i miras almıyor ve
+bu isteniyor — politika "bir servis yalnız kendi satırını yazar" diyor
+ve onun kendi süiti var; fikstürün *herhangi* bir servisin ne
+bildirdiğini söyleyebilmesi gerekiyor.
+
+Mekanizma `internal/testdb`'ye kondu, çünkü iki suit'in ihtiyacı var ve
+paket paylaşamıyorlar. `internal/heartbeat`'in tipini import edemiyor
+(o paketin testleri `testdb`'yi import ediyor, yani sınanan paket
+üzerinden bir çevrim olurdu), o yüzden durum bir `string` — bir sütun
+yazan fikstür için zaten daha dürüst parametre.
+
+**Ve fikstürün bir kusuru ürün kusuru gibi göründü:** sağlık sayfası
+testinin bekleme koşulu yalnız `version` soruyordu, iki alt test aynı
+sürümle yazıyordu, yani koşul ikincisi hiçbir şey yazmadan önce zaten
+doğruydu. `context canceled` logu düştü ve sayfa **birinci** alt testin
+satırına karşı sınandı. *Değiştirdiği şeyi bekleme koşulunda
+adlandırmayan bir fikstür, değişikliği inmeden dönen bir fikstürdür.*
+
+### Yayımlanmış bir şema sürümü düzenlenmez — ve bu artık bir test
+
+Ayna testi kırmızı verdi ve *"24 → 25"* dedi. Doğru cevap 24'te
+kalmaktı, ve testin bunu bilmesinin yolu yoktu: genel tavsiye veriyordu.
+Gerçek kural etiketlerde yazılı, ve ölçüldü — en yeni sürüm
+`v0.24.0+L4` şema **21** taşıyor, yani 22, 23 ve 24 hiç yayımlanmadı.
+
+`internal/upgradepath.TestAReleasedSchemaVersionIsNeverEdited` her sürüm
+etiketinden `Version` ile `Fingerprint`'i okuyor. Bu ağacın sürümü
+yayımlanmış bir sürümle aynıysa parmak izi de aynı olmak zorunda;
+değilse serbest. Yayımlanmışın donuk olmasının sebebi `State.Matches`:
+oradaki bir veritabanının kaydıyla karşılaştırılıyor, yani değiştirmek
+**doğru kurulmuş** bir sisteme "şeman uyuşmuyor" deyip, hiçbir şeyi
+adlandıramayan bir yükseltme önermek demek. Sürüm 7'nin yorumu bunun
+bedelini yazıyor — ve o yalnız düzeltilmiş bir cümleydi.
+
+Ayna testinin mesajı da değişti: artık numarayı söylemiyor, **soruyu**
+soruyor ("bir sürüm etiketi 24'ü taşıdı mı?") ve iki cevabın ikisini de
+yazıyor.
+
+### Sınıf kapatıldı, ve iki örnek daha çıktı
+
+`internal/invariants/unreachablesetters_test.go`: `panel.Store`
+üzerindeki hiçbir `Set*` metodu yalnız testlerden çağrılmış olamaz.
+Setter seçildi çünkü bir dağıtımın gerçeği o yüzeyden giriyor, ve
+şablonlar setter çağırmıyor — "ürün kodunda çağıran yok" cümlesi yalnız
+orada söylediği şeyi söylüyor. Her tipe açmak, arayüz gerçeklemeleri ve
+şablondan adıyla çağrılan metotlar için bir isim listesi gerektirirdi,
+ve bu paketin var olma sebebi isim listelerinden kaçınmak.
+
+İlk koşusunda ikisi çıktı, ikisi de aynı şekil, ikisi de PLAN'da açık
+bulgu olarak yazılı:
+
+- **`SetDisabled`** — giriş yolu bayrağı uyguluyor (`auth.go` iki
+  yerde), ürün kodunda onu kuran hiçbir şey yok. Bir hesap hiçbir
+  kurulumda devre dışı bırakılamıyor.
+- **`SetDevAccessPolicy`** — politikanın kendisi ayarlar sayfasından
+  değiştirilebiliyor (`access.developer` sıradan bir enum ayarı), yani
+  sahip kilitli değil. Metodun kendine ait tek işi `open`'dan çıkarken
+  pencereyi temizlemek, ve genel yol temizlemiyor. Metodun yorumundaki
+  ikinci gerekçe — *"genel ayar yolu denetim kaydı yazmaz"* — yazıldığı
+  gün doğruydu ve artık değil: B2'nin operasyon kanalı her değişikliği
+  denetliyor. *Bir gerekçenin iki yarısı da sonradan yanlışa dönebilir,
+  ve dönerken ses çıkarmaz.*
+
+Muafiyet haritası, gerekçesiyle: bir istisna neden'ini taşıyorsa kabul
+edilebilir, ve haritadaki bir girdi bir gün **üretim çağıranı
+bulunursa** test onu da bildiriyor — artık geçerli olmayan bir istisna,
+okunmayı bırakan bir nottur.
+
+### Ve bir sayfa kusuru, sütun eklerken
+
+Sağlık sayfasının servis tablosu beş sütunla yazılmış, A2 `profile`
+eklemiş, 5b jetonu ekliyor — ve satır boyu yayılan iki satır (`colspan`)
+hâlâ beşte duruyordu. Kimse fark etmez: sonuç, hata satırının son iki
+sütununun boş kalması. `internal/panel/ui/tablespan_test.go` artık
+kuralı tutuyor: yayılan bir hücre satırın **tamamını** yayar, yani
+hücreler başlık sayısına eşit toplanmalı. Bir yerde duran bir sayının
+başka bir yerdeki bir sayımla uyuşması gerekiyorsa, sayım türetilebilir
+olduğu için uyum da sınanabilir.
+
+### 5b'nin ekran görüntüleri — iki şey buldu, biri üründe
+
+Fazın sonunda sağlık sayfası ve ayarlar sayfasının reddi çekildi ve
+**bakıldı.** İkisi de kusur çıkardı.
+
+**Biri üründe.** Yeni sütun tabloyu daralttı ve *haber alınamıyor*
+etiketi hücresinden taşmaya başladı: yanındaki zamanın ve alttaki
+satırın üstüne biniyordu, ve metni sardığı için iki ayrı kutu olarak iki
+yere birden çiziliyordu. Sebep etiketin sınıfı — `.uyari` bir uyarı
+**kutusu** (kenarlık, iç boşluk, dikey pay) ve satır içi bir kutunun iç
+boşluğu satırın yüksekliğine katılmıyor, yani kutu tanımı gereği satırın
+dışına çiziliyor. Hiçbir test kırılmadı, işaretlemede yanlış bir şey
+yok, ve **yalnız çizilmiş sayfaya bakmak** gösterdi. Düzeltmesi bir
+değiştirici (`.satir-ici`: `inline-block`, dikey pay yok, `nowrap`), ve
+kural teste bağlandı — sınıf listesi de stil dosyasından türetildi, yani
+beşinci bir uyarı kutusu aynı kurala kendiliğinden tabi.
+
+Aynı bakış sırasında ikinci bir sayı bulundu: satır boyu yayılan
+hücrelerin `colspan`'i beşte kalmış, tablo yediye çıkmıştı. Yine
+görünmez bir kusur — hata satırının son iki sütunu boş kalıyor — ve yine
+türetilebilir bir kural: yayılan bir hücre satırın tamamını yayar.
+
+**Öteki kusur ölçüm düzeneğindeydi ve ders daha değerli.** İlk denemede
+reddi elle kurduğum bir formla POST ettim, ve kırmızı bandın
+**satırı içermeyen** bir bölümün üstünde durduğu bir sayfa fotoğrafladım.
+Sebebi ürün değil: `privacy.ip_storage` bir geliştirici ayarı, sayfa
+okuyucunun kapattığı satırları çizmiyor, ve benim isteğim UI'nin
+sunmadığı bir yoldan geçmişti. Hesabın geliştirici kipini açıp sayfanın
+**kendi formunu** doldurunca doğru sayfa çıktı: bölüm açık geliyor
+(sunucu `Focus`'u tam bunun için koyuyor), değer `masked` kalmış, ve ret
+hangi servisin ne dediğini söylüyor.
+
+*Ürünün sunmadığı bir yolun ekran görüntüsü, düzeneğin ekran
+görüntüsüdür.* Ve bunun tersi de doğru: fotoğraflanacak sayfa, müşterinin
+tıkladığı kontrolden geçilerek üretilmeli — başka türlü üretilmiş bir
+sayfa bir maket.

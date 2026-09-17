@@ -21,6 +21,7 @@ replacing the page. */}}
 <th scope="col">{{t "saglik.sutun.servis"}}</th>
 <th scope="col">{{t "saglik.sutun.surum"}}</th>
 <th scope="col">{{t "saglik.sutun.profil"}}</th>
+<th scope="col">{{t "saglik.sutun.jeton"}}</th>
 <th scope="col">{{t "saglik.sutun.son_haber"}}</th>
 <th scope="col">{{t "saglik.sutun.calisma"}}</th>
 <th scope="col">{{t "saglik.sutun.sayaclar"}}</th>
@@ -35,9 +36,18 @@ replacing the page. */}}
 resource profile at all, and an empty cell reads as a missing value
 rather than as an absent one. */}}
 <td>{{if .Profile}}{{.Profile}}{{else}}<span class="ipucu">—</span>{{end}}</td>
+{{- /* A dash for the services that write no addresses, and for a build
+older than the column. The page cannot tell those two apart - both
+report nothing - so it says nothing rather than guessing which. */}}
+<td>
+  {{- if .TokenKey}}
+  {{- if .TokenKeyMissing}}<span class="uyari satir-ici">{{.TokenKey}}</span>
+  {{- else}}{{.TokenKey}}{{end}}
+  {{- else}}<span class="ipucu">—</span>{{end}}
+</td>
 <td>
   {{$.F.Since .LastBeat}}
-  {{- if .Stale}} <span class="uyari">{{t "saglik.eskimis"}}</span>{{end}}
+  {{- if .Stale}} <span class="uyari satir-ici">{{t "saglik.eskimis"}}</span>{{end}}
 </td>
 <td>{{$.F.Duration .Uptime}}</td>
 <td>
@@ -56,8 +66,8 @@ sentence and a table cell is not where a sentence is read. It stays
 visible after the service recovers, which is the point - "it worked
 when I looked" is how an intermittent fault survives for months. */}}
 <tr class="ayrinti">
-<td colspan="5">
-  <span class="uyari">{{t "saglik.son_hata"}}</span>
+<td colspan="7">
+  <span class="uyari satir-ici">{{t "saglik.son_hata"}}</span>
   <code>{{.LastError}}</code>
   {{- if not .LastErrorAt.IsZero}} <span class="ipucu">({{$.F.Since .LastErrorAt}})</span>{{end}}
 </td>
@@ -71,7 +81,7 @@ where the fourth should be would read as a fault. */}}
 <tr>
 <th scope="row">{{t "saglik.servis.panel_user"}}</th>
 <td><code>{{if .Data.Panel.Version}}{{.Data.Panel.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
-<td colspan="3" class="ipucu">{{t "saglik.panel_kendisi"}}</td>
+<td colspan="5" class="ipucu">{{t "saglik.panel_kendisi"}}</td>
 </tr>
 </tbody>
 </table>
@@ -413,7 +423,7 @@ prevent. */}}
 <td>{{$.F.Number .RowsParsed}}</td>
 <td>{{$.F.Bytes .BytesRead}}</td>
 <td>
-{{- if .Failed}}<span class="uyari">{{t "saglik.kaynak.dustu"}}</span>
+{{- if .Failed}}<span class="uyari satir-ici">{{t "saglik.kaynak.dustu"}}</span>
 {{- else}}{{t "saglik.kaynak.tamam"}}{{end}}</td>
 </tr>
 {{- if .ErrorChain}}
@@ -458,7 +468,7 @@ prevent. */}}
 <tr class="{{if .Missing}}kaldi{{end}}">
 <th scope="row">{{.Label}} <code class="ipucu">{{.Table}}</code></th>
 <td>
-  {{- if .Missing}}<span class="uyari">{{t "saglik.tablo_yok"}}</span>
+  {{- if .Missing}}<span class="uyari satir-ici">{{t "saglik.tablo_yok"}}</span>
   {{- else}}{{$.F.Bytes .Bytes}}{{end}}
 </td>
 <td>{{if .Hypertable}}{{$.F.Number .Chunks}}{{else}}<span class="ipucu">—</span>{{end}}</td>
@@ -547,14 +557,14 @@ their first one. */}}
 <th scope="row">{{$.F.DateTime .TakenAt}}</th>
 <td>{{range $i, $s := .Sets}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
 <td class="sayi">
-  {{- if .Missing}}<span class="uyari">{{t "saglik.yedek.eksik"}}</span>
+  {{- if .Missing}}<span class="uyari satir-ici">{{t "saglik.yedek.eksik"}}</span>
   {{- else}}{{$.F.Bytes .Bytes}}{{end}}</td>
 <td><code class="ipucu">{{.Version}}</code></td>
 <td>
 {{- /* Three states, from one method, so "checked" and "unchecked"
 cannot both be drawn for one row. Never-checked is deliberately not
 silent: an unopened backup is the object this whole section is about. */}}
-{{- if eq .Verdict "bozuk"}}<span class="uyari">{{t "saglik.yedek.dogrulama.bozuk"}}</span>
+{{- if eq .Verdict "bozuk"}}<span class="uyari satir-ici">{{t "saglik.yedek.dogrulama.bozuk"}}</span>
 {{- else if eq .Verdict "saglam"}}{{t "saglik.yedek.dogrulama.saglam"}}
   <span class="ipucu">{{$.F.DateTime .Checked}}</span>
 {{- else}}<span class="ipucu">{{t "saglik.yedek.dogrulama.bakilmadi"}}</span>{{end}}

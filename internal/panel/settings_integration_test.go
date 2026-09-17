@@ -25,6 +25,8 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 // settingsStore opens a store and clears panel_settings afterwards.
@@ -33,11 +35,41 @@ import (
 // safe because nothing else in the suite writes to it.
 func settingsStore(t *testing.T) *Store {
 	t.Helper()
-	store := newTestStore(t, "settings")
-	// A deployment that has an IP token key on disk, which is what
-	// switching to full mode requires. The tests that care about the
-	// refusal turn it off explicitly.
-	store.SetIPTokenKeyConfigured(true)
+	store, _ := settingsStoreAndBeats(t)
+	return store
+}
+
+// settingsStoreAndBeats is settingsStore plus the handle to what the
+// services reported.
+//
+// # Why the store now needs one at all
+//
+// Several tests in this file switch privacy.ip_storage to full, which
+// has a precondition: every service that writes an address must hold a
+// key it could tokenise with. That used to be a boolean on the Store,
+// set here with one line - and the defect 5b fixed was that the same
+// line was the *only* thing that ever set it, so the precondition was
+// unreachable in production while passing in tests.
+//
+// It is now read from the services' own heartbeat rows, so this fixture
+// has to write rows. Which is the point: a fixture that has to set up a
+// deployment state is a fixture whose assertion cannot be satisfied by a
+// field nobody fills.
+//
+// The rows go into a copy of service_heartbeat in this suite's own
+// schema - see newHeartbeatFixture for why the shared table will not do.
+func settingsStoreAndBeats(t *testing.T) (*Store, *heartbeatFixture) {
+	t.Helper()
+	// Before the store, so its schema is dropped after the store's pool
+	// is closed rather than under it.
+	beats := newHeartbeatFixture(t)
+	// A deployment where the one service that has started holds a usable
+	// key, which is what switching to full mode requires. The tests that
+	// care about the refusal say otherwise explicitly.
+	beats.says(testdb.Collector, heartbeat.TokenKeyPresent)
+
+	store := newTestStoreAt(t, "settings", beats.dsn)
+	beats.reaches(t, store.Pool())
 	t.Cleanup(func() {
 		fresh, err := NewStore(context.Background(), testDatabaseURL)
 		if err != nil {
@@ -54,7 +86,7 @@ func settingsStore(t *testing.T) *Store {
 			t.Logf("cleanup: clearing panel_settings: %v", err)
 		}
 	})
-	return store
+	return store, beats
 }
 
 func TestSettings_DefaultsApplyBeforeAnythingIsStored(t *testing.T) {
@@ -1026,8 +1058,8 @@ func TestGateRequest_ACustomersGuessCostsNothing(t *testing.T) {
 // that quietly becomes a different mode is the worst way for this
 // particular setting to be wrong, so the panel refuses the value.
 func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
-	store := settingsStore(t)
-	store.SetIPTokenKeyConfigured(false)
+	store, beats := settingsStoreAndBeats(t)
+	beats.says(testdb.Collector, heartbeat.TokenKeyAbsent)
 	ctx := context.Background()
 	gate := testGate(t, store)
 	operator := operatorAccess()
@@ -1053,7 +1085,7 @@ func TestApplySetting_FullModeNeedsTheKeyOnDiskFirst(t *testing.T) {
 
 	// And once the key is there, the same write goes through - so this
 	// is a precondition, not a prohibition.
-	store.SetIPTokenKeyConfigured(true)
+	beats.says(testdb.Collector, heartbeat.TokenKeyPresent)
 	if err := store.ApplySetting(ctx, operator, KeyPrivacyIPStorage, "", IPStorageFull,
 		authorize(t, gate, KeyPrivacyIPStorage), nil); err != nil {
 		t.Errorf("full mode was refused with the key configured: %v", err)

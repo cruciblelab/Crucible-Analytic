@@ -33,13 +33,16 @@ package heartbeat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 )
 
@@ -95,6 +98,74 @@ func Count(v uint64) int64 {
 	return int64(v)
 }
 
+// TokenKeyState is what a service says about its IP token key.
+//
+// Three values because there are three answers, and collapsing the
+// first into the third would be a lie about a build that never spoke:
+// a boolean column defaulting to false would report "this service has
+// no key" for a service whose binary predates the column.
+//
+// The refusing side is shared by TokenKeyUnknown and TokenKeyAbsent -
+// the panel will not offer full mode for either - so the distinction
+// buys nothing in the decision and everything in the sentence: "upgrade
+// the collector" and "put a key in collector.toml" send an operator to
+// different places.
+type TokenKeyState string
+
+const (
+	// TokenKeyUnknown is the zero value and what an old build, or a
+	// service with no addresses to write, leaves in the column.
+	TokenKeyUnknown TokenKeyState = ""
+	// TokenKeyPresent means this service holds a key TokenIP would
+	// actually use - privacy.CanTokenise, not merely a non-empty
+	// string. See that function for why the threshold has one home.
+	TokenKeyPresent TokenKeyState = "present"
+	// TokenKeyAbsent means this service looked and has none.
+	TokenKeyAbsent TokenKeyState = "absent"
+)
+
+// ParseTokenKeyState reads the column, treating anything unrecognised as
+// unknown.
+//
+// The permissive direction is the safe one here, which is worth saying
+// because it usually is not: an unknown word means the panel refuses
+// full mode, so a future writer that invents a fourth value costs a
+// deployment the fast path and can never open the gate by accident.
+func ParseTokenKeyState(value string) TokenKeyState {
+	switch TokenKeyState(value) {
+	case TokenKeyPresent:
+		return TokenKeyPresent
+	case TokenKeyAbsent:
+		return TokenKeyAbsent
+	default:
+		return TokenKeyUnknown
+	}
+}
+
+// TokenKeyStateOf turns a key into what to report about it.
+//
+// Takes the key rather than a boolean so that no caller has to decide
+// what "usable" means - two services report this and the rule is
+// privacy.CanTokenise for both.
+func TokenKeyStateOf(key []byte) TokenKeyState {
+	if privacy.CanTokenise(key) {
+		return TokenKeyPresent
+	}
+	return TokenKeyAbsent
+}
+
+// optionalColumns are the service_heartbeat columns a database may not
+// have yet, in the order the writer passes their values and the reader
+// scans them.
+//
+// One list, read by both halves. The writer pairs each name with a value
+// in Reporter.reported, and TestTheOptionalColumnsAreOneList holds the
+// two in the same order - because the failure of getting it wrong is
+// silent: profile and ip_token_key_state are both text, so a swapped
+// pair writes a profile name into the token-key column and PostgreSQL
+// accepts it.
+var optionalColumns = []string{"profile", "ip_token_key_state"}
+
 // Beat is one service's row.
 type Beat struct {
 	// Service is the database role the service connects as. It is also
@@ -108,8 +179,12 @@ type Beat struct {
 	// Profile is the resource profile the service is running, empty for
 	// the services that have none and for a build older than the column.
 	// See internal/profile and the schema's comment on it.
-	Profile   string
-	LastError string
+	Profile string
+	// IPTokenKey is whether this service could tokenise an address if
+	// the panel asked it to. Unknown for the read API, which writes
+	// none, and for a build older than the column.
+	IPTokenKey TokenKeyState
+	LastError  string
 	// LastErrorAt is the zero time when nothing has failed, rather than
 	// a nil pointer: a template cannot hand a *time.Time to a formatter,
 	// and finding that out at render time is a defect that reaches
@@ -149,16 +224,20 @@ type Reporter struct {
 	// profile is fixed for the life of the process: it is derived from
 	// configuration that is read once at startup, and changing it needs
 	// a restart because the datasets it names are loaded at startup too.
-	profile  string
-	interval time.Duration
-	logger   *slog.Logger
-	now      func() time.Time
+	profile string
+	// ipTokenKey is fixed for the life of the process for the same
+	// reason profile is: the key is read once, at startup, and a key
+	// added to the file afterwards is not a key this process holds.
+	ipTokenKey TokenKeyState
+	interval   time.Duration
+	logger     *slog.Logger
+	now        func() time.Time
 
-	// profileOnce guards the one-time check for the profile column; see
-	// write. hasProfile is only written inside it, and only read after
-	// it, so it needs no lock of its own.
-	profileOnce sync.Once
-	hasProfile  bool
+	// columnsOnce guards the one-time check for the optional columns;
+	// see write. present is only written inside it, and only read
+	// after it, so it needs no lock of its own.
+	columnsOnce sync.Once
+	present     map[string]bool
 
 	mu          sync.Mutex
 	lastError   string
@@ -190,11 +269,17 @@ type Options struct {
 	// Profile is what internal/profile calls this service's resource
 	// configuration. Only the collector has one; everything else leaves
 	// it empty, which the panel renders as nothing.
-	Profile  string
-	Started  time.Time
-	Counters func() map[string]int64
-	Interval time.Duration
-	Logger   *slog.Logger
+	Profile string
+	// IPTokenKey is what this service can say about its IP token key.
+	// The two services that write addresses set it from
+	// TokenKeyStateOf(their configured key); everything else leaves it
+	// unknown, which is what the read API means and what the panel
+	// reads as "do not offer full mode on my account".
+	IPTokenKey TokenKeyState
+	Started    time.Time
+	Counters   func() map[string]int64
+	Interval   time.Duration
+	Logger     *slog.Logger
 	// Now supplies the clock, for tests.
 	Now func() time.Time
 }
@@ -220,7 +305,8 @@ func New(o Options) *Reporter {
 	}
 	return &Reporter{
 		pool: o.Pool, service: o.Service, version: o.Version,
-		profile: o.Profile, started: o.Started, counters: o.Counters,
+		profile: o.Profile, ipTokenKey: o.IPTokenKey,
+		started: o.Started, counters: o.Counters,
 		interval: o.Interval, logger: o.Logger, now: o.Now,
 	}
 }
@@ -357,26 +443,30 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 	// database still on 7 must show the health page rather than an
 	// error. It is the page an operator opens to find out what state the
 	// upgrade is in.
-	// Two whole queries rather than one with the column name pasted in.
-	// The pasted version worked and read worse in the way that matters:
-	// a query built by concatenation is one a future edit can make take
-	// a value from somewhere else, and this file would then be the place
-	// it happened. Two literals cannot.
-	const (
-		withProfile = `
-		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at, profile
-		FROM service_heartbeat
-		ORDER BY beat_at DESC`
-		withoutProfile = `
-		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at, ''::text
-		FROM service_heartbeat
-		ORDER BY beat_at DESC`
-	)
-
-	query := withoutProfile
-	if has, err := schemaver.HasColumn(ctx, pool, "service_heartbeat", "profile"); err == nil && has {
-		query = withProfile
+	// One statement whose *result* shape is fixed and whose column list
+	// follows the database: a column this database has is selected, and
+	// one it does not have is replaced by an empty literal. So the scan
+	// below never changes, which is the half that would otherwise have
+	// to be written once per combination.
+	//
+	// Nothing variable reaches the string - the names come from the same
+	// literal list the writer uses. See Reporter.write for the trade
+	// this replaced and why.
+	selected := make([]string, 0, len(optionalColumns))
+	for _, column := range optionalColumns {
+		has, err := schemaver.HasColumn(ctx, pool, "service_heartbeat", column)
+		if err == nil && has {
+			selected = append(selected, column)
+			continue
+		}
+		selected = append(selected, `''::text`)
 	}
+
+	query := `
+		SELECT service, version, started_at, beat_at, counters, last_error, last_error_at,
+		       ` + strings.Join(selected, ", ") + `
+		FROM service_heartbeat
+		ORDER BY beat_at DESC`
 
 	rows, err := pool.Query(ctx, query)
 	if err != nil {
@@ -392,10 +482,12 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 			errAt   *time.Time
 			version string
 		)
+		var tokenKey string
 		if err := rows.Scan(&b.Service, &version, &b.StartedAt, &b.BeatAt,
-			&raw, &b.LastError, &errAt, &b.Profile); err != nil {
+			&raw, &b.LastError, &errAt, &b.Profile, &tokenKey); err != nil {
 			return nil, err
 		}
+		b.IPTokenKey = ParseTokenKeyState(tokenKey)
 		b.Version = version
 		if errAt != nil {
 			b.LastErrorAt = *errAt
@@ -456,52 +548,105 @@ func truncate(s string, max int) string {
 // is restarted, and that is both correct and invisible: the column is
 // empty for a minute or a day and then it is not.
 func (r *Reporter) write(ctx context.Context, counters []byte, lastError string, errAt *time.Time) error {
-	r.profileOnce.Do(func() {
-		has, err := schemaver.HasColumn(ctx, r.pool, "service_heartbeat", "profile")
-		if err != nil {
-			// Could not ask. Assume the column is there, because the
-			// far more common reason to be here is a database blip
-			// rather than an old schema, and the write below reports
-			// its own failure anyway.
-			r.hasProfile = true
-			return
-		}
-		r.hasProfile = has
-		if !has {
-			r.logger.Info("heartbeat: this database has no profile column yet, so the " +
-				"resource profile will not appear in the panel until the schema is " +
-				"upgraded; everything else is being reported normally")
-		}
-	})
+	r.columnsOnce.Do(func() { r.detectColumns(ctx) })
 
-	if !r.hasProfile {
-		_, err := r.pool.Exec(ctx, `
-			INSERT INTO service_heartbeat
-			    (service, version, started_at, beat_at, counters, last_error, last_error_at)
-			VALUES ($1, $2, $3, now(), $4, $5, $6)
-			ON CONFLICT (service) DO UPDATE SET
-			    version = EXCLUDED.version,
-			    started_at = EXCLUDED.started_at,
-			    beat_at = now(),
-			    counters = EXCLUDED.counters,
-			    last_error = EXCLUDED.last_error,
-			    last_error_at = EXCLUDED.last_error_at`,
-			r.service, r.version, r.started, counters, lastError, errAt)
-		return err
-	}
-
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO service_heartbeat
-		    (service, version, started_at, beat_at, counters, last_error, last_error_at, profile)
-		VALUES ($1, $2, $3, now(), $4, $5, $6, $7)
-		ON CONFLICT (service) DO UPDATE SET
-		    version = EXCLUDED.version,
+	// The fixed half. now() rather than a parameter: the beat time is
+	// the database's opinion, so two services on two machines with two
+	// clock skews still sort against each other correctly on the health
+	// page.
+	columns := `service, version, started_at, beat_at, counters, last_error, last_error_at`
+	values := `$1, $2, $3, now(), $4, $5, $6`
+	sets := `version = EXCLUDED.version,
 		    started_at = EXCLUDED.started_at,
 		    beat_at = now(),
 		    counters = EXCLUDED.counters,
 		    last_error = EXCLUDED.last_error,
-		    last_error_at = EXCLUDED.last_error_at,
-		    profile = EXCLUDED.profile`,
-		r.service, r.version, r.started, counters, lastError, errAt, r.profile)
+		    last_error_at = EXCLUDED.last_error_at`
+	args := []any{r.service, r.version, r.started, counters, lastError, errAt}
+
+	// And the optional half, assembled from the columns this database
+	// turned out to have.
+	//
+	// # Why this is assembled and the previous version was not
+	//
+	// It used to be two whole statements, one naming profile and one
+	// not, and the comment beside them argued against exactly what this
+	// loop does: a query built by concatenation is one a future edit
+	// can make take a value from somewhere else.
+	//
+	// That argument was right about the risk and is answered rather than
+	// ignored. Every fragment below comes from reported(), which is a
+	// literal list in this file; nothing a caller, a config file or a
+	// database row can influence reaches the string. What changed is the
+	// other side of the trade: 5b adds a second optional column, and
+	// hand-written statements for every combination is four literals
+	// now and eight at the next one, differing in one clause each. A set
+	// of eight near-identical statements nobody compares is a defect
+	// this project has already paid for more than once.
+	for _, opt := range r.reported() {
+		if !r.present[opt.column] {
+			continue
+		}
+		columns += ", " + opt.column
+		values += fmt.Sprintf(", $%d", len(args)+1)
+		sets += fmt.Sprintf(",\n\t\t    %s = EXCLUDED.%s", opt.column, opt.column)
+		args = append(args, opt.value)
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO service_heartbeat (`+columns+`)
+		VALUES (`+values+`)
+		ON CONFLICT (service) DO UPDATE SET
+		    `+sets, args...)
 	return err
+}
+
+// reported pairs each optional column with the value this process would
+// write into it.
+//
+// One list rather than a column list and a value list side by side: two
+// parallel slices are two things to keep in the same order, and getting
+// that wrong would write the profile into the token-key column with no
+// error anywhere - both are text.
+func (r *Reporter) reported() []struct {
+	column string
+	value  any
+} {
+	return []struct {
+		column string
+		value  any
+	}{
+		{"profile", r.profile},
+		{"ip_token_key_state", string(r.ipTokenKey)},
+	}
+}
+
+// detectColumns asks the catalog which optional columns exist.
+//
+// Once per process, because the answer changes only when somebody
+// applies a schema, and a schema upgrade restarts nothing - so the cost
+// of being wrong for the rest of this process's life is one column
+// missing from a page until the next restart, against a catalog query on
+// every beat forever.
+//
+// A failed question assumes the column is there, for the reason the
+// profile check gave when it was alone: the far more common reason to be
+// here is a database blip rather than an old schema, and the write
+// reports its own failure anyway.
+func (r *Reporter) detectColumns(ctx context.Context) {
+	r.present = make(map[string]bool, 2)
+	for _, opt := range r.reported() {
+		has, err := schemaver.HasColumn(ctx, r.pool, "service_heartbeat", opt.column)
+		if err != nil {
+			r.present[opt.column] = true
+			continue
+		}
+		r.present[opt.column] = has
+		if !has {
+			r.logger.Info("heartbeat: this database has no "+opt.column+" column yet, so "+
+				"that detail will not appear in the panel until the schema is "+
+				"upgraded; everything else is being reported normally",
+				"column", opt.column)
+		}
+	}
 }

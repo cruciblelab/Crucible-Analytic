@@ -19,7 +19,7 @@ import (
 // said so. A checklist cannot show the absence of an entry nobody
 // wrote.
 func TestAWizardWithNoServiceAddressesSaysSo(t *testing.T) {
-	results := New(nil, false).Run(context.Background(), Config{})
+	results := New(nil).Run(context.Background(), Config{})
 
 	var found *CheckResult
 	for i := range results {
@@ -82,7 +82,7 @@ func TestAConfiguredServiceIsActuallyFetched(t *testing.T) {
 	}))
 	defer up.Close()
 
-	results := New(nil, false).Run(context.Background(), Config{
+	results := New(nil).Run(context.Background(), Config{
 		ServiceURLs: map[string]string{
 			"beacon": up.URL + "/healthz",
 			// A port nothing listens on, rather than a name that does

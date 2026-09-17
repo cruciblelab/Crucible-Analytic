@@ -17,6 +17,8 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/diskspace"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
+	"github.com/cruciblelab/crucible-analytic/internal/tokenkey"
 )
 
 // Preflight is the list of things that cannot be done from the panel,
@@ -84,9 +86,8 @@ type CheckResult struct {
 	Fix string `json:"fix,omitempty"`
 }
 
-// Checker runs the checks. It holds the two things they need and
-// nothing else: a database pool, and whether the collector was given an
-// IP token key.
+// Checker runs the checks. It holds the one thing they need and nothing
+// else: a database pool.
 //
 // It takes a pool rather than the panel's Store deliberately. Preflight
 // asks questions no other part of the panel asks - what a *different*
@@ -96,18 +97,26 @@ type CheckResult struct {
 // type with its own pool keeps them where they belong, and keeps this
 // package from importing the panel at all.
 type Checker struct {
-	pool                 *pgxpool.Pool
-	ipTokenKeyConfigured bool
+	pool *pgxpool.Pool
 }
 
 // New returns a Checker.
 //
-// ipTokenKeyConfigured is passed in rather than read here because the
-// key lives in the collector's configuration, not the panel's: the panel
-// can be told whether one exists, but it must never be in a position to
-// read it.
-func New(pool *pgxpool.Pool, ipTokenKeyConfigured bool) *Checker {
-	return &Checker{pool: pool, ipTokenKeyConfigured: ipTokenKeyConfigured}
+// # What used to be a second argument, and why it is gone
+//
+// It took ipTokenKeyConfigured, a boolean the caller was supposed to
+// know. The comment beside it explained the shape well - the key lives
+// in the collector's configuration and the panel must never be in a
+// position to read it - and the explanation was the trap: nothing in
+// production ever passed true, because nothing could. cmd/panel read it
+// from a store field that no production code set.
+//
+// So this check reported "no key configured" on every installation there
+// has ever been, including the ones that had one. The question is now
+// put to the services themselves through internal/tokenkey; see that
+// package for the whole of it.
+func New(pool *pgxpool.Pool) *Checker {
+	return &Checker{pool: pool}
 }
 
 // Config tells the checks where to look.
@@ -198,7 +207,7 @@ func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 		c.checkRetentionPolicies(ctx),
 		c.checkConfiguredRolesExist(ctx, cfg.Roles),
 		checkDeveloperPassword(cfg.DeveloperGate, cfg.GuardedKeys),
-		c.checkIPTokenKey(),
+		c.checkIPTokenKey(ctx),
 		checkBotData(cfg.BotDataPath, cfg.Now),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
@@ -861,14 +870,6 @@ func checkDeveloperPassword(gate *devgate.Gate, guarded []string) CheckResult {
 	return result
 }
 
-// checkIPTokenKey reports whether full IP mode could be switched on at
-// all.
-//
-// Recommended rather than required, and skipped rather than failed when
-// absent - a deployment that never leaves masked mode needs no key and
-// is not misconfigured for lacking one. What the check exists for is the
-// other direction: somebody about to ask why the panel refuses to switch
-// modes should find the answer here rather than in a support call.
 // botDataStaleAfter is when a fetched fingerprint set starts being worth
 // mentioning. Not an expiry: last month's fingerprints are far better
 // than none, so this warns and never fails.
@@ -927,22 +928,90 @@ func checkBotData(path string, now func() time.Time) CheckResult {
 	return result
 }
 
-func (c *Checker) checkIPTokenKey() CheckResult {
+// checkIPTokenKey asks the services, not a boolean somebody passed in.
+//
+// The whole of why is in internal/tokenkey: the answer used to come
+// from a field no production code ever set, so this check skipped on
+// every install and the panel refused full mode on every deployment.
+//
+// A service that has never run does not appear here at all, which is
+// correct and is the case the old version could not express: a
+// collector-only installation is ordinary, and demanding a key from a
+// beacon nobody deployed would be demanding it forever.
+func (c *Checker) checkIPTokenKey(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "config.ip_token_key", Label: "IP jeton anahtarı (yalnız full mod için)",
 		Severity: SeverityRecommended,
 	}
-	if c.ipTokenKeyConfigured {
-		result.Status = CheckPass
-		result.Detail = "Tanımlı. IP saklama biçimi full'e alınabilir; ham adres yine saklanmaz."
+	if c.pool == nil {
+		return noDatabase(result)
+	}
+	fix := "go run ./cmd/devpass -ipkey  →  aynı değeri hem collector hem beacon " +
+		"yapılandırmasındaki [privacy] ip_hash_key alanına yazın, sonra servisi yeniden başlatın"
+
+	reports, err := tokenkey.Reports(ctx, c.pool)
+	if err != nil {
+		result.Status = CheckWarn
+		result.Detail = "Servislere sorulamadı: " + err.Error()
+		result.Fix = fix
 		return result
 	}
-	result.Status = CheckSkip
-	result.Detail = "Tanımlı değil. Kurulum maskeli modda çalışır ve bu sorun değildir — " +
-		"anahtar yalnızca full moda geçilmek istenirse gerekir."
-	result.Fix = "go run ./cmd/devpass -ipkey  →  aynı değeri hem collector hem beacon " +
-		"yapılandırmasındaki [privacy] ip_hash_key alanına yazın"
+	if len(reports) == 0 {
+		// Not a failure: on a fresh install nothing has started yet, and
+		// this check runs *during* that install. Saying "no key" here
+		// would be reporting a missing configuration when the only
+		// missing thing is a running service.
+		result.Status = CheckSkip
+		result.Detail = "Adres yazan hiçbir servis henüz kendini bildirmedi, yani " +
+			"anahtarı olup olmadığı bilinmiyor. Collector (ve varsa beacon) bir kez " +
+			"çalıştıktan sonra bu satır gerçek cevabı verir."
+		result.Fix = fix
+		return result
+	}
+	if missing := tokenkey.Missing(reports); len(missing) > 0 {
+		// Skip rather than fail, because masked mode is a correct
+		// deployment and this key is only needed to leave it. What
+		// changed is that the sentence now names the services and says
+		// which of the two things is wrong with each.
+		result.Status = CheckSkip
+		result.Detail = "Tanımlı değil: " + missingDetail(missing) +
+			". Kurulum maskeli modda çalışır ve bu sorun değildir — anahtar yalnızca " +
+			"full moda geçilmek istenirse gerekir."
+		result.Fix = fix
+		return result
+	}
+	result.Status = CheckPass
+	result.Detail = readyDetail(reports) +
+		" IP saklama biçimi full'e alınabilir; ham adres yine saklanmaz."
 	return result
+}
+
+// missingDetail names each service and what it said.
+//
+// Two states with two different fixes: a service that reports no key
+// needs one in its config file, and a service that reports nothing needs
+// a newer build. A sentence that collapsed them would send half its
+// readers to edit a file that is already correct.
+func missingDetail(missing []tokenkey.Report) string {
+	parts := make([]string, 0, len(missing))
+	for _, r := range missing {
+		switch r.State {
+		case heartbeat.TokenKeyAbsent:
+			parts = append(parts, r.Service+" anahtar bildirmiyor")
+		default:
+			parts = append(parts, r.Service+" bu bilgiyi hiç bildirmiyor (eski sürüm olabilir)")
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+// readyDetail names the services that did report one.
+func readyDetail(reports []tokenkey.Report) string {
+	names := make([]string, 0, len(reports))
+	for _, r := range reports {
+		names = append(names, r.Service)
+	}
+	return "Tanımlı (" + strings.Join(names, ", ") + ")."
 }
 
 // checkConfiguredRolesExist catches a typo in a role name.

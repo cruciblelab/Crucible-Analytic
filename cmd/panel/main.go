@@ -267,7 +267,7 @@ func main() {
 		// internal/panel/web holds the two together.
 		StoragePaths:    cfg.StoragePaths(),
 		DatabaseIsLocal: databaseIsLocal(cfg.PanelDSN),
-		Preflight:       preflight.New(store.Pool(), store.IPTokenKeyConfigured()),
+		Preflight:       preflight.New(store.Pool()),
 		PreflightConfig: preflight.Config{
 			LogDir:      cfg.Logging.Dir,
 			DataDir:     cfg.Logging.Dir,

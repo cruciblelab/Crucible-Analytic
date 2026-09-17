@@ -144,7 +144,7 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 	// Checked before the write and before the audit entry, so a value
 	// the deployment cannot honour never gets recorded as if it had
 	// been applied.
-	if err := s.checkPrecondition(key, value); err != nil {
+	if err := s.checkPrecondition(ctx, key, value); err != nil {
 		return err
 	}
 

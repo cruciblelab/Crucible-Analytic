@@ -15,8 +15,11 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
 **Şema sürümü: 24.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Yeni iki tablo ekleniyor (aşağıdaki
-"Uzun aralıklarda ziyaretçi sayısı" maddesi), var olan tablolara
-dokunulmuyor, veri yeniden yazılmıyor, servis durmuyor.
+"Uzun aralıklarda ziyaretçi sayısı" maddesi) ve `service_heartbeat`'e
+bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi);
+var olan verinin hiçbiri yeniden yazılmıyor, servis durmuyor. Sütun
+eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmış parça
+üzerinde **0 bayt** değişiklik, 519 ms.
 **v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
@@ -172,6 +175,90 @@ dosya karar veriyor, panel `full` yazınca satırda jeton çıkıyor, panel
 sürümdeyse (biri bu yapıyı almış, diğeri almamış) kip değişimi yine
 ayrışabilir; belirti "kesişim hiç sonuç vermiyor" ve KURULUM'un sorun
 giderme tablosunda yazıyor.
+
+### `full` kipi panelden hiç seçilemiyordu (5b)
+
+Yukarıdaki madde kipin **uygulanmasını** düzeltti. Bu madde onun ikizi:
+kip **seçilemiyordu.**
+
+`privacy.ip_storage`'ı `full` yapmak bir ön koşul ister — adres yazan
+servislerin jeton üretebileceği bir anahtarı olması. Panel bu koşulu
+kendi üzerindeki bir alana bakarak soruyordu, ve o alanı dolduran metodu
+**ürün kodunda hiç kimse çağırmıyordu.** İki test çağırıyordu. Yani alan
+her kurulumda `false`, `full` her kurulumda reddedilmiş, ve testler
+geçiyordu — çünkü onu kuran tek şey onları koşturan testin kendisiydi.
+
+Aynı alanı kurulum sihirbazının IP anahtarı kontrolü de okuyordu, o da
+**her kurulumda** "tanımlı değil" diyordu. Anahtarı olanlarda da.
+
+**Neden soru servislere soruluyor.** Çünkü soru "bir yerde anahtar var
+mı" değil, "adresin iki yazarı da aynı jetonu üretebilir mi". Anahtar
+`collector.toml` ve `beacon.toml`'da duruyor ve panelin rolü o dosyaları
+okuyamaz — bilerek: o dosyalar panelin asla tutmaması gereken rollerin
+veritabanı parolalarını taşıyor. Bir dosya kimin ne yazdığını söyler;
+servisin kendisi **koşan sürecin ne yüklediğini** söyler, ve dosyaya
+eklenip yeniden başlatılmamış bir anahtar o sürecin sahip olduğu bir
+anahtar değildir.
+
+Onun için her servis kendi **kalp atışı satırında** cevap veriyor:
+`service_heartbeat.ip_token_key_state`, üç kelimeden biri — `''`
+(bildirmedi), `present`, `absent`. **Anahtarın kendisi değil, ondan
+türetilmiş hiçbir şey de değil:** o tabloyu panel rolünün tamamı
+okuyabilir.
+
+**Üç durum, üç cevap, ve ortadaki neden bir boolean olamıyor:**
+
+| servis ne diyor | panel ne yapıyor | düzeltmesi |
+|---|---|---|
+| `present` | `full` seçilebiliyor | — |
+| `absent` | reddediyor, servisi adıyla söylüyor | o servisin `[privacy] ip_hash_key` alanı |
+| bildirmiyor | reddediyor, "sürümü eski olabilir" diyor | o servisi yükseltmek |
+
+Bir boolean sütun olsaydı, bu sütundan eski bir yapı `false` okunurdu —
+yani "bu servisin anahtarı yok". Okuyanı yanlış dosyaya gönderen bir
+cümle, belirsiz bir cümleden kötüdür: bakar, bir şey bulamaz, ve sayfaya
+inanmayı bırakır.
+
+**Adres yazanların listesi türetiliyor,** yapılandırmaya yazılmıyor: bir
+rolün adres yazabilmesi, adres tutan bir tabloya **verilmiş** INSERT
+yetkisi demek. İlk hâli yalnız `has_table_privilege` soruyordu ve doğru
+kurulmuş bir veritabanında **iki değil beş** rol döndürüyordu —
+`collector` ve `beacon_writer`'ın yanında `postgres`, `schema_admin` ve
+PostgreSQL'in `pg_write_all_data`'sı. Üçü de yetkiyi süper kullanıcı
+olmaktan, tabloyu **sahiplenmekten** ve yerleşik bir rol olmaktan
+alıyor; hiçbiri bir GRANT değil ve hiçbiri bir servisi tanımlamıyor.
+Öyle kalsaydı bu maddenin düzelttiği kusur yeniden kurulmuş olurdu:
+`schema_admin` bir bileşenin bağlandığı rol (`upgrader.example.toml`),
+yani o rolle bir kalp atışı satırı yazıldığı gün `full` bir daha hiç
+seçilemezdi — ve sebebini sayfadan bulmak imkânsız olurdu.
+
+**Sağlık sayfasında yeni bir sütun var:** her servisin IP jetonu
+anahtarı var mı. Reddi denemeden görebilmek için, çünkü yalnız
+dürtülerek okunabilen bir sayfa bir sayfa değil.
+
+**Kuran kişinin yapması gereken:** şema yükseltmesi, ve `full` kipi
+kullanmak istiyorsanız **collector ile beacon'ı bir kez yeniden
+başlatmak** — anahtar durumu koşan sürecin başlangıçta okuduğu şey, ve
+eski bir süreç bunu hiç bildirmiyor. Maskeli kipte kalan bir kurulumun
+yapması gereken bir şey yok.
+
+### Sağlık sayfasında bayat servisin satırı okunamıyordu
+
+Yeni sütun tabloyu daralttı ve bir şeyi görünür yaptı: *haber
+alınamıyor* etiketi hücresinden taşıp yanındaki zamanı ve alttaki satırı
+örtüyordu. Sebep etiketin kendisi — sayfanın uyarı **kutusu** (kenarlık,
+iç boşluk, dikey pay) bir satırın içine konduğunda, iç boşluğu o satırın
+yüksekliğine katılmıyor, yani kutunun kendisi satırın dışına çiziliyor;
+metni sardığında da iki parça birbirinin üstüne düşüyor.
+
+Bedeli küçük görünüyor ve değil: bu, bir şeyler ters gittiğinde
+operatörün baktığı **tek satır.** Artık satır içi kullanım için ayrı bir
+biçim var; etiket satırın parçası ve hiç sarmıyor. Kural bir teste
+bağlandı (`internal/panel/ui/tablespan_test.go`), ve aynı dosyada ikinci
+bir kural daha: satır boyu yayılan bir hücre tablonun **tamamını**
+yaymalı — o sayı da sütun sayısının gerisinde kalmıştı.
+
+**Kuran kişinin yapması gereken: bir şey yok.**
 
 ### Snippet artık sıkıştırılmış gidiyor
 

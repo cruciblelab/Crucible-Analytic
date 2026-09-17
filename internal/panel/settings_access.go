@@ -58,34 +58,27 @@ func (a SettingAccess) Editable() bool { return a == SettingWritable || a == Set
 // has to put something on the server first".
 var ErrPreconditionUnmet = fmt.Errorf("panel: the deployment is not configured for this value")
 
-// SetIPTokenKeyConfigured records whether the deployment has an IP token
-// key in its config file.
-//
-// The panel cannot read the collector's and beacon's config files, so
-// the binary that starts the panel tells it once at wiring time. Default
-// false, which is the safe direction: without the key, switching to full
-// mode would write masked rows and no tokens, and the deployment would
-// silently be in masked mode while its setting said otherwise.
-func (s *Store) SetIPTokenKeyConfigured(configured bool) { s.ipTokenKeyConfigured = configured }
-
-// IPTokenKeyConfigured reports what it was told.
-func (s *Store) IPTokenKeyConfigured() bool { return s.ipTokenKeyConfigured }
-
 // checkPrecondition refuses a value the deployment could not honour.
 //
 // Only one setting has a precondition today, and it earns it: full mode
 // without a key does not fail, it *degrades* - and a mode that silently
 // becomes a different mode is the worst way for this particular setting
 // to be wrong.
-func (s *Store) checkPrecondition(key Key, value any) error {
+//
+// # Why this takes a context now
+//
+// Because the answer stopped being a field and became a question put to
+// the services. It used to read a boolean that nothing in production
+// ever set, so this check refused full mode on every deployment there
+// has ever been - see internal/panel/tokenkey.go for the whole of it.
+func (s *Store) checkPrecondition(ctx context.Context, key Key, value any) error {
 	if key != KeyPrivacyIPStorage {
 		return nil
 	}
-	if mode, ok := value.(string); ok && mode == IPStorageFull && !s.ipTokenKeyConfigured {
-		return fmt.Errorf("%w: %s requires privacy.ip_hash_key in the config file first "+
-			"(generate one with: go run ./cmd/devpass -ipkey)", ErrPreconditionUnmet, IPStorageFull)
+	if mode, ok := value.(string); !ok || mode != IPStorageFull {
+		return nil
 	}
-	return nil
+	return s.tokenKeyReady(ctx)
 }
 
 // ErrSettingNotWritable is returned when a principal tries to change a

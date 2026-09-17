@@ -232,7 +232,16 @@ func main() {
 		// beacon breakdown instead of inferring it from the collector,
 		// which may be configured differently.
 		Profile: beaconProfileID(cfg),
-		Logger:  logger,
+		// And whether this process could tokenise an address if the
+		// panel switched it to full mode (5b).
+		//
+		// From the key this process loaded, through the same rule
+		// TokenIP applies - so the answer the panel gates on cannot be
+		// laxer than the answer the writer would actually give. The
+		// panel's role cannot read this file, deliberately, so the
+		// running process is the only place the question can be asked.
+		IPTokenKey: heartbeat.TokenKeyStateOf(cfg.Privacy.HashKey()),
+		Logger:     logger,
 		Counters: func() map[string]int64 {
 			accepted, serverDropped, rejected := srv.Counters()
 			written, writerDropped := writer.Counters()
