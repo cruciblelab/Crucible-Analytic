@@ -19840,3 +19840,157 @@ bütçenin üstünde — ilk turda 5,33 demiştim, aynı yöne.
 *(Mutlak seviyeler bu turda daha yüksek: `bugün` 9,32 yerine 11,45.
 Konteyner yeniden başladı ve önbellek başka durumda. İki bağımsız koşu,
 farklı seviye, **aynı yapı** — ve sonuç yapıya dayanıyor.)*
+
+## O4b — Kesişim uçları: anahtarı satır başına değil adres başına kurmak (2026-09-18)
+
+O4a kapandıktan sonra sırada `crossover/js-bots` vardı: kalabalık bir
+turda 46,8 sn ölçülmüş, hiç incelenmemiş bir uç. Temiz ölçünce üç şey
+birden çıktı — biri düzeneğimde, ikisi üründe.
+
+### Önce düzenek: paralel işçiler hiç başlamıyordu
+
+İlk plan dökümünde `Workers Planned: 2 / Workers Launched: 0` gördüm.
+Sebep: `max_worker_processes = 8`, ve **TimescaleDB'nin altı zamanlayıcı
+işçisi** (eklentili her veritabanı için bir tane; bu makinede altı böyle
+veritabanı var) artı bir başlatıcı, yediyi doldurmuş. Yani planlayıcı
+iki işçili planlar seçiyor, çalıştırma anında **tek iş parçacığı**
+kalıyordu.
+
+Bu bir ürün özelliği değil, benim bıraktığım altı çalışma
+veritabanının faturasıydı — gerçek bir kurulumda bir veritabanı, bir
+zamanlayıcı olur. `max_worker_processes = 24` yapıldı ve işçilerin
+gerçekten başladığı plan dökümünden **doğrulandı** (`Workers Launched:
+2`). *Ölçtüğü şeyi aç bırakan bir düzenek, kendi açlığını ölçüyordur.*
+
+### Ürün tarafı: altı düğmenin altısı ölü, ve biri sunucunun kendi
+### zaman aşımını aşıyor
+
+Panelin aralık seçicisi dört düğme (1/7/30/90 gün), ve teknik sayfa üç
+kesişim ucu çağırıyor. Panelin tek çağrı sınırı **5 sn**
+(`analytics.RequestTimeout`). Ölçüm (temiz, tek uç, binary'nin cevabı):
+
+| uç | 1g | 7g | 30g | 90g |
+|---|---:|---:|---:|---:|
+| `crossover/js-bots` | 0,23 | 1,75 | **11,30** | **32,50** |
+| `crossover/silent-ips` | 0,43 | 1,69 | **8,05** | **29,57** |
+| `crossover/summary` | 0,26 | 1,18 | **5,32** | **19,50** |
+
+Ve 90 günde js-bots ilk denememde **hiç cevap vermedi**: API'nin
+`WriteTimeout`'u 60 sn, soğuk önbellekte sorgu onu aşıyor, sunucu
+gövdeyi yazamadan bağlantıyı düşürüyor. Yani uç yavaş değil,
+**cevapsız** — ve panel bunu "veri kaynağına ulaşılamıyor" diye anlatır.
+O2'de panonun iki düğmesi için gördüğüm tablonun aynısı.
+
+### Maliyetin nerede olduğu: sayıları parçalayınca
+
+30 günlük pencere, 3,7M satır, 47.500 adres (psql, göreli okunmak
+üzere):
+
+| ne yapıldığı | süre |
+|---|---:|
+| yalın tarama (`count(*)`, decompress + filtre) | 0,17 sn |
+| `GROUP BY ip` + `max(bot_score)` | 0,95 sn |
+| `GROUP BY COALESCE(ip_hash, inet_send(ip))` + `max(bot_score)` | **3,35 sn** |
+| aynısı + ja4'ün sıralı toplaması ve `count(DISTINCT ja4)` | **5,80 sn** |
+
+İki satır arasındaki iki fark, fazın tamamı:
+
+1. **Anahtar ifadesi 2,4 sn.** `inet_send(ip)` satır başına bir işlev
+   çağrısı ve taze bir bytea — 3,7M kez, 47.500 farklı değer üretmek
+   için. (Kontrol: `inet_send(ip)` tek başına 3,46 sn, `ip_hash, ip`
+   ikilisi 1,06 sn. Yani maliyet COALESCE'te ya da bytea'yı hash'lemekte
+   değil, **ifadenin kendisinde**.)
+2. **Sıralı toplama 2,4 sn**, ve dökümde sebebi yazıyor: temsilci
+   parmak izi istendiğinde PostgreSQL HashAggregate'i bırakıp
+   **pencereyi sıralıyor** (3,7M satır, diske 300 MB taşan external
+   merge) — sayfanın 25 satırında gösterilecek bir sütun için.
+
+### Üç kaldıraç, üçü de şemasız
+
+- **(A) Tek geçiş.** İki adres listesi de paylaşılan CTE'yi *iki kez*
+  koşturuyordu: bir kez `count(*)` için, bir kez sayfa için. `pageTotal`
+  (O4a'da dört kırılıma uygulanmıştı) buraya da geldi. 90 günde
+  34,8 → 23,2 sn (psql).
+- **(B) Anahtarı adres başına kur.** Önce `GROUP BY ip_hash, ip`, sonra
+  anahtara göre **ikinci bir gruplama**. 30 günde 5,06 → 2,38 sn.
+- **(C) Ayrıntıyı yalnız sayfaya.** Sıralama ve süzme için gereken
+  sütunlar ilk geçişte; yalnız *gösterilen* sütunlar (temsilci parmak
+  izi, ülke, ASN) sayfanın 25 adresi için ikinci bir okumada.
+  90 günde 23,2 → 16,2 sn (C tek başına), (B)+(C) ile 6,0 sn.
+
+**(B)'nin bir yaklaşıklık değil bir özdeşlik olmasının gerekçesi**
+`joinKey`'in yorumunda yazılı: aynı çift aynı anahtardır; farklı
+çiftler farklı anahtarlardır (jeton 16 bayt, `inet_send` 8 ya da 20);
+geriye tek yön kalıyor — bir anahtarın iki çift olarak gelmesi, yani
+aynı jetonun iki maskeli ağla yazılması. Ürün bunu yazamaz (jeton adresi
+belirler, adres ağı belirler) ama **ikinci gruplama yine de onu
+birleştirir**, yani sorgu "olamaz"a dayanmıyor. Ve kuralın sınırı da
+buradan çıkıyor: ilk seviyedeki her toplama ikinci seviyede
+birleşebilmeli. `max`, `min`, `bool_or` birleşir; `count(*)` `sum()`
+olarak birleşir; **`count(DISTINCT ...)` birleşmez** — JSBots'un beacon
+tarafı bu yüzden hâlâ tek seviyeli, ve sebebi sorgunun içinde yazıyor.
+
+### Denenip reddedilenler (ikisi de ölçüldü)
+
+- **Adres başına indeks sondası** (O2b'nin ülke düzeltmesinin şekli):
+  15.824 adres için **10 dakikada bitmedi**, 25 adres için 18 sn. Plan
+  sebebi söylüyor: `traffic_snapshots` **sıkıştırılmış** (O1), ve
+  sıkıştırılmış parçada `idx_traffic_snapshots_ip_time` yok — her sonda
+  11 parçayı baştan sona açıyor. O2b'nin sondası hâlâ hızlı, çünkü
+  `ORDER BY time DESC LIMIT 1` erken durabiliyor; **bir pencerenin
+  tamamını toplayan bir sonda duramaz.** *O1'in kazandırdığı disk, bu
+  erişim biçimini götürdü.*
+- **Düz ikili gruplama** (ikinci seviye olmadan, birleşimi `ip_hash, ip`
+  çifti üzerinden yapmak): 90 günde 23,2 → **32,7 sn**, yani daha
+  kötü. Sebep yine planda: çift anahtarla planlayıcı sıralamalı
+  `GroupAggregate`'e geçiyor ve 3,7M satırı diske döküyor. **Ucuz
+  anahtar tek başına bir kazanç değil; sıralı toplama kaldırılmadan
+  plan geri geliyor.**
+
+### Sonuç: binary'nin cevabı, sıra dönüşümlü, dört aralık
+
+`karsilastir.py`: iki binary (HEAD ve bu ağaç), aynı DSN, panelin kendi
+parametreleri, iki blok — ilk blokta önce/sonra, ikincisinde tersi —
+her yapılandırmada dört örnek.
+
+| uç | aralık | önce | sonra | kazanç | durum |
+|---|---|---:|---:|---:|---|
+| `crossover/js-bots` | 1g | 0,234 | 0,101 | −57% | |
+| | 7g | 1,754 | 0,747 | −57% | |
+| | 30g | 11,300 | **2,623** | −77% | **düğme geri geldi** |
+| | 90g | 32,503 | **6,110** | −81% | hâlâ sınır üstü |
+| `crossover/silent-ips` | 1g | 0,430 | 0,311 | −28% | |
+| | 7g | 1,691 | 0,602 | −64% | |
+| | 30g | 8,052 | **2,104** | −74% | **düğme geri geldi** |
+| | 90g | 29,574 | **6,132** | −79% | hâlâ sınır üstü |
+| `crossover/summary` | 1g | 0,259 | 0,155 | −40% | |
+| | 7g | 1,175 | 0,503 | −57% | |
+| | 30g | 5,324 | **1,461** | −73% | **düğme geri geldi** |
+| | 90g | 19,501 | **3,562** | −82% | **düğme geri geldi** |
+
+**Altı ölü düğmenin dördü geri geldi.** Kalan ikisi (iki adres listesi,
+90 gün) 6,1 sn — ve orada duran şey artık aritmetik: pencerenin iki
+taraması, her biri ~3 sn. Bir sorgu yeniden yazımı bunu 5 sn'nin altına
+indirmiyor; indirecek şey adres başına bir özet tablosu, yani **O4**.
+
+Özetin ikinci kazancı süre değil **tutarlılık**: bantlar artık aynı
+ifadenin içinde. İki ayrı sorgu iki ayrı anlık görüntüydü, yani araya
+düşen bir satır bantları kendi toplamıyla çelişen bir sayfa
+üretebiliyordu — nadir, tekrarlanamaz, ve açıklanamaz.
+
+### Mutasyon bir testi yazdırdı: ayrıntı geçişi sitesiz de geçiyordu
+
+On sekiz mutasyonun on yedisi ilk turda kırmızı verdi. Sağ kalan biri
+**`site_id = $1`'i ayrıntı geçişinden silmekti** — ve pakette hiçbir
+fikstürde aynı adres iki sitede bulunmadığı için hiçbir test bunu
+görmüyordu. *Eksik olan bir iddia değil, bir girdiydi.* Görebileceği
+kusur da ürünün en az hakkı olan kusur: tek kurulumda iki müşteri bu
+tabloyu paylaşıyor, ve iki siteyi de gezen bir adres (bir tarayıcı, bir
+izleme servisi) ötekinin parmak izini, ülkesini ve ASN'sini bu sayfaya
+taşırdı. Test yazıldı (`ACrossoverPagesDetailsStayOnItsOwnSite`), diğer
+sitenin değerleri **kasten büyük** seçildi (`max('DE','TR') = 'TR'`), ve
+mutasyon artık yakalanıyor.
+
+Bir de on sekizincisi ilk turda derlenmedi (ham dizgenin kapanış
+backtick'ini silmişim) — *derlenmeyen bir mutasyon bir ölçüm değildir*,
+düzeltilip tekrar koşuldu.

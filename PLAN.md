@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **5/6** | **O4a kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi — kod değişmedi). Kalan: plan kumarı (§O4a Bulgu 2b, şemasız) ve O4 — ihtiyacı artık **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **6/7** | **O4a ve O4b kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -4943,6 +4943,49 @@ kararı** (ve o zaman O3'le tek şemada). Özetin şekli de ölçümden
 (site, gün, ja4) başına bir satır küçük. Özet tablosu ancak *o zaman* ölçülmüş bir
 ihtiyaç olur — ve o noktada zaten O3'ün eskiz kararı gerekir, yani
 ikisi tek şema sürümüne girer.
+
+##### O4b — Kesişim uçları: anahtarı satır başına değil adres başına kurmak ✅ **bitti (2026-09-18)**
+
+O4a'dan sonra sıradaki iş `crossover/js-bots`'u temiz ölçmekti (46,8 sn
+kalabalık bir turdan gelmişti). Ölçüm üç uçta birden aynı tabloyu
+gösterdi: **panelin dört aralık düğmesinden ikisi, üç kesişim ucunun
+üçünde de çalışmıyor** — ve js-bots 90 günde API'nin kendi 60 sn'lik
+`WriteTimeout`'unu aşıp bağlantıyı düşürüyordu, yani uç yavaş değil
+**cevapsız**.
+
+Üç kaldıraç, hepsi şemasız, her biri ayrı ölçüldü:
+
+- **(A) Tek geçiş** — iki adres listesi paylaşılan CTE'yi iki kez
+  koşturuyordu (`count(*)` + sayfa). `pageTotal` buraya da geldi.
+- **(B) Anahtarı adres başına kur** — `GROUP BY ip_hash, ip`, sonra
+  anahtara göre ikinci bir gruplama. `inet_send(ip)` satır başına bir
+  işlev çağrısıydı: 30 günde 3,35 sn'nin 2,4'ü.
+- **(C) Ayrıntıyı yalnız sayfaya** — temsilci parmak izi/ülke/ASN
+  yalnız gösterilen 25 adres için. Sıralı toplama, pencerenin tamamını
+  sıralatıp diske 300 MB döküyordu.
+
+Sonuç (binary'nin cevabı, sıra dönüşümlü, dört örnek):
+
+| uç | 30g önce → sonra | 90g önce → sonra |
+|---|---|---|
+| `crossover/js-bots` | 11,30 → **2,62** | 32,50 → **6,11** |
+| `crossover/silent-ips` | 8,05 → **2,10** | 29,57 → **6,13** |
+| `crossover/summary` | 5,32 → **1,46** | 19,50 → **3,56** |
+
+**Altı ölü düğmenin dördü geri geldi.** Kalan ikisi (iki adres listesi,
+90 gün) 6,1 sn: pencerenin iki taraması, her biri ~3 sn. Bunu 5 sn'nin
+altına bir sorgu yeniden yazımı indirmiyor — **O4'ün ölçülmüş ihtiyacı
+buradan da geçiyor.**
+
+Denenip **reddedilenler** (ikisi de ölçüldü, NOTES'ta): adres başına
+indeks sondası (sıkıştırılmış parçada `ip` indeksi yok — 15.824 adres
+10 dakikada bitmedi) ve düz ikili gruplama (planlayıcı sıralamalı
+`GroupAggregate`'e geçiyor, 23,2 → 32,7 sn).
+
+On sekiz mutasyon, on sekizi de kırmızı — **biri ancak yeni bir test
+yazıldıktan sonra**: ayrıntı geçişinden `site_id`'yi silmek hiçbir testi
+kırmıyordu, çünkü pakette aynı adresin iki sitede bulunduğu bir fikstür
+yoktu. Eksik olan bir iddia değil bir girdiydi; yazıldı.
 
 ---
 
