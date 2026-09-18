@@ -55,9 +55,10 @@ func withParam(dsn, param string) string {
 //
 // The reason is in NewStore's comment and the numbers are in NOTES.md:
 // on this workload JIT is compile time with nothing to show for it, and
-// the one endpoint where that is measurable rather than arguable is
-// asns, which went from 5,689 to 3,837 seconds over 90 days with the
-// two distributions disjoint.
+// two endpoints make that measurable rather than arguable over 90 days,
+// both with the two distributions disjoint - asns 5,942 -> 4,291 s and
+// countries 3,855 -> 3,554 s, twelve samples each with the order of the
+// configurations alternated so the page cache favours neither.
 //
 // The assertion is on the session's value rather than on a duration,
 // because a timing assertion in CI is a promise about a machine. This

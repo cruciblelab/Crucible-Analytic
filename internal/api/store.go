@@ -206,27 +206,36 @@ func operatorNamedJIT(params map[string]string) bool {
 // bounded by reading rows and hashing them, so what JIT adds is its own
 // compile time and nothing else.
 //
-// One endpoint shows that as a difference a measurement can carry, and
-// it is the only figure claimed here. Nine samples per configuration on
-// the binary's own answers, blocks interleaved so machine drift lands on
-// both (ca_scale, 11,1M rows, 90 days):
+// Two endpoints show that as a difference a measurement can carry, and
+// they are the only figures claimed here. Twelve samples per
+// configuration on the binary's own answers (ca_scale, 11,1M rows, 90
+// days), with the order of the two configurations alternated block by
+// block:
 //
-//	asns  5,689 s (5,108-6,191)  ->  3,837 s (3,262-4,135)   -32,6%
+//	asns       5,942 s (5,845-6,167)  ->  4,291 s (4,105-4,467)   -27,8%
+//	countries  3,855 s (3,703-3,974)  ->  3,554 s (3,440-3,687)   - 7,8%
 //
-// Disjoint end to end, which is what makes it a difference rather than
-// two medians. Three other endpoints were measured the same way and
-// none of them produced one: ja4, crossover/summary and
-// crossover/silent-ips all came out with overlapping distributions, so
-// for those this setting is neither cost nor benefit as far as this
-// measurement can tell. An earlier three-sample round had reported ja4
-// 8,8% *slower*; nine samples did not survive that either, and the
-// retraction is in NOTES.md beside the reason - a difference between
-// two overlapping distributions is not a difference.
+// Both disjoint end to end, which is what makes a difference rather than
+// two medians.
 //
-// crossover/summary is worth a warning to whoever reads this next: its
-// samples span 6,5 to 47,8 seconds within one configuration. That
-// endpoint's time is decided by which plan it gets, not by this setting,
-// and it has its own entry in PLAN.md.
+// # Why the order is alternated, and what that was hiding
+//
+// The first version of this measurement ran jit=on and then jit=off in
+// every block, so jit=off always arrived at a page cache the same query
+// had just warmed. That is a bias with a known direction, and on this
+// workload the cache is worth more than any setting - one endpoint
+// moves 47 to 8 seconds on cache state alone. Alternating the order
+// measures the bias instead of inheriting it: it comes out at 0,016 to
+// 0,134 s, an order of magnitude below the difference above. So the
+// finding survived its own audit, and the numbers here are the audited
+// ones.
+//
+// ja4 was measured the same way and produced no difference at all
+// (11,281 vs 11,294 s, overlapping), so for that endpoint this setting
+// is neither cost nor benefit. An earlier three-sample round had
+// reported it 8,8% *slower*; that did not survive either. NOTES.md has
+// both retractions and the reason - a difference between two
+// overlapping distributions is not a difference.
 //
 // # Why it is set here and not in the example config
 //

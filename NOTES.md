@@ -19557,6 +19557,12 @@ kipe de aynı düşsün diye), 90 gün:
 | `crossover/summary` | 33,835 (26,3–47,6) | 18,866 (6,6–47,8) | −44,2% | örtüşüyor → iddia edilemez |
 | `crossover/silent-ips` | 21,137 (19,4–22,1) | 19,949 (17,7–20,5) | −5,6% | örtüşüyor → iddia edilemez |
 
+> **Bu tablo 2026-09-18'de denetlendi ve düzeltildi.** Düzeneğinde
+> sistematik bir sıra yanlılığı vardı; aşağıdaki *"Raporların
+> denetimi"* bölümüne bak. Yerine geçen sayılar orada, ve `asns`
+> sonucu denetimden **sağ çıktı** — ama yalnız o değil, `countries` de
+> ölçülebilir bir kazanç veriyormuş.
+
 **Ve bir geri alma.** Üç örneklik ilk tur `ja4`'ü jit=off ile %8,8
 **yavaş** göstermişti ve bunu bir bulgu gibi yazacaktım; dokuz örnekte
 fark yaşamadı, ve zaten ilk turda da iki dağılımın uç uçları baştan sona
@@ -19746,3 +19752,91 @@ burada.
 tarama — sıcakta 8–12 sn, soğukta ~47 sn, bütçe iki durumda da
 aşılıyor. `ja4` ile aynı cevap: bir bağlantı ayarı ya da sorgu hilesi
 kurtarmıyor. Şemasız kollar tükendi.
+
+## Raporların denetimi: ölçüm düzeneğimde sistematik bir sıra yanlılığı (2026-09-18)
+
+Sahip *"raporları tekrar incele, kesinleştir"* dedi. İki şey çıktı: biri
+düzeneğimde gerçek bir yanlılık, öteki bir doğrulama betiğinin yorumları
+kod sanması. **Birincisi tam da uğruna kod yazdığım iddiayı
+etkiliyordu.**
+
+### Bulunan: `karar.py` her blokta jit=on'u önce koşturuyordu
+
+Döngü `for label, config, expect in CONFIGS` idi, ve `CONFIGS` sırası
+sabitti. Yani **`jit=off` her zaman, aynı sorgunun aynı veriyle az önce
+koşturulduğu bir önbelleğin üstüne düşüyordu.** Sistematik bir yanlılık,
+ve yönü belli: ikinci koşana avantaj.
+
+Bunu görmezden gelemezdim, çünkü aynı gün kesişim ucunda **önbelleğin
+tek başına 47,5 → 8,0 saniye** fark yarattığını ölçmüştüm. Yani
+düzeneğimde, ölçtüğüm farktan büyük bir etki, ölçülmeden duruyordu.
+
+### Düzeltme: sırayı dönüştür, ve yanlılığı da ölç
+
+`karar2.py`: tek bloklar on→off, çift bloklar off→on, dört blok, üçer
+örnek — her yapılandırmada **on iki örnek**, ve her örnek blok
+içindeki sırasını da taşıyor. Böylece hem fark hem **yanlılığın
+büyüklüğü** okunuyor.
+
+| uç | jit=on (en iyi–en kötü) | jit=off | fark | verdikt |
+|---|---|---|---:|---|
+| `asns` | **5,942** (5,845–6,167) | **4,291** (4,105–4,467) | **−27,8%** | **ayrık → gerçek** |
+| `countries` | **3,855** (3,703–3,974) | **3,554** (3,440–3,687) | **−7,8%** | **ayrık → gerçek** |
+| `ja4` | 11,281 (11,142–11,436) | 11,294 (11,174–11,604) | +0,1% | örtüşüyor → iddia edilemez |
+
+Ve yanlılığın kendisi, altı ölçümde: **0,016 · 0,095 · 0,018 · 0,134 ·
+0,010 · 0,007 saniye.** Yani var, ama `asns`'in 1,651 saniyelik farkının
+onda biri bile değil.
+
+**Sonuç: iddia denetimden sağ çıktı, ve büyüdü.** Eski rapor "yalnız
+`asns`" diyordu; on iki örnekle `countries` de ayrık çıkıyor. Yani dokuz
+örneğin söyleyemediği şey farkın yönü değil, **ikinci bir ucun
+varlığıydı.** Yayımlanan sayılar denetlenmiş koşununkilerle değiştirildi
+(kod yorumu, KURULUM, PLAN, test).
+
+*Bir yanlılığı aramak onu bulmakla aynı şey değil — ama aramamak, onu
+sonucun içinde bırakmaktır.* Ve doğru hamle yanlılığı "önemsiz olmalı"
+diye geçmek değil, **ölçüp yazmaktı**: artık büyüklüğü de kayıtta.
+
+### İkinci bulgu: doğrulama betiğim yorumları kod saydı
+
+*"48 `t.Cleanup` bloğu satır siliyor ve hiçbiri tohumlamadan önce
+temizlemiyor"* cümlesinin **ikinci yarısını hiç ölçmemiştim** — iddia
+ettim. Ölçmeye kalkınca ilk betiğim "4 tanesi önce de temizliyor" dedi.
+Baktım: dördünün ikisi **yorum satırıydı** —
+`auth_integration_test.go`'da bir hata mesajı örneği olarak
+`STATEMENT: DELETE FROM panel_audit_log ...` geçiyor.
+
+İkinci tur: yorumlar çıkarıldı, ve arama yönü düzeltildi (silme,
+`t.Cleanup`'tan **önce** mi geliyor). Sonuç: **48 blok, biri hariç
+hiçbirinde ön temizlik yok**, ve o bir tane (`e2e_test.go:797`) elle
+okununca bir **kapanış tanımı** çıktı — çağrısı testin ortasında,
+tohumlamadan sonra. Yani yayımlanan cümle doğruydu; yanlış olan tek şey
+onu ölçmeden yazmış olmamdı.
+
+*Bir dedektör aradığını bulamadığını söylemez — bulmadığını bulduğuna da
+inandırabilir.* Kaynak tarayan bir kontrol yorumları ve dizeleri
+ayıklamıyorsa, ne bulduğunu bilmiyordur.
+
+### Üçüncü: ja4 ayrıştırmasının tabanı kontrol edildi
+
+`yok` varyantı (temsilci yerine `''::text`) yalnız toplamayı
+kaldırmıyordu, akış aşağısındaki grup sayısını da 380'den **1'e**
+düşürüyordu — yani "taban" diye yazdığım sayı, ölçmek istediğimden daha
+azını yapan bir sorgununki olabilirdi. Kontrol: temsilci yerine
+`max(asn)::text` (ucuz bir tamsayı toplaması, 95 grup).
+
+| biçim | süre | ne ekliyor |
+|---|---:|---|
+| `yok` (1 grup) | 2,95 sn | — |
+| `kontrol` (`max(asn)::text`, 95 grup) | **3,18 sn** | +0,23 (yalnız kartalite) |
+| `maxsade` (`max(ja4)`, 380 grup) | **5,98 sn** | +2,80 (metin sütununun toplaması) |
+| bugünkü sıralı toplama | **11,45 sn** | +5,47 (sıralama + dizi) |
+
+Yani grup sayısının bedeli 0,23 saniye; taban dürüst. Ve sonuç
+güçlendi: **mümkün olan en ucuz temsilci bile 5,98 sn**, 5 saniyelik
+bütçenin üstünde — ilk turda 5,33 demiştim, aynı yöne.
+
+*(Mutlak seviyeler bu turda daha yüksek: `bugün` 9,32 yerine 11,45.
+Konteyner yeniden başladı ve önbellek başka durumda. İki bağımsız koşu,
+farklı seviye, **aynı yapı** — ve sonuç yapıya dayanıyor.)*

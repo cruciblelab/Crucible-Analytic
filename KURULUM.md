@@ -785,8 +785,9 @@ tarayıp toplayan sorgular, yani süreyi belirleyen şey satır okumak ve
 hash'lemek. JIT derlemesi ifade değerlendirmesi ağır olan planlarda
 kazandırır; buradaki planlarda eklediği tek şey kendi derleme süresi.
 
-Ölçüldü (11,1 milyon satır, 90 günlük aralık, dokuz örnek): ASN
-kırılımı **5,689 → 3,837 saniye**. Ölçülebilir kaybı olan bir uç
+Ölçüldü (11,1 milyon satır, 90 günlük aralık, her yapılandırmada on iki
+örnek, sıra dönüşümlü): ASN kırılımı **5,942 → 4,291 saniye**, ülke
+kırılımı **3,855 → 3,554 saniye**. Ölçülebilir kaybı olan bir uç
 çıkmadı.
 
 **Zorlama değil.** DSN'de JIT'i adlandırırsanız sizin yazdığınız

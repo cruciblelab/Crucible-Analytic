@@ -4819,13 +4819,18 @@ değil tarama+hash ile sınırlı, yani JIT'in kazandıracağı bir şey yok.
 | `crossover/summary` | 30,98 sn | **8,17 sn** |
 | `ja4` | 12,08 sn | 11,58 sn *(JIT sebep değil)* |
 
-**DÜZELTİLDİ (2026-09-17): bu tablo psql ölçümüydü ve kesişim satırı
-yanlış.** Binary'nin cevabıyla, dokuz örnek, bloklar dönüşümlü:
-`asns` 5,689 → 3,837 (**−32,6%, dağılımlar ayrık, gerçek**);
+**DÜZELTİLDİ (2026-09-17, 2026-09-18'de denetlendi): bu tablo psql
+ölçümüydü ve kesişim satırı yanlış.** Binary'nin cevabıyla, **on iki
+örnek, yapılandırma sırası bloklar arasında dönüşümlü** (ilk ölçüm her
+blokta jit=on'u önce koşturuyordu, yani jit=off hep ısınmış önbellekle
+karşılaşıyordu — yanlılık ölçüldü, 0,016–0,134 sn, farkın onda biri
+kadar bile değil): `asns` **5,942 → 4,291** (−27,8%, **ayrık, gerçek**),
+`countries` **3,855 → 3,554** (−7,8%, **ayrık, gerçek** — dokuz örnekle
+görünmüyordu), `ja4` 11,281 → 11,294 (**fark yok**);
 `crossover/summary` 33,835 → 18,866 ama örnekler **6,5–47,8 sn**
 arasında, yani dağılımlar örtüşüyor ve **fark iddia edilemez**;
-`crossover/silent-ips` 21,1 → 19,9 ve `ja4` 9,98 → 9,57, ikisi de
-örtüşüyor. *"Kesişimde 3,8 kat"* bir psql rakamıydı: binary bağlı
+`crossover/silent-ips` 21,1 → 19,9 da örtüşüyor.
+*"Kesişimde 3,8 kat"* bir psql rakamıydı: binary bağlı
 parametreyle genel plan alıyor, psql literal ile daha iyi kestirim
 alıyor. Ayrıntı ve geri alma NOTES.md'de. **Şema gerekmiyor** — bir
 bağlantı ayarı, ve ✅ **kapandı (2026-09-17)**: `internal/api.NewStore`
@@ -4892,6 +4897,14 @@ temsilci **hiç yokken 2,56 sn** (taban), düz `max(ja4)` ile
 **5,33 sn**, bugünkü sıralı toplamayla **9,32 sn**. Yani sıralama +
 dizi materyalizasyonu 3,99 sn, ama sütunu *hiç* toplamanın kendisi
 2,77 sn — aksiyona dönüşebilen kısım dokuzun dördü.
+
+*(2026-09-18 denetimi: "taban" varyantı toplamayı kaldırırken grup
+sayısını da 380'den 1'e düşürüyordu, yani ölçmek istediğimden azını
+yapıyor olabilirdi. Kontrol eklendi — temsilci yerine `max(asn)::text`,
+95 grup: **3,18 sn**, yani kartalitenin bedeli 0,23 sn ve taban dürüst.
+Aynı turda `maxsade` **5,98**, bugünkü hâl **11,45**; mutlak seviye
+konteyner yeniden başladığı için yukarı kaydı, yapı aynı, ve sonuç
+güçlendi: en ucuz temsilci bile bütçenin üstünde.)*
 
 Üç aday denendi, üçünün de kuralı bugünküyle aynı: bileşik metin
 üzerinde tek `max` **11,08 sn** (bugünkünden yavaş — satır başına dize
