@@ -19994,3 +19994,40 @@ mutasyon artık yakalanıyor.
 Bir de on sekizincisi ilk turda derlenmedi (ham dizgenin kapanış
 backtick'ini silmişim) — *derlenmeyen bir mutasyon bir ölçüm değildir*,
 düzeltilip tekrar koşuldu.
+
+### Sonrasında ölçülen iki şey daha
+
+**(a) Yeni şekil paralel işçiye bağlı değil.** Düzenekteki açlığı
+bulduktan sonra asıl soru şuydu: müşterinin PostgreSQL'inde boş işçi
+yuvası yoksa bu sayfalar ne kadar yavaşlar? Ölçüldü — aynı binary, iki
+oturum, biri `max_parallel_workers_per_gather = 0` ile (yeniden başlatma
+gerekmiyor, DSN'in `options` alanı yetiyor), sıra dönüşümlü:
+
+| uç | aralık | işçisiz | işçili | fark |
+|---|---|---:|---:|---:|
+| `crossover/js-bots` | 30g | 2,220 | 2,208 | −1% |
+| | 90g | 5,674 | 5,695 | +0% |
+| `crossover/summary` | 30g | 1,372 | 1,324 | −4% |
+| | 90g | 3,300 | 3,281 | −1% |
+
+Yani **fark yok** (dağılımlar örtüşüyor). Eski şekil paralel sıralamadan
+yararlanıyordu — dökümde `Workers Launched: 2` ve üç ayrı dış sıralama
+vardı; yeni şekil parça başına kısmi toplamalardan oluşuyor ve maliyeti
+açmanın kendisi. **Bir KURULUM tavsiyesi yazmaya gerek kalmadı, ve bunu
+ancak ölçünce bildim.** (Bu koşu aynı zamanda "sonra" rakamlarını
+bağımsız olarak tekrar üretti: js-bots 30g 2,21–2,22 · 90g 5,67–5,70;
+summary 30g 1,32–1,37 · 90g 3,28–3,30. Önceki turdan biraz hızlı,
+önbellek başka durumda — aynı yapı.)
+
+**(b) Ve bir CI kırmızısı, sebebi benim sıram.** `5bf570b` CI 395/396'da
+iki işi birden düşürdü: `internal/docs`'un PLAN grup tablosu denetimi,
+*"group O: the table says 6/7, the headings say 5/6"*. Doğru olan
+tabloydu değil **başlıklardı**: sayım `^#### ` seviyesindeki fazları
+sayıyor, O4a ve O4b ise `#####` — yani O4'ün altındalar ve kendi
+satırları yok. Tablo 5/6'ya döndü, O4b hücrenin metninde anlatılıyor.
+
+Ama asıl kusur teknik değil sıradaydı: **kapıyı NOTES ve PLAN'ı
+yazmadan önce koşturmuştum.** Kapı yeşil dedi, sonra iki belge
+değişti, sonra commit. Kendi §9'um *"kapı yeşil, sonra commit"* diyor —
+yani kapı commit'ten **hemen önce** koşmalı, arada hiçbir dosya
+değişmemeli. Bir daha: son değişiklikten sonra kapı.
