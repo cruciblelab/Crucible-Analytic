@@ -530,36 +530,87 @@ type IPStat struct {
 // most suspicious first, alongside the total number of distinct IPs so a
 // caller can page through them.
 func (s *Store) TopIPs(ctx context.Context, siteID string, from, to time.Time, limit, offset int) ([]IPStat, int, error) {
+	// Two passes over the window, and the second one is small (O4c).
+	//
+	// # Why the page is chosen before its columns are fetched
+	//
+	// Because the representative fingerprint is an ordered aggregate,
+	// and asking for it while grouping the window makes PostgreSQL sort
+	// the window rather than hash it - measured on the 12M-row set over
+	// 90 days, 15,77 s for the one-pass form against 6,12 s for this
+	// one, and over 30 days 5,53 s against 2,12 s. The sort exists to
+	// produce a column for 47.500 addresses of which a page shows 25.
+	//
+	// So the first pass computes only what the order and the pager need
+	// (score, rate, address, last seen, how many snapshots), and the
+	// columns that are merely displayed come from a second read
+	// restricted to the addresses that survived. The crossover lists do
+	// the same thing through pageDetails, which cannot be shared here
+	// because those group by a join key and this groups by the address
+	// itself.
 	rows, err := s.pool.Query(ctx, `
-		SELECT ip,
-		       max(bot_score),
-		       max(request_rate),
-		       -- max() over text picks a stable representative value for
-		       -- columns that are effectively constant per IP anyway
-		       -- (country/ASN come from the same lookup every flush); it
-		       -- avoids adding them all to GROUP BY, which would split one
-		       -- IP into several rows if a refresh ever changed them
-		       -- mid-range.
-		       COALESCE(max(country), ''),
-		       COALESCE(max(asn), 0),
-		       COALESCE(max(asn_org), ''),
-		       bool_or(is_known_bot_ja4),
-		       bool_or(is_known_bot_asn),
-		       `+representativeJA4+`,
-		       `+distinctJA4s+`,
-		       max(time),
-		       count(*),
-		       -- The number of addresses this breakdown has, from the same
-		       -- pass - see pageTotal. Here the old second query and this
-		       -- one agreed (both count distinct addresses, and this query
-		       -- groups by address), so the change is the pass that was
-		       -- saved rather than a number that was wrong.
-		       `+pageTotal+`
-		FROM traffic_snapshots
-		WHERE site_id = $1 AND time >= $2 AND time < $3
-		GROUP BY ip
-		ORDER BY max(bot_score) DESC, max(request_rate) DESC, ip
-		LIMIT $4 OFFSET $5`,
+		WITH per_ip AS (
+		    SELECT ip, max(bot_score) AS peak_score, max(request_rate) AS peak_rate,
+		           max(time) AS last_seen, count(*) AS snapshots
+		    FROM traffic_snapshots
+		    WHERE site_id = $1 AND time >= $2 AND time < $3
+		    GROUP BY ip
+		),
+		page AS (
+		    -- The number of addresses this breakdown has, from the same
+		    -- pass - see pageTotal. Here the old second query and this
+		    -- one agreed (both count distinct addresses, and this query
+		    -- groups by address), so the change is the pass that was
+		    -- saved rather than a number that was wrong.
+		    SELECT *, `+pageTotal+`
+		    FROM per_ip
+		    ORDER BY peak_score DESC, peak_rate DESC, ip
+		    LIMIT $4 OFFSET $5
+		),
+		details AS (
+		    SELECT ip,
+		           -- max() over text picks a stable representative value for
+		           -- columns that are effectively constant per IP anyway
+		           -- (country/ASN come from the same lookup every flush); it
+		           -- avoids adding them all to GROUP BY, which would split one
+		           -- IP into several rows if a refresh ever changed them
+		           -- mid-range.
+		           COALESCE(max(country), '') AS country,
+		           COALESCE(max(asn), 0) AS asn,
+		           COALESCE(max(asn_org), '') AS asn_org,
+		           bool_or(is_known_bot_ja4) AS known_ja4,
+		           bool_or(is_known_bot_asn) AS known_asn,
+		           `+representativeJA4+` AS ja4,
+		           `+distinctJA4s+` AS ja4_count
+		    FROM traffic_snapshots
+		    WHERE site_id = $1 AND time >= $2 AND time < $3
+		      AND ip IN (SELECT ip FROM page)
+		    GROUP BY ip
+		)
+		SELECT p.ip, p.peak_score, p.peak_rate,
+		       COALESCE(d.country, ''), COALESCE(d.asn, 0), COALESCE(d.asn_org, ''),
+		       COALESCE(d.known_ja4, false), COALESCE(d.known_asn, false),
+		       COALESCE(d.ja4, ''), COALESCE(d.ja4_count, 0),
+		       p.last_seen, p.snapshots, p.total
+		FROM page p
+		LEFT JOIN details d ON d.ip = p.ip
+		-- Repeated after the join, and it is load-bearing: the order
+		-- was decided inside page, and a join preserves nothing.
+		--
+		-- No test here can see that. Deleting this line leaves every
+		-- assertion in topips_pagedetails_integration_test.go green,
+		-- including one over forty addresses whose order disagrees with
+		-- their addresses - the planner picks a nested loop for a page
+		-- that small and hands the outer side back in order.
+		--
+		-- The plan on a real deployment is a different one. Measured on
+		-- the 12M-row set: Merge Left Join, "Merge Cond: (p.ip = ...ip)",
+		-- which returns the page sorted by *address*. There the missing
+		-- clause would show the wrong rows first, and the only reason it
+		-- is not visible in a fixture is that a small table gets a
+		-- different plan. So the protection lives here, in writing,
+		-- rather than in a test that agrees with today's planner.
+		ORDER BY p.peak_score DESC, p.peak_rate DESC, p.ip`,
 		siteID, from, to, limit, offset,
 	)
 	if err != nil {

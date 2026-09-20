@@ -20031,3 +20031,77 @@ yazmadan önce koşturmuştum.** Kapı yeşil dedi, sonra iki belge
 değişti, sonra commit. Kendi §9'um *"kapı yeşil, sonra commit"* diyor —
 yani kapı commit'ten **hemen önce** koşmalı, arada hiçbir dosya
 değişmemeli. Bir daha: son değişiklikten sonra kapı.
+
+## O4c — `top-ips`: aynı kaldıraç, ve reddedilen bir hipotez (2026-09-19)
+
+O4b'den sonra aynı şekli genel API'nin iki ucunda daha denedim. Biri
+tuttu, biri **ölçülüp reddedildi.**
+
+### `top-ips`: sayfayı önce seç, sonra anlat
+
+Uç zaten tek geçişti (O4a'nın `pageTotal`'ı), ama temsilci parmak izini
+**bütün adresler için** hesaplıyordu — 90 günde 47.500 adres, sayfada
+gösterilen 25. Sıralı toplama pencereyi sıralatıyor.
+
+İki faza ayrıldı: ilk geçiş yalnız sıralamanın ve sayfalayıcının
+ihtiyacı olanı topluyor (skor, hız, adres, son görülme, kaç anlık
+görüntü), gösterilen sütunlar sayfanın 25 adresiyle sınırlı ikinci bir
+okumadan geliyor.
+
+Binary'nin cevabı, sıra dönüşümlü, dörder örnek:
+
+| aralık | önce | sonra | kazanç |
+|---|---:|---:|---|
+| 1 gün | 0,205 | **0,057** | −72% |
+| 7 gün | 1,685 | **0,250** | −85% |
+| 30 gün | 6,363 | **2,098** | −67% |
+| 90 gün | 19,227 | **4,640** | −76% |
+
+**90 günde bile 5 saniyenin altında.** Panel bu ucu çağırmıyor (uç
+listesi panelin çağrı yerlerinden türetilmişti, O4a'nın dersi) ama
+README'de belgeli bir genel API ucu, ve 19 saniye veren bir uç pratikte
+çalışmayan bir uçtur.
+
+### `/timeseries`: hipotez ölçüldü ve **reddedildi**
+
+Sorgu pencereyi iki kez tarıyor: bir kez `(kova, ip)` başına, bir kez
+`kova` başına (hız için). "İkinciyi birinciye katarsam yarıya iner"
+diye düşündüm — `avg` birleşiyor (`sum`/`count` olarak), `max` zaten
+birleşiyor.
+
+Ölçüldü: 90 günde 16,428 → **16,455 sn.** Fark yok.
+
+Sebebi parçalayınca çıktı:
+
+| ne yapıldığı | süre |
+|---|---:|
+| `(kova, ip)` başına gruplama — **4.266.328 grup** | 12,63 sn |
+| `kova` başına gruplama — 90 grup | 1,11 sn |
+| yalın tarama | 0,16 sn |
+
+Yani ikinci tarama maliyetin **%7'si**; kaldırmak ölçülebilir bir şey
+değiştirmiyor. Maliyet, ucun işinin kendisi: 11M satırı 4,3 milyon
+gruba indirmek. Bunu düşürecek şey bir sorgu şekli değil, bir özet
+tablosu — yani **O4**. *İki CTE'nin aynı pencereyi taraması, ikisinin
+aynı maliyete sahip olduğu anlamına gelmiyormuş; tahminim buydu ve
+yanlıştı.*
+
+### Sağ kalan bir mutasyon, ve niye savunuluyor
+
+Dokuz mutasyonun sekizi kırmızı. Sağ kalan: **birleşimden sonraki
+`ORDER BY`'ı silmek.** Dördü ilk turda sağ kalmıştı ve hepsinin sebebi
+fikstürdü — her adresin pencerede tek satırı vardı, yani `max` `min`'e,
+bir sayım bire eşitti. Adresin birine ikinci bir satır eklenince dördü
+de kırmızıya döndü. Bu da §3'teki "ikinci seviye ancak iki çift varken
+görünür" dersinin aynısı, başka bir kılıkta: **tek satırlı bir grupta
+bütün toplamalar birim işlemdir.**
+
+Dokuzuncusu kalıcı. Kırk adreslik (ve 200 satırlık) bir fikstürde bile,
+adres sırası skor sırasıyla kasten çelişirken bile sağ kalıyor: küçük
+bir sayfa için planlayıcı iç içe döngü seçiyor ve dış tarafı sırayla
+veriyor. Gerçek kurulumda plan başka: 12M satırlık kümede **Merge Left
+Join**, `Merge Cond: (p.ip = ...ip)` — yani sayfa **adrese göre**
+sıralı dönüyor. Orada o satırın eksikliği yanlış satırları başa
+taşırdı. Koruma bu yüzden kaynakta, gerekçesiyle yazılı (O2b'nin
+`ORDER BY t.time DESC` kararının aynısı): *bir garanti testin
+göremediği bir şey olabilir; o zaman korumayı görülebilir yere koy.*

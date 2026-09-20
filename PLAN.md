@@ -89,7 +89,7 @@ gerekçe değil bahane olur.
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
-| **O** Ölçek altında okuma | 🟡 **5/6** | **O4a ve O4b kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
+| **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
@@ -4986,6 +4986,35 @@ On sekiz mutasyon, on sekizi de kırmızı — **biri ancak yeni bir test
 yazıldıktan sonra**: ayrıntı geçişinden `site_id`'yi silmek hiçbir testi
 kırmıyordu, çünkü pakette aynı adresin iki sitede bulunduğu bir fikstür
 yoktu. Eksik olan bir iddia değil bir girdiydi; yazıldı.
+
+##### O4c — Aynı kaldıraç genel API'de: `top-ips` ✅, `/timeseries` reddedildi (2026-09-19)
+
+Panelin çağırmadığı ama README'de belgeli iki uçta aynı şekil denendi.
+
+**`top-ips` ✅:** uç zaten tek geçişti, ama temsilci parmak izini bütün
+adresler için hesaplıyordu (90 günde 47.500 adres, sayfada 25). İki
+faza ayrıldı. Binary, sıra dönüşümlü, dörder örnek:
+
+| aralık | önce | sonra |
+|---|---:|---:|
+| 1 gün | 0,205 | **0,057** |
+| 7 gün | 1,685 | **0,250** |
+| 30 gün | 6,363 | **2,098** |
+| 90 gün | 19,227 | **4,640** |
+
+**`/timeseries` ❌ ölçülüp reddedildi:** "iki taramayı bire indir"
+hipotezi 16,428 → 16,455 sn verdi, yani fark yok. Parçalanınca sebebi
+çıktı — `(kova, ip)` gruplaması **4,27 milyon grup** ve 12,63 sn,
+`kova` gruplaması 90 grup ve 1,11 sn. İkinci tarama maliyetin %7'si.
+Bu ucu düşürecek şey sorgu şekli değil özet tablosu, yani **O4**.
+
+Dokuz mutasyon, sekizi kırmızı. Dördü ilk turda sağ kaldı ve hepsinin
+sebebi fikstürdü (her adresin pencerede tek satırı vardı: `max` = `min`,
+sayım = 1); ikinci satır eklenince dördü de yakalandı. Dokuzuncusu —
+birleşimden sonraki `ORDER BY`'ı silmek — kalıcı olarak sağ kalıyor ve
+gerekçesi kaynakta yazılı: küçük sayfada planlayıcı sırayı koruyan iç
+içe döngü seçiyor, 12M satırlık kümede ise **Merge Left Join** (adrese
+göre sıralı) seçiyor. O2b'nin `ORDER BY t.time DESC` kararının aynısı.
 
 ---
 
