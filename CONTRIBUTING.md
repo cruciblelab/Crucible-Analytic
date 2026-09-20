@@ -71,9 +71,21 @@ state.
 Run it in one command:
 
 ```
+export CA_SUPERUSER_DSN="postgres://postgres@127.0.0.1:5432/analytics?sslmode=disable"
 ./release/gate.sh          # everything that needs no database
 ./release/gate.sh --all    # plus the release and integration halves
 ```
+
+**`--all` needs `CA_SUPERUSER_DSN` and refuses to start without it.** The
+integration fixtures delete the rows they wrote as the schema's owner -
+panel accounts, log lines - and without that connection the cleanup
+skips silently, because `go test` prints a test's log lines only when
+that test fails and the one leaving the row behind is the one that
+passed. The next test in the same run then collides with the leftover
+("that email address is already registered") and the gate reports
+thirty-odd failures across five packages that look like product defects
+and are not. It is refused up front rather than warned about, so the
+answer costs one line instead of ten minutes.
 
 **Two of these steps are not `go test`, and those are the two that catch
 people.** gosec and deadcode need a tool installed, so they never run by

@@ -5016,6 +5016,77 @@ gerekçesi kaynakta yazılı: küçük sayfada planlayıcı sırayı koruyan iç
 içe döngü seçiyor, 12M satırlık kümede ise **Merge Left Join** (adrese
 göre sıralı) seçiyor. O2b'nin `ORDER BY t.time DESC` kararının aynısı.
 
+##### O4d — Okuma yolunun tamamı süpürüldü, ve ölçülemeyen yarısı ölçülebilir yapıldı (2026-09-20)
+
+O2b, O4a, O4b, O4c uçları **parça parça** ölçmüştü. Sahibin önündeki
+şema kararı (§O4) eksik bir listeye dayanmasın diye 37 rotanın hepsi tek
+düzenekte, HEAD binary'siyle, 1/7/30/90 günde ölçüldü.
+
+**Ve süpürme kendi ölçüm kusurunu buldu.** `ca_scale`'in beacon yarısı
+316.480 olay taşıyor ama **7 yol, 1 referans, 1 cihaz, 1 dil, 1 ülke,
+1 başlık, 0 özel olay**. Tek değerli bir sütunun `GROUP BY`'ı bedavadır;
+yani o veriyle alınan "4 ms" ürünün değil **üreticinin kardinalitesinin**
+cevabı. 22 beacon ucunun 21'i (O2b'nin ölçtüğü `beacon/countries` hariç)
+bugüne kadar hiç ölçülmemişti ve o veri kümesi onları ölçemez.
+
+Düzeltmesi ayrı bir veritabanı — `ca_scale`'e satır eklemek O4b/O4c'nin
+rakamlarını bir daha üretilemez yapardı. `ca_beacon`: ürünün kendi şema
+dosyaları `install.sh` sırasıyla, **2.000.000 olay / 90 gün**, 5.000 yol,
+301 referans, 660k ziyaretçi, 401 kampanya, 160k özel olay, 250k adres;
+sonra ürünün kendi `ca_set_compression` sarmalayıcısıyla sıkıştırıldı
+(13 parçanın 12'si, 1,5 GB → 194 MB — son hafta sıkıştırılmamış kalıyor,
+tıpkı gerçek bir kurulumda olduğu gibi).
+
+**Sıkıştırma tek başına 19 ucu 5'e indirdi** (90 gün, 5 sn sınırı):
+
+| uç | ham | sıkıştırılmış |
+|---|---:|---:|
+| beacon/pages | 6,19 | **3,63** |
+| beacon/referrers | 5,43 | **3,54** |
+| (13 kırılım daha, aynı bant) | 5,1–6,2 | **3,3–3,7** |
+| beacon/summary | 8,26 | 7,65 |
+| beacon/timeseries | 7,74 | 7,57 |
+| beacon/entry-pages | 11,44 | 9,10 |
+| beacon/exit-pages | 11,03 | 9,20 |
+| beacon/countries | 10,55 | 10,41 |
+
+**Kalan beş uç, ve üçünü panel çağırıyor** (çağrı yerleri panelden
+türetildi, O4a'nın dersi): `beacon/summary` (client.go), `beacon/timeseries`
+(series.go) ve `beacon/countries` (breakdown.go kaydı) **panelin
+düğmeleri**; `entry-pages` ile `exit-pages` yalnız genel API'de.
+`beacon/timeseries` panelin kendi kovasıyla (`analytics.Interval`, 90 gün
+→ `1 day`) yeniden ölçüldü: **8,06 sn** — varsayılan kovayla ölçülen
+7,57'den de yüksek, yani bulgu panelin gerçek çağrısıyla duruyor.
+
+Collector tarafında (ca_scale, 11,1M satır) dört uç sınırın üstünde, ve
+**biri yeni**: `/overview` 90 günde **9,23 sn** — bu uç hiç ölçülmemişti.
+Diğer üçü bilinen: `/timeseries` 30g 7,76 · 90g 20,68 (O4c'de ölçülüp
+sorguyla düzeltilemeyeceği gösterildi) ve `ja4` 90g 9,94 (O4a'da
+aritmetik kapattı). Panel bu üçünü de çağırmıyor.
+
+**Bir sayı kusur gibi göründü ve değildi:** `/summary` 30 günde 1,22 sn,
+90 günde **0,098**. Sebep O3: 90 günlük pencere satır bütçesini aşıyor ve
+cevap `visitor_counts: "estimated"`e düşüyor, kısa pencereler `"exact"`
+kalıyor. Ürün tasarlandığı gibi çalışıyor — *uzun pencerenin ucuz olması
+her zaman iyi haber değildir, ama burada cevabın kendisi hangisi olduğunu
+söylüyor.*
+
+**Ölçülmedi, açıkça:** `beacon/campaigns` ve `beacon/events` `ca_scale`'de
+dört pencerede de **boş** dönüyor (üretilen veride sıfır kampanya, sıfır
+özel olay); `ca_beacon`'da doluydular ve ikisi de sınırın çok altında.
+
+**Fazın kendi kapısı bir kusur buldu, ve kusur kapıdaydı.** Belgeler
+yazıldıktan sonraki kapı koşusu beş pakette otuz küsur testle kırmızı
+verdi (*"that email address is already registered"*, *"16 rows reached
+the table"*) ve hepsi ürün kusuru gibi okunuyordu. Sebep tek bir eksik
+değişkendi: `CA_SUPERUSER_DSN` olmadan entegrasyon fikstürlerinin
+temizliği — satırları şema sahibi olarak silen yarısı — **sessizce**
+atlanıyor, ve aynı koşudaki sonraki test kalıntıya çarpıyor. Aynı ağaç,
+aynı commit, değişken ayarlı: yeşil. `gate.sh` o değişkenden yalnız
+*atlanan* dalda söz ediyordu; artık `--all` onu **adımlardan önce**
+soruyor ve yoksa reddediyor (`release/gatedsn_test.go`, iki yönlü, yedi
+mutasyon). Gerekçe NOTES'ta, kullanım CONTRIBUTING'de.
+
 ---
 
 ### Y. İstek yolu yük altında *(planda yoktu; sahibin sorusu açtı)*

@@ -20105,3 +20105,232 @@ sıralı dönüyor. Orada o satırın eksikliği yanlış satırları başa
 taşırdı. Koruma bu yüzden kaynakta, gerekçesiyle yazılı (O2b'nin
 `ORDER BY t.time DESC` kararının aynısı): *bir garanti testin
 göremediği bir şey olabilir; o zaman korumayı görülebilir yere koy.*
+
+## O4d — Okuma yolunun tamamı, ve ölçemediğimiz yarısı (2026-09-20)
+
+O2b, O4a, O4b, O4c uçları parça parça ölçmüştü: her faz kendi ucunu
+düzeltti, komşusuna baktı, bir sonrakini açtı. Sahibin önündeki şema
+kararı (PLAN §O4) eksik bir listeye dayanmasın diye 37 rotanın hepsi tek
+düzenekte ölçüldü — aynı binary (`017b5f2`), aynı çağrı yolu, 1/7/30/90
+gün, üçer örnek, ve süre **binary'nin cevabından**.
+
+### Süpürme önce kendi ölçüm kusurunu buldu
+
+İlk turda beacon kırılımlarının hepsi 4 ms verdi ve "beacon tarafı
+sorunsuz" diye yazacaktım. Sordum:
+
+```
+olaylar | yol | referans | tarayici | cihaz | dil | ulke | baslik | ozel olay
+ 316480 |   7 |        1 |        4 |     1 |   1 |    1 |      1 |         0
+```
+
+`ca_scale`'in beacon yarısı O2b için üretilmişti ve amacı **ülke
+çözümünü** ölçmekti; kırılım sütunlarına hiç kardinalite konmamıştı. Tek
+değerli bir sütunun `GROUP BY`'ı bedavadır, `count(DISTINCT)`'i de öyle.
+Yani o veriyle alınan süre ürünün değil **üreticimin** cevabı.
+
+*Üretilen verinin kusuru, ölçümün sonucu gibi görünür* — bu sefer
+en tehlikeli yönde: **iyi** görünerek. 22 beacon ucunun 21'i (O2b'nin
+ölçtüğü `beacon/countries` hariç) bugüne kadar hiç ölçülmemişti, ve o
+veri kümesiyle ölçülemezdi.
+
+Ve satır sayacımın kendisi de yanlış cevap verdi: `beacon/summary`'yi
+"boş pencere" diye işaretledi, çünkü zarftaki ilk sayacı — `events`,
+yani **özel olay** sayısı — okuyordu ve o sıfırdı; pencerede 1.210
+görüntüleme vardı. Sayaç ucun asıl sayacını soracak şekilde
+düzeltildi. *Bir dedektörün sessizliği, aradığı şeye ulaşabildiğini
+göstermez* — ve bu sefer sessizlik değil, **yanlış alarm** verdi.
+
+### `ca_beacon`: ölçülebilir bir beacon veri kümesi
+
+Ayrı veritabanı, çünkü `ca_scale`'e satır eklemek O4b'nin ve O4c'nin
+rakamlarını bir daha üretilemez yapardı — ve o rakamlar iki commit'in
+gerekçesi.
+
+Kuruluşu ürünün kendi yolu: `release/install.sh`'in şema dosyası sırası,
+sonra `release/sql/grants.sql`. Üretilen (betik
+`/var/tmp/ca-o4a/jsbot/uret-beacon.py`, tohum sabit):
+
+| ne | kaç |
+|---|---:|
+| olay | 2.000.000 (90 gün) |
+| yol / başlık | 5.000 (Zipf) |
+| referans sunucusu | 301 (%60 doğrudan) |
+| ziyaretçi | 659.861 |
+| adres | 249.915 |
+| kampanya / kaynak / terim | 401 / 60 / 500 |
+| özel olay | 159.526 (%8) |
+| dil / ülke / tarayıcı / OS | 40 / 180 / 10 / 8 |
+
+Dağılımlar Zipf, çünkü gerçek bir sitede ilk yirmi sayfa trafiğin
+çoğunu alır; düzgün dağılım hem HashAggregate'i hem sayfalamayı
+olduğundan kolay gösterir. Ziyaretçi kimlikleri **dağınık** (sha256),
+sıralı değil — O3'ün dersi.
+
+Sonra ürünün kendi sarmalayıcısı: `ca_set_compression('beacon_events', 17)`.
+17 gün, çünkü veri 09-09'da bitiyor ve bugün 09-20: gerçek bir kurulumda
+sıkıştırma sınırı **verinin son haftasının** başında durur. 13 parçanın
+12'si sıkıştı, 1,5 GB → **194 MB**.
+
+### Sıkıştırma tek başına on dört düğmeyi geri getirdi
+
+Aynı veri, aynı binary, 90 gün:
+
+| uç | ham | sıkıştırılmış |
+|---|---:|---:|
+| beacon/pages | 6,191 | **3,631** |
+| beacon/referrers | 5,425 | **3,540** |
+| beacon/browsers | 6,172 | **3,381** |
+| beacon/operating-systems | 5,113 | **3,567** |
+| beacon/devices | 5,830 | **3,334** |
+| beacon/languages | 5,507 | **3,535** |
+| beacon/titles | 5,912 | **3,730** |
+| beacon/utm-sources | 6,063 | **3,624** |
+| beacon/utm-mediums | 5,995 | **3,391** |
+| beacon/utm-campaigns | 5,840 | **3,488** |
+| beacon/utm-terms | 6,216 | **3,526** |
+| beacon/utm-contents | 6,187 | **3,369** |
+| beacon/refs | 5,804 | **3,397** |
+| beacon/click-sources | 5,447 | **3,500** |
+| beacon/summary | 8,262 | 7,646 |
+| beacon/timeseries | 7,742 | 7,566 |
+| beacon/entry-pages | 11,444 | 9,095 |
+| beacon/exit-pages | 11,033 | 9,197 |
+| beacon/countries | 10,554 | 10,409 |
+
+Sınırın üstündeki uç sayısı **19 → 5**. İlk on dördü tek bir sütunu
+grupluyor ve sıkıştırma tam orada kazandırıyor (sütun bazlı saklama,
+okunan bayt beşte bire iniyor). Son beşi kazanmıyor, çünkü maliyetleri
+taranan bayt değil: `count(DISTINCT visitor_id)`, oturum penceresi, ya
+da adres başına sonda.
+
+**Bu bir O1 doğrulaması:** O1 sıkıştırmayı collector tablosu için
+ölçmüştü; beacon tarafında ne yaptığı ölçülmemişti. Ölçüldü.
+
+### Kalan beş uç, ve üçü panelin düğmesi
+
+Uç listesi panelin çağrı yerlerinden türetildi (O4a'nın dersi: panelin
+çağırmadığı bir ucu panonun düğmesi gibi raporlamak yanlış olur):
+
+| uç | 90 gün | panel çağırıyor mu |
+|---|---:|---|
+| beacon/countries | 10,409 | **evet** (`breakdown.go` kaydı) |
+| beacon/exit-pages | 9,197 | hayır |
+| beacon/entry-pages | 9,095 | hayır |
+| beacon/summary | 7,646 | **evet** (`client.go`) |
+| beacon/timeseries | 7,566 | **evet** (`series.go`) |
+
+`beacon/timeseries` panelin **kendi kovasıyla** yeniden ölçüldü
+(`analytics.Interval`: 90 gün → `1 day`, 80 kova): **8,062 sn**.
+Varsayılan kovayla ölçülenden yüksek, yani O4a'nın "yanlış parametreyi
+ölçme" tuzağı bu sefer bulguyu küçültmüyor, büyütüyor.
+
+Yani **ziyaretçi panosunun 90 gün düğmesi 2 milyon olaylı bir sitede
+çalışmıyor** — ve bu bugüne kadar görünmedi çünkü ölçüm veri kümesinde
+bir ülke ve yedi sayfa vardı.
+
+### Collector tarafı: dört uç, biri hiç ölçülmemiş
+
+`ca_scale` / `buyuk-site` (11,1M satır), aynı koşu:
+
+| uç | 1g | 7g | 30g | 90g |
+|---|---:|---:|---:|---:|
+| summary | 0,039 | 0,385 | 1,217 | 0,098 |
+| timeseries | 0,126 | 0,936 | **7,760** | **20,683** |
+| top-ips | 0,054 | 0,195 | 2,078 | 4,687 |
+| countries | 0,045 | 0,141 | 1,564 | 3,812 |
+| asns | 0,055 | 0,167 | 1,644 | 3,571 |
+| ja4 | 0,101 | 0,987 | 3,696 | **9,944** |
+| score-distribution | 0,041 | 0,211 | 1,007 | 2,628 |
+| snapshots | 0,014 | 0,037 | 0,447 | 0,523 |
+| ips/{ip} | 0,002 | 0,002 | 0,358 | 1,208 |
+| crossover/summary | 0,090 | 0,346 | 0,917 | 2,549 |
+| crossover/silent-ips | 0,198 | 0,318 | 1,776 | 3,962 |
+| crossover/js-bots | 0,087 | 0,474 | 1,517 | 4,031 |
+| sites | 0,307 | 0,305 | 0,283 | 0,272 |
+| overview | 0,093 | 0,550 | 3,257 | **9,230** |
+
+**`/overview` yeni.** Hiç ölçülmemişti ve 90 günde 9,23 sn veriyor. Panel
+çağırmıyor (O4c'deki `top-ips` gibi), ama dokuz saniye veren bir uç
+pratikte çalışmayan bir uçtur. `/timeseries` ve `ja4` bilinen: ikisi de
+ölçülüp **sorguyla düzeltilemeyeceği gösterilmiş** uçlar (O4c ve O4a).
+
+### Uzun pencerenin ucuz olması kusur değildi
+
+`/summary` 30 günde 1,217 sn, 90 günde **0,098**. On iki kat ucuz bir
+uzun pencere bir kusur gibi görünür; cevaplara bakınca sebep çıktı:
+
+```
+30g: "visitor_counts": "exact",     "visitor_count_error": 0
+90g: "visitor_counts": "estimated", "visitor_count_error": 0.0041
+```
+
+O3'ün satır bütçesi. 90 günlük pencere bütçeyi aşıyor ve cevap eskize
+düşüyor, kısa pencereler kesin kalıyor. **Ürünün kendi cevabı hangisini
+kullandığını söylüyor**, o yüzden bu bir sayı değil bir açıklama.
+*Beklenmedik biçimde ucuz bir sonuç, doğru şeyi ölçtüğünüzü sormanız
+için bir sebeptir* — burada cevap "evet, ve sebebi cevabın içinde".
+
+### Ölçülmedi, açıkça
+
+- `beacon/campaigns` ve `beacon/events` `ca_scale`'de dört pencerede de
+  **boş** dönüyor (üretilen veride sıfır kampanya, sıfır özel olay). O
+  tablodaki süreleri bir şey ölçmüyor; `ca_beacon`'da ikisi de doluydu ve
+  ikisi de 0,4 sn'nin altında.
+- `beacon/countries` `ca_beacon`'da `traffic_snapshots` **boşken**
+  ölçüldü, yani adres başına sondanın her biri boş dönüyor. Cevap doğru
+  (180 ülke, beacon'ın kendi sütunundan), ama sondanın gerçek kurulumdaki
+  maliyeti bundan farklı olabilir; ölçülen şey **sonda sayısı**
+  (249.915), sondanın bulduğu değil.
+
+### Ve fazın kendi kapısı kırmızı verdi — ürün değil, eksik bir değişken
+
+O4d'nin belgelerini yazıp kapıyı koşturdum: **kırmızı.** Beş pakette otuz
+küsur test, `internal/logsink`, `internal/panel/web`, `internal/backup`:
+
+```
+health_integration_test.go:221: CreateUser(...): panel: that email address
+                                is already registered
+logsink_integration_test.go:235: 16 rows reached the table; only the WARN
+                                should have
+```
+
+Değiştirdiğim tek şey NOTES.md ve PLAN.md'ydi. Yani ya kırmızı gerçek bir
+şey söylüyordu ya da düzenek bozuktu — ve O1'in kuralı hangisi olduğunu
+**önce sormayı** söylüyor.
+
+Testlerin kendi ipucu satırı cevabı taşıyordu:
+
+```
+set CA_SUPERUSER_DSN to a connection that owns the schema;
+this test writes rows only its owner can remove
+```
+
+Değişken bu kabukta boştu. Kalıntının yaşını sordum: 77 hesabın **77'si o
+koşunun kendi saatinden**. Yani miras alınan bir kirlilik değil, **koşu
+içi çarpışma**: ilk test satırını bırakıyor (temizlik sahiplik istiyor ve
+yapamıyor), sonraki test aynı adrese çarpıyor.
+
+Aynı ağaç, aynı commit, değişken ayarlı: **yeşil.** Kontrollü
+karşılaştırma, tek değişken.
+
+**Kusur kapıdaydı.** `gate.sh` `CA_SUPERUSER_DSN`'den yalnız *atlanan*
+dalda söz ediyordu: `--all` verildiğinde değişkeni hiç sormuyor,
+koşuyor, ve kırmızıyı ürüne yazdırıyor. Artık **reddediyor**, ve
+adımlardan **önce** reddediyor — çünkü on dakikalık dokuz adımdan sonra
+sorulan bir ön koşul, öğrenmesi on dakika süren bir ön koşuldur.
+
+Bu, geceliğin eklenti işiyle aynı kural: *tek işi bir şeye bağlı olan bir
+adım, o şeyi bulamazsa atlamamalı, düşmeli.* Ve CI 384'ün dersinin öteki
+yüzü: orada kalıntı **sonraki** koşuya miras kalıyordu, burada **aynı**
+koşunun içinde çarpıyor; ikisinde de bildirilen şey ürün kusuru gibi
+görünüyor.
+
+Yedi mutasyon, yedisi de kırmızı. Biri ilk turda sağ kaldı ve testin
+kusuruydu: başlık satırından değişkenin adını silmek yakalanmıyordu,
+çünkü iddia **bütün çıktıda** adı arıyordu ve alttaki örnek satırı tek
+başına onu karşılıyordu. *Bir iddiayı çıktının tamamına sormak, iddiayı
+okuyanın baktığı yere sormamaktır* — iddia artık **ilk satıra** bakıyor.
+
+`CONTRIBUTING.md`'nin kapı bölümü de değişkeni artık `export` ile
+gösteriyor ve niye gerektiğini yazıyor.

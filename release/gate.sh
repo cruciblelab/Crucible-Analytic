@@ -71,6 +71,39 @@ unset CA_GATE_LOG
 GOSEC_VERSION="v2.29.0"
 DEADCODE_VERSION="v0.49.0"
 
+# --all without a superuser connection is refused, before any step runs.
+#
+# # Why a refusal and not a warning, and why here rather than at the
+# # integration step
+#
+# The integration fixtures write rows that only the schema's owner can
+# remove - panel accounts, log lines. Without this variable their cleanup
+# skips, and it skips *quietly*: `go test` prints a log line only for the
+# test that failed, and the test that leaves the row behind is the one
+# that passed.
+#
+# The next test in the same run then collides with what the previous one
+# left ("that email address is already registered"), and the gate reports
+# it as thirty-odd red tests across five packages. Nothing in that output
+# says "an environment variable is missing"; it reads like the product
+# broke. Measured on 2026-09-20: the same tree at the same commit went
+# red without it and green with it, and the first hour of reading the
+# transcript went looking for the defect in the product.
+#
+# Asked here rather than beside the step it guards, because a
+# precondition that is checked after ten minutes of other work is a
+# precondition that costs ten minutes to learn. Same rule the nightly
+# applies to its plugin job: *a step whose only job needs something it
+# cannot find must fail, not skip.*
+if [ "${1:-}" = "--all" ] && [ -z "${CA_SUPERUSER_DSN:-}" ]; then
+  printf 'gate: RED - --all needs CA_SUPERUSER_DSN\n'
+  printf '   The integration fixtures clean up as the schema owner. Without it\n'
+  printf '   they leave rows behind and later tests collide with them, which\n'
+  printf '   reads like a product defect and is not one.\n'
+  printf '   e.g. CA_SUPERUSER_DSN="postgres://postgres@127.0.0.1:5432/analytics?sslmode=disable"\n'
+  exit 1
+fi
+
 failed=0
 ran=0
 
