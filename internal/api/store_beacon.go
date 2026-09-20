@@ -305,19 +305,30 @@ func (e breakdownExpr) valid() error {
 // placeholder for an identifier. Two things stand between that and
 // CWE-89: the type, which no other package can construct a value of, and
 // valid() above, which refuses anything this package builds by mistake.
+// # Why the total is a window function and not a second query
+//
+// It used to be `count(DISTINCT expr)` in its own statement, which read
+// the whole window a second time to learn a number the grouping pass
+// already had. Measured on 2.000.000 events over 90 days (O4d's
+// ca_beacon): the two passes cost about the same, so the second one was
+// roughly half the endpoint. All fifteen breakdowns share this function,
+// so all fifteen were paying it.
+//
+// `count(*) OVER ()` runs after GROUP BY and before LIMIT, which makes
+// it the count of groups the query would have returned unpaginated -
+// the same number, from the pass that is already reading the rows. It is
+// the shape pageTotal documents on the collector side; the reasoning
+// about a total that can disagree with its own page is there.
 func (s *Store) beaconBreakdown(ctx context.Context, siteID string, expr breakdownExpr, p beaconParams) ([]BeaconGroupStat, int, error) {
 	if err := expr.valid(); err != nil {
-		return nil, 0, err
-	}
-	total, err := s.beaconCountDistinct(ctx, siteID, expr, p)
-	if err != nil {
 		return nil, 0, err
 	}
 
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+fmt.Sprintf(`
 		SELECT %s,
 		       count(*) FILTER (WHERE event_type = 'pageview') AS pageviews,
-		       count(DISTINCT visitor_id) AS visitors
+		       count(DISTINCT visitor_id) AS visitors,
+		       `+pageTotal+`
 		FROM filtered
 		GROUP BY 1
 		-- The trailing key is a tie-break, without which two pages with
@@ -332,40 +343,34 @@ func (s *Store) beaconBreakdown(ctx context.Context, siteID string, expr breakdo
 	}
 	defer rows.Close()
 
-	stats, err := scanBeaconGroupStats(rows)
-	return stats, total, err
+	return scanBeaconGroupPage(rows)
 }
 
-func (s *Store) beaconCountDistinct(ctx context.Context, siteID string, expr breakdownExpr, p beaconParams) (int, error) {
-	if err := expr.valid(); err != nil {
-		return 0, err
-	}
-	var total int
-	err := s.pool.QueryRow(ctx, beaconFilterCTE+fmt.Sprintf(`
-		SELECT count(DISTINCT %s) FROM filtered`, expr),
-		beaconArgs(siteID, p)...,
-	).Scan(&total)
-	if err != nil {
-		return 0, fmt.Errorf("api: beacon count distinct %s: %w", expr, err)
-	}
-	return total, nil
-}
-
-func scanBeaconGroupStats(rows interface {
+// scanBeaconGroupPage reads a breakdown's three columns plus the window
+// count each row carries, and returns it once.
+//
+// The total arrives on every row because that is what a window function
+// is; an empty page therefore carries no total, and zero is the right
+// answer there - a window with no groups has none to page through.
+func scanBeaconGroupPage(rows interface {
 	Next() bool
 	Scan(...any) error
 	Err() error
-}) ([]BeaconGroupStat, error) {
+}) ([]BeaconGroupStat, int, error) {
 	stats := []BeaconGroupStat{}
+	total := 0
 	for rows.Next() {
 		var stat BeaconGroupStat
-		if err := rows.Scan(&stat.Key, &stat.Pageviews, &stat.Visitors); err != nil {
-			return nil, fmt.Errorf("api: scan beacon group stat: %w", err)
+		if err := rows.Scan(&stat.Key, &stat.Pageviews, &stat.Visitors, &total); err != nil {
+			return nil, 0, fmt.Errorf("api: scan beacon group stat: %w", err)
 		}
 		stat.Empty = stat.Key == ""
 		stats = append(stats, stat)
 	}
-	return stats, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return stats, total, nil
 }
 
 // BeaconTitles breaks client-side traffic down by page title.
@@ -677,9 +682,24 @@ func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconPara
 	// The answer is unchanged: still the most recent non-empty country
 	// for that address inside the requested range. LATERAL with LIMIT 1
 	// says that directly, which is why the planner can use the index.
+	// # Why the probe set is the addresses with no country, not all of them
+	//
+	// resolved below prefers the beacon's own country and falls back to
+	// this one, so an address whose rows already carry a country is
+	// probed for an answer that is then discarded. Narrowing to the rows
+	// that have none keeps the answer identical - an address with some
+	// rows empty and some filled still appears here, because the
+	// condition is on rows, not on addresses - and removes the probes
+	// that cannot change anything.
+	//
+	// What that saves depends on the deployment, and both ends were
+	// measured (O4d's ca_beacon, 250.000 addresses, 90 days): with the
+	// beacon's own geo lookup on, every probe was waste; with it off -
+	// the recommended deployment, where this join is the normal path -
+	// the set is unchanged and this costs nothing.
 	const geoCTE = `,
 		beacon_ips AS (
-		    SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL
+		    SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL AND country = ''
 		),
 		geo AS (
 		    SELECT b.ip, g.country
@@ -700,19 +720,14 @@ func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconPara
 		    LEFT JOIN geo g ON g.ip = f.ip
 		)`
 
-	var total int
-	err := s.pool.QueryRow(ctx, beaconFilterCTE+geoCTE+`
-		SELECT count(DISTINCT country) FROM resolved`,
-		beaconArgs(siteID, p)...,
-	).Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("api: beacon countries total: %w", err)
-	}
-
+	// One pass, for the reason beaconBreakdown gives - and it weighs more
+	// here, because the pass this used to run twice included the probe
+	// per address.
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+geoCTE+`
 		SELECT country,
 		       count(*) FILTER (WHERE event_type = 'pageview') AS pageviews,
-		       count(DISTINCT visitor_id) AS visitors
+		       count(DISTINCT visitor_id) AS visitors,
+		       `+pageTotal+`
 		FROM resolved
 		GROUP BY country
 		ORDER BY pageviews DESC, visitors DESC, country
@@ -724,8 +739,7 @@ func (s *Store) BeaconCountries(ctx context.Context, siteID string, p beaconPara
 	}
 	defer rows.Close()
 
-	stats, err := scanBeaconGroupStats(rows)
-	return stats, total, err
+	return scanBeaconGroupPage(rows)
 }
 
 // BeaconEvent is one raw stored event, for export or for checking where

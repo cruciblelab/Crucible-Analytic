@@ -5087,6 +5087,45 @@ aynı commit, değişken ayarlı: yeşil. `gate.sh` o değişkenden yalnız
 soruyor ve yoksa reddediyor (`release/gatedsn_test.go`, iki yönlü, yedi
 mutasyon). Gerekçe NOTES'ta, kullanım CONTRIBUTING'de.
 
+##### O4e — Beacon kırılımları da pencereyi iki kez tarıyordu ✅ **bitti (2026-09-20)**
+
+O4d sayıları verdi, sebebi aramak deseni buldu: on beş beacon kırılımının
+hepsi `beaconBreakdown`'dan geçiyor ve o fonksiyon `count(DISTINCT
+<sütun>)` ile `GROUP BY <sütun>`'ü **ayrı iki sorgu** olarak koşturuyordu.
+O4a'nın collector tarafında kapattığı desenin aynısı, çözümü de aynı:
+`pageTotal` (`count(*) OVER ()`). `BeaconCountries` kendi kopyasını
+taşıyordu, o da tek geçişe indi.
+
+İkinci kaldıraç yalnız ülkelerde: sonda kümesi penceredeki **bütün**
+adreslerdi, oysa beacon'ın ülkesini zaten bildiği adresler için sondanın
+bulduğu şey `COALESCE` tarafından atılıyor. Küme `country = ''` olan
+satırların adreslerine daraltıldı — koşul **satırda**, adreste değil,
+çünkü bir adres bir pencerede hem çözülmüş hem çözülmemiş satır
+taşıyabilir.
+
+Binary'nin cevabı, sıra dönüşümlü, ve **iki kontrol ucuyla**
+(`beacon/summary`, `beacon/timeseries` — dokunulmadı):
+
+| uç | 30 gün | 90 gün |
+|---|---|---|
+| beacon/countries | 3,93 → **1,48** | 10,51 → **4,79** (düğme geri geldi) |
+| beacon/pages | 1,14 → 0,88 | 3,20 → 2,68 |
+| beacon/referrers | 1,00 → 0,89 | 3,23 → 2,36 |
+| beacon/browsers | 1,05 → 0,75 | 3,27 → 2,66 |
+| kontroller | ±%3 | **±%9** |
+
+Kontrol bandı ölçümün çözünürlüğü: 90 günde %9'luk tek kazanç
+(`utm-campaigns`) bandın içinde ve sayılmıyor. **Tahminim yanlıştı** —
+"iki tarama varsa süre yarılanır" demiştim, kırılımlarda %16–27 çıktı,
+çünkü kaldırılan geçiş ucuz olanıydı (O4c'nin dersinin tekrarı).
+Ülkelerde oran büyük, çünkü kaldırılan geçiş sondayı da içeriyordu.
+
+Ölçüm her cevabın `total`'ini de karşılaştırıyor: **on beş çiftin sıfırı
+ayrışıyor.** Yedi mutasyon, yedisi kırmızı; ilk turda üçü sağ kaldı,
+ikisi benim yazdığım **eşdeğer** mutasyondu ve biri gerçek boşluktu
+(pakette bir adresi iki sitede tutan fikstür yoktu — eksik olan bir
+iddia değil bir **girdi**).
+
 ---
 
 ### Y. İstek yolu yük altında *(planda yoktu; sahibin sorusu açtı)*

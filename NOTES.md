@@ -20334,3 +20334,114 @@ okuyanın baktığı yere sormamaktır* — iddia artık **ilk satıra** bakıyo
 
 `CONTRIBUTING.md`'nin kapı bölümü de değişkeni artık `export` ile
 gösteriyor ve niye gerektiğini yazıyor.
+
+## O4e — Beacon kırılımları pencereyi iki kez tarıyordu (2026-09-20)
+
+O4d'nin süpürmesi sayıları verdi; sebebi arayınca desen çıktı. On beş
+beacon kırılımının hepsi `beaconBreakdown`'dan geçiyor ve o fonksiyon
+**iki sorgu** koşturuyordu:
+
+```go
+total, err := s.beaconCountDistinct(ctx, siteID, expr, p)  // pencereyi tarar
+rows, err := s.pool.Query(ctx, ... GROUP BY 1 ...)          // pencereyi tarar
+```
+
+Bu tam olarak O4a'nın collector tarafında kapattığı desen, ve çözümü de
+aynı: `count(*) OVER ()`. Pencere fonksiyonu `GROUP BY`'dan sonra,
+`LIMIT`'ten önce koşuyor — yani sayfalanmamış hâlde kaç grup dönerdi,
+onu sayıyor. `BeaconCountries` kendi kopyasını taşıyordu, o da tek
+geçişe indi.
+
+### İkinci kaldıraç: sondayı yalnız gereken adrese kurmak
+
+`BeaconCountries` ülkeyi beacon'ın kendi sütunundan alıyor, yoksa
+collector'dan kurtarıyor. Ama sonda kümesi **penceredeki bütün
+adreslerdi** — beacon'ın ülkesini zaten bildiği adresler dâhil, ve onlar
+için sondanın bulduğu şey `COALESCE` tarafından atılıyor.
+
+```sql
+-- önce
+SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL
+-- sonra
+SELECT DISTINCT ip FROM filtered WHERE ip IS NOT NULL AND country = ''
+```
+
+Koşul **satırda**, adreste değil: bir adres haziranda çözülmüş temmuzda
+çözülmemiş olabilir (beacon'ın geo araması operatörün açtığı bir ayar),
+ve o adres hâlâ sondaya girmeli.
+
+### Ölçüm: iki binary, sıra dönüşümlü, ve iki kontrol ucu
+
+`ca_beacon` (2M olay / 90 gün, sıkıştırılmış), panelin kendi limiti (25),
+her blokta önce/sonra sırası değişiyor.
+
+| uç | aralık | önce | sonra | kazanç |
+|---|---|---:|---:|---:|
+| beacon/countries | 7g | 0,848 | **0,375** | −56% |
+| | 30g | 3,927 | **1,477** | −62% |
+| | 90g | 10,509 | **4,791** | −54% |
+| beacon/pages | 30g | 1,138 | 0,876 | −23% |
+| | 90g | 3,201 | 2,680 | −16% |
+| beacon/referrers | 90g | 3,229 | 2,364 | −27% |
+| beacon/browsers | 90g | 3,267 | 2,657 | −19% |
+| beacon/utm-campaigns | 90g | 2,924 | 2,674 | −9% |
+| **beacon/summary** (kontrol) | 90g | 7,758 | 8,445 | +9% |
+| **beacon/timeseries** (kontrol) | 90g | 7,575 | 6,858 | −9% |
+
+**`beacon/countries` panelin düğmesiydi ve geri geldi** (90 günde sınırın
+altına indi).
+
+**Kontrol uçları ölçümün çözünürlüğünü veriyor.** İkisine de
+dokunmadım; ±%9 oynuyorlar. Yani 90 günde `utm-campaigns`'ın %9'u bu
+bandın içinde ve **kazanç diye sayılamaz**; %16–27 olanlar dışında.
+*Bir kazancı, kazanmaması gereken bir ucun yanında ölçmezseniz,
+ölçtüğünüz şey düzenek olabilir* — ve burada düzenek ölçülmüş oldu.
+
+**Tahminim yanlıştı ve ne kadar yanlış olduğu ölçüldü.** "İki tarama
+varsa biri gider, süre yarılanır" demiştim; kırılımlarda %16–27 çıktı.
+Sebep O4c'nin dersinin aynısı: *aynı pencereyi tarayan iki CTE'nin
+maliyeti aynı değildir.* `count(DISTINCT <sütun>)` tek bir sütunu
+gruplayan ucuz bir geçiş; sayfa sorgusu aynı grupların üstüne bir de
+`count(DISTINCT visitor_id)` koyuyor. Ucuz olan yarısını kaldırdım.
+
+Ülkelerde oran büyük (%54–62), çünkü kaldırılan geçiş **sondayı da**
+içeriyordu: iki kaldıraç aynı uçta çarpıyor.
+
+### Doğruluk kontrolü ölçümün içinde
+
+Ölçüm betiği her cevabın `total` alanını da topluyor ve iki binary'yi
+karşılaştırıyor: **on beş (uç, aralık) çiftinin sıfırı ayrışıyor.** Bir
+hız kazancının yanında, aynı koşudan çıkan bir eşitlik iddiası.
+
+### Mutasyonlar: yedinin yedisi, ama ilk turda üçü sağ kaldı
+
+İkisi **benim kusurumdu** ve ikisi de eşdeğer mutasyondu:
+
+- `count(*) OVER ()` yerine `count(*) OVER (PARTITION BY 1 ORDER BY 1)`
+  yazdım. RANGE çerçevesinde sabit bir sıralama bütün satırları
+  **akran** yapıyor, yani yürüyen sayım her satırda tam sayıma eşit.
+  Mutasyon yazdım sandım, eşitlik yazmışım. Gerçek mutasyon
+  `ROWS UNBOUNDED PRECEDING` ile sıralanmış bir yürüyen sayım.
+- Tarayıcıya `_ = total` ekledim; bir ifade ekledim, davranış
+  değiştirmedim. Doğrusu `return stats, 0, nil`.
+
+*Bir mutasyonun sağ kalması bir cevap değil bir sorudur* — ve burada
+cevabın ikisi "mutasyon yazmamışsın" çıktı.
+
+Üçüncüsü gerçek bir boşluktu: sondadan `t.site_id = $1`'i silmek hiçbir
+testi kırmadı, çünkü bu pakette **bir adresi iki sitede tutan bir
+fikstür yoktu**. O4b'de bir kez daha olmuştu ve eksik olan yine bir
+iddia değil bir **girdi**: fikstüre aynı adresi başka bir müşteride,
+daha yeni bir satırla ekledim (sonda en yeni satırı alıyor, yani süzgeç
+kalkarsa komşunun cevabını tercih eder). Ve kaçan kusur yine ürünün en
+az hakkı olanı: bir tablo, iki müşteri.
+
+### Daraltmanın kendisini hiçbir test tutamaz
+
+`AND country = ''` cevabı değiştirmiyor — değiştirseydi kaldırılması
+gereken şey o olurdu. Yani onu silmek hiçbir iddiayı kırmaz, ve
+kırmamalı. Koruma O2b'nin `ORDER BY t.time DESC` ve O4c'nin son
+`ORDER BY`'ı ile aynı yerde: **kaynakta, ölçülen sayısıyla birlikte.**
+Testlerin tuttuğu şey daraltmanın *yanlış* yapılması — satır yerine
+adres koşulu (M3), kümenin boşaltılması (M4), `COALESCE` sırasının
+ters çevrilmesi (M5).
