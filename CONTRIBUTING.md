@@ -104,10 +104,22 @@ go build ./... && go vet ./...
 go test -count=1 -race ./...
 CA_BROWSER_TEST=1 go test -tags integration -race -count=1 ./...
 for tag in loadtest network release e2e docker; do go vet -tags "$tag" ./...; done
-go test -tags release -count=1 ./release/
 gosec    ... | go run ./internal/sast/cmd/sastdiff    -report gosec.json
 deadcode ... | go run ./internal/sast/cmd/deadcodediff -report deadcode.txt
 ```
+
+**What the gate runs and a pull request does not.** `./release/gate.sh
+--all` also runs `go test -tags release ./release/` - 43 tests, 94
+seconds, and the 28 in `release/install_test.go` are the ones that read
+`install.sh`. CI does not: it vets that tag but does not test it, and
+`nightly.yml` runs the tests once a day on `main`. So a change that
+breaks the install script goes green on the pull request and red the
+next night.
+
+That line used to sit in the block above, which said CI ran it. It did
+not, and nothing noticed, so `internal/docs/citags_test.go` now holds
+the block and the workflow together: a `go test -tags X` the document
+claims CI runs has to appear in `ci.yml`.
 
 ## The nightly, run by hand
 

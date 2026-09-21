@@ -20154,7 +20154,8 @@ sonra `release/sql/grants.sql`. Üretilen (betik
 | ne | kaç |
 |---|---:|
 | olay | 2.000.000 (90 gün) |
-| yol / başlık | 5.000 (Zipf) |
+| yol | 5.000 (Zipf) |
+| başlık | **1.111** (üretecin kusuru, aşağıda) |
 | referans sunucusu | 301 (%60 doğrudan) |
 | ziyaretçi | 659.861 |
 | adres | 249.915 |
@@ -20445,3 +20446,127 @@ kırmamalı. Koruma O2b'nin `ORDER BY t.time DESC` ve O4c'nin son
 Testlerin tuttuğu şey daraltmanın *yanlış* yapılması — satır yerine
 adres koşulu (M3), kümenin boşaltılması (M4), `COALESCE` sırasının
 ters çevrilmesi (M5).
+
+## Kontrol incelemesi (2026-09-21) — dün yayımladığım üç iddia sınandı
+
+Kullanıcı kapsamlı bir kontrol incelemesi istedi. Dokuz başlık, hepsi
+gerçek kaynağa sorularak: depo/CI durumu, kusur sınıfı, rakamların
+tekrarlanabilirliği, düzeneğin kendi iddiaları, testlerin CI'da gerçekten
+koşması, belge↔kod bağı, panelin çağrı listesi, güvenlik yüzeyi, ve
+"ölçülmedi" dediklerimin dürüstlüğü.
+
+**Beş bulgu; üçü yayımlanmış bir cümleyi düzeltiyor.**
+
+### 1. `ja4` bir panel bölümü, ve ölü bir düğme (PLAN düzeltildi)
+
+PLAN §O4d *"Panel bu üçünü de çağırmıyor"* diyordu — `/overview`,
+`/timeseries` ve `ja4` için. İlk ikisi doğru. `ja4` **yanlış**:
+`internal/panel/web/breakdown.go` onu `BreakdownFingerprints` olarak
+`Technical: true` ile kaydediyor ve `technicalBreakdowns`'un **ilk**
+sırasına koyuyor, yani geliştirici modunda çizilen bir bölüm.
+`analytics.RequestTimeout` 5 sn, ölçülen 9,94 sn. Yani ölü panel düğmesi
+sayısı **iki değil üç**.
+
+Hatanın kaynağı ölçülebilir: panelin çağrı listesini `client.go` ve
+`series.go`'dan türetmiş, `breakdown.go`'nun kayıt tablosunu **okumuş**
+ama tablonun collector tarafındaki üç satırını (`ja4`, `asns`,
+`countries`) bütçe tablosuyla karşılaştırmamıştım. İncelemede liste
+baştan türetildi: `grep '"/api/v1/'` + iki kayıt tablosu (`breakdowns`,
+`addressLists`) → on üç uç.
+
+*Bir listeyi türetmek, türettiğin listeyi kullandığın anlamına gelmez.*
+
+### 2. Mutlak süreler oturumdan oturuma kayıyor; oranlar kaymıyor
+
+Dünkü O4e "sonra" rakamları bugün **tekrarlanmadı.** Aynı HEAD binary,
+aynı `ca_beacon`, yeniden başlatılmış konteyner ve PostgreSQL:
+
+| uç (90 gün) | dün | bugün |
+|---|---:|---:|
+| beacon/summary | 7,65 | 11,90 |
+| beacon/timeseries | 6,86 | 10,70 |
+| **beacon/countries** | **4,79** | **6,38** |
+| beacon/pages | 2,68 | 3,17 |
+
+İlk hipotez soğuk önbellekti ve **ölçülüp elendi**: sistem ısındıktan
+sonra aynı süpürme 6,36 / 11,72 / 3,12 verdi — aynı bant. Makinede rakip
+süreç yok (yük 0,53 / 4 çekirdek), eski ölçüm süreçleri kalmamış.
+
+Sonra dünkü düzenek bugün **iki binary'yle birden** kuruldu:
+
+| uç (90 gün) | dün önce→sonra | bugün önce→sonra |
+|---|---|---|
+| beacon/countries | 10,51 → 4,79 (−54%) | 14,91 → 6,26 (**−58%**) |
+| beacon/pages | 3,20 → 2,68 (−16%) | 3,89 → 3,14 (**−19%**) |
+
+**İki binary birlikte kaymış.** Yani O4e'nin *kazanç* iddiası bağımsız
+bir tekrarla **doğrulandı**; kayan şey mutlak seviye.
+
+Mekanizmayı iddia etmiyorum — ölçtüğüm şu: bu düzenekte **oranlar
+tekrarlanıyor, mutlak seviyeler oturumlar arasında %20–40 kayıyor.**
+Sonucu ağır: 5 sn'lik eşiğe göre verilen *"düğme geri geldi"* /
+*"sınır üstü"* hükümleri ancak **payı büyükse** dayanıklı.
+`beacon/countries` (dün 4,79 → bugün 6,26) ve O4c'nin `top-ips`'i
+(4,64, payı %7) dayanıklı değil; 3,2'lik kırılımlar (payı %36) ve
+11 sn'lik uçlar dayanıklı.
+
+*Bir eşiğin hangi yanında olduğunuzu tek oturumda ölçemezsiniz; ölçtüğünüz
+şey farktır, eşiği geçip geçmediği değil.*
+
+### 3. "Pencereyi iki kez tara" sınıfı kapanmamış
+
+O4e iki örneği düzeltti ve ben **sınıfı sormadım.** Sayım kaynaktan
+türetildi, her gövde elle okundu: altı fonksiyon daha aynı deseni
+taşıyor, ve biri — `sessionBoundaryPages` — bütçe üstü bıraktığım
+`entry-pages`/`exit-pages`'in arkasında, üstelik pencereyi taramakla
+kalmayıp **oturumlamayı iki kez** çalıştırıyor. Ayrıntı ve tablo PLAN
+§O4f'de.
+
+Sayacın kendisi bir yanlış pozitif verdi: `visitorsOver`'ın iki
+`QueryRow`'u **alternatif** (erken `return`), iki tarama değil. Gövde
+okunmasaydı listede duracaktı. *Bir sayaç yapıyı ayıklamıyorsa, ne
+bulduğunu bilmiyordur* — yorum ayıklamayan denetimin aynısı.
+
+### 4. CONTRIBUTING, CI'ın koşmadığı bir adımı koşuyor diye yazıyor
+
+*"What CI runs, and what a pull request has to pass"* bloğunda
+`go test -tags release -count=1 ./release/` satırı var. `ci.yml`'de
+**yok** — orada yalnız `go vet -tags release ./release/` (satır 72) var;
+testleri `nightly.yml:302` koşuyor. Arkasında **43 test** duruyor
+(`install_test.go` 28, `release_test.go` 11, `prefixmode_test.go` 2,
+`gate_test.go` 2), yani kurulum betiğinin testleri hiçbir push'ta kapı
+değil; kırılırsa ertesi gece görülüyor.
+
+Ölçüldü: o süit **93,7 sn**. CI'a eklemek bir maliyet kararı ve
+**sahibin**; benim yaptığım belgeyi doğruya getirmek ve bir daha
+ayrışmasını engelleyen bir test yazmak.
+
+### 5. Üretecin başlık kardinalitesi yazdığımdan az
+
+`ca_beacon` tablosunda *"yol / başlık 5.000"* yazıyordu; gerçek başlık
+sayısı **1.111**. Sebep üreteçte: `TITLES = {p: f"Baslik {p[9:]}"}` ve
+`"/icerik/"` sekiz karakter, yani `p[9:]` **ilk rakamı kesiyor** —
+1 (boş) + 10 + 100 + 1000 = 1.111, aritmetikle birebir. Yani
+`beacon/titles`'ın süresi 5.000 değil 1.111 gruplu bir kırılımın süresi.
+Veri yeniden üretilmedi (öteki yirmi bir ucu etkilemiyor); tablo
+düzeltildi.
+
+### Bulgu çıkmayanlar — ve niye aradığım yazılı
+
+- **Güvenlik yüzeyi (O4e'nin diff'i):** `beaconBreakdown` hâlâ
+  `fmt.Sprintf`'ten **önce** `expr.valid()` çağırıyor (322 → 327);
+  dosyadaki ikinci `Sprintf` yalnız yerel `"ASC"/"DESC"` sabitini
+  alıyor; eklenen `country = ''` bir sabit; `beaconFilterCTE`'nin bağlı
+  parametreleri değişmemiş; izin listesi sabitlerden türetilmiş bir
+  testle tutuluyor (`store_beacon_test.go`).
+- **Düzeneğin iddiaları:** `ca_beacon`'ın on bir sayısı (olay, yol,
+  referans, ziyaretçi, adres, kampanya, özel olay, dil, ülke, parça,
+  sıkıştırılmış parça) veritabanına soruldu; başlık dışında hepsi
+  birebir tuttu, ve `traffic_snapshots`'ın boş olduğu — O4d'de açıkça
+  yazdığım sınır — doğrulandı.
+- **Yeni testler koşuyor mu:** üç entegrasyon dosyası `//go:build
+  integration` ile `ci.yml:308/313`'te, iki kapı testi etiketsiz olduğu
+  için `ci.yml:173`'ün `go test -race ./...` adımında. Etiketsiz koşuda
+  ikisinin de geçtiği ayrıca ölçüldü.
+- **Depo/CI:** dört referans da `94a1bea`, çalışma ağacı temiz,
+  CI 403/404 yeşil.

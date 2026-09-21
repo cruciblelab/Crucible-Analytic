@@ -5062,7 +5062,19 @@ Collector tarafında (ca_scale, 11,1M satır) dört uç sınırın üstünde, ve
 **biri yeni**: `/overview` 90 günde **9,23 sn** — bu uç hiç ölçülmemişti.
 Diğer üçü bilinen: `/timeseries` 30g 7,76 · 90g 20,68 (O4c'de ölçülüp
 sorguyla düzeltilemeyeceği gösterildi) ve `ja4` 90g 9,94 (O4a'da
-aritmetik kapattı). Panel bu üçünü de çağırmıyor.
+aritmetik kapattı).
+
+> **DÜZELTME (2026-09-21, kontrol incelemesi).** Bu paragrafın ilk hâli
+> *"Panel bu üçünü de çağırmıyor"* diyordu ve `ja4` için **yanlıştı.**
+> `ja4`, `internal/panel/web/breakdown.go`'da `BreakdownFingerprints`
+> olarak kayıtlı (`Technical: true`) ve `technicalBreakdowns`'un ilk
+> sırası — yani geliştirici modunda **çizilen bir panel bölümü**, ve
+> `analytics.RequestTimeout` 5 sn. Dolayısıyla 9,94 sn **ölü bir panel
+> düğmesi**, ve ölü düğme sayısı iki değil **üç**. Yanlışın sebebi:
+> panelin çağrı listesini `client.go` ile `series.go`'dan çıkarmış,
+> `breakdown.go`'nun kayıt tablosunu okumuştum ama **collector
+> tarafındaki üç satırını** (`ja4`, `asns`, `countries`) uç listesiyle
+> karşılaştırmamıştım. `/overview` ve `/timeseries` için cümle doğru.
 
 **Bir sayı kusur gibi göründü ve değildi:** `/summary` 30 günde 1,22 sn,
 90 günde **0,098**. Sebep O3: 90 günlük pencere satır bütçesini aşıyor ve
@@ -5125,6 +5137,50 @@ ayrışıyor.** Yedi mutasyon, yedisi kırmızı; ilk turda üçü sağ kaldı,
 ikisi benim yazdığım **eşdeğer** mutasyondu ve biri gerçek boşluktu
 (pakette bir adresi iki sitede tutan fikstür yoktu — eksik olan bir
 iddia değil bir **girdi**).
+
+> **DÜZELTME (2026-09-21, kontrol incelemesi).** *"`beacon/countries`
+> panelin düğmesiydi ve geri geldi"* cümlesi **dayanıklı değil.** Ertesi
+> gün, yeniden başlatılmış konteynerde, aynı binary ve aynı veriyle
+> tekrarlandı: **kazanç doğrulandı** (−58%, dün −54%) ama **mutlak
+> seviye 1,2–1,4 kat yüksek** ve `beacon/countries` **6,26 sn** veriyor,
+> yani sınırın üstünde. Soğuk önbellek hipotezi ölçülüp elendi (ısınmış
+> sistemde 6,36 → 6,26, aynı bant), makinede rakip süreç yok, iki binary
+> **birlikte** kaymış (önce 10,51 → 14,91). Mekanizma iddia edilmiyor;
+> ölçülen şu: **bu düzenekte oranlar tekrarlanıyor, mutlak seviyeler
+> oturumdan oturuma %20–40 kayıyor.** Sonucu: 5 sn'lik eşiğe göre
+> verilen *"düğme geri geldi / sınır üstü"* hükümleri ancak **payı
+> büyükse** dayanıklı. Bugünkü bantla `beacon/countries` (6,26) ve
+> O4c'nin `top-ips`'i (4,64, payı %7) bu sınıfta.
+
+##### O4f — "Pencereyi iki kez tara" sınıfı kapanmadı ⬜ **ölçülmüş ihtiyaç (2026-09-21)**
+
+Kontrol incelemesi sordu: O4e iki örneği düzeltti, **sınıfın kaç üyesi
+kaldı?** Kaynaktan türetilmiş sayım (her `*Store` metodunda `pool.Query`
++ `pool.QueryRow`, ve fonksiyon gövdesi elle okunarak doğrulanmış):
+
+| yer | fonksiyon | uç(lar) | 90 gün |
+|---|---|---|---|
+| beacon | `sessionBoundaryPages` | `entry-pages`, `exit-pages` | **11,43 / 11,27 — bütçe üstü** |
+| beacon | `BeaconCampaigns` | `campaigns` | 0,39 |
+| beacon | `BeaconEvents` | `events` | 0,41 |
+| beacon | `BeaconRaw` | `raw` | 0,11 |
+| collector | `Snapshots` | `snapshots` | 0,52 |
+| collector | `IPDetail` | `ips/{ip}` | 1,21 |
+
+Üye **değil** (sayaç yanlış pozitif verdi, gövdesi okununca çıktı):
+`visitorsOver` — iki `QueryRow`'u **alternatif** (`!ok` dalında erken
+`return`), aynı pencerenin iki taraması değil.
+
+**Önceliği `sessionBoundaryPages` veriyor ve sebebi ötekilerden ağır:**
+o fonksiyon pencereyi taramakla kalmıyor, `sessionCTEs`'i — ziyaretçiye
+göre bölümlenmiş iki pencere fonksiyonu, yani ziyaretçi başına sıralama —
+**iki kez** çalıştırıyor. `pageTotal` kaldıracı doğrudan uygulanabilir:
+toplam, gruplanmış satırların `count(*) OVER ()`'i.
+
+Kalan dördü bugün bütçenin çok altında; sınıfın üyesi oldukları için
+yazılı, "hemen düzelt" diye değil. *Bir kusur sınıfını kapatmak,
+örneklerini düzeltmek değildir* — ve bu sefer sınıfı sormayı fazın
+sonunda unutmuştum.
 
 ---
 
