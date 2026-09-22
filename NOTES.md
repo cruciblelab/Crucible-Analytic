@@ -20833,3 +20833,81 @@ müşteri, aynı odada iki kasa değil, aynı kasada iki çekmecedir.*
 
 J2b bundan sonra "açık iş" diye sayılmıyor — kapatılacak bir kusur
 değil, kabul edilmiş ve belgelenmiş bir tasarım sınırı.
+
+## Applier'ın kilidi ölçüldü: iki teşhisim de yanlıştı (2026-09-22)
+
+Sahip: *"bu fazda açık kalan risklere yapabileceğimiz bir şey varsa
+ölçümleri gerçekleştirelim."* PLAN'a iki şeyi **ölçmediğimi** yazmıştım;
+ikisi de ölçüldü ve ikisi de beni düzeltti.
+
+Düzenek: kapının entegrasyon adımının aynısı (`-tags integration -race
+-count=1 ./...`, bütün paketler, paralel), altı tur, ve her turda
+`pg_locks`'ta bloke olan satır ile aynı relation üzerinde granted olan
+satır eşleştirilip **tutanın** bağlantısı okunuyor. Daraltılmış bir koşu
+başka bir şeyi ölçerdi. Her tur ayrı diske yazıldı; betik PostgreSQL
+yoksa **başlamadan reddediyor** ve ilk denemede tam bunu yaptı.
+
+### (a) Kilidi kim tutuyor — ve applier çoğunlukla kurban değil
+
+PLAN'a yazarken *"api'nin uzun okumaları tutuyor"* demek üzereydim ve
+**yazmadım**, çünkü onu korelasyondan çıkarmıştım (api paketinin süresi
+uzamıştı). İyi ki yazmamışım:
+
+- **En baskın çift, tek turda 129 örnek:** `beacon_events` üzerinde
+  kilidi **applier'ın kendi şema uygulaması** tutuyor, bekleyen beacon'ın
+  `INSERT`'leri. Yani entegrasyon koşusundaki en büyük kilit tutucusu
+  applier'ın kendisi.
+- **Applier bloke olduğunda** onu bekleten şey **yedek üreticisinin
+  `COPY (SELECT …)`'i, `idle in transaction` durumunda.** Tek işlem
+  içinde tablo tablo kopyalıyor ve dokunduğu her tablonun
+  `AccessShareLock`'unu **commit'e kadar** elinde tutuyor — aradaki
+  boşluklarda hiçbir iş yapmadan. `panel_users` üzerinde hem applier'ı
+  hem sıradan `INSERT`'leri bekletirken ölçüldü.
+- Üçüncü sınıf: fikstürlerin `DELETE FROM … WHERE site_id = ANY($1)`'i.
+
+Önemli nüans: yedek `COPY`'sinin bloke etmesi **hızlı turlarda da var**.
+Yani kusur "bazen oluyor" değil, **"hep oluyor ama genelde ucuz"**.
+
+### (b) Dağılım iki modlu, ve ayırt ediciyi bulamadım
+
+Yedi örnek (bu ölçümün dört turu + üç kapı koşusu), applier'ın süresi:
+
+```
+5,4  6,1  6,3  7,6   |   65,7  68,0  72,1
+```
+
+Dördü 5,4–7,6 sn, üçü 65,7–72,1 sn, ve **7,6 ile 65,7 arasında hiç örnek
+yok** — 58 saniyelik boş bant, oran 11 kat. Bu bir saçılma değil **iki
+durum**, ve kırmızılar yalnız yavaş modda.
+
+İki aday kontrollü deneyle sınandı ve **ikisi de reddedildi:**
+
+| aday | deney | applier | sonuç |
+|---|---|---|---|
+| soğuk Go derleme önbelleği | `go clean -cache` + bir tur | **6,95 sn** | hızlı mod → **red** |
+| soğuk veritabanı | PG durdur → `drop_caches` → başlat | **6,26 sn** | hızlı mod → **red** |
+
+Ayakta kalan tek korelasyon: üç yavaş örneğin üçü de **konteyner yeniden
+başladıktan birkaç dakika sonra** koştu; dört hızlı örnek uzun süredir
+ayakta olan bir konteynerde. Konteyneri içeriden yeniden başlatamadığım
+için bu sınanamıyor, ve deponun düzeltebileceği bir şey de değil.
+
+**Yazdığım şey bu: iki hipotez ölçüldü ve elendi, üçüncüsü
+sınanamıyor.** *Bir mekanizma yorumu, sayıları doğru olsa da yanlış
+olabilir* kuralının bedeli bu turda iki deney oldu, ve ikisi de beni
+yanlış bir cümle yayımlamaktan alıkoydu.
+
+### Taşıma kararı buna bağlı değil
+
+Applier'ın kendi veritabanına taşınması **yavaş modun sebebine bağlı
+değil**: kilit birleşmesi ölçüldü ve gerçek, yavaş mod yalnız onu
+görünür yapıyor. Taşıma iki yönü birden kaldırıyor — applier'ın
+beacon'ı bekletmesini de, yedeğin applier'ı bekletmesini de.
+
+### Düzeneğin kendi eksiği
+
+Her test bağlantısının `application_name`'i **boş**. Katalog bana hangi
+*ifadenin* kilidi tuttuğunu söyledi ama hangi *paketin* olduğunu
+söyleyemedi; ifadenin metninden çıkarmak zorunda kaldım. O4a'da ürünü
+ölçerken bunun doğrusunu yapmıştık — DSN'e ad yaz, `pg_stat_activity`'de
+ara. Açık riskler tablosuna yazıldı.
