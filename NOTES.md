@@ -20570,3 +20570,97 @@ düzeltildi.
   ikisinin de geçtiği ayrıca ölçüldü.
 - **Depo/CI:** dört referans da `94a1bea`, çalışma ağacı temiz,
   CI 403/404 yeşil.
+
+## Taç mücevherler PLAN'a girdi, ve J1'in yazma tarafı kapandı (2026-09-22)
+
+Sahibin sorusundan doğdu ve sorunun kendisi bir sınıf tarifiydi:
+
+> *"PUBG'de normalde duvar içinden geçmek bug. Ama insanlar bir sürü
+> yolu birleştirip yapa yapa bu bugu gerçekleştiriyor. Çoğu ya yine ufak
+> buglar ya da bug olmayan şeyler."*
+
+Bu bir **birleşim kusuru** tarifi. Bu üründe bulduğumuz ağır kusurların
+neredeyse hepsi o şekildeydi — C9.1c, P5a, `ETag`/gzip, L4, ve bir gün
+önce ölçtüğüm sessiz kesilme. Her adım doğru, diziliş yanlış.
+
+### Ne yapıldı
+
+**PLAN §3.5** yazıldı: beş taç mücevher, her birinin kaç yolu olduğu,
+bekçisinin ne olduğu ve bugünkü durumu. Faz değil **kalıcı kural**
+bölümü — `#### ` seviyesinde olmadığı için grup tablosuna dokunmuyor
+(`phaseHeading` deseni `^#### ([A-Z]...)`; sınandı, `internal/docs`
+yeşil). Sahibin cümlesi: *"her fazda farklı yorumlama yapmamamız için
+kesinlikle plana almalıyız."*
+
+Kural şu: bir faza başlamadan önce yazarı listeye bakar ve **hangi
+mücevhere yeni bir yol açtığını** söyler. Soru "bozdum mu" değil, *"bu
+değişmeze ulaşan kaçıncı yolu ekliyorum, ve o yolu sayan bir şey var
+mı."*
+
+### Denetimin kendisi iki yerde beni düzeltti
+
+Mücevherlerin durumunu **hafızadan değil kaynaktan** çıkardım ve iki
+tahminim yanlış çıktı:
+
+1. J2 (müşteri yalıtımı) için "yapısal değişmez yok" diyecektim.
+   `internal/invariants/` altında yok — ama `internal/api/isolation_test.go`
+   rotaları sözdizimi ağacından okuyup her birini başka sitenin jetonuyla
+   deniyor, ve `internal/panel/web/isolation_integration_test.go` panelin
+   listesini router'a karşı tutuyor. *Bir bekçiyi aradığınız dizinde
+   bulamamak, olmadığı anlamına gelmiyor.*
+2. J1'in yazar sayısını dört sanmıştım; `internal/panel/members.go`'nun
+   üç ayrı fonksiyonu sayılınca **beş**.
+
+### J1: yazma tarafına türetilmiş bekçi
+
+Okuma tarafı zaten türetilmişti (`membershipreads_test.go`, C9.3'ten
+sonra). Yazma tarafı — yani **C9.1c'nin gerçekleştiği taraf** — değildi.
+
+`internal/invariants/membershipwrites_test.go`: `panel_site_members`'a
+yazan her fonksiyon ya `lastOwnerIs` çağırır ya da ifadeleri sahip
+sayısını **düşüremez**. Muafiyet isim listesi değil **koşul**, çünkü
+koşul olarak yazılabiliyor:
+
+- her yazma `INSERT` olmalı (bir `UPDATE` rolü değiştirebilir, bir
+  `DELETE` son sahibi alabilir), **ve**
+- her `ON CONFLICT` yan tümcesi ya hiçbir şey yapmamalı ya da rolü
+  sahiplik değişmezine çekmeli.
+
+Ayrım uydurma değil: `AddMember`'ın kendi çakışma yan tümcesi rolü
+çağıranın verdiğine çekiyor, yani monoton değil ve soruyu soruyor. Test
+hangisinin hangisi olduğunu **söylenmeden** ayırıyor.
+
+### Mutasyon: yedisi kırmızı, sekizincisi bilerek sağ
+
+`scratchpad/mutasyon-j1.py`. Üç korunan yazarın her biri korumasını
+kaybediyor (M1–M3), davet var olan üyeliğin üstüne yazıyor (M4 — C9.1c'nin
+kendisi), sahiplenme sahiplik dışında bir rol yazıyor (M5), bekçi işareti
+kayıyor (M6), yazma dedektörü hiçbir ifade bulmuyor (M7). **Yedisi de
+yakalandı.**
+
+Sekizinci (`ownerMonotone`'dan "her yazma INSERT olmalı" koşulunu silmek)
+**tek başına ölçülemiyor**: korunan üç yazar zaten bekçi dalına düşüyor,
+sınıflandırma değişmiyor. Tetikleyen durumla birleştirildi — `RemoveMember`
+korumasız **artı** koşul silinmiş — ve **sağ kaldı**, yani korumasız bir
+`DELETE` koşul olmadan "düşüremez" diye muaf sayılıyor. Okuma yönü:
+M2 tek başına yakalanıyordu, M8 onu gizledi ⇒ **koşul yük taşıyor.**
+Denetim turundaki M1+M5 ile aynı şekil.
+
+**Derleme ayrıca soruldu, ve bu formalite değil:** `internal/invariants`
+`internal/panel`'i import etmiyor, **kaynağını okuyor**. Paneli
+derlenmez hâle getiren bir mutasyon testi kırmızı vermez — test mutlu
+mesut kaynağı okumaya devam eder, ve "yakalandı"/"sağ kaldı" cevabının
+ikisi de anlamsız olur. Betik her mutasyondan sonra `go build` + `go vet`
+koşuyor.
+
+### Kalan risk
+
+- **J2b kapatılabilir değil:** `beacon_events` ve `traffic_snapshots`
+  RLS'siz ve orada RLS imkânsız (sıkıştırılmış hypertable reddediyor,
+  O1'de ölçüldü). Üç müşterinin ayrımı tek bir Go kontrolüne dayanıyor.
+  Bu, `isolation_integration_test.go`'nun ilk paragrafında yazılı ama
+  **KURULUM'da müşteriye söylenmiyor.** Kapatılacak iş değil, yazılacak
+  cümle.
+- **J3 ve J4 açık:** kayıt tablosunun tamlık testi, ve destek jetonunun
+  adlandırılması + `panel_logs` istisnasının yazılması. İkisi de PLAN
+  §3.5'in altında sıralı.

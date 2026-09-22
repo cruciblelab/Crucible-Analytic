@@ -9850,6 +9850,156 @@ düşenler yazılıyor:
   ayırdığı belleği ölçtü, biri de bir *reddi* başarı saydı. Yazarken
   sorulacak soru "kod bozuk olsa bu iddia ne derdi".
 
+### 3.5 Taç mücevherler — her fazın başında sorulacak beş soru *(2026-09-22)*
+
+Sahibin sorusundan doğdu, ve soruyu onun benzetmesiyle yazıyorum:
+
+> *"PUBG'de normalde duvar içinden geçmek bug. Ama insanlar bir sürü
+> yolu birleştirip yapa yapa bu bugu gerçekleştiriyor. Çoğu ya yine ufak
+> buglar ya da bug olmayan şeyler."*
+
+Bu bir **birleşim kusuru** tarifi, ve bu üründe bulduğumuz ağır
+kusurların neredeyse hepsi o şekildeydi. Her adım tek başına doğru; yanlış
+olan diziliş. Örnekler ölçülmüş:
+
+- **C9.1c** — `CanAssign` yıllardır doğruydu, *kimin* rolüne dokunulduğu
+  hiç sorulmuyordu. Üç ayrı meşru yol birleşince site sıfır sahiple
+  kalıyordu.
+- **P5a** — panel doğru gösteriyordu, beacon doğru uyguluyordu, collector
+  hiç uygulamıyordu. Doğru parçalardan kurulmuş bir gizlilik ihlali.
+- **`ETag`** — etiket doğru, gzip doğru, koşullu istek doğru. Birleşince
+  paylaşılan bir önbellek gzip akışını JavaScript sanan tarayıcıya
+  veriyordu.
+- **L4** — testler taze veritabanında koşuyordu (doğru), yükseltme
+  `grants.sql` koşturmuyordu (doğru). Birleşince üç tablo her
+  yükseltilmiş kurulumda erişilemez doğuyordu.
+- **2026-09-21'de ölçülen sessiz kesilme** — 60 sn'lik yazma zaman aşımı
+  kasıtlı, `writeJSON`'ın hata dalı doğru, net/http'nin küçük cevabı
+  tamponlaması optimizasyon, havuzun dörtte durması koruma. Beşi üst üste:
+  istemci hiçbir şey almıyor ve günlükte tek satır yok.
+
+**Tek adımlık kusurları yakalayan bir disiplinimiz vardı; zincir
+yakalayan bir disiplinimiz yoktu.** Bu bölüm odur.
+
+#### Kural
+
+Bir faza başlamadan önce yazarı bu listeye bakar ve **hangi mücevhere
+yeni bir yol açtığını** söyler. Soru "bunu bozdum mu" değil — bozmadığı
+zaten varsayılıyor. Soru: *bu faz, bu değişmeze ulaşan kaçıncı yolu
+ekliyor, ve o yolu sayan bir şey var mı?*
+
+C9.1c tam olarak böyle bulundu: C9.2 dördüncü yazarı ekleyecekti ve
+"bu tabloya kim yazıyor" sorusu bir kez elle soruldu. Bir kez sorulduğu
+için bir kez işe yaradı. Burada yazılı olmasının sebebi budur.
+
+#### İyi bekçi ile kötü bekçi
+
+Ayrım mekanizmada değil, **bekçinin nereden geldiğinde**:
+
+- **Türetilmiş bekçi** listeyi kaynaktan sayar. Yarın eklenen üye kendini
+  ele verir.
+- **Elle yazılmış bekçi** yazıldığı gün doğrudur ve ondan sonra yalnız
+  kazara doğru kalır.
+
+`internal/api/isolation_test.go`'nun kendi ölçümü bunun en temiz örneği:
+elle yazılmış iki liste site rotalarının bir kısmını kapsıyordu ve
+**sekizi hiç denenmemişti.** Sekizi de doğru çalışıyordu — çünkü bir
+`for` döngüsü onları sarıyordu. Kusur yoktu; kusurun *görülebilirliği*
+yoktu.
+
+#### Beş mücevher, ve bugünkü durumları
+
+| # | Kural (sahibin cümlesi) | Kaç yol | Bekçi | Bugün |
+|---|---|---|---|---|
+| J1 | Bir site asla sıfır sahiple kalmaz | 5 yazar | **iki yön de türetilmiş** | ✅ kapalı |
+| J2a | Müşteri yalıtımı — HTTP katmanı | tek sarmalayıcı | **AST'den türetilmiş** | ✅ kapalı |
+| J2b | Müşteri yalıtımı — veritabanı katmanı | — | **yok** | ⚠️ bilerek açık |
+| J3 | Geliştiriciye iş çıkaran hiçbir şey yetkiyle açılmaz | tek yazma yolu | **elle liste** | 🟡 yarı açık |
+| J4 | Destek jetonu asla yazamaz | rol + hash | **adı bile yok** | 🟡 adlandırılmamış |
+| J5 | Açıklama sayfası = bütün yazarların yaptığı | 2 yazar | **türetilmiş** | ✅ kapalı |
+
+**J1 — sıfır sahip.** ✅ **kapandı (2026-09-22).**
+`panel_site_members`'a beş yazar var: `internal/panel/members.go`'nun
+`AddMember`/`RemoveMember`/`SetMemberRole`'ü,
+`internal/panel/memberinvite.go`'nun davet kullanımı,
+`internal/panel/ownerclaim.go`'nun sahiplenmesi. İlk üçü `lastOwnerIs`
+çağırıyor; son ikisi çağırmıyor ve çağırmasına gerek yok, çünkü
+ifadeleri sahip sayısını **düşüremiyor** — biri çakışmada hiçbir şey
+yapmıyor, diğeri rolü sahipliğe çekiyor. Üstünde veritabanının kendi
+CHECK'i.
+
+Okuma tarafı zaten türetilmişti
+(`internal/invariants/membershipreads_test.go`). Yazma tarafı artık
+`internal/invariants/membershipwrites_test.go`: her yazan fonksiyon ya
+bekçiyi çağırır ya da **yapısal olarak** sahip sayısını düşüremez.
+Muafiyet bir isim listesi değil bir koşul — kuralımız gereği: *bir
+muafiyet iki koşula bağlanabiliyorsa isim listesine yazma.* Ayrım gerçek:
+`AddMember`'ın kendi çakışma yan tümcesi rolü çağıranın verdiğine
+çekiyor, yani o monoton değil ve soruyu soruyor; test hangisinin hangisi
+olduğunu söylenmeden ayırıyor.
+
+Dokuz mutasyon, yedisi kırmızı. Sekizincisi (`ownerMonotone`'dan "her
+yazma INSERT olmalı" koşulunu silmek) **tek başına ölçülemiyor** —
+korunan üç yazar zaten bekçi dalına düşüyor, sınıflandırma değişmiyor.
+Tetikleyen durumla birleştirilince ölçüldü: `RemoveMember`'ın koruması
+tek başına silinince yakalanıyor, koşul da silinince **sağ kalıyor** —
+yani korumasız bir DELETE, koşul olmadan "düşüremez" diye muaf
+sayılıyor. Koşul yük taşıyor, ve bunu gösteren tek şey birleşik
+mutasyondu.
+
+**J2a — HTTP yalıtımı.** Her site rotası tek bir sarmalayıcıdan geçiyor,
+ve `internal/api/isolation_test.go` rotaları kaynağın sözdizimi
+ağacından okuyup her birini başka sitenin jetonuyla deniyor. Panel
+tarafında paylaşılan sarmalayıcı yok — beş rota kendi erişim kontrolünü
+kendi çağırıyor — ama `internal/panel/web/isolation_integration_test.go`
+listeyi router'a karşı tutuyor ve bir yabancının var olan siteyi
+olmayandan **ayırt edememesini** ayrıca sınıyor (404/403 farkı bir
+müşteri listesi sızdırır).
+
+**J2b — veritabanı yalıtımı yok, ve bu bilerek.** `beacon_events` ve
+`traffic_snapshots` — bütün analitik verinin durduğu iki tablo — RLS'siz,
+ve RLS orada **imkânsız**: sıkıştırılmış bir hypertable `ENABLE ROW LEVEL
+SECURITY`'yi koşulsuz reddediyor (O1'de ölçüldü, §7.0'da yazılı). Panelin
+tuttuğu API jetonu makinedeki her siteyi okuyabiliyor. Yani üç müşterinin
+ayrımı **tek bir Go kontrolüne** dayanıyor. Saklanmamış — bu cümle
+`internal/panel/web/isolation_integration_test.go`'nun ilk paragrafında
+zaten yazılı — ama kapatılmamış, ve **KURULUM'da müşteriye söylenmiyor.**
+Kapatılabilir değil; söylenebilir.
+
+**J3 — geliştirici kapısı.** `internal/panel/settings.go`'da `GuardedKeys`
+merkezî liste, tek yazma yolu, refüz tek noktada. **Liste elle tutuluyor:**
+kayıt tablosundaki her ayarın "bu geliştiriciye iş çıkarır mı" sorusuna
+yazılı bir cevabı olduğunu sınayan hiçbir şey yok. Kural doğru uygulanıyor;
+kuralın uygulanacağı **yeni üyeyi kimse saymıyor.**
+
+**J4 — destek jetonu.** Fiilen doğru: jeton iki uçta sha256, rol
+`analytics_reader`. İki eksik: kavram **kodda hiç geçmiyor** (yalnız
+NOTES.md'de ve `internal/panel/preflight/preflight.go`'daki bir yorumda),
+ve adı olmayan bir kuralı hiçbir test tutamaz; ayrıca `analytics_reader`
+rolünün `panel_logs`'a INSERT yetkisi var. Gerekçesi meşru — log kanalı,
+analitik veri değil — ama kural "yazamaz" diyor ve bugün yazabildiği bir
+tablo var. Delik değil, **yazılmamış istisna**; ve yazılmamış bir istisna
+bir sonraki genişlemenin dayanağı olur.
+
+**J5 — açıklama tutarlılığı.** `internal/invariants/livemode_test.go`
+yazar listesini yapılandırma etiketinden türetiyor ve ikiden az yazar
+bulursa düşüyor; `internal/invariants/privacymode_test.go` ikisinin
+anlaştığını sınıyor. Beşinin en iyi korunanı — çünkü P5a'da tam bu kırıldı
+ve sınıfı kapatıldı.
+
+#### Sıradaki işler (hepsi şemasız)
+
+1. ~~**J1'in yazma tarafına türetilmiş bekçi**~~ ✅ **bitti (2026-09-22).**
+2. **J3'ün kayıt tablosuna tamlık testi** — her ayarın "geliştirici
+   kapısının arkasında mı, değilse niye" sorusuna yazılı bir cevabı
+   olsun.
+3. **J4'ün adlandırılması** + `panel_logs` istisnasının gerekçesiyle
+   yazılması.
+
+J2b bunların dışında: kapatılacak bir iş değil, **yazılacak** bir cümle.
+
+*Bir kuralı hatırlayarak uygulamak, onu her fazda yeniden yorumlamaktır.*
+
 ---
 
 ## 4. Onarım operasyonları kataloğu — 39 adet
