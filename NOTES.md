@@ -20664,3 +20664,109 @@ koşuyor.
 - **J3 ve J4 açık:** kayıt tablosunun tamlık testi, ve destek jetonunun
   adlandırılması + `panel_logs` istisnasının yazılması. İkisi de PLAN
   §3.5'in altında sıralı.
+
+## J3 hükmüm yanlıştı, J4 kapandı — ve kaynak grep'i yine eksik saydı (2026-09-22)
+
+§3.5'i yazdıktan sonra sıradaki iki işe geçtim. İkisi de ölçümle başladı
+ve **ikisi de benim yayımladığım bir cümleyi düzeltti.**
+
+### J3 zaten kapalıydı
+
+PLAN'a *"kayıt tablosundaki her ayarın yazılı bir cevabı olduğunu
+sınayan hiçbir şey yok"* diye yazmıştım. Üç test birden var:
+
+- `TestRegistry_OnlyLegallyWeightedSettingsAreWithheld` — `AllDefinitions()`
+  üzerinde **iki yönlü**: ağırlıklı bir ayar müşteriye açıksa hata,
+  ağırlıksız bir ayar kapalıysa da hata (*"developer mode is a page, not
+  a permission"*), ve listedeki her anahtar kayıtta olmalı **ve**
+  parola korumalı olmalı.
+- `TestRegistry_GuardedSettingsLiveInDeveloperMode`
+- `TestGuardedSettings_EachOneExplainsItself` — boşluk denetimiyle
+  birlikte (*"nothing is guarded; the gate protects nothing"*).
+
+Ölçtüm: **8 korunan ayar, 8 gerekçe, 37 ayar.** Kalan boşluk yapısal
+olarak kapatılamaz — korunmalıyken kimsenin işaretlemediği bir ayar.
+Test bir cevap zorluyor, doğru cevabı bilemiyor; §3.5'in kuralı tam
+bunun için var.
+
+### J4: gerçek veritabanı benim rakamımı düzeltti
+
+*"`panel_logs`'a INSERT yetkisi var"* diye yazmıştım, yani bir tablo.
+Kataloğa sordum:
+
+```
+panel_logs        | INSERT
+service_heartbeat | INSERT
+service_heartbeat | UPDATE
+```
+
+**İki tablo, üç yetki.** Kaynak taramam birini bulmuştu, çünkü GRANT
+iki satıra yayılıyor ve fiiller rol adlarının **üstünde**:
+
+```sql
+GRANT SELECT, INSERT, UPDATE ON service_heartbeat
+  TO collector, beacon_writer, analytics_reader, panel_user;
+```
+
+Rol adını ve bir yazma fiilini **aynı satırda** arayan bir grep bunu
+göremez. Ders, bu projede ikinci kez: *bir dedektör aradığını
+bulamadığını söylemez* — ve düzeltmesi dosyayı daha iyi grep'lemek
+değil, **kataloğa sormak.** Katalog ayrıca şema dosyalarının verdiği,
+yükseltmenin verdiği ve elle koşulmuş bir ifadenin bıraktığı yetkileri
+de görüyor; dosya yalnız taze kurulumu anlatıyor.
+
+Yan bulgu, O1'in ölçümünü doğruluyor: yüzeyde 34 `_hyper_*_chunk`
+satırı var ve **hepsi yalnız SELECT** — sıkıştırmanın iç tabloları
+yetkileri gevşetmiyor.
+
+### İki bekçi, çünkü kural iki katmanda kırılabiliyor
+
+**`internal/api/readonly_test.go`** — kayıttaki her rota `GET`
+adlandırmalı. Asıl tuzak POST değil, **metotsuz** kayıt:
+`mux.HandleFunc("/api/v1/...", h)` her metotla eşleşir, işleyici yalnız
+okuduğu için hiçbir şey bozulmaz, ve API'nin yüzeyi salt okunur olmaktan
+**sessizce** çıkar. Bir kelime, eksikken görünmez, ve vaadin tamamı onda.
+
+Bu dosya `isolation_test.go`'nun `routesIn`'ini kullanmıyor ve sebebi
+yazılı: o, site rotalarını süzüp metodu **atıyor**, çünkü yetkiyi
+sınıyor; bu, her rotayı tutup metodu **saklıyor**, çünkü metot iddianın
+kendisi. İkisi de okuyamadıkları bir şekilde atlamıyor, düşüyor.
+
+**`internal/api/readonlyrole_integration_test.go`** — yazma yüzeyi
+katalogdan, tam olarak o üç yetki. Her muafiyetin **ikinci, sınanabilir**
+koşulu var:
+
+- `panel_logs` INSERT güvenli çünkü rolün o tabloda **SELECT'i yok**:
+  kendisi hakkında bir satır ekler, günlüğü geri okuyamaz.
+- `service_heartbeat` INSERT/UPDATE güvenli çünkü RLS **açık ve
+  zorlanmış** ve yazma politikası `current_user`'a bakıyor. GRANT bilerek
+  izinden geniş — kendi yorumu da öyle diyor — ve onu daraltan tek şey
+  politika. Politika olmadan geniş GRANT **iznin kendisi** olur, yani
+  politika ayrı bir konu değil, bu muafiyetin ikinci yarısı.
+
+Ve kuralın **alınan** yarısı da sınanıyor: rol `traffic_snapshots` ve
+`beacon_events`'i okuyabilmeli. Yoksa hiçbir erişimi olmayan bir rol
+"yazamaz" testinin her satırını geçer, ve bozuk bir kurulum güvenli diye
+raporlanır. *Bir kuralın verilen yarısını sınayan bir süit, alınan
+yarısını sınamıyordur.*
+
+### Mutasyon: 10/10
+
+`scratchpad/mutasyon-j4.py`. Dört dosya mutasyonu (metotsuz rota, POST
+rotası, rota okuyucusunun hiçbir kayıt bulmaması, rol testinin var
+olmayan bir role sorması) ve altı **veritabanı** mutasyonu (fazladan
+yetki, kaybolan yetki, `panel_logs` okunabilir, RLS zorlanmıyor, politika
+rolü sormuyor, rol analitiği okuyamıyor). Onu da kırmızı.
+
+Veritabanı mutasyonlarında geri alma **ayrıca katalogdan doğrulanıyor**:
+betik dosyayı geri alır, veritabanını almaz, ve burada değişen şey
+**paylaşılan** `analytics` veritabanıydı — yarıda kalan bir geri alma
+sonraki süitleri kırardı. Betik mutasyondan önce ve sonra yüzeyi okuyup
+karşılaştırıyor, ayrışırsa 2 ile çıkıp bağırıyor. Koşuda son yüzey
+başlangıçla birebir aynı çıktı.
+
+### Kalan
+
+**Beş mücevherin dördü kapalı.** J2b kapatılamaz (iki hypertable RLS'siz,
+orada RLS imkânsız) ve kalan iş onu **KURULUM'a yazmak** — müşteri üç
+müşterinin ayrımının tek bir Go kontrolüne dayandığını bilmeli.

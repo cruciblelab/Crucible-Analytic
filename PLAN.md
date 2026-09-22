@@ -9914,8 +9914,8 @@ yoktu.
 | J1 | Bir site asla sıfır sahiple kalmaz | 5 yazar | **iki yön de türetilmiş** | ✅ kapalı |
 | J2a | Müşteri yalıtımı — HTTP katmanı | tek sarmalayıcı | **AST'den türetilmiş** | ✅ kapalı |
 | J2b | Müşteri yalıtımı — veritabanı katmanı | — | **yok** | ⚠️ bilerek açık |
-| J3 | Geliştiriciye iş çıkaran hiçbir şey yetkiyle açılmaz | tek yazma yolu | **elle liste** | 🟡 yarı açık |
-| J4 | Destek jetonu asla yazamaz | rol + hash | **adı bile yok** | 🟡 adlandırılmamış |
+| J3 | Geliştiriciye iş çıkaran hiçbir şey yetkiyle açılmaz | tek yazma yolu | **üç yönlü tamlık** | ✅ kapalı |
+| J4 | Destek jetonu asla yazamaz | rol + hash | **rota + katalog** | ✅ kapalı |
 | J5 | Açıklama sayfası = bütün yazarların yaptığı | 2 yazar | **türetilmiş** | ✅ kapalı |
 
 **J1 — sıfır sahip.** ✅ **kapandı (2026-09-22).**
@@ -9966,20 +9966,52 @@ ayrımı **tek bir Go kontrolüne** dayanıyor. Saklanmamış — bu cümle
 zaten yazılı — ama kapatılmamış, ve **KURULUM'da müşteriye söylenmiyor.**
 Kapatılabilir değil; söylenebilir.
 
-**J3 — geliştirici kapısı.** `internal/panel/settings.go`'da `GuardedKeys`
-merkezî liste, tek yazma yolu, refüz tek noktada. **Liste elle tutuluyor:**
-kayıt tablosundaki her ayarın "bu geliştiriciye iş çıkarır mı" sorusuna
-yazılı bir cevabı olduğunu sınayan hiçbir şey yok. Kural doğru uygulanıyor;
-kuralın uygulanacağı **yeni üyeyi kimse saymıyor.**
+**J3 — geliştirici kapısı.** ✅ **kapalıydı; benim ilk hükmüm yanlıştı
+(düzeltildi 2026-09-22).** "Kayıt tablosundaki her ayarın yazılı bir
+cevabı olduğunu sınayan hiçbir şey yok" diye yazmıştım. Üç test birden
+var ve üçü de kayıt tablosunun **tamamını** geziyor:
+`TestRegistry_OnlyLegallyWeightedSettingsAreWithheld` her tanıma iki
+yönlü cevap verdiriyor (ağırlıklıysa müşteri değiştiremez, değilse
+değiştirebilir — ve listedeki her anahtar kayıtta olmalı ve korunmalı),
+`TestRegistry_GuardedSettingsLiveInDeveloperMode` korunan bir ayarın
+geliştirici kipinde durmasını, `TestGuardedSettings_EachOneExplainsItself`
+her korunan ayarın kendi gerekçesini taşımasını. Ölçüldü: **8 korunan
+ayar, 8 gerekçe, 37 ayar.**
 
-**J4 — destek jetonu.** Fiilen doğru: jeton iki uçta sha256, rol
-`analytics_reader`. İki eksik: kavram **kodda hiç geçmiyor** (yalnız
-NOTES.md'de ve `internal/panel/preflight/preflight.go`'daki bir yorumda),
-ve adı olmayan bir kuralı hiçbir test tutamaz; ayrıca `analytics_reader`
-rolünün `panel_logs`'a INSERT yetkisi var. Gerekçesi meşru — log kanalı,
-analitik veri değil — ama kural "yazamaz" diyor ve bugün yazabildiği bir
-tablo var. Delik değil, **yazılmamış istisna**; ve yazılmamış bir istisna
-bir sonraki genişlemenin dayanağı olur.
+Kalan tek boşluk yapısal olarak kapatılamaz: *korunmalıyken kimsenin
+korunmalı diye işaretlemediği* yeni bir ayar. Test bir cevap **zorluyor**
+ama doğru cevabı bilemez — ve bu tam olarak §3.5'in kuralının (faza
+başlamadan önce listeye bak) var olma sebebi. Hükmümü düzeltmeme yol
+açan şey kodu okumaktı; *bir bekçiyi aradığınız dizinde bulamamak,
+olmadığı anlamına gelmiyor.*
+
+**J4 — destek jetonu.** ✅ **bitti (2026-09-22), ve ölçüm benim
+rakamımı da düzeltti.** "Yazabildiği bir tablo var" diye yazmıştım;
+gerçek veritabanı **iki tabloda üç yetki** söyledi —
+`panel_logs` INSERT, `service_heartbeat` INSERT + UPDATE. Kaynak
+taramam birini bulmuştu, çünkü kalp atışı GRANT'i **iki satıra
+yayılıyor** ve fiiller rol adlarının üstünde duruyor. *Sarılmış bir
+ifadeyi göremeyen bir tarayıcı tarayıcı değildir* — ve bu, bu projede
+bir kaynak grep'inin üyeleri eksik saydığı ikinci olay.
+
+İki bekçi eklendi, çünkü kural iki katmanda birden kırılabiliyor:
+
+- `internal/api/readonly_test.go` — kayıttaki **her** rota `GET` adlandırmalı.
+  Asıl tuzak POST değil, **metotsuz** kayıt: Go'nun mux'ı onu her metotla
+  eşleştirir, işleyici yalnız okuduğu için hiçbir şey bozulmaz, ve API'nin
+  yüzeyi salt okunur olmaktan sessizce çıkar.
+- `internal/api/readonlyrole_integration_test.go` — rolün yazma yüzeyi
+  **katalogdan** okunuyor ve tam olarak o üç yetki olmalı; her muafiyetin
+  ikinci, sınanabilir bir koşulu var (`panel_logs`'ta SELECT **yok**, yani
+  yazar ama geri okuyamaz; `service_heartbeat`'te RLS açık **ve zorlanmış**
+  + yazma politikası bağlanan role bakıyor). Ve kuralın **alınan** yarısı
+  da sınanıyor: rol analitiği okuyabilmeli — yoksa hiçbir erişimi olmayan
+  bir rol "yazamaz" testinin tamamını geçer.
+
+On mutasyon, onu da kırmızı. Beşi veritabanı durumunu değiştiriyordu, o
+yüzden geri alma **ayrıca katalogdan doğrulandı** (O1'in dersi: dosyayı
+geri alan betik veritabanını geri almaz, ve burada değişen şey paylaşılan
+veritabanıydı).
 
 **J5 — açıklama tutarlılığı.** `internal/invariants/livemode_test.go`
 yazar listesini yapılandırma etiketinden türetiyor ve ikiden az yazar
@@ -9987,16 +10019,18 @@ bulursa düşüyor; `internal/invariants/privacymode_test.go` ikisinin
 anlaştığını sınıyor. Beşinin en iyi korunanı — çünkü P5a'da tam bu kırıldı
 ve sınıfı kapatıldı.
 
-#### Sıradaki işler (hepsi şemasız)
+#### Sıradaki işler
 
 1. ~~**J1'in yazma tarafına türetilmiş bekçi**~~ ✅ **bitti (2026-09-22).**
-2. **J3'ün kayıt tablosuna tamlık testi** — her ayarın "geliştirici
-   kapısının arkasında mı, değilse niye" sorusuna yazılı bir cevabı
-   olsun.
-3. **J4'ün adlandırılması** + `panel_logs` istisnasının gerekçesiyle
-   yazılması.
+2. ~~**J3'ün tamlık testi**~~ ✅ **zaten vardı** — benim hükmüm yanlıştı,
+   düzeltildi.
+3. ~~**J4'ün iki bekçisi**~~ ✅ **bitti (2026-09-22).**
+4. **J2b KURULUM'a yazılacak** — kapatılacak bir iş değil, söylenecek bir
+   cümle: iki hypertable RLS'siz, orada RLS imkânsız, ve üç müşterinin
+   ayrımı tek bir Go kontrolüne dayanıyor. Müşteri bunu bilmeli.
 
-J2b bunların dışında: kapatılacak bir iş değil, **yazılacak** bir cümle.
+**Beş mücevherin dördü kapalı ve türetilmiş bekçiyle tutuluyor.** Beşinci
+(J2b) kapatılamaz; kalan iş onu yazmak.
 
 *Bir kuralı hatırlayarak uygulamak, onu her fazda yeniden yorumlamaktır.*
 
