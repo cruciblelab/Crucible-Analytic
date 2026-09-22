@@ -91,6 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
+| **Z** Yük altında kendini koruma | ⬜ **0/6** | hepsi — *(planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -594,6 +595,8 @@ bir eksik, unutulmuş bir eksiktir.
 | `utm_term` varsayılanı | **kapatıldı** — mekanizma artık şifreyle korunuyor, karar hukukçuda |
 | Kısmi indeks kampanyasız sorguları hızlandırmıyor | **ölçüm bekliyor** |
 | Kampanyası olmayanı filtreleyememe | bilinçli sınır, kapatılmayacak |
+| **`internal/applier` paylaşılan veritabanına DDL uyguluyor** — kapı 2026-09-22'de bir kez kırmızı verdi (*"the tables stayed busy for 30s across 5 attempts"*, asnlookup şemasına lock timeout); tek başına koşunca 4,0 sn. Bu depodaki kendi kuralımızın ihlali: *bir süit, başka süitlerin koştuğu bir veritabanının fiziksel şeklini değiştiriyorsa o veritabanında koşmamalıdır.* `internal/retention` aynı sebeple kendi veritabanına taşınmıştı | **açık.** Taşımadan önce **iki şey ölçülmeli ve ikisi de bugün ölçülmedi:** (a) kilidi hangi süitin tuttuğu — yoklayıcıyı kırmızı koşudan *sonra* kurdum, yani mekanizmayı korelasyondan çıkardım ve iddia etmiyorum; (b) entegrasyon fazının süre dağılımı — üç örnek var (applier 5,4 / 65,7 / 72,1 sn) ve **üç örnek eğri değildir** |
+| **Yığılmanın üç ölçülmüş kusuru** — kesilen cevabın sessizliği, kalp atışının körleşmesi, beacon'ın 16 MB'da sessiz ölümü | **Z grubu** (Z2, Z4, Z1). Üçü de 2026-09-21'de ölçüldü, rakamlar NOTES'ta |
 
 ### Beklenen kararlar (senden)
 
@@ -5312,6 +5315,111 @@ beacon'ın ülke çözümü açık hâli.
 
 ---
 
+### Z. Yük altında kendini koruma *(planda yoktu; sahibin sorusu açtı)*
+
+Y grubu **ölçtü**; bu grup ürünün davranışını **değiştiriyor**. Sahibin
+sorusu: *"yığılma anında kendini koruyabilecek mi ... worker sistemi
+yapılamaz mı ... mevcut kaynağa göre otomatik tavana yakın ayarlanır,
+isteğe bağlı ayarlardan kendileri de düzenleyebilir ama belli bir yük
+altında ya da her zaman aktif edilebilir şekilde seçmeli."*
+
+Ölçümler 2026-09-21'de yapıldı: eş zamanlılık merdiveni, cgroup CPU
+kotasıyla 4/2/1/0,5 CPU, gerçek bellek tavanı, ve dördüncü bir düzenekte
+trafik + panel + bakım işinin **aynı anda** koşması. Rakamlar NOTES'ta.
+
+**Grubun sınırı, ve neden bu kadar dar:** yazma yolu **zaten kendini
+koruyor** ve bu ölçüldü — sekiz yapılandırmanın sekizinde de p50 0,14 ms,
+RSS 31–33 MB, sıfır hata, ve veritabanı tamamen donmuşken bile aynı.
+Donma penceresinde her seferinde tam 10.000 satır geçiyor, yani sınır
+tamponun boyu ve CPU'dan bağımsız. Oraya kabul denetimi koymak olmayan
+bir sorunu çözmek olur; özgürlük tadili tam bunu yasaklıyor. **Bu grup
+yalnız okuma yolunu ve bakım işini konuşuyor.**
+
+#### Z1 — Kaynak keşfi, ve süreç kendi tavanını görsün
+
+**Ölçülmüş ihtiyaç:** 0,5 CPU kotasının içinde `runtime.NumCPU()` hâlâ
+**4** diyor — süreç kendi bütçesini göremiyor, yani ondan türetilen her
+sayı sekiz kat büyük çıkar. Ve beacon'ın bellek tabanı ölçüldü: **20
+MB'da yaşıyor, 16 MB'da SIGKILL** (tepe kullanım tam tavanda), günlükte
+tek satır yok, `Restart=always` geri getiriyor ama beş denemeden sonra
+systemd pes ediyor ve servis **ölü kalıyor**. `GOMEMLIMIT` depoda
+**hiçbir yerde** geçmiyor — ne kodda, ne systemd biriminde, ne Docker'da,
+ne belgede; yazılsaydı çalıştırıcı tavanı görür, ölmek yerine yavaşlardı.
+
+Tek paket: cgroup v2 (`cpu.max`, `memory.max`) ve v1
+(`cpu.cfs_quota_us`/`cpu.cfs_period_us`, `memory.limit_in_bytes`), yoksa
+`NumCPU` + `/proc/meminfo`. Diğer üç faz bu sayıları kullanıyor, o yüzden
+ilk sırada. KURULUM'a ölçülmüş bir bellek tabanı da buradan yazılıyor —
+bugün CPU için iki tablo var, bellek için **tek sayı yok**.
+
+#### Z2 — Kesilen cevap operatöre görünsün
+
+**Ölçülmüş kusur:** 60 saniyelik yazma zaman aşımını aşan bir istek
+istemciye **hiçbir şey** vermiyor — durum satırı bile yok, 0 bayt,
+`RemoteDisconnected` — ve günlüğe **tek satır** yazılmıyor. Deterministik
+olarak üretildi (havuz 1, sekiz istek). Sebep `writeJSON`'ın hata dalının
+hiç çalışmaması: 315 baytlık cevap tamponun içinde kalıyor, başarısız
+olan yazma işleyici döndükten *sonraki* boşaltma, ve o hata işleyiciye
+ulaşmıyor. Kaynaktaki yorum *"the connection will simply end up
+truncated"* diyor — kesilmiyor, **hiç gitmiyor**, ve sessiz.
+
+Çözüm politikadan bağımsız ve pazarlıksız: işleyiciye yazma zaman
+aşımından **kısa** bir son tarih. O zaman sunucu her hâlükârda dürüst bir
+cevap yazabiliyor. Tek başına bu değişiklik kusur **sınıfını** kapatıyor.
+
+Ve eşiğin ne kadar yakın olduğu ölçüldü: 4 çekirdekte 32 eş zamanlı
+istek gerekiyordu, **0,5 çekirdekte dört** yetiyor.
+
+#### Z3 — Okuma yolunda kabul denetimi
+
+**Ölçülmüş ihtiyaç:** `analytics-api`'de de panelde de **limiter yok**,
+ve `pool_max_conns` depoda hiçbir yerde geçmiyor — operatörün havuzu
+büyütmek için belgelenmiş bir yolu yok. İstekler Go tarafında sınırsız
+kuyruğa giriyor, veritabanı korunuyor (havuz 4'te duruyor) ama servis
+korunmuyor.
+
+Yeni bir kavram **değil**: `internal/limiter`'ın aynısı, collector'ın
+zaten konuştuğu üç kelime. Sahibin istediği "seçmeli" tam olarak bu üç
+politika — `fail_open` hiç elemez (bugünkü davranış), `throttle` yalnız
+kuyruk dolunca eler (*"belli bir yük altında"*), `fail_closed` her zaman
+katı. İşçi sayısı ve kuyruk derinliği Z1'in bulduğu bütçeden türetiliyor,
+ayarlardan ezilebiliyor.
+
+**Varsayılan önerim `throttle`, ve bu bir ürün kararı:** mevcut
+kurulumların davranışını değiştirir. Gerekçe sahibin kendi ilkesi —
+altmış saniye bekleyip hiçbir şey alamamak gerçek bir zarar, sıraya girip
+sonunda cevap almak değil. **Sahip itiraz ederse varsayılan `fail_open`
+kalır, mekanizma yine orada durur.**
+
+#### Z4 — Kalp atışı yığılmadan ayrılsın
+
+**Ölçülmüş kusur:** kalp atışı okuma havuzunu paylaşıyor ve yığılmada
+kendi beş saniyelik son tarihi doluyor:
+*"heartbeat: could not write the service row; monitoring will be blind to
+this service"*. Üç dakikayı geçen bir yığılmada Sağlık sayfası **meşgul**
+bir servisi **bayat** gösterir — var olan bir durum için olmayan bir
+sebep, "Ülkeler: Okunamadı" ile aynı sınıf.
+
+#### Z5 — Bakım işi ingest'e yol versin
+
+**Ölçülmüş kusur, ve bedeli veri:** 1 CPU'da trafik + panel + ürünün
+kendi sıkıştırma işi aynı anda koşarken **15 saniyede 2.690 olay
+düşürüldü** ve yazmanın kuyruğu 35 katına çıktı (p99 1,67 → 58,55 ms).
+Ürünün bakım işi ürünün kendi yazarını aç bırakıyor ve aralarında
+**hiçbir hakem yok**.
+
+Sıkıştırma bir parçaya başlamadan önce yazarın tampon doluluğuna baksın,
+eşiğin üstündeyse o turu ertelesin. Ucuz, yerel, mutasyonla ölçülebilir:
+ertelemeyi silen bir mutasyon düşen olay sayısını geri getirmeli.
+
+#### Z6 — Panelde görünürlük
+
+Bulunan bütçe, işçi/kuyruk doluluğu, elenen istek, düşen olay. Bugün bu
+sayıların **hiçbiri hiçbir yerde yok**, ve kuralımız: okuyucuya söylenen
+bir başarısızlık operatöre de söylenmeli.
+
+---
+
 ### R. Taklit altında bot kararı *(planda yoktu; sahibin sorusu açtı)*
 
 Sahip sordu: *"Bu kadar basit belirlemiyoruz değil mi, taklitler
@@ -9913,7 +10021,7 @@ yoktu.
 |---|---|---|---|---|
 | J1 | Bir site asla sıfır sahiple kalmaz | 5 yazar | **iki yön de türetilmiş** | ✅ kapalı |
 | J2a | Müşteri yalıtımı — HTTP katmanı | tek sarmalayıcı | **AST'den türetilmiş** | ✅ kapalı |
-| J2b | Müşteri yalıtımı — veritabanı katmanı | — | **yok** | ⚠️ bilerek açık |
+| J2b | Müşteri yalıtımı — veritabanı katmanı | — | **yok, ve yazıldı** | ⚠️ bilerek açık, KURULUM §4.5 |
 | J3 | Geliştiriciye iş çıkaran hiçbir şey yetkiyle açılmaz | tek yazma yolu | **üç yönlü tamlık** | ✅ kapalı |
 | J4 | Destek jetonu asla yazamaz | rol + hash | **rota + katalog** | ✅ kapalı |
 | J5 | Açıklama sayfası = bütün yazarların yaptığı | 2 yazar | **türetilmiş** | ✅ kapalı |
@@ -10025,12 +10133,20 @@ ve sınıfı kapatıldı.
 2. ~~**J3'ün tamlık testi**~~ ✅ **zaten vardı** — benim hükmüm yanlıştı,
    düzeltildi.
 3. ~~**J4'ün iki bekçisi**~~ ✅ **bitti (2026-09-22).**
-4. **J2b KURULUM'a yazılacak** — kapatılacak bir iş değil, söylenecek bir
-   cümle: iki hypertable RLS'siz, orada RLS imkânsız, ve üç müşterinin
-   ayrımı tek bir Go kontrolüne dayanıyor. Müşteri bunu bilmeli.
+4. ~~**J2b KURULUM'a yazılacak**~~ ✅ **bitti (2026-09-22).** KURULUM
+   §4.5'in sonunda, rol matrisinin hemen altında: *"Bu matris rolleri
+   ayırır, müşterileri ayırmaz."* İki hypertable'ın RLS'ten neden muaf
+   olduğu (sıkıştırılmış hypertable reddediyor, açmak her yükseltmeyi
+   düşürürdü), siteleri ayıranın hangi iki uygulama kontrolü olduğu,
+   panelin jetonunun her siteyi okuyabildiği, ve veritabanı düzeyinde
+   ayrım isteyen bir müşteri için tek yolun **ayrı kurulum** olduğu
+   yazıldı. Yerini rol matrisinin altı olarak seçmenin sebebi:
+   okuyucunun *"ayrım kuruldu"* diye kapattığı sayfa tam o sayfa.
 
-**Beş mücevherin dördü kapalı ve türetilmiş bekçiyle tutuluyor.** Beşinci
-(J2b) kapatılamaz; kalan iş onu yazmak.
+**Beş mücevherin dördü türetilmiş bekçiyle kapalı; beşincisi kapatılamaz
+ve artık müşteriye söyleniyor.** J2b bir daha "açık iş" olarak
+sayılmıyor — kapatılacak bir kusur değil, kabul edilmiş ve belgelenmiş
+bir tasarım sınırı.
 
 *Bir kuralı hatırlayarak uygulamak, onu her fazda yeniden yorumlamaktır.*
 

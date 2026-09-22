@@ -550,6 +550,44 @@ Kalın yazılanlar tesadüf değil, tasarım:
 Bu blok gerçek bir TimescaleDB'ye (16.6 / 2.17.2) uygulanarak
 doğrulandı, çıkan matris yukarıdaki tablodur.
 
+#### Bu matris rolleri ayırır, müşterileri ayırmaz
+
+Yukarıdaki her satır bir **rolün** neye erişebildiğini söylüyor. Tek
+makinede birden çok müşteri çalıştırıyorsanız sormanız gereken soru
+farklı: *A müşterisinin satırları ile B müşterisinin satırları arasında
+ne var?*
+
+Dürüst cevap: **veritabanında bir sınır yok, ve konulamıyor.**
+Analitiğin durduğu iki tablo — `traffic_snapshots` ve `beacon_events` —
+satır düzeyi güvenlikten muaf, ve bu bir eksiklik değil bir zorunluluk:
+sıkıştırılmış bir hypertable `ENABLE ROW LEVEL SECURITY` ifadesini
+**koşulsuz reddediyor** (bu kurulumda ölçüldü). Açmayı denemek, var olan
+her kurulumda her şema yükseltmesinin düşmesi demek olurdu.
+
+Siteleri ayıran şey **uygulama katmanında** ve tek bir yerde:
+
+- **Panel** her site sayfasında üyeliğe bakıyor (`panel_site_members`).
+- **Okuma API'si** her site rotasını, jetonun o siteyi okumaya yetkili
+  olup olmadığını soran tek bir sarmalayıcının arkasına koyuyor.
+
+Panelin taşıdığı API jetonu ise makinedeki **her siteyi** okuyabiliyor —
+onu daraltan şey jeton değil, panelin kendi üyelik kontrolü.
+
+Bu kontrol test ediliyor ve testler elle yazılmış bir listeye değil
+**yönlendiricinin kendisine** bakıyor: `internal/api/isolation_test.go`
+rotaları kaynaktan okuyup her birini başka bir sitenin jetonuyla
+deniyor, `internal/panel/web/isolation_integration_test.go` ise bir
+yabancının var olan siteyi olmayandan ayırt **edememesini** sınıyor
+(404 ile 403 arasındaki fark, makinedeki müşterilerin listesini
+sızdırır).
+
+Yine de bilmeniz gereken şudur: **bu sınır bir uygulama kontrolüdür,
+veritabanı kısıtı değildir.** Düzenleyici bir gereklilik ya da kendi
+riski nedeniyle veritabanı düzeyinde ayrım isteyen bir müşteriniz varsa,
+bugün tek yol **her müşteri için ayrı veritabanı ve ayrı kurulum**.
+Aynı veritabanında iki müşteri, aynı odada iki kasa değil, aynı kasada
+iki çekmecedir.
+
 ### 4.6 Kimsenin vermediği yetkiler
 
 Yukarıdaki matris `GRANT`'ların ne yaptığını gösteriyor. Bir de

@@ -20770,3 +20770,66 @@ başlangıçla birebir aynı çıktı.
 **Beş mücevherin dördü kapalı.** J2b kapatılamaz (iki hypertable RLS'siz,
 orada RLS imkânsız) ve kalan iş onu **KURULUM'a yazmak** — müşteri üç
 müşterinin ayrımının tek bir Go kontrolüne dayandığını bilmeli.
+
+## Z grubu plana girdi, ve J2b müşteriye söylendi (2026-09-22)
+
+Sahip: *"iyi ki söyledin bunları kaydet unutmayalım."* Görev listesi
+oturumla birlikte uçuyor, plan uçmuyor — o yüzden ölçülmüş ne varsa
+plana yazıldı.
+
+### Z grubu: Y ölçtü, Z davranışı değiştirecek
+
+Y grubuna faz **eklenmedi**, yeni bir grup açıldı. Sebep hem anlam hem
+mekanik: Y "istek yolu yük altında" ölçümleriydi ve `✅ 4/4` kapalı; ona
+faz eklemek grup tablosunu bozardı (CI 395/396 tam bu yüzden kırmızı
+verdi). Altı faz: kaynak keşfi + `GOMEMLIMIT` (Z1), kesilen cevabın
+görünür olması (Z2), okuma yolunda kabul denetimi (Z3), kalp atışının
+yığılmadan ayrılması (Z4), bakımın ingest'e yol vermesi (Z5), panelde
+görünürlük (Z6).
+
+**Grubun sınırı ölçümle çizildi, tercihle değil:** yazma yolu zaten
+kendini koruyor — 4/2/1/0,5 CPU × sağlıklı/donmuş, sekiz yapılandırmanın
+sekizinde de p50 0,14 ms, RSS 31–33 MB, sıfır hata, ve donma
+penceresinde her seferinde tam 10.000 satır (tamponun boyu, CPU'dan
+bağımsız). Oraya kabul denetimi koymak olmayan bir sorunu çözmek olurdu
+ve özgürlük tadili bunu yasaklıyor. Z yalnız okuma yolunu ve bakım işini
+konuşuyor.
+
+Z3'ün varsayılanı (`throttle`) **ürün kararı olarak işaretlendi**: mevcut
+kurulumların davranışını değiştirir. Gerekçe sahibin kendi ilkesi — altmış
+saniye bekleyip hiçbir şey alamamak gerçek bir zarar, sıraya girmek değil.
+İtiraz gelirse `fail_open` kalır, mekanizma yine orada durur.
+
+### Ölçmediklerim de yazıldı
+
+Açık riskler tablosuna `internal/applier`'ın borcu **iki ölçülmemiş
+soruyla birlikte** girdi: kilidi hangi süitin tuttuğu (yoklayıcıyı
+kırmızı koşudan *sonra* kurdum, yani mekanizmayı korelasyondan
+çıkardım ve iddia etmiyorum), ve entegrasyon fazının süre dağılımı (üç
+örnek — 5,4 / 65,7 / 72,1 sn — ve **üç örnek eğri değildir**). Taşımadan
+önce ikisi de ölçülecek.
+
+*Bir riski ölçmeden yazmak onu olduğundan büyük yazmaktır* kuralının
+öteki yüzü: ölçülmemiş olduğunu yazmadan kaydetmek, onu olduğundan
+kesin yazmaktır.
+
+### J2b: kapatılamayan mücevher artık söyleniyor
+
+KURULUM §4.5'in sonuna, rol matrisinin **hemen altına** kondu ve yeri
+bilerek seçildi: okuyucunun *"ayrım kuruldu"* diye kapattığı sayfa tam o
+sayfa. Başlık kendi iddiasını taşıyor — *"Bu matris rolleri ayırır,
+müşterileri ayırmaz."*
+
+Yazılanlar: iki hypertable'ın RLS'ten neden muaf olduğu (sıkıştırılmış
+hypertable `ENABLE ROW LEVEL SECURITY`'yi koşulsuz reddediyor; açmayı
+denemek var olan her kurulumda her yükseltmeyi düşürürdü), siteleri
+ayıran iki uygulama kontrolü, panelin jetonunun makinedeki **her siteyi**
+okuyabildiği, bu kontrolün yönlendiriciden türetilmiş testlerle
+tutulduğu, ve veritabanı düzeyinde ayrım isteyen bir müşteri için tek
+yolun **ayrı kurulum** olduğu.
+
+Kapanış cümlesi okuyucunun aklında kalsın diye: *aynı veritabanında iki
+müşteri, aynı odada iki kasa değil, aynı kasada iki çekmecedir.*
+
+J2b bundan sonra "açık iş" diye sayılmıyor — kapatılacak bir kusur
+değil, kabul edilmiş ve belgelenmiş bir tasarım sınırı.
