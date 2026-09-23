@@ -21420,3 +21420,48 @@ yazdığımda "iki sorgusu farklı şeyleri okuyor" demiştim — **kodu
 okumadan**; okuyunca yanlış çıktı: ikisi de aynı adresin satırlarını
 okuyor, biri pencerenin özeti, öbürü sınırlı zaman çizgisi. Cümle
 yayımlanmadan düzeltildi.
+
+## #95 — applier kendi veritabanında (2026-09-23)
+
+Açık risk satırıydı ve ölçümleri dün yapılmıştı: applier şema dosyalarını
+paylaşılan veritabanına uyguluyor, DDL kilitleri başka süitlerin
+kilitleriyle birleşiyordu. Taşıma **hiçbir teste dokunmadan** yapıldı:
+`testdb` her rolün bağlantısını önce ortamdan (`CA_DSN_<rol>`,
+`CA_SUPERUSER_DSN`) okuyor. `internal/applier/owndb_integration_test.go`
+`TestMain`'de `ca_applier_suite`'i install.sh sırasıyla kuruyor, ortamı
+oraya çeviriyor ve paketi koşturuyor; ortam test ikilisinin kendisinin,
+`go test` her paketi ayrı süreçte koşturuyor.
+
+**Yönlendirme, testdb'ye geri sorularak doğrulanıyor**, benim kurduğum
+DSN'e değil: her rol için `testdb.DSN(rol)` ve `CA_SUPERUSER_DSN`,
+`current_database()` ile. İlk hâli yalnız kendi hesapladığı DSN'i
+soruyordu ve süper kullanıcının yönlendirmesini hiç sınamıyordu — o satır
+silinse `testdb.Admin` sessizce paylaşılan veritabanına giderdi.
+
+Mutasyon, beşi kırmızı: rolleri yönlendirmemek, süper kullanıcıyı
+yönlendirmemek, yönlendirme döngüsünün bir rolü atlaması,
+`swapDatabase`'in hiçbir şey değiştirmemesi — dördü açık bir cümleyle
+(*"schema_admin: connected to analytics, want ca_applier_suite"*).
+Beşinciyi (iki döngü birlikte bir rolü atlıyor) sağ kalır sanıyordum;
+testlerin kendisi kırıldı, çünkü bir rol paylaşılan veritabanında
+ötekiler kendi veritabanındayken durum tutarsız. Yani kontrol döngüsü
+tek yakalayıcı değil, **tek açıklayıcı** yakalayıcı.
+
+Ölçüm (`/var/tmp/ca-o4a/a95/kilit-kosu.py`, kapının entegrasyon adımı
+koşarken kilit katalogu; iki tarafın veritabanı ve rolü kaydediliyor):
+önce DDL'e bağlı 3 + 1 bekleme — applier'ın `beacon/schema.sql`'i
+paylaşılan `analytics`'te bir temizlik `DELETE`'ini bekletiyor, ve kendi
+duraklama testi `panel_user`'ın *idle in transaction* işlemini
+bekliyor —, sonra hiçbir veritabanında 0. İki koşu da 247 sn, sıfır
+düşen.
+
+**Araç ilk koşuda kördü:** DDL'i sorgunun *başında* arıyordu, şema
+dosyaları yorumla başlıyor, ve 50 karakterlik kesitte anahtar kelime
+yoktu — "0 bekleme" dedi. Ham örnekleri de kaydetmiyordu. Düzeltilince
+aynı koşul 3+1 verdi. *Bir dedektörün sessizliği, aradığına
+ulaşabildiğini göstermez* — üçüncü kez.
+
+Tek koşuluk kollar ve kusur aralıklı (dün 129 örnek, bugün 3+1); asıl
+güvence yapısal: applier'ın bağlantıları artık paylaşılan veritabanında
+değil. Dünkü iki modlu dağılımın yavaş modunun kalktığı **iddia
+edilmiyor** — konteyner yeniden başlamasıyla ilişkiliydi ve sınanmadı.
