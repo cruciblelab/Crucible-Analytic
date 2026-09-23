@@ -66,9 +66,6 @@ func main() {
 	schemaVersion := flag.Bool("schema-version", false,
 		"print the schema version and fingerprint this build carries, then exit")
 	flag.Parse()
-	// The memory ceiling this process lives under, handed to the
-	// runtime before anything large is loaded. See internal/resources.
-	resources.Apply(logger)
 
 	if *showVersion {
 		// buildinfo.Print, like the other five. This printed a bare
@@ -101,6 +98,12 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
+
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded - and after the log tree
+	// exists, so the line saying what it found lands where the
+	// operator reads, not only on stderr. See internal/resources.
+	resources.Apply(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

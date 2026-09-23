@@ -21017,10 +21017,11 @@ Okunuşu:
   standart yerler.
 
 Beş servis (`systemd` birimlerinden türetilen liste: collector, beacon,
-analytics-api, panel, upgrader) `main`'lerinde, `flag.Parse`'ın hemen
-ardından `resources.Apply` çağırıyor — yapılandırma yüklenmeden ve büyük
-bir şey okunmadan önce, çünkü tavan ne kadar erken devreye girerse o
-kadar koruyor. Sekiz havuz kurma yerinin hepsi paketten geçiyor.
+analytics-api, panel, upgrader) `main`'lerinde `resources.Apply`
+çağırıyor — büyük bir şey okunmadan önce, çünkü tavan ne kadar erken
+devreye girerse o kadar koruyor. (İlk hâli `flag.Parse`'ın hemen
+ardındaydı ve bu bir kusurdu; aşağıda, *"Commit'ten sonra bulunan"*.)
+Sekiz havuz kurma yerinin hepsi paketten geçiyor.
 
 ### Bekçiler
 
@@ -21078,6 +21079,41 @@ gördüm: tek ifadelik `int32(runtime.GOMAXPROCS(0))` biçimini
 işaretliyor (sondayla ölçüldü: bir bulgu), alt sınır kontrolünden sonra
 dönüşen bugünkü biçimi işaretlemiyor. Dosyayı taradığı da aynı sondayla
 belli — sessizliği ulaşamamaktan değil. Gerekçe kaynağın yorumunda.
+
+### Commit'ten sonra bulunan: bütçe satırı operatörün okuduğu yere gitmiyordu
+
+Z2'nin "önce" ölçümünde API'nin kendi günlüğüne baktım: bütçe satırı
+düz metindi, sonraki satırların hepsi JSON. `resources.Apply`'ı
+`flag.Parse`'ın hemen ardına koymuştum — yani **günlük ağacı
+kurulmadan önce**, ve o noktadaki logger önyükleme logger'ı, stderr.
+`main`'in kendi yorumu bunu yazıyordu (*"anything before it went to
+stderr"*). Kurulum bir günlük dizini yapılandırıyor, ve o andan sonra
+operatör ağacı okuyor; satır ne ağaçtaydı ne panelin kopyasında. Ve
+KURULUM operatöre *"günlüğün ilk satırlarından birinde söyler"* diye
+yazıyordu — yanlış yere gönderiyordu.
+
+Gerçek ikiliyle, gerçek bir günlük diziniyle ölçüldü (aynı yapılandırma,
+iki derleme):
+
+| | ağaçta | stderr'de |
+|---|---|---|
+| önce | **yok** | var |
+| sonra | `beacon/<gün>/app.log` | yok |
+
+Düzeltme: beş `main`'de çağrı `logging.Setup` ve logger değişiminin
+hemen ardına taşındı (saf taşıma; hâlâ büyük bir şey yüklenmeden önce —
+collector'ın ASN verisi ondan sonra geliyor). Bekçiye iki koşul eklendi,
+çünkü ilki tek başına gerçek bir hatayı geçiriyor: `Apply` `Setup`'tan
+**sonra** ama logger değiştirilmeden **önce** yine stderr'e yazar. O
+yüzden verilen değişken `Setup` ile çağrı arasında yeniden atanmış olmalı.
+Dört mutasyon: eski yere geri koymak, `Setup` ile değişim arasına koymak,
+bekçinin `logging` yolunu bozmak — üçü kırmızı; ikinci koşulu devre dışı
+bırakıp ikinci mutasyonu uygulamak **sağ kalıyor**, yani onu yakalayan
+ikinci koşul.
+
+*Bir ölçümün yan ürününe bakmak, ölçülen şey kadar değerli olabilir* —
+bu satırı Z2'nin kesilme ölçümünü okurken gördüm, Z1'in hiçbir testi
+satırın nereye gittiğini sormuyordu.
 
 ### Kalan
 

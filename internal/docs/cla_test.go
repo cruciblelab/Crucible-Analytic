@@ -54,6 +54,7 @@ var exemptAuthors = map[string]string{
 	// The names the Co-Authored-By trailers carry, which vary by the
 	// model a session ran on.
 	"Claude Opus 5":   aiAssistantReason,
+	"Claude Opus 5.5": aiAssistantReason,
 	"Claude Sonnet 5": aiAssistantReason,
 }
 

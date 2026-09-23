@@ -63,9 +63,6 @@ func main() {
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	snippet := flag.Bool("snippet", false, "print the <script> tag to embed, given a base URL and a site id, then exit")
 	flag.Parse()
-	// The memory ceiling this process lives under, handed to the
-	// runtime before anything large is loaded. See internal/resources.
-	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a
@@ -100,6 +97,12 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
+
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded - and after the log tree
+	// exists, so the line saying what it found lands where the
+	// operator reads, not only on stderr. See internal/resources.
+	resources.Apply(logger)
 
 	trustedProxies, err := beacon.ParseTrustedProxies(cfg.TrustedProxies)
 	if err != nil {

@@ -63,9 +63,6 @@ func main() {
 	updateBotData := flag.Bool("update-bot-data", false,
 		"fetch the known-bot fingerprint set into bot_data.path and exit (put this in cron)")
 	flag.Parse()
-	// The memory ceiling this process lives under, handed to the
-	// runtime before anything large is loaded. See internal/resources.
-	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a
@@ -92,6 +89,12 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
+
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded - and after the log tree
+	// exists, so the line saying what it found lands where the
+	// operator reads, not only on stderr. See internal/resources.
+	resources.Apply(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

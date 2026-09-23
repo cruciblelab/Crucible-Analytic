@@ -59,9 +59,6 @@ func main() {
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	hashToken := flag.Bool("hash-token", false, "generate a random API token, print it with its SHA-256 hash, and exit")
 	flag.Parse()
-	// The memory ceiling this process lives under, handed to the
-	// runtime before anything large is loaded. See internal/resources.
-	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a
@@ -96,6 +93,12 @@ func main() {
 	defer closeLogs()
 	logger = treeLogger
 	slog.SetDefault(logger)
+
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded - and after the log tree
+	// exists, so the line saying what it found lands where the
+	// operator reads, not only on stderr. See internal/resources.
+	resources.Apply(logger)
 	_ = logControls
 
 	auth, err := api.NewAuthenticator(cfg.TokenList())

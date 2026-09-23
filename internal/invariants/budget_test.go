@@ -210,8 +210,10 @@ func TestEveryServiceHandsItsMemoryLimitToTheRuntime(t *testing.T) {
 				if !ok || fn.Name.Name != "main" || fn.Recv != nil || fn.Body == nil {
 					continue
 				}
-				if len(callsOf(fn.Body, pkg, "Apply")) > 0 {
+				applies := callsOf(fn.Body, pkg, "Apply")
+				if len(applies) > 0 {
 					found = true
+					checkAppliedAfterTheLogTree(t, name, f, fn, applies)
 				}
 			}
 		}
@@ -223,4 +225,75 @@ func TestEveryServiceHandsItsMemoryLimitToTheRuntime(t *testing.T) {
 				"rather than collecting harder.", name)
 		}
 	}
+}
+
+const loggingPath = "github.com/cruciblelab/crucible-analytic/internal/logging"
+
+// checkAppliedAfterTheLogTree holds the second half of the rule: the line
+// resources.Apply writes has to reach the log tree.
+//
+// Z1's first version called Apply straight after flag.Parse, which is
+// before logging.Setup - so the one line saying what limit the process
+// found went to the bootstrap logger, which is stderr. An installation
+// configures a log directory, and from then on the operator reads the
+// tree; the line was in neither the tree nor the panel's copy of it.
+// Found by reading a measurement's own log, and KURULUM had already told
+// the operator to look for it.
+//
+// Two conditions, because the first alone lets a real mistake through:
+// Apply placed after Setup but before the logger variable is swapped to
+// the tree still logs to stderr. So the argument has to be a variable
+// assigned between Setup and the call.
+func checkAppliedAfterTheLogTree(t *testing.T, service string, f *ast.File, fn *ast.FuncDecl, applies []*ast.CallExpr) {
+	t.Helper()
+	setups := callsOf(fn.Body, localName(f, loggingPath), "Setup")
+	if len(setups) == 0 {
+		t.Errorf("cmd/%s: main calls resources.Apply but never logging.Setup, so "+
+			"there is no log tree for the budget line to reach - and this rule has "+
+			"nothing to order it against", service)
+		return
+	}
+	setup := setups[0]
+	for _, call := range applies {
+		if call.Pos() < setup.Pos() {
+			t.Errorf("cmd/%s: resources.Apply runs before logging.Setup.\nThe line "+
+				"saying which memory limit the process found then goes to the bootstrap "+
+				"logger - stderr - and never reaches the log tree an installation's "+
+				"operator reads.", service)
+			continue
+		}
+		if len(call.Args) != 1 {
+			continue
+		}
+		arg, ok := call.Args[0].(*ast.Ident)
+		if !ok {
+			t.Errorf("cmd/%s: resources.Apply is given %T, not a variable this rule "+
+				"can follow back to the log tree", service, call.Args[0])
+			continue
+		}
+		if !assignedBetween(fn.Body, arg.Name, setup.End(), call.Pos()) {
+			t.Errorf("cmd/%s: resources.Apply(%s) comes after logging.Setup, but %s "+
+				"is not reassigned in between - it is still the bootstrap logger, and "+
+				"the budget line still goes only to stderr", service, arg.Name, arg.Name)
+		}
+	}
+}
+
+// assignedBetween reports whether body assigns to the variable name at a
+// position after from and before to.
+func assignedBetween(body *ast.BlockStmt, name string, from, to token.Pos) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || as.Pos() <= from || as.Pos() >= to {
+			return true
+		}
+		for _, lhs := range as.Lhs {
+			if id, ok := lhs.(*ast.Ident); ok && id.Name == name {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
 }

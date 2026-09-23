@@ -269,11 +269,14 @@ Her servis açılışta içinde yaşadığı **bellek sınırını** bulur (cgro
 v1 ya da v2 — Docker'ın `--memory`'si ve systemd'nin `MemoryMax=`'ı
 ikisi de bunu kurar) ve bu sınırın **%80'ini** Go çalıştırıcısına
 yumuşak tavan olarak verir. Sınır yoksa hiçbir şey değişmez. Ne
-bulduğunu günlüğün ilk satırlarından birinde söyler:
+bulduğunu açılışta tek satırla söyler — paket kurulumunda servisin
+`/var/log/crucible-analytic` altındaki günlük ağacında (servisin o
+günkü `app.log` dosyası), Docker'da konteynerin çıktısında:
 
 ```
-msg="resources: budget" gomaxprocs=4 numcpu=4 memory_limit=25165824
-    memory_limit_from="cgroup v1" gomemlimit=20132659 gomemlimit_from=cgroup
+{"level":"INFO","msg":"resources: budget","gomaxprocs":4,"numcpu":4,
+ "memory_limit":"25165824","memory_limit_from":"cgroup v1",
+ "gomemlimit":"20132659","gomemlimit_from":"cgroup", ...}
 ```
 
 **Bunun neden önemli olduğu ölçüldü.** Go çalıştırıcısı bellek
