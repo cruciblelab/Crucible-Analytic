@@ -345,5 +345,24 @@ func TestConfigChangesAreRaceFree(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	close(stop)
-	wg.Wait()
+
+	// Bounded. The callers above wait under context.Background(), so a
+	// queued one returns only when the limiter lets it - and CI run 416
+	// hung here for ten minutes, four goroutines in throttleWait, because
+	// the queue was counting its own polls as traffic (see
+	// throttlerate_test.go). Once the hammering stops the rate decays
+	// within two one-second windows; ten seconds is the margin, and a
+	// failure here names the cause instead of a timeout panic.
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("callers were still queued ten seconds after the traffic stopped (%d waiting). "+
+			"Nothing arrives any more, so nothing but the queue itself can be holding the "+
+			"limits exceeded.", l.waiting.Load())
+	}
 }

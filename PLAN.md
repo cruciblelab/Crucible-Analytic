@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **4/6** | Z3, Z5 — *(İkisi de sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **4/6** | Z3, Z5 — *(İkisi de sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5527,6 +5527,21 @@ kurulumların davranışını değiştirir. Gerekçe sahibin kendi ilkesi —
 altmış saniye bekleyip hiçbir şey alamamak gerçek bir zarar, sıraya girip
 sonunda cevap almak değil. **Sahip itiraz ederse varsayılan `fail_open`
 kalır, mekanizma yine orada durur.**
+
+**Karardan önce bilinmesi gereken (2026-09-23, CI 416'dan çıktı):**
+önerdiğim politika, hız sınırıyla birlikte **kırıktı** ve düzeltildi.
+Kuyruktaki her çağıran yoklamasını yeni bir varış gibi sayıyordu,
+saniyede elli; kuyruk hızı kendi başına sınırın üstünde tutuyor ve kimse
+çıkamıyordu. Collector'ın varsayılanlarıyla (500/sn, 200'lük kuyruk) on
+bir bekleyen yetiyordu. Gerçek ikiliyle, geçiş kipinde: patlamadan sonra
+35 sn boyunca **0/7** taze bağlantı, SIGTERM'e 30 sn cevap yok;
+düzeltmeden sonra 7/7 ve 0,02 sn. Ayrıntı NOTES §"CI 416". Hiçbir test
+bulmamıştı çünkü hiçbiri `throttle` ile hız sınırını birleştirmiyordu —
+artık üç test birleştiriyor. Z3'ün planı eşzamanlılık ve kuyruk derinliği,
+hız sınırı değil — o hâliyle kusuru tetiklemezdi; ama okuma yoluna bir
+hız sınırı da konsaydı, yoğun bir anın sonunda kuyruk kendi yoklamalarıyla
+dolu kalırdı. Öneri bugün ölçülmüş bir mekanizmaya dayanıyor; dün
+dayanmıyordu.
 
 #### Z4 — Kalp atışı yığılmadan ayrılsın ✅ **bitti (2026-09-23)**
 

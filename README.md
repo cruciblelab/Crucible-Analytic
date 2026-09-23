@@ -2337,9 +2337,16 @@ single/double-connection scenarios in `internal/proxy` and
 through and rejects the rest; `fail_open` proxies all of them but records
 only around 10; `throttle` with a queue of 10 eventually serves around 15
 (5 concurrent + 10 queued) out of 30; a `max_requests_per_second = 20`
-ceiling lets roughly 20 of 100 simultaneous attempts through. Assertions
-allow some slack for real scheduling variance rather than pinning to one
-exact number.
+ceiling lets roughly 20 of 100 simultaneous attempts through; and
+`throttle` under that same 20/s ceiling drains its queue once a burst is
+over, so a fresh connection three seconds later is served. That last one
+failed until 2026-09-23: a queued caller counted each of its polls as a
+new request, fifty a second, so the queue held the rate over the limit by
+itself - and in passthrough mode, where a queued connection never learns
+that its client left, nothing was admitted again until the collector was
+restarted, and it could not be stopped cleanly either. Assertions allow
+some slack for real scheduling variance rather than pinning to one exact
+number.
 
 `go test -tags loadtest ./internal/asnlookup/...` covers this package's
 own load/scale behavior separately: a realistic 80/20 hot-set cache access

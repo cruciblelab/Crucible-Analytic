@@ -21752,3 +21752,98 @@ aktarmayı kullanılmaz bıraktı) ve derlenen bir biçimle yeniden yazıldı.
 okuyan başka bir özelliğin kusurunu buldu.* Bakmasam iki "Panel"
 satırını düzenek kirliliği sayıp geçecektim — öyleydi de; ama kirliliği
 yazan testin niye yazdığını sormak, kusurun kendisiydi.
+
+## CI 416 — `throttle` kuyruğu kendi trafiğini sayıyordu (2026-09-23)
+
+CI 416'da (`fb16e5b`) entegrasyon işi on dakikada zaman aşımına uğradı:
+`internal/limiter.TestConfigChangesAreRaceFree` asılı, dört goroutine
+`throttleWait`'in `select`'inde. Ürün kusuru.
+
+`throttleWait` kuyruktaki çağıranı 20 ms'de bir yokluyordu, ve her
+yoklama `tryProceed`'den geçiyordu — yeni bir isteğin geçtiği yoldan.
+`tryProceed` önce `overRate`'i soruyor, `overRate` de **önce varışı
+kaydediyor**, sonra hıza bakıyordu. Yani kuyruktaki her çağıran saniyede
+elli varış daha yazıyordu. Dört bekleyen, hiç trafik yokken hızı
+200/sn'de tutuyor; testin anlık görüntüsündeki sınır 100–199 ise hiçbiri
+bir daha çıkamıyor. `rate()`'in kendi yorumu bile *"throttleWait
+yoklarken `record` olmadan çağrılabilir"* diyordu — kod bunu yapmıyordu.
+
+Hiçbir test yakalamadı, çünkü hiçbiri ikisini birleştirmiyordu: bu
+paketteki ve `internal/loadtest`'teki her `throttle` senaryosu
+**eşzamanlılığı** sınırlıyor, her hız senaryosu `fail_closed` ya da
+`fail_open` kullanıyor.
+
+### Üründe ne demek
+
+Collector'ın varsayılanları 500/sn ve 200'lük kuyruk: `throttle`
+seçildiğinde **on bir** bekleyen (11 × 50 = 550) hızı bir daha 500'ün
+altına indirmiyor. Geçiş kipi (`internal/proxy`) `Admit`'i
+`context.Background()` ile çağırıyor, yani bekleyen istemcisi gitse de
+kuyruktan hiç çıkmıyor; her yeni bağlantı hızı aşılmış ve kuyruğu dolu
+buluyor. **Collector yeniden başlatılana kadar hiçbir şey kabul
+etmiyor** — ve temiz de duramıyor, çünkü `Serve` kabul ettiği her
+bağlantıyı bekliyor. Tam vekil kipi ve beacon isteğin bağlamını
+geçiyor, orada bekleyenler istemci vazgeçince çıkıyor; ama kuyrukta on
+bir kişi olduğu sürece yine hiçbir şey geçmiyor.
+
+`throttle` isteğe bağlı (varsayılan `fail_open`), yani bugün yalnız onu
+seçen kurulumu etkiliyordu. **Ama Z3'ün önerilen varsayılanı tam bu
+politika**, ve okuma yolunda aynı `internal/limiter`'ı kullanacaktı.
+
+### Gerçek ikiliyle ölçüldü
+
+`/var/tmp/ca-o4a/lim/kuyruk.py`: gerçek `collector` ikilisi, geçiş kipi,
+`throttle`, 20/sn, 30'luk kuyruk, kendi veritabanı (`ca_live`). "Önce"
+ikilisi aynı ağaçtan `go build -overlay` ile HEAD'in `limiter.go`'su
+yerine konarak derlendi, yani iki ikili yalnız bu dosyada ayrışıyor. 100
+bağlantılık patlama (istemci 2 sn'de vazgeçiyor), 3 sn sessizlik, sonra
+35 sn boyunca 5 sn'de bir tek taze bağlantı, sonra SIGTERM. Günlükte
+"limits changed" satırı yok, yani dosyadaki sınırlar yürürlükteydi.
+
+| | önce | sonra |
+|---|---|---|
+| patlamadan hizmet alan | 20/100 | 20/100 |
+| sonraki taze bağlantılar | **0/7** | 7/7 |
+| arka uca ulaşan bağlantı | 21 | 58 |
+| SIGTERM'den sonra çıkış | **30 sn'de çıkmadı**, SIGKILL | 0,02 sn |
+
+58'in dökümü aritmetiği doğruluyor: 1 hazırlık + 20 patlama + **30
+kuyruk** (istemcileri gitmişti; hız düşünce kabul edildiler) + 7 taze.
+Önce 21: kuyruktaki otuzun hiçbiri çıkmadı.
+
+### Ne yapıldı
+
+`tryProceed(cfg, arriving)`: varış yalnız `Admit`'in ilk denemesinde
+sayılıyor. `throttleWait`'in iki denetimi (kuyruğa girerken ve her
+yoklamada) `arriving=false` ile hıza bakıyor ama kaydetmiyor. Kuyruktaki
+bir istek bir istektir, kaç kez bakarsa baksın.
+
+### Testler
+
+- `TestAQueuedCallerIsNotItsOwnTraffic`: kısa pencere, eşiğin üstünde bir
+  patlama, sonra hiçbir şey; dört bekleyenin dördü de iki pencere sonra
+  çıkmalı. Önce: 3 sn'de **0/4**.
+- `TestAThrottledRequestIsCountedOnce`: bir saatlik pencerede sayaç
+  döndürülmüyor, istek sonuna kadar kuyrukta kalıp vazgeçiyor, sayaçta
+  tam **bir** varış olmalı. Önce: **12** (Admit 1 + kuyruğa giriş 1 +
+  on yoklama).
+- `TestLoadTest_Throttle_UnderARateLimitTheQueueDrainsAfterTheBurst`:
+  gerçek `proxy.Server`, gerçek TCP. Önce: taze bağlantı reddedildi **ve
+  sunucu kapanmadı**.
+- Yük testinin sunucu yardımcısı artık kapanışı on saniye bekliyor: önceki
+  hâli `<-done` ile sonsuza bekliyordu, ve bu kusurun ilk ölçümü on
+  dakikalık bir `go test` paniği oldu — açıklayan `t.Fatalf` satırı hâlâ
+  testin tamponundayken.
+- `TestConfigChangesAreRaceFree` da aynı şekilde sınırlı: on saniye içinde
+  boşalmayan kuyruğu bekleyen sayısıyla adlandırıyor.
+
+**Beş mutasyon, beşi kırmızı** (`scratchpad/mutasyon-kuyruk.py`):
+yoklama yine varış sayılır (iki birim testi + yük testi), kuyruğa girerken
+ikinci kez sayılır (sayım testi), varış hiç sayılmaz (var olan iki hız
+testi + sayım testi), eski kod (iki birim + yük), yoklama hıza hiç bakmaz
+(sayım testinin önkoşulu).
+
+*Bir koruma mekanizmasını, yalnız tek boyutu sınırlanmış hâlde sınamak,
+iki boyutun etkileştiği yeri hiç sınamamaktır.* Kuyruk eşzamanlılıkla
+doğru, hızla yanlıştı; ve yanlış olduğu yer tam da kuyruğun hızı
+etkilediği yerdi.

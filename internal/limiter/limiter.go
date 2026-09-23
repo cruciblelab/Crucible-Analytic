@@ -153,7 +153,7 @@ func (l *Limiter) Admit(ctx context.Context) (Decision, func()) {
 	// limits and half under the new.
 	cfg := l.cfg.Load()
 
-	if d, release := l.tryProceed(cfg); d == DecisionProceed {
+	if d, release := l.tryProceed(cfg, true); d == DecisionProceed {
 		return d, release
 	}
 
@@ -171,8 +171,12 @@ func (l *Limiter) Admit(ctx context.Context) (Decision, func()) {
 // tryProceed makes one non-blocking attempt to acquire a concurrency slot
 // under both limits. It never blocks and never applies Policy - callers
 // interpret a non-Proceed result themselves.
-func (l *Limiter) tryProceed(cfg *Config) (Decision, func()) {
-	if l.overRate(cfg) {
+//
+// arriving says whether this attempt is a request arriving, which the
+// rate counter records, or a queued request looking again, which it does
+// not. See throttleWait for what counting the second kind did.
+func (l *Limiter) tryProceed(cfg *Config, arriving bool) (Decision, func()) {
+	if l.overRate(cfg, arriving) {
 		return DecisionReject, nil
 	}
 	if l.tryAcquire(cfg) {
@@ -181,12 +185,14 @@ func (l *Limiter) tryProceed(cfg *Config) (Decision, func()) {
 	return DecisionReject, nil
 }
 
-func (l *Limiter) overRate(cfg *Config) bool {
+func (l *Limiter) overRate(cfg *Config, arriving bool) bool {
 	if cfg.MaxRequestsPerSecond <= 0 {
 		return false
 	}
 	now := time.Now()
-	l.rate.record(now)
+	if arriving {
+		l.rate.record(now)
+	}
 	return l.rate.rate(now) > float64(cfg.MaxRequestsPerSecond)
 }
 
@@ -210,6 +216,21 @@ func (l *Limiter) release() {
 	l.current.Add(-1)
 }
 
+// throttleWait queues a caller that Admit has already counted.
+//
+// # A look is not an arrival
+//
+// Every check in here passes arriving=false, and that is the whole of a
+// fix. The first version sent each poll through the same path as a new
+// request, so each waiter recorded fifty arrivals a second of its own -
+// and a queue of them held the rate over the limit by itself, with no
+// traffic at all. Measured: four waiters under 100/s never got out
+// (CI run 416 hung ten minutes on it); with the collector's defaults,
+// 500/s and a queue of 200, eleven were enough. In passthrough mode the
+// caller waits under context.Background(), so nothing ever left the
+// queue, every new connection found it full, and the collector admitted
+// nothing until it was restarted - nor could it be stopped cleanly,
+// because Serve waits for the connections it has accepted.
 func (l *Limiter) throttleWait(ctx context.Context, cfg *Config) (Decision, func()) {
 	if cfg.ThrottleQueueSize <= 0 {
 		return DecisionReject, nil
@@ -221,7 +242,7 @@ func (l *Limiter) throttleWait(ctx context.Context, cfg *Config) (Decision, func
 		return DecisionReject, nil
 	}
 
-	if d, release := l.tryProceed(cfg); d == DecisionProceed {
+	if d, release := l.tryProceed(cfg, false); d == DecisionProceed {
 		return d, release
 	}
 
@@ -237,7 +258,7 @@ func (l *Limiter) throttleWait(ctx context.Context, cfg *Config) (Decision, func
 			// finishing under a different set is how a queued request
 			// gets rejected by a rule that did not exist when it
 			// started waiting.
-			if d, release := l.tryProceed(cfg); d == DecisionProceed {
+			if d, release := l.tryProceed(cfg, false); d == DecisionProceed {
 				return d, release
 			}
 		}

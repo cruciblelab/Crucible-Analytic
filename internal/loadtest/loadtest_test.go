@@ -92,9 +92,29 @@ func startLoadTestProxy(t *testing.T, backendAddr string, store ratestore.RateSt
 	go func() { done <- srv.Serve(ctx, ln) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		// Bounded, because Serve waits for every connection it has
+		// accepted, and a connection can be stuck where no cancel reaches
+		// it: before the throttle fix, a queued caller in passthrough mode
+		// waited under context.Background() for a rate its own polls kept
+		// high, so Serve never returned and this cleanup hung until
+		// `go test` panicked ten minutes later - with the failure that
+		// explained it still buffered in the test's output.
+		waitForServe(t, done)
 	})
 	return ln.Addr().String()
+}
+
+// waitForServe waits for a cancelled Serve to return, and fails the test
+// rather than hanging it if it does not.
+func waitForServe(t *testing.T, done <-chan error) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Errorf("proxy.Serve had not returned ten seconds after it was cancelled: " +
+			"connections it accepted are still waiting on something that stopping the " +
+			"server does not end")
+	}
 }
 
 // fireConcurrentConnections dials proxyAddr n times, releasing all of
@@ -219,6 +239,52 @@ func TestLoadTest_MaxRequestsPerSecond_TripsUnderRealBurst(t *testing.T) {
 	t.Logf("max_requests_per_second: %d/%d succeeded with MaxRequestsPerSecond=20", succeeded, attempts)
 }
 
+// TestLoadTest_Throttle_UnderARateLimitTheQueueDrainsAfterTheBurst.
+//
+// The combination no test in this package had: PolicyThrottle with a
+// requests/second ceiling. Every throttle scenario above limits
+// concurrency, and every rate scenario uses fail_closed or fail_open.
+//
+// A queued caller used to record an arrival on every poll, fifty a
+// second each, so a queue of waiters held the rate over the limit by
+// itself. In passthrough mode - this server - a waiter is admitted under
+// context.Background() and never learns that its client left, so it
+// never leaves either. Measured here before the fix: after a burst and
+// three quiet seconds, a single fresh connection was refused, and it
+// would have been refused at any later time, because nothing in the
+// queue could ever get out.
+func TestLoadTest_Throttle_UnderARateLimitTheQueueDrainsAfterTheBurst(t *testing.T) {
+	backendLn := startEchoBackend(t)
+	store := ratestore.NewMemoryRateStore(time.Minute, 5*time.Minute, time.Hour)
+	defer store.Close()
+	// Concurrency out of the way, so the rate is the only limit.
+	lim := limiter.New(limiter.Config{
+		MaxConcurrentConnections: 1000,
+		MaxRequestsPerSecond:     20,
+		Policy:                   limiter.PolicyThrottle,
+		ThrottleQueueSize:        30,
+	})
+	proxyAddr := startLoadTestProxy(t, backendLn.Addr().String(), store, lim)
+
+	// The burst: a hundred at once, each client giving up after a second.
+	// About twenty go through, thirty queue, the rest are refused - and
+	// the thirty stay queued after their clients have gone.
+	burst := fireConcurrentConnections(t, proxyAddr, 100, 0, time.Second)
+
+	// Quiet. The burst's arrivals are out of the one-second window after
+	// two windows; three is the margin.
+	time.Sleep(3 * time.Second)
+
+	fresh := fireConcurrentConnections(t, proxyAddr, 1, 0, 3*time.Second)
+	if fresh != 1 {
+		t.Fatalf("three quiet seconds after the burst, a fresh connection was not served "+
+			"(%d of the burst's 100 were). Nothing had arrived since: whatever holds the "+
+			"rate over 20/s is the queue itself.", burst)
+	}
+	t.Logf("throttle under 20/s: %d/100 of the burst served, and a fresh connection "+
+		"three seconds later was served", burst)
+}
+
 // --- A5.2: the blocklist changing while traffic is flowing ---
 
 // fixedResolver reports the same country for every address, which is
@@ -250,7 +316,7 @@ func startGeoLoadTestProxy(t *testing.T, backendAddr string, store ratestore.Rat
 	go func() { done <- srv.Serve(ctx, ln) }()
 	t.Cleanup(func() {
 		cancel()
-		<-done
+		waitForServe(t, done)
 	})
 	return ln.Addr().String()
 }
