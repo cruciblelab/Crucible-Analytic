@@ -606,8 +606,14 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 		direction = "ASC"
 	}
 
-	// Both queries share this shape; the total is the number of distinct
-	// boundary paths, which is what a caller pages through.
+	// One pass. The total is the number of boundary paths - the groups a
+	// caller pages through - counted by pageTotal on the pass that builds
+	// them. It used to be a second statement, count(DISTINCT path) over
+	// the same CTEs, and here that cost more than anywhere else: the
+	// CTEs are sessionCTEs, two window functions partitioned by visitor,
+	// so the second statement re-sorted the whole window by visitor to
+	// learn a number the first already had (PLAN §O4f). path is NOT
+	// NULL, so the two definitions count the same thing.
 	boundary := fmt.Sprintf(`,
 		boundary AS (
 		    SELECT DISTINCT ON (visitor_id, session_seq) visitor_id, path
@@ -616,17 +622,8 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 		    ORDER BY visitor_id, session_seq, time %s
 		)`, direction)
 
-	var total int
-	err := s.pool.QueryRow(ctx, beaconFilterCTE+sessionCTEs+boundary+`
-		SELECT count(DISTINCT path) FROM boundary`,
-		beaconArgs(siteID, p, sessionTimeout)...,
-	).Scan(&total)
-	if err != nil {
-		return nil, 0, fmt.Errorf("api: beacon boundary pages total: %w", err)
-	}
-
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+sessionCTEs+boundary+`
-		SELECT path, count(*), count(DISTINCT visitor_id)
+		SELECT path, count(*), count(DISTINCT visitor_id), `+pageTotal+`
 		FROM boundary
 		GROUP BY path
 		ORDER BY count(*) DESC, path
@@ -638,10 +635,13 @@ func (s *Store) sessionBoundaryPages(ctx context.Context, siteID string, p beaco
 	}
 	defer rows.Close()
 
+	// The total rides on every row, so a page past the end carries none
+	// and reports zero - the same answer every pageTotal breakdown gives.
 	stats := []SessionPathStat{}
+	total := 0
 	for rows.Next() {
 		var stat SessionPathStat
-		if err := rows.Scan(&stat.Path, &stat.Sessions, &stat.Visitors); err != nil {
+		if err := rows.Scan(&stat.Path, &stat.Sessions, &stat.Visitors, &total); err != nil {
 			return nil, 0, fmt.Errorf("api: scan session path stat: %w", err)
 		}
 		stats = append(stats, stat)

@@ -5156,7 +5156,7 @@ iddia değil bir **girdi**).
 > büyükse** dayanıklı. Bugünkü bantla `beacon/countries` (6,26) ve
 > O4c'nin `top-ips`'i (4,64, payı %7) bu sınıfta.
 
-##### O4f — "Pencereyi iki kez tara" sınıfı kapanmadı ⬜ **ölçülmüş ihtiyaç (2026-09-21)**
+##### O4f — "Pencereyi iki kez tara" sınıfı kapanmadı ✅ **öncelikli üye bitti (2026-09-23); kalanlar ölçülüp bilerek bırakıldı**
 
 Kontrol incelemesi sordu: O4e iki örneği düzeltti, **sınıfın kaç üyesi
 kaldı?** Kaynaktan türetilmiş sayım (her `*Store` metodunda `pool.Query`
@@ -5187,6 +5187,42 @@ yazılı, "hemen düzelt" diye değil. *Bir kusur sınıfını kapatmak,
 sonunda unutmuştum.
 
 ---
+
+**Sonuç (2026-09-23).** `sessionBoundaryPages` tek geçişe indi: toplam,
+grupları kuran geçişte `pageTotal` ile sayılıyor. `path` NOT NULL, yani
+eski `count(DISTINCT path)` ile grup sayısı aynı tanım. Aynı düzenek
+(`ca_beacon`, 2M olay), iki ikili dönüşümlü, iki kontrol ucu, altışar
+örnek:
+
+| uç | 30 gün | 90 gün |
+|---|---|---|
+| entry-pages | 4,17 → 2,40 sn (−%42, ayrık) | 11,82 → 6,87 sn (−%42, ayrık) |
+| exit-pages | 4,23 → 2,37 sn (−%44, ayrık) | 11,74 → 6,77 sn (−%42, ayrık) |
+| kontrol (summary, timeseries) | −%1, −%1 (örtüşüyor) | −%0, +%0 (örtüşüyor) |
+
+Dört (uç, aralık) çiftinde toplam ayrışması sıfır. 90 gün hâlâ 5 sn'nin
+üstünde, ama **panel bu iki ucu çağırmıyor** (`breakdown.go`'nun kayıt
+tablosunda yoklar) — ölü bir düğme değil, genel API'nin belgeli bir ucu,
+ve Z2'nin 55 sn'lik son tarihinin çok altında.
+
+Var olan test toplamı tek gruplu bir fikstürde soruyordu; orada her
+tanım 1 der. Yeni test grup boyları farklı, sayfası tek satırlık,
+giriş/çıkış toplamları farklı bir fikstür kuruyor. "Toplam = sayfanın
+satır sayısı" mutasyonu **yalnız** yeni testle yakalandı. Beş mutasyon,
+beşi kırmızı. Sonun ötesindeki sayfa artık toplam 0 veriyor (eskiden
+3) — O4a'dan beri her `pageTotal` kırılımının verdiği cevap.
+
+**Kalanlar bilerek bırakıldı, ölçüyle.** `BeaconCampaigns` ve
+`BeaconEvents`'te toplam ve sayfa aynı süzgeci ve gruplamayı kullanıyor
+ve sütunlar NOT NULL — yani O4a'nın asıl kusuru (sayfayla çelişen
+toplam) orada **yok**; maliyetleri 0,4 sn. `BeaconRaw` ve `Snapshots`
+gruplamasız ham satır sayfalıyor: `count(*) OVER ()` orada bütün sonucu
+LIMIT'ten önce malzemeleştirir ve ayrı bir `count(*)`'tan pahalı
+olabilir — değiştirmek ölçülmemiş bir yavaşlama riski. `IPDetail`'in iki
+sorgusu aynı adresin satırlarını okuyor, ama biri adresin bütün
+penceresinin özeti (sayım, en yüksekler), öbürü sınırlı bir zaman
+çizgisi: `pageTotal` bunları birleştiremez, özet sayfanın değil
+pencerenin. 90 günde 1,21 sn.
 
 ### Y. İstek yolu yük altında *(planda yoktu; sahibin sorusu açtı)*
 

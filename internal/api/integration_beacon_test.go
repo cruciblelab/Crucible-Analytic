@@ -367,6 +367,78 @@ func TestStore_RealTimescaleDB_EntryAndExitPages(t *testing.T) {
 	}
 }
 
+// The total entry-pages and exit-pages report is the number of boundary
+// paths a pager walks - and since O4f it comes from the pass that builds
+// the groups (pageTotal) instead of a second statement.
+//
+// The test above cannot tell: its fixture has one entry path, so every
+// definition of a total - the page, a group's own count, the groups -
+// says 1. Here the groups differ in size (/a starts two sessions), the
+// page is one row, and entry and exit have different totals, so the page
+// size, a group's count and the other direction's total are all a
+// different number from the right one.
+func TestStore_RealTimescaleDB_BoundaryPagesTotalIsThePagersTotal(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	site := "api-beacon-boundary-total"
+
+	store := seedBeacon(t, []beaconSeed{
+		{site: site, visitor: "v1", at: base, path: "/a"},
+		{site: site, visitor: "v1", at: base.Add(time.Minute), path: "/x"},
+		{site: site, visitor: "v2", at: base.Add(time.Minute), path: "/b"},
+		{site: site, visitor: "v2", at: base.Add(2 * time.Minute), path: "/y"},
+		{site: site, visitor: "v3", at: base.Add(2 * time.Minute), path: "/c"},
+		{site: site, visitor: "v3", at: base.Add(3 * time.Minute), path: "/z"},
+		// One pageview: enters and leaves on /a, so /a starts two
+		// sessions and is also an exit.
+		{site: site, visitor: "v4", at: base.Add(3 * time.Minute), path: "/a"},
+	})
+	ctx := context.Background()
+	page := func(offset int) beaconParams {
+		p := testBeaconParams(base.Add(-time.Minute), base.Add(time.Hour))
+		p.limit, p.offset = 1, offset
+		return p
+	}
+
+	// Entry: /a (2 sessions), /b, /c.
+	entries, total, err := store.BeaconEntryPages(ctx, site, page(0))
+	if err != nil {
+		t.Fatalf("BeaconEntryPages page 1: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "/a" || entries[0].Sessions != 2 {
+		t.Fatalf("entry page 1 = %+v, want /a with 2 sessions", entries)
+	}
+	if total != 3 {
+		t.Errorf("entry total = %d on page 1, want 3 - the entry paths, not the page (1) "+
+			"and not /a's own count (2)", total)
+	}
+	entries, total, err = store.BeaconEntryPages(ctx, site, page(2))
+	if err != nil {
+		t.Fatalf("BeaconEntryPages page 3: %v", err)
+	}
+	if len(entries) != 1 || total != 3 {
+		t.Errorf("entry page 3 = %d rows, total %d; want 1 and 3", len(entries), total)
+	}
+	// Past the end: no row carries the number, so zero - the answer
+	// every pageTotal breakdown gives (pagetotal_integration_test.go).
+	entries, total, err = store.BeaconEntryPages(ctx, site, page(99))
+	if err != nil {
+		t.Fatalf("BeaconEntryPages past the end: %v", err)
+	}
+	if len(entries) != 0 || total != 0 {
+		t.Errorf("entry past the end = %d rows, total %d; want 0 and 0", len(entries), total)
+	}
+
+	// Exit: /x, /y, /z, /a - four, so a total computed for the wrong
+	// direction is caught here too.
+	_, total, err = store.BeaconExitPages(ctx, site, page(0))
+	if err != nil {
+		t.Fatalf("BeaconExitPages: %v", err)
+	}
+	if total != 4 {
+		t.Errorf("exit total = %d, want 4", total)
+	}
+}
+
 // The recommended deployment leaves the beacon's own geo lookup off,
 // so this fallback is the normal path rather than an edge case: without
 // it the countries endpoint would return one large empty group for

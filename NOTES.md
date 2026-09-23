@@ -21385,3 +21385,38 @@ sahibin kararı.
 *Bir planı uygulamadan önce, planın dayandığı durumu ölçümün kendi
 kontrol koşusunda ara.* Kontrol koşusu oradaydı; plan yazılırken
 okunmamıştı.
+
+## O4f — sessionBoundaryPages tek geçişe indi; sınıfın kalanı ölçülüp bırakıldı (2026-09-23)
+
+`sessionBoundaryPages` (`entry-pages`, `exit-pages`) toplamı ayrı bir
+ifadede `count(DISTINCT path)` ile sayıyordu, ve o ifade `sessionCTEs`'i
+— ziyaretçiye göre bölümlenmiş iki pencere fonksiyonu — ikinci kez
+koşturuyordu. Toplam artık grupları kuran geçişte `pageTotal`. `path`
+NOT NULL, yani iki tanım aynı şeyi sayıyor; O4a'nın asn'de bulduğu
+türden bir çelişki burada yoktu, değişiklik yalnız maliyet.
+
+Ölçüm (`/var/tmp/ca-o4a/o4f/o4f.py`, O4e'nin düzeneğinden; iki ikili
+dönüşümlü, iki kontrol ucu, altışar örnek, iki uç ve ayrıklık betiğin
+kendisinde): entry-pages 30 gün 4,17 → 2,40, 90 gün 11,82 → 6,87;
+exit-pages 4,23 → 2,37 ve 11,74 → 6,77 sn — dördü de −%42..−%44 ve
+dağılımlar ayrık. Kontroller −%1..+%0, örtüşüyor: bu koşunun çözünürlüğü
+±%2. Toplam ayrışması 4 çiftte sıfır. 90 gün bütçenin üstünde, ama
+panel bu iki ucu çağırmıyor (`breakdown.go`'nun kayıt tablosunda yoklar).
+
+Var olan test toplamı tek gruplu fikstürde soruyordu ve her tanım 1
+diyordu. Yeni fikstürde grup boyları, giriş/çıkış toplamları ve sayfa
+boyu birbirinden farklı. "Toplam = sayfanın satır sayısı" mutasyonu
+**yalnız yeni testle** yakalandı — *eksik olan iddia değil girdiydi*
+(O4b'nin dersi). Beş mutasyon, beşi kırmızı; biri ilk yazılışında
+tekil olmayan bir çapaya bağlıydı ve uygulanmadan reddedildi,
+yeniden yazıldı.
+
+Sınıfın kalanı (PLAN §O4f): `BeaconCampaigns` ve `BeaconEvents`'te
+toplam ile sayfa aynı süzgeci ve gruplamayı kullanıyor, sütunlar NOT
+NULL — çelişki yok, 0,4 sn. `BeaconRaw` ve `Snapshots` ham satır
+sayfalıyor; `count(*) OVER ()` orada bütün sonucu malzemeleştirir, yani
+değiştirmek ölçülmemiş bir yavaşlama riski. `IPDetail`'i PLAN'a ilk
+yazdığımda "iki sorgusu farklı şeyleri okuyor" demiştim — **kodu
+okumadan**; okuyunca yanlış çıktı: ikisi de aynı adresin satırlarını
+okuyor, biri pencerenin özeti, öbürü sınırlı zaman çizgisi. Cümle
+yayımlanmadan düzeltildi.
