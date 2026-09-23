@@ -1008,7 +1008,6 @@ jeton_var = "var"
 jeton_yok = "yok"
 surum_yok = "damgasız"
 son_hata = "Son hata:"
-panel_kendisi = "Bu sayfayı gösteren süreç."
 tablo_yok = "tablo yok"
 saklama_yok = "sınırsız"
 

@@ -1892,9 +1892,10 @@ ulaşılamıyor.
 
 ### Servisler: Sağlık sayfasındaki satırlar ne söyler
 
-Her servisin bir satırı var, panelin kendisininki en altta. Sayaçlar
-servis açıldığından beri sayılır; servis yeniden başlayınca sıfırdan
-başlar.
+Her servisin — panel dâhil — bir satırı var, ve hepsi servisin kendi
+kalp atışından gelir: bir güncellemeden sonra yeniden başlatıcının
+"geri geldi mi" diye baktığı satırlar tam olarak bunlar. Sayaçlar servis
+açıldığından beri sayılır; servis yeniden başlayınca sıfırdan başlar.
 
 | Sayaç | Hangi satırda | Ne demek |
 |---|---|---|
@@ -2296,6 +2297,15 @@ yazmıyor. Bir zil, bir emir değil. Ağdan paket indiren bir programa
 veritabanına bağlanamayan bir collector bu sınavı geçemez. Dördü de
 otuz saniye içinde yazmazsa önceki binary'ler geri konur, tekrar
 başlatılır, tekrar bakılır ve sonuç panele yazılır.
+
+**Dördü — panel dâhil, ve bu adım bir süre hiç geçemedi.** Panel,
+eylül sonuna kadarki sürümlerde kalp atışı yazmıyordu; yani yeniden
+başlatıcıyı açmış bir kurulumda **her** güncelleme otuz saniye sonra
+geri alınıyor ve *"panel_user did not come back ... The machine needs
+somebody"* diyordu. Gerçek panel ikilisiyle ölçüldü: 75 saniye çalıştı,
+tek satır yazmadı. Artık yazıyor ve aynı denetim sürümü kabul ediyor.
+Bu yeniden başlatıcıyı daha önce açıp güncellemelerinizin geri
+alındığını gördüyseniz sebebi buydu; sürüm ve veri kaybolmadı.
 
 **Sınır:** systemd birimi beş dakikada üç başlatmayla kısıtlı, ve
 betikte `stop`/`disable`/`mask` yok — hiçbir yol servisi kapalı

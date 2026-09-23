@@ -113,16 +113,31 @@ type Server struct {
 	// that one instead; this is the answer when the browser expresses no
 	// preference the panel can serve.
 	Language string
-	// OwnLog is this process's copy of its log for panel_logs - the sink
-	// logsink.Attach returned. The health page's panel row reads its last
-	// error and its log-loss count from here, because the panel writes no
-	// heartbeat row to carry them. Nil draws the row without them.
-	OwnLog heartbeat.LogReport
 
 	// pastDeadline counts requests internal/deadline answered 503 - the
 	// panel's own number for the counter the read API reports through
-	// its heartbeat row. See withDeadline.
+	// its heartbeat row. See withDeadline and Counters.
 	pastDeadline atomic.Uint64
+}
+
+// Counters is what the panel counts for its heartbeat row: the requests
+// its deadline answered. The log-loss count and the last error are added
+// by the reporter from the panel's log copy, as for every service.
+//
+// # Why the panel writes a heartbeat at all
+//
+// It did not until V4b's fix, and the page drew it from this process
+// instead - "it has no reason to tell itself it is alive". But the
+// upgrader's restart check waits for every restarted service's row,
+// the panel's included, and with no row it rolled back every release on
+// a deployment that had the restarter on. Measured on the real binary:
+// 75 seconds of a running panel, no row, and relupdate's own check
+// answering missing=[panel_user]. So the panel reports like the others,
+// and the health page shows the row the check reads.
+func (s *Server) Counters() map[string]int64 {
+	return map[string]int64{
+		heartbeat.CounterDeadline: heartbeat.Count(s.pastDeadline.Load()),
+	}
 }
 
 // Timeouts. A panel is not a streaming service: every response it

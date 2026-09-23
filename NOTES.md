@@ -21679,3 +21679,76 @@ taşıyor.
 - **Yükseltici** logsink bağlıyor ama kalp atışı yazmıyor; kayıpları ve
   son hatası Sağlık sayfasında görünmüyor. Zamanlayıcıyla koşan tek
   seferlik bir iş, sonucu `panel_upgrade_requests`'te; bilerek bırakıldı.
+
+## V4b — Yeniden başlatma denetimi hiç geçemiyordu: panel kalp atışı yazmıyordu (2026-09-23)
+
+Z6'nın ekran görüntüsünden çıktı. Sağlık sayfasında iki "Panel" satırı
+vardı: biri panelin süreçten çizilen kendi satırı, öbürü paylaşılan
+veritabanında sürümü `test`, "18 gündür çalışan", iki saattir haber
+alınamayan bir kalp atışı satırı. Onu `internal/relupdate`'in testleri
+yazıp bırakmıştı — **panel adına**. Testler niye panel adına yazsın?
+
+Çünkü `relupdate.HealthServices` dört rolü bekliyor, panel dâhil. Bir
+sürüm kurulunca yükseltici zili çalıyor, `restart.sh` dört birimi
+yeniden başlatıyor, ve `Doorbell.Healthy` dördünün de **yeniden
+başlatmadan sonra** kalp atışı yazmasını otuz saniye bekliyor; biri
+yazmazsa önceki binary'ler geri konuyor. Panel hiç yazmıyordu:
+`heartbeat.New`'i üç `main` çağırıyordu. Testler geçiyordu, çünkü
+panelin satırını testler yazıyordu — 5b'nin, Z6'nın ve bu turun şekli,
+bu sefer bir güncelleme akışının tamamında.
+
+**Gerçek ikiliyle ölçüldü** (`/var/tmp/ca-o4a/v4d/panel-kalp.py`):
+diğer üç servisin geri döndüğü kendi rolleriyle yazıldı (üretimin
+yazdığı satır: `current_user`, `now()`), panel gerçek ikiliyle 75 saniye
+koştu, sonra ürünün kendi `Doorbell.Healthy`'si soruldu
+(`scratchpad/_kalpprobe`).
+
+| | önce | sonra |
+|---|---|---|
+| panelin 75 sn'de yazdığı satır | yok | `panel_user`, sayaçlarıyla |
+| `Doorbell.Healthy` | `missing=[panel_user]` → geri alma | `missing=[]` → sürüm kabul |
+
+Yani yeniden başlatıcıyı açan her dağıtımda, özelliğin eklendiği günden
+(`ab376e5`, 4 Eylül) beri her güncelleme geri alınıyor ve *"panel_user
+did not come back ... The machine needs somebody"* diyordu. Açmayan
+dağıtım etkilenmiyordu: zil çalınamayınca yükseltici hiçbir şeyi geri
+almıyor. O commit'i ben yazdım; mesajı *"otuz saniyede dördü de
+yazmazsa"* diyordu, ve dördüncünün yazmadığını hiçbir şey sormadı.
+
+### Ne yapıldı
+
+- Panel kalp atışı yazıyor: izleme havuzundan, `Log: panelLog` ile, ve
+  kendi sayacıyla (`web.Server.Counters`, son tarihin cevapladıkları).
+  Yetkisi ilk günden (B4/B7, `grants.sql`'in "four writers"ı) vardı.
+- Z6'da panelin Sağlık satırını süreçten çizmiştim; kalktı. Panel her
+  servis gibi kendi kalp atışı satırıyla görünüyor, çünkü güncelleme
+  denetiminin okuduğu satır o: panel satırını yazamıyorsa sayfa bunu
+  "haber alınamıyor" diye söylemeli, çünkü o durumda bir sonraki
+  güncelleme geri alınır. C9.3'ün kuralı — *gösterilen ile uygulanan
+  aynı yerden türemeli* — bu sefer bir izleme sayfası ile bir geri alma
+  kararı arasında.
+- Reddedilen yol: paneli `HealthServices`'ten çıkarmak. Denetimi
+  geçirirdi, ve bozuk bir panel sürümünü geri almazdı.
+
+### Bekçi
+
+`internal/invariants/restartbeats_test.go`: kural, neyin yeniden
+başlatılacağına karar veren tek listeden türetiliyor — `restart.sh`'ın
+`UNITS` satırı. Her birimin `ExecStart`'ındaki ikilinin `main`'i bir
+kalp atışı **kuruyor ve bir goroutine'de koşturuyor** (ilk hâli yalnız
+`heartbeat.New`'i arıyordu; kurulup koşturulmayan bir raportör de satır
+yazmaz, ve o mutasyon sağ kalırdı — yazarken görüldü, kural
+sıkılaştırıldı). Ve `HealthServices` birim sayısıyla aynı boyda: adlar
+karşılaştırılmıyor, çünkü birim bir rol değil ve rol yapılandırmada.
+
+**Sekiz mutasyon, sekizi kırmızı** (`scratchpad/mutasyon-v4b.py`):
+raportör kurulup koşturulmuyor, sayacı yok, günlük kopyası yok, iş
+havuzundan yazıyor, panelin sayacı hep sıfır, `restart.sh` kalp atmayan
+bir birimi de başlatıyor, denetim paneli beklemiyor, sayfa panelin
+satırını atlıyor. Biri ilk turda derlenmedi (tek girdiyi silmek içe
+aktarmayı kullanılmaz bıraktı) ve derlenen bir biçimle yeniden yazıldı.
+
+*Bir izleme sayfasının ekran görüntüsü, o sayfanın okuduğu tabloyu
+okuyan başka bir özelliğin kusurunu buldu.* Bakmasam iki "Panel"
+satırını düzenek kirliliği sayıp geçecektim — öyleydi de; ama kirliliği
+yazan testin niye yazdığını sormak, kusurun kendisiydi.

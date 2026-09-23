@@ -87,7 +87,7 @@ func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *
 func writeBeat(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error) {
 	t.Helper()
-	writeBeatDetail(t, store, version, started, counters, note, "", heartbeat.TokenKeyUnknown)
+	writeBeatDetail(t, store, testdb.Collector, version, started, counters, noted(note), "", heartbeat.TokenKeyUnknown)
 }
 
 // writeBeatWithProfile is writeBeat plus the one field the profile test
@@ -97,32 +97,37 @@ func writeBeat(t *testing.T, store *panel.Store, version string, started time.Ti
 func writeBeatWithProfile(t *testing.T, store *panel.Store, version string, started time.Time,
 	counters map[string]int64, note error, prof string) {
 	t.Helper()
-	writeBeatDetail(t, store, version, started, counters, note, prof, heartbeat.TokenKeyUnknown)
+	writeBeatDetail(t, store, testdb.Collector, version, started, counters, noted(note), prof, heartbeat.TokenKeyUnknown)
 }
 
 // writeBeatWithTokenKey is the same for 5b's column.
 func writeBeatWithTokenKey(t *testing.T, store *panel.Store, version string, started time.Time,
 	key heartbeat.TokenKeyState) {
 	t.Helper()
-	writeBeatDetail(t, store, version, started, map[string]int64{}, nil, "", key)
+	writeBeatDetail(t, store, testdb.Collector, version, started, map[string]int64{}, nil, "", key)
 }
 
-// writeBeatDetail is the one implementation the three above call.
+// noted is a log copy that has seen err, or none for a nil err.
+func noted(err error) heartbeat.LogReport {
+	if err == nil {
+		return nil
+	}
+	return noteLog{text: err.Error(), at: time.Now()}
+}
+
+// writeBeatDetail is the one implementation the callers above use, as
+// the given role - the row's service is the role that writes it.
 //
 // It arrived when the third was needed: two near-identical copies of
 // this body would have been two things to keep in step, and the second
 // optional field is exactly the kind that goes into the wrong column
 // unnoticed - the reporter itself has a test about that.
-func writeBeatDetail(t *testing.T, store *panel.Store, version string, started time.Time,
-	counters map[string]int64, note error, prof string, key heartbeat.TokenKeyState) {
+func writeBeatDetail(t *testing.T, store *panel.Store, role, version string, started time.Time,
+	counters map[string]int64, log heartbeat.LogReport, prof string, key heartbeat.TokenKeyState) {
 	t.Helper()
 
-	var log heartbeat.LogReport
-	if note != nil {
-		log = noteLog{text: note.Error(), at: time.Now()}
-	}
 	r := heartbeat.New(heartbeat.Options{
-		Pool:       testdb.Pool(t, testdb.Collector),
+		Pool:       testdb.Pool(t, role),
 		Version:    version,
 		Profile:    prof,
 		IPTokenKey: key,
@@ -194,11 +199,6 @@ func TestTheHealthPageShowsAServiceAndItsFailure(t *testing.T) {
 		}
 	}
 
-	// The panel's own row is drawn even though it writes no heartbeat.
-	if !strings.Contains(body, "Bu sayfayı gösteren süreç") {
-		t.Error("the panel does not report itself")
-	}
-
 	// And no visitor number reached the page. The strings below are what
 	// a traffic section would say; none of them belongs here.
 	for _, forbidden := range []string{"Ziyaretçi", "Görüntüleme", "Hemen çıkma"} {
@@ -208,40 +208,48 @@ func TestTheHealthPageShowsAServiceAndItsFailure(t *testing.T) {
 	}
 }
 
-// The panel's own row, drawn: its numbers and its last error come from
-// this process, and the page must put them under the panel rather than
-// under the service above it. Until Z6 the row was a version and a
-// sentence - measured, the process held both numbers and no page read
-// them.
-func TestTheHealthPageShowsThePanelsOwnNumbers(t *testing.T) {
-	server, client, _ := healthServerTweaked(t, func(s *Server) {
-		s.OwnLog = ownLog{lost: 2, text: "panel: reading storage facts: permission denied",
-			at: time.Now().Add(-10 * time.Minute)}
-	})
+// The panel's row is its heartbeat row, like every service's, and there
+// is one of it.
+//
+// Until V4b's fix the panel wrote no row and the page drew one for it
+// from the process. A row did exist on the shared database - written by
+// internal/relupdate's tests, which beat for the panel because the
+// restart check waits for it - and the page drew both: two "Panel" rows,
+// which is how the missing heartbeat was found. So: the panel's numbers
+// arrive through its own row, and the page shows that row once.
+func TestThePanelIsOneRowOnTheHealthPage(t *testing.T) {
+	server, client, store := healthServer(t)
+	writeBeatDetail(t, store, testdb.Panel, "saglik-panel", time.Now().Add(-2*time.Hour),
+		map[string]int64{heartbeat.CounterDeadline: 1},
+		ownLog{lost: 2, text: "panel: reading storage facts: permission denied", at: time.Now().Add(-10 * time.Minute)},
+		"", heartbeat.TokenKeyUnknown)
 
 	status, body := get(t, client, server.URL+HealthPath)
 	if status != http.StatusOK {
 		t.Fatalf("the health page answered %d", status)
 	}
-	self := strings.Index(body, "Bu sayfayı gösteren süreç")
-	if self < 0 {
-		t.Fatal("the panel's row is not on the page")
+	const label = `<th scope="row">Panel</th>`
+	if n := strings.Count(body, label); n != 1 {
+		t.Fatalf("the page draws %d Panel rows, want exactly 1", n)
 	}
-	row := body[self:]
+	// The panel's row and its last-error line: up to the next service's
+	// row, or the end of the table. Cut there, because a number found in
+	// a row below would otherwise pass for the panel's.
+	row := body[strings.Index(body, label)+len(label):]
+	for _, next := range []string{`<th scope="row">`, "</table>"} {
+		if end := strings.Index(row, next); end >= 0 {
+			row = row[:end]
+		}
+	}
 	for _, want := range []string{
+		"saglik-panel",
+		"Süresi dolan istek: 1",
 		"Kaybolan günlük satırı: 2",
-		"Süresi dolan istek: 0",
 		"panel: reading storage facts: permission denied",
 	} {
 		if !strings.Contains(row, want) {
 			t.Errorf("the panel's row does not show %q", want)
 		}
-	}
-	// And the last error is the panel's line, not a sentence the page
-	// could attach to the row above it: it comes after the panel's own
-	// row starts, and before the section ends.
-	if end := strings.Index(row, "</table>"); end >= 0 && !strings.Contains(row[:end], "permission denied") {
-		t.Error("the panel's last error is drawn outside the panel's row")
 	}
 }
 

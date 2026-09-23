@@ -30,6 +30,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
@@ -299,11 +300,27 @@ func main() {
 				Panel:     cfg.Roles.Panel,
 			},
 		},
-		// This process's last error and log-loss count, for the panel's
-		// own row on the health page - it writes no heartbeat to carry
-		// them. The same sink the logger above feeds.
-		OwnLog: panelLog,
 	}
+
+	// The panel's heartbeat row, like every other service's.
+	//
+	// Not for the health page's sake - the page is served by this process
+	// - but for the upgrader's: after a release it restarts all four
+	// services and waits for each one's row, the panel's included
+	// (relupdate.HealthServices). Without this the panel never wrote one,
+	// and on a deployment with the restarter on every release was rolled
+	// back: measured on the real binary, 75 seconds running and no row.
+	// Built after srv because its counters are srv's; Run writes the
+	// first row at once.
+	beat := heartbeat.New(heartbeat.Options{
+		Pool:     monitor,
+		Version:  buildinfo.Version(version),
+		Logger:   logger,
+		Log:      panelLog,
+		Counters: srv.Counters,
+	})
+	go beat.Run(ctx)
+
 	if err := srv.ListenAndServe(ctx); err != nil {
 		fatal(logger, "panel server error", err)
 	}

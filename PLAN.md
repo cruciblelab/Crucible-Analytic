@@ -104,7 +104,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **6/8** | V4b, V5 — *(planda yoktu; müşterinin sorusu açtı — §V)* |
+| **V** Panelden güncelleme | 🟡 **7/8** | V5 — *(planda yoktu; müşterinin sorusu açtı — §V. V4b bitti: yeniden başlatma denetimi dört servisin kalp atışını bekliyordu ve panel hiç yazmıyordu — yeniden başlatıcıyı açan her dağıtımda her güncelleme geri alınıyordu; panel artık yazıyor, gerçek ikiliyle ölçüldü)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -5714,8 +5714,8 @@ yirmi sekizi kırmızı. Ayrıntı NOTES'ta.
   ölçüldü:** 75 sn koştu, tek satır yazmadı; diğer üç servis geri
   döndüğünde ürünün kendi `Doorbell.Healthy`'si `missing=[panel_user]`
   dedi. Yani yeniden başlatıcıyı açan her dağıtımda her ikili
-  güncellemesi geri alınır — §V4b. *(Bu maddenin ilk hâli yetkiyi geri
-  almayı öneriyordu; o, düzeltmeyi imkânsız yapardı.)*
+  güncellemesi geri alınır — §V4b, **düzeltildi**. *(Bu maddenin ilk hâli
+  yetkiyi geri almayı öneriyordu; o, düzeltmeyi imkânsız yapardı.)*
 
 ---
 
@@ -10131,7 +10131,7 @@ sonraki gerçek yazıcının içeri girdiği yerdir.
 | Kilidi tekrar kaldır *(CI'ın düştüğü hâl)* | yakalandı |
 | Kilitsiz yeni bir suite ekle | yakalandı |
 
-#### V4b — Yeniden başlatmayı gerçekten bağlamak ⬜
+#### V4b — Yeniden başlatmayı gerçekten bağlamak ✅ **bitti (2026-09-23)**
 
 Kanca var, üretimde bağlı değil. Yapılacak: `crucible-upgrader`'a yalnız
 `systemctl restart crucible-*` verecek bir polkit kuralı ya da sudoers
@@ -10149,8 +10149,26 @@ panelin satırını testlerin kendisi yazıyordu. Gerçek panel ikilisiyle
 `Doorbell.Healthy` → `missing=[panel_user]`. Yeniden başlatıcıyı açan
 her dağıtımda her güncelleme geri alınır ve *"The machine needs
 somebody"* der. Açmayan dağıtım etkilenmiyor: zil çalınamayınca yükseltici
-hiçbir şeyi geri almıyor. Düzeltmenin yeri panel (yetkisi ilk günden
-var); sıradaki iş.
+hiçbir şeyi geri almıyor.
+
+**Düzeltme (2026-09-23).** Panel artık kalp atışı yazıyor — izleme
+havuzundan, günlük kopyasıyla, diğer servislerle aynı biçimde; yetkisi
+ilk günden vardı. Aynı ölçüm: 75 sn'de panelin satırı var,
+`Doorbell.Healthy` → `missing=[]`. Öbür yol — paneli `HealthServices`'ten
+çıkarmak — denetimi geçirirdi ama bozuk bir panel sürümünü geri almazdı;
+bekçi o yolu da kapatıyor.
+
+Sağlık sayfası Z6'da panelin satırını süreçten çiziyordu; artık panel
+her servis gibi **kendi kalp atışı satırıyla** görünüyor. C9.3'ün kuralı:
+yeniden başlatma denetiminin okuduğu satır ile sayfanın gösterdiği satır
+aynı olmalı — panel satırını yazamıyorsa sayfa bunu "haber alınamıyor"
+diye söylemeli, çünkü o durumda bir sonraki güncelleme geri alınır.
+
+Bekçi: `internal/invariants/restartbeats_test.go` — `restart.sh`'ın
+yeniden başlattığı her birimin ikilisi `main`'inde bir kalp atışı
+**kuruyor ve koşturuyor** (kurulup koşturulmayan bir raportör de satır
+yazmaz), ve `relupdate.HealthServices` birim sayısıyla aynı boyda.
+Sekiz mutasyon, sekizi kırmızı. Ayrıntı NOTES'ta.
 
 #### V5 — Panel yüzeyi ⬜
 

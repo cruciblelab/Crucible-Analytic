@@ -963,7 +963,6 @@ jeton_var = "yes"
 jeton_yok = "no"
 surum_yok = "unstamped"
 son_hata = "Last error:"
-panel_kendisi = "The process serving this page."
 tablo_yok = "table missing"
 saklama_yok = "unlimited"
 

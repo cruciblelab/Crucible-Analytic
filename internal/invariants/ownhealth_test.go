@@ -26,18 +26,23 @@ import (
 //   - every heartbeat.New in a service main is given, as Options.Log, the
 //     sink that main got from logsink.Attach - the row's last error and
 //     log-loss count come from there;
-//   - the panel, which writes no heartbeat, gives the same sink to its
-//     web.Server as OwnLog, for its own row;
+//   - and is given Counters: every service that writes a row counts
+//     something, and a reporter without its counters writes a row that
+//     says nothing about the service's work;
 //   - every Counter constant internal/heartbeat declares is produced
 //     somewhere outside the tests - put into a counters map by code that
 //     runs. A label with no producer is a line the page promises and
 //     never draws.
-
-const webPath = "github.com/cruciblelab/crucible-analytic/internal/panel/web"
+//
+// The first version of this file had a fourth rule, for the panel's
+// web.Server, because the panel wrote no heartbeat and the page drew its
+// row from the process. That was a defect of its own (PLAN §V4b): the
+// panel writes a row now, and falls under the first two rules like the
+// others.
 
 func TestEveryServicesHealthRowReadsItsLogCopy(t *testing.T) {
 	root := repoRoot(t)
-	beats, panels := 0, 0
+	beats := 0
 
 	for _, name := range serviceBinaries(t, root) {
 		for _, f := range goFilesIn(t, filepath.Join(root, "cmd", name)) {
@@ -50,44 +55,28 @@ func TestEveryServicesHealthRowReadsItsLogCopy(t *testing.T) {
 
 				for _, call := range callsOf(fn.Body, localName(f, heartbeatPath), "New") {
 					beats++
-					if !fieldIsOneOf(optionsLiteral(call), "Log", sinks) {
+					opts := optionsLiteral(call)
+					if !fieldIsOneOf(opts, "Log", sinks) {
 						t.Errorf("cmd/%s: heartbeat.New's Options.Log is not the sink main got from "+
 							"logsink.Attach.\nThe row then carries no last error and no log-loss "+
 							"count - measured before Z6, the read API's row said counters {} and "+
 							"nothing else after four failed queries.", name)
 					}
-				}
-
-				web := localName(f, webPath)
-				if web == "" {
-					continue
-				}
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					lit, ok := n.(*ast.CompositeLit)
-					if !ok || !isSelector(lit.Type, web, "Server") {
-						return true
+					if !hasField(opts, "Counters") {
+						t.Errorf("cmd/%s: heartbeat.New is given no Counters.\nThe row then "+
+							"says nothing about the service's own work - the read API's row "+
+							"carried none at all until Z6.", name)
 					}
-					panels++
-					if !fieldIsOneOf(lit, "OwnLog", sinks) {
-						t.Errorf("cmd/%s: web.Server's OwnLog is not the sink main got from "+
-							"logsink.Attach.\nThe panel writes no heartbeat, so its own row on "+
-							"the health page has no other way to show its last error or the "+
-							"log lines it lost.", name)
-					}
-					return true
-				})
+				}
 			}
 		}
 	}
 
-	// Vacuity: three services write a heartbeat and one main builds the
-	// panel's server. Fewer means the wiring moved where this cannot
-	// follow it - move the rule with it.
-	if beats < 3 {
-		t.Errorf("found %d heartbeat.New calls in service mains, want at least 3", beats)
-	}
-	if panels != 1 {
-		t.Errorf("found %d web.Server literals in service mains, want 1", panels)
+	// Vacuity: four services write a heartbeat - every one the restarter
+	// restarts. Fewer means the wiring moved where this cannot follow it,
+	// or a service stopped reporting; restartbeats_test.go says which.
+	if beats < 4 {
+		t.Errorf("found %d heartbeat.New calls in service mains, want at least 4", beats)
 	}
 }
 
@@ -181,6 +170,21 @@ func attachedSinks(body *ast.BlockStmt, logsink string) map[string]bool {
 		return true
 	})
 	return out
+}
+
+// hasField reports whether lit sets field at all.
+func hasField(lit *ast.CompositeLit, field string) bool {
+	if lit == nil {
+		return false
+	}
+	for _, el := range lit.Elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok {
+			if key, ok := kv.Key.(*ast.Ident); ok && key.Name == field {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // optionsLiteral is the composite literal among call's arguments.

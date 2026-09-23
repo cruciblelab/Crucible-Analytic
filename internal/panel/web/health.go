@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
@@ -100,11 +99,6 @@ type healthPage struct {
 	Disk healthDisk
 
 	API healthAPI
-
-	// Panel is this process, which never writes a heartbeat row - it has
-	// no reason to tell itself it is alive. Shown so the page reports
-	// four builds rather than three and a gap.
-	Panel healthService
 
 	Schema      healthSchema
 	SchemaError string
@@ -446,7 +440,6 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 
 	data := healthPage{
 		SelfURL: HealthPath,
-		Panel:   s.panelRow(lang),
 	}
 
 	// Three sources, gathered independently. Each failure is written
@@ -587,9 +580,6 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 // nobody has words for would otherwise render as a raw identifier on an
 // operator's screen; the test in health_test.go keeps the two lists
 // together.
-//
-// One function for the services' rows and the panel's own, so the
-// panel's numbers cannot be labelled or ordered by a second rule.
 func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCounter {
 	var out []healthCounter
 	for _, key := range healthCounterOrder {
@@ -603,34 +593,6 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 		})
 	}
 	return out
-}
-
-// panelRow is this process's row: what the panel knows about itself,
-// with no heartbeat to carry it.
-//
-// # Why it has numbers now
-//
-// Until Z6 the row was a version and a sentence. The panel answers
-// requests through the same deadline as the read API and logs through
-// the same kind of sink, and both counts existed in this process - the
-// deadline's as a WARN line per request, the sink's as a counter nothing
-// read. The services' rows show those numbers; a panel row without them
-// would be the one place on the page where a process's trouble was
-// invisible, and the page is read to find trouble.
-func (s *Server) panelRow(lang *ui.Language) healthService {
-	row := healthService{
-		Name:    "panel_user",
-		Version: buildinfo.Version(s.Renderer.Version),
-	}
-	counters := map[string]int64{
-		heartbeat.CounterDeadline: heartbeat.Count(s.pastDeadline.Load()),
-	}
-	if s.OwnLog != nil {
-		counters[heartbeat.CounterLogLost] = heartbeat.Count(s.OwnLog.Lost())
-		row.LastError, row.LastErrorAt = s.OwnLog.LastError()
-	}
-	row.Counters = labelledCounters(lang, counters)
-	return row
 }
 
 // healthStorage reads what the panel may know about the tables.

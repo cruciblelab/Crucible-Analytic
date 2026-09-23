@@ -1759,14 +1759,17 @@ every installation there had been. The counters include *Log lines lost*
 (lines that never reached `panel_logs`) on every row, and the read API's
 *Errors* and *Requests past deadline* — kept apart, because a query that
 fails is a fault and a query that is slow is a range to narrow. A request
-the client gave up on is neither. The panel writes no row; its own line
-on the page comes from the process serving it.
+the client gave up on is neither.
 
-Three services write to one table. A fourth role, the panel's, is
-allowed to and does not yet - a defect rather than a design: the
-upgrader's restart check waits for the panel's row too (PLAN §V4b). So
-"only your own row" comes from row-level security keyed on
-`current_user` rather than from a `GRANT`, which cannot express it. Each service asks the database which role it is
+The panel writes a row too, and not for its own page's sake: after a
+release the upgrader restarts all four services and waits for each one's
+row, and a service that never writes one reads as a service that never
+came back. Until V4b's fix the panel wrote none, and every release on a
+deployment with the restarter on was rolled back (PLAN §V4b).
+
+Four services write to one table, so "only your own row" comes from
+row-level security keyed on `current_user` rather than from a `GRANT`,
+which cannot express it. Each service asks the database which role it is
 rather than being told in a config file: that is the value the policy
 compares against, so there is nowhere else for it to come from.
 

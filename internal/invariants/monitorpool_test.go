@@ -64,15 +64,16 @@ func TestMonitoringWritesThroughItsOwnPool(t *testing.T) {
 		}
 	}
 
-	// Vacuity, with numbers: all five services attach a log sink; three
-	// of them write a heartbeat (the panel and the upgrader do not).
-	// Fewer means the calls moved out of main, where this rule cannot
-	// follow them - move the rule with them.
+	// Vacuity, with numbers: all five services attach a log sink; four
+	// of them write a heartbeat (the upgrader does not - it is a timer
+	// job, and it is the one that reads the others' rows). Fewer means
+	// the calls moved out of main, where this rule cannot follow them -
+	// move the rule with them.
 	if attaches < 5 {
 		t.Errorf("found %d logsink.Attach calls in service mains, want at least 5", attaches)
 	}
-	if beats < 3 {
-		t.Errorf("found %d heartbeat.New calls in service mains, want at least 3", beats)
+	if beats < 4 {
+		t.Errorf("found %d heartbeat.New calls in service mains, want at least 4", beats)
 	}
 }
 
