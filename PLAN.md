@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **1/6** | Z2–Z6 — *(Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **2/6** | Z3–Z6 — *(Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5419,7 +5419,7 @@ yani çözüm yük taşıyor.
 **KURULUM** §2'ye "Ne kadar bellek — ölçüldü" girdi: tablo, bir servise
 `MemoryMax=` ile nasıl sınır konacağı, ve iki geçersiz kılma.
 
-#### Z2 — Kesilen cevap operatöre görünsün
+#### Z2 — Kesilen cevap operatöre görünsün ✅ **bitti (2026-09-23)**
 
 **Ölçülmüş kusur:** 60 saniyelik yazma zaman aşımını aşan bir istek
 istemciye **hiçbir şey** vermiyor — durum satırı bile yok, 0 bayt,
@@ -5436,6 +5436,40 @@ cevap yazabiliyor. Tek başına bu değişiklik kusur **sınıfını** kapatıyo
 
 Ve eşiğin ne kadar yakın olduğu ölçüldü: 4 çekirdekte 32 eş zamanlı
 istek gerekiyordu, **0,5 çekirdekte dört** yetiyor.
+
+**Sonuç (2026-09-23).** Sınıfın üç üyesi sayıldı: `WriteTimeout` koyan
+her `http.Server` — API ve panel 60 sn, beacon 15 sn; `fullproxy`
+koymuyor (akış taşıyor), yani kesmiyor. **Panel ölçülünce kusur
+planda yazılandan ağır çıktı:** hesap tablosu 75 sn kilitliyken (bir
+şema yükseltmesinin aldığı kilit) ana sayfa 74,0 sn'de 0 bayt verdi, ve
+erişim günlüğü aynı istek için **`status: 200`** yazdı — kaydedici
+işleyicinin niyetini kaydediyordu, bağlantının taşıdığını değil.
+
+`internal/deadline`: zor yarısı stdlib'in `http.TimeoutHandler`'ı
+(işleyici bağlamını dinlemese de cevaplar); paket son tarihi
+`WriteTimeout − 5 sn` olarak türetiyor, içerik türünü yalnız zaman aşımı
+yoluna koyuyor, ve WARN satırı yazıyor. Panelde erişim günlüğünün
+**içinde**. Gerçek ikililerle, aynı düzenekler: API dördü 0 bayt →
+üçü 55,0 sn'de 503 + JSON (beşi 200, toplam 97,9 → 55,0 sn — vazgeçilmiş
+isteklerin sorguları artık iptal ediliyor); panel 0 bayt / "200" →
+55,0 sn'de iki dilli sayfa / "503".
+
+**Beacon bilerek muaf**, gerekçeli harita girdisiyle: hiçbir işleyicisi
+istek gövdesi dışında bir şey beklemiyor, ve `TimeoutHandler` olay
+yolunu iki katına çıkarıyor (14,3–16,1 → 31,8–34,3 µs, örtüşmesiz).
+Bunu kendiliğinden yakalayan bir test **yok** — muafiyet koşula
+bağlanamadı, isim listesinin yedeği kullanıldı.
+
+Bekçiler: `WriteTimeout` koyan her literal'ın işleyicisi, **aynı ifadeyle**,
+`deadline.Handler`'dan geçmeli (doğrudan ya da paketin metot zinciriyle);
+panelde son tarih erişim günlüğünün içinde. Yirmi iki mutasyon, yirmi
+ikisi kırmızı; bir birleşik mutasyon bilerek sağ. Beklenmeyeni:
+bağlamı `TimeoutHandler`'a vermemek eşdeğer sanılmıştı, iki testi
+kırdı — `ctx.Err()` saatten değil zamanlayıcının geri çağrısından
+geliyor, ebeveyn/çocuk ilişkisi sırayı garanti eden tek şey.
+
+Ölçümün yan ürünü: Z1'in bütçe satırı günlük ağacına hiç düşmüyordu
+(`d52a3b7`, §Z1'in NOTES'u).
 
 #### Z3 — Okuma yolunda kabul denetimi
 
@@ -10051,7 +10085,9 @@ olan diziliş. Örnekler ölçülmüş:
 - **2026-09-21'de ölçülen sessiz kesilme** — 60 sn'lik yazma zaman aşımı
   kasıtlı, `writeJSON`'ın hata dalı doğru, net/http'nin küçük cevabı
   tamponlaması optimizasyon, havuzun dörtte durması koruma. Beşi üst üste:
-  istemci hiçbir şey almıyor ve günlükte tek satır yok.
+  istemci hiçbir şey almıyor ve günlükte tek satır yok. **Z2'de kapandı**
+  (`internal/deadline`), ve panelde altıncı halka çıktı: erişim günlüğü
+  gönderilmemiş cevaba "200" yazıyordu.
 
 **Tek adımlık kusurları yakalayan bir disiplinimiz vardı; zincir
 yakalayan bir disiplinimiz yoktu.** Bu bölüm odur.

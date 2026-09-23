@@ -72,6 +72,13 @@ var timingVerdicts = map[string]string{
 		"two orders of magnitude below the floor",
 	"internal/botdata/live_test.go": "an hour, against data freshly fetched over the " +
 		"network in the same test - about the age of a file, not the speed of anything",
+	"internal/deadline/deadline_test.go": "relative and measured: the handler sleeps " +
+		"2s, the same test first measures it unwrapped (at least 2s), and the verdict " +
+		"is that the wrapped call answered in under half of that. Correct is the " +
+		"150ms deadline; the failure is waiting out the sleep - 13x apart, with the " +
+		"1s threshold 6.7x above correct. The real-connection test makes no timing " +
+		"verdict: it asks whether bytes arrived, with 700ms between its 300ms " +
+		"deadline and the 1s WriteTimeout",
 	"internal/devgate/devgate_test.go": "measured: fifteen empty submissions must not " +
 		"reach argon2. Correct is an early return costing microseconds; the failure " +
 		"is fifteen real hashes, the better part of a second. The 200ms ceiling sits " +

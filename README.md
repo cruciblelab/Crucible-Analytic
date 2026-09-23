@@ -434,6 +434,15 @@ All are `GET` and return JSON. Common query parameters:
 | `interval` | either `timeseries` | `1 hour` | One of `1 minute`, `5 minutes`, `15 minutes`, `1 hour`, `6 hours`, `1 day`, `1 week`. |
 | `tz` | either `timeseries` | `UTC` | IANA zone name (`Europe/Istanbul`) deciding where a bucket boundary falls. A day is that zone's day, so a daily bucket starts at local midnight and a day that loses or gains an hour has 23 or 25 hours of rows in it. Echoed back in the response. An unknown name is a 400; so is `Local`, which names no zone another process can resolve. `from`/`to` cannot carry this - RFC 3339 records an offset, and an offset is not a zone. |
 
+**Every request is answered within 55 seconds.** One still running then
+gets `503` with `{"error":"the request took longer than 55s and was
+stopped"}`, its query is cancelled, and the API logs a `WARN` line
+naming the path. Before this, a request that outran the server's
+sixty-second write timeout got **nothing** — no status line, zero bytes
+— and the log had no line either: measured on a one-connection pool,
+four requests out of eight. A narrower range is the usual way through;
+the long ranges that can come near this are listed in PLAN §O4.
+
 #### Collector-side (`traffic_snapshots`)
 
 | Endpoint | Returns |
@@ -1722,9 +1731,11 @@ the last write succeeded and when.
 The rest of the run is bounded at five seconds, against a normal run of
 17 ms. That number does not decide how fast the page is; it decides what
 a wedged database produces. Above the bound, one section says it could
-not be read and the others render. Without it, the request holds until
-the server's own sixty second write timeout and the reader gets nothing
-at all.
+not be read and the others render. Without it, the request would hold
+until the panel's own deadline - fifty-five seconds, after which every
+panel request is answered with a page saying it did not finish in time.
+(Before that deadline existed the reader got nothing at all: measured,
+0 bytes after 74 seconds, and an access-log line saying 200.)
 
 ### Why a heartbeat row rather than another `/healthz`
 

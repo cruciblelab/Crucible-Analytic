@@ -329,6 +329,50 @@ beri, ölçüldü). Kotası olmayan bir makinede ikisi aynı sayıdır ve hiçbi
 şey değişmez. Havuz boyunu kendiniz seçmek isterseniz bağlantı
 adresinde `pool_max_conns=8` gibi yazın; yazdığınız değer korunur.
 
+### Bir istek çok uzun sürerse — ölçüldü
+
+Okuma API'si ve panel her isteği **55 saniye içinde** cevaplar. O
+sürede bitmeyen istek `503` alır: API'de
+`{"error":"the request took longer than 55s and was stopped"}`, panelde
+kurulumun taşıdığı her dilde bir bölümü olan sade bir sayfa
+(yapılandırdığınız dil önce). Sorgusu iptal edilir ve servis günlüğüne
+WARN seviyesinde bir satır yazar, yani panelin günlük görünümünde de
+görünür:
+
+```
+{"level":"WARN","msg":"request ran past its deadline and was answered 503",
+ "method":"GET","path":"/","deadline":"55s","elapsed_ms":55024}
+```
+
+**Neden 55:** sunucunun yazma zaman aşımı 60 saniye, ve beş saniye
+cevabı teslim etmek için ayrılıyor. Bu sınır olmadan, 60 saniyeyi aşan
+bir istek **hiçbir şey** almıyordu. Gerçek ikililerle ölçüldü:
+
+| | önce | sonra |
+|---|---|---|
+| API, tek bağlantılık havuz, 90 günlük sekiz eşzamanlı istek | dördü 65–98 sn'de **0 bayt**, durum satırı yok, günlükte **satır yok** | beşi 200; üçü 55,0 sn'de 503 + JSON, her biri için bir satır |
+| Panel, hesap tablosu 75 sn kilitliyken ana sayfa (bir şema yükseltmesinin aldığı kilit) | 74,0 sn'de **0 bayt**; erişim günlüğü **`status: 200`** yazdı | 55,0 sn'de 503 + sayfa; erişim günlüğü `status: 503` |
+
+Panelin erişim günlüğündeki satır özellikle önemli: eski hâlinde, hiçbir
+şey gönderilmemiş bir istek için "200" yazıyordu, yani günlüğe bakan biri
+sorun görmezdi.
+
+**Bunu ne zaman görürsünüz:** bir şema yükseltmesi panelin tablolarını
+kilitlerken (yükseltme bitince aynı sayfa normal açılır), ya da çok
+yoğun bir kurulumda çok uzun bir aralık istendiğinde (daha kısa bir
+aralık seçin). Sık görüyorsanız günlükteki `path` hangi sayfanın
+yavaş olduğunu söyler.
+
+**Beacon'da bu sınır yok, bilerek.** Beacon'ın hiçbir işleyicisi istek
+gövdesi dışında bir şey beklemiyor: olayı kuyruğa koyuyor (kuyruk
+doluysa beklemeden reddediyor), ülke bilgisini bellekteki tablodan
+okuyor. Sınır burada hiçbir şeyi sınırlamazdı, ama bedeli ölçüldü: olay
+yolunun süresini iki katına çıkarıyor (14–16 µs → 32–34 µs). Bir gün
+beacon bir işleyicide veritabanı beklerse bu karar yanlış olur. Bunu
+kendiliğinden yakalayan bir test **yok**: muafiyet, gerekçesi ve
+ölçümüyle birlikte depoda yazılı, ve o değişikliği yapan kişinin onu
+okuması gerekiyor.
+
 ### Başka bir analitikle karşılaştırma — ölçüldü
 
 Yukarıdaki tablo vekilin. Vekilin başka analitiklerde **karşılığı yok**:

@@ -21131,3 +21131,151 @@ satırın nereye gittiğini sormuyordu.
   değerlerinin şekliyle. Docker'ın ve güncel dağıtımların tipik düzeni v2;
   ilk gerçek v2 kurulumunda günlük satırının `memory_limit_from="cgroup v2"`
   dediğine bakılmalı.
+
+## Z2 — Kesilen cevap: sınıfın üç üyesi, ikisi kusurlu, ve panelin günlüğü "200" diyordu (2026-09-23)
+
+PLAN'ın Z2 metni API'nin ölçülmüş kusurunu anlatıyordu: 60 saniyelik
+yazma zaman aşımını aşan bir istek 0 bayt alıyor, durum satırı yok,
+günlükte satır yok. *Bir kusur sınıfını kapatmak, örneklerini düzeltmek
+değildir* — o yüzden önce sınıf sayıldı.
+
+### Sınıf: `WriteTimeout` koyan her `http.Server`
+
+Üç üye: API (60 sn), panel (60 sn), beacon (15 sn). `fullproxy` koymuyor
+(müşterinin indirmelerini ve akışlarını taşıyor), yani altındaki bir
+işleyiciyi kesmiyor — muafiyet isim değil **koşul**.
+
+### Önce: bugünkü ikililer, aynı düzenekler
+
+- **API** (`kesilme.py`, tek bağlantılık havuz, sekiz eşzamanlı 90 günlük
+  istek): dördü 200 aldı; dördü 65–98 sn'de 0 bayt ve kapanan bağlantı.
+  Günlükte **sıfır** satır. 21 Eylül'deki ölçümün birebir tekrarı.
+- **Panel** (`panel-kilit.py`, yeni): hesap tablosu `ACCESS EXCLUSIVE`
+  ile 75 sn kilitliyken — bir şema yükseltmesinin aldığı kilit türü —
+  `GET /`. Panelin kendi sorgularında hiç süre sınırı yok. Sonuç: 74,0
+  sn'de **0 bayt**, ve erişim günlüğü aynı istek için
+  **`"status":200,"ms":74046`** yazdı. Kaydedicinin kendi yorumu
+  *"what was actually sent"* diyordu; işleyicinin niyetini kaydediyordu.
+  Yani panelde kusur planda yazılandan ağırdı: operatör günlüğe bakıp
+  sorun görmezdi.
+
+### Tasarım
+
+`internal/deadline`. Zor yarısı stdlib'in `http.TimeoutHandler`'ı —
+işleyici bağlamını dinlemese de son tarihte 503 yazıyor, ve bu garanti
+yeniden yazılmadı. Paket üç şey ekliyor:
+
+- son tarih = `WriteTimeout − 5 sn` (`deadline.For`); sabit bir pay,
+  çünkü ödediği şey zaman aşımıyla ölçeklenmiyor: tek bir tamponlanmış
+  cevabı hatta koymak;
+- içerik türü **yalnız zaman aşımı yolunda** — her cevaba koymak,
+  içerik koklamaya güvenen bir işleyicinin HTML'ini JSON diye etiketlerdi;
+- WARN satırı (panelin günlük kopyası WARN'dan başlıyor), ve satır ancak
+  gerçekten 503 yazıldıysa: son tarihin tam anında kendi cevabını bitiren
+  bir işleyici için "503" demek tek yanlış satır olurdu.
+
+API'de bütün zincirin dışında (`/healthz` dâhil); panelde **erişim
+günlüğünün içinde** — sıra düzeltmenin ikinci yarısı. Panelin 503 sayfası
+katalogdan, açılışta, taşınan her dil için bir bölüm (yapılandırılmış dil
+önce): `TimeoutHandler` tek bir sabit gövde yazıyor, istek başına dil
+seçemez; şablonsuz ve stilsiz, CSP'nin izin vermesi gereken hiçbir şey yok.
+
+### Sonra
+
+| | önce | sonra |
+|---|---|---|
+| API | dördü 0 bayt (65–98 sn), günlükte 0 satır; toplam 97,9 sn | beşi 200; üçü 55,0 sn'de 503 + 61 baytlık JSON, her biri için WARN + hangi sorgunun iptal edildiği; toplam 55,0 sn |
+| Panel | 74,0 sn'de 0 bayt, erişim günlüğü `200` | 55,0 sn'de 503 + 619 baytlık sayfa, erişim günlüğü `503` |
+
+API'nin toplam süresi de düştü, ve sebebi ilginç: eskiden vazgeçilmiş
+isteklerin sorguları tek bağlantıyı **cevabı kimseye gitmeyecek** 40 sn
+daha meşgul ediyordu. Artık son tarihte iptal ediliyorlar.
+
+İlk "sonra" koşusu iki şey gösterdi. (a) Tablo 503'lerin gövdesini 0
+bayt yazdı — betiğimin `HTTPError` dalı gövdeyi okuyup atıyordu;
+düzeltilince 61 bayt, ayrıştırılabilir JSON. *İddia etmeden önce ölçeni
+sor.* (b) Her zaman aşımı için günlükte üç satır vardı ve biri yanıltıcıydı:
+`writeJSON`, son tarih cevabı yazdıktan sonra işleyicinin geç yazmasını
+*"encoding response failed: http: Handler timeout"* diye ERROR olarak
+kaydediyordu. `http.ErrHandlerTimeout` artık sessiz; başka her yazma
+hatası hâlâ yazılıyor, ve test iki yarıyı da soruyor.
+
+### Beacon bilerek muaf — ve bunu yakalayan bir test yok
+
+Beacon'ın hiçbir işleyicisi istek gövdesi dışında bir şey beklemiyor:
+`Sink.Enqueue` `select`/`default`, `Resolve` bellekteki aralık
+tablolarından okuyor (veritabanına gittiğini sandım ve kaynağa baktım —
+gitmiyor), açıklama bellekten. Bedel ölçüldü, altışar koşu, örtüşmesiz:
+
+| | ns/işlem | ayırma |
+|---|---|---|
+| sarmalayıcısız | 14.274–16.129 | 62 |
+| `TimeoutHandler` ile | 31.829–34.281 | 74 |
+
+Bugün var olmayan bir soruna iki kat bedel ödemek, özgürlük tadilinin
+tersidir. Muafiyet bir koşula bağlanamadı (işleyicinin "hiçbir şey
+beklemediği" sözdizimi ağacından okunmuyor), o yüzden kuralın yedeği
+kullanıldı: gerekçeli bir harita girdisi. **Bayat yarısı sınanıyor**
+(beacon `WriteTimeout` koymayı bırakırsa girdi kırmızı verir); **asıl
+yarısı sınanmıyor** — bir beacon işleyicisi veritabanı beklemeye
+başlarsa hiçbir şey kendiliğinden kırmızı vermez. KURULUM'a ilk
+yazdığım cümle tersini söylüyordu ("depodaki bir test o gün kırmızı
+verecek şekilde yazıldı"); yayımlamadan önce düzeltildi.
+
+### Bekçiler
+
+`internal/invariants/writedeadline_test.go`:
+
+1. `WriteTimeout` koyan her `http.Server` literal'ının `Handler`'ı
+   `deadline.Handler`'a ulaşmalı — doğrudan ya da aynı paketin metot
+   zinciriyle (panel: `Handler` → `withDeadline`) — ve **aynı ifadeyi**
+   vermeli: farklı bir sayıdan türeyen son tarih, yenmesi gereken zaman
+   aşımından uzun olabilir. Boş küme bekçisi (en az üç), bayat muafiyet
+   bekçisi.
+2. Panelde `withDeadline`, `requestLog`'un içinde.
+
+`internal/invariants/thresholds_test.go`'nun süre kararı değişmezi
+benim testimi yakaladı: `took >= sleep/2` gerekçesiz bir süre kararıydı
+ve doğru ile arıza arası 8 kattı. Uyku 2 sn'ye çıktı (13 kat, eşik
+doğrunun 6,7 katı üstünde) ve girdi yazıldı.
+
+### Mutasyon: yirmi iki, yirmi ikisi kırmızı, biri bilerek sağ
+
+`scratchpad/mutasyon-z2.py`. Bir mutasyon (P5) ilk yazılışında
+derlenmedi ve sayılmadı; yeniden yazılınca kırmızı.
+
+**Beklenmeyen:** `TimeoutHandler`'a kendi bağlamımı ebeveyn olarak
+vermemenin (`r` yerine `r.WithContext(ctx)`) eşdeğer olacağını
+sanıyordum — iki bağlam da aynı süreyle kuruluyor, benimki önce. **İki
+testi kırdı.** `ctx.Err()` saatten hesaplanmıyor, zamanlayıcının geri
+çağrısı ayarlıyor; mikrosaniye arayla kurulmuş iki zamanlayıcı herhangi
+bir sırayla ateşlenebiliyor, ve 503 yazıldığı anda benimki henüz iptal
+edilmemiş olabiliyor. Ebeveyn/çocuk ilişkisi sırayı garanti eden tek
+şey. *Kendi yazdığın mutasyon eşdeğer olabilir* dersinin tersi: bu sefer
+eşdeğer sandığım mutasyon değildi, ve yorumu o öğretti.
+
+Bilerek sağ: argüman denetimini kaldırıp API'ye aynı değerde farklı bir
+ifade vermek (`60*time.Second`) — ikincisi tek başına kırmızı, yani onu
+yakalayan argüman denetimi.
+
+### Bu turun diğer bulguları
+
+- **Z1'in bütçe satırı günlük ağacına düşmüyordu** — ayrı commit
+  (`d52a3b7`), §Z1'de.
+- **CLA testi yeni model adını ancak commit'ten sonra görebiliyor.**
+  Geçmişi okuyan bir test commit'in kendisini ancak o var olunca görüyor;
+  kapı commit'ten hemen önce koştu ve yeşildi, dalın CI'ı (koşu 411)
+  kırmızı verdi. Artık commit ile push arasında `internal/docs` bir kez
+  daha koşuyor.
+
+### Kalan
+
+- **Panelin 503 sayfası sade.** Düzeni, stili, htmx parça cevabı yok;
+  htmx hata cevaplarını varsayılan olarak yerleştirmiyor, yani bir parça
+  isteği sayfayı bozmaz, ama kullanıcıya "zaman aşımı" da göstermez —
+  gösterilecek olan, parçayı isteyen sayfanın kendi hata davranışı.
+- **Yavaş istemci hâlâ kesilebilir.** Son tarih, işleyici zamanında
+  bitince cevabı teslim etmek için beş saniye bırakıyor; beş saniyede
+  cevabını okuyamayan bir istemci yine yarım alır. Bu, zaman aşımının
+  var olma sebebi — yavaş istemciye karşı koruma — ve bırakıldı.
+- **Beacon muafiyetinin asıl yarısı sınanmıyor** (yukarıda).

@@ -183,8 +183,12 @@ func (s *Server) Handler() http.Handler {
 	// LimitRequestBodies is outermost of the three so that nothing below
 	// it - not the session middleware, not a handler, not a future
 	// addition - can be handed a body with no ceiling.
-	return LimitRequestBodies(SecurityHeaders(s.HSTS, s.requestLog(
-		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, handler))))
+	//
+	// The deadline sits directly inside requestLog so that the status the
+	// access log records is the 503 the deadline wrote, not the status of
+	// a handler whose answer never left - see withDeadline.
+	return LimitRequestBodies(SecurityHeaders(s.HSTS, s.requestLog(s.withDeadline(
+		ui.LanguageMiddleware(s.Renderer.Catalogs(), s.Language, handler)))))
 }
 
 // SecurityHeaders is re-exported so the binary and the tests apply the

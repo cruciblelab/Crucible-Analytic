@@ -146,6 +146,12 @@ govde = "Panel çalışıyor, ancak analitik verisini okuduğu servise erişemiy
 baslik = "Panel şu an hazır değil"
 govde = "Servis açılıyor ya da bakımda. Birkaç saniye sonra tekrar deneyin."
 
+# Son tarihi geçen bir istek. Sayfa bir kez, açılışta, her dil için
+# çizilir (internal/panel/web/deadline.go) — o yüzden şablonsuz ve sade.
+[metin.hata.zamanasimi]
+baslik = "Bu istek zamanında tamamlanamadı"
+govde = "Panel isteği %s içinde bitiremedi ve durdurdu. Bir değişiklik yapıyorduysanız, uygulanıp uygulanmadığını görmek için sayfayı yenileyin."
+
 [metin.giris]
 eposta = "E-posta"
 parola = "Parola"

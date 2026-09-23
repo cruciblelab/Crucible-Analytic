@@ -120,6 +120,10 @@ govde = "The panel is running, but it cannot reach the service it reads analytic
 baslik = "The panel is not ready yet"
 govde = "The service is starting up or under maintenance. Try again in a few seconds."
 
+[metin.hata.zamanasimi]
+baslik = "This request did not finish in time"
+govde = "The panel could not finish the request within %s and stopped it. If you were making a change, reload the page to see whether it was applied."
+
 [metin.giris]
 eposta = "Email"
 parola = "Password"

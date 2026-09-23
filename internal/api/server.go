@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/netip"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/deadline"
 )
 
 // Querier is the read-only data access the handlers need. *Store
@@ -78,6 +80,9 @@ func (s *Server) Handler() http.Handler {
 	// Go 1.22+ patterns: the method is part of the pattern, so anything
 	// other than GET on these paths gets a 405 from the mux itself rather
 	// than needing a check in every handler.
+	//
+	// Every route, /healthz included, is answered within
+	// deadline.For(writeTimeout) - see timeoutAnswer.
 	mux.HandleFunc("GET /api/v1/sites", s.handleSites)
 	mux.HandleFunc("GET /api/v1/overview", s.handleOverview)
 	mux.HandleFunc("GET /api/v1/sites/{site}/summary", s.siteHandler(s.handleSummary))
@@ -103,7 +108,27 @@ func (s *Server) Handler() http.Handler {
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
 
-	return s.withAuth(mux)
+	return deadline.Handler(s.withAuth(mux), writeTimeout, timeoutAnswer, s.logger)
+}
+
+// writeTimeout is how long the server gives a response to be written,
+// counted from the end of the request's headers.
+//
+// Named rather than written into the http.Server literal because the
+// handler deadline is derived from it: a request still running at
+// deadline.For(writeTimeout) is answered 503 while there is time to
+// deliver the answer. Measured before that: a query that outran this
+// timeout got 0 bytes and no status line, four requests out of eight
+// on a one-connection pool, and not one line in the log.
+const writeTimeout = 60 * time.Second
+
+// timeoutAnswer is what that 503 says - in the error shape every other
+// failure of this API uses, and with the deadline in it, so a client
+// reading only the body knows whether a narrower range is worth trying.
+var timeoutAnswer = deadline.Answer{
+	ContentType: "application/json",
+	Body: `{"error":"the request took longer than ` + deadline.For(writeTimeout).String() +
+		` and was stopped"}` + "\n",
 }
 
 // tokenContextKey carries the authenticated Token from the auth
@@ -443,9 +468,20 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		// The status line and likely some body are already written, so
-		// there's nothing useful left to say to the client; the connection
-		// will simply end up truncated.
+		if errors.Is(err, http.ErrHandlerTimeout) {
+			// The deadline answered this request already and logged it;
+			// this is the handler finishing after the fact. Measured
+			// before this check: every timed-out request left a second
+			// ERROR line calling itself an encoding failure, beside the
+			// WARN that said what happened.
+			return
+		}
+		// The status line is already written, so there is nothing useful
+		// left to say to the client. This branch sees an encoding failure,
+		// not a delivery one: a response that outran the server's
+		// WriteTimeout fails at the flush after the handler returns, which
+		// never reaches here - measured, it was 0 bytes and no line. That
+		// case is internal/deadline's.
 		slog.Default().Error("api: encoding response failed", "err", err)
 	}
 }
@@ -476,7 +512,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		// classic slowloris shape without needing a limiter.
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      60 * time.Second,
+		WriteTimeout:      writeTimeout,
 		IdleTimeout:       120 * time.Second,
 	}
 
