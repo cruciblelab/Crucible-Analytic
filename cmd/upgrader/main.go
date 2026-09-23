@@ -124,7 +124,19 @@ func main() {
 	// one operation a customer watches a page for, so the lines it
 	// produces have to reach the page rather than only a file the
 	// customer cannot read.
-	logger, panelLog := logsink.Attach(logger, pool, logControls)
+	// Monitoring writes through its own small pool, not the one the
+	// work uses: under load the heartbeat and the panel's log copy
+	// queued behind the work they report on and dropped. Deferred
+	// before the log sink's Close, so the sink drains into an open
+	// pool. See resources.OpenMonitor.
+	monitor, err := resources.OpenMonitor(ctx, cfg.SchemaAdminDSN)
+	if err != nil {
+		logger.Error("upgrader: monitoring pool", "err", err)
+		os.Exit(1)
+	}
+	defer monitor.Close()
+
+	logger, panelLog := logsink.Attach(logger, monitor, logControls)
 	defer panelLog.Close()
 	slog.SetDefault(logger)
 

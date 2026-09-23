@@ -339,3 +339,31 @@ func TestABadDSNIsAnError(t *testing.T) {
 		t.Error("an unparseable pool_max_conns was accepted")
 	}
 }
+
+// The monitoring pool's size is not a capacity decision, so neither the
+// CPU budget nor the operator's pool_max_conns reaches it - asked with
+// both set high, because with either one low the test would pass on a
+// function that applied it. Spelled out, not read off the constants.
+func TestTheMonitorPoolIsTwoWithOneKeptOpen(t *testing.T) {
+	keepGOMAXPROCS(t, 16)
+	pool, err := OpenMonitor(context.Background(),
+		"postgres://u:p@127.0.0.1:1/db?sslmode=disable&pool_max_conns=50&pool_min_conns=10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	cfg := pool.Config()
+	if cfg.MaxConns != 2 {
+		t.Errorf("monitoring pool has %d connections, want 2 - it took a work pool's size", cfg.MaxConns)
+	}
+	if cfg.MinConns != 1 {
+		t.Errorf("monitoring pool keeps %d open, want 1 - the one it reports on when the "+
+			"work pools have filled the database's ceiling", cfg.MinConns)
+	}
+}
+
+func TestABadDSNIsAnErrorForTheMonitorPoolToo(t *testing.T) {
+	if _, err := OpenMonitor(context.Background(), "postgres://u:p@127.0.0.1:5432/db?pool_max_conns=zero"); err == nil {
+		t.Error("an unparseable DSN was accepted")
+	}
+}

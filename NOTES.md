@@ -21279,3 +21279,84 @@ yakalayan argüman denetimi.
   cevabını okuyamayan bir istemci yine yarım alır. Bu, zaman aşımının
   var olma sebebi — yavaş istemciye karşı koruma — ve bırakıldı.
 - **Beacon muafiyetinin asıl yarısı sınanmıyor** (yukarıda).
+
+## Z4 — İzleme, izlediği işin arkasında sıraya giriyordu (2026-09-23)
+
+PLAN'ın Z4 metni yalnız kalp atışını anlatıyordu. Kapsamı Z2'nin ölçüm
+tablosu genişletti: Z2 öncesi koşunun günlük ağacında kalp atışının
+*"monitoring will be blind"* WARN'ı vardı, `panel_logs`'ta **yoktu**.
+Panelin günlük kopyası (`logsink`) da servisin iş havuzunu kullanıyor.
+İki kanal da her yazmaya kendi beş saniyesini veriyor, ama bağlantıyı
+yığılmanın tükettiği havuzdan istiyor; bekliyor, düşüyor, sayıyor.
+
+### Ölçüm
+
+`/var/tmp/ca-o4a/z4/izleme.py`: API tek bağlantılık havuzla (`ca_beacon`,
+90 günlük `beacon/summary`, istek başına ~9–11 sn), 150 sn boyunca N
+istemci art arda istiyor, yani havuz hiç boş kalmıyor. Kalp atışı
+satırı iki saniyede bir okunuyor; günlük ağacındaki WARN/ERROR satırları
+`panel_logs`'a ulaşanlarla karşılaştırılıyor. Ölçülen sürecin gerçekten
+o yapılandırmayla bağlandığı `application_name` ile
+`pg_stat_activity`'ye soruluyor (önce 1 bağlantı, sonra 3: iş + izleme).
+
+| | önce | sonra |
+|---|---|---|
+| 4 istemci, kalp atışı | yalnız açılış (60. ve 120. sn'dekiler kayıp) | 0,0 / 59,2 / 120,5 sn |
+| 4 istemci, WARN/ERROR → panel | 0/1 (tek satır: "kör") | 0/0 |
+| 8 istemci, kalp atışı | yalnız açılış | 0,1 / 59,2 / 120,4 sn |
+| 8 istemci, WARN/ERROR → panel | **7/33** | **36/36** |
+
+**Dört istemcili "sonra" koşusu logsink yarısını sınamadı:** yük altında
+hiç WARN üretilmedi ve "0/0" bir şey söylemiyor. Sekiz istemciyle
+kuyruk 55 saniyeyi geçti ve Z2'nin son tarih satırları havuz meşgulken
+üretildi — iddiayı sınayabilecek girdi ancak o zaman vardı. *Bir
+iddiayı, onu sınayabilecek tek girdiyi dışarıda bırakan bir koşulun
+içine koymak, iddiayı hiç yazmamaktır.*
+
+### Z2'de yayımladığım bir cümle yarı doğruydu
+
+KURULUM'a Z2'de *"WARN satırı panelin günlük görünümünde de görünür"*
+yazdım ve o turdaki tek dalgalık ölçüm bunu doğruluyordu: son tarih
+sorguları iptal ettiği anda bağlantı boşalıyor ve logsink yazabiliyordu.
+Sürekli yükte boşalan bağlantıyı sıradaki istek alıyor; satırların
+**%21'i** panele ulaştı. Z4 cümleyi doğru yapıyor, ve KURULUM artık bunu
+açıkça söylüyor.
+
+### Kod
+
+`resources.OpenMonitor`: iki bağlantılık havuz, biri hep açık
+(`MinConns=1`) — ana havuzlar PostgreSQL'in bağlantı tavanını doldursa
+bile izlemenin bağlantısı zaten açık. DSN'in `pool_max_conns`'u
+uygulanmıyor (o, iş havuzunun kapasite kararı). Beş `main` kalp
+atışını ve logsink'i ona bağlıyor; havuz logsink'in `Close`'undan
+**önce** erteleniyor, yani logsink açık bir havuza boşalıyor.
+
+**Yan gözlem, koddan okundu, ölçülmedi:** collector `writer.Close()`'u
+açıkça çağırıyor, `panelLog.Close()` ise ertelenmiş. Yani eskiden
+kapanışta tamponda kalan WARN satırları zaten kapanmış havuza
+yazılmaya çalışılıyordu. Ayrı havuzla bu sıra kendiliğinden düzeldi.
+Hata yolundaki `os.Exit` ertelenmiş kapanışları hiç çalıştırmıyor; o
+yolda tampondaki satırlar eskisi gibi kayboluyor. Bu Z4'ün kapsamı
+dışında, ve ölçmediğim için büyüklüğünü iddia etmiyorum.
+
+### Bekçiler ve mutasyon
+
+- `resources`: izleme havuzu 2, biri açık; DSN'de `pool_max_conns=50`,
+  `pool_min_conns=10` ve `GOMAXPROCS=16` varken — üçü de yüksek, çünkü
+  biri düşük olsa test onu uygulayan bir fonksiyonla da geçerdi.
+- `internal/invariants/monitorpool_test.go`: her servis `main`'inde
+  `logsink.Attach` ve `heartbeat.New`'e verilen havuz, `main`'in
+  `resources.OpenMonitor`'dan **doğrudan** atadığı bir değişken
+  (`f(resources.OpenMonitor(...))` sayılmıyor). Servis listesi systemd
+  birimlerinden; boş küme bekçisi 5 ve 3.
+
+`scratchpad/mutasyon-z4.py`: on bir mutasyon, on biri kırmızı (boyut
+üçü, beş `main`'in her biri, izleme havuzunu `Open` ile açmak, bekçinin
+paket yolu). Bilerek sağ: bekçinin havuz kontrolünü her zaman doğru
+yapıp API'nin logsink'ini iş havuzuna bağlamak — ikincisi tek başına
+kırmızı.
+
+### Bedel
+
+Servis başına 1–2 bağlantı; beş servis için 5–10. KURULUM'da yazılı,
+tavanı küçültmüş operatör için.

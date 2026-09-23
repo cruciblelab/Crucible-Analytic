@@ -329,6 +329,32 @@ beri, ölçüldü). Kotası olmayan bir makinede ikisi aynı sayıdır ve hiçbi
 şey değişmez. Havuz boyunu kendiniz seçmek isterseniz bağlantı
 adresinde `pool_max_conns=8` gibi yazın; yazdığınız değer korunur.
 
+#### İzleme kendi bağlantısından yazar — ve bu servis başına bir bağlantı daha demek
+
+Her servisin kalp atışı satırı ve panelde görünen günlük kopyası, işin
+kullandığı havuzdan **ayrı**, iki bağlantılık küçük bir havuzdan yazar;
+bu havuz bir bağlantıyı **hep açık** tutar. Yani PostgreSQL'in bağlantı
+hesabına servis başına en az bir, en fazla iki bağlantı eklenir — beş
+servis için 5–10. Varsayılan 100'lük tavanda bu yer var; tavanı
+kendiniz küçülttüyseniz hesaba katın. Bağlantı adresindeki
+`pool_max_conns` bu havuza **uygulanmaz**: onun boyu bir kapasite kararı
+değil.
+
+**Neden ayrı — ölçüldü.** Okuma API'si tek bağlantılık havuzla, 150
+saniye boyunca sürekli yük altında:
+
+| | aynı havuz (önce) | ayrı havuz (sonra) |
+|---|---|---|
+| Kalp atışı satırı | açılıştan sonra **hiç** ilerlemedi | 3/3, zamanında |
+| Günlük ağacındaki WARN/ERROR'ın panele ulaşanı | **7/33** | 36/36 |
+
+Aynı havuzdayken ikisi de bağlantı için işin arkasında sıraya giriyor,
+beş saniyelik süreleri dolunca düşüyordu. Sağlık sayfası yük altında
+**meşgul** bir servisi birkaç dakika sonra **bayat** gösterirdi, ve
+sebebini söyleyen satır panelde olmazdı. Aşağıdaki son tarih
+bölümünde "WARN satırı panelin günlük görünümünde de görünür" dediğimiz
+şey, sürekli yükte ancak bu ayrımla doğru.
+
 ### Bir istek çok uzun sürerse — ölçüldü
 
 Okuma API'si ve panel her isteği **55 saniye içinde** cevaplar. O

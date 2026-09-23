@@ -218,7 +218,18 @@ func main() {
 	// one-shot commands above, which exit before reaching here: minting
 	// a link is somebody at a terminal, not a running service, and it
 	// has no use for an asynchronous writer it would immediately close.
-	logger, panelLog := logsink.Attach(logger, store.Pool(), logControls)
+	// Monitoring writes through its own small pool, not the one the
+	// work uses: under load the heartbeat and the panel's log copy
+	// queued behind the work they report on and dropped. Deferred
+	// before the log sink's Close, so the sink drains into an open
+	// pool. See resources.OpenMonitor.
+	monitor, err := resources.OpenMonitor(ctx, cfg.PanelDSN)
+	if err != nil {
+		fatal(logger, "monitoring pool", err)
+	}
+	defer monitor.Close()
+
+	logger, panelLog := logsink.Attach(logger, monitor, logControls)
 	defer panelLog.Close()
 	slog.SetDefault(logger)
 

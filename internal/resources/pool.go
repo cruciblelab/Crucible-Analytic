@@ -107,6 +107,40 @@ func NewPool(ctx context.Context, cfg *PoolConfig) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, cfg.Config)
 }
 
+// Monitoring pool sizes. Two at most, because the heartbeat and the log
+// sink write from their own goroutines and neither should queue behind
+// the other; one kept open, so a service whose main pools have filled
+// PostgreSQL's connection ceiling still has the connection it reports
+// that on.
+const (
+	monitorMaxConns = 2
+	monitorMinConns = 1
+)
+
+// OpenMonitor opens the pool a service's own monitoring writes through:
+// its heartbeat row and the panel's copy of its log.
+//
+// Separate from the pool the service does its work on, and that is the
+// whole point - measured (PLAN §Z4): with the read API's pool held by
+// queries for 150 seconds, the heartbeat row did not advance once, and
+// the one line saying the heartbeat was blind reached the panel's log
+// view zero times out of one. Both waited for a connection behind the
+// work they exist to report on, for their five second deadline, and
+// dropped. A service that is busy was shown as a service that had gone
+// stale, with nothing saying why.
+//
+// The DSN's pool_max_conns is the operator's size for the work pool and
+// is not applied here: this pool's size is not a capacity decision.
+func OpenMonitor(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxConns = monitorMaxConns
+	cfg.MinConns = monitorMinConns
+	return pgxpool.NewWithConfig(ctx, cfg)
+}
+
 // Open is ParseConfig followed by NewPool, for the callers that change
 // nothing in between - which is all but one of them.
 func Open(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **2/6** | Z3–Z6 — *(Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(Z3'ün varsayılanı sahibin kararı. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, panele ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5492,7 +5492,7 @@ altmış saniye bekleyip hiçbir şey alamamak gerçek bir zarar, sıraya girip
 sonunda cevap almak değil. **Sahip itiraz ederse varsayılan `fail_open`
 kalır, mekanizma yine orada durur.**
 
-#### Z4 — Kalp atışı yığılmadan ayrılsın
+#### Z4 — Kalp atışı yığılmadan ayrılsın ✅ **bitti (2026-09-23)**
 
 **Ölçülmüş kusur:** kalp atışı okuma havuzunu paylaşıyor ve yığılmada
 kendi beş saniyelik son tarihi doluyor:
@@ -5500,6 +5500,37 @@ kendi beş saniyelik son tarihi doluyor:
 this service"*. Üç dakikayı geçen bir yığılmada Sağlık sayfası **meşgul**
 bir servisi **bayat** gösterir — var olan bir durum için olmayan bir
 sebep, "Ülkeler: Okunamadı" ile aynı sınıf.
+
+**Sonuç (2026-09-23): kapsam planda yazılandan geniş çıktı.** Z2'nin
+ölçüm tablosunda, Z2 öncesi koşuda kalp atışının "kör" WARN'ının
+`panel_logs`'a **hiç** ulaşmadığı görüldü: panelin günlük kopyası
+(`logsink`) da aynı havuzu kullanıyor. Yani iki izleme kanalı var,
+ikisi de izledikleri işin arkasında sıraya giriyor.
+
+Ölçüldü (`izleme.py`, API tek bağlantılık havuzla 150 sn sürekli yük,
+aynı ikili iki kolda yalnız derlemeyle değişiyor):
+
+| | aynı havuz | ayrı havuz |
+|---|---|---|
+| kalp atışı (4 istemci) | açılıştan sonra 0 kez | 3/3 zamanında |
+| kalp atışı (8 istemci) | 0 kez | 3/3 |
+| WARN/ERROR'ın panele ulaşanı (8 istemci) | **7/33** | 36/36 |
+
+Dört istemcili ilk koşu logsink yarısını **sınamadı** — yük altında hiç
+satır üretilmedi, "0/0" hiçbir şey söylemiyordu; sekiz istemciyle Z2'nin
+son tarih satırları havuz meşgulken üretildi. Ve bu ölçüm Z2'de
+KURULUM'a yazdığım "WARN satırı panelin günlük görünümünde de görünür"
+cümlesinin tek dalgalık yükte doğru, sürekli yükte **%21** doğru
+olduğunu gösterdi; Z4 onu doğru yapıyor.
+
+`resources.OpenMonitor`: iki bağlantı, biri hep açık (ana havuzlar
+PostgreSQL'in tavanını doldursa da izlemenin bağlantısı açık), DSN'in
+`pool_max_conns`'u uygulanmıyor. Beş `main` kalp atışını ve logsink'i
+ona bağlıyor, ve kapanışta havuz logsink'ten **sonra** kapanıyor.
+Bekçi: her `main`'de `logsink.Attach` ve `heartbeat.New`'e verilen
+havuz `OpenMonitor`'dan atanmış bir değişken. On bir mutasyon, on biri
+kırmızı; bir birleşik mutasyon bilerek sağ. Bedel: servis başına 1–2
+bağlantı, KURULUM'da yazılı.
 
 #### Z5 — Bakım işi ingest'e yol versin
 
