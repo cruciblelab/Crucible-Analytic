@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"sync/atomic"
 
@@ -45,7 +46,7 @@ type Writer struct {
 // reachable. It does not create or migrate the schema - apply schema.sql
 // once, separately, before running the collector.
 func NewWriter(ctx context.Context, databaseURL string) (*Writer, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := resources.Open(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("storage: create pool: %w", err)
 	}

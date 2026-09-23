@@ -263,6 +263,69 @@ ayarlanıyor, ve bu ölçüm o ayarın niye bir sabit olmadığının cevabı.
 Ölçümün nasıl yapıldığı, dört kez nasıl yanlış ölçtüğüm ve nelerin
 **ölçülmediği** (HTTP/2, 4+ çekirdek) `NOTES.md`'de yazılı.
 
+### Ne kadar bellek — ölçüldü, ve servis sınırını kendisi okur
+
+Her servis açılışta içinde yaşadığı **bellek sınırını** bulur (cgroup
+v1 ya da v2 — Docker'ın `--memory`'si ve systemd'nin `MemoryMax=`'ı
+ikisi de bunu kurar) ve bu sınırın **%80'ini** Go çalıştırıcısına
+yumuşak tavan olarak verir. Sınır yoksa hiçbir şey değişmez. Ne
+bulduğunu günlüğün ilk satırlarından birinde söyler:
+
+```
+msg="resources: budget" gomaxprocs=4 numcpu=4 memory_limit=25165824
+    memory_limit_from="cgroup v1" gomemlimit=20132659 gomemlimit_from=cgroup
+```
+
+**Bunun neden önemli olduğu ölçüldü.** Go çalıştırıcısı bellek
+sınırını kendiliğinden **okumuyor** — 64 MB'lık bir grubun içinde
+"sınır yok" diyor. Okumadığında sınıra yaklaşan bir servisi çekirdek
+öldürüyor: sinyal 9, günlükte tek satır yok, ve systemd beş denemeden
+sonra yeniden başlatmayı bırakıyor. Beacon, gerçek bir bellek tavanı
+altında, sekiz eşzamanlı istemcinin yükünde:
+
+| tavan | sınırı okumadan | sınırı okuyarak |
+|---|---|---|
+| 24 MB | ayakta, 34.495 olay/s | ayakta, 31.914 olay/s |
+| 20 MB | **öldü** | ayakta, 26.377 olay/s |
+| 18 MB | **öldü** | ayakta, 15.439 olay/s |
+| 16 MB | **öldü** | ayakta, 15.086 olay/s |
+| 12 MB | **öldü** | ayakta, 15.115 olay/s |
+
+Taban 20–24 MB'tan **12 MB'ın altına** indi. Bedeli bilerek kabul
+edilen şey: sınıra yaklaşan servis **ölmek yerine yavaşlıyor** — çöp
+toplayıcı daha sık çalışıyor, verim yarıya iniyor, ve hiçbir istek
+hata almıyor. 12 MB en düşük denenen tavan; oradaki tepe kullanım
+11,8 MB, yani servisin gerçek çalışma kümesi bunun biraz altında ve
+gerçek taban o.
+
+**Bir servise sınır koymak isterseniz** systemd'de bir ek dosya yeter
+(`systemctl edit crucible-beacon` ile açılır):
+
+```
+[Service]
+MemoryMax=64M
+```
+
+Servis yeniden başlayınca sınırı kendisi okur; ayrıca bir şey
+yazmanız gerekmez.
+
+**Geçersiz kılmak isterseniz** standart yollar kullanılıyor, yeni bir
+ayar yok: `GOMEMLIMIT` ortam değişkeni (örneğin `Environment=GOMEMLIMIT=48MiB`,
+ya da tamamen kapatmak için `GOMEMLIMIT=off`) yazılmışsa servis ona
+**dokunmaz** — günlükte `gomemlimit_from=GOMEMLIMIT` görürsünüz.
+
+#### Veritabanı havuzunun boyu da aynı sebeple değişti
+
+Her servisin veritabanı havuzu artık `max(4, GOMAXPROCS)` bağlantı açıyor.
+Eskiden `max(4, çekirdek sayısı)` açıyordu ve o sayı **makinenin**
+çekirdek sayısıydı, konteynerin payı değil: 32 çekirdekli bir sunucuda
+tek CPU verilmiş bir konteyner, servis başına 32 bağlantılık havuz
+alıyordu, ve dört servis PostgreSQL'in varsayılan 100 bağlantılık
+tavanına dayanıyordu. `GOMAXPROCS` ise CPU kotasını okuyor (Go 1.25'ten
+beri, ölçüldü). Kotası olmayan bir makinede ikisi aynı sayıdır ve hiçbir
+şey değişmez. Havuz boyunu kendiniz seçmek isterseniz bağlantı
+adresinde `pool_max_conns=8` gibi yazın; yazdığınız değer korunur.
+
 ### Başka bir analitikle karşılaştırma — ölçüldü
 
 Yukarıdaki tablo vekilin. Vekilin başka analitiklerde **karşılığı yok**:

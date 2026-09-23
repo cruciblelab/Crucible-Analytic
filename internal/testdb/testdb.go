@@ -46,6 +46,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/dblock"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 )
 
 // DSN is where role connects.
@@ -62,7 +63,7 @@ func DSN(role string) string {
 // Pool opens a connection as one service role, closed when the test ends.
 func Pool(t *testing.T, role string) *pgxpool.Pool {
 	t.Helper()
-	pool, err := pgxpool.New(context.Background(), DSN(role))
+	pool, err := resources.Open(context.Background(), DSN(role))
 	if err != nil {
 		t.Fatalf("pgxpool.New as %s: %v", role, err)
 	}
@@ -92,7 +93,7 @@ func Admin(t *testing.T) *pgxpool.Pool {
 	if dsn == "" {
 		t.Skip("set CA_SUPERUSER_DSN to a connection that owns the schema; this test writes rows only its owner can remove")
 	}
-	pool, err := pgxpool.New(context.Background(), dsn)
+	pool, err := resources.Open(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("pgxpool.New (superuser): %v", err)
 	}

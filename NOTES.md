@@ -20911,3 +20911,187 @@ Her test bağlantısının `application_name`'i **boş**. Katalog bana hangi
 söyleyemedi; ifadenin metninden çıkarmak zorunda kaldım. O4a'da ürünü
 ölçerken bunun doğrusunu yapmıştık — DSN'e ad yaz, `pg_stat_activity`'de
 ara. Açık riskler tablosuna yazıldı.
+
+## Z1 — Süreç kendi tavanını görsün: iki cümlemden biri yanlış, öbürü eksik ölçülmüştü (2026-09-23)
+
+PLAN'ın Z1 metnini 2026-09-22'de yazdım ve iki iddia taşıyordu. İkisi de
+koda geçmeden **ölçüldü**, ve bu fazın yönünü o ölçüm değiştirdi.
+
+### "Süreç kendi bütçesini göremiyor" — yarı yarıya yanlış
+
+Modülün kendi `go` yönergesiyle derlenmiş bir yoklayıcı, gerçek cgroup
+v1 sınırlarının içinde, `NumCPU`, `GOMAXPROCS` ve çalıştırıcının bellek
+sınırını basıyor:
+
+| sınır | NumCPU | GOMAXPROCS | bellek sınırı |
+|---|---|---|---|
+| yok | 4 | 4 | yok |
+| CPU 2,0 | 4 | 2 | yok |
+| CPU 1,0 | 4 | 2 | yok |
+| CPU 0,5 | 4 | 2 | yok |
+| bellek 64 MB | 4 | 4 | **yok** |
+| 64 MB + `GOMEMLIMIT=40MiB` | 4 | 4 | 41943040 |
+| CPU 0,5 + `containermaxprocs=0` | 4 | **4** | yok |
+
+Go 1.25'ten beri `GOMAXPROCS` CPU kotasını **okuyor** (en az 2), ve
+`containermaxprocs=0` onu kapatınca 4'e dönüyor — yani gördüğüm şey
+gerçekten o davranış. Tavanı görmeyen yalnız `NumCPU`, ve depo onu
+**hiç** çağırmıyor. Ondan türeyen tek sayı pgxpool'un varsayılan havuz
+boyu (`max(4, NumCPU)`). PLAN'daki *"her sayı sekiz kat büyük çıkar"*
+cümlesi abartıydı; doğru cümle *"bir sayı yanlış girdiden türüyor"*.
+
+Bunun tasarıma etkisi büyük oldu: CPU kotasını **okumadım.** Çalıştırıcı
+zaten okuyor; ikinci bir okuyucu, aynı soruya iki cevap verip ayrışabilecek
+iki kod demek. Yapılan tek şey pgx'in formülündeki girdiyi değiştirmek:
+`max(4, GOMAXPROCS)`.
+
+Bu makinede kusur **tetiklenemiyor** — 4 çekirdekte `max(4, 4) = 4`,
+kota ne olursa olsun. 32 çekirdekli bir sunucuda tek CPU'luk bir
+konteyner servis başına 32 bağlantı alırdı. Onu kuramadığım için kuralı
+öbür yönden tuttum: `GOMAXPROCS=16` iken havuz 16 olmalı; pgx'in kendi
+varsayılanı burada `max(4, 4) = 4` derdi, yani `NumCPU`'ya geri dönüş
+aynı testte yakalanıyor (mutasyonla gösterildi).
+
+### "GOMEMLIMIT yazılsaydı ölmek yerine yavaşlardı" — doğru, ve ölçülmemişti
+
+Bu cümleyi PLAN'a olgu gibi yazmıştım. Deney: **aynı ikili**, tek
+değişken. `GOMEMLIMIT=off` ile başlatılan yeni beacon, çalıştırıcının
+sınırını `MaxInt64`'te bırakır — Z1'den önceki davranışın birebir aynısı.
+Böylece kontrol kolu farklı bir derleme değil, tek bir ortam değişkeni.
+Kollar her basamakta dönüşümlü (aynı sırada koşan karşılaştırma
+ikincisine önbellek hediye eder, O4a). Gerçek cgroup v1 bellek tavanı,
+sekiz istemcinin on saniyelik yükü:
+
+| tavan | okumadan | okuyarak (%80) |
+|---|---|---|
+| 24 MB | ayakta · 34.495/s · tepe 20,7 MB | ayakta · 31.914/s · tepe 16,4 MB |
+| 20 MB | **öldü (−9)** | ayakta · 26.377/s · tepe 13,4 MB |
+| 18 MB | **öldü** | ayakta · 15.439/s · tepe 11,8 MB |
+| 16 MB | **öldü** | ayakta · 15.086/s · tepe 11,7 MB |
+| 14 MB | **öldü** | ayakta · 14.272/s · tepe 11,7 MB |
+| 12 MB | **öldü** | ayakta · 15.115/s · tepe 11,8 MB |
+
+Süreç kendi bütçesini de **kendisi** söylüyor (cevap veren süreç,
+başlatılan değil): `memory_limit=25165824 memory_limit_from="cgroup v1"
+gomemlimit=20132659 gomemlimit_from=cgroup`; `off` kolunda
+`gomemlimit=none gomemlimit_from=GOMEMLIMIT`.
+
+Okunuşu:
+
+- Taban 20–24 MB'tan **12 MB'ın altına** indi. 20 MB eski davranışta
+  bir önceki ölçümde yaşamış, bu ölçümde ölmüştü — tam kenar.
+- Bedeli bilerek kabul edilen: **ölmek yerine yavaşlıyor.** Verim yarıya
+  iniyor, p99 1,6'dan 4 ms'ye çıkıyor, ve on iki koşunun **hiçbirinde tek
+  hata yok.**
+- Tepe kullanım 18 MB ve altında 11,7–11,8 MB'ta sabitleniyor: bu,
+  servisin bu yükteki gerçek çalışma kümesi. 12 MB en düşük denenen
+  tavan, gerçek taban onun biraz altında. Altında da ölecek; o zaman
+  sebep çöp değil canlı veri olur, ve onu hiçbir ayar sıkıştıramaz.
+- 24 MB'ta sınırı okuyan kol %7,5 daha yavaş (tek örnek, iddia
+  etmiyorum): çöp toplayıcı ihtiyaç olmadan da daha sık çalışıyor.
+- **%80 optimize edilmedi**, yalnız sınandı: altı tavanın altısında da
+  tepe tavanın altında kaldı. %70 ya da %90 ölçülmedi.
+
+### Kod
+
+`internal/resources`:
+
+- **Bellek sınırı hiyerarşideki en küçük değer**, yapraktaki değil. Bu
+  konteynerin gerçek hiyerarşisi yazıldığı gün şuydu — yaprak
+  14345912320, üç üst seviye `9223372036854771712` (v1'in "sınırsız"ı,
+  sayfaya hizalı `MaxInt64`) — ve testlerden biri birebir o. Öbür düzen
+  (üstte daha küçük sınır) ayrı bir testte.
+- **Karma kurulum**: bu makinenin `/proc/self/cgroup`'unda `0::/` satırı
+  var ama cgroup2 **bağlı değil**. Satırı görüp `/sys/fs/cgroup`'u
+  birleşik hiyerarşi sanmak v1 dizinini v2 diye okumak olurdu; bellek
+  denetleyicisini hangi sürüm taşıyorsa o soruluyor.
+- **Operatör kazanır**: `GOMEMLIMIT` yazılmışsa (`off` dâhil) dokunulmuyor;
+  DSN `pool_max_conns` diyorsa havuz boyuna dokunulmuyor — ve bu, pgx'in
+  kendisinin baktığı yerden okunuyor (`pgx.ParseConfig` bilinmeyen
+  anahtarları `RuntimeParams`'a bırakıyor, pgxpool oradan alıyor), yani
+  iki yazım da tanınıyor.
+- **Tip bekçisi**: `NewPool` yalnız `*resources.PoolConfig` kabul ediyor.
+  Boyutlamayı atlayan bir yapılandırmayı derleyici reddediyor — yorum
+  değil.
+- **Hiç yeni ayar yok.** İki geçersiz kılma da operatörün arayacağı
+  standart yerler.
+
+Beş servis (`systemd` birimlerinden türetilen liste: collector, beacon,
+analytics-api, panel, upgrader) `main`'lerinde, `flag.Parse`'ın hemen
+ardından `resources.Apply` çağırıyor — yapılandırma yüklenmeden ve büyük
+bir şey okunmadan önce, çünkü tavan ne kadar erken devreye girerse o
+kadar koruyor. Sekiz havuz kurma yerinin hepsi paketten geçiyor.
+
+### Bekçiler
+
+`internal/invariants/budget_test.go`:
+
+1. Ürün kodunda `pgxpool.New`/`NewWithConfig` çağıran **tek** dosya
+   `internal/resources`. İçe aktarma adı dosya başına çözülüyor, yani
+   takma adla yazılmış bir çağrı gizlenemiyor.
+2. Bir systemd biriminin başlattığı her Go ikilisinin `main`'i
+   `resources.Apply` çağırıyor — **main'in kendisinde**, bir yardımcı
+   üzerinden değil. Liste birim dosyalarından türetiliyor; birimi olmayan
+   bir CLI aracı (devpass, releasesign) servis değil ve sorulmuyor.
+
+### Mutasyon: on dokuz, on sekizi kırmızı, biri bilerek sağ
+
+`scratchpad/mutasyon-z1.py`. Derleme her mutasyondan sonra ayrıca
+soruluyor, çünkü değişmezler servisleri import etmiyor, kaynağını
+okuyor — derlenmeyen bir mutasyon testi kırmızı vermez. O yüzden
+`main`'den çağrı silen mutasyonlar içe aktarmayı kullanımda tutacak
+şekilde yazıldı.
+
+İlk turda **iki beklenmedik sağ kalan** vardı, ve ikisi de fikstürün
+eksiğiydi — *bir mutasyon bir testi yazdırabilir*:
+
+- **Bağlama kökünü yoldan çıkarmamak sağ kaldı.** Fikstürde sınır tam
+  bağlama noktasındaydı; yanlış yol var olmayan dizinlere gidiyor,
+  yukarı yürüyüş onu bağlama noktasına kadar taşıyıp doğru dosyayı yine
+  okutuyordu. Eksik olan iddia değil **girdi**: kökün altında, daha sıkı
+  sınırlı bir alt grup. Eklendi, yakalandı.
+- **Sıfır baytlık sınırı kabul etmek sağ kaldı.** Önce eşdeğer sandım:
+  `0` zaten "henüz bir şey okunmadı" nöbetçisi ve çağıran sıfırı "yok"
+  sayıyor. İzini sürünce **değildi**: yaprakta gerçek bir sınır, **üstte**
+  sıfır olursa, sıfır karşılaştırmayı kazanıp gerçek sınırı siliyor ve
+  sınırı olan süreç "sınırım yok" diyor. Fikstür kötü değeri yalnız
+  yaprağa koymuştu; **sıra önemliymiş.** Eklendi, yakalandı. *Kendi
+  yazdığın mutasyon eşdeğer olabilir* — ve bu sefer değildi.
+
+Bilerek sağ kalan: takma ad çözümünü silmek tek başına ölçülemiyor (depoda
+takma adlı bir pgxpool içe aktarması yok), takma adlı bir çağrıyla
+birleşince **sağ kalıyor** — yani çözüm yük taşıyor. J1'deki birleşik
+mutasyonun aynı şekli.
+
+### gosec'in G115'i: sınır eklenmedi, taban girdisi de yazılmadı
+
+Kapının ilk tam koşusu testlerin hepsini geçip gosec'te kırmızı verdi:
+havuz boyunun `int32`'ye daraltılması (G115). İlk cevabım bir üst sınırdı
+(`math.MaxInt32`), mutasyonlar yeniden koşunca **o satırı öldürecek bir
+mutasyon yazılamadığını** gördüm: çalıştırıcı `GOMAXPROCS`'u kendisi
+`int32` tutuyor (`runtime2.go`, `gomaxprocs int32`), yani
+`GOMAXPROCS(0)`'ın döndürdüğü değer zaten sığıyor. *Sınanamayan bir
+koruma, koruma sanılır* — sınır kaldırıldı.
+
+Taban girdisine de gerek çıkmadı, ve bunu gosec'e ayrıca sorarak
+gördüm: tek ifadelik `int32(runtime.GOMAXPROCS(0))` biçimini
+işaretliyor (sondayla ölçüldü: bir bulgu), alt sınır kontrolünden sonra
+dönüşen bugünkü biçimi işaretlemiyor. Dosyayı taradığı da aynı sondayla
+belli — sessizliği ulaşamamaktan değil. Gerekçe kaynağın yorumunda.
+
+### Kalan
+
+- **%70/%90 ölçülmedi.** %80 her tavanda yetti; en iyisi olduğunu iddia
+  etmiyorum.
+- **Yalnız beacon ölçüldü.** Collector (ASN verisiyle ~135 MB), API ve
+  panel için bellek tabanı yok. KURULUM'daki tablo beacon'ın; öbürleri
+  kendi fazını bekliyor.
+- **32 çekirdekli sunucudaki havuz kusuru bu makinede kurulamıyor.**
+  pgx'in kaynağından ve çalıştırıcının ölçülen davranışından çıkarıldı,
+  test öbür yönden tutuyor.
+- **cgroup v2 gerçek bir sistemde ölçülmedi.** Bu makine v1 (üstelik
+  karma: `0::/` satırı var, cgroup2 bağlı değil). v2 yolu yalnız sentetik
+  dosyalarla sınandı — bir systemd `MemoryMax=` düzeninin ve iç içe `max`
+  değerlerinin şekliyle. Docker'ın ve güncel dağıtımların tipik düzeni v2;
+  ilk gerçek v2 kurulumunda günlük satırının `memory_limit_from="cgroup v2"`
+  dediğine bakılmalı.

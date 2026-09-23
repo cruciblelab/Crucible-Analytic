@@ -47,6 +47,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/schemafiles"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/upgrade"
@@ -65,6 +66,9 @@ func main() {
 	schemaVersion := flag.Bool("schema-version", false,
 		"print the schema version and fingerprint this build carries, then exit")
 	flag.Parse()
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded. See internal/resources.
+	resources.Apply(logger)
 
 	if *showVersion {
 		// buildinfo.Print, like the other five. This printed a bare
@@ -101,7 +105,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := pgxpool.New(ctx, cfg.SchemaAdminDSN)
+	pool, err := resources.Open(ctx, cfg.SchemaAdminDSN)
 	if err != nil {
 		logger.Error("upgrader: database", "err", err)
 		os.Exit(1)
@@ -212,7 +216,7 @@ func main() {
 	// upgrades. The restore itself reports it.
 	var restorePool *pgxpool.Pool
 	if cfg.Backup.RestoreDSN != "" {
-		restorePool, err = pgxpool.New(ctx, cfg.Backup.RestoreDSN)
+		restorePool, err = resources.Open(ctx, cfg.Backup.RestoreDSN)
 		if err != nil {
 			logger.Error("upgrader: [backup] restore_dsn", "err", err)
 			os.Exit(1)

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -246,14 +247,14 @@ func operatorNamedJIT(params map[string]string) bool {
 // operatorNamedJIT, which exists because the first version of this
 // honoured only one of them and the test beside it said so.
 func NewStore(ctx context.Context, databaseURL string) (*Store, error) {
-	cfg, err := pgxpool.ParseConfig(databaseURL)
+	cfg, err := resources.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("api: parse database url: %w", err)
 	}
 	if !operatorNamedJIT(cfg.ConnConfig.RuntimeParams) {
 		cfg.ConnConfig.RuntimeParams[jitParam] = jitValue
 	}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	pool, err := resources.NewPool(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("api: create pool: %w", err)
 	}

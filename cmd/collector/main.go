@@ -29,6 +29,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
@@ -62,6 +63,9 @@ func main() {
 	updateBotData := flag.Bool("update-bot-data", false,
 		"fetch the known-bot fingerprint set into bot_data.path and exit (put this in cron)")
 	flag.Parse()
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded. See internal/resources.
+	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a

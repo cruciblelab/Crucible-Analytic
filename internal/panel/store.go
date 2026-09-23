@@ -31,6 +31,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 )
 
 // ErrNotFound is returned when a lookup finds nothing. Callers should
@@ -51,7 +53,7 @@ type Store struct {
 // the same startup contract as every other store in this project. It
 // never runs DDL; apply schema.sql once, separately.
 func NewStore(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := resources.Open(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("panel: create pool: %w", err)
 	}

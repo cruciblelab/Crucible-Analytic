@@ -37,6 +37,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/ipsources"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 )
 
 // Result is the outcome of resolving one IP.
@@ -158,7 +159,7 @@ func (r *Resolver) logger() *slog.Logger {
 // connection above still applies either way; it's for durability, not
 // for fetching the datasets.
 func NewResolver(ctx context.Context, databaseURL string, cache CacheConfig, localCSVPath string, logger *slog.Logger) (*Resolver, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := resources.Open(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("asnlookup: create pool: %w", err)
 	}

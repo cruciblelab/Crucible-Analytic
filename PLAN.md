@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | ⬜ **0/6** | hepsi — *(planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **1/6** | Z2–Z6 — *(Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5336,22 +5336,88 @@ tamponun boyu ve CPU'dan bağımsız. Oraya kabul denetimi koymak olmayan
 bir sorunu çözmek olur; özgürlük tadili tam bunu yasaklıyor. **Bu grup
 yalnız okuma yolunu ve bakım işini konuşuyor.**
 
-#### Z1 — Kaynak keşfi, ve süreç kendi tavanını görsün
+#### Z1 — Kaynak keşfi, ve süreç kendi tavanını görsün ✅ **bitti (2026-09-23)**
 
-**Ölçülmüş ihtiyaç:** 0,5 CPU kotasının içinde `runtime.NumCPU()` hâlâ
-**4** diyor — süreç kendi bütçesini göremiyor, yani ondan türetilen her
-sayı sekiz kat büyük çıkar. Ve beacon'ın bellek tabanı ölçüldü: **20
-MB'da yaşıyor, 16 MB'da SIGKILL** (tepe kullanım tam tavanda), günlükte
-tek satır yok, `Restart=always` geri getiriyor ama beş denemeden sonra
-systemd pes ediyor ve servis **ölü kalıyor**. `GOMEMLIMIT` depoda
-**hiçbir yerde** geçmiyor — ne kodda, ne systemd biriminde, ne Docker'da,
-ne belgede; yazılsaydı çalıştırıcı tavanı görür, ölmek yerine yavaşlardı.
+**Bu fazın yazıldığı hâli iki yerde yanlıştı, ve ikisi de ölçülünce
+çıktı.** Yazılan: *"süreç kendi bütçesini göremiyor, ondan türetilen her
+sayı sekiz kat büyük çıkar"* ve *"`GOMEMLIMIT` yazılsaydı ölmek yerine
+yavaşlardı."* Birincisi yarı yarıya yanlıştı, ikincisi hiç ölçülmemişti.
 
-Tek paket: cgroup v2 (`cpu.max`, `memory.max`) ve v1
-(`cpu.cfs_quota_us`/`cpu.cfs_period_us`, `memory.limit_in_bytes`), yoksa
-`NumCPU` + `/proc/meminfo`. Diğer üç faz bu sayıları kullanıyor, o yüzden
-ilk sırada. KURULUM'a ölçülmüş bir bellek tabanı da buradan yazılıyor —
-bugün CPU için iki tablo var, bellek için **tek sayı yok**.
+**CPU — çalıştırıcı zaten görüyormuş.** Bu modülün kendi `go` yönergesiyle
+derlenmiş bir yoklayıcı, gerçek cgroup v1 kotalarının içinde:
+
+| sınır | NumCPU | GOMAXPROCS | bellek sınırı |
+|---|---|---|---|
+| yok | 4 | 4 | yok |
+| CPU 2,0 | 4 | **2** | yok |
+| CPU 1,0 / 0,5 | 4 | **2** (taban) | yok |
+| bellek 64 MB | 4 | 4 | **yok** |
+| 64 MB + `GOMEMLIMIT` | 4 | 4 | 40 MiB (değişken) |
+
+Go 1.25'ten beri `GOMAXPROCS` kotayı okuyor (en az 2). Tavanı görmeyen
+yalnız `NumCPU`. Depo `NumCPU`'yu **hiç** çağırmıyor; ondan türeyen tek
+sayı **pgxpool'un varsayılan havuz boyu** (`max(4, NumCPU)`,
+pgx v5.9.2 `pgxpool/pool.go:384`). Yani CPU yarısı "keşif yaz" değil
+"yanlış girdiyi değiştir" çıktı — ve kotayı ikinci kez okumak,
+çalıştırıcının mantığının ikinci bir kopyası olurdu. Okunmadı.
+
+Bu makinede (4 çekirdek) `max(4, 4) = 4` olduğu için kusur burada
+tetiklenmiyor; 32 çekirdekli bir sunucuda tek CPU'luk bir konteyner servis
+başına 32 bağlantı alırdı. Kural testte sayıyla duruyor: `GOMAXPROCS=16`
+iken havuz 16 olmalı — pgx'in kendi varsayılanı burada 4 derdi, yani
+`NumCPU`'ya geri dönüş yakalanıyor.
+
+**Bellek — iddia doğruydu, ve yazdığımdan güçlü.** Aynı ikili, tek
+değişken (`GOMEMLIMIT=off` eski davranışın birebir aynısı), kollar her
+basamakta dönüşümlü, gerçek cgroup tavanı, sekiz istemcinin yükü:
+
+| tavan | okumadan | okuyarak (%80) |
+|---|---|---|
+| 24 MB | ayakta · 34.495/s · tepe 20,7 | ayakta · 31.914/s · tepe 16,4 |
+| 20 MB | **öldü (−9)** | ayakta · 26.377/s · tepe 13,4 |
+| 18 MB | **öldü** | ayakta · 15.439/s · tepe 11,8 |
+| 16 MB | **öldü** | ayakta · 15.086/s · tepe 11,7 |
+| 14 MB | **öldü** | ayakta · 14.272/s · tepe 11,7 |
+| 12 MB | **öldü** | ayakta · 15.115/s · tepe 11,8 |
+
+Taban 20–24 MB'tan **12 MB'ın altına** indi (20 MB eski davranışta bir
+koşuda yaşadı, bir koşuda öldü — tam kenarda). Bedeli tam tarif edilen
+şey: sınıra yaklaşınca **ölmek yerine yavaşlıyor** (verim yarıya,
+p99 1,6 → 4 ms), ve on iki koşunun hiçbirinde tek hata yok. 12 MB en
+düşük denenen tavan; oradaki tepe 11,8 MB, gerçek taban onun biraz
+altında. **%80 optimize edilmedi**, yalnız sınandı: her tavanda tepe
+tavanın altında kaldı.
+
+**Ne yapıldı:** `internal/resources` — bellek sınırını cgroup v1/v2
+hiyerarşisinde **en küçük** değer olarak bulur (yaprak değil: bu
+konteynerin gerçek hiyerarşisinde sınır yapraktaydı, üstleri sınırsızdı;
+testler öbür düzeni de tutuyor), operatör `GOMEMLIMIT` yazmadıysa
+%80'ini çalıştırıcıya verir, ve havuzu `max(4, GOMAXPROCS)` ile boyutlar
+— DSN `pool_max_conns` diyorsa ona dokunmadan. **Hiç yeni ayar yok:**
+iki geçersiz kılma da standart olanlar. Beş servis (`systemd`
+birimlerinden türetilen liste) `main`'lerinde `resources.Apply` çağırıyor,
+sekiz havuz kurma yerinin hepsi paketten geçiyor.
+
+**Bekçiler:** `internal/invariants/budget_test.go` — (1) ürün kodunda
+`pgxpool.New`/`NewWithConfig` çağıran tek dosya `internal/resources`,
+takma adlı içe aktarma da dâhil; (2) bir systemd biriminin başlattığı her
+ikilinin `main`'i `resources.Apply` çağırıyor, bir yardımcı üzerinden
+değil. Ve tip: `NewPool` yalnız `resources.PoolConfig` kabul ediyor, yani
+boyutlamayı atlayan bir yapılandırmayı derleyici reddediyor.
+
+**Mutasyon: on dokuz, on sekizi kırmızı, biri bilerek sağ.** İlk turda
+iki beklenmedik sağ kalan vardı ve ikisi de **fikstürün** eksiğiydi:
+bağlama kökü çevirisini silmek sağ kaldı çünkü sınır tam bağlama
+noktasındaydı ve yanlış yol yukarı yürürken oraya varıyordu (eksik olan
+kökün **altında** bir alt gruptu); sıfır baytlık sınırı kabul etmek sağ
+kaldı çünkü kötü değer yalnız yapraktaydı — yaprakta gerçek bir sınır,
+**üstte** sıfır olunca sıfır gerçek sınırı siliyor. Önce eşdeğer sandım;
+izini sürünce değildi. Bilerek sağ kalan: takma ad çözümünü silmek tek
+başına ölçülemiyor, takma adlı bir çağrıyla birleşince sağ kalıyor —
+yani çözüm yük taşıyor.
+
+**KURULUM** §2'ye "Ne kadar bellek — ölçüldü" girdi: tablo, bir servise
+`MemoryMax=` ile nasıl sınır konacağı, ve iki geçersiz kılma.
 
 #### Z2 — Kesilen cevap operatöre görünsün
 

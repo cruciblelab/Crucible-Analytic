@@ -37,6 +37,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 
@@ -77,6 +78,9 @@ func main() {
 	baseURL := flag.String("base-url", "",
 		"the address the panel is reached at, for the printed link (default http://<listen_addr>)")
 	flag.Parse()
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded. See internal/resources.
+	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a

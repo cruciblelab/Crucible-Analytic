@@ -36,6 +36,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
@@ -58,6 +59,9 @@ func main() {
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	hashToken := flag.Bool("hash-token", false, "generate a random API token, print it with its SHA-256 hash, and exit")
 	flag.Parse()
+	// The memory ceiling this process lives under, handed to the
+	// runtime before anything large is loaded. See internal/resources.
+	resources.Apply(logger)
 
 	// Before the config is read, and before anything can fail: this is the
 	// question asked when a process will not start, so it must not need a

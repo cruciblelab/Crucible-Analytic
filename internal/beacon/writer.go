@@ -3,6 +3,7 @@ package beacon
 import (
 	"context"
 	"fmt"
+	"github.com/cruciblelab/crucible-analytic/internal/resources"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"log/slog"
 	"sync/atomic"
@@ -124,7 +125,7 @@ func (c WriterConfig) withDefaults() WriterConfig {
 func NewWriter(ctx context.Context, databaseURL string, cfg WriterConfig) (*Writer, error) {
 	cfg = cfg.withDefaults()
 
-	pool, err := pgxpool.New(ctx, databaseURL)
+	pool, err := resources.Open(ctx, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("beacon: create pool: %w", err)
 	}
