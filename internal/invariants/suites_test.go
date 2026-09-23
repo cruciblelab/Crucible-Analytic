@@ -329,7 +329,10 @@ var sharedRows = []struct {
 			"to another state, one internal/panel had set from a different process " +
 			"mid-assertion. Three suites write this row; two took the lock and one " +
 			"did not, and the overlap stayed narrow enough to hide until " +
-			"internal/panel/web grew by twenty seconds",
+			"internal/panel/web grew by twenty seconds. And it cost CI 420, inside " +
+			"one package: internal/panel/web took the lock in one test and wrote the " +
+			"row from another, and a check that asked the package whether it named " +
+			"the lock was told yes",
 	},
 	{
 		table: "panel_users",
@@ -358,18 +361,57 @@ var sharedRows = []struct {
 // neither of them.
 //
 // That is the worst shape a test failure can have, and it has now
-// happened twice in this repository for the same table. The lock exists
-// and is documented; what was missing was anything that noticed a third
-// writer had appeared.
+// happened three times in this repository for the same table. The lock
+// exists and is documented; what was missing was anything that noticed a
+// writer without it.
 //
 // # Why the write is found by pattern rather than by a list
 //
 // A list of suites is a list that is right on the day it is written -
 // which is exactly how this got through. What is derived is the set of
-// test files that write the row at all; the check is that each one also
-// names its lock.
+// tests that write the row at all; the check is that each one also takes
+// its lock.
+//
+// # Per test, not per package
+//
+// The first version asked it of the package: some test file there names
+// the lock. The reasoning was that a suite takes its lock once, where it
+// builds its store, and writes from wherever it likes. That was true of
+// internal/panel and false of internal/panel/web, which took
+// SchemaVersionLock in one test and wrote the row from another - and the
+// package mentioned the lock, so the check passed. CI 420 is what it
+// cost: internal/panel set the row behind, read the status, and was told
+// one call later that the schema was already current, because the
+// unlocked test had put back a row it had read before internal/panel's
+// write. Run together on purpose, the pair left the shared row at version
+// 23 in three runs out of three.
+//
+// The unit that holds a lock is a test - testdb.Lock releases it when
+// the test that took it ends - so that is the unit asked. Every test
+// that can reach a write, through the package's own helpers however
+// deep, must also reach a testdb.Lock call with the row's key.
+//
+// Reach is the package's own call graph, over-approximated: any function
+// or method its test files declare, called or referred to by name
+// (t.Cleanup(restore) counts). Over-approximating is the safe direction
+// for finding writes and the unsafe one for finding locks, so a lock only
+// counts as the call itself - testdb.Lock(_, _, testdb.<Key>). A function
+// that merely names the key, as internal/applier's check that it holds
+// the lock does, is not taking it.
+//
+// # What it does not see
+//
+// Order. A test that writes and only then takes the lock reaches both,
+// and so does a helper that registers its restore before it locks -
+// cleanups run last in, first out, so that restore lands after the
+// unlock. The helpers that write these rows lock first; nothing but
+// their comments holds them to it.
+//
+// And writes that are not SQL in a test file. internal/applier's
+// recordOn is the one production writer of schema_version; the suites
+// that reach it build their own database.
 func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
-	root := repoRootFromInvariants(t)
+	pkgs := testPackagesUnder(t, repoRootFromInvariants(t))
 
 	for _, shared := range sharedRows {
 		t.Run(shared.table, func(t *testing.T) {
@@ -378,133 +420,281 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 			write := regexp.MustCompile(
 				`(?is)(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+` + shared.table + `\b`)
 
-			// Grouped by package rather than by file.
-			//
-			// A suite takes its lock once, where it builds the store,
-			// and then writes from wherever it likes: internal/panel
-			// locks in newTestStore and writes panel_users from five
-			// files. Per-file would report four of them as violations
-			// and teach the next person that the message means nothing.
-			//
-			// What is being asserted is a property of the *suite* -
-			// packages run in parallel, files inside one do not - so
-			// the package is the honest granularity.
-			writers := map[string][]string{} // package dir -> files that write
-			locks := map[string]bool{}       // package dir -> somebody names the lock
-			// A suite that builds its own database is not writing the
-			// shared one, and a lock on a database it never opens would
-			// protect nothing. The exemption is two conditions rather
-			// than a name in a list, so it can be checked rather than
-			// believed: the package must create a database of its own,
-			// and it must never reach for internal/testdb, which is the
-			// only way in this repository to open the shared one.
-			//
-			// internal/retention's compression suite and
-			// internal/upgradepath are the two that qualify, and both
-			// exist because a suite that changes a database's shape must
-			// not run in the database other suites are using.
-			ownDB := map[string]bool{}    // package dir -> creates a database
-			sharedDB := map[string]bool{} // package dir -> opens the shared one
-			err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-				if err != nil {
-					return nil
+			writers := 0
+			var missing []string
+			for _, pkg := range pkgs {
+				// A suite that builds its own database is not writing the
+				// shared one, and a lock on a database it never opens
+				// would protect nothing. The exemption is two conditions
+				// rather than a name in a list, so it can be checked
+				// rather than believed: the package must create a
+				// database of its own, and it must never reach for
+				// internal/testdb, which is the only way in this
+				// repository to open the shared one.
+				//
+				// internal/retention's compression suite,
+				// internal/upgradepath and internal/applier qualify, and
+				// all three exist because a suite that changes a
+				// database's shape must not run in the database other
+				// suites are using.
+				if pkg.ownDB && !pkg.sharedDB {
+					continue
 				}
-				if d.IsDir() {
-					switch d.Name() {
-					case ".git", "dist", "node_modules", "vendor":
-						return filepath.SkipDir
+				funcs, roots := indexTestFuncs(pkg.files, write, shared.lock)
+				for _, root := range roots {
+					var writes []string
+					locks := false
+					for _, name := range reachFrom(funcs, root) {
+						if funcs[name].writes {
+							writes = append(writes, strings.TrimPrefix(name, "."))
+						}
+						locks = locks || funcs[name].locks
 					}
-					return nil
-				}
-				if !strings.HasSuffix(path, "_test.go") {
-					return nil
-				}
-				body, err := os.ReadFile(path)
-				if err != nil {
-					return nil
-				}
-				dir := filepath.Dir(path)
-				if strings.Contains(string(body), shared.lock) {
-					locks[dir] = true
-				}
-				if strings.Contains(string(body), "CREATE DATABASE ") {
-					ownDB[dir] = true
-				}
-				for _, opener := range []string{"testdb.Pool(", "testdb.DSN(", "testdb.Admin("} {
-					if strings.Contains(string(body), opener) {
-						sharedDB[dir] = true
+					if len(writes) == 0 {
+						continue
+					}
+					writers++
+					if !locks {
+						missing = append(missing, pkg.rel+": "+root+" (writes in "+
+							strings.Join(writes, ", ")+")")
 					}
 				}
-				if write.MatchString(sqlLiterals(path)) {
-					rel, _ := filepath.Rel(root, path)
-					writers[dir] = append(writers[dir], filepath.ToSlash(rel))
-				}
-				return nil
-			})
-			if err != nil {
-				t.Fatal(err)
 			}
 
-			if len(writers) == 0 {
-				t.Fatalf("no test file writes %s, so this check is looking at nothing. "+
+			if writers == 0 {
+				t.Fatalf("no test writes %s, so this check is looking at nothing. "+
 					"Either the table was renamed or the pattern stopped matching how "+
 					"these writes are spelled", shared.table)
 			}
-
-			var missing []string
-			for dir, files := range writers {
-				if locks[dir] {
-					continue
-				}
-				if ownDB[dir] && !sharedDB[dir] {
-					continue
-				}
-				rel, _ := filepath.Rel(root, dir)
-				sort.Strings(files)
-				missing = append(missing, filepath.ToSlash(rel)+
-					" ("+strings.Join(files, ", ")+")")
-			}
 			sort.Strings(missing)
-			for _, pkg := range missing {
-				t.Errorf("%s writes %s and nothing in that package mentions testdb.%s.\n\n"+
+			for _, where := range missing {
+				t.Errorf("%s writes %s and never takes testdb.%s.\n\n"+
 					"%s is shared by the whole database, and `go test ./...` runs "+
 					"packages in parallel - so this does not fail here, it makes "+
 					"another package fail somewhere else with a message that names "+
-					"neither.\n\n%s.\n\nTake the lock, and take it in the order "+
-					"internal/testdb declares.",
-					pkg, shared.table, shared.lock, shared.table, shared.cost)
+					"neither. Another test in the same package holding the lock "+
+					"protects nothing: the lock is released when the test that took "+
+					"it ends.\n\n%s.\n\nTake the lock in the helper that writes, "+
+					"before it registers anything that puts the row back, and in the "+
+					"order internal/testdb declares.",
+					where, shared.table, shared.lock, shared.table, shared.cost)
 			}
 		})
 	}
 }
 
-// sqlLiterals returns every string literal in a Go file, joined.
-//
-// String literals rather than the file's text, and the difference is not
-// pedantry: the first version of the check above matched the file as a
-// whole and immediately flagged internal/invariants/dockerschema_test.go,
-// which quotes "INSERT INTO schema_version" inside a *comment*
-// explaining a past failure.
-//
-// A file that talks about a write is not a file that performs one. A
-// check that cannot tell those apart teaches people to add exceptions
-// for prose, and an exception list is how the next real writer gets in.
-func sqlLiterals(path string) string {
-	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
-	if err != nil {
-		// Unparseable is somebody else's failure to report; here it
-		// means "found nothing", which is the safe direction only
-		// because the compiler will not accept the file either.
-		return ""
-	}
-	var b strings.Builder
-	ast.Inspect(file, func(n ast.Node) bool {
-		lit, ok := n.(*ast.BasicLit)
-		if ok && lit.Kind == token.STRING {
-			b.WriteString(lit.Value)
-			b.WriteByte('\n')
+// testPackage is one directory's test files: one test binary, so one
+// process, whatever mix of `package x` and `package x_test` it holds.
+type testPackage struct {
+	rel      string
+	files    []*ast.File
+	ownDB    bool // some test file creates a database of its own
+	sharedDB bool // some test file opens the shared one through internal/testdb
+}
+
+func testPackagesUnder(t *testing.T, root string) []testPackage {
+	t.Helper()
+	byDir := map[string]*testPackage{}
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		return true
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "dist", "node_modules", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		// String literals and calls rather than the file's text, and the
+		// difference is not pedantry: the first version of this check
+		// matched whole files and immediately flagged
+		// internal/invariants/dockerschema_test.go, which quotes
+		// "INSERT INTO schema_version" inside a *comment* explaining a
+		// past failure. A file that talks about a write is not a file
+		// that performs one, and a check that cannot tell those apart
+		// teaches people to add exceptions for prose.
+		file, err := parser.ParseFile(token.NewFileSet(), path, body, 0)
+		if err != nil {
+			// Unparseable is somebody else's failure to report; here it
+			// means "found nothing", which is the safe direction only
+			// because the compiler will not accept the file either.
+			return nil
+		}
+		dir := filepath.Dir(path)
+		pkg := byDir[dir]
+		if pkg == nil {
+			rel, _ := filepath.Rel(root, dir)
+			pkg = &testPackage{rel: filepath.ToSlash(rel)}
+			byDir[dir] = pkg
+		}
+		pkg.files = append(pkg.files, file)
+		if strings.Contains(string(body), "CREATE DATABASE ") {
+			pkg.ownDB = true
+		}
+		for _, opener := range []string{"testdb.Pool(", "testdb.DSN(", "testdb.Admin("} {
+			if strings.Contains(string(body), opener) {
+				pkg.sharedDB = true
+			}
+		}
+		return nil
 	})
-	return b.String()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := make([]testPackage, 0, len(byDir))
+	for _, pkg := range byDir {
+		out = append(out, *pkg)
+	}
+	// Stable failure output; an error list that reshuffles between runs
+	// is one people stop reading.
+	sort.Slice(out, func(i, j int) bool { return out[i].rel < out[j].rel })
+	return out
+}
+
+// testFunc is what one declared function does, for the reach below.
+type testFunc struct {
+	writes bool            // a string literal in its body writes the row
+	locks  bool            // it calls testdb.Lock with the row's key
+	refs   map[string]bool // every name its body uses
+}
+
+// indexTestFuncs indexes a package's test files by the name a call would
+// use: functions as themselves, methods as ".name" - a method call is
+// resolved by name alone, whatever the receiver. Roots are the functions
+// `go test` runs itself: every Test*, TestMain among them.
+func indexTestFuncs(files []*ast.File, write *regexp.Regexp, lock string) (map[string]*testFunc, []string) {
+	funcs := map[string]*testFunc{}
+	var roots []string
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			key := fn.Name.Name
+			if fn.Recv != nil {
+				key = "." + key
+			} else if strings.HasPrefix(key, "Test") {
+				roots = append(roots, key)
+			}
+			info := funcs[key]
+			if info == nil {
+				info = &testFunc{refs: map[string]bool{}}
+				funcs[key] = info
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.BasicLit:
+					if n.Kind == token.STRING && write.MatchString(n.Value) {
+						info.writes = true
+					}
+				case *ast.CallExpr:
+					if isLockCall(n, lock) {
+						info.locks = true
+					}
+				case *ast.SelectorExpr:
+					info.refs["."+n.Sel.Name] = true
+				case *ast.Ident:
+					info.refs[n.Name] = true
+				}
+				return true
+			})
+		}
+	}
+	sort.Strings(roots)
+	return funcs, roots
+}
+
+// isLockCall reports whether call is testdb.Lock(_, _, testdb.<lock>) -
+// or, inside internal/testdb itself, Lock(_, _, <lock>).
+func isLockCall(call *ast.CallExpr, lock string) bool {
+	if len(call.Args) != 3 {
+		return false
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		if fun.Sel.Name != "Lock" {
+			return false
+		}
+	case *ast.Ident:
+		if fun.Name != "Lock" {
+			return false
+		}
+	default:
+		return false
+	}
+	switch key := call.Args[2].(type) {
+	case *ast.SelectorExpr:
+		return key.Sel.Name == lock
+	case *ast.Ident:
+		return key.Name == lock
+	}
+	return false
+}
+
+// reachFrom lists root and every indexed function reachable from it.
+func reachFrom(funcs map[string]*testFunc, root string) []string {
+	seen := map[string]bool{root: true}
+	queue := []string{root}
+	for len(queue) > 0 {
+		name := queue[0]
+		queue = queue[1:]
+		for ref := range funcs[name].refs {
+			if _, declared := funcs[ref]; declared && !seen[ref] {
+				seen[ref] = true
+				queue = append(queue, ref)
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for name := range seen {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// TestALockCallCountsOnlyForItsOwnKey holds isLockCall's refusing half.
+//
+// Measured why it needs its own test: with the key comparison removed,
+// the check above stayed green - and stayed green with the schema
+// helpers' lock removed as well, because every writer in
+// internal/panel/web builds its server through setupTestServer, which
+// takes AccountsLock. Any lock would have satisfied a check that did not
+// ask which.
+func TestALockCallCountsOnlyForItsOwnKey(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want bool
+	}{
+		{"testdb.Lock(t, pool, testdb.SchemaVersionLock)", true},
+		// Inside internal/testdb the names are unqualified.
+		{"Lock(t, pool, SchemaVersionLock)", true},
+		// Another suite's lock, which is what hid the key comparison.
+		{"testdb.Lock(t, pool, testdb.AccountsLock)", false},
+		// Naming the key is not taking it: internal/applier asks
+		// pg_locks whether it holds the lock with exactly this argument.
+		{"admin.QueryRow(ctx, q, int64(testdb.SchemaVersionLock))", false},
+		{"testdb.Unlock(t, pool, testdb.SchemaVersionLock)", false},
+	} {
+		expr, err := parser.ParseExpr(tc.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			t.Fatalf("%s is not a call", tc.src)
+		}
+		if got := isLockCall(call, "SchemaVersionLock"); got != tc.want {
+			t.Errorf("isLockCall(%s) = %v, want %v", tc.src, got, tc.want)
+		}
+	}
 }

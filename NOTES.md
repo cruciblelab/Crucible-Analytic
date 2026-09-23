@@ -21847,3 +21847,96 @@ testi + sayım testi), eski kod (iki birim + yük), yoklama hıza hiç bakmaz
 iki boyutun etkileştiği yeri hiç sınamamaktır.* Kuyruk eşzamanlılıkla
 doğru, hızla yanlıştı; ve yanlış olduğu yer tam da kuyruğun hızı
 etkilediği yerdi.
+
+## CI 420 — Şema satırı: paket düzeyinde soran değişmez kilitsiz yazanı görmüyordu (2026-09-23)
+
+CI 420'de (`b552510`) `internal/panel.TestLockedTheDeveloperPasswordOpensIt`
+düştü: *"the developer password did not open a locked upgrade: panel:
+the schema is already the one this build expects"*. Test satırı "geride"
+kurmuş, durumu okuyup "gerekli" cevabını almış, **bir çağrı sonra**
+"şema zaten güncel" demişti.
+
+`schema_version` tüm veritabanı için tek satır, ve üç paket yazıyor.
+Kilit (`testdb.SchemaVersionLock`) vardı ve belgeliydi; `internal/panel`
+alıyordu. `internal/panel/web` kilidi **bir** testte alıyor
+(`TestTheHealthPageReportsTheSchemaVersion`), satırı **başka** bir testten
+kilitsiz yazıyordu (`TestASchemaWhoseNumberAgreesAndFingerprintDoesNotIsAMismatch`):
+doğru sürüm, yanlış parmak izi, sonra okuduğu satırı geri koy — ve
+okuduğu şey `internal/panel`'in "geride" durumu da olabiliyordu, gerçek
+satır da. Hata mesajı iki paketten hiçbirini adlandırmıyordu; üçüncü kez.
+
+Bekçi vardı: `TestEverySuiteThatWritesASharedRowTakesItsLock`. Ama soruyu
+**pakete** soruyordu: o paketteki bir test dosyası kilidin adını geçiriyor
+mu? Geçiriyordu. Gerekçesi yorumunda yazılıydı — *"bir süit kilidini bir
+kez, deposunu kurduğu yerde alır, sonra istediği yerden yazar"* — ve
+`internal/panel` için doğru, `internal/panel/web` için yanlıştı.
+
+### Kasten kuruldu
+
+`scratchpad/ci420/yaris.sh`: iki paketin iki testi, ayrı süreçlerde,
+döngüde, eşzamanlı. Koşudan önce satır yapının sürümüne konuyor, sonra ne
+kaldığı okunuyor.
+
+| koşul | önce | sonra |
+|---|---|---|
+| `-race`, 1 web süreci (panel 60 / web 400) | 0 / 0 kırmızı, **satır 23'te kaldı** | 0 / 0, satır 24 |
+| 3 web süreci (panel 80 / web 900) | 0 / **2** kırmızı, **satır 23'te kaldı** | 0 / 0, satır 24 |
+| yarışsız, 1 web süreci (60 / 200) | 0 / 0, **satır 23'te kaldı** | — |
+
+CI'daki mesajın kendisi yerelde 200 turda (60 + 80 + 60) tekrarlanmadı: o yön, web
+testinin geri koymasının `internal/panel`'in iki okuması arasına (aralarında
+bir parola doğrulaması var) düşmesini istiyor, ve o pencereyi ölçmedim.
+Ama yarış her koşuda ölçülebilir bir iz bıraktı: **üç koşunun üçünde paylaşılan satır `23 / eski-parmak-izi`'nde
+kaldı** — iki paketin "geri koy" adımları birbirinin ara durumunu geri
+koydu. Ve ters yön de tekrarlandı: web testi "sayfa buna uyuşuyor dedi"
+diye 900'de 2 kez düştü.
+
+### Ne yapıldı
+
+- `panel/web`: satırı yazmanın tek yolu `restoreSchemaRow`, ve o kilidi
+  **ilk iş** alıyor — geri koyma temizliğini kaydetmeden önce, çünkü
+  temizlikler son giren ilk çıkar sırasıyla koşuyor ve geri koyma kilit
+  hâlâ tutulurken olmalı. Kilit `healthServer`'dan (AccountsLock)
+  **önce**; `testdb`'deki sıraya yazıldı.
+- `testdb.Lock` iç içe çağrıyı adıyla düşürüyor. Her çağrı kendi
+  bağlantısını alıyor, yani kilidi zaten tutan bir test (ya da ebeveyni)
+  kendisini bekler ve on dakika sonra panik olur. Kilidi yardımcıya
+  taşımak bu tuzağı yarattı: üst düzey kilidi kaldırmasaydım ilk vaka
+  asılırdı.
+- Değişmez **test düzeyinde** soruyor: yazmaya ulaşan her `Test`/`TestMain`,
+  paketin kendi çağrı ağacında `testdb.Lock(_, _, testdb.<Anahtar>)`
+  çağrısına da ulaşmalı. Erişim fazladan tahmin ediliyor (bildirilen her
+  işlev, çağrılan ya da adı geçen); bu yazmayı bulmak için güvenli yön,
+  kilidi bulmak için güvensiz — o yüzden kilit yalnız **çağrının
+  kendisi** sayılıyor, anahtarın adını geçirmek değil.
+- İlk koşusunda **ikinci bir üye buldu:**
+  `TestTheDatabaseItselfRefusesAnOwnerWithAnEndDate` `panel_users`'a
+  `AccountsLock` almadan kullanıcı ekliyordu. `panel_users`'ta paylaşılan
+  şey bir satır değil **boş olup olmadığı** — bu 2026-09-07'de `main`'i
+  kırmızıya düşüren koşul. Kilit eklendi.
+- Okuyucu tarafı da soruldu: paylaşılan veritabanında satırın değerine
+  bağlı iddia kuran testler (`panel`, `panel/web`) kilidi tutuyor;
+  yedekleme satırı kümeden dışlıyor ve sürümü yapıdan alıyor.
+
+**Sekiz mutasyon** (`scratchpad/mutasyon-sema.py`): yardımcı kilidi
+almaz (üç test adıyla kırmızı); **CI 420'nin şekli** — kilit bir testte,
+yazan başka testte (eski kontrol bunu geçiriyordu; yenisi iki testi
+adlandırıyor); iç içe kilit, koruma varken (3,3 sn'de adıyla kırmızı) ve
+koruma kaldırılmışken (**150 sn'de öldürülene kadar asıldı** — koruma
+yük taşıyor); sahip-bitiş testi kilidi almaz (kırmızı); erişim geçişli
+değil (kırmızı). Biri tek başına sağ kaldı: **değişmez anahtara hiç
+bakmasa** yeşil kalıyordu, ve yardımcının kilidi de silinince yine yeşil —
+çünkü `panel/web`'in her yazan testi sunucusunu `setupTestServer`'la
+kuruyor, o da `AccountsLock` alıyor. Herhangi bir kilit, hangisi olduğunu
+sormayan bir kontrolü tatmin ederdi. `TestALockCallCountsOnlyForItsOwnKey`
+eklendi, ve o mutasyon artık tek başına kırmızı.
+
+**Düzenek dersi:** koruma kaldırılmış mutasyonu `subprocess.run(timeout=)`
+ile öldürdüm; o yalnız `go test`'i öldürüyor, onun başlattığı test ikilisi
+**yetim kalıp danışma kilidini tutmaya devam etti** ve geri almadan sonraki
+doğrulama onu bekleyip "kırmızı" verdi. PID ile öldürüldü, ağaç yeşil;
+betik artık süreç grubunu öldürüyor.
+
+*Bir kuralı birimin yanlış katmanında sormak, kuralın gerekçesinin o
+katmanda doğru olduğunu varsaymaktır.* Kilit bir testin elinde; paket
+yalnızca testlerin toplamı.

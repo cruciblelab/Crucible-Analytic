@@ -39,8 +39,33 @@ import (
 // health_integration_test.go - a different file, a different claim, and a
 // failure that reproduced only in a full run. Restoring here rather than
 // in each caller means nobody has to remember.
+//
+// # And it takes the lock, for the same reason
+//
+// The lock used to be taken by one test in this file, and the other test
+// that writes this row did not take it. Nothing noticed: the invariant
+// that guards the row asked whether the *package* mentioned the lock,
+// and it did. That test wrote the row with the right version and a
+// wrong fingerprint, then put back whatever it had read - and what it
+// had read could be internal/panel's "behind" state or the real one, in
+// the middle of internal/panel's own test. CI 420 failed on exactly
+// that: internal/panel set the row behind, checked the status, and was
+// told "the schema is already the one this build expects" one call
+// later. Run together on purpose, the two left the shared row at 23 in
+// three runs out of three.
+//
+// Here, the only way to write the row is through a helper that holds the
+// lock first. Before its cleanup is registered, too: cleanups run last
+// in, first out, so the row is put back while the lock is still held.
+//
+// Call it before anything that takes testdb.AccountsLock (healthServer
+// does). Every suite that holds both takes this one first, and two
+// suites taking a pair in opposite orders deadlock.
+//
+// Once per test: testdb.Lock is not re-entrant, and says so.
 func restoreSchemaRow(t *testing.T) {
 	t.Helper()
+	testdb.Lock(t, testdb.Admin(t), testdb.SchemaVersionLock)
 	admin := testdb.Admin(t)
 	var (
 		version     int
@@ -92,17 +117,15 @@ func clearSchemaRow(t *testing.T) {
 }
 
 // TestTheHealthPageReportsTheSchemaVersion covers the four states.
+//
+// schema_version is one row for the whole database, and this test spends
+// its time putting it into states and asking what the page says. Another
+// suite writing it from another process made this pass alone and fail in
+// the full run, reporting a page in "another state" - which it was, just
+// not one this test had set. Each case holds the lock through
+// setSchemaRow or clearSchemaRow, which is the only way this file writes
+// the row.
 func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
-	// schema_version is one row for the whole database, and this test
-	// spends its time putting it into states and asking what the page
-	// says. internal/applier's suite applies the schema and records a
-	// version, which overwrites it from another process.
-	//
-	// Without this, that is a race: this test passed alone and failed in
-	// the full suite, reporting a page in "another state" - which it was,
-	// just not one this test had set.
-	testdb.Lock(t, testdb.Admin(t), testdb.SchemaVersionLock)
-
 	for _, tc := range []struct {
 		name        string
 		version     int
@@ -154,12 +177,14 @@ func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			server, client, _ := healthServer(t)
+			// The row first: it takes SchemaVersionLock, and that comes
+			// before the AccountsLock healthServer takes.
 			if tc.clear {
 				clearSchemaRow(t)
 			} else {
 				setSchemaRow(t, tc.version, tc.fingerprint)
 			}
+			server, client, _ := healthServer(t)
 
 			status, body := get(t, client, server.URL+HealthPath)
 			if status != http.StatusOK {
@@ -191,9 +216,9 @@ func TestTheHealthPageReportsTheSchemaVersion(t *testing.T) {
 // person looking at it away from the one screen that could have told
 // them.
 func TestASchemaWhoseNumberAgreesAndFingerprintDoesNotIsAMismatch(t *testing.T) {
-	server, client, _ := healthServer(t)
 	setSchemaRow(t, schemaver.Version,
 		"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	server, client, _ := healthServer(t)
 
 	status, body := get(t, client, server.URL+HealthPath)
 	if status != http.StatusOK {
@@ -217,6 +242,10 @@ func TestASchemaWhoseNumberAgreesAndFingerprintDoesNotIsAMismatch(t *testing.T) 
 // comes from outside the process reporting it. A panel that could write
 // this row would be quoting itself.
 func TestThePanelCannotWriteTheSchemaVersion(t *testing.T) {
+	// Held and put back although the write is meant to fail: if the grant
+	// ever regresses, this test fails alone instead of leaving version
+	// 999 in the row for every other suite to trip on.
+	restoreSchemaRow(t)
 	_, _, store := healthServer(t)
 
 	_, err := store.Pool().Exec(context.Background(),

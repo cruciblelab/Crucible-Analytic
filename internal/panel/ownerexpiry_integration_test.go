@@ -55,6 +55,15 @@ func TestTheDatabaseItselfRefusesAnOwnerWithAnEndDate(t *testing.T) {
 
 	// A user row to hang the membership on, and both cleaned up
 	// afterwards - this table is shared with three other panel suites.
+	//
+	// Under AccountsLock, taken before the cleanup below is registered so
+	// the row is gone before the lock is released. What other suites
+	// depend on is whether panel_users is empty, and this row makes it
+	// not empty for as long as the test runs. It wrote without the lock
+	// until the shared-row invariant started asking each test instead of
+	// each package; the rest of this package takes it in newTestStore,
+	// which this test does not call.
+	testdb.Lock(t, admin, testdb.AccountsLock)
 	var userID int64
 	if err := admin.QueryRow(ctx, `
 		INSERT INTO panel_users (email, password_hash) VALUES ($1, 'not-a-hash')

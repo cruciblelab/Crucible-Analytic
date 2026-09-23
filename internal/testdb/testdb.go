@@ -41,6 +41,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -186,6 +188,10 @@ const UpgradeQueueLock = 0x75706772616465FF // "upgrade"
 // Anything that needs both must do the same: two suites taking the same
 // pair in opposite orders deadlock, and a deadlocked test suite looks
 // like a hung machine rather than like a bug.
+//
+// And this one before AccountsLock: internal/panel/web's schema tests
+// hold both, and write the row before they build the server that takes
+// AccountsLock.
 const SchemaVersionLock = 0x736368656D617601 // "schema" + 1
 
 // FetchLogLock serialises the suites that share ip_range_fetches.
@@ -409,9 +415,29 @@ const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
 // Advisory locks belong to a session, and a pool hands out whichever
 // connection is free - so locking on one connection and unlocking on
 // another silently leaks the lock and deadlocks the next run.
+//
+// # Not re-entrant, and it says so
+//
+// Each call takes its own connection, so a test that already holds key -
+// or whose parent does - waits on itself: the lock is released when the
+// test ends, and the test cannot end. `go test` reports that ten minutes
+// later as a panic in whichever test was running, which looks like a
+// hung machine. So a nested call fails at once and names the holder.
+//
+// It became a real risk when the helpers that write the schema row
+// started taking SchemaVersionLock themselves: a test that also took it
+// at the top, as TestTheHealthPageReportsTheSchemaVersion used to, would
+// hang on its first case.
 func Lock(t *testing.T, pool *pgxpool.Pool, key int64) {
 	t.Helper()
 	ctx := context.Background()
+
+	if holder, nested := heldBy(t.Name(), key); nested {
+		t.Fatalf("%s asked for suite lock %#x, and %s already holds it in this test. "+
+			"testdb.Lock is not re-entrant: the second call would wait for a release "+
+			"that happens only when this test ends. Take it once, where the test starts.",
+			t.Name(), key, holder)
+	}
 
 	conn, err := pool.Acquire(ctx)
 	if err != nil {
@@ -421,7 +447,9 @@ func Lock(t *testing.T, pool *pgxpool.Pool, key int64) {
 		conn.Release()
 		t.Fatalf("taking the suite lock: %v", err)
 	}
+	holding(t.Name(), key)
 	t.Cleanup(func() {
+		released(t.Name(), key)
 		// Unlock before release, on the same connection. Releasing first
 		// would return a connection that still holds the lock to the
 		// pool, where it would be handed to somebody else still holding
@@ -432,4 +460,43 @@ func Lock(t *testing.T, pool *pgxpool.Pool, key int64) {
 		}
 		conn.Release()
 	})
+}
+
+// held records which test in this process holds which suite lock.
+//
+// Only for the nesting check above. Two unrelated tests in one process -
+// parallel ones - still wait on each other in Postgres, which is the
+// point of the lock; only a test and its own ancestors cannot.
+var held = struct {
+	sync.Mutex
+	by map[int64]string
+}{by: map[int64]string{}}
+
+// heldBy reports whether key is held by name itself or by an ancestor of
+// it (subtests are named "parent/child").
+func heldBy(name string, key int64) (string, bool) {
+	held.Lock()
+	defer held.Unlock()
+	holder, ok := held.by[key]
+	if !ok {
+		return "", false
+	}
+	return holder, holder == name || strings.HasPrefix(name, holder+"/")
+}
+
+func holding(name string, key int64) {
+	held.Lock()
+	defer held.Unlock()
+	held.by[key] = name
+}
+
+// released forgets name's hold, and only name's: by the time a cleanup
+// runs, another test may already have taken the lock and recorded
+// itself.
+func released(name string, key int64) {
+	held.Lock()
+	defer held.Unlock()
+	if held.by[key] == name {
+		delete(held.by, key)
+	}
 }
