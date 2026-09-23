@@ -13,7 +13,6 @@ package heartbeat
 import (
 	"bytes"
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -60,8 +59,8 @@ func TestTheRowSaysWhatTheServiceKnows(t *testing.T) {
 		Counters: func() map[string]int64 {
 			return map[string]int64{CounterWritten: 4210, CounterDropped: 7}
 		},
+		Log: fixedLog{lost: 3, text: "copy rows: connection reset", at: started.Add(time.Hour)},
 	})
-	r.Note(errors.New("copy rows: connection reset"))
 	r.beat(ctx)
 
 	beats, err := Read(ctx, pool)
@@ -90,11 +89,17 @@ func TestTheRowSaysWhatTheServiceKnows(t *testing.T) {
 	if got.Counters[CounterWritten] != 4210 || got.Counters[CounterDropped] != 7 {
 		t.Errorf("counters = %v", got.Counters)
 	}
+	// From the log copy, not from the service's own counters: the one
+	// number no service can forget to report.
+	if got.Counters[CounterLogLost] != 3 {
+		t.Errorf("counters = %v, want %s = 3 from the log copy", got.Counters, CounterLogLost)
+	}
 	if got.LastError != "copy rows: connection reset" {
 		t.Errorf("last_error = %q", got.LastError)
 	}
-	if got.LastErrorAt.IsZero() {
-		t.Error("last_error_at is unset with an error recorded")
+	if !got.LastErrorAt.Equal(started.Add(time.Hour)) {
+		t.Errorf("last_error_at = %v, want the time the log copy gave, %v",
+			got.LastErrorAt, started.Add(time.Hour))
 	}
 	// Uptime comes out of the two timestamps rather than being stored,
 	// so a clock that moved between them cannot make it a stored lie.

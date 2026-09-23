@@ -411,7 +411,7 @@ var (
 	// prefix at runtime. internal/panel/web holds the other direction,
 	// against the real constants.
 	healthCounters = []string{
-		"yazilan", "dusurulen", "reddedilen", "kabul", "hata",
+		"yazilan", "dusurulen", "reddedilen", "kabul", "hata", "suresi_dolan", "gunluk_kaybi",
 	}
 	healthTables = []string{
 		"traffic_snapshots", "beacon_events", "ip_asn_ranges", "ip_country_ranges",

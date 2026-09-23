@@ -79,7 +79,7 @@ func TestAHandlerThatListensIsAnswered503AndLogged(t *testing.T) {
 	if l["level"] != "WARN" {
 		// WARN, not INFO: the panel's copy of a service's log keeps WARN
 		// and above, and this line is for somebody with no shell.
-		t.Errorf("level = %v, want WARN - the panel's log view starts there", l["level"])
+		t.Errorf("level = %v, want WARN - panel_logs starts there", l["level"])
 	}
 	if l["path"] != "/api/v1/sites/acme/summary" || l["method"] != "GET" {
 		t.Errorf("line does not say which request: %v", l)
@@ -305,5 +305,50 @@ func TestTheLineNamesTheRequestThroughLogPath(t *testing.T) {
 	}
 	if lines[0]["path"] != "/katil/[redacted]" {
 		t.Errorf("path = %v, want what LogPath returned", lines[0]["path"])
+	}
+}
+
+// counting is an Answer whose OnTimeout counts, and the count.
+func counting() (Answer, *int) {
+	var n int
+	a := jsonAnswer
+	a.OnTimeout = func() { n++ }
+	return a, &n
+}
+
+// The count the health page shows, in all four directions: once for a
+// request the deadline answered, and never for the three that look like
+// one from somewhere - an on-time answer, a handler's own 503, and a
+// client that left first. The last is measured rather than imagined: the
+// read API logged it as an ERROR, twice, until Z6.
+func TestOnTimeoutCountsTheDeadlinesAnswersAndNothingElse(t *testing.T) {
+	serve := func(h http.HandlerFunc, r *http.Request) int {
+		a, n := counting()
+		within(h, limit, a, logTo(&lockedBuffer{})).ServeHTTP(httptest.NewRecorder(), r)
+		return *n
+	}
+	get := func() *http.Request { return httptest.NewRequest(http.MethodGet, "/", nil) }
+
+	if n := serve(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }, get()); n != 1 {
+		t.Errorf("a request the deadline answered counted %d times, want 1", n)
+	}
+	if n := serve(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "ok") }, get()); n != 0 {
+		t.Errorf("an on-time request counted %d times, want 0", n)
+	}
+	if n := serve(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}, get()); n != 0 {
+		t.Errorf("a handler's own 503 counted %d times, want 0", n)
+	}
+
+	// The client leaves before the deadline. TimeoutHandler still writes
+	// a 503 on that path - to nobody - so the status alone would count it.
+	ctx, cancel := context.WithCancel(context.Background())
+	gone := get().WithContext(ctx)
+	if n := serve(func(w http.ResponseWriter, r *http.Request) {
+		cancel()
+		<-r.Context().Done()
+	}, gone); n != 0 {
+		t.Errorf("a client that went away counted %d times as a deadline, want 0", n)
 	}
 }

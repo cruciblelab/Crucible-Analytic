@@ -156,6 +156,16 @@ type Sink struct {
 	written atomic.Uint64
 	dropped atomic.Uint64
 	failed  atomic.Uint64
+
+	// lastError is the newest ERROR record this sink was handed, kept
+	// whether or not the line itself reached the table. See LastError.
+	lastError atomic.Pointer[noted]
+}
+
+// noted is one error as the health page shows it.
+type noted struct {
+	text string
+	at   time.Time
 }
 
 type record struct {
@@ -212,7 +222,7 @@ func (s *Sink) Close() {
 	})
 }
 
-// Counters reports what the sink did, for the health page.
+// Counters reports what the sink did.
 //
 // dropped is the one that matters: it is the difference between "the
 // panel's log is complete" and "the panel's log is complete except for
@@ -220,6 +230,53 @@ func (s *Sink) Close() {
 // second look like the first.
 func (s *Sink) Counters() (written, dropped, failed uint64) {
 	return s.written.Load(), s.dropped.Load(), s.failed.Load()
+}
+
+// Lost is how many lines never reached panel_logs: dropped for a full
+// buffer plus failed to write. This is the number the health page shows.
+//
+// # Why one number, and why it had to be written at all
+//
+// One because the two are the same loss to whoever reads the table - a
+// line is missing either way - and splitting them would ask an operator
+// to add two figures to answer one question, the reason the beacon
+// reports its two kinds of dropped event as one.
+//
+// And written at all because until Z6 nothing read Counters. Its comment
+// said "for the health page", write's comment said "the health page
+// reads the counter", the README said the count "is reported like every
+// other counter" - and the only callers were this package's tests. The
+// count existed on every installation and reached no screen.
+func (s *Sink) Lost() uint64 {
+	return s.dropped.Load() + s.failed.Load()
+}
+
+// LastError is the newest ERROR-or-worse line this service logged, as
+// "message: err", and when; the empty string and the zero time when there
+// has been none.
+//
+// # Why it comes from here
+//
+// The health page has a "last error" line under every service, and the
+// schema comment says what it is for: "the collector is up, and every
+// write for the last hour has failed" is invisible to anything that only
+// checks liveness. Until Z6 the heartbeat had a Note method for it and no
+// service called Note - the line was empty on every installation there
+// has been, and the two tests that called Note were its only writers.
+//
+// A method each failure site has to remember to call is the shape that
+// failed. Every ERROR a service logs already passes through this sink, so
+// the answer is read here, and a failure path written next year is
+// covered without anybody wiring it.
+//
+// Kept even when the line itself is dropped: a buffer that is full is a
+// service in trouble, which is when the last error matters most.
+func (s *Sink) LastError() (string, time.Time) {
+	n := s.lastError.Load()
+	if n == nil {
+		return "", time.Time{}
+	}
+	return n.text, n.at
 }
 
 func (s *Sink) run() {
@@ -262,7 +319,8 @@ func (s *Sink) write(r record) {
 		// Not logged. A sink that logged its own failures through the
 		// logger it is attached to would answer a database outage with
 		// an unbounded loop of records about the database outage.
-		// Counted instead, and the health page reads the counter.
+		// Counted instead, and the health page reads the count - through
+		// Lost and the service's heartbeat row.
 		s.failed.Add(1)
 		return
 	}
@@ -343,6 +401,17 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 		collect(a)
 	}
 	r.Attrs(func(a slog.Attr) bool { return collect(a) })
+
+	// Before the buffer decides, so a line that is about to be dropped
+	// still names the failure - and built from the sanitized copy, so the
+	// health page shows exactly what the table would have held.
+	if r.Level >= slog.LevelError {
+		text := rec.message
+		if e, ok := rec.attrs["err"].(string); ok && e != "" {
+			text += ": " + e
+		}
+		h.sink.lastError.Store(&noted{text: text, at: r.Time})
+	}
 
 	// The one place this package refuses to wait. A full buffer means
 	// the database is slower than the service is talkative, and the

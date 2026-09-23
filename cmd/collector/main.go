@@ -177,6 +177,9 @@ func main() {
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
+		// The row's last error and its log-loss count, from the same
+		// copy of the log the panel's table gets. See heartbeat.LogReport.
+		Log: panelLog,
 		// What this process actually loaded, not what a file says. The
 		// panel has no way to read collector.toml and must not gain one
 		// - that file holds this service's database password - so the

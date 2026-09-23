@@ -1104,6 +1104,8 @@ dusurulen = "Dropped"
 reddedilen = "Rejected"
 kabul = "Accepted"
 hata = "Errors"
+suresi_dolan = "Requests past deadline"
+gunluk_kaybi = "Log lines lost"
 
 [metin.saglik.depolama]
 baslik = "Storage"

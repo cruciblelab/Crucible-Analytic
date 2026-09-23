@@ -1751,9 +1751,22 @@ once a minute, carrying its build, its uptime, its counters and its last
 failure. A service that cannot write the row logs once and carries on —
 monitoring must never be able to break the thing it monitors.
 
-Four services write to one table, so "only your own row" comes from
-row-level security keyed on `current_user` rather than from a `GRANT`,
-which cannot express it. Each service asks the database which role it is
+The last failure is the newest ERROR line the service logged, read from
+its own copy of the log on every beat rather than reported by each place
+that can fail. That difference is measured: until Z6 the row had a method
+for it that no service called, and the last-failure line was empty on
+every installation there had been. The counters include *Log lines lost*
+(lines that never reached `panel_logs`) on every row, and the read API's
+*Errors* and *Requests past deadline* — kept apart, because a query that
+fails is a fault and a query that is slow is a range to narrow. A request
+the client gave up on is neither. The panel writes no row; its own line
+on the page comes from the process serving it.
+
+Three services write to one table. A fourth role, the panel's, is
+allowed to and does not yet - a defect rather than a design: the
+upgrader's restart check waits for the panel's row too (PLAN §V4b). So
+"only your own row" comes from row-level security keyed on
+`current_user` rather than from a `GRANT`, which cannot express it. Each service asks the database which role it is
 rather than being told in a config file: that is the value the policy
 compares against, so there is nowhere else for it to come from.
 
@@ -1867,7 +1880,9 @@ took 1.88 seconds.
 
 What must not happen is dropping *silently*. Dropped lines are counted and
 the count is reported like every other counter, so "the panel's log is
-missing an hour" is a question with an answer.
+missing an hour" is a question with an answer: *Log lines lost*, on each
+service's row of the health page and on the panel's own. Until Z6 that
+sentence was a plan — the count existed and nothing read it.
 
 A log table also becomes the largest table in the database if nothing
 stops it, which is the disk-full failure arriving by a second road. Three

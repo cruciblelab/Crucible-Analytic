@@ -1,6 +1,11 @@
 package web
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -8,6 +13,53 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
+
+// heartbeatCounters is every Counter* constant internal/heartbeat
+// declares, read from its source.
+//
+// Read rather than listed. The two tests below used to name the five
+// constants by hand under a comment saying "the real constants, not a
+// copy" - and a sixth constant added to the heartbeat would have been in
+// neither list, so a counter with no label and no place on the page
+// would have passed both. Z6 added two.
+func heartbeatCounters(t *testing.T) []string {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(),
+		filepath.Join("..", "..", "heartbeat", "heartbeat.go"), nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				if !strings.HasPrefix(name.Name, "Counter") || i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					t.Fatalf("heartbeat.%s is not a string literal; this test reads the values from source", name.Name)
+				}
+				v, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, v)
+			}
+		}
+	}
+	// Asserted so a scan that stops finding them - a renamed file, a
+	// changed prefix - fails rather than passing by examining nothing.
+	if len(out) < 7 {
+		t.Fatalf("found %d Counter constants in internal/heartbeat, want at least 7: %v", len(out), out)
+	}
+	return out
+}
 
 // TestEveryCounterHasWords is the mirror internal/panel/ui cannot write.
 //
@@ -21,15 +73,7 @@ func TestEveryCounterHasWords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The real constants, not a copy. A second list here would only move
-	// the drift one file along.
-	counters := []string{
-		heartbeat.CounterWritten,
-		heartbeat.CounterDropped,
-		heartbeat.CounterRejected,
-		heartbeat.CounterAccepted,
-		heartbeat.CounterErrors,
-	}
+	counters := heartbeatCounters(t)
 	for _, lang := range catalogs.Languages() {
 		for _, c := range counters {
 			key := "saglik.sayac." + c
@@ -51,20 +95,15 @@ func TestEveryCounterIsDrawn(t *testing.T) {
 	for _, c := range healthCounterOrder {
 		inOrder[c] = true
 	}
-	for _, c := range []string{
-		heartbeat.CounterWritten,
-		heartbeat.CounterDropped,
-		heartbeat.CounterRejected,
-		heartbeat.CounterAccepted,
-		heartbeat.CounterErrors,
-	} {
+	counters := heartbeatCounters(t)
+	for _, c := range counters {
 		if !inOrder[c] {
 			t.Errorf("%q is a counter a service can report and healthCounterOrder does not draw it", c)
 		}
 	}
-	if len(healthCounterOrder) != 5 {
-		t.Errorf("healthCounterOrder has %d entries; it should draw every counter and nothing else",
-			len(healthCounterOrder))
+	if len(healthCounterOrder) != len(counters) {
+		t.Errorf("healthCounterOrder has %d entries and internal/heartbeat declares %d counters; "+
+			"it should draw every counter, once, and nothing else", len(healthCounterOrder), len(counters))
 	}
 	// Dropped first, and this is not cosmetic: it is the only counter
 	// that means a customer's numbers are wrong, and a page that buries

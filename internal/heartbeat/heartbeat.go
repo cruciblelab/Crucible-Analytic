@@ -64,17 +64,39 @@ const (
 	// CounterWritten is rows successfully written.
 	CounterWritten = "yazilan"
 	// CounterDropped is rows the service threw away because it could
-	// not keep up - the number that matters most and the one nothing
-	// currently surfaces.
+	// not keep up - the number that matters most, and the first one the
+	// health page draws.
 	CounterDropped = "dusurulen"
 	// CounterRejected is requests refused before any work was done:
 	// wrong site, bad payload, over a limit.
 	CounterRejected = "reddedilen"
 	// CounterAccepted is requests taken in.
 	CounterAccepted = "kabul"
-	// CounterErrors is failures since start.
+	// CounterErrors is failures since start: requests the service could
+	// not answer for a reason of its own. The read API reports it; until
+	// Z6 nothing did, and the label sat on the page with no producer.
 	CounterErrors = "hata"
+	// CounterDeadline is requests answered 503 because they ran past the
+	// handler deadline (internal/deadline). Not an error: the service
+	// did what it promised, and the two together say whether it is
+	// broken or slow.
+	CounterDeadline = "suresi_dolan"
+	// CounterLogLost is log lines that never reached panel_logs. Added by
+	// the reporter itself from Options.Log, so no service can forget it.
+	CounterLogLost = "gunluk_kaybi"
 )
+
+// LogReport is what a service's panel log copy knows about itself:
+// internal/logsink's Sink, seen from here.
+//
+// An interface rather than the type so this package does not import the
+// sink, and so a test can hand the reporter a fixed answer.
+type LogReport interface {
+	// Lost is lines that never reached the table.
+	Lost() uint64
+	// LastError is the newest ERROR line the service logged, and when.
+	LastError() (string, time.Time)
+}
 
 // Count converts an unsigned counter into the signed number a row
 // carries, saturating instead of wrapping.
@@ -221,6 +243,9 @@ type Reporter struct {
 	// than a value so the service keeps owning its own numbers - this
 	// package never holds a reference to a counter it did not create.
 	counters func() map[string]int64
+	// log supplies the last error and the log-loss count; nil for a
+	// service with no panel log copy.
+	log LogReport
 	// profile is fixed for the life of the process: it is derived from
 	// configuration that is read once at startup, and changing it needs
 	// a restart because the datasets it names are loaded at startup too.
@@ -239,9 +264,7 @@ type Reporter struct {
 	columnsOnce sync.Once
 	present     map[string]bool
 
-	mu          sync.Mutex
-	lastError   string
-	lastErrorAt time.Time
+	mu sync.Mutex
 	// warned stops a database that is down from filling the log with one
 	// line a minute, forever. The first failure is worth a line; the
 	// four hundredth is noise that buries whatever else happened.
@@ -278,8 +301,13 @@ type Options struct {
 	IPTokenKey TokenKeyState
 	Started    time.Time
 	Counters   func() map[string]int64
-	Interval   time.Duration
-	Logger     *slog.Logger
+	// Log is the service's panel log copy - the sink logsink.Attach
+	// returned. The row's last error and its log-loss counter come from
+	// it; every service main passes it, and internal/invariants holds
+	// them to that.
+	Log      LogReport
+	Interval time.Duration
+	Logger   *slog.Logger
 	// Now supplies the clock, for tests.
 	Now func() time.Time
 }
@@ -306,25 +334,9 @@ func New(o Options) *Reporter {
 	return &Reporter{
 		pool: o.Pool, service: o.Service, version: o.Version,
 		profile: o.Profile, ipTokenKey: o.IPTokenKey,
-		started: o.Started, counters: o.Counters,
+		started: o.Started, counters: o.Counters, log: o.Log,
 		interval: o.Interval, logger: o.Logger, now: o.Now,
 	}
-}
-
-// Note records the last thing that went wrong.
-//
-// Called by the service on a failure it wants an operator to see. A nil
-// error clears nothing: the point of this field is that a failure stays
-// visible after the service recovers, because "it worked when I looked"
-// is how an intermittent fault survives for months.
-func (r *Reporter) Note(err error) {
-	if err == nil || r == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.lastError = truncate(err.Error(), 500)
-	r.lastErrorAt = r.now()
 }
 
 // Run writes a row now and then on every tick, until ctx ends.
@@ -381,6 +393,39 @@ func (r *Reporter) resolveService(ctx context.Context) bool {
 	return true
 }
 
+// snapshot is what this beat reports: the last error and the counters,
+// the service's own and the log-loss count added to them.
+//
+// # The last error stays after the service recovers
+//
+// Which is the point of the field: "it worked when I looked" is how an
+// intermittent fault survives for months. The sink keeps the newest one
+// for the life of the process, and nothing clears it.
+//
+// # Why this replaced a Note method
+//
+// The reporter had one, "called by the service on a failure it wants an
+// operator to see". No service ever called it. Two tests did, and they
+// passed because they were its only callers - the 5b shape again, this
+// time on the page's last-error line, which was empty on every
+// installation there has been. Asking the log copy for it on every beat
+// needs one field set in each main instead of one call at every failure
+// site, and internal/invariants can see a field.
+func (r *Reporter) snapshot() (lastError string, at time.Time, counters map[string]int64) {
+	// Copied rather than written into: the map is the service's, and the
+	// service may hand back the same one every time.
+	counters = map[string]int64{}
+	for k, v := range r.counters() {
+		counters[k] = v
+	}
+	if r.log != nil {
+		counters[CounterLogLost] = Count(r.log.Lost())
+		lastError, at = r.log.LastError()
+		lastError = truncate(lastError, 500)
+	}
+	return lastError, at, counters
+}
+
 // beat writes the row. It never returns an error, by design - see the
 // package comment.
 func (r *Reporter) beat(ctx context.Context) {
@@ -388,11 +433,8 @@ func (r *Reporter) beat(ctx context.Context) {
 		return
 	}
 
-	r.mu.Lock()
-	lastError, lastErrorAt := r.lastError, r.lastErrorAt
-	r.mu.Unlock()
-
-	counters, err := json.Marshal(nonNil(r.counters()))
+	lastError, lastErrorAt, counted := r.snapshot()
+	counters, err := json.Marshal(counted)
 	if err != nil {
 		// Cannot happen for map[string]int64, and if it somehow did,
 		// an empty object is a better row than no row.
@@ -503,13 +545,6 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 		out = append(out, b)
 	}
 	return out, rows.Err()
-}
-
-func nonNil(m map[string]int64) map[string]int64 {
-	if m == nil {
-		return map[string]int64{}
-	}
-	return m
 }
 
 // truncate bounds a stored error message.

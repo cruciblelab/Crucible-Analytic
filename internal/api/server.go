@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync/atomic"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/deadline"
@@ -55,6 +56,23 @@ type Server struct {
 	// Now supplies the current time for range defaults; nil means
 	// time.Now. Injectable so tests get deterministic default ranges.
 	Now func() time.Time
+
+	// failed and pastDeadline are what Counters reports; see there.
+	failed       atomic.Uint64
+	pastDeadline atomic.Uint64
+}
+
+// Counters is what this server counts for its heartbeat row: requests it
+// could not answer for a reason of its own, and requests the deadline
+// answered 503.
+//
+// Two numbers because they send an operator to two different places -
+// a query that fails is a fault to find, a query that is slow is a range
+// to narrow or a pool to grow - and the page shows both beside each
+// other. A request the client abandoned is in neither: the service did
+// not fail it.
+func (s *Server) Counters() (failed, pastDeadline uint64) {
+	return s.failed.Load(), s.pastDeadline.Load()
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -108,7 +126,9 @@ func (s *Server) Handler() http.Handler {
 		fmt.Fprintln(w, `{"status":"ok"}`)
 	})
 
-	return deadline.Handler(s.withAuth(mux), writeTimeout, timeoutAnswer, s.logger)
+	answer := timeoutAnswer
+	answer.OnTimeout = func() { s.pastDeadline.Add(1) }
+	return deadline.Handler(s.withAuth(mux), writeTimeout, answer, s.logger)
 }
 
 // writeTimeout is how long the server gives a response to be written,
@@ -459,8 +479,31 @@ func (s *Server) parseListParams(w http.ResponseWriter, r *http.Request) (listPa
 
 // fail logs the real error and returns a generic one, so a database error
 // message never reaches a client.
+//
+// # Not every failed query is a failure
+//
+// A query also fails when the request it serves is over: the deadline
+// answered it, or the client hung up. Both cancel the context, and both
+// came here as an ERROR calling itself "query failed" - measured on the
+// real binary, beside the deadline's own WARN for the first, and with a
+// second ERROR from writeJSON for the second. Since Z6 an ERROR is also
+// what the health page shows as a service's last error and counts as a
+// failure, so a slow range asked by an impatient client would have read
+// there as a broken service.
+//
+// So the request's own context decides, not the error's text: the
+// deadline's line is already written and its count already taken; a
+// client that left gets an INFO line in the tree, which keeps the fact
+// without calling it a fault.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
-	s.logger().Error("api: query failed", "path", r.URL.Path, "err", err)
+	switch ended := r.Context().Err(); {
+	case errors.Is(ended, context.DeadlineExceeded):
+	case errors.Is(ended, context.Canceled):
+		s.logger().Info("api: the client went away before the answer", "path", r.URL.Path, "err", err)
+	default:
+		s.failed.Add(1)
+		s.logger().Error("api: query failed", "path", r.URL.Path, "err", err)
+	}
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
@@ -468,12 +511,14 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		if errors.Is(err, http.ErrHandlerTimeout) {
-			// The deadline answered this request already and logged it;
-			// this is the handler finishing after the fact. Measured
-			// before this check: every timed-out request left a second
-			// ERROR line calling itself an encoding failure, beside the
-			// WARN that said what happened.
+		if errors.Is(err, http.ErrHandlerTimeout) || errors.Is(err, context.Canceled) {
+			// The request is over and this write goes nowhere: the
+			// deadline answered it already and logged it, or the client
+			// left and TimeoutHandler refuses the write with the
+			// context's error. Measured before each check: every such
+			// request left an ERROR line calling itself an encoding
+			// failure - the second case found in Z6, once the same
+			// question was asked of a client that gave up.
 			return
 		}
 		// The status line is already written, so there is nothing useful

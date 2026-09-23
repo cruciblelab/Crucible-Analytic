@@ -21508,3 +21508,174 @@ yönlü eşit (bayat girdi de kırmızı). Sekiz mutasyon, sekizi kırmızı.
 *Bir kırpma kuralı alanın adına bakıyorsa, değerin içindeki sırrı
 görmez.* Ve: bir kırpma listesi, sırrı taşıyan rotaların listesinden
 türetilmezse, yeni bir bağlantı rotası sessizce sızdırır.
+
+## Z6 — Sağlık sayfası servislerin başına geleni göremiyordu (2026-09-23)
+
+PLAN'ın Z6'sı *"bulunan bütçe, kuyruk doluluğu, elenen istek, düşen olay
+— bugün bu sayıların hiçbiri hiçbir yerde yok"* diyordu. Başlamadan önce
+her sayının bugün nereye gittiği soruldu, ve cümle bir yarıda yanlış,
+öbür yarıda eksik çıktı: düşen olay **zaten** Sağlık sayfasındaydı
+(beacon ve collector'ın `dusurulen` sayacı), ama üç şey hiç yoktu ve
+üçü de var gibi yazılmıştı.
+
+### Üç ürün kusuru, bir sınıf
+
+1. **Son hata hiçbir kurulumda dolmadı.** `heartbeat.Reporter.Note`,
+   "servisin operatörün görmesini istediği bir başarısızlıkta çağırdığı"
+   fonksiyon — hiçbir servis çağırmıyordu; iki test çağırıyordu. Şema
+   yorumu tam bu durumu tarif ediyordu: *"collector ayakta ve son bir
+   saatteki her yazma başarısız"* yalnız canlılığa bakan bir şeye
+   görünmez.
+2. **Günlük kaybı sayılıyor, okunmuyordu.** `logsink.Sink.Counters`'ın
+   yorumu *"for the health page"*, `write`'ın yorumu *"the health page
+   reads the counter"*, README *"the count is reported like every other
+   counter"* diyordu. Tek okuyucusu paketin kendi testleriydi.
+3. **`hata` sayacının etiketi vardı, üreteni yoktu.** Sıralamada yeri,
+   iki dilde etiketi — ve onu satıra koyan hiçbir servis.
+
+5b'nin `SetIPTokenKeyConfigured` şekli, üç kez: bir alanın girdisi
+yalnız onu sınayan testten geliyor, testler geçiyor **çünkü** tek
+çağıran onlar.
+
+**Kapı niye görmedi, ölçüldü.** `deadcode` kapıda `-test` ile koşuyor,
+yani test çağıranı "ulaşılabilir" sayıyor. `-test`'siz koşunca 45
+fonksiyon ana ikililerden ulaşılamıyor — `Note` aralarında; ama
+`Sink.Counters` **yine yok**: araç onu *"reachable only through
+reflection"* diye canlı tutuyor. Kuralı aracın kendisinin: programda
+yöntemi adla çağırabilen bir yansıma yolu varsa, bir arayüze dönüşen
+tiplerin (ve alanlarının tiplerinin) dışa açık yöntemleri canlı sayılır
+— `Sink`, `slog.Handler`'a dönüşen işleyicinin bir alanı. Tetikleyenin
+hangi paket olduğunu (şablonlar olası aday) ayrıca ölçmedim. `unreachablesetters` değişmezi
+ise yalnız `panel.Store`'un `Set*` yöntemlerine bakıyor. İki üye hiçbir
+kontrolün göremeyeceği yerdeydi. *Bir dedektörün sessizliği aradığı
+şeye ulaşabildiğini göstermez* — ve bu sefer iki dedektör birden.
+
+### Ölçüm bir kusur daha buldu
+
+"Önce" koşusunun günlük ağacı: son tarihe takılan her istek **iki**
+satır yazıyordu — Z2'nin WARN'ı ve `fail`'den bir ERROR ("api: query
+failed ... context deadline exceeded"). Z2'de aynı ikinci satırı
+`writeJSON`'da susturmuştum; `fail`'dekini kaçırmışım. Ve istemcinin
+vazgeçtiği bir istek (2 sn'de bağlantıyı kapatan) **iki ERROR**
+yazıyordu: "query failed: context canceled" ve "encoding response
+failed: context canceled". Z6'dan sonra ERROR hem "son hata" hem `hata`
+sayacı demek; bu ikisi düzeltilmeden her yavaş aralık bozuk bir servis
+gibi okunurdu.
+
+### Ne yapıldı
+
+**İtme değil çekme.** Her başarısızlık yerinin hatırlaması gereken bir
+çağrı (`Note`) başarısız olan şekildi. Bir servisin yazdığı her ERROR
+satırı zaten logsink'ten geçiyor; son hata oradan okunuyor, ve gelecek
+yıl yazılacak bir hata yolu kimse bağlamadan kapsanıyor.
+
+- `logsink`: `Lost()` (düşürülen + yazılamayan) ve `LastError()` (en
+  yeni ERROR satırı, "mesaj: err", temizlenmiş kopyadan). Satır tampon
+  dolu olduğu için düşse bile son hata olur: dolu tampon başı dertte bir
+  servis demek.
+- `heartbeat`: `Note` kalktı; `Options.Log` (bir `LogReport`) her vuruşta
+  soruluyor, `gunluk_kaybi` sayacını raportör kendisi ekliyor — hiçbir
+  servis unutamasın diye. Servisin haritası kopyalanıyor, üstüne
+  yazılmıyor.
+- `deadline`: `Answer.OnTimeout`, son tarihin cevapladığı her istek için
+  bir kez. Yalnız gerçekten 503 yazıldıysa — hızlı yolda, işleyicinin
+  kendi 503'ünde ve istemci vazgeçtiğinde çağrılmıyor (sonuncusu
+  `TimeoutHandler`'ın o yolda da 503 yazması yüzünden ayrıca sınanıyor).
+- API: `Counters()` (başarısız, süresi dolan). `fail` isteğin **kendi
+  bağlamına** bakıyor, hatanın metnine değil: son tarih → satır yok
+  (WARN zaten yazıldı), istemci gitti → INFO, gerisi ERROR + sayaç.
+  `writeJSON` iptali de susturuyor.
+- Panel: kalp atışı yok, o yüzden kendi satırını kendisi dolduruyor —
+  son tarih sayacı `withDeadline`'dan, kayıp ve son hata `OwnLog`'dan.
+  Etiket ve sıra servislerin satırlarıyla **aynı fonksiyondan**
+  (`labelledCounters`).
+
+**Bütçe ertelendi:** Z1'in bulduğu bellek tavanı ve havuz boyu bir sayaç
+değil bir özellik; `counters`'a koymak onu "Sayaçlar" başlığı altında
+yanlış etiketle göstermek olur, sütunu şema ister.
+
+### Ölçüm (gerçek ikili, `ca_beacon`, havuz 1, `z6.py`)
+
+Aynı betik iki ikiliyle: beş eşzamanlı 90 günlük istek (son tarih), 2
+saniyede vazgeçen bir istemci, `beacon_events`'ten SELECT geri alınarak
+bir gerçek hata, ve `panel_logs` 20 sn kilitliyken üç hata daha; sonra
+bir kalp atışı beklenip satır okunuyor.
+
+| | önce | sonra |
+|---|---|---|
+| satırın `counters`'ı | `{}` | `{"hata": 4, "suresi_dolan": 3, "gunluk_kaybi": 3}` |
+| `last_error` | boş | `api: query failed: api: beacon summary: ERROR: permission denied for table beacon_events (SQLSTATE 42501)` |
+| ağaçtaki WARN/ERROR | 8 — 1 WARN, 7 ERROR, üçü sahte | 7 — 3 WARN, 4 ERROR |
+| `panel_logs`'a ulaşan | 5/8, 3 kayıp **görünmez** | 4/7, 3 kayıp **satırda 3** |
+| vazgeçen istemci | 2 ERROR | 1 INFO |
+
+Satırın sayıları olanla birebir: 4 gerçek hata, 3 son tarih, ve ağaç ile
+tablo arasındaki fark 3 — kilit sırasındaki üç satır. İki kolda son
+tarihe takılan istek sayısı farklı (1 ve 3): "önce"den sonra konteyner
+yeniden başladı ve önbellek soğuktu. İddia olay sayısıyla ilgili değil,
+satırın olanı doğru söyleyip söylemediğiyle; ikisi de kendi koşusunu
+doğru söylüyor (önce: hiç söylemiyor).
+
+### Testler ve bekçiler
+
+- `internal/api/counters_test.go`: üç durum `srv.Handler()`'dan, yani
+  ikilinin kablolamasıyla. Son tarih 55 sn beklemeden: son tarihi
+  **zaten geçmiş** bir bağlamla gelen istek, `deadline`'ın bağlamını ölü
+  doğurur ve gerçek `TimeoutHandler` hemen cevaplar. Sahte depo bağlam
+  bitince değil, **test cevabı gördükten sonra** dönüyor — yoksa
+  `TimeoutHandler`'ın `select`'inde iki kanal birden hazır olur ve Go
+  rastgele seçer: test yarı yarıya 503, yarı yarıya 500 görürdü.
+- `internal/heartbeat/snapshot_test.go`, `internal/logsink/lasterror_test.go`
+  (tampon doluyken düşen satır da son hata olur; temizleme iki yarıda
+  birden — mesaj temiz, `err` kirli bir test yarım bir temizliği
+  geçirirdi), `internal/deadline` (dört yön), `internal/panel/web`
+  (panel satırı, gerçek `withDeadline`'dan; ve sayfanın o satırı
+  **çizdiği** entegrasyon testi).
+- `internal/panel/web/health_test.go`'daki iki test sayaçları **elle**
+  sayıyordu — "the real constants, not a copy" yorumunun altında beş
+  isim. Z6 iki sabit ekledi ve ikisi de o listelere girmeden iki testi
+  geçerdi. Liste artık `internal/heartbeat`'in kaynağından türetiliyor.
+- `internal/invariants/ownhealth_test.go`: her `heartbeat.New`'in
+  `Options.Log`'u ve panelin `OwnLog`'u, o `main`'in `logsink.Attach`'ten
+  aldığı sink olmalı; ve `internal/heartbeat`'in her `Counter` sabiti
+  testler dışında bir yerde **üretilmeli** (bir sayaç haritasına
+  konmalı). Üçüncü kural, `hata` gibi etiketi olup üreteni olmayan bir
+  sayacı yakalıyor.
+
+**Yirmi sekiz mutasyon, yirmi sekizi kırmızı**, ilk turda
+(`scratchpad/mutasyon-z6.py`). İkisi yazılırken sağ kalacağı görülen
+mutasyonlardı ve testleri önce yazıldı: ham mesajla kurulan son hata
+(temizleme testi yalnız `err`'i kirletiyordu, mesajı da kirletir oldu),
+ve panel satırını çizmeyen şablon (sayfayı gerçekten çizen bir test
+yoktu; entegrasyon testi eklendi). Bekçinin kendisi de ölçüldü: atama
+biçimindeki üreticiyi (`m[Counter] = v`) görmeyen bir tarayıcı
+`gunluk_kaybi`'yi üreticisiz sayıp kırmızı veriyor — yani o dal yük
+taşıyor.
+
+### Açık kalan
+
+- **Sınıfın geri kalanı denetlenmedi.** `deadcode`'u `-test`'siz koşunca
+  45 fonksiyon ana ikililerden ulaşılamıyor; yaklaşık yirmisi test
+  destek paketleri (`testdb`, `browsertest`), gerisi ürün kodu. `Note`
+  onlardan biriydi ve bir kusurdu. Diğerleri tek tek okunmadı — PLAN'da.
+- **Panel kalp atışı yazmıyor — ve ikili güncellemesi onu bekliyor.**
+  Önce bir yetki sorusu gibi göründü: README "four services write to one
+  table" diyordu, kalp atışını üç servis yazıyor; veritabanına soruldu,
+  `panel_user`'ın o tabloda INSERT/UPDATE yetkisi ilk günden (B4/B7)
+  var. "Kullanılmayan yetki, geri alınmalı" diye yazdım. Sonra Sağlık
+  sayfasının ekran görüntüsüne baktım ve **iki "Panel" satırı** gördüm:
+  biri panelin kendi satırı, öbürü paylaşılan veritabanında
+  `internal/relupdate`'in testlerinin panel adına yazıp bıraktığı bayat
+  bir satır. Testler niye panel adına yazıyordu? Çünkü
+  `relupdate.HealthServices` dört rolü bekliyor, panel dâhil — ikili
+  güncellemesinden sonraki yeniden başlatma denetimi. Gerçek panel
+  ikilisiyle ölçüldü (`/var/tmp/ca-o4a/v4d/panel-kalp.py`): 75 sn,
+  sıfır satır; diğer üçü geri döndüğünde ürünün kendi
+  `Doorbell.Healthy`'si `missing=[panel_user]`. Yeniden başlatıcıyı açan
+  her dağıtımda her güncelleme geri alınır. Yetkiyi geri almak düzeltmeyi
+  imkânsız yapardı; öneri yanlıştı ve silindi. PLAN §V4b. *Ekran
+  görüntüsüne bakmanın değeri betiğin iddialarında değil, bakmakta* —
+  üçüncü kez.
+- **Yükseltici** logsink bağlıyor ama kalp atışı yazmıyor; kayıpları ve
+  son hatası Sağlık sayfasında görünmüyor. Zamanlayıcıyla koşan tek
+  seferlik bir iş, sonucu `panel_upgrade_requests`'te; bilerek bırakıldı.

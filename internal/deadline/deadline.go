@@ -78,6 +78,11 @@ type Answer struct {
 	// paths are credentials - measured, this line put an invitation
 	// token into panel_logs before it did.
 	LogPath func(string) string
+	// OnTimeout is called once for each request this answered, beside
+	// its log line; nil calls nothing. It is how the count reaches the
+	// health page: a line per request says what happened, a number says
+	// how often, and only the number fits on a page read at a glance.
+	OnTimeout func()
 }
 
 // Handler wraps h so it is answered by the deadline For(writeTimeout)
@@ -112,6 +117,9 @@ func within(h http.Handler, limit time.Duration, answer Answer, logger func() *s
 		tw := &answerWriter{ResponseWriter: w, ctx: ctx, contentType: answer.ContentType}
 		inner.ServeHTTP(tw, r.WithContext(ctx))
 		if tw.timedOut {
+			if answer.OnTimeout != nil {
+				answer.OnTimeout()
+			}
 			path := r.URL.Path
 			if answer.LogPath != nil {
 				path = answer.LogPath(path)

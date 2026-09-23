@@ -319,6 +319,8 @@ var healthCounterOrder = []string{
 	heartbeat.CounterAccepted,
 	heartbeat.CounterRejected,
 	heartbeat.CounterErrors,
+	heartbeat.CounterDeadline,
+	heartbeat.CounterLogLost,
 }
 
 // healthHandler serves the page.
@@ -444,10 +446,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 
 	data := healthPage{
 		SelfURL: HealthPath,
-		Panel: healthService{
-			Name:    "panel_user",
-			Version: buildinfo.Version(s.Renderer.Version),
-		},
+		Panel:   s.panelRow(lang),
 	}
 
 	// Three sources, gathered independently. Each failure is written
@@ -577,23 +576,61 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 			row.TokenKey = lang.T("saglik.jeton_yok")
 			row.TokenKeyMissing = true
 		}
-		// Only counters with a label, in a fixed order. A counter a
-		// service invented and nobody has words for would otherwise
-		// render as a raw identifier on an operator's screen; the test
-		// in health_test.go keeps the two lists together.
-		for _, key := range healthCounterOrder {
-			value, present := b.Counters[key]
-			if !present {
-				continue
-			}
-			row.Counters = append(row.Counters, healthCounter{
-				Label: lang.T("saglik.sayac." + key),
-				Value: value,
-			})
-		}
+		row.Counters = labelledCounters(lang, b.Counters)
 		out = append(out, row)
 	}
 	return out, "", false
+}
+
+// labelledCounters is a row's counters as the page draws them: only the
+// ones with a label, in a fixed order. A counter a service invented and
+// nobody has words for would otherwise render as a raw identifier on an
+// operator's screen; the test in health_test.go keeps the two lists
+// together.
+//
+// One function for the services' rows and the panel's own, so the
+// panel's numbers cannot be labelled or ordered by a second rule.
+func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCounter {
+	var out []healthCounter
+	for _, key := range healthCounterOrder {
+		value, present := counters[key]
+		if !present {
+			continue
+		}
+		out = append(out, healthCounter{
+			Label: lang.T("saglik.sayac." + key),
+			Value: value,
+		})
+	}
+	return out
+}
+
+// panelRow is this process's row: what the panel knows about itself,
+// with no heartbeat to carry it.
+//
+// # Why it has numbers now
+//
+// Until Z6 the row was a version and a sentence. The panel answers
+// requests through the same deadline as the read API and logs through
+// the same kind of sink, and both counts existed in this process - the
+// deadline's as a WARN line per request, the sink's as a counter nothing
+// read. The services' rows show those numbers; a panel row without them
+// would be the one place on the page where a process's trouble was
+// invisible, and the page is read to find trouble.
+func (s *Server) panelRow(lang *ui.Language) healthService {
+	row := healthService{
+		Name:    "panel_user",
+		Version: buildinfo.Version(s.Renderer.Version),
+	}
+	counters := map[string]int64{
+		heartbeat.CounterDeadline: heartbeat.Count(s.pastDeadline.Load()),
+	}
+	if s.OwnLog != nil {
+		counters[heartbeat.CounterLogLost] = heartbeat.Count(s.OwnLog.Lost())
+		row.LastError, row.LastErrorAt = s.OwnLog.LastError()
+	}
+	row.Counters = labelledCounters(lang, counters)
+	return row
 }
 
 // healthStorage reads what the panel may know about the tables.

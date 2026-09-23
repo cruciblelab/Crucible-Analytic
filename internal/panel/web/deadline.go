@@ -22,12 +22,14 @@ func (s *Server) withDeadline(next http.Handler) http.Handler {
 	return deadline.Handler(next, writeTimeout, s.timeoutAnswer(), s.logger)
 }
 
-// timeoutAnswer is the page, and the rule for how its log line names the
-// request: through loggedPath, like the access log, because a request
-// that runs out of time can be an invitation link.
+// timeoutAnswer is the page, the rule for how its log line names the
+// request - through loggedPath, like the access log, because a request
+// that runs out of time can be an invitation link - and the count the
+// health page's panel row shows.
 func (s *Server) timeoutAnswer() deadline.Answer {
 	a := timeoutPage(s.Renderer.Catalogs(), s.Language)
 	a.LogPath = loggedPath
+	a.OnTimeout = func() { s.pastDeadline.Add(1) }
 	return a
 }
 

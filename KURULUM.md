@@ -1890,6 +1890,48 @@ ulaşılamıyor.
 
 ---
 
+### Servisler: Sağlık sayfasındaki satırlar ne söyler
+
+Her servisin bir satırı var, panelin kendisininki en altta. Sayaçlar
+servis açıldığından beri sayılır; servis yeniden başlayınca sıfırdan
+başlar.
+
+| Sayaç | Hangi satırda | Ne demek |
+|---|---|---|
+| Düşürülen | beacon, collector | Yazılamadan atılan olay ya da satır. Müşterinin sayıları bu kadar eksik. |
+| Yazılan | beacon, collector | Veritabanına yazılan satır. |
+| Kabul edilen · Reddedilen | beacon | Kabul edilen istek ve kapıda geri çevrilen (yanlış site, bozuk gövde). |
+| Hata | okuma API'si | Servisin kendi sebebiyle cevaplayamadığı istek — bir sorgu hatası. |
+| Süresi dolan istek | okuma API'si, panel | 55 saniyede bitmediği için `503` alan istek. Bozuk değil, yavaş: aralığı daraltmak ya da havuzu büyütmek. |
+| Kaybolan günlük satırı | okuma API'si, beacon, collector, panel | `panel_logs`'a ulaşamayan WARN/ERROR satırı (tampon dolu ya da yazma başarısız). Satır disk günlüğünde duruyor. |
+
+**Son hata**, servisin yazdığı en yeni ERROR satırıdır — mesajı ve
+sebebiyle, ne zaman olduğuyla. Servis düzelse de satırda kalır, çünkü
+aralıklı bir arıza "baktığımda çalışıyordu" diye aylarca yaşar; servis
+yeniden başlayınca silinir.
+
+İki şey bilerek hata sayılmaz: süresi dolan istek (kendi sayacı var,
+satırı WARN) ve **istemcinin vazgeçtiği** istek — panelin beş saniyelik
+sınırı ya da bağlantıyı kapatan bir program. Onu servis yapmadı; disk
+günlüğüne INFO olarak yazılır.
+
+**Neden bu kadar ayrıntılı — ölçüldü.** Okuma API'si, tek bağlantılık
+havuzla, aynı düzenekte: son tarihe takılan istekler, vazgeçen bir
+istemci, dört gerçek sorgu hatası, ve `panel_logs` 20 saniye kilitliyken
+üç hata satırı.
+
+| | önce | sonra |
+|---|---|---|
+| Kalp atışı satırının sayaçları | `{}` | hata 4 · süresi dolan 3 · kaybolan satır 3 |
+| Son hata | boş | `api: query failed: ... permission denied for table beacon_events` |
+| Son tarih başına günlük satırı | WARN + ayrıca bir ERROR | yalnız WARN |
+| Vazgeçen istemci | iki ERROR | bir INFO |
+
+Önceki hâlinde Sağlık sayfası bu servis hakkında hiçbir şey
+söylemiyordu; "son hata" satırı hiçbir kurulumda hiç dolmamıştı.
+
+---
+
 ### Yedek: Sağlık sayfasındaki Yedek bölümü
 
 **Önce açmanız gerekiyor.** `upgrader.toml` içine:

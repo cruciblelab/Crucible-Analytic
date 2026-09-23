@@ -117,6 +117,10 @@ func writeBeatDetail(t *testing.T, store *panel.Store, version string, started t
 	counters map[string]int64, note error, prof string, key heartbeat.TokenKeyState) {
 	t.Helper()
 
+	var log heartbeat.LogReport
+	if note != nil {
+		log = noteLog{text: note.Error(), at: time.Now()}
+	}
 	r := heartbeat.New(heartbeat.Options{
 		Pool:       testdb.Pool(t, testdb.Collector),
 		Version:    version,
@@ -126,8 +130,8 @@ func writeBeatDetail(t *testing.T, store *panel.Store, version string, started t
 		Counters: func() map[string]int64 {
 			return counters
 		},
+		Log: log,
 	})
-	r.Note(note)
 	// Run writes once immediately and then waits out its interval, so a
 	// cancelled context after the first beat is exactly one row.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -201,6 +205,43 @@ func TestTheHealthPageShowsAServiceAndItsFailure(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("the health page shows %q, which is a number about visitors", forbidden)
 		}
+	}
+}
+
+// The panel's own row, drawn: its numbers and its last error come from
+// this process, and the page must put them under the panel rather than
+// under the service above it. Until Z6 the row was a version and a
+// sentence - measured, the process held both numbers and no page read
+// them.
+func TestTheHealthPageShowsThePanelsOwnNumbers(t *testing.T) {
+	server, client, _ := healthServerTweaked(t, func(s *Server) {
+		s.OwnLog = ownLog{lost: 2, text: "panel: reading storage facts: permission denied",
+			at: time.Now().Add(-10 * time.Minute)}
+	})
+
+	status, body := get(t, client, server.URL+HealthPath)
+	if status != http.StatusOK {
+		t.Fatalf("the health page answered %d", status)
+	}
+	self := strings.Index(body, "Bu sayfayı gösteren süreç")
+	if self < 0 {
+		t.Fatal("the panel's row is not on the page")
+	}
+	row := body[self:]
+	for _, want := range []string{
+		"Kaybolan günlük satırı: 2",
+		"Süresi dolan istek: 0",
+		"panel: reading storage facts: permission denied",
+	} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the panel's row does not show %q", want)
+		}
+	}
+	// And the last error is the panel's line, not a sentence the page
+	// could attach to the row above it: it comes after the panel's own
+	// row starts, and before the section ends.
+	if end := strings.Index(row, "</table>"); end >= 0 && !strings.Contains(row[:end], "permission denied") {
+		t.Error("the panel's last error is drawn outside the panel's row")
 	}
 }
 
@@ -995,3 +1036,13 @@ func TestTheHealthPageSaysHowLongBackupsAreKept(t *testing.T) {
 		})
 	}
 }
+
+// noteLog is a service's log copy that has seen one error and lost
+// nothing.
+type noteLog struct {
+	text string
+	at   time.Time
+}
+
+func (n noteLog) Lost() uint64                   { return 0 }
+func (n noteLog) LastError() (string, time.Time) { return n.text, n.at }

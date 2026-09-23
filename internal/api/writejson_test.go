@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -31,15 +32,25 @@ func captureDefault(t *testing.T) *bytes.Buffer {
 }
 
 // Both halves, because the first alone passes if the branch logged
-// nothing at all: a write the deadline has already answered is quiet,
+// nothing at all: a write to a request that is already over is quiet,
 // and any other failed write still says so.
-func TestWriteJSONIsQuietOnlyAboutTheDeadlinesOwnFailure(t *testing.T) {
+func TestWriteJSONIsQuietOnlyAboutARequestThatIsOver(t *testing.T) {
 	buf := captureDefault(t)
 	writeJSON(failingWriter{httptest.NewRecorder(), http.ErrHandlerTimeout}, http.StatusOK, map[string]int{"n": 1})
 	if buf.Len() != 0 {
 		t.Errorf("a write after the deadline answered was logged: %s\n"+
 			"internal/deadline already logged that request; this line called itself an "+
 			"encoding failure beside it - measured, one per timed-out request", buf.String())
+	}
+
+	// The client left: TimeoutHandler refuses the write with the
+	// context's own error. Measured in Z6 - an ERROR per abandoned
+	// request, and since Z6 an ERROR is a service's last error on the
+	// health page.
+	buf.Reset()
+	writeJSON(failingWriter{httptest.NewRecorder(), context.Canceled}, http.StatusOK, map[string]int{"n": 1})
+	if buf.Len() != 0 {
+		t.Errorf("a write to a client that went away was logged: %s", buf.String())
 	}
 
 	buf.Reset()

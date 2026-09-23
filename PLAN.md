@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(İkisi sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **4/6** | Z3, Z5 — *(İkisi de sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5621,7 +5621,7 @@ parmak izi değişir):
 Ölçüt değişmedi: ertelemeyi silen mutasyon, aynı düzenekte düşen olay
 sayısını geri getirmeli.
 
-#### Z6 — Panelde görünürlük
+#### Z6 — Panelde görünürlük ✅ **bitti (2026-09-23)**
 
 Bulunan bütçe, işçi/kuyruk doluluğu, elenen istek, düşen olay. Bugün bu
 sayıların **hiçbiri hiçbir yerde yok**, ve kuralımız: okuyucuya söylenen
@@ -5658,9 +5658,64 @@ yerdeydi.
 Kapsam (şemasız — `counters` zaten JSONB): servislerin veri kaybettiği
 yerde `Note`; kalp atışı olan her servise günlük kaybı sayacı; API'ye
 son tarih ve hata sayaçları; panelin kendi sayıları kendi Sağlık
-sayfasında (panelin kalp atışı satırı yok, vermek bir yetki değişikliği).
-Bütçe **ertelendi**: bir sayaç değil bir özellik, ve `counters`'a
-koymak onu yanlış etiket altında göstermek olur.
+sayfasında. Bütçe **ertelendi**: bir sayaç değil bir özellik, ve
+`counters`'a koymak onu yanlış etiket altında göstermek olur.
+
+*(Bu paragrafın ilk hâli "panelin kalp atışı satırı yok, vermek bir
+yetki değişikliği" diyordu. Yanlıştı: `panel_user` o tabloya ilk
+günden beri yazabiliyor — aşağıda, açık kalanlarda.)*
+
+**Sonuç (2026-09-23).** `Note` yerine **çekme**: her başarısızlık
+yerinin hatırlaması gereken bir çağrı başarısız olan şekildi, oysa bir
+servisin yazdığı her ERROR satırı zaten logsink'ten geçiyor. Kalp atışı
+her vuruşta servisin günlük kopyasına soruyor (`Options.Log`): en yeni
+ERROR satırı ve `panel_logs`'a ulaşamayan satır sayısı. API
+başarısız/süresi dolan isteği sayıyor, panel kendi satırını kendisi
+dolduruyor. Ölçüm bir kusur daha buldu: son tarihe takılan her istek
+Z2'nin WARN'ının yanında bir ERROR da yazıyordu (`fail`), ve istemcinin
+vazgeçtiği bir istek **iki** ERROR — Z6'dan sonra ERROR "son hata"
+demek olduğundan, her yavaş aralık bozuk bir servis gibi okunurdu. `fail`
+artık isteğin kendi bağlamına bakıyor.
+
+Gerçek ikiliyle, aynı düzenekte (tek bağlantılık havuz, son tarihe
+takılan istekler, vazgeçen bir istemci, dört gerçek sorgu hatası,
+`panel_logs` 20 sn kilitli):
+
+| | önce | sonra |
+|---|---|---|
+| kalp atışı satırının sayaçları | `{}` | hata 4 · süresi dolan 3 · kaybolan satır 3 |
+| son hata | boş | `api: query failed: ... permission denied for table beacon_events` |
+| vazgeçen istemci | 2 ERROR | 1 INFO |
+
+Satırın sayıları olanla birebir; ağaç ile tablo arasındaki fark (3) tam
+kilit sırasındaki üç satır. Bekçi: `internal/invariants/ownhealth_test.go`
+— her `heartbeat.New`'in `Log`'u ve panelin `OwnLog`'u `logsink.Attach`'in
+sink'i, ve her `Counter` sabitinin testler dışında bir üreticisi var.
+`health_test.go`'nun sayaç listeleri elle tutuluyordu, artık
+`internal/heartbeat`'in kaynağından türetiliyor. Yirmi sekiz mutasyon,
+yirmi sekizi kırmızı. Ayrıntı NOTES'ta.
+
+**Açık kalan, ikisi de ölçüldü, ikisi de kendi fazı:**
+
+- **Yalnız testlerin ulaştığı ürün kodu.** `deadcode`'u `-test`'siz
+  koşunca 45 fonksiyon ana ikililerden ulaşılamıyor; yaklaşık yirmisi
+  test destek paketleri (`testdb`, `browsertest`), gerisi ürün kodu.
+  `Note` onlardan biriydi ve bir kusurdu; diğerleri tek tek okunmadı. Ve
+  liste eksik: yansıma yüzünden canlı sayılan `Sink.Counters` gibi
+  üyeler orada hiç görünmüyor.
+- **Panelin kalp atışı: yetkisi var, yazmıyor — ve bu bir yetki
+  fazlalığı değil, bir kusur.** `grants.sql` `service_heartbeat`'e dört
+  yazar veriyor, `panel_user` dâhil; panel hiç satır yazmıyor. Z6'nın
+  ekran görüntüsünde çıktı: paylaşılan veritabanında bir testin panel
+  adına yazıp bıraktığı bayat bir satır, sayfada ikinci bir "Panel"
+  satırı olarak. İzi sürülünce: ikili güncellemesinin yeniden başlatma
+  denetimi (`relupdate.HealthServices`) panelin kalp atışını da bekliyor,
+  ve o satırı testler kendileri yazıyor. **Gerçek panel ikilisiyle
+  ölçüldü:** 75 sn koştu, tek satır yazmadı; diğer üç servis geri
+  döndüğünde ürünün kendi `Doorbell.Healthy`'si `missing=[panel_user]`
+  dedi. Yani yeniden başlatıcıyı açan her dağıtımda her ikili
+  güncellemesi geri alınır — §V4b. *(Bu maddenin ilk hâli yetkiyi geri
+  almayı öneriyordu; o, düzeltmeyi imkânsız yapardı.)*
 
 ---
 
@@ -10083,6 +10138,19 @@ Kanca var, üretimde bağlı değil. Yapılacak: `crucible-upgrader`'a yalnız
 satırı, KURULUM.md'de yazılı ve **isteğe bağlı**, artı yeniden
 başlatılan servisin gerçekten ayağa kalktığını kalp atışı satırından
 doğrulamak.
+
+**Durum (2026-09-23): yapıldı ve hiç çalışmadı.** Bağlama `ab376e5`'te
+polkit/sudoers yerine bir zil olarak yapıldı (`crucible-restart.path`,
+isteğe bağlı, KURULUM'da yazılı), ve denetim "otuz saniyede **dördü de**
+yazmazsa önceki binary'ler geri konuyor" diye kuruldu. Dördüncüsü
+panel — ve panel hiç kalp atışı yazmıyor. Testler geçiyordu çünkü
+panelin satırını testlerin kendisi yazıyordu. Gerçek panel ikilisiyle
+ölçüldü (Z6'nın ekran görüntüsünden çıktı, §Z6): 75 sn, sıfır satır,
+`Doorbell.Healthy` → `missing=[panel_user]`. Yeniden başlatıcıyı açan
+her dağıtımda her güncelleme geri alınır ve *"The machine needs
+somebody"* der. Açmayan dağıtım etkilenmiyor: zil çalınamayınca yükseltici
+hiçbir şeyi geri almıyor. Düzeltmenin yeri panel (yetkisi ilk günden
+var); sıradaki iş.
 
 #### V5 — Panel yüzeyi ⬜
 

@@ -163,6 +163,15 @@ func main() {
 	defer panelLog.Close()
 	slog.SetDefault(logger)
 
+	// Built before the heartbeat, because the heartbeat reads its
+	// counters: the first beat is written the moment Run starts.
+	srv := &api.Server{
+		ListenAddr: cfg.ListenAddr,
+		Store:      store,
+		Auth:       auth,
+		Logger:     logger,
+	}
+
 	beat := heartbeat.New(heartbeat.Options{
 
 		Pool: monitor,
@@ -170,16 +179,22 @@ func main() {
 		Version: buildinfo.Version(version),
 
 		Logger: logger,
+
+		// The row's last error and its log-loss count. Until Z6 this
+		// service's row carried neither, and no counters at all.
+		Log: panelLog,
+
+		Counters: func() map[string]int64 {
+			failed, pastDeadline := srv.Counters()
+			return map[string]int64{
+				heartbeat.CounterErrors:   heartbeat.Count(failed),
+				heartbeat.CounterDeadline: heartbeat.Count(pastDeadline),
+			}
+		},
 	})
 
 	go beat.Run(ctx)
 
-	srv := &api.Server{
-		ListenAddr: cfg.ListenAddr,
-		Store:      store,
-		Auth:       auth,
-		Logger:     logger,
-	}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		logger.Error("api server error", "err", err)
 		os.Exit(1)

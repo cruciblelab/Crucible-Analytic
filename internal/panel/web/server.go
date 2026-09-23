@@ -5,9 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
@@ -111,6 +113,16 @@ type Server struct {
 	// that one instead; this is the answer when the browser expresses no
 	// preference the panel can serve.
 	Language string
+	// OwnLog is this process's copy of its log for panel_logs - the sink
+	// logsink.Attach returned. The health page's panel row reads its last
+	// error and its log-loss count from here, because the panel writes no
+	// heartbeat row to carry them. Nil draws the row without them.
+	OwnLog heartbeat.LogReport
+
+	// pastDeadline counts requests internal/deadline answered 503 - the
+	// panel's own number for the counter the read API reports through
+	// its heartbeat row. See withDeadline.
+	pastDeadline atomic.Uint64
 }
 
 // Timeouts. A panel is not a streaming service: every response it

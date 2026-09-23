@@ -245,6 +245,9 @@ func main() {
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
+		// The row's last error and its log-loss count, from the same
+		// copy of the log the panel's table gets. See heartbeat.LogReport.
+		Log: panelLog,
 		// The beacon resolves addresses through its own [asn_lookup]
 		// section, so its level is its own. Reporting it is what lets
 		// the panel say "this column is not being collected" about a

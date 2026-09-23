@@ -299,6 +299,10 @@ func main() {
 				Panel:     cfg.Roles.Panel,
 			},
 		},
+		// This process's last error and log-loss count, for the panel's
+		// own row on the health page - it writes no heartbeat to carry
+		// them. The same sink the logger above feeds.
+		OwnLog: panelLog,
 	}
 	if err := srv.ListenAndServe(ctx); err != nil {
 		fatal(logger, "panel server error", err)

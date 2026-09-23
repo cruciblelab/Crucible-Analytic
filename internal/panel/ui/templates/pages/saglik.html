@@ -77,12 +77,34 @@ when I looked" is how an intermittent fault survives for months. */}}
 
 {{- /* The panel itself, which writes no heartbeat: it has no reason to
 tell itself it is alive, and a page reporting three builds with a gap
-where the fourth should be would read as a fault. */}}
+where the fourth should be would read as a fault. Its counters and its
+last error come from this process rather than from a row - the same
+labels and order as the services above (labelledCounters), and the same
+markup, written out again because a page template has no way to pass
+the row and the formatter to a shared block. */}}
 <tr>
 <th scope="row">{{t "saglik.servis.panel_user"}}</th>
 <td><code>{{if .Data.Panel.Version}}{{.Data.Panel.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
-<td colspan="5" class="ipucu">{{t "saglik.panel_kendisi"}}</td>
+<td colspan="4" class="ipucu">{{t "saglik.panel_kendisi"}}</td>
+<td>
+  {{- if .Data.Panel.Counters}}
+  <ul class="sayaclar">
+  {{- range .Data.Panel.Counters}}
+  <li>{{.Label}}: {{$.F.Number .Value}}</li>
+  {{- end}}
+  </ul>
+  {{- else}}<span class="ipucu">—</span>{{end}}
+</td>
 </tr>
+{{- if .Data.Panel.LastError}}
+<tr class="ayrinti">
+<td colspan="7">
+  <span class="uyari satir-ici">{{t "saglik.son_hata"}}</span>
+  <code>{{.Data.Panel.LastError}}</code>
+  {{- if not .Data.Panel.LastErrorAt.IsZero}} <span class="ipucu">({{$.F.Since .Data.Panel.LastErrorAt}})</span>{{end}}
+</td>
+</tr>
+{{- end}}
 </tbody>
 </table>
 <p class="ipucu">{{t "saglik.servis.ipucu"}}</p>
