@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(Z3'ün varsayılanı sahibin kararı. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, panele ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(İkisi sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, panele ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5543,6 +5543,38 @@ düşürüldü** ve yazmanın kuyruğu 35 katına çıktı (p99 1,67 → 58,55 m
 Sıkıştırma bir parçaya başlamadan önce yazarın tampon doluluğuna baksın,
 eşiğin üstündeyse o turu ertelesin. Ucuz, yerel, mutasyonla ölçülebilir:
 ertelemeyi silen bir mutasyon düşen olay sayısını geri getirmeli.
+
+**Durum (2026-09-23): yukarıdaki mekanizma şemasız uygulanamıyor —
+sahibin şema kararı bekleniyor.** Uygulamaya başlamadan önce iki şey
+soruldu ve ikisi de planı değiştirdi:
+
+1. **Tampon sıkıştırma başlamadan önce taşmıyordu.** Aynı ölçümün kendi
+   kontrol durumu: aynı yük, bakım yok → **0** olay düştü (p99 10,5 ms);
+   bakım eklenince **2.690**. Yani tampon sıkıştırma *sırasında* doluyor.
+   Turdan önce bakan bir kontrol o anda boş bir tampon görür ve kusuru
+   hiç yakalamaz — "ucuz ve yerel" sürüm, ölçülen durumda **hiçbir şey
+   yapmaz**.
+2. **Parça başına bakmak bugünkü şemayla imkânsız.** `ca_set_compression`
+   uygun bütün parçaları **tek çağrıda**, fonksiyonun içindeki bir
+   döngüyle sıkıştırıyor (`internal/retention/schema.sql`); Go tarafı
+   parçalar arasında hiçbir şey soramıyor. Çağrıyı yarıda iptal etmek de
+   çözüm değil: fonksiyon çağıranın işlemi içinde koşuyor, iptal bitmiş
+   parçaları da geri alır, ve sürekli yükte tur hiç bitmez. Doğrudan
+   `compress_chunk` çağırmak da yok: hipertablonun sahibi olmayı
+   gerektiriyor, bu yüzden SECURITY DEFINER sarmalayıcı var.
+
+**Seçenekler** (ikisi de şema 24'ün içinde — yayımlanmadı, bump yok,
+parmak izi değişir):
+
+- **(a) Önerim:** `ca_set_compression`'a varsayılanlı bir üçüncü
+  parametre, "bu çağrıda en fazla N parça". Eski iki parametreli çağrı
+  aynen çalışır; Go N=1 ile çağırır ve her parçadan önce yazarın
+  tamponuna bakar. Yüzey aynı fonksiyon, yetkiler aynı.
+- (b) Ayrı bir tek parçalık sarmalayıcı. Daha açık, ama bir SECURITY
+  DEFINER fonksiyon daha — denetlenecek bir yüzey daha.
+
+Ölçüt değişmedi: ertelemeyi silen mutasyon, aynı düzenekte düşen olay
+sayısını geri getirmeli.
 
 #### Z6 — Panelde görünürlük
 

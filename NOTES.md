@@ -21360,3 +21360,28 @@ kırmızı.
 
 Servis başına 1–2 bağlantı; beş servis için 5–10. KURULUM'da yazılı,
 tavanı küçültmüş operatör için.
+
+## Z5 — Uygulanmadı: planlanan mekanizma ölçülen durumda hiçbir şey yapmazdı (2026-09-23)
+
+PLAN'ın Z5 metni "sıkıştırma bir parçaya başlamadan önce yazarın
+tampon doluluğuna baksın" diyordu. Koda geçmeden iki soru soruldu:
+
+1. **Tampon ne zaman doluyor?** Etkileşim ölçümünün (`girisim.py`) kendi
+   kontrol durumu cevap veriyor: aynı yük, bakım yok → 0 düşen olay;
+   bakım eklenince 2.690. Tampon sıkıştırma *sırasında* doluyor. Turdan
+   önce bakan bir kontrol boş bir tampon görür.
+2. **Parça başına bakılabilir mi?** Hayır: `ca_set_compression` bütün
+   uygun parçaları tek çağrıda, içindeki bir döngüyle sıkıştırıyor. Bir
+   `FUNCTION` (prosedür değil), yani çağıranın işleminde koşuyor ve
+   arada commit edemiyor — yarıda iptal bitmiş parçaları da geri alır.
+
+Yani şemasız yapılabilecek sürüm ("turdan önce bak") ölçülen kusuru
+hiç görmezdi, ve onu yazıp "Z5 bitti" demek bir korumanın arkasına
+saklanan bir test yazmak olurdu. Seçenekler PLAN §Z5'te; önerim
+`ca_set_compression`'a varsayılanlı bir "en fazla N parça" parametresi.
+Şema 24 yayımlanmadığı için bump gerekmiyor, ama şemaya ne girdiği
+sahibin kararı.
+
+*Bir planı uygulamadan önce, planın dayandığı durumu ölçümün kendi
+kontrol koşusunda ara.* Kontrol koşusu oradaydı; plan yazılırken
+okunmamıştı.
