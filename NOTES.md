@@ -21465,3 +21465,46 @@ Tek koşuluk kollar ve kusur aralıklı (dün 129 örnek, bugün 3+1); asıl
 güvence yapısal: applier'ın bağlantıları artık paylaşılan veritabanında
 değil. Dünkü iki modlu dağılımın yavaş modunun kalktığı **iddia
 edilmiyor** — konteyner yeniden başlamasıyla ilişkiliydi ve sınanmadı.
+
+## H6 — Yoldaki jetonlar günlüğe açık metin yazılıyordu (2026-09-23)
+
+Z2'nin panel ölçümünde erişim günlüğüne bakarken görüldü; ölçmeden
+kimseye söylenmedi. Dört soru sırayla soruldu, çünkü cevaplar bulgunun
+büyüklüğünü belirliyor:
+
+1. **Hangi rotalar jeton taşıyor?** Üç: `/gelistirici/{token}`,
+   `/sahiplen/{token}`, `/katil/{token}` — hepsi `Handler()`'da
+   `{token...}` kalıbıyla.
+2. **Günlük kırpıyor mu?** Hayır. `internal/logging` anahtar adına göre
+   kırpıyor (`token`, `password`…); `path` anahtarının değerindeki jetonu
+   görmüyor. (Sorgu dizesi bilerek dışarıda —
+   `TestAccessLogRecordsWhatWasSentAndNotTheQueryString` vardı; yol
+   düşünülmemişti.)
+3. **Kim okuyabiliyor?** Disk günlüğü `crucible` kullanıcısının.
+   `panel_logs`'u okuyan bir panel sayfası yok; destek rolünün okuma
+   yetkisi yok (J4); tablo yedeğe girmiyor (`backup.Excluded`). İlk
+   tahminim "yedek üzerinden geliştiriciye gidiyor" idi — **yanlıştı**,
+   `sets.go`'yu okuyunca çıktı. Yani bir yükselme yolu değil.
+4. **Jeton GET'ten sonra geçerli mi?** Evet: `joinHandler` GET'te
+   sayfayı çiziyor, yalnız POST tüketiyor; davet 7 gün yaşıyor, ve POST
+   davet edilen hesabı gönderenin seçtiği parolayla kuruyor.
+
+Gerçek ikiliyle ölçüldü (`/var/tmp/ca-o4a/jeton/jeton-gunluk.py`;
+jetonlar sahte, çünkü günlüğe yazılma geçerlilikten bağımsız): önce üç
+jeton `access.log`'da açık metin, ve son tarihe takılan bir davet isteği
+jetonu `error.log`, `app.log` ve **`panel_logs`'a** da yazdı — Z2'nin
+WARN satırı üzerinden, yani bu turun kendi eklediği bir yol. Sonra: hiçbir
+yerde yok; satırlar `/katil/[redacted]`, durum ve süreyle.
+
+Kod: `loggedPath` (temizlenmiş yol üzerinde eşleşiyor, çünkü erişim
+günlüğü mux'un dışında ve `/./katil/…` gibi bir yolu gönderildiği gibi
+görüyor); erişim günlüğü ve `deadline.Answer.LogPath` ondan geçiyor.
+İlk yazdığım hâlinde bir uzunluk koşulu vardı; `path.Clean` sondaki
+eğik çizgiyi sildiği için hiçbir zaman belirleyici değildi — kaldırıldı.
+
+Bekçi: `Handler()`'ın `{token...}` rotaları ile `tokenPathPrefixes` iki
+yönlü eşit (bayat girdi de kırmızı). Sekiz mutasyon, sekizi kırmızı.
+
+*Bir kırpma kuralı alanın adına bakıyorsa, değerin içindeki sırrı
+görmez.* Ve: bir kırpma listesi, sırrı taşıyan rotaların listesinden
+türetilmezse, yeni bir bağlantı rotası sessizce sızdırır.

@@ -73,6 +73,11 @@ type Answer struct {
 	ContentType string
 	// Body is the whole 503 body, written as given.
 	Body string
+	// LogPath is how the request's path appears in the log line; nil
+	// writes it as it arrived. The panel sets it, because some of its
+	// paths are credentials - measured, this line put an invitation
+	// token into panel_logs before it did.
+	LogPath func(string) string
 }
 
 // Handler wraps h so it is answered by the deadline For(writeTimeout)
@@ -107,9 +112,13 @@ func within(h http.Handler, limit time.Duration, answer Answer, logger func() *s
 		tw := &answerWriter{ResponseWriter: w, ctx: ctx, contentType: answer.ContentType}
 		inner.ServeHTTP(tw, r.WithContext(ctx))
 		if tw.timedOut {
+			path := r.URL.Path
+			if answer.LogPath != nil {
+				path = answer.LogPath(path)
+			}
 			logger().Warn("request ran past its deadline and was answered 503",
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", path,
 				"deadline", limit.String(),
 				"elapsed_ms", time.Since(started).Milliseconds(),
 			)

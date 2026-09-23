@@ -383,6 +383,13 @@ Panelin erişim günlüğündeki satır özellikle önemli: eski hâlinde, hiçb
 şey gönderilmemiş bir istek için "200" yazıyordu, yani günlüğe bakan biri
 sorun görmezdi.
 
+Aynı günlükte davet, sahiplenme ve geliştirici bağlantılarının yolu
+`/katil/[redacted]` gibi görünür. Bilerek: o bağlantılardaki jeton bir
+kimlik bilgisidir (bir davet, açılıp kabul edilmeden önce 7 gün boyunca
+davet edilen hesabı kurmaya yeter), ve veritabanı onu yalnız özet
+(hash) olarak saklıyor. Günlüğe açık metin yazılması o tasarımı arkadan
+deliyordu; hangi rota olduğu ve sonucu yine satırda.
+
 **Bunu ne zaman görürsünüz:** bir şema yükseltmesi panelin tablolarını
 kilitlerken (yükseltme bitince aynı sayfa normal açılır), ya da çok
 yoğun bir kurulumda çok uzun bir aralık istendiğinde (daha kısa bir

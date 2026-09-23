@@ -19,7 +19,16 @@ import (
 // written through it; placed inside, the 503 this writes is that status.
 // Placed outside, the log would go on recording the handler's intention.
 func (s *Server) withDeadline(next http.Handler) http.Handler {
-	return deadline.Handler(next, writeTimeout, timeoutPage(s.Renderer.Catalogs(), s.Language), s.logger)
+	return deadline.Handler(next, writeTimeout, s.timeoutAnswer(), s.logger)
+}
+
+// timeoutAnswer is the page, and the rule for how its log line names the
+// request: through loggedPath, like the access log, because a request
+// that runs out of time can be an invitation link.
+func (s *Server) timeoutAnswer() deadline.Answer {
+	a := timeoutPage(s.Renderer.Catalogs(), s.Language)
+	a.LogPath = loggedPath
+	return a
 }
 
 // timeoutPage is the one page TimeoutHandler can send: a fixed body,

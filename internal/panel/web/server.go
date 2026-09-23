@@ -253,7 +253,8 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 		s.logger().Info("panel request",
 			logging.In(logging.CategoryAccess),
 			"method", r.Method,
-			"path", r.URL.Path,
+			// Never the raw path: some are credentials. See loggedPath.
+			"path", loggedPath(r.URL.Path),
 			"status", rec.status,
 			"ms", time.Since(started).Milliseconds(),
 		)

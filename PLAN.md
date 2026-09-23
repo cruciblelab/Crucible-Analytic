@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(İkisi sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, panele ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **4/5** | H3 — *(H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -6328,6 +6328,39 @@ sonuncusu asıl olan, çünkü diğer ikisi zaten bugün var.
 > okuyacak şekilde düzeltildi.)
 
 ---
+
+#### H6 — Yolun içindeki jetonlar günlüğe açık metin yazılıyordu ✅ **yapıldı (2026-09-23)**
+
+*Planda yoktu; Z2'nin panel ölçümünde erişim günlüğüne bakarken
+görüldü, ve Z2'nin kendi WARN satırı onu ağırlaştırmıştı.*
+
+**Kusur, gerçek ikiliyle ölçüldü.** Üç panel bağlantısı yolun içinde bir
+kimlik bilgisi taşıyor: geliştirici bağlantısı, sahiplenme bağlantısı ve
+üye daveti (`{token...}`). Veritabanı onların yalnız sha256'sını
+saklıyor — sahibin "iki uçta da hash'li" ilkesi. Erişim günlüğü ise her
+isteği yoluyla yazıyordu: üç jeton da `access.log`'da **açık metin**. Ve
+Z2'den beri, son tarihe takılan bir davet isteği (bir şema yükseltmesi
+davet tablosunu kilitliyken) jetonu WARN satırıyla **`panel_logs`'a**
+da yazıyordu — WARN her zaman oraya gider.
+
+**Büyüklüğü de ölçüldü, abartmamak için.** Bir davet GET'ten sonra
+geçerli kalıyor (yalnız POST tüketiyor) ve 7 gün yaşıyor; POST davet
+edilen hesabı, gönderenin seçtiği parolayla kuruyor — yani jetonu bilen
+davet edilenin yerine geçer. Ama bugün jetonu okuyabilecek herkes zaten
+operatör: disk günlüğü `crucible` kullanıcısının, `panel_logs`'u okuyan
+bir panel sayfası yok, destek rolünün okuma yetkisi yok (J4), ve tablo
+yedeğe **girmiyor** (`backup.Excluded`). Bir yükselme yolu değil; deponun
+kendi kuralının ihlali — `internal/logging/redact.go`: gizli bir değer
+günlükte "kalıcıdır". Kırpma anahtar adına bakıyordu (`token`), `path`
+değerinin içindekine değil.
+
+**Düzeltme:** `loggedPath` — jetonlu rotalarda yol `önek + [redacted]`,
+temizlenmiş yol üzerinde eşleşerek (`/./katil/…` de). Erişim günlüğü ve
+son tarih satırı (`deadline.Answer.LogPath`) ondan geçiyor. Liste,
+`Handler()`'ın `{token...}` kalıplarıyla iki yönlü eşit tutuluyor
+(`internal/invariants/tokenpaths_test.go`). Sonra: jeton hiçbir yerde
+yok, satırlar hâlâ rotayı ve sonucu söylüyor. Sekiz mutasyon, sekizi
+kırmızı.
 
 #### H'nin gereksiz kılmadığı şey
 

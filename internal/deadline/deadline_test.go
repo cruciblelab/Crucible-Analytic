@@ -286,3 +286,24 @@ func TestForRefusesAWriteTimeoutWithNoRoom(t *testing.T) {
 	}()
 	For(10 * time.Second)
 }
+
+// LogPath names the request in the line; nil leaves the path as it came.
+// The nil half is TestAHandlerThatListensIsAnswered503AndLogged above.
+func TestTheLineNamesTheRequestThroughLogPath(t *testing.T) {
+	logs := &lockedBuffer{}
+	answer := jsonAnswer
+	answer.LogPath = func(p string) string { return "/katil/[redacted]" }
+	h := within(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}), limit, answer, logTo(logs))
+
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/katil/SECRET", nil))
+
+	lines := logs.lines(t)
+	if len(lines) != 1 {
+		t.Fatalf("%d log lines, want 1", len(lines))
+	}
+	if lines[0]["path"] != "/katil/[redacted]" {
+		t.Errorf("path = %v, want what LogPath returned", lines[0]["path"])
+	}
+}
