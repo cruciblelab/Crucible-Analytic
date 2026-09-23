@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(İkisi sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, panele ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **3/6** | Z3, Z5, Z6 — *(İkisi sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5550,14 +5550,23 @@ aynı ikili iki kolda yalnız derlemeyle değişiyor):
 |---|---|---|
 | kalp atışı (4 istemci) | açılıştan sonra 0 kez | 3/3 zamanında |
 | kalp atışı (8 istemci) | 0 kez | 3/3 |
-| WARN/ERROR'ın panele ulaşanı (8 istemci) | **7/33** | 36/36 |
+| WARN/ERROR'ın `panel_logs`'a ulaşanı (8 istemci) | **7/33** | 36/36 |
 
 Dört istemcili ilk koşu logsink yarısını **sınamadı** — yük altında hiç
 satır üretilmedi, "0/0" hiçbir şey söylemiyordu; sekiz istemciyle Z2'nin
-son tarih satırları havuz meşgulken üretildi. Ve bu ölçüm Z2'de
+son tarih satırları havuz meşgulken üretildi. Ve bu ölçüm, Z2'de
 KURULUM'a yazdığım "WARN satırı panelin günlük görünümünde de görünür"
-cümlesinin tek dalgalık yükte doğru, sürekli yükte **%21** doğru
-olduğunu gösterdi; Z4 onu doğru yapıyor.
+cümlesinin tablo yarısının tek dalgalık yükte doğru, sürekli yükte
+**%21** doğru olduğunu gösterdi; Z4 o yarıyı doğru yapıyor.
+
+**Düzeltme (2026-09-23, Z4'ten sonra):** cümlenin öbür yarısı hiç doğru
+değildi. `panel_logs`'u okuyan bir panel sayfası **yok** — ürün kodunda
+o tabloya dokunan tek ifade süpürmenin `DELETE`'i; sayfa D4b ve yazılmadı.
+Ölçtüğüm şey satırın **tabloya** ulaşmasıydı, ve ben onu "panelde
+görünür" diye yazdım, Z4'te de "panele ulaşan" diye tekrarladım. İki
+belge de artık tabloyu adlandırıyor, ve KURULUM bugün bu satırların
+nereden okunacağını söylüyor. Aynı okuma iki ürün kusuru daha buldu:
+§Z6.
 
 `resources.OpenMonitor`: iki bağlantı, biri hep açık (ana havuzlar
 PostgreSQL'in tavanını doldursa da izlemenin bağlantısı açık), DSN'in
@@ -5617,6 +5626,41 @@ sayısını geri getirmeli.
 Bulunan bütçe, işçi/kuyruk doluluğu, elenen istek, düşen olay. Bugün bu
 sayıların **hiçbiri hiçbir yerde yok**, ve kuralımız: okuyucuya söylenen
 bir başarısızlık operatöre de söylenmeli.
+
+**Ölçülen durum (2026-09-23): yukarıdaki cümle bir yarıda yanlış, öbür
+yarıda eksik.** Başlamadan önce her sayının bugün nereye gittiği
+kodda ve veritabanında soruldu:
+
+| sayı | bugün |
+|---|---|
+| düşen olay (beacon, collector) | **Sağlık sayfasında**, `dusurulen` sayacı — cümlenin yanlış yarısı |
+| `panel_logs`'a gidemeyen günlük satırı | sayılıyor (`logsink.Sink.Counters`), **hiçbir yere bildirilmiyor**; fonksiyonun yorumu "for the health page", README "her sayaç gibi bildirilir" diyor |
+| servisin son hatası | Sağlık sayfasında sütunu var; onu yazan `heartbeat.Reporter.Note`'u **hiçbir servis çağırmıyor**, yalnız iki test — sütun her kurulumda boş |
+| `hata` sayacı | etiketi var, sıralamada yeri var, **üreten yok** |
+| son tarihe takılan istek (Z2) | her biri için bir WARN satırı; sayı yok |
+| bulunan bütçe (Z1) | açılışta bir INFO satırı, yalnız disk günlüğünde (`panel_logs` WARN'dan başlıyor) |
+| elenen istek, kuyruk doluluğu | Z3 yok; sayılacak şey yok |
+
+İkinci ve üçüncü satır 5b'nin `SetIPTokenKeyConfigured` sınıfı: bir
+alanın girdisi yalnız onu sınayan testten geliyor, testler geçiyor
+**çünkü** tek çağıran onlar. Şema yorumu tam bu durumu anlatıyordu —
+*"collector ayakta ve son bir saatteki her yazma başarısız"* yalnız
+canlılığa bakan bir şeye görünmez — ve sütun o yüzden hiç dolmadı.
+
+**Kapının niye görmediği, ölçüldü:** `deadcode` kapıda `-test` ile
+koşuyor, yani test çağıranı "ulaşılabilir" sayıyor; `-test`'siz
+koşunca `Note` listede, ama `Sink.Counters` **yine yok** — araç onu
+"yalnız yansıma üzerinden ulaşılabilir" diye canlı tutuyor. Ve
+`unreachablesetters` değişmezi yalnız `panel.Store`'un `Set*`
+metotlarına bakıyor. Yani bu iki üye hiçbir kontrolün göremeyeceği
+yerdeydi.
+
+Kapsam (şemasız — `counters` zaten JSONB): servislerin veri kaybettiği
+yerde `Note`; kalp atışı olan her servise günlük kaybı sayacı; API'ye
+son tarih ve hata sayaçları; panelin kendi sayıları kendi Sağlık
+sayfasında (panelin kalp atışı satırı yok, vermek bir yetki değişikliği).
+Bütçe **ertelendi**: bir sayaç değil bir özellik, ve `counters`'a
+koymak onu yanlış etiket altında göstermek olur.
 
 ---
 
