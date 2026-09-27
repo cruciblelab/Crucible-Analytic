@@ -556,6 +556,17 @@ func TestAPreconditionSaysSoRatherThanBlamingTheValue(t *testing.T) {
 	// short of a superuser can say what another service reported. That
 	// policy is the point of the table and has its own suite.
 	admin := testdb.Admin(t)
+	// The rows below are the collector's and the beacon's, fresh - the
+	// very rows internal/relupdate asks about. Locked last (see
+	// testdb.HeartbeatLock), and removed while still locked: left behind,
+	// they told the next suite that two services had just reported.
+	testdb.Lock(t, admin, testdb.HeartbeatLock)
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(),
+			`DELETE FROM service_heartbeat WHERE version = 'onkosul-testi'`); err != nil {
+			t.Errorf("removing the heartbeat rows this test wrote: %v", err)
+		}
+	})
 	for _, role := range []string{testdb.Collector, testdb.Beacon} {
 		if _, err := admin.Exec(ctx, `
 			INSERT INTO service_heartbeat

@@ -21940,3 +21940,101 @@ betik artık süreç grubunu öldürüyor.
 *Bir kuralı birimin yanlış katmanında sormak, kuralın gerekçesinin o
 katmanda doğru olduğunu varsaymaktır.* Kilit bir testin elinde; paket
 yalnızca testlerin toplamı.
+
+## Kalp atışı satırları: CI'da görünmeden ölçülen bir yarış (2026-09-27)
+
+B3b, beacon'ın kalp atışı satırına yazan ilk testi ekleyecekti. Önce
+§3'ün kuralı soruldu: *o tabloya kim yazıyor?* `service_heartbeat` servis
+rolü başına tek satır — yani veritabanı için global — ve on test
+dosyasının yedisi paylaşılan satırlara yazıyordu, hiçbiri bir kilit
+almadan. `internal/relupdate` aynı satırlara "yeniden başlatmadan sonra
+kim rapor verdi, kim vermedi" diye soruyor.
+
+### Ölçüldü
+
+İki paketin testleri iki döngüde, aynı anda, on dakika
+(`scratchpad/yaris-kalp/`, test ikilileri doğrudan koşturuluyor —
+`go test` sarmalayıcısı yok, zaman aşımında yetim kalmasın diye):
+
+| koşul | `relupdate` | `panel/web` (Sağlık testleri) |
+|---|---|---|
+| önce, eşzamanlı | 154 koşuda **66 kırmızı**, beş testte | 119 koşuda 0 |
+| kontrol: `relupdate` tek başına, aynı ikili | 157 koşuda 0 | — |
+| sonra, eşzamanlı | 217 koşuda **0** | 96 koşuda 0 |
+
+Mekanizma: panelin Sağlık testleri collector satırını taze bir
+`beat_at` ile yazıyor. `relupdate`'in `beat` fikstürü ise
+`ON CONFLICT ... SET beat_at = now()` diyor, yani satırın sürümüne
+dokunmuyor. `relupdate`'in *"collector rapor vermedi"* beklentisi panelin
+az önce yazdığı satırı buluyor; *"bayat bir kalp atışı geri gelen servis
+değildir"* iddiası bayat satırı taze buluyor. Zarar gören taraf,
+**yokluğa güvenen** taraf; panelin testleri bir kez bile düşmedi.
+
+CI'da bu yarış hiç kırmızı vermedi. Pencere dardı ve iki paket
+`go test ./...` içinde yalnız bir kez örtüşüyor. CI 420'den önceki
+`schema_version` da tam olarak bu durumdaydı.
+
+### Ne yapıldı
+
+- `testdb.HeartbeatLock`, **en son alınır** (şema uygulama kilitleri
+  hariç). Alınan yerler:
+  - `healthServerTweaked`: temizliği kaydetmeden önce.
+  - `relupdate`'in `doorbellIn`'i: soru orada başlıyor. Okuyucu da
+    paydaş, havuzsuz (`nil`) testler hariç.
+  - `internal/heartbeat`'in `testPool`'u: ilk silmeden önce, çünkü
+    silmek de bir yazım.
+  - `forcedrls`.
+  - 5b'nin ön koşul testi: artık yazdığı satırları siliyor, eskiden
+    bırakıyordu.
+- `TestWhoReachesTheHealthPage`'in temizliği kaldırıldı. Hiç satır
+  yazmadan bütün `saglik-%` satırlarını siliyordu, yani kendine ait
+  hiçbir şeyi toplamadan başka bir paketin o an güvendiği satırı
+  götürebiliyordu.
+- Değişmez (`TestEverySuiteThatWritesASharedRowTakesItsLock`) artık
+  `service_heartbeat`'i tanıyor ve **üretimin raporlayıcısını** da yazım
+  sayıyor: `Pool`'u verilmiş bir `heartbeat.New`. Bu tablonun testlerdeki
+  yazanları çoğunlukla SQL değil. İlk koşusunda benim kaçırdığım yazanı
+  buldu: yukarıdaki temizlik.
+- Yolda bir kilitlenme riski çıktı. Sağlık sayfasının yenileme testi
+  `RefreshQueueLock` → `FetchLogLock` alıyordu. `internal/panel`'in
+  `rangefetches` süiti ve `internal/asnlookup` ise tersini alıyor, ki
+  `testdb`'nin tanım sırası o. İkisi aynı anda koşsa ikisi de on dakika
+  bekler. Test tanım sırasına çevrildi, iki kilit de `healthServer`'dan
+  önceye alındı.
+
+### Ölçümün bulduğu kendi kusurum
+
+Kilitli hâlin ilk eşzamanlı koşusunda `relupdate` 152 koşunun 152'sinde
+düştü, hepsi anında. Sebep: `doorbellIn`'i bazı testler `nil` havuzla
+çağırıyor (yalnız dosya zilini sınıyorlar) ve ben kilidi o havuzla
+almaya çalıştım. Statik mutasyon turu bunu göremezdi, çünkü değişmez
+testleri koşturmuyor. Gerçek testleri koşturan ölçüm gördü. Artık bir
+mutasyon (K11) tam bu hatayı `relupdate`'in kendi testleriyle ölçüyor.
+Ölçümü yarıda durdurmak da bir panel testini ortasında öldürdü ve iki
+hesap kalıntısı bıraktı (CI 384'ün şekli); elle silindi.
+
+### Mutasyonlar
+
+`scratchpad/mutasyon-kalp.py`, on bir tane:
+- **Beş yerden kilidi kaldırmak:** beşi de kırmızı, her biri testi
+  adıyla anıyor.
+- **Zilin koşulunu ters çevirmek:** kırmızı, ama yalnız `relupdate`'in
+  kendi testleriyle; değişmez yeşil kaldı (aşağıda).
+- **`nil` korumasını kaldırmak:** `relupdate` testleriyle kırmızı.
+- **Yalnız raporlayıcıyla yazan kilitsiz test:** kırmızı. Aynısı
+  `writesCall` kapalıyken **yeşil** kaldı; kırmızıyı yeni eşleyicinin
+  taşıdığının kanıtı.
+- **Eşleyici `Pool`'u sormuyor:** kırmızı, çünkü paketin veritabanına
+  gitmeyen birim testleri yazan sayıldı.
+- **Eşleyici paket adını sormuyor:** kırmızı.
+
+Bir tanesi değişmezden sağ çıktı. Zilin koşulunu ters çevirmek değişmezi
+yeşil bıraktı, çünkü değişmez statik: kaynakta duran bir kilit çağrısını,
+bir koşul yüzünden çalışma anında hiç koşmasa bile alınmış sayıyor. O
+mutasyonu `relupdate`'in kendi testleri yakaladı, terslemenin öbür yarısı
+yüzünden (havuzsuz testler `nil` ile kilit almaya çalışıp çöktü). Sınır
+değişmezin "görmedikleri" arasına yazıldı. Kilidin çalışma anında
+atlanmasını yalnız eşzamanlı ölçüm gösterir.
+
+*Bir yokluğa güvenen test, o satırın yazanı kadar paydaşıdır — ve
+kaynağında hiçbir şey yazım gibi görünmez.*

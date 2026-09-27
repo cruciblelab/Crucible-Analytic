@@ -110,6 +110,18 @@ func nothingIsComing(d *Doorbell) { d.Window = 200 * time.Millisecond }
 // with nothingIsComing.
 func doorbellIn(t *testing.T, pool *pgxpool.Pool) (Doorbell, string) {
 	t.Helper()
+	// Every test that asks "who reported after the restart" starts here,
+	// and the answer is only this test's if nobody else writes a service's
+	// row meanwhile - internal/panel/web's health tests write the
+	// collector's, fresh. So the lock is taken where the question starts,
+	// not only where this package beats: a test that trusts an absence is
+	// a party to the row as much as one that writes it.
+	//
+	// Only with a pool: the tests that exercise the file alone pass nil,
+	// read no heartbeat, and have no connection to lock on.
+	if pool != nil {
+		testdb.Lock(t, pool, testdb.HeartbeatLock)
+	}
 	dir := t.TempDir()
 	return Doorbell{
 		Dir:    dir,

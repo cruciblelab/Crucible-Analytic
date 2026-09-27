@@ -319,6 +319,10 @@ var sharedRows = []struct {
 	// message. A test that says "these differ" invites somebody to make
 	// them differ deliberately; one that says what it broke does not.
 	cost string
+	// writesCall, when set, is a Go call that writes the table as surely
+	// as SQL does - for a table whose writers in tests are mostly the
+	// production code that owns it, not a statement in a test file.
+	writesCall func(*ast.CallExpr) bool
 }{
 	{
 		table: "schema_version",
@@ -348,6 +352,70 @@ var sharedRows = []struct {
 			"in another package. Two suites guarding a condition is not the same as " +
 			"the condition being guarded",
 	},
+	{
+		table: "service_heartbeat",
+		lock:  "HeartbeatLock",
+		cost: "Measured on 2026-09-27, before the lock existed: internal/relupdate " +
+			"and internal/panel/web looping side by side, relupdate red in 66 runs of " +
+			"154 and panel/web in none of 119. The health tests wrote the collector's row " +
+			"fresh; relupdate's \"the collector did not report\" found it, and its " +
+			"\"a stale heartbeat is not a service coming back\" found the stale row " +
+			"made new. Nothing had failed in CI yet - the overlap was only ever " +
+			"narrow - which is the shape every earlier entry here had before it did",
+		writesCall: isHeartbeatReporterWithPool,
+	},
+}
+
+// isHeartbeatReporterWithPool reports whether call builds a heartbeat
+// reporter that has a database to write to: heartbeat.New with an
+// Options literal that sets Pool - or, inside internal/heartbeat itself,
+// New(Options{Pool: ...}).
+//
+// The Pool is the difference between a write and a unit test: the
+// package's own snapshot tests build reporters with no pool and write
+// nothing, and a check that counted those would demand a lock from a
+// test that never opens the database.
+func isHeartbeatReporterWithPool(call *ast.CallExpr) bool {
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		pkg, ok := fun.X.(*ast.Ident)
+		if !ok || pkg.Name != "heartbeat" || fun.Sel.Name != "New" {
+			return false
+		}
+	case *ast.Ident:
+		if fun.Name != "New" {
+			return false
+		}
+	default:
+		return false
+	}
+	if len(call.Args) != 1 {
+		return false
+	}
+	lit, ok := call.Args[0].(*ast.CompositeLit)
+	if !ok {
+		return false
+	}
+	switch typ := lit.Type.(type) {
+	case *ast.SelectorExpr:
+		if typ.Sel.Name != "Options" {
+			return false
+		}
+	case *ast.Ident:
+		if typ.Name != "Options" {
+			return false
+		}
+	default:
+		return false
+	}
+	for _, elt := range lit.Elts {
+		if kv, ok := elt.(*ast.KeyValueExpr); ok {
+			if key, ok := kv.Key.(*ast.Ident); ok && key.Name == "Pool" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TestEverySuiteThatWritesASharedRowTakesItsLock.
@@ -407,9 +475,22 @@ var sharedRows = []struct {
 // unlock. The helpers that write these rows lock first; nothing but
 // their comments holds them to it.
 //
+// Nor whether the lock call runs. One behind a condition counts as
+// taken even on the path that skips it: relupdate's doorbellIn locks
+// only when it has a pool, and inverting that condition left this check
+// green (measured, 2026-09-27) - the package's own tests caught it, by
+// the other half of the inversion.
+//
 // And writes that are not SQL in a test file. internal/applier's
 // recordOn is the one production writer of schema_version; the suites
-// that reach it build their own database.
+// that reach it build their own database. service_heartbeat is the
+// exception that proves the rule: its writers in tests are mostly the
+// production reporter, so its entry names that call too.
+//
+// Nor readers. A test that trusts an absence - internal/relupdate's "the
+// collector did not report" - is hurt by another suite's write as much
+// as a writer is, and nothing in its source looks like a write. It takes
+// the lock by hand, in doorbellIn, and only its comment holds it there.
 func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 	pkgs := testPackagesUnder(t, repoRootFromInvariants(t))
 
@@ -440,7 +521,7 @@ func TestEverySuiteThatWritesASharedRowTakesItsLock(t *testing.T) {
 				if pkg.ownDB && !pkg.sharedDB {
 					continue
 				}
-				funcs, roots := indexTestFuncs(pkg.files, write, shared.lock)
+				funcs, roots := indexTestFuncs(pkg.files, write, shared.writesCall, shared.lock)
 				for _, root := range roots {
 					var writes []string
 					locks := false
@@ -570,7 +651,8 @@ type testFunc struct {
 // use: functions as themselves, methods as ".name" - a method call is
 // resolved by name alone, whatever the receiver. Roots are the functions
 // `go test` runs itself: every Test*, TestMain among them.
-func indexTestFuncs(files []*ast.File, write *regexp.Regexp, lock string) (map[string]*testFunc, []string) {
+func indexTestFuncs(files []*ast.File, write *regexp.Regexp, writesCall func(*ast.CallExpr) bool,
+	lock string) (map[string]*testFunc, []string) {
 	funcs := map[string]*testFunc{}
 	var roots []string
 	for _, file := range files {
@@ -599,6 +681,9 @@ func indexTestFuncs(files []*ast.File, write *regexp.Regexp, lock string) (map[s
 				case *ast.CallExpr:
 					if isLockCall(n, lock) {
 						info.locks = true
+					}
+					if writesCall != nil && writesCall(n) {
+						info.writes = true
 					}
 				case *ast.SelectorExpr:
 					info.refs["."+n.Sel.Name] = true
@@ -695,6 +780,41 @@ func TestALockCallCountsOnlyForItsOwnKey(t *testing.T) {
 		}
 		if got := isLockCall(call, "SchemaVersionLock"); got != tc.want {
 			t.Errorf("isLockCall(%s) = %v, want %v", tc.src, got, tc.want)
+		}
+	}
+}
+
+// TestAReporterWritesOnlyWhenItHasAPool: which heartbeat constructions
+// count as writes to the shared table.
+//
+// Both directions. A matcher that missed the qualified form would miss
+// internal/panel/web's fixture, the writer that started this; one that
+// counted a pool-less reporter would demand a lock from the heartbeat
+// package's unit tests, which never open a database.
+func TestAReporterWritesOnlyWhenItHasAPool(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want bool
+	}{
+		{"heartbeat.New(heartbeat.Options{Pool: testdb.Pool(t, role), Version: v})", true},
+		// Inside internal/heartbeat the names are unqualified.
+		{"New(Options{Pool: pool, Version: v})", true},
+		{"New(Options{Counters: counters})", false},
+		{"heartbeat.New(heartbeat.Options{Version: v})", false},
+		// Another package's New, with another type: not a reporter.
+		{"logsink.New(logsink.Options{Pool: pool})", false},
+		{"heartbeat.New(opts)", false},
+	} {
+		expr, err := parser.ParseExpr(tc.src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		call, ok := expr.(*ast.CallExpr)
+		if !ok {
+			t.Fatalf("%s is not a call", tc.src)
+		}
+		if got := isHeartbeatReporterWithPool(call); got != tc.want {
+			t.Errorf("isHeartbeatReporterWithPool(%s) = %v, want %v", tc.src, got, tc.want)
 		}
 	}
 }

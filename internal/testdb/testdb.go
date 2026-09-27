@@ -401,6 +401,36 @@ const SchemaRaceLock = 0x736368656D617263 // "schemarc"
 // row, so it belongs inside the locks that guard whole schemas.
 const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
 
+// HeartbeatLock serialises the suites that write service_heartbeat, or
+// read it for who has *not* written.
+//
+// The table has one row per service role, so what it holds is global to
+// the database. internal/relupdate asks it "did every service report
+// after the restart, and which did not"; internal/panel/web writes the
+// collector's row - fresh - so its health page has something to draw.
+// Run together, those two answered each other's questions: relupdate's
+// "the collector did not report" found a collector row written a moment
+// earlier by a panel test, and its "a stale heartbeat is not a service
+// coming back" found the stale row made fresh. Measured before this lock
+// existed, the two packages looping side by side for ten minutes:
+// relupdate red in 66 runs of 154, across five of its tests, and
+// internal/panel/web in none of 119 - the side that could be hurt was
+// the side that trusted an absence.
+//
+// A reader of absence is a party to the row as much as a writer is,
+// which is why internal/relupdate takes this in doorbellIn - where every
+// test that asks the question starts - and not only where it beats.
+//
+// # Ordering
+//
+// After every other lock a test holds, except the two that guard schema
+// application: SchemaRaceLock and SchemaApplyLock come after this one if
+// at all, as they come last everywhere. Its holders take their other
+// locks while building the server or queue this row is read beside
+// (AccountsLock in setupTestServer, ReleaseQueueLock in relupdate's
+// runnerQueue), so "after" is where it naturally falls.
+const HeartbeatLock = 0x6b616c7061746d61 // "kalpatma"
+
 // Lock holds a Postgres advisory lock until the test ends.
 //
 // Here rather than duplicated per package, which is where it started.

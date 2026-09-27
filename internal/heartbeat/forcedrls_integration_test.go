@@ -44,6 +44,10 @@ func TestTheOwnerCannotWriteAnotherServicesHeartbeat(t *testing.T) {
 	if _, err := admin.Exec(ctx, SchemaSQL); err != nil {
 		t.Fatalf("applying the heartbeat schema: %v", err)
 	}
+	// Its row is schema_admin's, which the health page draws as the
+	// upgrader; written and removed under the lock every suite that
+	// reads these rows holds.
+	testdb.Lock(t, admin, testdb.HeartbeatLock)
 
 	owner := testdb.Pool(t, testdb.SchemaAdmin)
 	t.Cleanup(func() {

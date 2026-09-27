@@ -59,6 +59,11 @@ func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *
 		t.Fatalf("AddMember: %v", err)
 	}
 	admin := testdb.Admin(t)
+	// The heartbeat rows this page draws are shared with every package
+	// that writes or waits for one - internal/relupdate most of all. Taken
+	// before the cleanup below is registered, so the rows go while the
+	// lock is still held (cleanups run last in, first out).
+	testdb.Lock(t, admin, testdb.HeartbeatLock)
 	t.Cleanup(func() {
 		if _, err := admin.Exec(context.Background(),
 			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`); err != nil {
@@ -348,15 +353,10 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 
 	server := httptest.NewServer(srv.Handler())
 	defer server.Close()
-	// dbOwner, not admin: `admin` is already a panel user in this test,
-	// and the two meanings of the word are a page apart.
-	dbOwner := testdb.Admin(t)
-	t.Cleanup(func() {
-		if _, err := dbOwner.Exec(context.Background(),
-			`DELETE FROM service_heartbeat WHERE version LIKE 'saglik-%'`); err != nil {
-			t.Logf("clearing the test heartbeat rows: %v", err)
-		}
-	})
+	// No heartbeat cleanup here: this test writes no heartbeat row. It
+	// used to delete every 'saglik-%' row on the way out anyway, which
+	// tidied nothing of its own and could take a row another package was
+	// relying on at that moment (see testdb.HeartbeatLock).
 
 	if status, _ := get(t, signedIn(t, server.URL, owner.Email), server.URL+HealthPath); status != http.StatusOK {
 		t.Errorf("the owner got %d from the health page, want 200", status)
@@ -390,11 +390,20 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 // A signed-in owner with no developer password, which is the default
 // this phase promises works.
 func TestTheRefreshButtonWorksFromThePage(t *testing.T) {
+	// Both queue locks before the server: healthServer takes AccountsLock
+	// and then HeartbeatLock, and HeartbeatLock is taken last by every
+	// suite that holds it (see its ordering note in internal/testdb).
+	//
+	// And FetchLogLock first, the order internal/testdb declares. This
+	// test took them the other way round, while internal/panel's
+	// rangefetches suite and internal/asnlookup's take FetchLogLock and
+	// then RefreshQueueLock - two suites holding one each and waiting for
+	// the other's, which is a ten-minute hang that names no package.
+	admin := testdb.Admin(t)
+	testdb.Lock(t, admin, testdb.FetchLogLock)
+	testdb.Lock(t, admin, testdb.RefreshQueueLock)
 	server, client, store := healthServer(t)
 	ctx := context.Background()
-	admin := testdb.Admin(t)
-	testdb.Lock(t, admin, testdb.RefreshQueueLock)
-	testdb.Lock(t, admin, testdb.FetchLogLock)
 
 	clear := func() {
 		for _, table := range []string{"ip_range_refresh_requests", "ip_range_fetches"} {

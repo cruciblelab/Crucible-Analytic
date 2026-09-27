@@ -35,6 +35,10 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	pool := testdb.Pool(t, testdb.Collector)
 	admin := testdb.Admin(t)
+	// The collector's row is the one internal/relupdate waits for and
+	// internal/panel/web draws, so deleting and rewriting it is done
+	// under their lock - before the first delete, which is a write too.
+	testdb.Lock(t, admin, testdb.HeartbeatLock)
 
 	clean := func() {
 		if _, err := admin.Exec(context.Background(),
