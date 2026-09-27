@@ -2158,6 +2158,80 @@ alanı; kabuk komutu; komut dizesi alan bir "yeniden başlat"; parametresi
 kod, sorgu, dosya yolu veya panelin bağlanacağı bir alan adı olan
 herhangi bir operasyon.
 
+##### B3a — Envanter: katalog bugün nerede *(2026-09-27)*
+
+Faza başlamadan önce katalogun her satırı koda soruldu: ayar kaydı
+`AllDefinitions()` ile döküldü (37 ayar), panelin 23 rotası ve Sağlık
+sayfasının altı eylemi sayıldı. **39'un 16'sı bugün var, 4'ü yarım, 3'ü
+dosyada ya da bilerek dışarıda, 16'sı yok.** Katalog Ağustos'ta yazıldı;
+sonra gelen fazlar (A5, C8, D4c, L3, M3, F1) satırlarının neredeyse
+yarısını başka adlarla karşıladı.
+
+| # | Operasyon | Bugün | Nerede — eksikse ne ister |
+|---|---|---|---|
+| 1 | `FlushNow` | yok | servise istek (aşağıda *istek kanalı*) |
+| 2 | `SetFlushInterval` | bilerek dışarıda | §0.5 risk tablosu: destek ihtiyacı değil, performans ayarı |
+| 3 | `Pause/ResumeCollection` | yok | şemasız: site listesi canlı ayar, yazma yolunda kontrol |
+| 4 | `ReloadIPData` | **var** | Sağlık → kaynak yenile (M3): istek satırı, servis yokluyor |
+| 5 | `SetASNLookupMode` | **var** | `sources.asn`, `sources.country`, `sources.fallback_order` (A3, M1) |
+| 6 | `SetASNSource` | **var** | `sources.asn` — kapalı enum, yol değil |
+| 7 | `SetTrustedProxies` | **var** | `beacon.trusted_proxies`; collector TLS'i ilk karşılayan uç, onun için anlamı yok |
+| 8 | `SetLimits` | **var** | `collector.limits.*`, `beacon.limits.*`, canlı |
+| 9 | `SetOverloadPolicy` | **var** | `*.limits.overload_policy` — varsayılanı Z3 kararını bekliyor |
+| 10 | `SetThrottleQueueSize` | **var** | `*.limits.throttle_queue_size` |
+| 11 | `SetBotScoreThreshold` | yok | eşik yalnız API'nin istek parametresi (`bot_score_min`); site ayarı eskizlerin eşiğini de değiştirir ve O3'ten beri eşik değişince eskizler baştan hesaplanıyor — bedeli ölçülmeli |
+| 12 | `SetBlockedCountries/ASNs` | yarım | ayarlar var; katalogun istediği "kabulden önce kural başına son 24 saatin isabeti" yok — collector'da sayaç ister |
+| 13 | `SetKnownBotASNs` | **var** | `collector.known_bot_asns` |
+| 14 | `ShowTableSizes` | **var** | Sağlık → depolama (B4): boyut, satır değil |
+| 15 | `SetRetention` | bilerek dışarıda | §0.6/1: hukuki ağırlıklı, dosyadan |
+| 16 | `RunRetentionNow` | yok | saklamayı collector ve beacon kendileri koşuyor → servise istek |
+| 17 | `SetCompressionPolicy` | dosyada | `retention.compress_after_days` (O1); panelde yok |
+| 18 | `ApplyPendingMigrations` | **var** | Sağlık → şema yükseltmesi (L3) |
+| 19 | `CreateMissingIndexes` | **var** | L3 şema dosyalarını uyguluyor (`CREATE INDEX IF NOT EXISTS`); `CONCURRENTLY` değil |
+| 20 | `Reindex/Analyze/VacuumTable` | yok | `panel_user` tabloların sahibi değil → SECURITY DEFINER sarmalayıcı → **şema** |
+| 21 | `ShowSlowQueries` | yok | `pg_stat_statements` ve okuma yetkisi (`pg_read_all_stats`) → **yetki** |
+| 22 | `SendOwnerPasswordReset` | yok | e-postalı sıfırlama akışı hiç yok (C7.2 bilerek kurtarma kodlarıyla); tek kullanımlık jeton deposu → **şema** |
+| 23 | `DisableTOTP` | yok | sahibin kapatabildiği afişin durumu saklanmalı → muhtemelen **şema** |
+| 24 | `EndAllSessions` | yok | oturum tablosunda kullanıcı sütunu yok (§0.5 açık risk) → **şema** |
+| 25 | `UnlockLoginThrottle` | yok | şemasız: kısıt deposu var (`CheckLoginThrottle`), kaldıran yol yok |
+| 26 | `GrantOwnership` | yarım | yalnız ilk devir teslim (kurulum sihirbazı, `CreateOwnerClaim`); sonrası üyeler sayfası. **Tek sahip giderse geliştiricinin sahip ataması, "sahip hesabı açıldıktan sonra geliştirici erişimi sahibin onayına bağlı" kuralıyla çelişiyor → sahibin kararı** |
+| 27 | `RevokeAPIToken` | yok | API jetonları dosyada (`analytics-api.toml`), panel göremiyor → B5 ile birlikte, **şema** |
+| 28 | `SetDeveloperMode` | **var** | Hesap → geliştirici görünümü (kişinin kendisi) |
+| 29 | `ShowBeaconStatus` | yarım | Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor), site başına son olay yok → şemasız (kalp atışı JSONB) |
+| 30 | `ShowBeaconSnippet` | **var** | sahip için karşılama sayfası |
+| 31 | `SetBeaconSites` | **var** | `beacon.sites` |
+| 32 | `SetBeaconBuffer` | yok | şemasız: kayda üç canlı ayar |
+| 33 | `TestBeaconIngest` | yok | "gerçek rakamları asla kirletmez" bir işaret ister → **tasarım**, belki şema |
+| 34 | `SetAnalyticsProfile` | yarım | profil kurulumda seçiliyor (A2), Sağlık'ta görünüyor; panelden değişmesi tek tek `sources.*` ile |
+| 35 | `SetVerboseLogging` | **var** | `logs.verbose_until` — kendi söner; site başına değil, genel |
+| 36 | `SetLogRetention/Level` | **var** | `logs.retention_days`, `logs.level` |
+| 37 | `ExportDiagnosticBundle` | yok | şemasız: yalnız panelin okuyabildikleri |
+| 38 | `RestartService` | yok | mekanizma var: V'nin kapı zili (`internal/relupdate/restart.go` — içi okunmayan dosya, root'un `.path` birimi); panelin zili çalma yetkisi yok ve o, kurulumda verilecek bir yetki |
+| 39 | `ReloadConfig` | yok | servise istek |
+
+**İstek kanalı (#1, #16, #39; #38 zil ister).** İki yol var, ikisi de
+kodda örnekli. (a) M3'ün istek satırı: panel `pending` yazar, servis
+yoklar, `running`'e çeker, cevaplar, bayatı panel siler — ama o tablo
+yenilemeye özel ve genel bir istek tablosu **şema** demek. (b) *İstenen
+durum:* "bu servisin son boşaltması T'den sonra olsun" diyen canlı bir
+ayar; servis kendi durumunu kalp atışıyla bildirir. Kubernetes'in
+`restartedAt` işaretinin şekli: şemasız, ve idempotent — aynı isteği iki
+kez yazmak onu bir kez yapmaktır.
+
+**Sıra — şemasızlar önce, katalogun "ilk soru" dediği en önce:**
+
+- **B3b** — #29: ret sebepleri kalp atışında ve Sağlık'ta; "bilinmeyen
+  site" sınıfı `beacon.sites`'a bağlanır.
+- **B3c** — #25 ve #37: yalnız panel.
+- **B3d** — #3 ve #32: canlı ayarlar.
+- **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
+- **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
+
+Şema isteyen altısı (#20, #22, #23, #24, #27, #33) sahibin şema
+kararına gidiyor. Şema 24 yayımlanmadı — en yeni etiket `v0.24.0+L4`
+şema 21 taşıyor — yani sürüm atlatmadan 24'e girebilirler, Z5 gibi.
+#21 bir yetki; #26 sahibin politika kararı.
+
 ---
 
 #### B4 — Sistem sağlığı sayfası ✅ *(2026-08-27)*
