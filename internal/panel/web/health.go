@@ -262,6 +262,13 @@ type healthService struct {
 
 	Counters []healthCounter
 
+	// UnknownSite is how many events this service refused for naming a
+	// site it does not accept - the beacon's count, zero everywhere
+	// else. Its own field rather than one more counter because it is the
+	// one refusal with an action attached, and the page says what the
+	// action is (the allowlist setting) under the row.
+	UnknownSite int64
+
 	LastError   string
 	LastErrorAt time.Time
 }
@@ -270,6 +277,9 @@ type healthService struct {
 type healthCounter struct {
 	Label string
 	Value int64
+	// Parts is the counter split by reason, drawn under it. Only the
+	// refusals total has parts today.
+	Parts []healthCounter
 }
 
 // healthStorage is one table's size and shape.
@@ -570,6 +580,7 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 			row.TokenKeyMissing = true
 		}
 		row.Counters = labelledCounters(lang, b.Counters)
+		row.UnknownSite = b.Counters[heartbeat.CounterRejectedUnknownSite]
 		out = append(out, row)
 	}
 	return out, "", false
@@ -587,12 +598,33 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 		if !present {
 			continue
 		}
-		out = append(out, healthCounter{
+		c := healthCounter{
 			Label: lang.T("saglik.sayac." + key),
 			Value: value,
-		})
+		}
+		if key == heartbeat.CounterRejected {
+			c.Parts = rejectionParts(lang, counters)
+		}
+		out = append(out, c)
 	}
 	return out
+}
+
+// rejectionParts is the refusals by reason, drawn under the total.
+//
+// Only the reasons that happened. Five zeros under every "Reddedilen: 0"
+// would be five lines saying nothing on the one page read during an
+// incident; a reason that did happen is exactly the line that says what
+// to do next. A build older than the split reports no reasons at all,
+// and then the total simply stands alone - which is what it was.
+func rejectionParts(lang *ui.Language, counters map[string]int64) []healthCounter {
+	var parts []healthCounter
+	for _, key := range heartbeat.RejectionCounters {
+		if n := counters[key]; n > 0 {
+			parts = append(parts, healthCounter{Label: lang.T("saglik.sayac." + key), Value: n})
+		}
+	}
+	return parts
 }
 
 // healthStorage reads what the panel may know about the tables.

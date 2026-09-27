@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
@@ -204,8 +205,10 @@ type Server struct {
 
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
-	rejected     atomic.Uint64
 	accepted     atomic.Uint64
+	// rejected is one counter per reason and no counter for the total:
+	// Counters sums these, so there is no second number to drift.
+	rejected [rejectReasons]atomic.Uint64
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -248,9 +251,31 @@ func (s *Server) visitors() *VisitorIDs {
 // offered, for logging and for tests. Accepted counts rows handed to
 // the sink; Dropped counts rows the sink had no room for; Rejected
 // counts requests refused before a row was ever built (bad payload,
-// unknown site, over limit).
+// unknown site, over limit) - the sum of RejectionCounters.
 func (s *Server) Counters() (accepted, dropped, rejected uint64) {
-	return s.accepted.Load(), s.dropped.Load(), s.rejected.Load()
+	for r := range s.rejected {
+		rejected += s.rejected[r].Load()
+	}
+	return s.accepted.Load(), s.dropped.Load(), rejected
+}
+
+// RejectionCounters is the refusals by reason, keyed as the heartbeat
+// reports them. Every reason is present, zero or not: a reader that
+// finds a key missing is reading a build older than the split, and
+// that is worth being able to tell apart from "none of these".
+//
+// A map literal keyed by the heartbeat's constants, spelled out, rather
+// than a loop over a table: this is the shape internal/invariants reads
+// to find who produces each counter, and two reasons given one key is
+// then a compile error ("duplicate key") instead of a test failure.
+func (s *Server) RejectionCounters() map[string]int64 {
+	return map[string]int64{
+		heartbeat.CounterRejectedUnknownSite:  heartbeat.Count(s.rejected[rejectUnknownSite].Load()),
+		heartbeat.CounterRejectedMalformed:    heartbeat.Count(s.rejected[rejectMalformed].Load()),
+		heartbeat.CounterRejectedInvalid:      heartbeat.Count(s.rejected[rejectInvalid].Load()),
+		heartbeat.CounterRejectedOverCapacity: heartbeat.Count(s.rejected[rejectOverCapacity].Load()),
+		heartbeat.CounterRejectedOther:        heartbeat.Count(s.rejected[rejectOther].Load()),
+	}
 }
 
 // Handler builds the routed handler. Exported separately from Serve so
@@ -375,7 +400,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		// the row would be worth very little and would still cost a
 		// write. This is not reachable over TCP; it exists so a future
 		// listener that isn't TCP fails closed.
-		s.reject(w, http.StatusBadRequest, "unresolvable client address")
+		s.reject(w, rejectOther, http.StatusBadRequest, "unresolvable client address")
 		return
 	}
 
@@ -391,19 +416,19 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	var event Event
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 	if err := decoder.Decode(&event); err != nil {
-		s.reject(w, http.StatusBadRequest, "malformed event")
+		s.reject(w, rejectMalformed, http.StatusBadRequest, "malformed event")
 		return
 	}
 
 	if err := event.Validate(); err != nil {
-		s.reject(w, http.StatusBadRequest, err.Error())
+		s.reject(w, rejectInvalid, http.StatusBadRequest, err.Error())
 		return
 	}
 	if !s.allowsSite(event.Site) {
 		// The snippet is public and data-site is a claim anyone can copy,
 		// so this is the only thing stopping an arbitrary caller from
 		// writing rows under someone else's site name.
-		s.rejectClaim(w, r, http.StatusForbidden, event.Site,
+		s.rejectClaim(w, r, rejectUnknownSite, http.StatusForbidden, event.Site,
 			fmt.Sprintf("unknown site %q", sanitizeText(event.Site, 64)))
 		return
 	}
@@ -414,7 +439,7 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		// Only reachable if the system randomness source failed. Never
 		// fall back to an unsalted hash - see VisitorIDs.ID.
 		s.logger().Error("beacon: visitor id unavailable", "err", err)
-		s.reject(w, http.StatusServiceUnavailable, "temporarily unavailable")
+		s.reject(w, rejectOther, http.StatusServiceUnavailable, "temporarily unavailable")
 		return
 	}
 
@@ -481,7 +506,7 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
 		w.WriteHeader(http.StatusNoContent)
 		return false
 	default:
-		s.rejected.Add(1)
+		s.rejected[rejectOverCapacity].Add(1)
 		// Retry-After keeps a well-behaved client from hot-looping;
 		// the snippet does not retry at all.
 		w.Header().Set("Retry-After", "60")
@@ -490,14 +515,40 @@ func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
 	}
 }
 
+// rejectReason is why an event was refused.
+//
+// # Why the reason is counted and not only logged
+//
+// "The customer says data is missing" used to be answered from
+// rejected.log and nowhere else - which means from a shell on the
+// server. The health page could say how many events were refused and
+// not why, and the why is the whole answer: an unknown site is fixed in
+// the allowlist, a malformed body is a broken snippet, over capacity is
+// a limit. So each refusal is counted under its reason, the heartbeat
+// carries the counts, and the page draws them (PLAN §4, #29).
+type rejectReason int
+
+const (
+	rejectUnknownSite rejectReason = iota
+	rejectMalformed
+	rejectInvalid
+	rejectOverCapacity
+	// rejectOther is the refusals live traffic cannot produce; see
+	// heartbeat.CounterRejectedOther for why they share one counter.
+	rejectOther
+
+	// rejectReasons is the number of reasons, not a reason.
+	rejectReasons
+)
+
 // reject refuses input and records why.
 //
 // The recording is the point of routing every refusal through one
-// helper. "The customer says data is missing" is answered from
-// rejected.log and nowhere else, and a refusal that returns a status
-// without leaving a trace makes that question unanswerable.
-func (s *Server) reject(w http.ResponseWriter, status int, message string) {
-	s.rejected.Add(1)
+// helper: a refusal that returns a status without leaving a trace - in
+// rejected.log and in its reason's counter - makes "where did my data
+// go" unanswerable.
+func (s *Server) reject(w http.ResponseWriter, reason rejectReason, status int, message string) {
+	s.rejected[reason].Add(1)
 	s.logger().Warn("beacon: input refused", logging.Rejected(message, http.StatusText(status))...)
 	writeError(w, status, message)
 }
@@ -510,8 +561,8 @@ func (s *Server) reject(w http.ResponseWriter, status int, message string) {
 // belongs in security.log with both halves - what was claimed and what
 // the server concluded - so the question "who tried to write into my
 // site" has an answer.
-func (s *Server) rejectClaim(w http.ResponseWriter, r *http.Request, status int, claim, reason string) {
-	s.rejected.Add(1)
+func (s *Server) rejectClaim(w http.ResponseWriter, r *http.Request, counted rejectReason, status int, claim, reason string) {
+	s.rejected[counted].Add(1)
 	peer := r.RemoteAddr
 	s.logger().Warn("beacon: identity claim refused",
 		append(logging.Trust(logging.CategorySecurity, claim, logging.VerdictRejected, reason),

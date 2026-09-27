@@ -54,7 +54,14 @@ report nothing - so it says nothing rather than guessing which. */}}
   {{- if .Counters}}
   <ul class="sayaclar">
   {{- range .Counters}}
+  <li>{{.Label}}: {{$.F.Number .Value}}
+  {{- if .Parts}}
+  <ul class="sayaclar">
+  {{- range .Parts}}
   <li>{{.Label}}: {{$.F.Number .Value}}</li>
+  {{- end}}
+  </ul>
+  {{- end}}</li>
   {{- end}}
   </ul>
   {{- else}}<span class="ipucu">—</span>{{end}}
@@ -70,6 +77,19 @@ when I looked" is how an intermittent fault survives for months. */}}
   <span class="uyari satir-ici">{{t "saglik.son_hata"}}</span>
   <code>{{.LastError}}</code>
   {{- if not .LastErrorAt.IsZero}} <span class="ipucu">({{$.F.Since .LastErrorAt}})</span>{{end}}
+</td>
+</tr>
+{{- end}}
+{{- if .UnknownSite}}
+{{- /* The one refusal with an action attached, so it gets a sentence
+saying what the action is, under its service like the error above. No
+site ids: they are whatever a caller typed, and this page is not where
+a stranger's text should reach the owner's screen - security.log keeps
+them for whoever reads the server. */}}
+<tr class="ayrinti">
+<td colspan="7">
+  <span class="uyari satir-ici">{{t "saglik.bilinmeyen_site.baslik"}}</span>
+  {{tf "saglik.bilinmeyen_site.metin" ($.F.Number .UnknownSite)}}
 </td>
 </tr>
 {{- end}}

@@ -412,6 +412,9 @@ var (
 	// against the real constants.
 	healthCounters = []string{
 		"yazilan", "dusurulen", "reddedilen", "kabul", "hata", "suresi_dolan", "gunluk_kaybi",
+		// The beacon's refusals by reason, drawn under "reddedilen".
+		"reddedilen_bilinmeyen_site", "reddedilen_bozuk", "reddedilen_gecersiz",
+		"reddedilen_kapasite", "reddedilen_diger",
 	}
 	healthTables = []string{
 		"traffic_snapshots", "beacon_events", "ip_asn_ranges", "ip_country_ranges",

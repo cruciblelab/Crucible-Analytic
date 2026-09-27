@@ -22038,3 +22038,129 @@ atlanmasını yalnız eşzamanlı ölçüm gösterir.
 
 *Bir yokluğa güvenen test, o satırın yazanı kadar paydaşıdır — ve
 kaynağında hiçbir şey yazım gibi görünmez.*
+
+## B3b — Beacon ret sebepleri: "JS verisi gelmiyor"un cevabı Sağlık sayfasında (2026-09-27)
+
+B3a'nın envanterinde katalogun #29'u (`ShowBeaconStatus`) yarımdı. Sağlık
+sayfası beacon'ın reddettiği istekleri tek bir sayı olarak gösteriyordu.
+Katalog bu soruya "hep ilk soru" diyor: *"JS verisi hiç gelmiyor" genelde
+beyaz listede olmayan bir sitedir.* Bunu öğrenmenin tek yolu sunucuda
+beacon'ın günlüğünü okumaktı.
+
+Kodda altı ret yolu vardı ve hepsi tek `rejected` sayacına akıyordu.
+İkisine gerçek trafikte ulaşılamıyor:
+- **Adres çözülemedi:** TCP'de bu durum oluşamıyor; kodun kendi yorumu
+  da böyle söylüyor.
+- **Ziyaretçi kimliği:** tuzu `crypto/rand.Read`'den geliyor. Go 1.24'ten
+  beri bu işlev varsayılan kaynakta hata döndürmüyor, programı
+  çökertiyor (belgesinden okundu).
+
+İki hiç kıpırdamayacak sayaç eklemek yerine ikisi "diğer"de toplandı.
+Sonuç beş sınıf: bilinmeyen site, okunamayan istek, geçersiz olay,
+kapasite dolu, diğer.
+
+### Ne yapıldı
+
+- **Beacon her reddi sebebiyle sayıyor.** Toplam, sınıfların toplamından
+  türetiliyor; yani ikisi ayrışamaz. Sebepten kalp atışı anahtarına
+  eşleme, anahtarları kalp atışı sabitleri olan açık yazılmış bir harita
+  sabiti. İki sebebe aynı anahtar verilirse kod derlenmiyor ("duplicate
+  key"); eksik bir sebebi test buluyor.
+- **Şema değişmedi.** Kalp atışı sayaçları zaten JSONB. Beş anahtar
+  `heartbeat`'in kapalı kümesine girdi; `RejectionCounters` onların
+  çizim sırasını tutuyor ve kümeyle birebir aynı olduğu kaynaktan
+  türetilerek sınanıyor.
+- **Sayaçlar `main`'den çıktı.** Onları kalp atışına çeviren kapanış
+  `main`'den `beacon.HeartbeatCounters`'a taşındı. P5a'nın dersi:
+  `main`'deki bir kapanışı hiçbir test göremez. Sebepleri satıra katmayı
+  unutan bir `main` derlenir, çalışır ve parçasız bir toplam bildirir.
+- **Panel yalnız gerçekleşen sebepleri çiziyor**, toplamın altına.
+  "Bilinmeyen site" sıfırdan büyükse satırın altına ne yapılacağını
+  söyleyen bir cümle geliyor: ayarın yolu ve anahtarı (`beacon.sites`).
+- **Gelen site kimlikleri gösterilmiyor.** Onları isteği gönderen yazıyor
+  ve bir yabancının metni sahibin ekranına ulaşmamalı. `security.log`
+  onları `claimed` alanında tutuyor.
+
+### Ölçüldü
+
+- **Birim:** her ret yolu kendi sınıfında ve yalnız orada sayılıyor
+  (yedi durum), toplam da sınıfların toplamına eşit.
+- **Uçtan uca:** gerçek `beacon.Server` reddediyor, `beacon.HeartbeatCounters`
+  sayaçları üretiyor, raporlayıcı `beacon_writer` olarak yazıyor, panel
+  sayfayı çiziyor. Sayaç haritası testte elle yazılsaydı, sayfayla anlaşan
+  ama üreticiyle anlaşmayan bir fikstür olurdu; tel biçimi dersi bu.
+- **Gerçek ikili, kendi veritabanında.** Veritabanı `ca_b3b`, `install.sh`
+  sırasıyla kuruldu. Bağlantı `application_name` ile doğrulandı: 3
+  bağlantı.
+
+| gönderilen | yanıt | kalp atışı satırı |
+|---|---|---|
+| 3 × bilinmeyen site | 403 | `reddedilen_bilinmeyen_site: 3` |
+| 2 × JSON değil | 400 | `reddedilen_bozuk: 2` |
+| 1 × tanınmayan tür | 400 | `reddedilen_gecersiz: 1` |
+| 2 geçerli + 60'lık patlama (saniyede 20, `fail_closed`) | 22 × 204, 40 × 429 | `kabul: 22`, `reddedilen_kapasite: 40` |
+| toplam | | `reddedilen: 46` = 3 + 2 + 1 + 40; `reddedilen_diger: 0`; `beacon_events` 22 satır |
+
+`security.log`'da üç satır var, gelen site kimliği `claimed` alanında.
+
+- **Ekran görüntüsü**, gerçek Chromium ile: "Reddedilen: 5", altında
+  yalnız gerçekleşen üç sebep, satırın altında da ayarın yolunu söyleyen
+  cümle.
+
+### Kapıdan önce iki değişmez iki eksik buldu
+
+- **Üretici değişmezi.** `internal/invariants`'taki
+  `TestEveryHeartbeatCounterHasAProducer` beş yeni sayacı "hiçbir yerde
+  üretilmiyor" diye reddetti. İlk sürümde eşleme sebep türüyle indeksli
+  bir diziydi ve `RejectionCounters` haritayı bir döngüyle dolduruyordu.
+  Değişmez üreticiyi yalnız iki biçimde tanıyor: harita sabitinde anahtar
+  ya da `m[Sayaç] = v` ataması. Değişmezi gevşetmedim, üreticiyi o biçime
+  getirdim. Gevşetmenin yolu "sabitin geçtiği her yer" olurdu; o zaman
+  panelin `b.Counters[heartbeat.CounterRejectedUnknownSite]` okuması da
+  üretici sayılırdı. Okuyanla yazanı ayıran, değişmezin darlığı. Yeni
+  biçim bir şey de kazandırdı: iki sebebe aynı anahtar artık derleyici
+  hatası.
+- **Katalog değişmezi.** `internal/panel/ui`'daki
+  `TestNoDeadCatalogEntries` beş yeni etiketi "hiçbir şey kullanmıyor"
+  diye reddetti. Paket alanı bilmesin diye kalp atışı sayaçlarının bir
+  kopyasını (`healthCounters`) tutuyor; beş sebep oraya eklenmemişti.
+  Kopya bilerek orada: bir sayaç bir yönden eksik çeviri, öbür yönden
+  kullanılmayan anahtar olarak yakalanıyor. Bu sefer öbür yön yakaladı.
+
+### Mutasyonlar
+
+On beş mutasyon (`scratchpad/mutasyon-b3b.py`). On dördü kırmızı:
+- **Beacon:**
+  - bilinmeyen site "geçersiz" sayılıyor,
+  - bozuk gövde "diğer" sayılıyor,
+  - sınırlayıcı reddi sayılmıyor,
+  - toplam bir sebebi atlıyor,
+  - `RejectionCounters` bir sebebi atlıyor,
+  - bir anahtar başka sebebin sayısını taşıyor,
+  - kalp atışı listesi bir sebebi unutuyor,
+  - sebepler satıra katılmıyor.
+- **Panel:**
+  - sıfır sebepler de çiziliyor,
+  - parçalar yanlış üst sayacın altına düşüyor,
+  - ipucu yanlış sayaca bağlı,
+  - şablon parçaları çizmiyor,
+  - ipucu her zaman görünüyor,
+  - İngilizce bir etiket eksik.
+
+On beşincisi iki sebebe aynı anahtarı veriyor ve derlenmiyor:
+*duplicate key "reddedilen_gecersiz" in map literal*. Yukarıdaki
+"derleyici hatası" iddiasının ölçüsü bu.
+
+Beşini (sınırlayıcı, `RejectionCounters`, liste, parçaların üst sayacı,
+İngilizce etiket) yalnız birim testleri yakaladı. Üçünü (ipucunun
+bağlandığı sayaç, şablon, ipucunun koşulu) yalnız uçtan uca testler
+yakaladı. İki katmanın ikisi de yük taşıyor.
+
+### Yan bulgu: bir SQL yorumu yanlış bir dosyayı işaret ediyor
+
+`release/sql/harden.sql` şöyle diyor: *"dört servis rolüne `CONNECT`
+`grants.sql`'de açıkça veriliyor"*. Oysa `grants.sql`'de `CONNECT` yok.
+Yetkiyi `install.sh` veriyor (586. satır), dört değil beş role. Ölçüm
+veritabanını `install.sh`'in sırasıyla elle kurarken çıktı: o adımı
+atlayınca beacon *"permission denied for database"* ile açılmadı. Ayrı
+bir düzeltme.

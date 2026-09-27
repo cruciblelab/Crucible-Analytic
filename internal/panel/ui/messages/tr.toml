@@ -1150,6 +1150,17 @@ kabul = "Kabul edilen"
 hata = "Hata"
 suresi_dolan = "Süresi dolan istek"
 gunluk_kaybi = "Kaybolan günlük satırı"
+# Reddedilenlerin sebepleri: "Reddedilen" satırının altına, yalnız
+# gerçekleşenler çizilir.
+reddedilen_bilinmeyen_site = "bilinmeyen site"
+reddedilen_bozuk = "okunamayan istek"
+reddedilen_gecersiz = "geçersiz olay"
+reddedilen_kapasite = "kapasite dolu"
+reddedilen_diger = "diğer"
+
+[metin.saglik.bilinmeyen_site]
+baslik = "Bilinmeyen site"
+metin = "Servis başladığından beri %s olay, kabul edilen siteler listesinde olmayan bir site kimliğiyle geldi ve kaydedilmedi. Sitedeki betiğin data-site değeri o listede olmalı: Ayarlar → Toplama → Kabul edilen siteler (beacon.sites, geliştirici görünümünde). Düzeldiğinde bu sayı artmayı bırakır; servis yeniden başlayınca sıfırlanır."
 
 [metin.saglik.depolama]
 baslik = "Depolama"

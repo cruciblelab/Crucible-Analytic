@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; kalan B3c–B3f ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -2220,8 +2220,8 @@ kez yazmak onu bir kez yapmaktır.
 
 **Sıra — şemasızlar önce, katalogun "ilk soru" dediği en önce:**
 
-- **B3b** — #29: ret sebepleri kalp atışında ve Sağlık'ta; "bilinmeyen
-  site" sınıfı `beacon.sites`'a bağlanır.
+- **B3b** ✅ *(2026-09-27)* — #29: ret sebepleri kalp atışında ve
+  Sağlık'ta; "bilinmeyen site" sınıfı `beacon.sites`'a bağlandı.
 - **B3c** — #25 ve #37: yalnız panel.
 - **B3d** — #3 ve #32: canlı ayarlar.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.

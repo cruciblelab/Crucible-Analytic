@@ -1901,7 +1901,7 @@ açıldığından beri sayılır; servis yeniden başlayınca sıfırdan başlar
 |---|---|---|
 | Düşürülen | beacon, collector | Yazılamadan atılan olay ya da satır. Müşterinin sayıları bu kadar eksik. |
 | Yazılan | beacon, collector | Veritabanına yazılan satır. |
-| Kabul edilen · Reddedilen | beacon | Kabul edilen istek ve kapıda geri çevrilen (yanlış site, bozuk gövde). |
+| Kabul edilen · Reddedilen | beacon | Kabul edilen istek ve kapıda geri çevrilen. Reddedilenin altında **sebepleri**, yalnız gerçekleşenler: bilinmeyen site, okunamayan istek (JSON değil ya da 8 KB'tan büyük), geçersiz olay (tanınmayan tür, site yok), kapasite dolu (sınırlayıcı), diğer. |
 | Hata | okuma API'si | Servisin kendi sebebiyle cevaplayamadığı istek — bir sorgu hatası. |
 | Süresi dolan istek | okuma API'si, panel | 55 saniyede bitmediği için `503` alan istek. Bozuk değil, yavaş: aralığı daraltmak ya da havuzu büyütmek. |
 | Kaybolan günlük satırı | okuma API'si, beacon, collector, panel | `panel_logs`'a ulaşamayan WARN/ERROR satırı (tampon dolu ya da yazma başarısız). Satır disk günlüğünde duruyor. |
@@ -1910,6 +1910,18 @@ açıldığından beri sayılır; servis yeniden başlayınca sıfırdan başlar
 sebebiyle, ne zaman olduğuyla. Servis düzelse de satırda kalır, çünkü
 aralıklı bir arıza "baktığımda çalışıyordu" diye aylarca yaşar; servis
 yeniden başlayınca silinir.
+
+**Bilinmeyen site.** Beacon'a gelen bir olay, kabul edilen siteler
+listesinde (`beacon.sites`) olmayan bir site kimliği taşıyorsa kaydedilmez
+ve "bilinmeyen site" diye sayılır. Sayı sıfırdan büyükse satırın altında
+bir cümle ne yapılacağını söyler: sitedeki betiğin `data-site` değeri o
+listede olmalı — **Ayarlar → Toplama → Kabul edilen siteler**, geliştirici
+görünümünde. "JavaScript verisi hiç gelmiyor" şikâyetinin en sık sebebi
+bu, ve önceden bunu öğrenmenin tek yolu sunucuda beacon'ın günlüğünü
+okumaktı. Gelen site kimlikleri sayfada **gösterilmez**: onları isteği
+gönderen yazıyor ve bir yabancının metni sahibin ekranına ulaşmamalı;
+`security.log` onları tutuyor. Sayı servis başladığından beri sayılır —
+düzeltildikten sonra artmayı bırakır.
 
 İki şey bilerek hata sayılmaz: süresi dolan istek (kendi sayacı var,
 satırı WARN) ve **istemcinin vazgeçtiği** istek — panelin beş saniyelik

@@ -265,19 +265,7 @@ func main() {
 		IPTokenKey: heartbeat.TokenKeyStateOf(cfg.Privacy.HashKey()),
 		Logger:     logger,
 		Counters: func() map[string]int64 {
-			accepted, serverDropped, rejected := srv.Counters()
-			written, writerDropped := writer.Counters()
-			return map[string]int64{
-				heartbeat.CounterAccepted: heartbeat.Count(accepted),
-				heartbeat.CounterRejected: heartbeat.Count(rejected),
-				heartbeat.CounterWritten:  heartbeat.Count(written),
-				// One number, from two places that both shed. A request
-				// refused at the door and a row thrown away at the
-				// writer are the same loss to a customer's numbers, and
-				// splitting them on the page would ask an operator to
-				// add up two figures to answer one question.
-				heartbeat.CounterDropped: heartbeat.Count(serverDropped + writerDropped),
-			}
+			return beacon.HeartbeatCounters(srv, writer)
 		},
 	})
 	go beat.Run(ctx)

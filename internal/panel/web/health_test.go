@@ -90,20 +90,32 @@ func TestEveryCounterHasWords(t *testing.T) {
 // This is the direction that would otherwise never fail: a counter with
 // a perfectly good label, left out of healthCounterOrder, simply does
 // not appear - and nothing anywhere says so.
+//
+// A counter is drawn either at the top, from healthCounterOrder, or under
+// its total, from heartbeat.RejectionCounters - so "drawn" is the two
+// lists together, and each counter must be in exactly one of them.
 func TestEveryCounterIsDrawn(t *testing.T) {
-	inOrder := make(map[string]bool, len(healthCounterOrder))
+	drawn := make(map[string]int, len(healthCounterOrder)+len(heartbeat.RejectionCounters))
 	for _, c := range healthCounterOrder {
-		inOrder[c] = true
+		drawn[c]++
+	}
+	for _, c := range heartbeat.RejectionCounters {
+		drawn[c]++
 	}
 	counters := heartbeatCounters(t)
 	for _, c := range counters {
-		if !inOrder[c] {
-			t.Errorf("%q is a counter a service can report and healthCounterOrder does not draw it", c)
+		switch drawn[c] {
+		case 0:
+			t.Errorf("%q is a counter a service can report and the page does not draw it", c)
+		case 1:
+		default:
+			t.Errorf("%q is drawn %d times; a counter at the top and again under its total "+
+				"is one number read twice", c, drawn[c])
 		}
 	}
-	if len(healthCounterOrder) != len(counters) {
-		t.Errorf("healthCounterOrder has %d entries and internal/heartbeat declares %d counters; "+
-			"it should draw every counter, once, and nothing else", len(healthCounterOrder), len(counters))
+	if len(drawn) != len(counters) {
+		t.Errorf("the page draws %d counters and internal/heartbeat declares %d; "+
+			"it should draw every counter, once, and nothing else", len(drawn), len(counters))
 	}
 	// Dropped first, and this is not cosmetic: it is the only counter
 	// that means a customer's numbers are wrong, and a page that buries

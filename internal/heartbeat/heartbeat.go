@@ -68,7 +68,8 @@ const (
 	// health page draws.
 	CounterDropped = "dusurulen"
 	// CounterRejected is requests refused before any work was done:
-	// wrong site, bad payload, over a limit.
+	// wrong site, bad payload, over a limit. The beacon reports it by
+	// reason as well - see RejectionCounters.
 	CounterRejected = "reddedilen"
 	// CounterAccepted is requests taken in.
 	CounterAccepted = "kabul"
@@ -84,7 +85,51 @@ const (
 	// CounterLogLost is log lines that never reached panel_logs. Added by
 	// the reporter itself from Options.Log, so no service can forget it.
 	CounterLogLost = "gunluk_kaybi"
+
+	// The beacon's refusals, by reason. CounterRejected is their sum,
+	// and the beacon derives it from them rather than counting it a
+	// second time, so the total and its parts cannot disagree.
+	//
+	// Split because of the one question the total cannot answer, and
+	// the one the repair catalogue calls the first question (PLAN §4,
+	// #29): "no JavaScript data is arriving" is usually a site missing
+	// from the allowlist, and until this the only way to learn that was
+	// to read the beacon's log on the server.
+
+	// CounterRejectedUnknownSite is events naming a site the beacon does
+	// not accept - the one with an action attached: the allowlist.
+	CounterRejectedUnknownSite = "reddedilen_bilinmeyen_site"
+	// CounterRejectedMalformed is bodies that did not decode: not JSON,
+	// or larger than the beacon reads.
+	CounterRejectedMalformed = "reddedilen_bozuk"
+	// CounterRejectedInvalid is events that decoded and said something
+	// the beacon does not take: an unknown type, a missing site.
+	CounterRejectedInvalid = "reddedilen_gecersiz"
+	// CounterRejectedOverCapacity is requests the limiter refused.
+	CounterRejectedOverCapacity = "reddedilen_kapasite"
+	// CounterRejectedOther is every refusal live traffic cannot produce:
+	// an address that did not resolve, which TCP cannot deliver, and a
+	// visitor id the system randomness could not salt, which
+	// crypto/rand.Read has not reported since Go 1.24 - it crashes the
+	// program instead. Two counters of their own would be two lines that
+	// never move; one keeps the total the sum of its parts.
+	CounterRejectedOther = "reddedilen_diger"
 )
+
+// RejectionCounters are the CounterRejected* keys, in the order a page
+// draws them under CounterRejected: the one with an action first.
+//
+// The list is what a reader of the counters needs and the constants
+// cannot say - which keys are parts of which total. A test derives the
+// set from this file's constants, so a sixth reason cannot be declared
+// and left out of it.
+var RejectionCounters = []string{
+	CounterRejectedUnknownSite,
+	CounterRejectedMalformed,
+	CounterRejectedInvalid,
+	CounterRejectedOverCapacity,
+	CounterRejectedOther,
+}
 
 // LogReport is what a service's panel log copy knows about itself:
 // internal/logsink's Sink, seen from here.

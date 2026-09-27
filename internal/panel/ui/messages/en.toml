@@ -1105,6 +1105,15 @@ kabul = "Accepted"
 hata = "Errors"
 suresi_dolan = "Requests past deadline"
 gunluk_kaybi = "Log lines lost"
+reddedilen_bilinmeyen_site = "unknown site"
+reddedilen_bozuk = "unreadable request"
+reddedilen_gecersiz = "invalid event"
+reddedilen_kapasite = "over capacity"
+reddedilen_diger = "other"
+
+[metin.saglik.bilinmeyen_site]
+baslik = "Unknown site"
+metin = "Since the service started, %s events named a site that is not on the accepted sites list and were not recorded. The data-site value of the script on the site must be on that list: Settings → Collection → beacon.sites (in developer view). Once that is fixed this number stops growing; it resets when the service restarts."
 
 [metin.saglik.depolama]
 baslik = "Storage"
