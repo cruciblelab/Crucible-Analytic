@@ -52,6 +52,20 @@ func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *
 	if tweak != nil {
 		tweak(srv)
 	}
+	return healthServerOn(t, srv, store)
+}
+
+// healthServerOn is the second half of healthServerTweaked: the owner,
+// the heartbeat lock and the listener, for a server setupTestServer has
+// already built.
+//
+// Split out so a test can take its own locks between the halves - after
+// setupTestServer's AccountsLock and before the heartbeat lock, which is
+// where every suite that holds them takes them. A closure handed to
+// healthServerTweaked would run there too, but the order would then be
+// written nowhere a reader, or internal/invariants, could see it.
+func healthServerOn(t *testing.T, srv *Server, store *panel.Store) (*httptest.Server, *http.Client, *panel.Store) {
+	t.Helper()
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "saglik-sahip", false)
@@ -390,19 +404,21 @@ func TestWhoReachesTheHealthPage(t *testing.T) {
 // A signed-in owner with no developer password, which is the default
 // this phase promises works.
 func TestTheRefreshButtonWorksFromThePage(t *testing.T) {
-	// Both queue locks before the server: healthServer takes AccountsLock
-	// and then HeartbeatLock, and HeartbeatLock is taken last by every
-	// suite that holds it (see its ordering note in internal/testdb).
+	// The server in two halves, so the queue locks fall between them:
+	// AccountsLock (setupTestServer), FetchLogLock, RefreshQueueLock,
+	// HeartbeatLock (healthServerOn) - the order internal/panel's
+	// fetch-log suite takes the first three in.
 	//
-	// And FetchLogLock first, the order internal/testdb declares. This
-	// test took them the other way round, while internal/panel's
-	// rangefetches suite and internal/asnlookup's take FetchLogLock and
-	// then RefreshQueueLock - two suites holding one each and waiting for
-	// the other's, which is a ten-minute hang that names no package.
+	// Taken before the server instead, they deadlocked with that suite on
+	// CI 424 and 425: it held AccountsLock and waited for FetchLogLock,
+	// this held FetchLogLock and waited for AccountsLock, and go test
+	// killed both packages at ten minutes. The order is now checked, by
+	// TestNoTwoSuitesTakeTheSameLocksInOppositeOrders.
+	srv, store := setupTestServer(t)
 	admin := testdb.Admin(t)
 	testdb.Lock(t, admin, testdb.FetchLogLock)
 	testdb.Lock(t, admin, testdb.RefreshQueueLock)
-	server, client, store := healthServer(t)
+	server, client, store := healthServerOn(t, srv, store)
 	ctx := context.Background()
 
 	clear := func() {

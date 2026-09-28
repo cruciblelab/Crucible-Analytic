@@ -194,61 +194,6 @@ const UpgradeQueueLock = 0x75706772616465FF // "upgrade"
 // AccountsLock.
 const SchemaVersionLock = 0x736368656D617601 // "schema" + 1
 
-// FetchLogLock serialises the suites that share ip_range_fetches.
-//
-// A third lock, and the reason is the same as the other two: two
-// packages touch one table and `go test ./...` runs them in parallel.
-// internal/asnlookup writes rows and, in one test, revokes and re-grants
-// privileges on the table to prove the upgrade path carries them;
-// internal/panel reads it as panel_user. A read that lands inside that
-// revoke fails with "permission denied", which reads as a broken grant
-// rather than as two tests overlapping.
-//
-// # Ordering
-//
-// Nothing takes this together with the other two today. If something
-// ever does, take them in the order they are declared here - two suites
-// taking the same pair in opposite orders deadlock, and a deadlocked
-// suite looks like a hung machine rather than like a bug.
-const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
-
-// RefreshQueueLock serialises the suites that share
-// ip_range_refresh_requests.
-//
-// A fourth lock, and this table needs one more than the others: a
-// partial unique index permits exactly one pending-or-running row in the
-// whole table, so a request inserted by any suite makes another's Ask
-// fail with ErrAlreadyInFlight, and a Claim from either can take a row
-// it did not write. Naming each suite's rows would not help - what they
-// collide on is global by construction.
-//
-// The same shape as UpgradeQueueLock, for the same index, one table
-// over. Four packages touch this one: internal/rangerefresh,
-// internal/asnlookup, internal/panel and internal/panel/web.
-//
-// # Ordering
-//
-// Nothing takes this together with the others today. If something ever
-// does, take them in the order they are declared here.
-const RefreshQueueLock = 0x726566726573680A // "refresh"
-
-// ReleaseQueueLock serialises the suites that share
-// panel_release_requests.
-//
-// A fifth lock, for the third queue with a one-in-flight index. The
-// reason is identical to the two above and worth repeating rather than
-// cross-referencing: the index permits exactly one pending-or-running
-// row in the whole table, so any suite's request makes another's Ask
-// fail with ErrAlreadyInFlight, and a Claim from either can take a row
-// it did not write. Naming each suite's rows would not help - what they
-// collide on is global by construction.
-//
-// # Ordering
-//
-// Nothing takes this together with the others today. If something ever
-// does, take them in the order they are declared here.
-const ReleaseQueueLock = 0x72656C65617365FF // "release"
-
 // BackupQueueLock serialises the suites that share
 // panel_backup_requests.
 //
@@ -263,8 +208,8 @@ const ReleaseQueueLock = 0x72656C65617365FF // "release"
 //
 // # Ordering
 //
-// Nothing takes this together with the others today. If something ever
-// does, take them in the order they are declared here.
+// Before AccountsLock: internal/backup's restore suite starts its
+// runner, which takes this, and writes accounts after.
 const BackupQueueLock = 0x796564656B00FF01 // "yedek"
 
 // AccountsLock serialises the suites that write panel_users.
@@ -312,37 +257,134 @@ const BackupQueueLock = 0x796564656B00FF01 // "yedek"
 //
 // # Ordering
 //
-// Nothing takes this together with the others today. If something ever
-// does, take them in the order they are declared here.
+// Early. setupTestServer and internal/panel's newTestStore take it on
+// entry, so the locks a panel suite takes after building its store come
+// after it: FetchLogLock, RefreshQueueLock, ReleaseQueueLock,
+// HeartbeatLock. The locks declared above it are the ones taken first.
+//
+// This note used to say that nothing took this with another lock and
+// that the order of declaration would decide if something did. Three of
+// those locks were declared above this one while every suite took them
+// after it, and following the note is what deadlocked CI 424 and 425:
+// internal/panel held this and waited for FetchLogLock, internal/panel/web
+// held FetchLogLock and waited for this.
 const AccountsLock = 0x6372756369626c65 // "crucible"
 
-// SchemaApplyLock serialises anything that applies a schema file.
+// FetchLogLock serialises the suites that share ip_range_fetches.
 //
-// Unlike the four above, this one is not a test fixture. The applier
-// takes it in production for the reason written out in
-// internal/dblock, and this is the same key so that a suite applying a
-// file by hand cannot land in the middle of an applier doing the same -
-// which is not a tidiness problem: it produced
-// "tuple concurrently updated" and "deadlock detected" in a plain
-// `go test -tags integration ./...`, on the second run, in a package
-// that had nothing to do with either.
-//
-// Re-exported rather than redeclared so there is one number. A second
-// copy of a lock key is a lock that does not lock, and it would look
-// correct in both places.
+// A third lock, and the reason is the same as the other two: two
+// packages touch one table and `go test ./...` runs them in parallel.
+// internal/asnlookup writes rows and, in one test, revokes and re-grants
+// privileges on the table to prove the upgrade path carries them;
+// internal/panel reads it as panel_user. A read that lands inside that
+// revoke fails with "permission denied", which reads as a broken grant
+// rather than as two tests overlapping.
 //
 // # Ordering
 //
-// Take this one last. internal/asnlookup's upgrade-path test holds
-// FetchLogLock and then this; anything needing both must use that order,
-// since two suites taking one pair in opposite orders deadlock and a
-// deadlocked suite looks like a hung machine rather than like a bug.
-const SchemaApplyLock = dblock.SchemaApply
+// After AccountsLock and before RefreshQueueLock: internal/panel's
+// fetch-log suite builds its store first and asks for a refresh after,
+// and so does the refresh test in internal/panel/web. Before the two
+// schema locks, which internal/asnlookup's upgrade-path test takes after
+// this one.
+const FetchLogLock = 0x66657463686C6F67 // "fetchlog"
+
+// RefreshQueueLock serialises the suites that share
+// ip_range_refresh_requests.
+//
+// A fourth lock, and this table needs one more than the others: a
+// partial unique index permits exactly one pending-or-running row in the
+// whole table, so a request inserted by any suite makes another's Ask
+// fail with ErrAlreadyInFlight, and a Claim from either can take a row
+// it did not write. Naming each suite's rows would not help - what they
+// collide on is global by construction.
+//
+// The same shape as UpgradeQueueLock, for the same index, one table
+// over. Four packages touch this one: internal/rangerefresh,
+// internal/asnlookup, internal/panel and internal/panel/web.
+//
+// # Ordering
+//
+// After AccountsLock and FetchLogLock, before HeartbeatLock - see
+// FetchLogLock.
+const RefreshQueueLock = 0x726566726573680A // "refresh"
+
+// ReleaseQueueLock serialises the suites that share
+// panel_release_requests.
+//
+// A fifth lock, for the third queue with a one-in-flight index. The
+// reason is identical to the other two queues', and worth repeating
+// rather than cross-referencing: the index permits exactly one
+// pending-or-running row in the whole table, so any suite's request
+// makes another's Ask fail with ErrAlreadyInFlight, and a Claim from
+// either can take a row it did not write. Naming each suite's rows would
+// not help - what they collide on is global by construction.
+//
+// # Ordering
+//
+// After AccountsLock - internal/panel/web's release tests build their
+// server first - and before HeartbeatLock, which internal/relupdate
+// takes after this one.
+const ReleaseQueueLock = 0x72656C65617365FF // "release"
+
+// IPModeSettingLock serialises the suites that write the deployment-wide
+// privacy.ip_storage row.
+//
+// A seventh lock, and the one setting row that needed one. Two suites
+// write it: internal/beacon measures that the disclosure's date comes
+// from that row rather than a neighbouring key, and internal/storage
+// measures that the mode a panel stores changes what the collector
+// writes. Both need to see their own value in a global row, both run
+// against one database, and `go test` runs packages in parallel - so
+// without this each is capable of reading the other's write and
+// reporting a product defect, in whichever package lost the race.
+//
+// Scoped to the row rather than to settings in general: every other key
+// these suites touch is written by exactly one of them, and a lock that
+// covered all of settings would serialise suites that never collide.
+//
+// # Ordering
+//
+// Nothing takes this together with the others. If something ever does,
+// take it where it is declared: after AccountsLock, before HeartbeatLock
+// and the schema locks - it guards a row, so it belongs inside the locks
+// that guard whole schemas.
+const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
+
+// HeartbeatLock serialises the suites that write service_heartbeat, or
+// read it for who has *not* written.
+//
+// The table has one row per service role, so what it holds is global to
+// the database. internal/relupdate asks it "did every service report
+// after the restart, and which did not"; internal/panel/web writes the
+// collector's row - fresh - so its health page has something to draw.
+// Run together, those two answered each other's questions: relupdate's
+// "the collector did not report" found a collector row written a moment
+// earlier by a panel test, and its "a stale heartbeat is not a service
+// coming back" found the stale row made fresh. Measured before this lock
+// existed, the two packages looping side by side for ten minutes:
+// relupdate red in 66 runs of 154, across five of its tests, and
+// internal/panel/web in none of 119 - the side that could be hurt was
+// the side that trusted an absence.
+//
+// A reader of absence is a party to the row as much as a writer is,
+// which is why internal/relupdate takes this in doorbellIn - where every
+// test that asks the question starts - and not only where it beats.
+//
+// # Ordering
+//
+// After every other lock a test holds, except the two that guard schema
+// application: SchemaRaceLock and SchemaApplyLock come after this one if
+// at all, as they come last everywhere. Its holders take their other
+// locks while building the server or queue this row is read beside
+// (AccountsLock in setupTestServer, ReleaseQueueLock in relupdate's
+// runnerQueue), so "after" is where it naturally falls.
+const HeartbeatLock = 0x6b616c7061746d61 // "kalpatma"
 
 // SchemaRaceLock keeps everyone out while one test races appliers
 // against each other on purpose.
 //
-// A sixth lock, and the reason it cannot be the one above: that key is
+// A sixth lock, and the reason it cannot be SchemaApplyLock: that key is
 // the mechanism under test. internal/applier's concurrency test measures
 // what three appliers do when they meet inside the schema, so it must
 // not hold SchemaApplyLock - the appliers take it themselves, and a test
@@ -378,58 +420,28 @@ const SchemaApplyLock = dblock.SchemaApply
 // this, then SchemaApplyLock.
 const SchemaRaceLock = 0x736368656D617263 // "schemarc"
 
-// IPModeSettingLock serialises the suites that write the deployment-wide
-// privacy.ip_storage row.
+// SchemaApplyLock serialises anything that applies a schema file.
 //
-// A seventh lock, and the one setting row that needed one. Two suites
-// write it: internal/beacon measures that the disclosure's date comes
-// from that row rather than a neighbouring key, and internal/storage
-// measures that the mode a panel stores changes what the collector
-// writes. Both need to see their own value in a global row, both run
-// against one database, and `go test` runs packages in parallel - so
-// without this each is capable of reading the other's write and
-// reporting a product defect, in whichever package lost the race.
+// Unlike the other locks here, this one is not a test fixture. The applier
+// takes it in production for the reason written out in
+// internal/dblock, and this is the same key so that a suite applying a
+// file by hand cannot land in the middle of an applier doing the same -
+// which is not a tidiness problem: it produced
+// "tuple concurrently updated" and "deadlock detected" in a plain
+// `go test -tags integration ./...`, on the second run, in a package
+// that had nothing to do with either.
 //
-// Scoped to the row rather than to settings in general: every other key
-// these suites touch is written by exactly one of them, and a lock that
-// covered all of settings would serialise suites that never collide.
-//
-// # Ordering
-//
-// Nothing takes this together with the others. If something ever does,
-// take it after AccountsLock and before SchemaRaceLock - it guards a
-// row, so it belongs inside the locks that guard whole schemas.
-const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
-
-// HeartbeatLock serialises the suites that write service_heartbeat, or
-// read it for who has *not* written.
-//
-// The table has one row per service role, so what it holds is global to
-// the database. internal/relupdate asks it "did every service report
-// after the restart, and which did not"; internal/panel/web writes the
-// collector's row - fresh - so its health page has something to draw.
-// Run together, those two answered each other's questions: relupdate's
-// "the collector did not report" found a collector row written a moment
-// earlier by a panel test, and its "a stale heartbeat is not a service
-// coming back" found the stale row made fresh. Measured before this lock
-// existed, the two packages looping side by side for ten minutes:
-// relupdate red in 66 runs of 154, across five of its tests, and
-// internal/panel/web in none of 119 - the side that could be hurt was
-// the side that trusted an absence.
-//
-// A reader of absence is a party to the row as much as a writer is,
-// which is why internal/relupdate takes this in doorbellIn - where every
-// test that asks the question starts - and not only where it beats.
+// Re-exported rather than redeclared so there is one number. A second
+// copy of a lock key is a lock that does not lock, and it would look
+// correct in both places.
 //
 // # Ordering
 //
-// After every other lock a test holds, except the two that guard schema
-// application: SchemaRaceLock and SchemaApplyLock come after this one if
-// at all, as they come last everywhere. Its holders take their other
-// locks while building the server or queue this row is read beside
-// (AccountsLock in setupTestServer, ReleaseQueueLock in relupdate's
-// runnerQueue), so "after" is where it naturally falls.
-const HeartbeatLock = 0x6b616c7061746d61 // "kalpatma"
+// Take this one last. internal/asnlookup's upgrade-path test holds
+// FetchLogLock and then this; anything needing both must use that order,
+// since two suites taking one pair in opposite orders deadlock and a
+// deadlocked suite looks like a hung machine rather than like a bug.
+const SchemaApplyLock = dblock.SchemaApply
 
 // Lock holds a Postgres advisory lock until the test ends.
 //
@@ -458,6 +470,16 @@ const HeartbeatLock = 0x6b616c7061746d61 // "kalpatma"
 // started taking SchemaVersionLock themselves: a test that also took it
 // at the top, as TestTheHealthPageReportsTheSchemaVersion used to, would
 // hang on its first case.
+//
+// # One order
+//
+// A test that holds more than one of these keys takes them in the order
+// they are declared in this file. Two tests taking a pair in opposite
+// orders, in packages that overlap, wait for each other until go test
+// kills both - CI 424 and 425. The rule is checked against every test,
+// through its helpers, by
+// internal/invariants.TestNoTwoSuitesTakeTheSameLocksInOppositeOrders;
+// a new key is declared where its first holder takes it.
 func Lock(t *testing.T, pool *pgxpool.Pool, key int64) {
 	t.Helper()
 	ctx := context.Background()

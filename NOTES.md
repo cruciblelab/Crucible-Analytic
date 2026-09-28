@@ -22002,6 +22002,16 @@ CI'da bu yarış hiç kırmızı vermedi. Pencere dardı ve iki paket
   bekler. Test tanım sırasına çevrildi, iki kilit de `healthServer`'dan
   önceye alındı.
 
+> **DÜZELTME (2026-09-28).** Bu madde iki yerden yanlıştı ve CI'ı
+> kırdı. Risk yoktu: `internal/asnlookup` iki kilidi hiçbir testte
+> birlikte almıyor. `internal/panel` ile testin eski sırası ise
+> birbirini bekleyemezdi, çünkü ikisi de önce `AccountsLock`'u alıyordu
+> ve dıştaki kilit ikisinden yalnız birini içeri alır. "Düzeltme" ise
+> gerçek bir kilitlenme yarattı. Kilitleri `healthServer`'dan önceye
+> alınca test `FetchLogLock`'u tutup `AccountsLock`'u bekledi,
+> `internal/panel` tam tersini. CI 424 ve 425 böyle düştü. Ayrıntı
+> §"CI 424 ve 425"te.
+
 ### Ölçümün bulduğu kendi kusurum
 
 Kilitli hâlin ilk eşzamanlı koşusunda `relupdate` 152 koşunun 152'sinde
@@ -22164,3 +22174,131 @@ Yetkiyi `install.sh` veriyor (586. satır), dört değil beş role. Ölçüm
 veritabanını `install.sh`'in sırasıyla elle kurarken çıktı: o adımı
 atlayınca beacon *"permission denied for database"* ile açılmadı. Ayrı
 bir düzeltme.
+
+## CI 424 ve 425: kalp atışı kilidiyle getirdiğim kilitlenme (2026-09-28)
+
+İki koşu da aynı adımda düştü: "integration, second run against the same
+database". `internal/panel` ile `internal/panel/web` 600 saniyede
+öldürüldü. İlk tur ikisinde de geçmişti. Asılan test ikisinde de
+`internal/panel`'deydi ve `fetchLogStore` içinde `FetchLogLock`'u
+bekliyordu:
+
+| koşu | commit | `running tests:` |
+|---|---|---|
+| 424 | `4ca3eb5` (kalp atışı kilidi) | `TestAJammedQueueUnjamsItself (8m28s)` |
+| 425 | `a0d87e9` (B3b) | `TestRecentRangeFetches_NewestFirst (8m28s)` |
+
+### Sebep: benim sıra değişikliğim
+
+`4ca3eb5`'te `TestTheRefreshButtonWorksFromThePage`'in iki kuyruk
+kilidini `healthServer`'dan önceye aldım. Gerekçem `testdb`'nin yazılı
+kuralıydı: *"take them in the order they are declared here"*. Ama
+`healthServer`'ın içindeki `setupTestServer` `AccountsLock` alıyor.
+`internal/panel`'in fetch-log testleri ise aylardır önce `AccountsLock`
+(`newTestStore`), sonra `FetchLogLock` alıyordu. Ortaya bir çevrim çıktı:
+
+- `internal/panel`: `AccountsLock`'u tutuyor, `FetchLogLock`'u bekliyor.
+- `internal/panel/web`: `FetchLogLock`'u (ve `RefreshQueueLock`'u)
+  tutuyor, `AccountsLock`'u bekliyor.
+
+İkisi de `go test`'in on dakikalık sınırına kadar bekledi. Yazılı kural
+kodu hiç anlatmamıştı. Beş kilidin belgesi "bunu başka bir kilitle
+birlikte alan yok" diyordu ve beşinde de yanlıştı.
+
+**Ve kalp atışı notunda "yolda bulduğum kilitlenme riski" yoktu.**
+`internal/asnlookup` iki kilidi hiçbir testte birlikte almıyor.
+`internal/panel` ile testin eski sırası ise birbirini bekleyemezdi,
+çünkü ikisi de önce `AccountsLock`'u alıyordu ve dıştaki kilit ikisinden
+yalnız birini içeri alır. Olmayan bir kilitlenmeyi "düzeltirken" gerçek
+bir kilitlenme yarattım.
+
+Yerelde iki kapı geçmişti. Kilitlenme için iki testin çakışması
+gerekiyor. `4ca3eb5`'in eşzamanlı ölçümü de `relupdate` ile `panel/web`'i
+yan yana koşturmuştu, `internal/panel`'i değil.
+
+### Gerçek ikililerle yeniden üretildi
+
+`internal/panel`'in CI'da asılan iki testi ile yenileme testi yan yana,
+döngüde. Her koşuya 30 sn zaman aşımı verildi. Bir izleyici iki
+saniyede bir `pg_locks`'ta bekleyen danışma kilitlerini okudu. "Önce"
+ikilisi aynı ağaçtan `-overlay` ile derlendi; tek farkı o test dosyası.
+
+| | koşu | 30 sn'de asılan | aynı anda beklenen Accounts + FetchLog |
+|---|---|---|---|
+| kontrol: yenileme testi tek başına, eski sıra | 51 | 0 | 0 an |
+| eski sıra, yan yana (4 dk) | panel 8, web 8 | **8'de 8, iki tarafta da** | izlenen 116 anın 116'sında |
+| düzeltilmiş sıra, yan yana (4 dk) | panel 254, web 264 | **0** | 0 an (103 anda olağan sıra beklemesi) |
+
+Eski sırayla iki test çakıştığında kilitlenme bir ihtimal değil, kesin.
+CI'da iki paketin ikinci turda çakışması yetti.
+
+### Düzeltme
+
+- **Örnek:** `healthServerTweaked` ikiye bölündü; ikinci yarısı
+  `healthServerOn`. Yenileme testi kilitlerini iki yarının arasında
+  alıyor: `AccountsLock` → `FetchLogLock` → `RefreshQueueLock` →
+  `HeartbeatLock`. Kanca (tweak) ile de olurdu, ama sıra o zaman ne
+  okuyanın ne de değişmezin görebileceği bir yerde yazılı olurdu.
+- **Kural doğru yapıldı, silinmedi.** `testdb`'nin on bir kilidi
+  suitlerin gerçekte aldığı sırayla yeniden bildirildi:
+  - `UpgradeQueue`
+  - `SchemaVersion`
+  - `BackupQueue`
+  - `Accounts`
+  - `FetchLog`
+  - `RefreshQueue`
+  - `ReleaseQueue`
+  - `IPModeSetting`
+  - `Heartbeat`
+  - `SchemaRace`
+  - `SchemaApply`
+
+  Her kilidin "# Ordering" notu bugün onu kimin, neyden önce ve neden
+  sonra aldığını söylüyor. Kural bir kez, `Lock`'un belgesinde yazılı.
+- **Değişmez:** `TestNoTwoSuitesTakeTheSameLocksInOppositeOrders`. Her
+  testin kilitlerini, paketinin yardımcılarından geçerek, alındıkları
+  sırayla topluyor. İç içe çağrıda argümanlar önce sayılıyor, çünkü önce
+  onlar koşuyor. İki şeyi reddediyor:
+  - iki yönde alınmış bir çift; iki tarafın testleri adlarıyla
+    yazılıyor;
+  - `testdb`'nin bildirim sırasına aykırı alınmış bir çift. Karşı tarafta
+    henüz test yokken de düşüyor, ve her uzunlukta çevrimi yakalıyor:
+    bir çevrim tek bir bildirim sırasına uyamaz.
+
+  Sabit olmayan bir kilit anahtarını ve kendi kilidi olan bir
+  yardımcıya verilen kilitli kapanışı sıralamaya çalışmıyor, bildiriyor.
+  Göremediği tek şey üretim kodunun aldığı kilit (uygulayıcının şema
+  kilidi).
+
+  Bozuk ağaçta kırmızı. 11 tanık arasında CI'da asılan iki test de var,
+  karşı tarafta da yenileme testi. Düzeltilmiş ağaçta yeşil: 410 test
+  kilit alıyor, birlikte tutulan 17 çift var.
+
+### Mutasyonlar
+
+On üç mutasyon (`scratchpad/mutasyon-kilitsira.py`, geri alma bayt bayt
+aynı; kilitlenme ölçümü `scratchpad/kilitlenme-olc.py`). Beşi ağaçta:
+- CI'daki hata: kilitler sunucudan önce,
+- `4ca3eb5` öncesi iç sıra (`Refresh`, sonra `FetchLog`),
+- eski bildirim sırası (`Accounts`, `FetchLog`'dan sonra),
+- `SchemaApply`'ın `SchemaRace`'ten önce bildirilmesi,
+- `asnlookup`'ın `SchemaApply`'ı `SchemaRace`'ten önce alması (bu
+  sonuncusu CI'ın bir kez yaşadığı hata).
+
+Beşi de kırmızı. Değişmezin kendi parçalarından her biri birim testiyle
+kırmızı: yardımcı takibi, argüman sırası, tekilleştirme, kapanış
+bildirimi. Hangi parçanın yük taşıdığı birleşik mutasyonlarla ölçüldü:
+
+| mutasyon | sonuç | ne gösteriyor |
+|---|---|---|
+| yardımcı takibi yok + CI'daki hata | **sağ** | CI hatasını yakalayan, `newTestStore` ile `setupTestServer`'ın içine bakmak |
+| bildirim sırası sınanmıyor + eski bildirim | **sağ** | eski bildirimi yakalayan, bildirim sırası kontrolü |
+| ters çift raporu yok + CI'daki hata | kırmızı | ters çift raporu tespit için değil, iki tarafı adlandıran mesaj için |
+| tekilleştirme yok, depoda | sağ | bugün hiçbir test aynı kilide iki yoldan ulaşmıyor; birim testi tutuyor |
+
+### Kayıt için
+
+Günlüğü MCP'nin `get_job_logs`'u yalnız son 5000 satırıyla verdi, yani
+goroutine dökümünün kuyruğuyla. `running tests:` başlığı dışarıda kaldı.
+`return_content: false` bir `logs_url` veriyor. O düz metin bağlantısı
+`curl` ile vekilden geçti (200), 6.253 satırın tamamı indi.
