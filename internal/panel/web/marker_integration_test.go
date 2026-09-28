@@ -76,9 +76,13 @@ var walkedPages = map[string]string{
 	"devAccessRequestsHandler": DevAccessRequestsPath,
 	"mailHandler":              MailPath,
 	"healthHandler":            HealthPath,
-	"technicalDoorHandler":     TechnicalDoorPath,
-	"welcomeHandler":           WelcomePathPrefix + "site",
-	"setupHandler":             SetupPathPrefix + "baslangic",
+	// JSON rather than a page, and walked all the same: its omitted list
+	// and its section errors are catalog sentences, and the marker is not
+	// a character the JSON encoder escapes.
+	"diagnosticHandler":    DiagnosticPath,
+	"technicalDoorHandler": TechnicalDoorPath,
+	"welcomeHandler":       WelcomePathPrefix + "site",
+	"setupHandler":         SetupPathPrefix + "baslangic",
 }
 
 // excusedPages are the registered handlers this file does not load, and

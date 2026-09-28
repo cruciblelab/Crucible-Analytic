@@ -118,6 +118,10 @@ type healthPage struct {
 	// worth adding.
 	SelfURL string
 
+	// DiagnosticURL is where this page's facts are served as one file,
+	// from the constant for the same reason as SelfURL.
+	DiagnosticURL string
+
 	// Checks are the preflight results that are not satisfied, and the
 	// count of the ones that are.
 	//
@@ -449,7 +453,8 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	now := time.Now()
 
 	data := healthPage{
-		SelfURL: HealthPath,
+		SelfURL:       HealthPath,
+		DiagnosticURL: DiagnosticPath,
 	}
 
 	// Three sources, gathered independently. Each failure is written
@@ -769,13 +774,7 @@ func (s *Server) healthChecks(ctx context.Context, lang *ui.Language) ([]preflig
 		return nil, 0, ""
 	}
 
-	cfg := s.preflightConfig()
-	cfg.ServiceURLs = nil
-
-	ctx, cancel := context.WithTimeout(ctx, s.checkBudget())
-	defer cancel()
-
-	results := s.Preflight.Run(ctx, cfg)
+	results := s.runHealthChecks(ctx)
 	unmet := make([]preflight.CheckResult, 0, len(results))
 	passed := 0
 	for _, r := range results {
@@ -789,4 +788,22 @@ func (s *Server) healthChecks(ctx context.Context, lang *ui.Language) ([]preflig
 		return nil, 0, lang.T("saglik.kontroller.okunamadi")
 	}
 	return unmet, passed, ""
+}
+
+// runHealthChecks runs the checks the way this page does - without the
+// service probes, inside the page's budget - and returns every result,
+// passed ones included. Nil when no checker is wired.
+//
+// One runner for the page and the diagnostic file, so the file cannot
+// report a check the page did not run or run it with another budget.
+func (s *Server) runHealthChecks(ctx context.Context) []preflight.CheckResult {
+	if s.Preflight == nil {
+		return nil
+	}
+	cfg := s.preflightConfig()
+	cfg.ServiceURLs = nil
+
+	ctx, cancel := context.WithTimeout(ctx, s.checkBudget())
+	defer cancel()
+	return s.Preflight.Run(ctx, cfg)
 }

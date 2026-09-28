@@ -1115,6 +1115,16 @@ reddedilen_diger = "other"
 baslik = "Unknown site"
 metin = "Since the service started, %s events named a site that is not on the accepted sites list and were not recorded. The data-site value of the script on the site must be on that list: Settings → Collection → beacon.sites (in developer view). Once that is fixed this number stops growing; it resets when the service restarts."
 
+[metin.saglik.tani]
+indir = "Download diagnostics"
+aciklama = "Everything on this page, and the settings, in one JSON file. Send it when you ask for support. It holds no log lines and no secrets."
+kontrol_yok = "Setup checks are not wired into this panel."
+
+[metin.saglik.tani.disarida]
+gunluk = "No log lines: they can carry visitors' addresses. What may leave the machine is the owner's decision."
+site = "No per-site settings: all three are display (site name, visible cards, visible breakdowns)."
+sir = "No secrets: passwords and keys live in configuration files, which the panel does not read."
+
 [metin.saglik.depolama]
 baslik = "Storage"
 okunamadi = "The table information could not be read."

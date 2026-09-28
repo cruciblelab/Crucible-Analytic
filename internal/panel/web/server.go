@@ -188,6 +188,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc(DevAccessRequestsPath, s.devAccessRequestsHandler)
 	mux.HandleFunc(MailPath, s.mailHandler)
 	mux.HandleFunc(HealthPath, s.healthHandler)
+	mux.HandleFunc(DiagnosticPath, s.diagnosticHandler)
 	mux.HandleFunc(ClaimPathPrefix+"{token...}", s.claimHandler)
 	mux.HandleFunc(JoinPathPrefix+"{token...}", s.joinHandler)
 	mux.HandleFunc(WelcomePathPrefix+"{step...}", s.welcomeHandler)

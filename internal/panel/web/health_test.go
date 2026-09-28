@@ -162,6 +162,16 @@ func TestEveryServiceRoleHasWords(t *testing.T) {
 	}
 }
 
+// visitorWords would mean a number about traffic rather than about a
+// process. "written" and "dropped" are about rows this process handled
+// and are fine; "visitors" and "pageviews" are not. Shared by the page's
+// check and the diagnostic file's, which leaves the machine.
+var visitorWords = []string{
+	"visitor", "ziyaretci", "pageview", "goruntuleme",
+	"session", "oturum", "bounce", "referrer", "kaynak",
+	"country", "ulke", "path", "sayfa", "useragent", "ip",
+}
+
 // TestTheHealthPageCarriesNoVisitorNumbers.
 //
 // The page's promise, checked structurally. Its own types are the whole
@@ -173,14 +183,7 @@ func TestEveryServiceRoleHasWords(t *testing.T) {
 // By field name rather than by value: a value test would need the field
 // to exist first, which is one commit too late.
 func TestTheHealthPageCarriesNoVisitorNumbers(t *testing.T) {
-	// Words that would mean a number about traffic rather than about a
-	// process. "written" and "dropped" are about rows this process
-	// handled and are fine; "visitors" and "pageviews" are not.
-	forbidden := []string{
-		"visitor", "ziyaretci", "pageview", "goruntuleme",
-		"session", "oturum", "bounce", "referrer", "kaynak",
-		"country", "ulke", "path", "sayfa", "useragent", "ip",
-	}
+	forbidden := visitorWords
 	for _, typeName := range []string{"healthPage", "healthService", "healthStorage", "healthCounter", "healthAPI"} {
 		for _, field := range structFieldNames(t, "health.go", typeName) {
 			lower := strings.ToLower(field)

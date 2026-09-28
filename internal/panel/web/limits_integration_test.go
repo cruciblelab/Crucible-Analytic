@@ -321,7 +321,9 @@ func TestEveryRouteIsEitherGuardedOrDeliberatelyNot(t *testing.T) {
 		"dashboardHandler":   "read-only.",
 		"detailHandler":      "read-only.",
 		"addressListHandler": "read-only.",
-		"home":               "read-only.",
+		"diagnosticHandler": "read-only: the Health page's facts as a download, " +
+			"and any method but GET and HEAD is refused.",
+		"home": "read-only.",
 	}
 
 	guarded := handlersCallingAcceptPost(t)

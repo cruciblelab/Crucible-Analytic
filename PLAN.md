@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; kalan B3c–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; kalan B3c-2 (sahibin iki kararı), B3d–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -607,8 +607,8 @@ olanlar; her birinin ayrıntısı kendi bölümünde. 3, 4 ve 5'teki şema
 değişiklikleri sürüm atlatmadan girebilir: şema 24 yayımlanmadı, en yeni
 etiket `v0.24.0+L4` şema 21 taşıyor.)*
 
-1. **`main`'i ileri sarmak.** `main` `385936c`'de; dal ondan 23
-   commit ileride (bu liste dahil). Üçü müşteriyi doğrudan etkileyen
+1. **`main`'i ileri sarmak.** `main` `385936c`'de; bu liste yazıldığında
+   dal ondan 23 commit ilerideydi. Üçü müşteriyi doğrudan etkileyen
    kusurları kapatıyor:
    - V4b: yeniden başlatıcıyı açan her dağıtımda her güncelleme geri
      alınıyordu.
@@ -646,6 +646,21 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
      **Öneri** — kuralı bozmayan tek yol.
    - (b) Geliştirici parolası + gecikme + bildirimle sahip ataması. Bu,
      kuralı gevşetir.
+7. **B3c'nin iki sorusu** *(yeni, §B3a)*:
+   - **Tanı paketine günlük satırları girsin mi?** WARN/ERROR satırları
+     ziyaretçinin ağ adresini (`peer`) ve istemcinin iddiasını
+     (`claimed`) taşıyabiliyor; dosya makineden çıkıyor.
+     - (a) Girmesin (bugünkü hali).
+     - (b) Yalnız mesaj: kodun yazdığı cümle, alanlar yok.
+     - (c) Mesaj + izinli alanlar (`err` gibi), adresler ürünün kendi
+       maskesiyle (/24, /64), `claimed` hiç. **Öneri** — geliştiricinin
+       asıl ihtiyacı hatanın kendisi.
+   - **#25, giriş kısıtını kim kaldırabilsin?** Kısıt 15 dakikada
+     kendiliğinden kalkıyor; kilitlenen kişi o sırada giriş yapamıyor.
+     - (a) Yalnız sahip, yalnız bir üyenin e-postası için (adres
+       kısıtı değil), denetim kaydıyla. **Öneri.**
+     - (b) Geliştirici parolasının arkasında.
+     - (c) Hiç: 15 dakika yeter.
 
 ---
 
@@ -2245,7 +2260,7 @@ yarısını başka adlarla karşıladı.
 | 34 | `SetAnalyticsProfile` | yarım | profil kurulumda seçiliyor (A2), Sağlık'ta görünüyor; panelden değişmesi tek tek `sources.*` ile |
 | 35 | `SetVerboseLogging` | **var** | `logs.verbose_until` — kendi söner; site başına değil, genel |
 | 36 | `SetLogRetention/Level` | **var** | `logs.retention_days`, `logs.level` |
-| 37 | `ExportDiagnosticBundle` | yok | şemasız: yalnız panelin okuyabildikleri |
+| 37 | `ExportDiagnosticBundle` | yarım | ~~yok~~ → **B3c-1 ✅**: Sağlık → "Tanı paketini indir", günlüksüz. Günlük satırları **B3c-2**, sahibin kararı (ziyaretçi adresi taşıyabiliyorlar) |
 | 38 | `RestartService` | yok | mekanizma var: V'nin kapı zili (`internal/relupdate/restart.go` — içi okunmayan dosya, root'un `.path` birimi); panelin zili çalma yetkisi yok ve o, kurulumda verilecek bir yetki |
 | 39 | `ReloadConfig` | yok | servise istek |
 
@@ -2263,7 +2278,11 @@ kez yazmak onu bir kez yapmaktır.
 - **B3b** ✅ *(2026-09-27)* — #29'un ret sebebi yarısı: sebepler kalp
   atışında ve Sağlık'ta; "bilinmeyen site" sınıfı `beacon.sites`'a
   bağlandı.
-- **B3c** — #25 ve #37: yalnız panel.
+- **B3c-1** ✅ *(2026-09-28)* — #37'nin günlüksüz yarısı: Sağlık →
+  "Tanı paketini indir". Sayfanın olguları ve genel ayarlar tek JSON
+  dosyasında; indirebilen, sayfayı açabilen (sahip, geliştirici).
+- **B3c-2** — #37'nin günlük yarısı ve #25. İkisi de sahibin kararını
+  bekliyor (Beklenen kararlar, 7).
 - **B3d** — #3 ve #32: canlı ayarlar.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.

@@ -3,6 +3,13 @@
 Somebody reading a health page is deciding whether to open a terminal,
 and knowing what the page can and cannot see is part of that decision. */}}
 <p class="ipucu">{{t "saglik.giris"}}</p>
+{{- /* The page's facts as one file, for whoever supports this deployment.
+A plain link: the file is read-only and served to whoever may read this
+page, so there is nothing for a form to protect. No download attribute:
+the server's Content-Disposition makes it a download for any client, and
+two mechanisms for one behaviour would leave neither measurable. */}}
+<p class="tani"><a class="dugme" href="{{.Data.DiagnosticURL}}">{{t "saglik.tani.indir"}}</a></p>
+<p class="ipucu">{{t "saglik.tani.aciklama"}}</p>
 
 <section class="bolum">
 <h2>{{t "saglik.servis.baslik"}}</h2>

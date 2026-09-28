@@ -1162,6 +1162,16 @@ reddedilen_diger = "diğer"
 baslik = "Bilinmeyen site"
 metin = "Servis başladığından beri %s olay, kabul edilen siteler listesinde olmayan bir site kimliğiyle geldi ve kaydedilmedi. Sitedeki betiğin data-site değeri o listede olmalı: Ayarlar → Toplama → Kabul edilen siteler (beacon.sites, geliştirici görünümünde). Düzeldiğinde bu sayı artmayı bırakır; servis yeniden başlayınca sıfırlanır."
 
+[metin.saglik.tani]
+indir = "Tanı paketini indir"
+aciklama = "Bu sayfadaki her şey ve ayarlar, tek bir JSON dosyasında. Destek isterken gönderin. Günlük satırları ve sırlar içinde yok."
+kontrol_yok = "Kurulum kontrolleri bu panelde bağlı değil."
+
+[metin.saglik.tani.disarida]
+gunluk = "Günlük satırları yok: ziyaretçi adresi taşıyabiliyorlar. Neyin dışarı çıkabileceği sahibin kararı."
+site = "Site başına ayarlar yok: üçü de görünüm (site adı, görünür kartlar, görünür kırılımlar)."
+sir = "Sırlar yok: parolalar ve anahtarlar yapılandırma dosyalarında, panel onları okumuyor."
+
 [metin.saglik.depolama]
 baslik = "Depolama"
 okunamadi = "Tablo bilgileri okunamadı."

@@ -22452,3 +22452,130 @@ yok) ile "bu dönemde hareket yok"u zaten ayırıyor. Eksik olan "en son ne
 zaman", yani verinin dün kesilip kesilmediği. Okuma bedeli ölçülmeden
 yazılmayacak. O serisinin dersi bu: `/overview` hiç ölçülmemişti ve 11
 milyon satırda 90 günü 9,23 sn sürdü.
+
+## B3c-1 — Tanı paketi: Sağlık sayfasının olguları tek dosyada (2026-09-28)
+
+Katalog #37 (`ExportDiagnosticBundle`) bir insanın her şeye aynı anda
+bakması gereken durum için: destek isteyen sahip ekran görüntüsü almak
+ya da terminal açmak zorunda kalmasın. Sağlık sayfasının en üstünde
+**Tanı paketini indir** düğmesi, `GET /saglik/tani-paketi`, bir JSON
+dosyası.
+
+### Ne var, ne yok, ve neden
+
+Kural tek: dosya, indiren kişinin **bugün zaten okuyabildiğinden
+fazlasını** taşımıyor. İndirmek sayfanın kurallarını aşmanın bir yolu
+olmamalı. Bu yüzden erişim de Sağlık sayfasınınki
+(`requireHealthReader`): sahip ve geliştirici evet, yönetici ve izleyici
+hayır.
+
+- **İçinde:**
+  - panelin ve şemanın sürümü;
+  - ham kalp atışı satırları (sayaçlar ve son hata dahil);
+  - tablo boyutları, disk, API erişimi;
+  - kurulum kontrollerinin **tamamı**, geçenler de;
+  - bütün genel ayarlar ve her değerin kaynağı.
+- **Geliştirici ayarları dahil.** Ayarlar sayfası onları geliştirici
+  görünümü kapalı bir müşteriden **gruplayarak ayırıyor, saklamıyor**
+  (`Definition.Developer`). Dosyanın gönderildiği kişi de çoğu zaman
+  geliştirici.
+- **Günlük satırları yok.** Tasarlarken ölçüldü: güven kararları
+  günlüğe `peer` (istemcinin ağ adresi) ve `claimed` (istemcinin iddiası)
+  yazıyor. Yani WARN/ERROR satırları ziyaretçi adresi taşıyabiliyor, ve
+  bu dosya makineden çıkıyor. Neyin çıkabileceği gizlilik kuralı, yani
+  sahibin kararı. PLAN'da üç seçenekle soruldu; bu yarı B3c-2.
+- **Site başına üç ayar yok.** Üçü de görünüm: site adı, görünür
+  kartlar, görünür kırılımlar. Tanıya bir şey katmıyorlar.
+- **Hata metinleri ham**, `logging.SanitizeValue`'dan geçirilerek
+  (kontrol karakterleri atılmış, uzunluğu sınırlı). Sayfa kendi
+  cümlesini gösteriyor, ama geliştiricinin ihtiyacı hatanın kendisi.
+
+Dosya dışarıda bıraktıklarını kendisi de söylüyor (`omitted`). Böylece
+okuyan bir yokluğu sağlıklı bir sıfır sanmıyor. Her bölüm kendi hatasını
+taşıyor ve biri düşünce ötekiler yine geliyor; sayfanın tek kuralı bu.
+Dosya en çok bir şey bozukken lazım.
+
+### Yolda verilen üç küçük karar
+
+- **Kontrolleri sayfa ile dosya aynı çalıştırıcıdan koşuyor**
+  (`runHealthChecks`). Kopya olsaydı biri öbüründen başka bir bütçeyle
+  koşabilirdi.
+- **İndirmeyi tek bir mekanizma yapıyor:** sunucunun
+  `Content-Disposition: attachment` başlığı. İlk taslakta bağlantıda bir
+  de `download` özniteliği vardı. İkisi birlikteyken ikisinden biri
+  kaldırılınca hiçbir şey değişmiyordu, yani hiçbiri tek başına
+  ölçülemiyordu. Öznitelik gitti; başlık her istemci için çalışıyor.
+- **Okunamayan sayaçlar `null` kalıyor.** İlk taslak `nil` haritayı `{}`
+  yapıyordu. Buna yalnız sayaç kaydı okunamadığında ulaşılıyor
+  (`heartbeat.Read` o satırı yine de gösteriyor), ve orada `{}` "sayaç
+  yok" derdi. Doğrusu "okunamadı": `null`.
+
+### Yapısal koruma: ziyaretçi sözcüğü yok
+
+Sağlık sayfasının kuralı, **"hiçbir alan ziyaretçiyle ilgili bir sayı
+olamaz"**, alan adlarından denetleniyordu. Dosyaya daha sıkı uygulandı,
+çünkü dosya makineden çıkıyor:
+- `diagnostic.go`'daki **bütün** yapı tipleri dosyadan türetilerek
+  okunuyor;
+- Go adının yanında JSON adı da sınanıyor, çünkü okuyanın gördüğü o.
+
+İlk taslağımın iki alanını yakaladı: `IPTokenKey` ve `Paths`. İkisi de
+yeniden adlandırıldı (`TokenKey`, `Directories`). Yasak sözcük listesi
+artık iki kontrolün ortak değişkeni.
+
+Yeni rotayı paketin var olan iki kontrolü de yakaladı, ikisi de
+kendi sorusunu sorarak:
+- "Her rota ya CSRF korumalı ya da gerekçesiyle bilerek korumasız."
+  Rota gerekçesiyle listeye girdi: yalnız okuyor, GET ve HEAD dışını
+  reddediyor.
+- "Her sayfa işleyicisi eksik çeviri işareti için taranır ya da
+  gerekçeyle muaf tutulur." Muafiyet değil tarama doğruydu, çünkü
+  dosyanın `omitted` listesi ve bölüm hataları katalog cümleleri.
+  JSON kodlayıcı `«»` işaretini kaçışlamıyor. Ölçüldü: bir anahtar var
+  olmayanla değiştirilince tarama `«saglik.tani.disarida.olmayan»`'ı
+  hem sahip hem geliştirici gözüyle buldu; katalogun kullanılmayan
+  anahtar testi de ayrıca düştü.
+
+### Ölçüldü
+
+- **Gerçek Chromium ile.** Sahip olarak girildi ve düğmeye tıklandı:
+  - tarayıcı bir **indirme** yaptı ve sayfa `/saglik`'te kaldı;
+  - dosya `crucible-tani-…Z.json` adıyla kaydedildi ve JSON olarak
+    ayrıştı;
+  - CSP ihlali ve konsol hatası yok.
+- **İçerik**, kaydedilen dosyadan okundu:
+  - şema 24, parmak izi eşleşiyor;
+  - 4 tablo;
+  - 17 kontrol, 11'i geçmiş;
+  - 34 genel ayar: kayıttaki 37'den site başına 3 ayar çıkınca tam bu.
+- **Entegrasyon:**
+  - dosyadaki servis satırları, aynı kilit altında okunan tablonun
+    kendisiyle birebir;
+  - kontrol kimlikleri sayfanın çalıştırıcısıyla birebir;
+  - yazılan satırın sayaçları ve son hatası dosyada;
+  - kapalı bir havuzla dört veritabanı bölümü kendi hatasını yazıyor ve
+    dosya yine çıkıyor;
+  - sahip ve geliştirici 200, yönetici 403, oturumsuz istek giriş
+    formuna, POST 405.
+- **Ekran görüntüsü:** düğme, altında ne içerdiğini söyleyen cümle.
+  Açıklama ilk hâlinde düğmenin yanındaydı ve ikinci satırı düğmenin
+  altına kayıyordu; bakınca ayrı paragrafa alındı.
+
+### Mutasyonlar
+
+On dokuz mutasyon (`scratchpad/mutasyon-tani.py`), on dokuzu da
+kırmızı; yirmincisi yukarıdaki işaret ölçümü. Biri ilk turda
+derlenmedi; o benim mutasyon metnimin kusuruydu, doğrusuyla kırmızı.
+
+| yakalayan katman | mutasyon |
+|---|---|
+| yalnız birim | JSON adında ziyaretçi sözcüğü, disk alanı komşusuna, API ayrıntısı arındırılmıyor |
+| yalnız entegrasyon | herhangi bir oturum yetiyor, önbellek başlığı yok, site ayarları giriyor, son hata düşüyor, bir satır atlanıyor, geçen kontroller düşüyor, bölüm hatası yazılmıyor, düşen bölümün listesi `null`, şema eşleşmesi yanlış, dışarıda bırakılanlardan biri eksik, panel sürümü boş, yöntem denetimi yok, sayaçlar düşüyor |
+| yalnız tarayıcı | sayfada düğme yok |
+| entegrasyon + tarayıcı | rota kayıtlı değil, `Content-Disposition` yok |
+
+### Açık
+
+B3c-2: günlük satırları ve #25 (giriş kısıtını kim kaldırabilir). İkisi
+de sahibin kararı; PLAN'ın karar listesine yedinci madde olarak girdi,
+seçenekleri ve önerisiyle.

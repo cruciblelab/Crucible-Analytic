@@ -1890,6 +1890,41 @@ ulaşılamıyor.
 
 ---
 
+### Tanı paketi: destek isterken gönderilecek dosya
+
+Sağlık sayfasının en üstündeki **Tanı paketini indir** düğmesi, sayfadaki
+her şeyi tek bir JSON dosyası olarak indirir
+(`crucible-tani-<tarih>Z.json`). Destek isterken bu dosyayı göndermek, ekran
+görüntüsü almaktan da terminalde komut çalıştırmaktan da kolay.
+
+**İçinde:**
+- panelin sürümü;
+- şemanın sürümü ve parmak izi, beklenenle birlikte;
+- her servisin kalp atışı satırı: sürüm, son haber, sayaçlar, son hata;
+- tabloların diskte kapladığı yer, disk ve okuma API'sine erişim;
+- kurulum kontrollerinin **tamamı**, geçenler dahil;
+- bütün genel ayarlar ve her değerin nereden geldiği (varsayılan,
+  veritabanı, dosya).
+
+**İçinde olmayanlar.** Dosyanın `omitted` alanı da bunları söylüyor:
+- **Günlük satırları.** Ziyaretçi adresi taşıyabiliyorlar; neyin
+  makineden çıkabileceği sahibin kararı.
+- **Site başına üç ayar.** Üçü de görünüm: site adı, görünür kartlar,
+  görünür kırılımlar.
+- **Sırlar.** Parolalar ve anahtarlar yapılandırma dosyalarında; panel
+  onları okumuyor.
+- **Ziyaretçi sayısı.** Hiçbir alan ziyaretçiyle ilgili bir sayı olamaz;
+  bunu bir test alan adlarından denetliyor.
+
+**Kim indirebilir:** Sağlık sayfasını açabilen herkes, yani bir sitenin
+sahibi ve geliştirici. Yönetici ve izleyici açamaz. İndirmek, sayfanın
+kurallarını aşmanın bir yolu değil. Dosya tarayıcıda önbelleğe alınmaz.
+
+**Bir bölüm okunamazsa** o bölüm hatasını yazar, gerisi yine gelir.
+Dosya en çok bir şey bozukken gerekiyor.
+
+---
+
 ### Servisler: Sağlık sayfasındaki satırlar ne söyler
 
 Her servisin — panel dâhil — bir satırı var, ve hepsi servisin kendi
