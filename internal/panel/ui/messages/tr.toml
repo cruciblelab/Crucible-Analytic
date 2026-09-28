@@ -288,7 +288,11 @@ baslik = "Doğrulama kodu"
 govde = "%s hesabı için uygulamanızdaki altı haneli kodu girin."
 kod = "Doğrulama kodu"
 gonder = "Doğrula"
-ipucu = "Kod, kimlik doğrulama uygulamanızda otuz saniyede bir yenilenir. Telefonunuza erişemiyorsanız sitenin sahibinden iki faktörü sıfırlamasını isteyin."
+ipucu = "Kod, kimlik doğrulama uygulamanızda otuz saniyede bir yenilenir."
+# Kurtarma sayfasına götüren bağlantı. Eski ipucu "sitenin sahibinden iki
+# faktörü sıfırlamasını isteyin" diyordu; panelde bunu yapan bir düğme hiç
+# olmadı (2026-09-28). Telefonunu kaybedenin yolu kurtarma kodu.
+telefon_yok = "Telefonuma erişemiyorum"
 
 [metin.siteler]
 baslik = "Siteler"
@@ -438,6 +442,22 @@ sure_gecersiz = "Bu erişim süresi sunulan seçeneklerden biri değil."
 sahip_sureli = "Sahiplik süreli olamaz. Tek sahibinin erişimi biten bir site panelden onarılamaz."
 uye_yetki = "Bu kişinin rolü sizinkinin üstünde. Yalnız bir sahip, başka bir sahibi değiştirebilir ya da çıkarabilir."
 son_sahip = "Bir sitenin en az bir sahibi olmalı. Önce başka birini sahip yapın."
+kisit_yetki = "Giriş kısıtını yalnız bu sitenin sahibi kaldırabilir; kendi hesabınızınkini kaldıramazsınız."
+
+# Giriş kısıtı (#25). Kısıt 15 dakikada kendiliğinden kalkar; sitenin
+# sahibi bir üyeninkini daha önce kaldırabilir, aynı hesap için pencerede
+# bir kez. Yalnız sahibe gösteriliyor.
+[metin.uyeler.kisit]
+rozet = "giriş kısıtlı"
+kaldir = "Kısıtı kaldır"
+kaldirildi = "%s için giriş kısıtı kaldırıldı: son %d dakikadaki %d hatalı deneme artık sayılmıyor."
+zaten_yok = "Bu kişinin girişi artık kısıtlı değil: kısıt kendiliğinden kalkmış ya da başka bir sahip kaldırmış."
+bir_kez = "Bir hesabın kısıtı %d dakikada bir kez kaldırılabilir; bu hesabınki az önce kaldırıldı."
+kendin = "Hesabınızla çok sayıda hatalı giriş denendi. Siz değilseniz parolanızı değiştirin."
+
+[metin.uyeler.kisit.kalkar]
+one = "%s dakika içinde kendiliğinden kalkar."
+other = "%s dakika içinde kendiliğinden kalkar."
 
 # Birden çok sayfanın paylaştığı düğme metinleri. Bölüm başlığı yok:
 # bunlar bir sayfaya değil arayüzün tamamına ait.

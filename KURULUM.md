@@ -809,8 +809,20 @@ giriş sayfasındaki "Giremiyorum" bağlantısından kendi başına geri
 giriyor. **Sizi aramasına gerek yok, e-posta sunucusu gerekmiyor,
 ayarlanacak bir şey yok.**
 
-Kodlarını da kaybederse: üye listesinden kodlarını yenileyip birini
-kendisine iletirsiniz. Ayrı bir mekanizma değil, aynı form.
+Kodlarını da kaybederse **bugün panelde bir yol yok.** Bu paragraf
+eskiden *"üye listesinden kodlarını yenileyip birini kendisine
+iletirsiniz"* diyordu; öyle bir düğme hiç yazılmadı (2026-09-28'de
+ölçüldü, PLAN §B3a'da **B3h**). Yazılana kadar yapılabilecek tek şey:
+sitenin sahibi kişiyi siteden çıkarır ve **başka bir e-posta adresiyle**
+yeniden davet eder.
+
+**Hatalı parolayla kilitlenen kişi** ise kurtarılmaya muhtaç değil:
+hesap beş hatalı denemeden sonra kısıtlanıyor ve **en geç 15 dakikada
+kendiliğinden** açılıyor. Beklemek istemezse sitenin sahibi **Üyeler**
+sayfasındaki **Kısıtı kaldır** düğmesiyle hemen açabiliyor (aynı hesap
+için 15 dakikada bir kez). Parola, iki aşamalı doğrulama kodu ve
+kurtarma kodu aynı beş hakkı paylaşıyor; hak ancak giriş tamamlanınca
+yenileniyor.
 
 Müşteriye söylemeniz gereken tek şey: **o sayfadaki kodları saklasın.**
 Sayfa kapandığında kodların kendisi kayboluyor, panelde yalnız
@@ -2462,6 +2474,7 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 | Davet bağlantısı çalışmıyor | Süresi dolmuş (varsayılan 7 gün), geri alınmış, kullanılmış — ya da daveti üreten kişinin o rolü verme yetkisi bu arada düşürülmüş. Yenisini üretmek için aynı adresi tekrar davet edin |
 | Bir üye siteyi birden göremez oldu | Erişimine süre verilmiş olabilir; üye sayfasının altındaki **Süresi dolmuş erişimler** listesine bakın. Yeniden vermek için aynı adresi üye ekleme kutusuna yazmanız yeterli, süre baştan başlar |
 | Bir üyeye süre verilemiyor | Sahiplik süreli olamaz — tek sahibinin erişimi biten bir site panelden onarılamaz. Kişiye yönetici ya da izleyici rolü verin |
+| Bir üye "Çok fazla deneme yapıldı" diyor | Hesabı beş hatalı denemeden sonra kısıtlandı; en geç 15 dakikada kendiliğinden açılır. Sitenin sahibi **Üyeler** sayfasında satırın yanındaki **Kısıtı kaldır** ile hemen açabilir (aynı hesap için 15 dakikada bir kez; yönetici bu düğmeyi görmez). Satırda **giriş kısıtlı** rozeti hiç yoksa kısıt hesapta değil adrestedir — aynı ağdan çok sayıda hatalı deneme — ve beklemek gerekir |
 
 ---
 
@@ -2477,6 +2490,9 @@ belge, okuyana **gerçek** eksikler hakkındakilere de inanmamayı
 CHANGELOG'da.)*
 
 - **Parola değişikliği diğer cihazlardaki oturumları kapatmıyor.**
+- **Hem telefonunu hem kurtarma kodlarını kaybeden birinin hesabı
+  panelden kurtarılamıyor.** Planlanan ikinci ağ (işletmecinin kodları
+  yenileyip birini iletmesi) yazılmadı; §5.0'daki geçici yol.
 - **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe.**
   Panelin geri kalanı Türkçe ve İngilizce.
 - **Panelde kırılımların altısı var, otuzu değil.** Sayfa, kaynak,

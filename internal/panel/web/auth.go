@@ -178,11 +178,14 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 		return
 	}
 
-	// The password was right, so the failure counters for this account
-	// have served their purpose.
-	if err := s.Store.ClearLoginFailures(ctx, email); err != nil {
-		s.logger().Warn("panel: clearing login failures", "err", err)
-	}
+	// The password was right, and the failures are not cleared here.
+	//
+	// They used to be, and for an account with a second factor that was
+	// the whole of its protection gone: the code is counted against the
+	// same budget, so seven wrong codes, the password again, seven more -
+	// seventy codes checked in 1.6 seconds against a limit of eight per
+	// window (measured, 2026-09-28). The budget is reset by completeLogin,
+	// once there is nothing left to guess.
 	if err := s.Store.RecordLoginAttempt(ctx, email, addr, true); err != nil {
 		s.logger().Warn("panel: recording login attempt", "err", err)
 	}
@@ -211,12 +214,20 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 }
 
 // completeLogin establishes the session and records it.
+//
+// It is also the one place the account's failure budget is reset - the
+// password form, the second-factor form and the recovery form all end
+// here, and every step before here is one an attacker can repeat. See
+// panel.ClearLoginFailures.
 func (s *Server) completeLogin(w http.ResponseWriter, r *http.Request, lang *ui.Language, user panel.User, next string) {
 	ctx := r.Context()
 	if err := s.Sessions.LogIn(ctx, user); err != nil {
 		s.logger().Error("panel: establishing session", "err", err)
 		s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
 		return
+	}
+	if err := s.Store.ClearLoginFailures(ctx, user.Email); err != nil {
+		s.logger().Warn("panel: clearing login failures", "err", err)
 	}
 	if err := s.Store.TouchLastLogin(ctx, user.ID); err != nil {
 		s.logger().Warn("panel: touching last login", "err", err)
@@ -317,9 +328,6 @@ func (s *Server) submitSecondFactor(w http.ResponseWriter, r *http.Request, lang
 	err = s.Store.VerifyTOTP(ctx, user.ID, user.TOTPSecret, code, time.Now())
 	switch {
 	case err == nil:
-		if err := s.Store.ClearLoginFailures(ctx, user.Email); err != nil {
-			s.logger().Warn("panel: clearing login failures", "err", err)
-		}
 		s.completeLogin(w, r, lang, user, next)
 		return
 

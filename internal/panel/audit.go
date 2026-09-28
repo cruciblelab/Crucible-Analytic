@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/netip"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // Audit actions. Constants rather than free-form strings so the log can
@@ -16,7 +18,14 @@ const (
 	ActionLoginSucceeded = "login.succeeded"
 	ActionLoginFailed    = "login.failed"
 	ActionLoginThrottled = "login.throttled"
-	ActionLogout         = "logout"
+	// ActionLoginUnlocked records an owner lifting a member's sign-in
+	// lock (catalogue #25). Target is the member's address.
+	//
+	// More than a record: UnlockLogin reads it back to allow one lift per
+	// account per window, and writes it inside the transaction that does
+	// the lifting. See attempts.go.
+	ActionLoginUnlocked = "login.unlocked"
+	ActionLogout        = "logout"
 
 	// Developer access, in the order it happens: the developer asks from
 	// the server, the owner decides in the panel, the link is redeemed.
@@ -214,6 +223,23 @@ func (s *Store) Record(ctx context.Context, e AuditEntry) error {
 // change to the operation record - and thirty other callers do not need
 // to start ignoring a value.
 func (s *Store) recordReturningID(ctx context.Context, e AuditEntry) (int64, error) {
+	return recordIn(ctx, s.pool, e)
+}
+
+// rowQuerier is what writing an entry needs, which a pool and a
+// transaction both provide.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// recordIn writes an entry through q - a transaction when the entry has
+// to commit or vanish with the change it records.
+//
+// One statement for both, rather than a copy of the INSERT inside the
+// transaction that needed it: two copies of a column list are two lists
+// to keep in step, and the audit log is the last place to find out they
+// were not.
+func recordIn(ctx context.Context, q rowQuerier, e AuditEntry) (int64, error) {
 	if e.Detail == nil {
 		e.Detail = map[string]any{}
 	}
@@ -234,7 +260,7 @@ func (s *Store) recordReturningID(ctx context.Context, e AuditEntry) (int64, err
 	}
 
 	var id int64
-	err = s.pool.QueryRow(ctx, `
+	err = q.QueryRow(ctx, `
 		INSERT INTO panel_audit_log
 		  (actor_kind, actor_id, actor_label, action, site_id, target, detail, ip, user_agent)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)

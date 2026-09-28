@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; kalan B3c-2 (sahibin iki kararı), B3d–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; kalan B3c-2b (tanı paketine maskeli günlük, karar verildi), B3h (C7.2'nin hiç yazılmamış ikinci ağı), B3d–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -586,7 +586,8 @@ bir eksik, unutulmuş bir eksiktir.
 | **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
 | **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **açık** (`/hesap` sayfası C4'te açıldı; eksik olan `panel_users`'ta bir sütun ve çözümlemeye kullanıcı tercihinin eklenmesi — çözümleme parametresi zaten variadic) |
 | **Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor** — oturum tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması | **açık** (AI.3'te bulundu, hesap sayfasında yazılı; kapatmak `scs` şemasına sütun eklemek demek) |
-| **İki faktör kurtarma kodu yok** — kaybeden kişiyi sahip ya da işletmeci kurtarıyor; tek sahip kaybederse kabuk gerekiyor | **açık** (AI.3; kayıt ve kod formunda yazılı) |
+| ~~**İki faktör kurtarma kodu yok**~~ — kodlar C7.2'de geldi. Satırın ikinci yarısı ise hiç doğru olmadı: *"kaybeden kişiyi sahip ya da işletmeci kurtarıyor"* — panelde bunu yapan bir düğme yok (2026-09-28'de ölçüldü; kod formu da aynı şeyi vaat ediyordu, düzeltildi). Hem telefonunu hem kodlarını kaybeden için panelde yol yok | **B3h** (C7.2'nin ikinci ağı, şemasız) |
+| **Başarılı giriş (ve artık sahibin kaldırması) başarısız denemeleri siliyor** — tablonun yorumu onları *"kanıt"* diye anlatıyor; bir hesaba giriş yapılınca o hesabı deneyen adresler kayboluyor (denetim kaydının `login.failed` satırları adres taşımıyor). Kaldırma yalnız penceredekini siliyor ve sayısını denetim kaydına yazıyor | **açık** (NOTES §B3c-2a). Silmek yerine "son başarıdan sonrakileri say" demek kaldırmanın izi için bir işaret ister; ölçülmüş bir ihtiyaç olunca şema kararına |
 | **Panelde global eşzamanlılık sınırı yok** — her giriş denemesi bir argon2id doğrulaması, sınır kuyruk değil throttle sayaçları | **açık** (AI.3; panel varsayılan `127.0.0.1` dinliyor ve TLS'i sonlandıran bir proxy arkasında çalışması bekleniyor) |
 | ~~`govulncheck` düzenli çalıştırılmalı~~ | ✅ **G1'de kapandı** — hem kapıda hem gecelik. Gerekçe teorik değildi: ilk koşu 34 bulgu verdi |
 | **Beş binary'nin dördü sürümünü söyleyemiyor** — `main.version` sembolü yalnız `panel`'de var, ama KURULUM.md beşini de `-X main.version` ile derletiyor ve linker olmayan sembol için uyarmıyor *(ölçüldü 2026-08-26, `go tool nm`)* | **G2** sembolü ekler, **B7** gösterir |
@@ -615,6 +616,10 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
    - CI 416: `throttle` ile hız sınırı birlikteyken collector yeniden
      başlatılana kadar kilitleniyordu.
    - H6: bağlantı jetonları günlüğe açık metin yazılıyordu.
+   - B3c-2a *(bu liste yazıldıktan sonra)*: ikinci faktör, parolayı
+     bilen birine karşı sınırsız denenebiliyordu — doğru parola,
+     kodun sayıldığı bütçeyi sıfırlıyordu. Tek istemciyle saniyede 44
+     kod, altı haneli kod için yaklaşık iki saat.
 
    **Öneri: evet** — hepsi kapı `--all` ile geldi. CI 424 ve 425
    kırmızıydı; sebep benim bir test kilitlenmemdi, ürün değil (NOTES
@@ -646,21 +651,14 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
      **Öneri** — kuralı bozmayan tek yol.
    - (b) Geliştirici parolası + gecikme + bildirimle sahip ataması. Bu,
      kuralı gevşetir.
-7. **B3c'nin iki sorusu** *(yeni, §B3a)*:
-   - **Tanı paketine günlük satırları girsin mi?** WARN/ERROR satırları
-     ziyaretçinin ağ adresini (`peer`) ve istemcinin iddiasını
-     (`claimed`) taşıyabiliyor; dosya makineden çıkıyor.
-     - (a) Girmesin (bugünkü hali).
-     - (b) Yalnız mesaj: kodun yazdığı cümle, alanlar yok.
-     - (c) Mesaj + izinli alanlar (`err` gibi), adresler ürünün kendi
-       maskesiyle (/24, /64), `claimed` hiç. **Öneri** — geliştiricinin
-       asıl ihtiyacı hatanın kendisi.
-   - **#25, giriş kısıtını kim kaldırabilsin?** Kısıt 15 dakikada
-     kendiliğinden kalkıyor; kilitlenen kişi o sırada giriş yapamıyor.
-     - (a) Yalnız sahip, yalnız bir üyenin e-postası için (adres
-       kısıtı değil), denetim kaydıyla. **Öneri.**
-     - (b) Geliştirici parolasının arkasında.
-     - (c) Hiç: 15 dakika yeter.
+7. ~~**B3c'nin iki sorusu**~~ **KARAR VERİLDİ (2026-09-28).**
+   - **Tanı paketine günlük satırları:** *"önerini yapalım, kafama daha
+     çok yattı"* — **(c)**: mesaj + izinli alanlar, adresler ürünün kendi
+     maskesiyle (/24, /64), `claimed` hiç. → **B3c-2b**.
+   - **#25:** *"15 dakikada kendiliğinden kalksın, hakkı 3/4/5 bu üçünden
+     biri olsun sen seç, ve aynı şekilde site sahibi de yapabilsin."* Hak
+     **beş** seçildi; gerekçesi ve üç seçeneğin ölçülen bedeli NOTES
+     §B3c-2a'da. → **B3c-2a ✅**.
 
 ---
 
@@ -2245,10 +2243,10 @@ yarısını başka adlarla karşıladı.
 | 19 | `CreateMissingIndexes` | **var** | L3 şema dosyalarını uyguluyor (`CREATE INDEX IF NOT EXISTS`); `CONCURRENTLY` değil |
 | 20 | `Reindex/Analyze/VacuumTable` | yok | `panel_user` tabloların sahibi değil → SECURITY DEFINER sarmalayıcı → **şema** |
 | 21 | `ShowSlowQueries` | yok | `pg_stat_statements` ve okuma yetkisi (`pg_read_all_stats`) → **yetki** |
-| 22 | `SendOwnerPasswordReset` | yok | e-postalı sıfırlama akışı hiç yok (C7.2 bilerek kurtarma kodlarıyla); tek kullanımlık jeton deposu → **şema** |
-| 23 | `DisableTOTP` | yok | sahibin kapatabildiği afişin durumu saklanmalı → muhtemelen **şema** |
+| 22 | `SendOwnerPasswordReset` | yok | e-postalı sıfırlama akışı hiç yok (C7.2 bilerek kurtarma kodlarıyla); tek kullanımlık jeton deposu → **şema**. *C7.2'nin e-postasız ikinci ağı da yok: işletmecinin bir üyenin kodlarını yenilemesi hiç yazılmadı (2026-09-28'de ölçüldü) → **B3h**, şemasız* |
+| 23 | `DisableTOTP` | yok | sahibin kapatabildiği afişin durumu saklanmalı → muhtemelen **şema**. *Kod formu bunu var sayıyordu ("sitenin sahibinden iki faktörü sıfırlamasını isteyin"); B3c-2a'da kurtarma sayfasına bağlandı* |
 | 24 | `EndAllSessions` | yok | oturum tablosunda kullanıcı sütunu yok (§0.5 açık risk) → **şema** |
-| 25 | `UnlockLoginThrottle` | yok | şemasız: kısıt deposu var (`CheckLoginThrottle`), kaldıran yol yok |
+| 25 | `UnlockLoginThrottle` | **var** | ~~yok~~ → **B3c-2a ✅**: Üyeler → "Kısıtı kaldır". Yalnız sitenin sahibi, yalnız o sitenin canlı bir üyesi için, yalnız hesap kısıtı (adres kısıtı değil), hesap başına pencerede bir kez; denetim kaydı kaldırmanın kendi işleminde |
 | 26 | `GrantOwnership` | yarım | yalnız ilk devir teslim (kurulum sihirbazı, `CreateOwnerClaim`); sonrası üyeler sayfası. **Tek sahip giderse geliştiricinin sahip ataması, "sahip hesabı açıldıktan sonra geliştirici erişimi sahibin onayına bağlı" kuralıyla çelişiyor → sahibin kararı** |
 | 27 | `RevokeAPIToken` | yok | API jetonları dosyada (`analytics-api.toml`), panel göremiyor → B5 ile birlikte, **şema** |
 | 28 | `SetDeveloperMode` | **var** | Hesap → geliştirici görünümü (kişinin kendisi) |
@@ -2260,7 +2258,7 @@ yarısını başka adlarla karşıladı.
 | 34 | `SetAnalyticsProfile` | yarım | profil kurulumda seçiliyor (A2), Sağlık'ta görünüyor; panelden değişmesi tek tek `sources.*` ile |
 | 35 | `SetVerboseLogging` | **var** | `logs.verbose_until` — kendi söner; site başına değil, genel |
 | 36 | `SetLogRetention/Level` | **var** | `logs.retention_days`, `logs.level` |
-| 37 | `ExportDiagnosticBundle` | yarım | ~~yok~~ → **B3c-1 ✅**: Sağlık → "Tanı paketini indir", günlüksüz. Günlük satırları **B3c-2**, sahibin kararı (ziyaretçi adresi taşıyabiliyorlar) |
+| 37 | `ExportDiagnosticBundle` | yarım | ~~yok~~ → **B3c-1 ✅**: Sağlık → "Tanı paketini indir", günlüksüz. Günlük satırları **B3c-2b**; karar verildi: (c), adresler maskeli |
 | 38 | `RestartService` | yok | mekanizma var: V'nin kapı zili (`internal/relupdate/restart.go` — içi okunmayan dosya, root'un `.path` birimi); panelin zili çalma yetkisi yok ve o, kurulumda verilecek bir yetki |
 | 39 | `ReloadConfig` | yok | servise istek |
 
@@ -2281,8 +2279,23 @@ kez yazmak onu bir kez yapmaktır.
 - **B3c-1** ✅ *(2026-09-28)* — #37'nin günlüksüz yarısı: Sağlık →
   "Tanı paketini indir". Sayfanın olguları ve genel ayarlar tek JSON
   dosyasında; indirebilen, sayfayı açabilen (sahip, geliştirici).
-- **B3c-2** — #37'nin günlük yarısı ve #25. İkisi de sahibin kararını
-  bekliyor (Beklenen kararlar, 7).
+- **B3c-2a** ✅ *(2026-09-28)* — #25: hesap kısıtı beş hak, on beş
+  dakika; sitenin sahibi bir üyeninkini daha önce kaldırabiliyor. Yolda
+  bulunan asıl kusur: doğru parola, ikinci faktörün sayıldığı bütçeyi
+  sıfırlıyordu. Bütçe artık yalnız oturum kurulunca sıfırlanıyor.
+- **B3c-2b** — #37'nin günlük yarısı; karar verildi (Beklenen kararlar,
+  7): mesaj + izinli alanlar, adresler maskeli.
+- **B3h** — C7.2'nin ikinci ağı: bir işletmecinin (süper yönetici,
+  geliştirici oturumu dahil) bir üyenin kurtarma kodlarını yenileyip
+  birini iletmesi. Karar 2026-08-26'da verilmişti (*"operatör bağlantısı
+  kodlarını da kaybeden için ikinci ağ"*); C7.2 ✅ yazıldı ama bu yarı
+  **hiç yazılmadı**. Ölçüm 2026-09-28: `GenerateRecoveryCodes`'u tek
+  çağıran hesap sayfası, kişinin kendisi için; şablondaki "başkası için
+  üretildi" dalını hiçbir işleyici kurmuyor. Hem telefonunu hem kodlarını
+  kaybeden bir üye bugün panelden kurtarılamıyor. Şemasız. **Site
+  sahibine açılmıyor:** bir üyenin kodlarını üretmek o hesabı almak
+  demek, ve üye başka sitelerin de üyesi olabilir; sahibe açmak sahibin
+  kararı olur.
 - **B3d** — #3 ve #32: canlı ayarlar.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
@@ -3309,6 +3322,17 @@ gösteriyor (2'de uyarı, 0'da alarm); ve "henüz yok" cümlesi yerini
 **Operatör yolu ayrı bir jeton türü olmadı**, ve bu tasarımı
 basitleştiren karar: operatör bağlantı üretmiyor, **kurtarma kodlarını
 yeniliyor**. Tek kullanım yolu, tek denetim izi, tek redemption akışı.
+
+> **DÜZELTME (2026-09-28): operatör yolu hiç yazılmadı.** Bu paragraf ve
+> commit'i (`449d8aa`, *"the operator regenerates the codes and hands one
+> over"*) onu yapılmış anlatıyor; ölçüldü, yok. `GenerateRecoveryCodes`'u
+> tek çağıran hesap sayfası (`account.go`, kişinin kendisi için), ve
+> kodlar sayfasındaki "başkası için üretildi" dalını (`Issued`, `For`)
+> hiçbir işleyici kurmuyor. Üye listesinde öyle bir düğme yok. KURULUM
+> §5.0 aynı yolu anlatıyordu, kod formu da *"sitenin sahibinden iki
+> faktörü sıfırlamasını isteyin"* diyordu — ikisi de B3c-2a'da
+> düzeltildi. Hem telefonunu hem kodlarını kaybeden için panelde bugün
+> yol yok; kararı verilmiş, yazılmamış bir iş olarak **B3h**.
 
 **İkinci faktör istenmedikçe korunuyor.** "Parolamı unuttum" ile
 "telefonumu kaybettim" aynı forma geliyor ama aynı istek değil; her

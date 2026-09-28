@@ -22579,3 +22579,220 @@ derlenmedi; o benim mutasyon metnimin kusuruydu, doğrusuyla kırmızı.
 B3c-2: günlük satırları ve #25 (giriş kısıtını kim kaldırabilir). İkisi
 de sahibin kararı; PLAN'ın karar listesine yedinci madde olarak girdi,
 seçenekleri ve önerisiyle.
+
+## B3c-2a — Giriş kısıtı: beş hak, on beş dakika, sahibin kaldırması; ve yolda bulunan ikinci faktör açığı (2026-09-28)
+
+Sahibin kararı, karar listesinin yedinci maddesine (#25):
+
+> *"15 dakikada kendiliğinden kalksın, hakkı 3/4/5 bu üçünden biri olsun
+> sen seç, ve aynı şekilde site sahibi de yapabilsin."*
+
+Aynı mesajda tanı paketine günlük satırları için önerim (c) seçildi; o
+yarı B3c-2b.
+
+### Önce bulunan: ikinci faktör, parolayı bilene karşı sınırsızdı
+
+Hak sayısını seçmeden önce neyin "başarısız deneme" sayıldığını okudum.
+Parola, iki aşamalı doğrulama kodu ve kurtarma kodu aynı hesap bütçesine
+yazılıyor; bu doğru ve bilinçli (`recovery.go`: *"iki kapı, tek
+bütçe"*). Ama doğru parola girildiği anda `ClearLoginFailures`
+çağrılıyordu, yani **kod sorulmadan önce** bütçe sıfırlanıyordu.
+
+Ölçüldü, gerçek işleyici ve gerçek veritabanıyla. Bir hesap, bir
+istemci: parola, sonra yedi yanlış kod; parola yeniden, yedi kod daha;
+on tur.
+- **Önce:** 70 kod denetlendi (401), **hiçbiri reddedilmedi** (429 yok),
+  1,6 saniye. Sınır 15 dakikada 8'di.
+- Saniyede 44 kod. Her an üç kod geçerli (±30 sn), yani milyonda üç:
+  beklenen 333 bin deneme, **yaklaşık iki saat**. Koşut istemcilerle daha
+  kısa.
+- **Sonra:** aynı on tur **5 kod** denetletiyor; ardından parola formu da
+  kod formu da 429 veriyor, doğru parolaya bile.
+
+Kod yorumu tam bu tehlikeyi yazıyordu (*"the second factor would be
+decoration"*) ve korumayı da koymuştu; yalnız sıfırlamanın yeri
+yanlıştı. Her adım tek başına doğruydu. Düzeltme: bütçe yalnız **oturum
+kurulunca** (`completeLogin`) yenileniyor; parola ve kurtarma adımları
+artık sıfırlamıyor. Kuralın yeri yapısal olarak tutuluyor:
+`internal/invariants/loginbudget_test.go`, ağaçta tek çağıran.
+
+Bedeli: iki aşamalı doğrulama kullanan birinin parola hataları ve kod
+hataları, giriş tamamlanana kadar birlikte sayılıyor. Beşin
+seçilmesinin bir sebebi bu.
+
+### Neden beş
+
+Üç seçeneğin bedeli iki yönde.
+
+**Saldırgana:** her seçenek hesap başına pencerede o kadar deneme.
+12 karakterlik bir parola politikasına karşı üçü de önemsiz. Parolayı
+zaten bilen ve pencereyi sürekli dolduran birine karşı, altı haneli
+kodu tutturma şansı:
+
+| hak | günde deneme | bir günde | bir yılda |
+|---|---|---|---|
+| 3 | 288 | %0,086 | %27,0 |
+| 4 | 384 | %0,115 | %34,3 |
+| **5** | 480 | %0,144 | %40,9 |
+| 8 (eski) | 768 | %0,230 | %56,9 |
+
+Eski satır, eski sınır tutsaydı geçerli olurdu; tutmuyordu (yukarıda). Her
+satırda saldırı sürdüğü sürece hesabın sahibi de kilitli: girişi
+açılmayan kişi bunu bir yıl boyunca fark etmeden geçirmez.
+
+**Kullanıcıya:** bütçe artık kapılar arasında ortak. İki aşamalı
+doğrulama kullanan biri parolasını iki kez yanlış yazıp telefonunun
+saati kaydığı için bir kodu kaçırırsa üç hata eder. Üç hakla on beş
+dakika bekler; kanıtladığı hiçbir şey yokken.
+
+Seçim **beş**: izin verilen aralığın en yumuşağı. Kodla tutturma
+şansındaki fark (%27 → %41, bir yılda), düzeltilen açığın (iki saat)
+yanında küçük.
+
+Test sabitleri değil **sayıları** yazıyor: dört kilit değil, beş kilit;
+14,5 dakikalık bir hata sayılıyor, 15,5 dakikalık sayılmıyor. İkisi de
+eşiğin iki yanı; eşik sabitle yazılsaydı sabitle birlikte kayardı.
+
+### Kendiliğinden kalkma
+
+Pencere kayan pencere. Kilit, bütçeyi dolduran hata (beşinci en yeni)
+pencereden çıkınca kalkıyor. Kilitliyken yapılan denemeler hata olarak
+yazılmıyor, yani beklemek denemekle uzamıyor. Giriş formundaki "15
+dakika" bir üst sınır. Tam 15 dakika bekleyen biri beş hakkın beşini de
+geri alıyor, çünkü hepsi kilidin başladığı andan önceydi.
+
+Üyeler sayfası kalan süreyi veritabanının saatiyle hesaplıyor: beşinci
+en yeni hata artı 15 dakika. Yaşları seçilmiş satırlarla sınandı. 12,
+10, 8, 6, 2 ve 1 dakikalık altı hatada kilit **5 dakikada** kalkıyor
+(beşinci en yeni 10 dakikalık); en eskiye bakan bir hesap 3 derdi.
+
+### Sahibin kaldırması
+
+- **Kim:** yalnız o sitenin sahibi, kendi canlı üyeliğiyle. Süper
+  yönetici ve geliştirici oturumu kaldıramıyor. Sahip, masadaki öteki
+  seçeneği, bunu geliştirici parolasının arkasına koymayı (b), seçmedi.
+  Kural `Access.MayLiftLoginLocks`'ta; `UnlockLogin` aynı soruyu kendi
+  işleminin içinde, satırlar o an nasılsa öyle, yeniden soruyor.
+- **Kendi hesabı değil.** Sahip zaten içeride; kilit onun yolunu
+  kesmiyor. Kaldırmak, kilide sebep olan kişiye yeni bir bütçe vermek
+  olurdu. Sahibin kendi satırı rozeti ve anlamını gösteriyor (*"Siz
+  değilseniz parolanızı değiştirin"*), düğme göstermiyor.
+- **Kimin:** o sitenin **canlı** bir üyesinin. Süresi dolmuş üyelik
+  hiçbir şeye ait değil. Başka bir sitenin sahibi, üyesi olmadığı bir
+  sitenin üyesine dokunamıyor.
+- **Yalnız hesap kısıtı.** Adres kısıtı birinin ofisi, birinin hesabı
+  değil; onu kaldırmak o adresin arkasındaki herkes için kaldırmak olurdu.
+- **Ne yapıyor:** penceredeki hataları siliyor (tamamlanan bir girişin
+  yaptığı da bu), pencere dışındakileri bırakıyor. Denetim kaydını
+  kaldırmanın **kendi işleminde** yazıyor: kaydı yazılamayan bir kaldırma
+  commit edilemiyor. Bu, PostgreSQL'in saklamayacağı bir etiketle (NUL
+  baytı) ölçüldü: kaldırma hata veriyor, kilit duruyor, kayıt yok. Aynı
+  ölçüm, kaydı işlem dışında yazıp hatasını yutan tasarımda kilidi
+  kayıtsız kaldırıyor.
+- **Hesap başına pencerede bir kez.** Sebep bir tehdit modeli: iki
+  sitenin üyesi olan birinin hesabını birinci sitenin sahibi hedef
+  alabilir; hesap ikinci sitenin kapısı. Sınırsız kaldırmada hesap
+  bütçesi süs olurdu: beş deneme, kaldır, beş daha. Sınırı yalnız adres
+  bütçesi ve saldırganın adres sayısı koyardı. Bir kez sınırıyla en
+  kötü durum 15 dakikada on deneme; eski sekiz hakkın hemen üstü.
+  Kural denetim kaydından okunuyor: kaldırmanın aynı işlemde yazdığı
+  satır. Sayfa aynı soruyu soruyor ve ikinci kilitte düğme çizmek yerine
+  nedenini yazıyor.
+- **Eşzamanlılık:** önce hesap satırı kilitleniyor (`FOR UPDATE`), durum
+  sonraki ifadelerle okunuyor. Aynı ifadede okumak, READ COMMITTED'da
+  kilit beklendikten sonra kilitten önceki görüntüyü okuyabilirdi. İki
+  sahip aynı anda basıyor, yirmi tur: her turda tam bir kaldırma ve bir
+  kayıt. `FOR UPDATE` silinince beş koşunun beşinde **ikinci turda** iki
+  kaldırma geçti; ilk tur hiçbirinde yakalamadı. Havuz bağlantıları o turda
+  açıyor ve iki işlem çakışmıyor. Tek turluk bir yarış testi bu kusuru hiç
+  görmezdi.
+- **Sayfa:** rozet ve düğme yalnız sahibe. Yönetici hiçbir şey görmüyor:
+  kaldıramayacağı bir kilidi görmek, bir meslektaşının başarısız
+  girişlerini boşuna okumak olurdu. Eşiğin altındaki denemeler hiç
+  gösterilmiyor. Satır yanında "üç başarısız deneme" yazmak, panelin
+  dayanağı olmadığı bir suçlama gibi okunur.
+
+### Yolda bulunan iki yanlış vaat
+
+1. **Kod formu** *"Telefonunuza erişemiyorsanız sitenin sahibinden iki
+   faktörü sıfırlamasını isteyin"* diyordu. Panelde bunu yapan bir düğme
+   hiç olmadı: `SetTOTPSecret`'i yalnız hesap sayfası çağırıyor, o da
+   kişinin kendisi için. Form artık kurtarma sayfasına bağlanıyor
+   (**Telefonuma erişemiyorum**). Kurtarma kodu ve oradaki *"Telefonuma
+   da erişemiyorum"* kutucuğu bu işi gerçekten yapıyor.
+2. **KURULUM §5.0** *"Kodlarını da kaybederse: üye listesinden kodlarını
+   yenileyip birini kendisine iletirsiniz"* diyordu. Öyle bir yol yok.
+   C7.2'nin commit'i (`449d8aa`) *"the operator regenerates the codes and
+   hands one over"* diyor. Oysa `GenerateRecoveryCodes`'un tek çağıranı
+   hesap sayfası (kişinin kendisi için). Kodlar sayfasındaki "başkası
+   için üretildi" dalını (`Issued`, `For`) hiçbir işleyici kurmuyor.
+   Karar Ağustos'ta verilmişti: *"operatör bağlantısı kodlarını da
+   kaybeden için ikinci ağ"*. PLAN'a **B3h** olarak yazıldı. KURULUM
+   bugünkü geçici yolu anlatıyor: siteden çıkarıp başka adresle davet
+   etmek.
+
+Aynı yanlış vaadin üçüncü kopyası PLAN'ın açık riskler tablosundaydı
+(*"kaybeden kişiyi sahip ya da işletmeci kurtarıyor"*); o satır da
+düzeltildi.
+
+### Açık, bilinçli
+
+Başarılı giriş başarısız denemeleri siliyor; sahibin kaldırması da artık
+siliyor. Tablonun yorumu ise onları *"kanıt"* diye anlatıyor. Bir hesaba
+giriş yapılınca o hesabı deneyen adresler kayboluyor: denetim kaydının
+`login.failed` satırları adres taşımıyor. Kaldırma yalnız penceredekini
+siliyor ve sayısını kayda yazıyor, ama asıl silme eskiden beri başarılı
+girişte. Silmek yerine "son başarıdan sonrakileri say" demek mümkün.
+Ancak kaldırmanın da bir izi olmalı; bu da `panel_login_attempts`'e bir
+tür işareti, yani şema demek. PLAN'ın açık riskler tablosunda.
+
+### Ölçüldü
+
+- **Gerçek işleyici ve gerçek veritabanı**, iki taraf da:
+  - önce 70 kod, 0 ret, 1,6 sn;
+  - sonra aynı düzende 5 kod, ardından iki form da 429.
+- **Tamamlanan giriş sıfırlıyor**, iki yolda da: dört yanlış parola +
+  doğru parola → 0 hata kalıyor. İki yanlış parola + doğru parola +
+  yanlış kod → yarı yolda **3** (doğru parola hiçbir şeyi silmedi), doğru
+  kodla 0.
+- **Üyeler sayfası:**
+  - üye gerçek formdan kendini kilitliyor, sahip rozeti ve düğmeyi
+    görüyor;
+  - düğme sayfanın kendi form alanlarıyla gönderiliyor, bir tarayıcının
+    yapacağı gibi;
+  - üye giriyor;
+  - ikinci kilitte düğme yok ve nedeni yazıyor;
+  - elle gönderilen ikinci form 400 ve cümlesiyle dönüyor;
+  - sahibin kendi kilidi rozetle ve anlamıyla görünüyor, düğmesiz;
+  - yönetici hiçbir şey görmüyor, elle gönderdiği form reddediliyor ve
+    beş hata sayılmaya devam ediyor.
+
+### Mutasyonlar
+
+Otuz dört mutasyon (`scratchpad/mutasyon-kisit.py`), otuz dördü de
+kırmızı. İlk turda üçü açık kaldı, ikisi **testin** kusuruydu:
+
+- *"5 dakika içinde"*, *"15 dakika içinde"*nin içinde geçiyor. Sayfa
+  pencereyi yazsa da test geçiyordu. İddia artık cümlenin başına bağlı.
+- *"Formda üyenin kimliği var mı"* satırın tamamına soruluyordu. Aynı
+  satırdaki **Çıkar** formu aynı alanı taşıdığı için onun yerine cevap
+  veriyordu. Test artık kaldırma formunu ayırıp **onun alanlarıyla**
+  gönderiyor.
+- Üçüncüsü benim mutasyon metnimdi: derlenmedi, doğrusuyla kırmızı.
+
+İkinci turda hepsi kırmızıydı, ama bakınca bir şey daha çıktı: parola
+adımına sıfırlamayı geri koyan mutasyonu **açığı ölçmek için yazılan
+test yakalamamıştı**; başka iki test yakalamıştı. O test probun düzenini
+taşıyordu, her turda yedi kod. Bu, hak sekizken doğruydu. Hak beşken ilk
+turda kilitleniyor ve parola adımına bir daha hiç dönmüyor, yani
+sıfırlamanın bir şey dağıtabildiği sıraya ulaşmıyor. Artık tur başına
+dört kod, haktan bir eksik. Tek başına ölçüldü: sıfırlama geri konunca
+on turda **40** kod denetleniyor, beklenen 5.
+
+| yakalayan | mutasyon |
+|---|---|
+| depo ve web | bütçe 8, bütçe 4, pencere 16 dk, pencere 14 dk, kalkış en eskiden, her üye kaldırabilir, yöneticiler kaldırabilir, pencerede bir kez yok, hesap kısıtı uygulanmıyor |
+| yalnız depo | kendi kısıtını kaldırabilir, süresi dolan üye de, site sorulmuyor, `FOR UPDATE` yok, kısıt yokken de kaldırıyor, bütün başarısızlıkları siliyor, bir kez sonsuza kadar, kayıt işlem dışında, eşik altı da listeleniyor |
+| web ve değişmez | parola adımı sıfırlıyor, tamamlanan giriş sıfırlamıyor |
+| yalnız değişmez | kurtarma koddan önce sıfırlıyor (kod tek kullanımlık, tekrarlanamıyor; kuralın yeri yapısal olarak tutuluyor) |
+| yalnız web | yönetici de görüyor, kendi satırında düğme, ikinci kaldırma sunuluyor, kendi satırının cümlesi yok, neden düğme yok söylenmiyor, kurtarma bağlantısı boş, ikinci kaldırma başarı gibi, ret genel cümleyle, işlem bağlı değil, dakika pencereden, rozet yok, formda satırın kimliği değil |

@@ -253,7 +253,7 @@ func TestSignInIsThrottled(t *testing.T) {
 	defer server.Close()
 	client := newClient(t, server.URL)
 
-	// The per-account limit is 8 in a fifteen-minute window.
+	// The per-account limit is five in a fifteen-minute window.
 	var last *http.Response
 	for i := 0; i < 12; i++ {
 		last = signIn(t, client, server.URL, user.Email, "yanlis-parola-yeterince-uzun")

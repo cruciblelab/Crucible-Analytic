@@ -116,6 +116,11 @@ func (s *Server) renderLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 func (s *Server) renderSecondFactor(w http.ResponseWriter, r *http.Request, lang *ui.Language,
 	status int, data loginPage) {
 
+	// The way out, as on the sign-in form and set here for the same
+	// reason. This page used to tell somebody without their phone to ask
+	// the site's owner to reset their second factor, and no page in the
+	// panel does that; a recovery code does.
+	data.RecoveryPath = RecoveryPath
 	s.Renderer.Render(w, r, status, "dogrulama", &ui.Page{
 		L:       lang,
 		Title:   lang.T("giris.dogrulama.baslik"),

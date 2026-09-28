@@ -61,6 +61,42 @@ type memberRow struct {
 	AssignableRoles []roleChoice
 	// Removable reports whether the remove button is drawn.
 	Removable bool
+	// Lock is this person's sign-in lock while it holds, nil otherwise -
+	// and nil for every row unless the viewer is somebody who may lift
+	// one. An administrator who could see the lock and not lift it would
+	// be reading about a colleague's failed sign-ins for nothing.
+	Lock *memberLock
+}
+
+// memberLock is a sign-in lock as the member table shows it.
+type memberLock struct {
+	// Minutes until it lifts by itself, rounded up.
+	Minutes int
+	// Liftable is whether the button is drawn: not on your own row, and
+	// not twice in one window.
+	Liftable bool
+	// Lifted marks a lock an owner already lifted in this window, so the
+	// row can say why there is no button.
+	Lifted bool
+	// Note is the sentence under it, built here rather than in the
+	// template because "1 minute" and "2 minutes" are different words.
+	Note string
+}
+
+// lockNote says when a lock lifts by itself, and - where there is no
+// button - why not.
+func lockNote(lang *ui.Language, f *ui.Formatter, self bool, l memberLock, window int) string {
+	lifts := lang.Tn("uyeler.kisit.kalkar", l.Minutes, f.Number(int64(l.Minutes)))
+	switch {
+	case self:
+		// Your own row. You are signed in, so the lock is not in your
+		// way; what it tells you is that somebody has been trying your
+		// password - or you, on another device.
+		return lang.T("uyeler.kisit.kendin") + " " + lifts
+	case l.Lifted:
+		return lang.Tf("uyeler.kisit.bir_kez", window) + " " + lifts
+	}
+	return lifts
 }
 
 // roleChoice is one option in a role select.
@@ -101,6 +137,9 @@ type membersPage struct {
 	// it is here because the audit view arrives in a later phase and
 	// will want the same table without the controls.
 	CanManage bool
+	// LockWindowMinutes is the sign-in throttle's window, for the
+	// sentences that have to name it.
+	LockWindowMinutes int
 
 	// Invites are the invitations nobody has accepted yet.
 	//
@@ -190,6 +229,8 @@ func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.La
 		data = s.removeMember(ctx, lang, access, r.PostFormValue("kullanici"))
 	case "davet-geri-al":
 		data = s.withdrawInvite(ctx, lang, access, r.PostFormValue("davet"))
+	case "kisit-kaldir":
+		data = s.liftLoginLock(ctx, lang, access, r.PostFormValue("kullanici"))
 	default:
 		data = membersPage{Message: lang.T("uyeler.hata.bilinmeyen"), Failed: true}
 	}
@@ -424,6 +465,38 @@ func (s *Server) withdrawInvite(ctx context.Context, lang *ui.Language, access p
 	return membersPage{Message: lang.T("uyeler.davet.geri_alindi")}
 }
 
+// liftLoginLock lifts one member's sign-in lock (catalogue #25).
+//
+// The store decides, inside its transaction, and writes the audit entry
+// there too; this turns its answer into a sentence. The page only draws
+// the button where the store would say yes, so the refusals below are
+// what a race or a retyped form meets.
+func (s *Server) liftLoginLock(ctx context.Context, lang *ui.Language, access panel.Access,
+	rawUserID string) membersPage {
+
+	userID, ok := parsePositiveID(rawUserID)
+	if !ok {
+		return membersPage{Message: lang.T("uyeler.hata.kullanici_gecersiz"), Failed: true}
+	}
+	window := int(panel.LoginThrottleWindow / time.Minute)
+	done, err := s.Store.UnlockLogin(ctx, access.SiteID, access.Principal, userID)
+	switch {
+	case err == nil:
+		return membersPage{Message: lang.Tf("uyeler.kisit.kaldirildi", done.Email, window, done.Failures)}
+	case errors.Is(err, panel.ErrNotLocked):
+		// Not a failure: the thing asked for is already true.
+		return membersPage{Message: lang.T("uyeler.kisit.zaten_yok")}
+	case errors.Is(err, panel.ErrLiftedRecently):
+		return membersPage{Message: lang.Tf("uyeler.kisit.bir_kez", window), Failed: true}
+	case errors.Is(err, panel.ErrMayNotLift):
+		return membersPage{Message: lang.T("uyeler.hata.kisit_yetki"), Failed: true}
+	case errors.Is(err, panel.ErrNotFound):
+		return membersPage{Message: lang.T("uyeler.hata.uye_yok"), Failed: true}
+	}
+	s.logger().Error("panel: lifting a sign-in lock", "err", err)
+	return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
+}
+
 // memberWriteFailed turns a store error into a page message.
 //
 // The last-owner refusal is the whole reason this exists. It is not a
@@ -476,6 +549,19 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 
 	data.SiteID = access.SiteID
 	data.CanManage = access.Can(panel.CapManageMembers)
+	data.LockWindowMinutes = int(panel.LoginThrottleWindow / time.Minute)
+
+	// The sign-in locks, read only for somebody who may lift them.
+	//
+	// A failure is logged and costs the badges, not the page: the member
+	// list is what this page is for, and a lock lifts by itself anyway.
+	var locks map[int64]panel.LoginLock
+	format := ui.NewFormatter(lang, s.zone(ctx))
+	if access.MayLiftLoginLocks() {
+		if locks, err = s.Store.LoginLocks(ctx, access.SiteID); err != nil {
+			s.logger().Warn("panel: reading sign-in locks", "err", err)
+		}
+	}
 	// The add form starts at the least authority anybody may hand out.
 	//
 	// Found by looking at the page. ValidRoles is in descending order and
@@ -503,6 +589,17 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 			// The store refuses it either way; this is what stops the
 			// page from offering a button that always fails.
 			Removable: data.CanManage && !self && access.CanManageMember(m.Role),
+		}
+		// LoginLocks reads live memberships only, so an expired row never
+		// finds one here - the same rule UnlockLogin applies.
+		if l, ok := locks[m.UserID]; ok {
+			lock := memberLock{
+				Minutes:  retryMinutes(l.LiftsIn),
+				Liftable: !self && !l.Lifted,
+				Lifted:   l.Lifted,
+			}
+			lock.Note = lockNote(lang, format, self, lock, data.LockWindowMinutes)
+			row.Lock = &lock
 		}
 		if m.Expired {
 			// No role select on a membership that grants nothing: moving

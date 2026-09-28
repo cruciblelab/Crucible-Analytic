@@ -9,12 +9,13 @@
 </tr>
 </thead>
 <tbody>
-{{- range .Data.Members}}
+{{- range $m := .Data.Members}}
 <tr>
 <th scope="row">
 {{.Email}}
 {{- if .Self}} <span class="rozet">{{t "uyeler.siz"}}</span>{{end}}
 {{- if .Disabled}} <span class="rozet pasif">{{t "uyeler.pasif"}}</span>{{end}}
+{{- if .Lock}} <span class="rozet kisitli">{{t "uyeler.kisit.rozet"}}</span>{{end}}
 </th>
 <td>
 {{- /* The role list is per row, because who may be moved to what
@@ -45,6 +46,21 @@ decision needs. */}}
 {{- if .Expires}}{{$.F.DateTime .Expires}}{{else}}{{t "uyeler.sure.suresiz"}}{{end}}
 </td>
 <td>
+{{- /* A sign-in lock, drawn only for somebody who may lift it. The
+button is drawn only where the store would say yes - not on your own
+row, and not twice in one window - and the sentence under it says which
+of the two it is when there is none. */}}
+{{- with .Lock}}
+{{- if .Liftable}}
+<form method="post" action="">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="kisit-kaldir">
+<input type="hidden" name="kullanici" value="{{$m.UserID}}">
+<button type="submit" class="ikincil">{{t "uyeler.kisit.kaldir"}}</button>
+</form>
+{{- end}}
+<p class="ipucu kisit-notu">{{.Note}}</p>
+{{- end}}
 {{- if .Removable}}
 <form method="post" action="">
 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">

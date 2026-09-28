@@ -144,9 +144,10 @@ func (s *Server) submitRecovery(w http.ResponseWriter, r *http.Request, lang *ui
 			"codes_remaining":       result.Remaining,
 		},
 	})
-	if err := s.Store.ClearLoginFailures(ctx, email); err != nil {
-		s.logger().Warn("panel: clearing login failures", "err", err)
-	}
+	// The failure budget is not reset here but where every sign-in ends,
+	// in completeLogin. An account that still has a second factor goes on
+	// to it from here, and a budget reset before the code is asked for is
+	// a budget the code is not counted against.
 
 	// Signed in from here rather than sent to the form. They have just
 	// proved who they are with a single-use credential and set a

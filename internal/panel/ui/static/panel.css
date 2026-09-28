@@ -1363,3 +1363,15 @@ td > pre.uyari {
   white-space: pre-wrap;
   font-size: 0.85em;
 }
+
+/* A member whose sign-in is locked (#25). The warning colour rather than
+   the error one: nothing is wrong with the account, somebody has been
+   trying it. The badge carries its own words, as every badge here does. */
+.rozet.kisitli {
+  color: var(--uyari);
+  border-color: var(--uyari);
+}
+
+.kisit-notu {
+  margin: 4px 0 8px;
+}

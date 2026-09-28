@@ -259,7 +259,11 @@ baslik = "Verification code"
 govde = "Enter the six-digit code from your app for %s."
 kod = "Verification code"
 gonder = "Verify"
-ipucu = "The code changes every thirty seconds in your authenticator app. If you cannot reach your phone, ask the site's owner to reset your second factor."
+ipucu = "The code changes every thirty seconds in your authenticator app."
+# The way to the recovery page. The old hint said "ask the site's owner
+# to reset your second factor"; the panel never had a button that does
+# that (2026-09-28). Somebody without their phone uses a recovery code.
+telefon_yok = "I cannot reach my phone"
 
 [metin.siteler]
 baslik = "Sites"
@@ -409,6 +413,22 @@ sure_gecersiz = "That access length is not one of the offered options."
 sahip_sureli = "An ownership cannot be temporary. A site whose only owner expires cannot be repaired from the panel."
 uye_yetki = "That person's role stands above your own. Only an owner may change or remove another owner."
 son_sahip = "A site must keep at least one owner. Make somebody else an owner first."
+kisit_yetki = "Only an owner of this site can lift a sign-in lock, and not on their own account."
+
+# The sign-in lock (#25). It lifts by itself within fifteen minutes; the
+# site's owner may lift a member's sooner, once per window per account.
+# Shown to owners only.
+[metin.uyeler.kisit]
+rozet = "sign-in locked"
+kaldir = "Lift the lock"
+kaldirildi = "The sign-in lock on %s was lifted: in the last %d minutes, %d failed attempts no longer count."
+zaten_yok = "This person's sign-in is no longer locked: the lock lifted by itself, or another owner lifted it."
+bir_kez = "An account's lock can be lifted once every %d minutes, and this one was lifted a moment ago."
+kendin = "Many failed sign-ins were tried with your account. If that was not you, change your password."
+
+[metin.uyeler.kisit.kalkar]
+one = "Lifts by itself within %s minute."
+other = "Lifts by itself within %s minutes."
 
 [metin]
 kaydet = "Save"

@@ -24,6 +24,41 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Güvenlik düzeltmesi: ikinci faktör, parolayı bilene karşı sınırsız denenebiliyordu
+
+**Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.
+
+Parola, iki aşamalı doğrulama kodu ve kurtarma kodu tek bir hata
+bütçesini paylaşıyor. Doğru parola girildiği anda o bütçe
+sıfırlanıyordu — kod sorulmadan önce. Parolayı bilen biri yedi yanlış
+kod deneyip parolayı yeniden girerek bütçeyi her seferinde yeniliyordu.
+Ölçüldü: 1,6 saniyede **70 kod** denetlendi, hiçbiri reddedilmedi; sınır
+15 dakikada 8'di. Tek istemciyle saniyede 44 kod, yani altı haneli bir
+kod için yaklaşık **iki saat**.
+
+Bütçe artık yalnız giriş tamamlanınca, oturum kurulduğunda yenileniyor.
+Aynı saldırı **5 kodda** duruyor ve sonra iki form da reddediyor.
+
+### Giriş kısıtı: beş hak, en geç 15 dakika, sahip kaldırabiliyor
+
+- Hesap başına hak **8'den 5'e** indi (sahibin kararı: 3, 4 ya da 5).
+- Kısıt **en geç 15 dakikada kendiliğinden** kalkıyor. Kısıtlıyken
+  yapılan denemeler süreyi uzatmıyor.
+- Sitenin sahibi **Üyeler** sayfasında kısıtlı üyeyi görüyor ve
+  **Kısıtı kaldır** ile hemen açabiliyor:
+  - yalnız sahip, yalnız o sitenin üyesi için, kendi hesabı hariç;
+  - aynı hesap için 15 dakikada bir kez;
+  - her kaldırma denetim kaydında;
+  - yönetici bu satırı ve düğmeyi görmüyor.
+
+  Bir ağdan gelen çok sayıda hatalı denemenin yarattığı adres kısıtı
+  kaldırılamıyor; o beklemekle kalkıyor.
+- İki aşamalı doğrulama sayfası *"sitenin sahibinden iki faktörü
+  sıfırlamasını isteyin"* diyordu, ama panelde öyle bir yol yok. Sayfa
+  artık kurtarma sayfasına götürüyor. Hem telefonunu hem kurtarma
+  kodlarını kaybeden biri için bugün panelde bir yol yok; KURULUM §5.0
+  geçici yolu anlatıyor.
+
 ### Uzun aralıklarda ziyaretçi sayısı (O3)
 
 **Sorun ölçüldü:** 90 günlük aralıkta özet ucu, tek bir site için 11,0
