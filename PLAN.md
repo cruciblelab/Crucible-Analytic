@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; kalan B3c–B3f ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; kalan B3c–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -599,13 +599,53 @@ bir eksik, unutulmuş bir eksiktir.
 | **Test bağlantıları `application_name` yazmıyor** — katalog *hangi ifadenin* kilidi tuttuğunu söylüyor ama *hangi paketin* olduğunu söyleyemiyor; yukarıdaki (a) ölçümünde ifadenin metninden çıkarmak zorunda kaldım | **açık, ucuz.** `testdb.Pool` DSN'e paket adını yazsın — O4a'da ürünü ölçerken aynı hamle yapılmıştı (*"adı geldiyse ayar da geldi"*) |
 | **Yığılmanın üç ölçülmüş kusuru** — kesilen cevabın sessizliği, kalp atışının körleşmesi, beacon'ın 16 MB'da sessiz ölümü | **Z grubu** (Z2, Z4, Z1). Üçü de 2026-09-21'de ölçüldü, rakamlar NOTES'ta |
 
-### Beklenen kararlar (senden)
+### Beklenen kararlar (senden) *(güncel liste, 2026-09-28)*
 
-1. ~~**IP tam mı maskeli mi**~~ — ✅ **cevaplandı: maskeli.** Yazıldı,
-   varsayılan yapıldı, doğrulandı (A7)
-2. **Analitik saklama süresi** (öneri 90 gün) — A4'e girecek
-3. **"Site" tanımı** — alt alan adları tek site mi (öneri: evet, A5'e
-   girer, maliyeti ~sıfır)
+*(Bu bölümün eski üç maddesi Ağustos'ta kapandı: IP maskeleme A7'de,
+saklama süresi ile alt alan adları §0.6'da. Aşağıdakiler bugün açık
+olanlar; her birinin ayrıntısı kendi bölümünde. 3, 4 ve 5'teki şema
+değişiklikleri sürüm atlatmadan girebilir: şema 24 yayımlanmadı, en yeni
+etiket `v0.24.0+L4` şema 21 taşıyor.)*
+
+1. **`main`'i ileri sarmak.** `main` `385936c`'de; dal ondan 23
+   commit ileride (bu liste dahil). Üçü müşteriyi doğrudan etkileyen
+   kusurları kapatıyor:
+   - V4b: yeniden başlatıcıyı açan her dağıtımda her güncelleme geri
+     alınıyordu.
+   - CI 416: `throttle` ile hız sınırı birlikteyken collector yeniden
+     başlatılana kadar kilitleniyordu.
+   - H6: bağlantı jetonları günlüğe açık metin yazılıyordu.
+
+   **Öneri: evet** — hepsi kapı `--all` ile geldi. CI 424 ve 425
+   kırmızıydı; sebep benim bir test kilitlenmemdi, ürün değil (NOTES
+   §"CI 424 ve 425"). `276ae5f` düzeltiyor; CI 426 yeşil.
+2. **Z3'ün varsayılanı** — okuma yolunda kabul denetimi: `throttle`
+   (öneri) ya da `fail_open`. §Z3. `throttle`'ın hız sınırıyla birlikteki
+   kusuru CI 416'da düzeltildi.
+3. **Z5'in şeması** — bakım işi ingest'e yol versin:
+   - (a) `ca_set_compression`'a "en fazla N parça" parametresi (öneri),
+   - (b) ayrı bir sarmalayıcı.
+
+   §Z5.
+4. **O4'ün şeması** — geliştirici kırılımları için adres boyutlu özet
+   tablosu. Ölçülmüş ihtiyaç: panelde üç ölü düğme. 90 günde `ja4` 9,94
+   sn, iki adres listesi 6,1 sn; panelin sınırı 5 sn. §O4.
+5. **B3'ün şema isteyen altısı** *(yeni, §B3a)*:
+   - #20 bakım sarmalayıcıları (ANALYZE/VACUUM),
+   - #22 e-postalı parola sıfırlama jetonu,
+   - #23 TOTP kapatma afişinin durumu,
+   - #24 oturum–kullanıcı sütunu ("çalınan dizüstü" düğmesi),
+   - #27 API jetonları veritabanında (B5'in destek jetonuyla aynı iş),
+   - #33 sentetik beacon olayı işareti.
+
+   Soru: hangileri girsin.
+6. **#26 — tek sahip giderse** *(yeni, politika)*. Bugün kurulum sahipsiz
+   kalır ve geliştirici giremez. Bu senin kuralın: *"sahip hesabı
+   açıldıktan sonra geliştirici erişimi sahibin onayına bağlı"*.
+   - (a) Böyle kalsın; kurtarma sunucuda çalıştırılan bir komutla olsun.
+     **Öneri** — kuralı bozmayan tek yol.
+   - (b) Geliştirici parolası + gecikme + bildirimle sahip ataması. Bu,
+     kuralı gevşetir.
 
 ---
 
@@ -2197,7 +2237,7 @@ yarısını başka adlarla karşıladı.
 | 26 | `GrantOwnership` | yarım | yalnız ilk devir teslim (kurulum sihirbazı, `CreateOwnerClaim`); sonrası üyeler sayfası. **Tek sahip giderse geliştiricinin sahip ataması, "sahip hesabı açıldıktan sonra geliştirici erişimi sahibin onayına bağlı" kuralıyla çelişiyor → sahibin kararı** |
 | 27 | `RevokeAPIToken` | yok | API jetonları dosyada (`analytics-api.toml`), panel göremiyor → B5 ile birlikte, **şema** |
 | 28 | `SetDeveloperMode` | **var** | Hesap → geliştirici görünümü (kişinin kendisi) |
-| 29 | `ShowBeaconStatus` | yarım | Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor), site başına son olay yok → şemasız (kalp atışı JSONB) |
+| 29 | `ShowBeaconStatus` | yarım | ~~Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor)~~ → **B3b ✅**; site başına son olay ve son bir saatin olay sayısı yok → **B3g**, şemasız |
 | 30 | `ShowBeaconSnippet` | **var** | sahip için karşılama sayfası |
 | 31 | `SetBeaconSites` | **var** | `beacon.sites` |
 | 32 | `SetBeaconBuffer` | yok | şemasız: kayda üç canlı ayar |
@@ -2220,12 +2260,18 @@ kez yazmak onu bir kez yapmaktır.
 
 **Sıra — şemasızlar önce, katalogun "ilk soru" dediği en önce:**
 
-- **B3b** ✅ *(2026-09-27)* — #29: ret sebepleri kalp atışında ve
-  Sağlık'ta; "bilinmeyen site" sınıfı `beacon.sites`'a bağlandı.
+- **B3b** ✅ *(2026-09-27)* — #29'un ret sebebi yarısı: sebepler kalp
+  atışında ve Sağlık'ta; "bilinmeyen site" sınıfı `beacon.sites`'a
+  bağlandı.
 - **B3c** — #25 ve #37: yalnız panel.
 - **B3d** — #3 ve #32: canlı ayarlar.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
+- **B3g** — #29'un öbür yarısı: site başına son olay ve son bir saatin
+  olay sayısı. Pano bugün "hiç ölçüm gelmedi" ile "bu dönemde hareket
+  yok"u ayırıyor; eksik olan "en son ne zaman" — dün mü kesildi.
+  Şemasız; okuma bedeli ölçek altında ölçülerek. *(İlk dilim planı bu
+  yarıyı hiçbir dilime bağlamamıştı; 2026-09-28'de eklendi, NOTES.)*
 
 Şema isteyen altısı (#20, #22, #23, #24, #27, #33) sahibin şema
 kararına gidiyor. Şema 24 yayımlanmadı — en yeni etiket `v0.24.0+L4`

@@ -22423,3 +22423,32 @@ Bilerek dokunulmayanlar:
 düzeltti: CI ve parola tablosu. Sessiz kırılanlar geride kaldı: geçen bir
 doğrulama ve insanlar için yazılmış talimatlar. Sessiz kırılan bir liste
 ancak ötekilere karşı okununca bulunuyor.
+
+## Karar listesi güncellendi, ve dilim planım #29'un yarısını düşürmüştü (2026-09-28)
+
+PLAN'ın "Beklenen kararlar (senden)" bölümü Ağustos'tan beri üç madde
+gösteriyordu ve üçü de kapanmıştı: IP maskeleme A7'de, saklama süresi ile
+alt alan adları §0.6'da. Bugün açık olan kararlar o bölümde değil, faz
+bölümlerine ve oturum notlarına dağılmıştı. Bölüm artık altı açık kararı
+sayıyor; her biri kendi bölümüne işaret ediyor, önerisi olanın önerisi
+yanında.
+
+Listeyi yazarken her iddia kendi bölümüne karşı okundu. O4'ün "üç ölü
+düğme"si O4d'nin düzeltmesinden geliyor (`ja4` de geliştirici modunda
+çizilen bir bölüm); "şema 24 yayımlanmadı" etiketin kendi dosyasından
+okundu: `v0.24.0+L4`'te `schemaver.Version` 21.
+
+**Aynı okumada kendi planımda bir boşluk çıktı.** Katalog #29'u
+(`ShowBeaconStatus`) dört parça olarak tanımlıyor: son olay, son bir
+saatin olay sayısı, reddedilen sayısı, her ret sınıfının sebebi. B3a'nın
+envanteri eksikleri doğru yazmıştı: "ret sebebi yok, site başına son olay
+yok". Ama dilim planı yalnız ret sebebini bir dilime bağladı; son olay
+hiçbir dilimde değildi. B3b "✅ #29" diye işaretlenince #29 bitmiş
+görünüyordu. Yarım kalan bir satır, planda bitmiş görünmeye başlamıştı.
+
+PLAN'da B3b artık "#29'un ret sebebi yarısı" diyor. Öbür yarı B3g oldu.
+Aciliyeti ret sebebinden düşük: pano bugün "hiç ölçüm gelmedi" (snippet
+yok) ile "bu dönemde hareket yok"u zaten ayırıyor. Eksik olan "en son ne
+zaman", yani verinin dün kesilip kesilmediği. Okuma bedeli ölçülmeden
+yazılmayacak. O serisinin dersi bu: `/overview` hiç ölçülmemişti ve 11
+milyon satırda 90 günü 9,23 sn sürdü.
