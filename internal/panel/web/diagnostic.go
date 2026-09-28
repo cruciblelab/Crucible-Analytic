@@ -25,9 +25,11 @@ import (
 // already read on the Health page and the settings page, and nothing
 // else - a download is not a way around either page's rules.
 //
-// The second half, the recent WARN and ERROR lines, waits for the
-// owner's decision on what a log line may carry off the machine: a trust
-// decision logs the network peer, which is a visitor's address.
+// Its second half is the recent WARN and ERROR lines, as the owner
+// decided they may leave the machine (2026-09-28, option c): the message
+// and the classified attributes, addresses masked the way the product
+// stores them, the client's claim never, and no line about a site the
+// person downloading may not see. See diagnosticlogs.go.
 const DiagnosticPath = HealthPath + "/tani-paketi"
 
 // diagnosticFormat names this file's shape, for a reader who meets it
@@ -51,6 +53,7 @@ type diagnosticBundle struct {
 	API          diagnosticAPI      `json:"api"`
 	Checks       diagnosticChecks   `json:"checks"`
 	Settings     diagnosticSettings `json:"settings"`
+	Logs         diagnosticLogs     `json:"logs"`
 	// Omitted is what this file deliberately does not carry, in the
 	// file, so whoever reads it does not mistake an absence for a
 	// healthy zero.
@@ -151,13 +154,40 @@ type diagnosticSetting struct {
 	ConfigFileOnly bool      `json:"config_file_only,omitempty"`
 }
 
+// diagnosticLogs is the recent WARN and ERROR lines.
+type diagnosticLogs struct {
+	Since     time.Time `json:"since"`
+	Limit     int       `json:"limit"`
+	Truncated bool      `json:"truncated"`
+	// Scope is whose lines these are: "all" for the operator, "owned"
+	// for an owner - lines about no site, and about the sites they own.
+	Scope string              `json:"scope"`
+	Lines []diagnosticLogLine `json:"lines"`
+	Error string              `json:"error,omitempty"`
+}
+
+// diagnosticLogLine is one line, as it may leave the machine.
+type diagnosticLogLine struct {
+	At       time.Time         `json:"at"`
+	Service  string            `json:"service"`
+	Level    string            `json:"level"`
+	Category string            `json:"category,omitempty"`
+	Message  string            `json:"message"`
+	Site     string            `json:"site,omitempty"`
+	Attrs    map[string]string `json:"attrs,omitempty"`
+	// Withheld names the attributes the line had and this file does not
+	// carry, so a reader can tell "not logged" from "not sent".
+	Withheld []string `json:"withheld,omitempty"`
+}
+
 // diagnosticHandler serves the file to whoever may read the Health page.
 func (s *Server) diagnosticHandler(w http.ResponseWriter, r *http.Request) {
 	lang := s.language(r)
 	if !s.haveStore(w, r, lang) {
 		return
 	}
-	if _, ok := s.requireHealthReader(w, r); !ok {
+	p, ok := s.requireHealthReader(w, r)
+	if !ok {
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -167,7 +197,7 @@ func (s *Server) diagnosticHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UTC()
-	body, err := json.MarshalIndent(s.buildDiagnostic(r.Context(), lang, now), "", "  ")
+	body, err := json.MarshalIndent(s.buildDiagnostic(r.Context(), lang, p, now), "", "  ")
 	if err != nil {
 		s.logger().Error("panel: encoding the diagnostic file", "err", err)
 		s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
@@ -182,8 +212,11 @@ func (s *Server) diagnosticHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(append(body, '\n'))
 }
 
-// buildDiagnostic gathers the file, each section on its own.
-func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, now time.Time) diagnosticBundle {
+// buildDiagnostic gathers the file, each section on its own, for the
+// person downloading it - whose sites decide which log lines come.
+func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel.Principal,
+	now time.Time) diagnosticBundle {
+
 	out := diagnosticBundle{
 		Format:       diagnosticFormat,
 		GeneratedAt:  now,
@@ -201,6 +234,7 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, now tim
 	out.API = diagnosticAPIFrom(s.healthAPI(ctx))
 	out.Checks = s.diagnosticChecks(ctx, lang)
 	out.Settings = s.diagnosticSettings(ctx)
+	out.Logs = s.diagnosticLogs(ctx, p, now)
 	return out
 }
 

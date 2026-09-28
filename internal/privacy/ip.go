@@ -153,6 +153,17 @@ func MaskIP(ip netip.Addr, mode IPMode) netip.Addr {
 	return prefix.Addr()
 }
 
+// MaskedBits is how many leading bits masked mode keeps of an address of
+// this family: the length of the network MaskIP leaves. For a place that
+// has to write a masked address as the network it names rather than as a
+// bare address, which reads like a host.
+func MaskedBits(ip netip.Addr) int {
+	if ip.Is4() || ip.Is4In6() {
+		return maskedIPv4Bits
+	}
+	return maskedIPv6Bits
+}
+
 // --- The keyed token, and what it is honestly worth ---
 //
 // # No mode stores a raw address

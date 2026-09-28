@@ -1916,11 +1916,30 @@ görüntüsü almaktan da terminalde komut çalıştırmaktan da kolay.
 - tabloların diskte kapladığı yer, disk ve okuma API'sine erişim;
 - kurulum kontrollerinin **tamamı**, geçenler dahil;
 - bütün genel ayarlar ve her değerin nereden geldiği (varsayılan,
-  veritabanı, dosya).
+  veritabanı, dosya);
+- son **yedi günün uyarı ve hata satırları**, en yeniden başlayarak en
+  fazla 200 satır. Sınır aşıldıysa dosya bunu da söylüyor (`truncated`).
+
+**Günlük satırları nasıl çıkıyor** (sahibin kararı, 2026-09-28):
+- **Mesaj ve sınıflandırılmış alanlar** gidiyor. Hangi alanın
+  gidebileceği tek bir listede (`internal/logging/export.go`). Listede
+  olmayan bir alan gitmiyor, ama adı satırın `withheld` alanında
+  yazıyor. Böylece "kaydedilmemiş" ile "gönderilmemiş" ayrılabiliyor.
+- **İstemcinin kendi iddiası (`claimed`) hiç gitmiyor.** Örneğin bir
+  vekil başlığının söylediği adres.
+- **Ağ adresleri kısaltılıyor:** IPv4 /24'e, IPv6 /64'e; ürünün adresi
+  sakladığı maskenin aynısı. Bu yalnız adres alanlarında değil, mesajın
+  ve her değerin **içinde** de yapılıyor, çünkü bir hata iletisi aldığı
+  adresi yankılayabilir. **E-posta adresleri** de alan adına
+  kısaltılıyor (`…@ornek.com`).
+- **Yalnız indirenin görebildiği siteler.** Bir sitenin sahibinin
+  dosyasında yalnız hiçbir siteye ait olmayan satırlar ve sahibi olduğu
+  sitelerin satırları var. Yöneticisi olduğu ama sahibi olmadığı bir
+  sitenin satırları yok. Geliştiricinin dosyasında hepsi var. Dosyanın
+  `scope` alanı hangisi olduğunu söylüyor.
 
 **İçinde olmayanlar.** Dosyanın `omitted` alanı da bunları söylüyor:
-- **Günlük satırları.** Ziyaretçi adresi taşıyabiliyorlar; neyin
-  makineden çıkabileceği sahibin kararı.
+- **Günlük satırlarından çıkarılanlar**, yukarıda.
 - **Site başına üç ayar.** Üçü de görünüm: site adı, görünür kartlar,
   görünür kırılımlar.
 - **Sırlar.** Parolalar ve anahtarlar yapılandırma dosyalarında; panel

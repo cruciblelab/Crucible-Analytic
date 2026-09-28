@@ -54,6 +54,10 @@ func TestTheDiagnosticFileDownloadsInABrowser(t *testing.T) {
 			Format   string          `json:"format"`
 			Services json.RawMessage `json:"services"`
 			Settings json.RawMessage `json:"settings"`
+			Logs     struct {
+				Scope string            `json:"scope"`
+				Lines []json.RawMessage `json:"lines"`
+			} `json:"logs"`
 		} `json:"file"`
 	}
 	if err := json.Unmarshal(out, &report); err != nil {
@@ -80,6 +84,12 @@ func TestTheDiagnosticFileDownloadsInABrowser(t *testing.T) {
 	}
 	if report.File.Format != diagnosticFormat || len(report.File.Services) == 0 || len(report.File.Settings) == 0 {
 		t.Errorf("the saved file is not the diagnostic file: format %q", report.File.Format)
+	}
+	// The log section is there, scoped to the owner who clicked. Its
+	// lines are the integration test's business; here it is whether the
+	// file a browser saves carries the section at all.
+	if report.File.Logs.Scope != "owned" || report.File.Logs.Lines == nil {
+		t.Errorf("the saved file's log section: scope %q, lines %v", report.File.Logs.Scope, report.File.Logs.Lines)
 	}
 }
 

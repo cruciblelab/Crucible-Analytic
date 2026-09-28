@@ -1184,11 +1184,11 @@ metin = "Servis başladığından beri %s olay, kabul edilen siteler listesinde 
 
 [metin.saglik.tani]
 indir = "Tanı paketini indir"
-aciklama = "Bu sayfadaki her şey ve ayarlar, tek bir JSON dosyasında. Destek isterken gönderin. Günlük satırları ve sırlar içinde yok."
+aciklama = "Bu sayfadaki her şey, ayarlar ve son yedi günün uyarı ve hata satırları, tek bir JSON dosyasında. Destek isterken gönderin. Sırlar içinde yok; günlükteki adresler kısaltılmış."
 kontrol_yok = "Kurulum kontrolleri bu panelde bağlı değil."
 
 [metin.saglik.tani.disarida]
-gunluk = "Günlük satırları yok: ziyaretçi adresi taşıyabiliyorlar. Neyin dışarı çıkabileceği sahibin kararı."
+gunluk = "Günlük satırlarından istemcinin kendi iddiası (claimed) ve sınıflandırılmamış alanlar çıkarıldı; ağ adresleri /24 ve /64'e, e-posta adresleri alan adına kısaltıldı; yalnız dosyayı indirenin görebildiği sitelerin satırları var."
 site = "Site başına ayarlar yok: üçü de görünüm (site adı, görünür kartlar, görünür kırılımlar)."
 sir = "Sırlar yok: parolalar ve anahtarlar yapılandırma dosyalarında, panel onları okumuyor."
 

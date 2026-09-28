@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; kalan B3c-2b (tanı paketine maskeli günlük, karar verildi), B3h (C7.2'nin hiç yazılmamış ikinci ağı), B3d–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; kalan B3h (C7.2'nin hiç yazılmamış ikinci ağı), B3d–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -654,7 +654,7 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
 7. ~~**B3c'nin iki sorusu**~~ **KARAR VERİLDİ (2026-09-28).**
    - **Tanı paketine günlük satırları:** *"önerini yapalım, kafama daha
      çok yattı"* — **(c)**: mesaj + izinli alanlar, adresler ürünün kendi
-     maskesiyle (/24, /64), `claimed` hiç. → **B3c-2b**.
+     maskesiyle (/24, /64), `claimed` hiç. → **B3c-2b ✅**.
    - **#25:** *"15 dakikada kendiliğinden kalksın, hakkı 3/4/5 bu üçünden
      biri olsun sen seç, ve aynı şekilde site sahibi de yapabilsin."* Hak
      **beş** seçildi; gerekçesi ve üç seçeneğin ölçülen bedeli NOTES
@@ -2258,7 +2258,7 @@ yarısını başka adlarla karşıladı.
 | 34 | `SetAnalyticsProfile` | yarım | profil kurulumda seçiliyor (A2), Sağlık'ta görünüyor; panelden değişmesi tek tek `sources.*` ile |
 | 35 | `SetVerboseLogging` | **var** | `logs.verbose_until` — kendi söner; site başına değil, genel |
 | 36 | `SetLogRetention/Level` | **var** | `logs.retention_days`, `logs.level` |
-| 37 | `ExportDiagnosticBundle` | yarım | ~~yok~~ → **B3c-1 ✅**: Sağlık → "Tanı paketini indir", günlüksüz. Günlük satırları **B3c-2b**; karar verildi: (c), adresler maskeli |
+| 37 | `ExportDiagnosticBundle` | **var** | ~~yok~~ → **B3c-1 ✅**: Sağlık → "Tanı paketini indir". **B3c-2b ✅**: son yedi günün uyarı ve hata satırları; mesaj ve sınıflandırılmış alanlar, adresler ve e-postalar metnin içinde de kısaltılmış, `claimed` hiç, satırlar indirenin sitelerine göre |
 | 38 | `RestartService` | yok | mekanizma var: V'nin kapı zili (`internal/relupdate/restart.go` — içi okunmayan dosya, root'un `.path` birimi); panelin zili çalma yetkisi yok ve o, kurulumda verilecek bir yetki |
 | 39 | `ReloadConfig` | yok | servise istek |
 
@@ -2283,8 +2283,11 @@ kez yazmak onu bir kez yapmaktır.
   dakika; sitenin sahibi bir üyeninkini daha önce kaldırabiliyor. Yolda
   bulunan asıl kusur: doğru parola, ikinci faktörün sayıldığı bütçeyi
   sıfırlıyordu. Bütçe artık yalnız oturum kurulunca sıfırlanıyor.
-- **B3c-2b** — #37'nin günlük yarısı; karar verildi (Beklenen kararlar,
-  7): mesaj + izinli alanlar, adresler maskeli.
+- **B3c-2b** ✅ *(2026-09-28)* — #37'nin günlük yarısı, karar (c). Yolda
+  iki kusur: günlük tablosunun site sütunu hiç dolmuyordu (sink
+  `site_id` bekliyor, 24 çağrı `site` yazıyordu; her sitenin satırı
+  "süreç satırı" okunuyordu), ve tabloya yazan kopyada günlük dosyasının
+  gizli ad koruması yoktu.
 - **B3h** — C7.2'nin ikinci ağı: bir işletmecinin (süper yönetici,
   geliştirici oturumu dahil) bir üyenin kurtarma kodlarını yenileyip
   birini iletmesi. Karar 2026-08-26'da verilmişti (*"operatör bağlantısı

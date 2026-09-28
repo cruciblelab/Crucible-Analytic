@@ -63,7 +63,17 @@ const OperationKey = "operation_id"
 // SiteKey is the attribute naming the site a line is about. Absent means
 // the line is about the process, which is a different fact from "unknown
 // site" and must never be shown to one customer as if it were theirs.
-const SiteKey = "site_id"
+//
+// "site", because that is the key every line that names a site is
+// written with. It was "site_id" until 2026-09-28, and not one call in
+// the tree used that spelling: all twenty-four keys that name a site, in
+// eight files, wrote "site", so the column stayed empty on every row and
+// every site's lines read as the process's - the one reading this comment
+// forbids. This
+// package's own test passed throughout, because it wrote the constant
+// rather than what the services write. The spelling is now held by
+// internal/invariants/logkeys_test.go.
+const SiteKey = "site"
 
 // maxAttrs bounds how many attributes reach the database from one
 // record.
@@ -393,7 +403,18 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 		if len(rec.attrs) >= maxAttrs {
 			return true
 		}
-		rec.attrs[logging.SanitizeValue(a.Key)] = logging.SanitizeValue(a.Value.String())
+		key := logging.SanitizeValue(a.Key)
+		// The tree's backstop, applied here too. It used to be applied
+		// only on the tree's side of the tee (logging's sanitizeAttr), so
+		// a value under a secret-looking name would have reached this
+		// table in the clear while the file beside it said [redacted] -
+		// and this table is the copy that leaves the machine, in the
+		// panel's diagnostic file.
+		if logging.IsSecretKey(key) {
+			rec.attrs[key] = logging.Redacted
+			return true
+		}
+		rec.attrs[key] = logging.SanitizeValue(a.Value.String())
 		return true
 	}
 

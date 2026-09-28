@@ -24,6 +24,44 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Tanı paketinde son yedi günün uyarı ve hata satırları
+
+**Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.
+
+Sağlık → **Tanı paketini indir** artık son yedi günün uyarı ve hata
+satırlarını da taşıyor, en yeniden başlayarak en fazla 200 satır. Satırlar
+sahibin kararıyla çıkıyor:
+- mesaj ve sınıflandırılmış alanlar gidiyor;
+- istemcinin kendi iddiası (`claimed`) hiç gitmiyor;
+- ağ adresleri /24 ve /64'e, e-posta adresleri alan adına kısaltılıyor,
+  mesajın içinde de;
+- bir sitenin sahibinin dosyasında yalnız sahibi olduğu sitelerin
+  satırları var.
+
+Hangi alanın gidebileceği tek bir listede. Listede olmayan bir alan
+gitmiyor, adı satırda yazıyor.
+
+### Günlük tablosunun site sütunu hiç dolmuyordu
+
+Panelin okuyabildiği günlük tablosu her satırın hangi siteye ait olduğunu
+ayrı bir sütunda tutuyor, ki bir müşterinin satırı başka bir müşteriye
+gösterilmesin. Tabloya yazan kopya o sütunu `site_id` anahtarından
+dolduruyordu; kodda siteyi anan 24 çağrının hepsi `site` yazıyordu.
+Sütun her satırda boştu ve her sitenin satırı "hiçbir siteye ait değil"
+diye okunuyordu. Bugüne kadar bu tabloyu gösteren bir sayfa olmadığı için
+kimseye yanlış satır gösterilmedi. Düzeltildi. Eski satırlar da süzülüyor:
+tanı paketi site bilgisini sütunda bulamazsa satırın kendi alanlarında
+arıyor.
+
+### Tabloya yazılan günlük kopyasında gizli ad koruması yoktu
+
+Günlük dosyası parola, jeton, anahtar gibi adlarla yazılan değerleri
+`[redacted]` olarak yazıyor. Aynı satırın panelin tablosuna giden kopyası
+bu korumayı uygulamıyordu. Bugün uyarı düzeyinde bu tür bir adla yazılan
+tek değer bir ayarın adı (`key`); o gizli değil, ama koruma adına bakıyor
+ve dosya ile tablo farklı şey yazıyordu. Asıl iş, gelecekte gerçekten gizli
+bir değer yazan bir çağrı olursa. Artık iki kopyada da aynı.
+
 ### Güvenlik düzeltmesi: ikinci faktör, parolayı bilene karşı sınırsız denenebiliyordu
 
 **Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.

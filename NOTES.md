@@ -22796,3 +22796,147 @@ on turda **40** kod denetleniyor, beklenen 5.
 | web ve değişmez | parola adımı sıfırlıyor, tamamlanan giriş sıfırlamıyor |
 | yalnız değişmez | kurtarma koddan önce sıfırlıyor (kod tek kullanımlık, tekrarlanamıyor; kuralın yeri yapısal olarak tutuluyor) |
 | yalnız web | yönetici de görüyor, kendi satırında düğme, ikinci kaldırma sunuluyor, kendi satırının cümlesi yok, neden düğme yok söylenmiyor, kurtarma bağlantısı boş, ikinci kaldırma başarı gibi, ret genel cümleyle, işlem bağlı değil, dakika pencereden, rozet yok, formda satırın kimliği değil |
+
+## B3c-2b — Tanı paketinde günlük satırları, ve yolda bulunan iki kusur (2026-09-28)
+
+Sahibin kararı, karar listesinin yedinci maddesine: öneri **(c)**.
+
+> *"önerini yapalım, kafama daha çok yattı"*
+
+Yani: mesaj ve izinli alanlar gidiyor, adresler ürünün kendi maskesiyle
+kısaltılıyor (/24, /64), `claimed` hiç gitmiyor.
+
+### Önce tabloya kimin yazdığına baktım: site sütunu hiç dolmuyordu
+
+`panel_logs`'u panelde okuyan hiçbir şey yoktu; tek dokunan saklama
+süpürmesiydi. Tanı paketi ilk okuyucu olacaktı. Tablonun şeması bir
+kural koyuyor: *bir satır hiçbir siteye ait değilse, bir müşteriye onunmuş
+gibi gösterilmemeli.* Bu kural `site_id` sütununa dayanıyor. Sink o
+sütunu `logsink.SiteKey` anahtarından dolduruyordu ve bu anahtar
+`"site_id"` idi.
+
+Ağaçta siteyi anan her günlük anahtarı soruldu: **24 anahtar, 8 dosya,
+hepsi `"site"`**, bir tane bile `"site_id"` yok. Gerçek sink ile ölçüldü:
+`site` anahtarıyla yazılan bir satır `site_id=""` ile, site ise
+`attrs.site` içinde duruyor. Yani **her sitenin satırı "hiçbir siteye ait
+değil"** diye okunuyordu. Sütuna göre süzen bir sayfa (tanı paketi, D4b)
+bir müşterinin satırlarını bütün sahiplere gösterirdi. Bugüne kadar kimse
+görmedi, çünkü okuyan bir sayfa yoktu.
+
+Sink'in kendi testi (`TestTheOperationIdAndSiteBecomeColumns`) geçiyordu,
+çünkü sabitin kendisini yazıyordu. V4b'nin dersi: *fikstür üretimde
+kimsenin yazmadığı bir satırı yazıyorsa, sınadığı akış üretimde hiç
+çalışmaz.*
+
+**Düzeltme:** `SiteKey = "site"`. Çağıranlar değişmedi, günlük dosyası
+değişmedi. Yeni bir yapısal kural koruyor
+(`internal/invariants/logkeys_test.go`, `TestEveryLogLineNamesItsSiteTheOneWay`):
+siteyi anan her anahtar bu yazımda olmalı. Eski yazıma dönünce kural 24
+satırı dosya ve satır numarasıyla listeliyor. Düzeltmeden **önce**
+yazılmış satırlar saklama süresince tabloda kalıyor, o yüzden okuma iki
+yere de bakıyor: sütun ve `attrs.site`.
+
+### İkinci kusur: tabloya giden kopyada gizli ad koruması yoktu
+
+Günlük dosyası `password`, `token`, `key` gibi adlarla gelen değerleri
+`[redacted]` yazıyor (`logging.IsSecretKey`, `sanitizeAttr`). Bu, tee'nin
+yalnız dosya tarafında uygulanıyordu; aynı satır tabloya açık gidiyordu.
+Bugün uyarı düzeyinde bu tür bir adla yazılan tek değer bir ayarın adı
+(`key`), gizli değil. Ama tablo artık makineden çıkan kopya olduğu için
+iki taraf aynı kuralı uyguluyor. Testi: `user_password` adlı bir değer
+tabloya `[redacted]` olarak iniyor, yanındaki sıradan alan iniyor.
+
+### Ne gidiyor
+
+- **Satırlar:** son yedi günün WARN ve ERROR satırları, en yeniden, en
+  fazla 200. Dosya penceresini, sınırını ve sınır aşıldıysa bunu
+  (`truncated`) yazıyor.
+- **Kiracı:**
+  - Geliştirici ve süper yönetici her şeyi görüyor (`scope: "all"`).
+  - Bir sahip hiçbir siteye ait olmayan satırları ve sahibi olduğu
+    sitelerin satırlarını görüyor (`scope: "owned"`). Yöneticisi olduğu
+    ama sahibi olmadığı bir sitenin satırları gelmiyor. Dosya sahipler
+    için, ve sahibi olunan siteleri taşıyor.
+  - Sahip olunan siteler okunamazsa bölüm hata veriyor ve satır
+    göstermiyor. Cevap alınamadı diye kapsam genişlemiyor.
+- **Alanlar:** `logging.ExportRuleFor`. Ağacın yazdığı her anahtar
+  (bugün yaklaşık 140) üç kuraldan birinde:
+  - `claimed` hiç gitmiyor.
+  - `peer` ve `addr` adres alanı: kısaltılıp gidiyor. Değeri adres
+    olarak tanınmazsa hiç gitmiyor, çünkü adres için ayrılmış bir alanda
+    başka bir şey duruyorsa o alan üzerine düşünülmemiş demektir.
+  - Geri kalanı gidiyor, maskeleme geçişinden geçerek.
+
+  Listede olmayan anahtar gitmiyor, adı satırın `withheld` alanına
+  yazılıyor. Liste **iki yönlü** tutuluyor:
+  `TestEveryLogKeyIsClassifiedForLeavingTheMachine`. Sınıflandırılmamış
+  yeni bir anahtar, ekleyen kişiye bir soru oluyor ("bu değer bir kişi
+  hakkında olabilir mi?"). Hiçbir satırın yazmadığı bir sınıflandırma da,
+  artık olmayan kodu anlatıyor.
+- **Metnin içi:** her ağ adresi /24 ve /64'e kısaltılıyor. Yalnız adres
+  alanlarında değil, **mesajın ve her değerin içinde** de, çünkü bir hata
+  iletisi aldığı adresi yankılayabilir. Ürünün kendi maskesi kullanılıyor
+  (`privacy.MaskIP`), ve sonuç ağ olarak yazılıyor (`203.0.113.0/24`),
+  çünkü `203.0.113.0` bir makine adresi gibi okunur. Karakter koşuları
+  `net/netip`'e soruluyor: sürüm dizesi, saat ya da MAC adresi dokunulmadan
+  kalıyor. Testler iki yönlü.
+- **E-posta adresleri** alan adına kısaltılıyor (`…@ornek.com`). Bunu
+  karar söylemiyordu, ben ekledim. Sebebi ölçüldü: panelin bir uyarı
+  satırı birinin e-postasını taşıyor; posta teslim hatası alıcıyı `to`
+  alanında yazıyor. (Kaynak yenilemeyi isteyeni `by` alanında yazan satır
+  INFO düzeyinde, pakete girmiyor.) Bir SMTP hatası da alıcıyı metnin
+  içinde yankılayabilir. Hangi sağlayıcının reddettiği gidiyor, kimin
+  iletisi olduğu gitmiyor.
+
+### Yol boyunca, benim kusurum
+
+`maskRun` bir karakter koşusunun sonundaki `.` ve `:` işaretlerini
+kırpıyordu ("adres cümle sonunda" ve "adres:port:" için). `::` ile biten
+bir IPv6 adresi (`2001:db8:1:2:3::`) kırpılınca adres olmaktan çıkıyor ve
+**maskesiz** kalıyordu, yani /64'ten uzun bir kimlikle gidiyordu. Önce
+koşunun tamamı soruluyor. Tablo testinde bu durum var, ve o satırı
+kaldıran mutasyon kırmızı veriyor.
+
+### Ölçüldü
+
+- **Gerçek sink, gerçek satırlar**, beşi de üretimin yazdığı biçimde:
+  - gerçek bir giriş denemesinin alanları (`logging.Attempt`: iddia,
+    karar, gerekçe, adres);
+  - iki sitenin birer satırı;
+  - posta teslim uyarısının biçiminde, alıcıyı yazan bir satır;
+  - bir INFO satırı.
+
+  Dosya sahip ve geliştirici olarak indirildi. **Ham dosyada** (yapıya
+  çözülmeden önce) ne iki adres, ne iddianın kendisi, ne alıcının yerel
+  kısmı var. Adres `203.0.113.0/24`, alıcı `…@example.com`. İddia
+  gitmemiş, `withheld`'de adıyla duruyor. Sahip yöneticisi olduğu sitenin
+  satırını görmüyor, geliştirici görüyor, INFO satırını ikisi de görmüyor.
+- **Veritabanı okuması** gelecek zamanlı satırlarla sınandı. Başka
+  süitler aynı tabloya yazarken "en yeni n" bu testin satırları kalsın
+  diye: seviye, pencere, sütun ve eski biçim site süzgeci, sıra, sınır ve
+  işareti, hepsi iki yanlı. İlk hâlde beklentim yanlıştı ("1 saat 10
+  dakika sonrası" en yeni satır, en eski değil); ürün doğruydu.
+- **Gerçek Chromium'un kaydettiği dosyada** bölüm sahibin kapsamıyla
+  duruyor.
+
+### Mutasyonlar
+
+Yirmi üç mutasyon (`scratchpad/mutasyon-gunluk.py`), yirmi üçü de
+kırmızı. İkisi turdan sonra eklendi: kapsam koşulu sadeleşince
+(geliştirici oturumu zaten süper yönetici; `Kind` denetimi tek başına
+ölçülemiyordu) yeni satırın iki yönü ayrı ayrı.
+
+| yakalayan | mutasyon |
+|---|---|
+| yalnız yapısal kural | site anahtarı eski yazımla, `peer` düz alan |
+| yalnız sink | gizli ad koruması yok |
+| birim, yapısal kural, web | `claimed` gidiyor |
+| depo ve web | seviye süzgeci yok, sütunla süzülmüyor |
+| yalnız depo | pencere yok, eski satırlar süzülmüyor, sıra ters, sınır ve işaret yok, eski satırın sitesi okunmuyor |
+| yalnız web | sahip her siteyi görüyor, yönetilen siteler de, bölüm bağlı değil, geliştirici yalnız sahip olduklarını |
+| birim ve web | adres maskesi yok, e-posta maskesi yok, bilinmeyen anahtar gidiyor, v4 maskesi /64, değer maskelenmiyor |
+| yalnız birim | tanınmayan adres gidiyor, bütün koşu önce denenmiyor, mesaj maskelenmiyor |
+
+`peer`'i düz alan yapmak davranışta yalnız adres olmayan bir değerde
+görünüyor, çünkü düz alan da maskeleme geçişinden geçiyor. Kural onu
+adıyla sınıyor.

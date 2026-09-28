@@ -6,14 +6,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/preflight"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
@@ -207,7 +211,7 @@ func TestWhoMayDownloadTheDiagnosticFile(t *testing.T) {
 }
 
 // TestEachSectionOfTheDiagnosticFileFallsAlone: with the database gone,
-// the four sections that read it say so, each in its own words, and the
+// the five sections that read it say so, each in its own words, and the
 // file still arrives - which is when it is wanted most.
 func TestEachSectionOfTheDiagnosticFileFallsAlone(t *testing.T) {
 	srv, _ := setupTestServer(t)
@@ -221,17 +225,20 @@ func TestEachSectionOfTheDiagnosticFileFallsAlone(t *testing.T) {
 	defer func() { srv.Store = working }()
 
 	lang := srv.language(httptest.NewRequest(http.MethodGet, DiagnosticPath, nil))
-	got := srv.buildDiagnostic(context.Background(), lang, time.Now())
+	operator := panel.Principal{Kind: panel.PrincipalDeveloper, Label: panel.DeveloperLabel, Superadmin: true}
+	got := srv.buildDiagnostic(context.Background(), lang, operator, time.Now())
 
 	for name, section := range map[string]string{
 		"schema": got.Schema.Error, "services": got.Services.Error,
 		"storage": got.Storage.Error, "settings": got.Settings.Error,
+		"logs": got.Logs.Error,
 	} {
 		if section == "" {
 			t.Errorf("the %s section reports no error with its database closed", name)
 		}
 	}
-	if got.Services.Rows == nil || got.Storage.Tables == nil || got.Settings.Values == nil {
+	if got.Services.Rows == nil || got.Storage.Tables == nil || got.Settings.Values == nil ||
+		got.Logs.Lines == nil {
 		t.Error("a failed section encodes its list as null; an empty list and a missing one read differently")
 	}
 	body, err := json.Marshal(got)
@@ -240,5 +247,128 @@ func TestEachSectionOfTheDiagnosticFileFallsAlone(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"format":"`+diagnosticFormat+`"`) || len(got.Omitted) != 3 {
 		t.Errorf("the sections that need no database did not arrive: %s", body)
+	}
+}
+
+// TestTheDiagnosticFileCarriesTheLogLinesAsDecided: lines written the way
+// the services write them - through the real sink, one of them a real
+// authentication attempt's attributes - downloaded by an owner and by a
+// developer.
+//
+// The raw file is searched as well as the parsed one: an address or a
+// claim that reached the bytes by any route, in any field, is the
+// failure, whatever the struct says.
+func TestTheDiagnosticFileCarriesTheLogLinesAsDecided(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+	const mine, theirs = "tani-gunluk-benim", "tani-gunluk-onlarin"
+	const prefix = "tanı-günlük-testi:"
+	owner := makeUser(t, store, "tani-gunluk-sahip", false)
+	other := makeUser(t, store, "tani-gunluk-oteki", false)
+	if err := store.AddMember(ctx, mine, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMember(ctx, theirs, other.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	// An administrator there, which is not an owner: the file is for
+	// owners, and it carries the sites its reader owns.
+	if err := store.AddMember(ctx, theirs, owner.ID, panel.RoleAdmin, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	admin := testdb.Admin(t)
+	clear := func() {
+		if _, err := admin.Exec(ctx, `DELETE FROM panel_logs WHERE message LIKE $1`, prefix+"%"); err != nil {
+			t.Errorf("clearing log lines: %v", err)
+		}
+	}
+	clear()
+	t.Cleanup(clear)
+
+	sink := logsink.New(store.Pool(), logsink.Config{Level: slog.LevelDebug})
+	logger := slog.New(sink.Handler())
+	logger.Warn(prefix+" giriş reddedildi", logging.Attempt(
+		"saldirgan@example.com", logging.VerdictRejected, "wrong password from 203.0.113.9", "203.0.113.9")...)
+	logger.Error(prefix+" benim sitemin satırı", logsink.SiteKey, mine, "err", "timeout talking to 198.51.100.23")
+	logger.Error(prefix+" onların satırı", logsink.SiteKey, theirs, "err", "x")
+	// The shape of the panel's own mail warning, which names the
+	// recipient: the provider may go, the person may not.
+	logger.Warn(prefix+" posta gönderilemedi", "to", "ali.veli@example.com", "stage", "rcpt")
+	logger.Info(prefix + " bilgi satırı")
+	sink.Close() // drains the buffer
+	if written, _, failed := sink.Counters(); written != 5 || failed != 0 {
+		t.Fatalf("the sink wrote %d lines and failed %d; the test's rows are not all there", written, failed)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	download := func(c *http.Client) (diagnosticBundle, map[string]diagnosticLogLine) {
+		t.Helper()
+		status, body := get(t, c, server.URL+DiagnosticPath)
+		if status != http.StatusOK {
+			t.Fatalf("download answered %d", status)
+		}
+		for _, leaked := range []string{"203.0.113.9", "198.51.100.23", "saldirgan", "ali.veli"} {
+			if strings.Contains(body, leaked) {
+				t.Errorf("the file carries %q", leaked)
+			}
+		}
+		var b diagnosticBundle
+		if err := json.Unmarshal([]byte(body), &b); err != nil {
+			t.Fatal(err)
+		}
+		ours := map[string]diagnosticLogLine{}
+		for _, l := range b.Logs.Lines {
+			if strings.HasPrefix(l.Message, prefix) {
+				ours[strings.TrimPrefix(l.Message, prefix+" ")] = l
+			}
+		}
+		return b, ours
+	}
+
+	b, ours := download(signedIn(t, server.URL, owner.Email))
+	if b.Logs.Error != "" || b.Logs.Scope != "owned" || b.Logs.Limit != diagnosticLogLimit {
+		t.Errorf("the owner's log section: scope %q, limit %d, error %q", b.Logs.Scope, b.Logs.Limit, b.Logs.Error)
+	}
+	attempt, ok := ours["giriş reddedildi"]
+	if !ok {
+		t.Fatalf("the authentication line is missing from the owner's file: %v", ours)
+	}
+	if attempt.Attrs[logging.KeyPeer] != "203.0.113.0/24" || attempt.Category != string(logging.CategoryAuth) ||
+		attempt.Attrs[logging.KeyVerdict] != logging.VerdictRejected {
+		t.Errorf("attempt line = %+v", attempt)
+	}
+	if _, sent := attempt.Attrs[logging.KeyClaim]; sent || !slices.Contains(attempt.Withheld, logging.KeyClaim) {
+		t.Errorf("the claim should be withheld and named as withheld: %+v", attempt)
+	}
+	if line, ok := ours["benim sitemin satırı"]; !ok || line.Site != mine ||
+		line.Attrs["err"] != "timeout talking to 198.51.100.0/24" {
+		t.Errorf("the owner's own site line = %+v (present %v)", line, ok)
+	}
+	if _, ok := ours["onların satırı"]; ok {
+		t.Error("an owner's file carries a line about a site they administer and do not own")
+	}
+	if mail := ours["posta gönderilemedi"]; mail.Attrs["to"] != "…@example.com" {
+		t.Errorf("the mail warning's recipient = %q, want the domain alone", mail.Attrs["to"])
+	}
+	if _, ok := ours["bilgi satırı"]; ok {
+		t.Error("an INFO line is in the file; it carries warnings and errors")
+	}
+
+	// A developer session, obtained the only way one can be: every site.
+	liveToken, liveReq := requestAccess(t, store, "tani-gunluk")
+	if err := store.ApproveDevAccess(ctx, liveReq.ID, owner); err != nil {
+		t.Fatal(err)
+	}
+	dev := newClient(t, server.URL)
+	if status, _ := get(t, dev, server.URL+DevAccessPathPrefix+liveToken); status != http.StatusSeeOther {
+		t.Fatalf("redeeming the developer link answered %d", status)
+	}
+	b, ours = download(dev)
+	if b.Logs.Scope != "all" {
+		t.Errorf("the developer's scope is %q", b.Logs.Scope)
+	}
+	if line, ok := ours["onların satırı"]; !ok || line.Site != theirs {
+		t.Errorf("the developer's file is missing another site's line: %+v", ours)
 	}
 }

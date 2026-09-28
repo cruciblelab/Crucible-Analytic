@@ -1137,11 +1137,11 @@ metin = "Since the service started, %s events named a site that is not on the ac
 
 [metin.saglik.tani]
 indir = "Download diagnostics"
-aciklama = "Everything on this page, and the settings, in one JSON file. Send it when you ask for support. It holds no log lines and no secrets."
+aciklama = "Everything on this page, the settings, and the last seven days of warning and error lines, in one JSON file. Send it when you ask for support. It holds no secrets; addresses in the log lines are shortened."
 kontrol_yok = "Setup checks are not wired into this panel."
 
 [metin.saglik.tani.disarida]
-gunluk = "No log lines: they can carry visitors' addresses. What may leave the machine is the owner's decision."
+gunluk = "From the log lines, the client's own claim (claimed) and unclassified fields are removed; network addresses are cut to /24 and /64, email addresses to their domain; only lines about sites the downloader may see are included."
 site = "No per-site settings: all three are display (site name, visible cards, visible breakdowns)."
 sir = "No secrets: passwords and keys live in configuration files, which the panel does not read."
 

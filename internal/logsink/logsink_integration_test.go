@@ -279,6 +279,37 @@ func TestTheOperationIdAndSiteBecomeColumns(t *testing.T) {
 	}
 }
 
+// TestASecretLookingValueIsRedactedHereAsInTheTree: the tree's backstop,
+// on this side of the tee too.
+//
+// It was applied only on the tree's side (logging's sanitizeAttr), so a
+// value under a secret-looking name would have been stored here in the
+// clear while the file beside it said [redacted] - and this table is the
+// copy that leaves the machine, in the panel's diagnostic file.
+func TestASecretLookingValueIsRedactedHereAsInTheTree(t *testing.T) {
+	s, read := newTestSink(t, testdb.Collector)
+	logger := slog.New(s.Handler())
+
+	logger.Warn("gizli adlı bir alan", "user_password", "hunter2-gizli", "baska", "deger")
+	waitForRows(t, s, 1)
+
+	var attrs string
+	if err := read.QueryRow(context.Background(),
+		`SELECT attrs::text FROM panel_logs WHERE service = $1`, testdb.Collector).Scan(&attrs); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(attrs, "hunter2") {
+		t.Errorf("a value under a secret-looking name reached the table in the clear: %s", attrs)
+	}
+	if !strings.Contains(attrs, logging.Redacted) {
+		t.Errorf("the field is gone rather than marked withheld; the tree keeps it as %q: %s",
+			logging.Redacted, attrs)
+	}
+	if !strings.Contains(attrs, "deger") {
+		t.Errorf("an ordinary field was withheld too: %s", attrs)
+	}
+}
+
 // TestOneServiceCannotWriteALineUnderAnothersName.
 //
 // The one place a forgery pays. An operator reading this table to find
