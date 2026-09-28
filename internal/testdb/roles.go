@@ -35,12 +35,14 @@ const (
 // AllRoles is every role a suite connects as.
 //
 // Here so it can be compared against the places outside Go that also
-// have to know: the CI workflow sets each role's password, and a list
-// there that falls behind produces SASL failures rather than a message
-// about a missing role.
+// have to know: the CI and nightly workflows and the development
+// instructions in README.md and docker-compose.yml each set every
+// role's password, and a list that falls behind produces SASL failures
+// rather than a message about a missing role.
 //
-// It fell behind exactly once, and it cost weeks of red runs: L3 added
-// schema_admin, the workflow's `for role in ...` line kept naming four,
-// and every applier and upgrade test failed to authenticate. See
-// TestTheWorkflowKnowsEveryRole.
+// L3 added schema_admin after three of these lists were written. CI's
+// fell behind - every applier and upgrade test failed to authenticate,
+// on each of the seventeen pushes of the day L3 landed - and the test
+// written then read CI's alone, so the two written for people named
+// four roles until 2026-09-27. See TestEveryPasswordResetKnowsEveryRole.
 var AllRoles = []string{Collector, Beacon, Reader, Panel, SchemaAdmin}

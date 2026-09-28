@@ -986,7 +986,7 @@ does not assume the database is a throwaway container.
 docker compose up -d
 docker compose ps --format '{{.Name}}: {{.Health}}' # wait for "healthy"
 
-# 2. Install the product into it, the way a customer does: four roles,
+# 2. Install the product into it, the way a customer does: five roles,
 #    every schema, the grants, the hardening, and a verification step
 #    that refuses to finish if the role separation is not what it claims.
 #
@@ -1000,10 +1000,10 @@ SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
   DB_NAME=analytics CONF_DIR=$(mktemp -d) PREFIX=$(mktemp -d) \
   LOG_DIR=$(mktemp -d) STATE_DIR=$(mktemp -d) ./release/install.sh
 
-#    The integration suites connect as each service role and expect each
-#    password to be the role's own name. install.sh generates its own and
-#    writes them into config files; for a throwaway database, overwrite:
-for r in collector beacon_writer analytics_reader panel_user; do
+#    The integration suites connect as each of the five roles and expect
+#    each password to be the role's own name. install.sh generates its own
+#    and writes them into config files; for a throwaway database, overwrite:
+for r in collector beacon_writer analytics_reader panel_user schema_admin; do
   psql postgres://postgres:postgres@localhost:5432/analytics \
     -c "ALTER ROLE $r PASSWORD '$r'"
 done
@@ -2161,7 +2161,7 @@ CA_BROWSER_TEST=1 go test -tags integration ./internal/panel/... -v
 go test -run XXX -fuzz 'FuzzParseClientHelloFromRecords$' -fuzztime 5m ./internal/ja4/
 go test -run XXX -fuzz 'FuzzParseClientHello$'            -fuzztime 5m ./internal/ja4/
 
-# Installing: database, four roles, the privilege matrix, and the
+# Installing: database, five roles, the privilege matrix, and the
 # verification that the matrix is what it claims. An installation that
 # fails the verification does not finish.
 sudo ./release/install.sh

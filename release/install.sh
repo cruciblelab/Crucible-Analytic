@@ -383,7 +383,7 @@ else
 
   # Available, which is a different question from loaded. A distro
   # PostgreSQL with no Timescale packages answers no here, and the
-  # answer is worth having before four roles and ten schemas exist.
+  # answer is worth having before any role or schema exists.
   if [ -z "$(psql_super -tAc "SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb'")" ]; then
     db_problem "PostgreSQL is running and the TimescaleDB extension is not installed on it.
 

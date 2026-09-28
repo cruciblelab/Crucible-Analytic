@@ -41,8 +41,9 @@ ALTER DATABASE :"dbname" SET timescaledb.telemetry_level = 'off';
 -- cover. That is a map of the deployment handed to somebody who was
 -- never granted a single row.
 --
--- The four service roles are granted CONNECT explicitly in grants.sql,
--- so revoking the blanket grant costs them nothing.
+-- The five roles - the four services and schema_admin - are granted
+-- CONNECT explicitly by install.sh, which creates them, so revoking the
+-- blanket grant costs them nothing. verify.sql checks both halves.
 REVOKE CONNECT, TEMPORARY ON DATABASE :"dbname" FROM PUBLIC;
 
 -- 3. Background jobs.

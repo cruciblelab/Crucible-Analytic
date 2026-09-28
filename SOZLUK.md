@@ -641,7 +641,7 @@ commit, her makinede aynı baytlar. `-trimpath` derleme makinesinin
 yollarını, `CGO_ENABLED=0` host'un C araç zincirini, `-buildvcs=false`
 git bloğunu binary'den çıkarır.
 
-**release/install.sh** — Veritabanını, dört rolü, yetkileri, sırları ve
+**release/install.sh** — Veritabanını, beş rolü, yetkileri, sırları ve
 yapılandırma dosyalarını kuran betik. Amacı on dakika kazandırmak değil:
 **yetki matrisinin tek dosyadan uygulanıp veritabanına doğrulatılması**,
 ve doğrulamayı geçmeyen bir kurulumun bitmemesi. GNU sed ister — BusyBox

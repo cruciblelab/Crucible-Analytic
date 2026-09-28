@@ -764,9 +764,11 @@ func TestInstallClosesTheDefaultsNobodyChose(t *testing.T) {
 			t.Error("any role on the cluster can connect to this database; TimescaleDB's catalog " +
 				"is world-readable, so a connected stranger can enumerate the hypertables and chunks")
 		}
-		// And the four still can, which is the half that would break a
-		// working installation if the REVOKE were too broad.
-		for _, role := range []string{"collector", "beacon_writer", "analytics_reader", "panel_user"} {
+		// And the five still can, which is the half that would break a
+		// working installation if the REVOKE were too broad. schema_admin
+		// is the one that breaks late: nothing connects as it until the
+		// first upgrade.
+		for _, role := range []string{"collector", "beacon_writer", "analytics_reader", "panel_user", "schema_admin"} {
 			var ok bool
 			if err := pool.QueryRow(ctx,
 				`SELECT has_database_privilege($1, current_database(), 'CONNECT')`, role).Scan(&ok); err != nil {

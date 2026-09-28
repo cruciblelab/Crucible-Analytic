@@ -146,7 +146,7 @@ kadar hiçbir şey söylemez. Baştan başlamak istiyorsanız `--force`, ama o
 zaman mevcut veritabanı birimi de kullanılamaz.
 
 `init` servisi bu kılavuzun 4., 5. ve 6. bölümlerini bir kez yapıyor:
-dört rol, bütün şemalar, GRANT'ler, sertleştirme, doğrulama, ve
+beş rol, bütün şemalar, GRANT'ler, sertleştirme, doğrulama, ve
 yapılandırma dosyalarını üretilmiş parolalarla yazma. Aynı
 `release/install.sh` — konteyner için ayrı bir kurulum betiği yok, çünkü
 kimsenin koşmadığı ikinci bir betik zamanla birincisinden ayrılır.
@@ -589,7 +589,7 @@ başka bir veritabanında:        ERROR: relation "traffic_snapshots" does not e
 sudo ./release/install.sh
 ```
 
-Veritabanını ve dört rolü oluşturur, şemaları uygular, yetki matrisini
+Veritabanını ve beş rolü oluşturur, şemaları uygular, yetki matrisini
 `release/sql/grants.sql`'den uygular, **ve sonucu veritabanına
 doğrulatır.** Doğrulama geçmezse kurulum bitmez.
 

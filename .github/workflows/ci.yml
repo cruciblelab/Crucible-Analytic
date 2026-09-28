@@ -235,7 +235,7 @@ jobs:
 
       # Installed, not just schema-loaded.
       #
-      # release/install.sh is what a customer runs: it creates the four
+      # release/install.sh is what a customer runs: it creates the five
       # roles, applies every schema, applies grants.sql and harden.sql,
       # and refuses to finish unless verify.sql agrees that the
       # separation is what it claims. Running it here means CI's database
@@ -244,7 +244,7 @@ jobs:
       #
       # The generated role passwords are then replaced with predictable
       # ones, because the suites have to connect as each role and
-      # scraping four generated secrets out of a script's output would
+      # scraping five generated secrets out of a script's output would
       # tie the tests to the wording of a message.
       #
       # --no-systemd because a runner is not a machine anybody is
@@ -270,8 +270,10 @@ jobs:
           # every applier and upgrade test failed SASL auth on a list
           # that had simply stopped being complete.
           #
-          # TestTheWorkflowKnowsEveryRole compares this line against
-          # internal/testdb's constants, so a sixth role cannot repeat it.
+          # TestEveryPasswordResetKnowsEveryRole compares this line, and
+          # the three like it in nightly.yml, README.md and
+          # docker-compose.yml, against internal/testdb's constants, so a
+          # sixth role cannot repeat it.
           for role in collector beacon_writer analytics_reader panel_user schema_admin; do
             psql "postgres://postgres:postgres@localhost:5432/analytics" \
               -v ON_ERROR_STOP=1 -q -c "ALTER ROLE ${role} PASSWORD '${role}'"

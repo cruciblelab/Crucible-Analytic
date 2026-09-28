@@ -22302,3 +22302,124 @@ Günlüğü MCP'nin `get_job_logs`'u yalnız son 5000 satırıyla verdi, yani
 goroutine dökümünün kuyruğuyla. `running tests:` başlığı dışarıda kaldı.
 `return_content: false` bir `logs_url` veriyor. O düz metin bağlantısı
 `curl` ile vekilden geçti (200), 6.253 satırın tamamı indi.
+
+## schema_admin beş listede geride kalmıştı: doğrulama, bir test, iki geliştirici talimatı, belgeler (2026-09-27)
+
+B3b'nin yan bulgusuyla başladı: `harden.sql`, `PUBLIC`'ten `CONNECT`'i
+alırken "dört servis rolüne `grants.sql`'de açıkça veriliyor" diyordu.
+`grants.sql`'de `CONNECT` yok; veren `install.sh`, beş role. Yorumu
+düzeltmek için "beşinin de gerçekten bağlanabildiğine kim bakıyor" diye
+sordum ve asıl boşluk çıktı.
+
+### Kurulum "başarılı" diyordu, yükseltici bağlanamayacaktı
+
+Kurulumun kendi doğrulaması (`verify.sql`) ve testi
+(`TestInstallClosesTheDefaultsNobodyChose`) dört servis rolünü
+soruyordu, `schema_admin`'i sormuyordu. `schema_admin` yükselticinin
+rolü ve kurulum sırasında hiçbir şey onunla bağlanmıyor.
+
+Düzeltmeden önce ölçüldü: `install.sh` `schema_admin`'e `CONNECT`
+vermesin (tek satırlık mutasyon).
+- Kurulum 0 ile çıktı, "verifying the privilege matrix" geçti, test yeşil.
+- `schema_admin` bağlanamadı: *FATAL: permission denied for database
+  "ca_harden_olc" — User does not have CONNECT privilege*. `collector`
+  bağlandı.
+
+Yani kurulum "bitti" diyecek, ilk yükseltme düşecekti. L3'ün
+`install.sh`'te bulduğu şeklin aynısı: var olan ama hiç bağlanamayan
+bir rol, ve kurulum anında bunu söyleyen hiçbir şey.
+
+Düzeltme: `verify.sql` artık "the five roles still can" diyor,
+`schema_admin` dahil. Testin döngüsü de beş rol. Aynı mutasyonla, sonra:
+
+| `install.sh` CONNECT vermiyor, ve… | sonuç |
+|---|---|
+| başka değişiklik yok | kırmızı: kurulum reddediyor |
+| `verify.sql` `schema_admin`'i sormuyor | kırmızı: testin döngüsü yakalıyor |
+| test döngüsü `schema_admin`'i sormuyor | kırmızı: `verify.sql` yakalıyor |
+| ikisi de sormuyor (eski hal) | yeşil — kontrol |
+
+Mutasyonsuz yeşil. Gerçek betik, operatörün göreceği:
+
+```
+== verifying the privilege matrix
+install: the privilege matrix is wrong:
+   - the five roles still can
+install: refusing to finish an installation whose role separation is not what it claims
+```
+
+Mevcut kurulumlar etkilenmiyor: `install.sh` her koşuda beş role de
+`CONNECT` veriyor ("whether they were made now or were already here"),
+ve `verify.sql`'i yalnız `install.sh` çalıştırıyor.
+
+**Listeyi düzeltip bırakmadım.** L3'ün cevabı da buydu: listeleri
+yeniden yazmak yerine birbirine karşı okumak. Etiketsiz yeni test
+(`release/connectroles_test.go`) üç listeyi karşılaştırıyor: `install.sh`'in
+yarattığı roller, `CONNECT` verdiği roller, `verify.sql`'in sorduğu
+roller. İki yönlü, ve `PUBLIC` denetiminin varlığını da soruyor. Yedi
+mutasyon, yedisi kırmızı. İkisi testin boşa geçmemesini ölçüyor: test
+yaratma döngüsünü ya da `CONNECT` satırını tanımazsa geçmiyor, düşüyor.
+
+### Geliştirici talimatları dört parola ayarlıyordu
+
+Aynı soruyu bütün depoya sorunca iki liste daha çıktı. README'nin ve
+`docker-compose.yml`'nin geliştirici talimatı, kurulumdan sonra rol
+parolalarını rol adına çeviren döngüde dört rol sayıyordu. İkisi de 27
+Ağustos'ta, L3'ten önce yazılmıştı ve hiç güncellenmemişti.
+
+Ölçüldü. Taze kurulumdaki gibi `schema_admin`'e rastgele bir parola
+verildi ve README'nin döngüsü harfiyen koşuldu:
+
+```
+--- FAIL: TestTheApplierCanAnswerAndCannotAsk
+    failed SASL auth: FATAL: password authentication failed for user "schema_admin"
+```
+
+Beş rollü döngüyle aynı test geçti. Bu, CI'ın L3'ün geldiği gün verdiği
+hatanın aynısı. CI'ınki o gün düzeltilmiş ve bir teste bağlanmıştı
+(`TestTheWorkflowKnowsEveryRole`). Ama o test yalnız `ci.yml`'yi
+okuyordu; insanlar için yazılmış iki liste dışarıda kalmıştı.
+
+**Eski iki yorum yanlıştı.** `roles.go` ve testin kendisi, CI'daki bu
+hatanın "haftalarca" sürdüğünü söylüyordu. Tarihçe öyle demiyor: rol
+`f2f0551`'de geldi (31 Ağustos 06:46), CI'ın satırı `1716b45`'te düzeldi
+(aynı gün 22:47). Arada on yedi commit var, on altı saat. `1716b45`'in
+başlığındaki "haftalardır kırmızı", commit'in iki sebebinin toplamı.
+Yorumları yeniden yazarken bu sayıyı tarihçeye karşı okudum ve
+düzelttim.
+
+Test artık `TestEveryPasswordResetKnowsEveryRole` ve dört dosyayı
+okuyor: `ci.yml`, `nightly.yml`, `README.md`, `docker-compose.yml`. Her
+dosyada en az bir döngü bulmalı. Döngünün değişkeniyle `ALTER ROLE`'un
+değişkeni aynı olmalı. Dosyadaki her parola değişikliği tanınan bir
+döngüde olmalı. Rol kümesi `AllRoles`'a iki yönlü eşit olmalı. Dokuz
+mutasyon, dokuzu kırmızı:
+- dört dosyanın her birinde `schema_admin`'i unutmak (`nightly.yml`'ninki
+  daha önce hiç sınanmıyordu),
+- değişken uyuşmazlığı,
+- döngü dışında bir parola daha,
+- tanınmayan döngü biçimi (boşa koruma),
+- fazladan rol,
+- `AllRoles`'tan `schema_admin`'i düşürmek.
+
+### Eski sayılar
+
+Kurulumun "dört rol" yarattığını söyleyen cümleler düzeltildi: KURULUM
+(iki yer), SÖZLÜK, README (iki yer), `docker/compose.yml` ("dört rol",
+"dört yapılandırma dosyası"; `install.sh` `upgrader.toml` dahil beş dosya
+yazıyor), `ci.yml`'nin iki yorumu. `install.sh`'in bir yorumu sayısız
+yazıldı ("before any role or schema exists"), çünkü sayılı hali yine
+eskiyecekti.
+
+Bilerek dokunulmayanlar:
+- `install.sh`'teki geçmiş ölçüm anlatımlarındaki "four roles": o gün
+  doğruydu.
+- `verify.sql`'in `'all four roles exist'` denetimi: yukarısındaki
+  olumsuz iddiaların boşa geçmemesi için var ve o iddiaların hepsi dört
+  servis rolü hakkında.
+- Bağlamı servis rolleri olan her "dört servis rolü".
+
+**Ders:** L3 beşinci rolü ekledi ve yüksek sesle kırılan listeleri
+düzeltti: CI ve parola tablosu. Sessiz kırılanlar geride kaldı: geçen bir
+doğrulama ve insanlar için yazılmış talimatlar. Sessiz kırılan bir liste
+ancak ötekilere karşı okununca bulunuyor.

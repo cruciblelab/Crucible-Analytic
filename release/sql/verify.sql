@@ -108,11 +108,18 @@ UNION ALL SELECT 'timescaledb telemetry is off',
 -- hypertables, the chunks and the time ranges they cover.
 UNION ALL SELECT 'PUBLIC cannot connect to this database',
        NOT has_database_privilege('public', current_database(), 'CONNECT')
-UNION ALL SELECT 'the four roles still can',
+
+-- All five, schema_admin included. It is the upgrader's role, and a
+-- schema_admin without CONNECT is an installation that works until its
+-- first upgrade and then fails with "permission denied for database" -
+-- the shape L3 found in install.sh: a role that exists and can never
+-- connect, and nothing at install time that says so.
+UNION ALL SELECT 'the five roles still can',
        has_database_privilege('collector', current_database(), 'CONNECT')
    AND has_database_privilege('beacon_writer', current_database(), 'CONNECT')
    AND has_database_privilege('analytics_reader', current_database(), 'CONNECT')
    AND has_database_privilege('panel_user', current_database(), 'CONNECT')
+   AND has_database_privilege('schema_admin', current_database(), 'CONNECT')
 
 -- No role may schedule a background job.
 --

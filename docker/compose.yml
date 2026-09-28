@@ -59,9 +59,9 @@ services:
 
   # ---------------------------------------------------------------- init
   #
-  # Runs once and exits. It creates the four roles, applies every schema,
+  # Runs once and exits. It creates the five roles, applies every schema,
   # applies the grants and the hardening, refuses to finish unless the
-  # privilege matrix verifies, and writes the four configuration files
+  # privilege matrix verifies, and writes the five configuration files
   # with generated passwords and a generated ip_hash_key.
   #
   # The same release/install.sh a hand-installed server runs. One

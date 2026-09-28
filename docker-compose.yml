@@ -15,13 +15,13 @@
 #   SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
 #     DB_NAME=analytics CONF_DIR=$(mktemp -d) PREFIX=$(mktemp -d) \
 #     LOG_DIR=$(mktemp -d) STATE_DIR=$(mktemp -d) ./release/install.sh
-#   for r in collector beacon_writer analytics_reader panel_user; do
+#   for r in collector beacon_writer analytics_reader panel_user schema_admin; do
 #     psql postgres://postgres:postgres@localhost:5432/analytics \
 #       -c "ALTER ROLE $r PASSWORD '$r'"
 #   done
 #   export CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/analytics
 #
-# The four roles then hold exactly what release/sql/grants.sql gives them
+# The five roles then hold exactly what release/sql/grants.sql gives them
 # and nothing more, which is the only arrangement in which a missing
 # GRANT can fail a test. The passwords are set to the role names because
 # that is what internal/testdb expects; install.sh generates its own and
