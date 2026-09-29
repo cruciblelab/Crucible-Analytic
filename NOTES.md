@@ -22940,3 +22940,182 @@ kırmızı. İkisi turdan sonra eklendi: kapsam koşulu sadeleşince
 `peer`'i düz alan yapmak davranışta yalnız adres olmayan bir değerde
 görünüyor, çünkü düz alan da maskeleme geçişinden geçiyor. Kural onu
 adıyla sınıyor.
+
+## B3h — C7.2'nin ikinci ağı: işletmecinin tek kullanımlık kodu (2026-09-28)
+
+Karar 2026-08-26'da verilmişti, C7.2'yle birlikte: *"operatör bağlantısı,
+kodlarını da kaybeden için ikinci ağ."* C7.2'nin commit'i onu yapılmış
+anlatıyordu (*"the operator regenerates the codes and hands one over"*).
+KURULUM da anlatıyordu (*"üye listesinden kodlarını yenileyip birini
+iletirsiniz"*). Ölçüldü, yoktu:
+- `GenerateRecoveryCodes`'u tek çağıran hesap sayfası, kişinin kendisi
+  için;
+- kodlar sayfasındaki "başkası için üretildi" dalını (`Issued`, `For`)
+  hiçbir işleyici kurmuyordu.
+
+Hem telefonunu hem kodlarını kaybeden biri panelden geri alınamıyordu.
+B3c-2a'da belgeler düzeltilmiş, iş B3h olarak yazılmıştı.
+
+### Set değil, tek kod
+
+İlk hâli C7.2'nin cümlesini izliyordu: sekiz kod üret, birini ilet. Bunu
+yazarken sordum: kişi girdikten sonra geriye ne kalıyor? **Yedi canlı
+kod, işletmecinin kopyaladığı her yerde.** Hepsi o kişinin hesabını açan
+anahtarlar. İşletmecinin kendi erişimi geliştirici oturumuyla bitiyor;
+kodlar bitmiyor.
+
+Artık işletmeci **tek** kod görüyor. Kod:
+- kişinin kullanılmamış kodlarını aynı işlemde siliyor (belki birinin
+  kaybolması sorunun kendisi);
+- kullanılınca geriye hiçbir şey bırakmıyor.
+
+Kişi girdiğinde hiç kodu kalmamış oluyor. Kurtarma formu son kodunu
+kullanan herkesi (işletmecinin koduyla gelen her zaman böyle) hesap
+sayfasına götürüyor. İkinci faktör sorulacaksa oradan geçerek:
+`withNext(SecondFactorPath, AccountPath)`. Hesap sayfası kişiye kodu
+kalmadığını söylüyor ve yenilerini ürettiriyor. Kendi kodlarını üretene
+kadar tek ağı yine işletmeci.
+
+### Kim, neyin arkasında
+
+- **İşletmeci:** süper yönetici yetkisi. Pratikte geliştirici oturumu,
+  çünkü üründe süper yönetici hesabı açan bir yol yok (`CreateUser`
+  yalnız testlerde, sahiplenme ve davet `FALSE` yazıyor). Geliştirici
+  oturumu da yalnız bir sahibin onayıyla açılıyor.
+- **Sitenin sahibi değil:** kod hesabı açar, hesap başka sitelerin de
+  üyesi olabilir. Bir sitenin sahibi bu kodu üretebilseydi, başka
+  sitelere girebilirdi.
+- **Geliştirici parolası her seferinde.** Kimliği eline geçirilmiş bir
+  oturum (ortak makine, çalınmış çerez), başka birinin hesabı için
+  çalışan bir anahtar basamamalı. Hesap sayfasının kişinin kendi
+  kodlarını üretirken mevcut parolayı sormasının sebebi de bu.
+- **Üyelik:** kişi bu sitenin **canlı** üyesi olmalı. Bir sitenin
+  listesi, o siteye ait olmayana uzanmanın yolu değil. Süresi bitmiş
+  üyelik de sayılmıyor.
+- **Denetim kaydı aynı işlemde** (`recordIn`). Kimin bastığı yazılamıyorsa
+  kod da oluşmuyor. Testte PostgreSQL'in saklamadığı bir etiketle (NUL)
+  kayıt reddettirildi: işlem geri alınıyor, kişinin eski kodları
+  çalışmaya devam ediyor.
+
+### Sıra yük taşıyor: işletmeci, parolasından önce
+
+Geliştirici kapısının hata bütçesi **bütün kurulumun** (devgate: 15
+dakikada beş yanlış, herkes için kapanıyor). İlk hâlim parolayı
+işleyicide doğruluyor, işletmeciyi depoya soruyordu. Yani bir sitenin
+sahibi bu forma beş tahmin göndererek geliştirici parolasını **her
+sayfada** on beş dakika kapatabilirdi. Reddedilecek olan artık parola
+okunmadan reddediliyor. Test: sahibin beş tahmininden sonra işletmecinin
+doğru parolası kabul ediliyor. Bu satırı kaldıran mutasyon kırmızı
+veriyor.
+
+Ayarlar sayfası bu kuralı zaten uyguluyordu
+(`Access.MayAttemptDeveloperPassword`). Orada işletmeci olmayanın tahmini
+argon2'ye ve sayaca ulaşmadan reddediliyor, ve yorumu aynı gerekçeyi
+yazıyor: beş tahmin işletmeciyi kendi kurulumundan kilitlerdi. B3h'nin
+ilk hâli bu kurala uymamıştı. (Bu paragrafın ilk yazılışı da ayarların
+parolayı sahiplerden aldığını söylüyordu; koda sorulunca yanlış çıktı.)
+
+Sağlık sayfasının üç formu bilerek farklı: şema yükseltmesi, sürüm ve
+sırlar yedeği. Orada yetki parolanın kendisi; parolayı bilen bir sahip de
+kullanabiliyor (`RequestUpgrade` yalnız ayar yönetme yetkisini ve kilitliyse
+parolayı soruyor). Yani sahibin yanlış tahminleri de ortak bütçeden
+düşüyor. Bu B3h'nin kapsamı dışında, ve kişi başına bütçe kaba kuvvet
+korumasını zayıflatacağı için bir tasarım sorusu. PLAN'ın açık riskler
+tablosuna yazıldı.
+
+### Yolda bulunan üç kusur
+
+**1. C7.2'nin şablon dalı ilk çizildiği anda 500 veriyordu.** Satır
+`{{t "kurtarma.verildi" .Data.For}}` idi ve `t` değer almıyor
+(`lang.T(key)`). `html/template` bir işlevin argüman sayısını eylem
+çalışırken soruyor, şablon ayrıştırılırken değil. Yani satır
+ayrıştırılıyor, panel açılıyor, ve onu çizen ilk istek 500 alıyor. Dal
+33 gün boyunca hiç çizilmedi, çünkü onu kuran işleyici yoktu. B3h'nin
+ilk web testi 500 aldı.
+
+Sınıf kapatıldı. Başlangıçtaki anahtar denetimi (`checkTemplateKeys`,
+eksik anahtar varsa ikili açılmıyor) artık her şablon işlevinin argüman
+sayısını da denetliyor. Sayı elle yazılmıyor, işlevin **imzasından**
+okunuyor (`reflect`), yani haritaya eklenen yeni bir işlev kendiliğinden
+denetleniyor. Boru (`|`) hesaba katılıyor: önceki komutun değeri bir
+argümandır. Ağaçta tek üye çıktı: bu satır.
+
+**2. Hesap sayfası kodu kalmayana "kurtarma kodlarınız var" diyordu.**
+İki aşamalı doğrulama kapalıyken cümle sayıya bakmadan basılıyordu:
+*"telefonunuzu kaybederseniz kimseyi beklemeden geri girebilirsiniz."*
+Bir bölüm aşağıda "Kalan kurtarma kodu: 0" yazıyordu. Bu C7.2'den beri
+son kodunu kullanan herkese oluyordu. B3h'yle birlikte işletmecinin
+koduyla gelen **herkese** olacaktı, ve yönlendirmem onları tam bu sayfaya
+götürüyor. Ekran görüntüsüne bakarken bulundu. Kodu yoksa artık uyarıyor:
+iki aşamalı doğrulamayı açmadan önce kod üretin.
+
+**3. Liste ilk üyeyi seçili açıyordu, o da sitenin sahibiydi.** Seçmeden
+basan işletmeci sahibin kodlarını öldürürdü. Artık kimse seçili değil ve
+seçim zorunlu. Bu da ekran görüntüsünden.
+
+Ayrıca `panel_recovery_codes.created_by`'nin yorumu bu yolun sütunu
+dolduracağını söylüyordu. İşletmecinin hesabı yok (geliştirici oturumu
+`panel_users`'ta bir satır değil), bu yüzden sütun NULL kalıyor. Kimin
+verdiğini denetim kaydı söylüyor. Yorum düzeltildi. Parmak izi yorumları
+saymıyor (`schemaver/ddl.go`), şema değişmedi.
+
+### Ulaşamadığı durum
+
+Geliştirici oturumu bir sahibin onayını istiyor (varsayılan politika
+"sor"). Hesabı olan **tek** sahip hem telefonunu hem kodlarını kaybederse
+onu onaylayacak kimse yok. Sahip önceden "açık" bir pencere bırakmadıysa
+panelde yol yok. Bu, #26'nın (tek sahip giderse) ikinci yüzü; PLAN'ın
+karar 6'sına not düşüldü. KURULUM §5.0 bugünkü önlemi yazıyor: ikinci
+bir sahip hesabı.
+
+### Ölçüldü
+
+- **Depo, gerçek veritabanı ve gerçek kapıyla:**
+  - Tek kod çalışıyor, bir kez çalışıyor, eski set ölü, ve sonra kalan
+    kod sayısı sıfır.
+  - Denetim kaydı işletmeciyi, hedefi ve `self: false` bilgisini taşıyor.
+  - Beş ret, birer satırda: sahip, parolasız, başka eylemin parolası,
+    başka sitenin üyesi, süresi bitmiş üyelik. Beşinden sonra kişinin
+    kendi kodu hâlâ çalışıyor ve hiçbir kayıt yazılmamış.
+- **Web, sayfanın kendi form alanlarıyla:**
+  - Sahip bölümü görmüyor. Geliştirici oturumu görüyor; açılış onaylı
+    bağlantıyla, ürünün tek yolu.
+  - Yanlış parola reddediliyor ve kodlar duruyor.
+  - Doğru parolayla gelen sayfa işletmecinin sayfası: "saklayın" demiyor,
+    "iletin ve sizde kalmasın" diyor.
+  - Üye kodla, telefonsuz giriyor ve hesap sayfasına düşüyor. Sayfa iki
+    yerde de kodu kalmadığını söylüyor.
+  - Kapısız kurulumda bölüm form çizmiyor, durumu söylüyor.
+- **Gerçek Chromium'da, tıklayarak:**
+  - İşletmeci listeden seçiyor (açılışta kimse seçili değil), parolayı
+    yazıyor, basıyor. Sayfada tek kod var.
+  - Üye başka bir tarayıcıda giriş sayfasının bağlantısından forma
+    gidiyor, kutuyu işaretleyip giriyor, hesap sayfasına düşüyor.
+  - CSP ihlali yok, konsol hatası yok.
+
+### Mutasyonlar
+
+Otuz mutasyon (`scratchpad/mutasyon-kurtarma.py`), otuzu da kırmızı.
+Katmanlar: birim (şablon denetimi), depo, web, gerçek Chromium. Biri
+("boru değeri sayılmıyor") ilk yazılışında derlenmedi: döngü değişkeni
+kullanılmaz kaldı. Derlenen biçimiyle yeniden koşuldu.
+
+| yakalayan | mutasyon |
+|---|---|
+| yalnız depo | işletmeci sorulmuyor, parola sorulmuyor, bitmiş üyelik de, site sorulmuyor, denetim kaydı yok, kayıt "kendisi" diyor, kayıt "sekiz" diyor |
+| depo, web ve tarayıcı | başka eylemin izni, eski kodlar kalıyor, işletmecinin görmediği ikinci bir kod |
+| yalnız web | işletmeci kapıdan önce sorulmuyor, kapı işletmeciden önce ama ret cümlesi aynı, kapısız kurulum sorulmuyor, bölüm herkese, kapı hep kurulu, dönüş hesap sayfasına, sayfa işletmecinin değil, ikinci faktör hedefi taşımıyor, herkes hesap sayfasına, başlık sahibinki, "kodlarınız var" koşulsuz, seçim zorunlu değil, uyarı sahibinki |
+| web ve tarayıcı | son kodda hesap sayfası yok, liste birini seçili açıyor |
+| yalnız birim | sayı sorulmuyor, boru değeri sayılmıyor, değişkenli işlevin alt sınırı bir fazla |
+| birim, web ve tarayıcı (panel açılmıyor) | `t` ile değer, değişkenli işleve fazladan değer reddediliyor |
+
+"Kapı işletmeciden önce ama ret cümlesi aynı" sonradan eklendi. İlk
+sıra mutasyonu (erken ret satırını silmek) ret cümlesini de
+değiştiriyordu, bu yüzden bütçe iddiasının yük taşıdığını
+göstermiyordu. Bu mutasyonda sahibin beş isteği doğru cümleyi alıyor.
+Onları yakalayan tek şey, işletmecinin doğru parolasının kısıtlanıp 400
+alması; tam çıktı okunarak doğrulandı.
+
+"Herkes hesap sayfasına" mutasyonunu yakalayan, C7.2'nin var olan
+testi: ikinci faktörü koruyan hesabın `Location`'u tam olarak
+`SecondFactorPath` olmalı.

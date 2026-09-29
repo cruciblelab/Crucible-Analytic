@@ -141,11 +141,12 @@ func TestTfFillsVerbs(t *testing.T) {
 // a customer's machine.
 func TestTemplatesNameNoUnknownKey(t *testing.T) {
 	base := testCatalogs(t).Base()
-	_, trees, err := parsePages(fixtureFuncs(base))
+	funcs := fixtureFuncs(base)
+	_, trees, err := parsePages(funcs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkTemplateKeys(trees, base); err != nil {
+	if err := checkTemplateKeys(trees, base, funcs); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; kalan B3h (C7.2'nin hiç yazılmamış ikinci ağı), B3d–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; kalan B3d–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -581,12 +581,13 @@ bir eksik, unutulmuş bir eksiktir.
 | **IP jeton anahtarı iki serviste aynı mı** — preflight varlığı görür, aynılığı göremez | **F2** (kullanıcı: "kontrolü ekleriz") |
 | Verbose penceresi kullanıcıya yerel saatte gösterilmeli | **D4** (C4'e yazılmıştı; C4 giriş kapısıydı, **müşteriye dönük ayar sayfası hâlâ yok** — tek ayar yüzeyi kurulum sihirbazı) |
 | **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **E** (tek panel süreci varsayımı; birden çok süreç olursa sayaç paylaşılmalı) |
+| **Geliştirici parolasının hata bütçesini Sağlık sayfasına ulaşan bir sahip de harcayabiliyor.** Şema yükseltmesi, sürüm ve sırlar yedeği formlarında yetki parolanın kendisi, parolayı bilen sahip de kullanabiliyor. Beş yanlış tahmin kapıyı on beş dakika herkese kapatıyor. Ayarlar ve B3h işletmeci olmayanı parola okunmadan reddediyor | **açık** (2026-09-28, B3h'de bulundu; NOTES §B3h). Kişi başına bütçe kaba kuvvet korumasını zayıflatır; çözüm bir tasarım sorusu |
 | **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **D4** (aynı sebep: gösterecek sayfa henüz yok) |
 | **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
 | **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
 | **Hesap bazlı dil tercihi yok** — bugün yalnız kurulum ayarı ve tarayıcı | **açık** (`/hesap` sayfası C4'te açıldı; eksik olan `panel_users`'ta bir sütun ve çözümlemeye kullanıcı tercihinin eklenmesi — çözümleme parametresi zaten variadic) |
 | **Şifre değişikliği diğer cihazlardaki oturumları kapatmıyor** — oturum tablosunda kullanıcı sütunu yok, bulmak bugün tablo taraması | **açık** (AI.3'te bulundu, hesap sayfasında yazılı; kapatmak `scs` şemasına sütun eklemek demek) |
-| ~~**İki faktör kurtarma kodu yok**~~ — kodlar C7.2'de geldi. Satırın ikinci yarısı ise hiç doğru olmadı: *"kaybeden kişiyi sahip ya da işletmeci kurtarıyor"* — panelde bunu yapan bir düğme yok (2026-09-28'de ölçüldü; kod formu da aynı şeyi vaat ediyordu, düzeltildi). Hem telefonunu hem kodlarını kaybeden için panelde yol yok | **B3h** (C7.2'nin ikinci ağı, şemasız) |
+| ~~**İki faktör kurtarma kodu yok**~~ — kodlar C7.2'de geldi. Satırın ikinci yarısı ise hiç doğru olmadı: *"kaybeden kişiyi sahip ya da işletmeci kurtarıyor"* — panelde bunu yapan bir düğme yoktu (2026-09-28'de ölçüldü; kod formu da aynı şeyi vaat ediyordu, düzeltildi) | ✅ **B3h'de kapandı (2026-09-28)** — işletmeci üye listesinden tek kullanımlık bir kod veriyor. **Kalan tek boşluk:** geliştirici oturumu bir sahibin onayını istiyor, yani hesabı olan **tek** sahip her şeyini kaybederse onu onaylayacak kimse yok — #26'nın konusu (karar 6) |
 | **Başarılı giriş (ve artık sahibin kaldırması) başarısız denemeleri siliyor** — tablonun yorumu onları *"kanıt"* diye anlatıyor; bir hesaba giriş yapılınca o hesabı deneyen adresler kayboluyor (denetim kaydının `login.failed` satırları adres taşımıyor). Kaldırma yalnız penceredekini siliyor ve sayısını denetim kaydına yazıyor | **açık** (NOTES §B3c-2a). Silmek yerine "son başarıdan sonrakileri say" demek kaldırmanın izi için bir işaret ister; ölçülmüş bir ihtiyaç olunca şema kararına |
 | **Panelde global eşzamanlılık sınırı yok** — her giriş denemesi bir argon2id doğrulaması, sınır kuyruk değil throttle sayaçları | **açık** (AI.3; panel varsayılan `127.0.0.1` dinliyor ve TLS'i sonlandıran bir proxy arkasında çalışması bekleniyor) |
 | ~~`govulncheck` düzenli çalıştırılmalı~~ | ✅ **G1'de kapandı** — hem kapıda hem gecelik. Gerekçe teorik değildi: ilk koşu 34 bulgu verdi |
@@ -620,6 +621,8 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
      bilen birine karşı sınırsız denenebiliyordu — doğru parola,
      kodun sayıldığı bütçeyi sıfırlıyordu. Tek istemciyle saniyede 44
      kod, altı haneli kod için yaklaşık iki saat.
+   - B3h *(aynı gün)*: hem telefonunu hem kodlarını kaybeden için
+     belgelerin anlattığı yol hiç yoktu; artık var.
 
    **Öneri: evet** — hepsi kapı `--all` ile geldi. CI 424 ve 425
    kırmızıydı; sebep benim bir test kilitlenmemdi, ürün değil (NOTES
@@ -651,6 +654,14 @@ etiket `v0.24.0+L4` şema 21 taşıyor.)*
      **Öneri** — kuralı bozmayan tek yol.
    - (b) Geliştirici parolası + gecikme + bildirimle sahip ataması. Bu,
      kuralı gevşetir.
+
+   *B3h (2026-09-28) aynı boşluğun ikinci yüzünü gösterdi.* İşletmecinin
+   tek kullanımlık kodu bir geliştirici oturumu istiyor, o da bir sahibin
+   onayını (varsayılan politika "sor"). Hesabı olan **tek** sahip hem
+   telefonunu hem kodlarını kaybederse onu onaylayacak kimse yok. Sahip
+   önceden "açık" bir pencere bırakmadıysa panelde yol yok. (a)'nın
+   sunucu komutu bu durumu da kapatır. KURULUM §5.0 bugünkü önlemi
+   yazıyor: ikinci bir sahip hesabı.
 7. ~~**B3c'nin iki sorusu**~~ **KARAR VERİLDİ (2026-09-28).**
    - **Tanı paketine günlük satırları:** *"önerini yapalım, kafama daha
      çok yattı"* — **(c)**: mesaj + izinli alanlar, adresler ürünün kendi
@@ -2243,7 +2254,7 @@ yarısını başka adlarla karşıladı.
 | 19 | `CreateMissingIndexes` | **var** | L3 şema dosyalarını uyguluyor (`CREATE INDEX IF NOT EXISTS`); `CONCURRENTLY` değil |
 | 20 | `Reindex/Analyze/VacuumTable` | yok | `panel_user` tabloların sahibi değil → SECURITY DEFINER sarmalayıcı → **şema** |
 | 21 | `ShowSlowQueries` | yok | `pg_stat_statements` ve okuma yetkisi (`pg_read_all_stats`) → **yetki** |
-| 22 | `SendOwnerPasswordReset` | yok | e-postalı sıfırlama akışı hiç yok (C7.2 bilerek kurtarma kodlarıyla); tek kullanımlık jeton deposu → **şema**. *C7.2'nin e-postasız ikinci ağı da yok: işletmecinin bir üyenin kodlarını yenilemesi hiç yazılmadı (2026-09-28'de ölçüldü) → **B3h**, şemasız* |
+| 22 | `SendOwnerPasswordReset` | yok | e-postalı sıfırlama akışı hiç yok (C7.2 bilerek kurtarma kodlarıyla); tek kullanımlık jeton deposu → **şema**. *C7.2'nin e-postasız ikinci ağı yoktu (2026-09-28'de ölçüldü) → **B3h ✅**: işletmecinin tek kullanımlık kodu, şemasız* |
 | 23 | `DisableTOTP` | yok | sahibin kapatabildiği afişin durumu saklanmalı → muhtemelen **şema**. *Kod formu bunu var sayıyordu ("sitenin sahibinden iki faktörü sıfırlamasını isteyin"); B3c-2a'da kurtarma sayfasına bağlandı* |
 | 24 | `EndAllSessions` | yok | oturum tablosunda kullanıcı sütunu yok (§0.5 açık risk) → **şema** |
 | 25 | `UnlockLoginThrottle` | **var** | ~~yok~~ → **B3c-2a ✅**: Üyeler → "Kısıtı kaldır". Yalnız sitenin sahibi, yalnız o sitenin canlı bir üyesi için, yalnız hesap kısıtı (adres kısıtı değil), hesap başına pencerede bir kez; denetim kaydı kaldırmanın kendi işleminde |
@@ -2288,17 +2299,25 @@ kez yazmak onu bir kez yapmaktır.
   `site_id` bekliyor, 24 çağrı `site` yazıyordu; her sitenin satırı
   "süreç satırı" okunuyordu), ve tabloya yazan kopyada günlük dosyasının
   gizli ad koruması yoktu.
-- **B3h** — C7.2'nin ikinci ağı: bir işletmecinin (süper yönetici,
-  geliştirici oturumu dahil) bir üyenin kurtarma kodlarını yenileyip
-  birini iletmesi. Karar 2026-08-26'da verilmişti (*"operatör bağlantısı
-  kodlarını da kaybeden için ikinci ağ"*); C7.2 ✅ yazıldı ama bu yarı
-  **hiç yazılmadı**. Ölçüm 2026-09-28: `GenerateRecoveryCodes`'u tek
-  çağıran hesap sayfası, kişinin kendisi için; şablondaki "başkası için
-  üretildi" dalını hiçbir işleyici kurmuyor. Hem telefonunu hem kodlarını
-  kaybeden bir üye bugün panelden kurtarılamıyor. Şemasız. **Site
-  sahibine açılmıyor:** bir üyenin kodlarını üretmek o hesabı almak
-  demek, ve üye başka sitelerin de üyesi olabilir; sahibe açmak sahibin
-  kararı olur.
+- **B3h** ✅ *(2026-09-28)* — C7.2'nin ikinci ağı. Karar 2026-08-26'da
+  verilmişti (*"operatör bağlantısı kodlarını da kaybeden için ikinci
+  ağ"*); C7.2 ✅ yazıldı ama bu yarı hiç yazılmamıştı. Artık işletmeci
+  (geliştirici oturumu) üye listesinden, geliştirici parolasıyla, bir
+  üyeye **tek kullanımlık tek kod** veriyor. Sekiz değil tek, çünkü
+  sekizi işletmecinin elinde yedi canlı anahtar bırakırdı. Kod üyenin
+  kullanılmamış kodlarını öldürüyor, denetim kaydı aynı işlemde
+  yazılıyor. Üye kodu kullanınca hesap sayfasına düşüyor; orada kodu
+  kalmadığı söyleniyor. **Site sahibine açılmıyor:** bir üyenin kodu o
+  hesabı açar, üye de başka sitelerin üyesi olabilir. İşletmeci olmayanın
+  isteği parola okunmadan reddediliyor, çünkü geliştirici kapısının hata
+  bütçesi bütün kurulumun. Yolda üç kusur çıktı:
+  - C7.2'nin şablon dalı ilk çizildiği anda 500 veriyordu (`t` değer
+    almıyor); başlangıç denetimi artık her şablon işlevinin argüman
+    sayısını imzasından okuyor.
+  - Hesap sayfası kodu kalmayana "kurtarma kodlarınız var" diyordu.
+  - Liste sahibi seçili açılıyordu.
+
+  **Ulaşamadığı durum:** tek sahip (karar 6, #26).
 - **B3d** — #3 ve #32: canlı ayarlar.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
@@ -3336,6 +3355,9 @@ yeniliyor**. Tek kullanım yolu, tek denetim izi, tek redemption akışı.
 > faktörü sıfırlamasını isteyin"* diyordu — ikisi de B3c-2a'da
 > düzeltildi. Hem telefonunu hem kodlarını kaybeden için panelde bugün
 > yol yok; kararı verilmiş, yazılmamış bir iş olarak **B3h**.
+> **B3h aynı gün yazıldı**, bir farkla: işletmeci set değil **tek**
+> kullanımlık tek kod veriyor (NOTES §B3h). Ve "başkası için üretildi"
+> dalı hiç çizilmemişti, çünkü ilk çizildiği anda 500 veriyordu.
 
 **İkinci faktör istenmedikçe korunuyor.** "Parolamı unuttum" ile
 "telefonumu kaybettim" aynı forma geliyor ama aynı istek değil; her

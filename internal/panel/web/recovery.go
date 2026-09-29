@@ -158,16 +158,25 @@ func (s *Server) submitRecovery(w http.ResponseWriter, r *http.Request, lang *ui
 	// that still has one still has to satisfy it, because a recovery
 	// code that silently bypassed a second factor the holder still has
 	// would make the second factor optional for anybody who found one.
+	//
+	// Somebody who has just used their last code lands on the account
+	// page, which says they have none and makes new ones - always the
+	// case after the operator's one-time code (B3h), and the one moment
+	// the person is sure to be looking.
+	next := ""
+	if result.Remaining == 0 {
+		next = AccountPath
+	}
 	if result.User.HasTOTP() {
 		if err := s.Sessions.AwaitSecondFactor(ctx, result.User); err != nil {
 			s.logger().Error("panel: starting the second factor", "err", err)
 			s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
 			return
 		}
-		http.Redirect(w, r, SecondFactorPath, http.StatusSeeOther)
+		http.Redirect(w, r, withNext(SecondFactorPath, next), http.StatusSeeOther)
 		return
 	}
-	s.completeLogin(w, r, lang, result.User, "")
+	s.completeLogin(w, r, lang, result.User, next)
 }
 
 func (s *Server) renderRecovery(w http.ResponseWriter, r *http.Request, lang *ui.Language,

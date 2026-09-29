@@ -79,7 +79,8 @@ func New(cats *Catalogs, assets *Assets, log *slog.Logger) (*Renderer, error) {
 	r.bufs.New = func() any { return new(bytes.Buffer) }
 
 	for _, lang := range cats.Languages() {
-		pages, trees, err := parsePages(r.funcMap(lang))
+		funcs := r.funcMap(lang)
+		pages, trees, err := parsePages(funcs)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +89,7 @@ func New(cats *Catalogs, assets *Assets, log *slog.Logger) (*Renderer, error) {
 		// every key through the fallback, so checking it would only
 		// ever repeat this answer.
 		if lang == cats.Base() {
-			if err := checkTemplateKeys(trees, lang); err != nil {
+			if err := checkTemplateKeys(trees, lang, funcs); err != nil {
 				return nil, err
 			}
 		}

@@ -809,12 +809,37 @@ giriş sayfasındaki "Giremiyorum" bağlantısından kendi başına geri
 giriyor. **Sizi aramasına gerek yok, e-posta sunucusu gerekmiyor,
 ayarlanacak bir şey yok.**
 
-Kodlarını da kaybederse **bugün panelde bir yol yok.** Bu paragraf
-eskiden *"üye listesinden kodlarını yenileyip birini kendisine
-iletirsiniz"* diyordu; öyle bir düğme hiç yazılmadı (2026-09-28'de
-ölçüldü, PLAN §B3a'da **B3h**). Yazılana kadar yapılabilecek tek şey:
-sitenin sahibi kişiyi siteden çıkarır ve **başka bir e-posta adresiyle**
-yeniden davet eder.
+Kodlarını da kaybederse onu **siz** geri alırsınız:
+1. Geliştirici oturumuyla sitenin **Üyeler** sayfasını açın. Oturum bir
+   sahibin onayıyla ya da sahibin açık bıraktığı pencerede açılır.
+2. **Kurtarma kodu ver** bölümünde kişiyi seçin.
+3. Geliştirici parolasını yazın ve **Tek kullanımlık kod üret**'e basın.
+   Kurulumda geliştirici parolası tanımlı değilse bölüm form yerine bunu
+   söyler.
+
+Ekranda **tek** bir kod görünür:
+- kişinin kullanılmamış kodlarını o anda geçersiz kılar;
+- bir daha gösterilmez;
+- denetim kaydına sizin adınıza yazılır.
+
+Kodu kişiye güvenli bir yoldan iletin ve **kendi tarafınızdan silin**:
+kullanılana kadar o hesabı açan bir anahtardır. Kişi giriş sayfasındaki
+"Giremiyorum" bağlantısından bu kodla yeni parola belirler. Telefonuna
+da erişemiyorsa "Telefonuma da erişemiyorum" kutusunu işaretler. Girince
+hiç kodu kalmamış olur ve panel onu, yenilerini üreteceği hesap
+sayfasına götürür.
+
+Neden set değil tek kod: sekiz kodun yedisi sizin elinizde, o kişinin
+hesabını açan canlı anahtarlar olarak kalırdı. Neden sitenin sahibi
+değil: kod hesabı açar, hesap başka sitelerin de üyesi olabilir.
+
+**Bu yolun ulaşamadığı tek kişi, hesabı olan tek sahiptir.** Geliştirici
+oturumu bir sahibin onayını istiyor (varsayılan "sor"). Kurulumdaki tek
+sahip hem telefonunu hem kodlarını kaybederse onu onaylayacak kimse
+kalmaz. Önlemi bugünden alın: **ikinci bir sahip hesabı** açın. İkinci
+hesap aynı kişinin başka bir e-posta adresi olabilir, kodlarını da ayrı
+bir yerde saklayın. Kalıcı çözüm sahibin kararını bekliyor (PLAN, karar
+6).
 
 **Hatalı parolayla kilitlenen kişi** ise kurtarılmaya muhtaç değil:
 hesap beş hatalı denemeden sonra kısıtlanıyor ve **en geç 15 dakikada
@@ -2509,9 +2534,11 @@ belge, okuyana **gerçek** eksikler hakkındakilere de inanmamayı
 CHANGELOG'da.)*
 
 - **Parola değişikliği diğer cihazlardaki oturumları kapatmıyor.**
-- **Hem telefonunu hem kurtarma kodlarını kaybeden birinin hesabı
-  panelden kurtarılamıyor.** Planlanan ikinci ağ (işletmecinin kodları
-  yenileyip birini iletmesi) yazılmadı; §5.0'daki geçici yol.
+- **Kurulumdaki tek sahip hem telefonunu hem kurtarma kodlarını
+  kaybederse panelden kurtarılamıyor.** Diğer herkesi işletmeci tek
+  kullanımlık bir kodla geri alıyor (§5.0). Tek sahibi ise geliştirici
+  oturumunu onaylayacak kimse kalmadığı için alamıyor. Önlem: ikinci bir
+  sahip hesabı (§5.0).
 - **Kontrol sonuçları ve elle-yapılacaklar listesi yalnız Türkçe.**
   Panelin geri kalanı Türkçe ve İngilizce.
 - **Panelde kırılımların altısı var, otuzu değil.** Sayfa, kaynak,

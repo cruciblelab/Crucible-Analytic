@@ -332,6 +332,7 @@ vazgecildi = "Two-factor setup was cancelled. Nothing about your account changed
 acildi = "Two-factor authentication is on."
 kapandi = "Two-factor authentication is off."
 kurtarma_var = "You have recovery codes: if you lose your phone or your password, you can get back in without waiting for anybody."
+kurtarma_yok = "You have no recovery codes: with two-factor authentication on, losing your phone would leave you waiting for the operator to let you back in. Generate recovery codes below before you turn it on."
 
 [metin.hesap.gelistirici]
 baslik = "Developer mode"
@@ -375,6 +376,19 @@ olusturuldu = "The invitation link for %s is ready."
 baglanti_baslik = "Invitation link"
 baglanti_govde = "You invited %s as %s. Pass the link on to them."
 baglanti_ipucu = "This link is shown once and can be used once. If you lose it, invite the same address again: a new one is minted and the old one stops working."
+
+# C7.2's second net (B3h): the operator issues a one-time code for a member
+# who has lost both their phone and their recovery codes. Shown to the
+# operator (a developer session) only, behind the developer password every
+# time.
+[metin.uyeler.kurtarma]
+baslik = "Issue a recovery code"
+aciklama = "For a member who has lost both their phone and their recovery codes: a one-time code. It stops their unused codes working at once and is shown only once."
+gonder = "Issue a one-time code"
+sec = "Choose a person"
+yetki = "Only the operator can issue somebody else a recovery code."
+parola_gerekli = "Type the developer password to issue a code."
+kapi_yok = "This deployment has no developer password, so nobody can be issued a recovery code from the panel."
 
 [metin.uyeler.sure]
 suresiz = "No end"
@@ -798,7 +812,6 @@ trafik = "This is not being collected right now, so there is nothing here to mea
 baslik = "Your recovery codes"
 ilk = "Your account is ready. Keep the codes below — if you forget your password or lose your phone, they get you back into the panel without waiting for anybody."
 yeni = "Here are your new recovery codes. The old ones no longer work."
-verildi = "New recovery codes for %s. Pass them on — these will not be shown again."
 uyari_baslik = "These will not be shown again"
 uyari = "Save them somewhere now: your password manager, your phone's notes, or a piece of paper. Once you close this page the codes themselves are gone; the panel only keeps what they hash to."
 nasil = "Each code works once. When you cannot get in, use the \"I cannot get in\" link on the sign-in page. If you run out or lose them all, you can generate a new set from your account page."
@@ -808,6 +821,17 @@ kalan_az = "You are running low on recovery codes. Generate a new set before the
 kalan_yok = "You have no recovery codes left. Generate some now — the day you cannot get in is too late."
 uret = "Generate new recovery codes"
 uret_uyari = "Generating a new set invalidates the old one."
+
+# A one-time code the operator minted for somebody else (B3h). The same
+# page with another reader: the code is not theirs and should not stay
+# with them.
+[metin.kurtarma.verildi]
+baslik = "One-time recovery code"
+govde = "A one-time recovery code for %s. Their unused codes no longer work."
+uyari_baslik = "This code will not be shown again, and should not stay with you"
+uyari = "Pass it to the person by a safe route, then delete it on your side: until it is used, it is a key to their account. It stops working the moment it is used."
+nasil = "They set a new password with it from the \"I cannot get in\" link on the sign-in page, ticking \"I cannot reach my phone either\" if they cannot. Once in they have no recovery codes left, and the panel takes them to their account page, where they can make new ones."
+donus = "Passed on, back to members"
 
 [metin.kurtarma.giris]
 baslik = "I cannot get in"

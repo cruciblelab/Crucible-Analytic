@@ -281,20 +281,27 @@ type recoveryCodesPage struct {
 	// FirstRun distinguishes "here is your new account" from "you asked
 	// for a new set", which are the same page and not the same sentence.
 	FirstRun bool
-	// Issued marks a set an operator generated for somebody else, so
-	// the page tells them to pass it on rather than to save it.
+	// Issued marks a code the operator minted for somebody else (B3h),
+	// so the page tells them to pass it on - and not to keep it - rather
+	// than to save it.
 	Issued bool
-	// For is whose codes these are, when Issued.
+	// For is whose code this is, when Issued.
 	For string
 }
 
 func (s *Server) renderRecoveryCodes(w http.ResponseWriter, r *http.Request,
 	lang *ui.Language, data recoveryCodesPage) {
 
+	// "Your recovery codes" is somebody else's code on the operator's
+	// screen.
+	heading := lang.T("kurtarma.baslik")
+	if data.Issued {
+		heading = lang.T("kurtarma.verildi.baslik")
+	}
 	s.Renderer.Render(w, r, http.StatusOK, "kurtarma_kodlari", &ui.Page{
 		L:       lang,
-		Title:   lang.T("kurtarma.baslik"),
-		Heading: lang.T("kurtarma.baslik"),
+		Title:   heading,
+		Heading: heading,
 		F:       ui.NewFormatter(lang, s.zone(r.Context())),
 		CSRF:    s.Sessions.CSRFToken(r.Context()),
 		Data:    data,

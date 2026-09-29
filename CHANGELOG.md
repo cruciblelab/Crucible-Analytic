@@ -24,6 +24,54 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Hem telefonunu hem kurtarma kodlarını kaybeden üye artık geri alınabiliyor
+
+**Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.
+
+Bu yol belgelerde anlatılıyordu ama hiç yazılmamıştı. İşletmeci
+(geliştirici oturumu) artık bir sitenin **Üyeler** sayfasından, geliştirici
+parolasıyla, bir üyeye **tek kullanımlık bir kurtarma kodu** verebiliyor:
+- kod üyenin kullanılmamış kodlarını o anda geçersiz kılıyor;
+- bir kez gösteriliyor;
+- denetim kaydına işletmecinin adıyla yazılıyor.
+
+Üye bu kodla "Giremiyorum" formundan yeni parola belirliyor, gerekirse
+iki aşamalı doğrulamayı da kapatıyor. Girince yeni kodlarını üreteceği
+hesap sayfasına düşüyor.
+
+- **Set değil tek kod:** sekiz kodun yedisi işletmecinin elinde, başka
+  birinin hesabını açan canlı anahtarlar olarak kalırdı.
+- **Sitenin sahibine açık değil:** kod hesabı açar, hesap başka sitelerin
+  de üyesi olabilir.
+- İşletmeci olmayanın isteği parola okunmadan reddediliyor. Geliştirici
+  parolasının hata bütçesi bütün kurulumun; bir sahibin tahminleri onu
+  herkese kapatamıyor.
+- **Ulaşamadığı durum:** kurulumdaki tek sahip. Onun geliştirici
+  oturumunu onaylayacak kimse yok. Önlem KURULUM §5.0'da: ikinci bir sahip
+  hesabı.
+
+### Kurtarma kodu kalmayan hesaba artık "kodlarınız var" denmiyor
+
+**Kuran kişinin yapması gereken: hiçbir şey.**
+
+Hesap sayfası, iki aşamalı doğrulama kapalıyken, kod sayısına bakmadan
+*"kurtarma kodlarınız var: telefonunuzu kaybederseniz kimseyi beklemeden
+geri girebilirsiniz"* diyordu. Bir bölüm aşağıda "Kalan kurtarma kodu:
+0" yazıyordu. Artık kodu olmayana, iki aşamalı doğrulamayı açmadan önce
+kod üretmesi söyleniyor. Son kodunu kullanarak giren kişi de doğrudan
+hesap sayfasına götürülüyor.
+
+### Panel, çizildiğinde hata verecek bir şablon satırıyla açılmıyor
+
+**Kuran kişinin yapması gereken: hiçbir şey.**
+
+Şablon işlevine yanlış sayıda argüman veren bir satır, o sayfa çizilene
+kadar fark edilmiyordu (`html/template` sayıyı çalışırken soruyor), ve
+çizildiği gün 500 veriyordu. Böyle bir satır 26 Ağustos'tan beri kurtarma
+kodları sayfasında, hiç çizilmeyen bir dalda duruyordu. Panelin
+başlangıç denetimi artık bunu da soruyor, sayıyı işlevin kendi
+imzasından okuyarak.
+
 ### Tanı paketinde son yedi günün uyarı ve hata satırları
 
 **Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.

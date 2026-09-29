@@ -105,7 +105,15 @@ every copy of this page. */}}
 <input type="hidden" name="islem" value="2fa-basla">
 <button type="submit">{{t "hesap.2fa.ac"}}</button>
 </form>
+{{- /* Said only when true. The sentence used to be drawn whatever the
+count, so somebody with no codes left - everybody who has just used the
+operator's one-time code (B3h) - was told, one line above the section
+saying they have none, that losing their phone would not matter. */}}
+{{- if gt .Data.RecoveryLeft 0}}
 <p class="ipucu">{{t "hesap.2fa.kurtarma_var"}}</p>
+{{- else}}
+<p class="uyari" role="note">{{t "hesap.2fa.kurtarma_yok"}}</p>
+{{- end}}
 {{- end}}
 </section>
 

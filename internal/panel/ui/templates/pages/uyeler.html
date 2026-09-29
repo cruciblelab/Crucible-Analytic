@@ -186,6 +186,44 @@ of something the inviter is already looking at. */}}
 </section>
 {{- end}}
 
+{{- with .Data.Recovery}}
+{{- /* The operator's, and only theirs (B3h): somebody who has lost both
+their phone and their recovery codes gets one one-time code, handed over
+by hand. Not offered to the site's owner - the code opens the account,
+and the account may belong to other sites too. Behind the developer
+password every time, as everything that mints a credential is. */}}
+<section class="bolum">
+<h2>{{t "uyeler.kurtarma.baslik"}}</h2>
+<p class="ipucu">{{t "uyeler.kurtarma.aciklama"}}</p>
+{{- if .GateConfigured}}
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="islem" value="kurtarma-yenile">
+<div class="alan">
+<label for="kurtarma-kisi">{{t "uyeler.sutun.kisi"}}</label>
+{{- /* Nobody chosen until somebody is: the first member preselected
+would be the site's owner, and pressing the button without looking
+would end the owner's codes. */}}
+<select id="kurtarma-kisi" name="kullanici" required>
+<option value="">{{t "uyeler.kurtarma.sec"}}</option>
+{{- range .Members}}
+<option value="{{.UserID}}">{{.Email}}</option>
+{{- end}}
+</select>
+</div>
+<div class="alan">
+<label for="kurtarma-parola">{{t "ayarlar.parola_etiket"}}</label>
+<input id="kurtarma-parola" type="password" name="developer_password"
+       autocomplete="off" required>
+</div>
+<button type="submit">{{t "uyeler.kurtarma.gonder"}}</button>
+</form>
+{{- else}}
+<p class="kilit">{{t "uyeler.kurtarma.kapi_yok"}}</p>
+{{- end}}
+</section>
+{{- end}}
+
 {{- if .Data.CanManage}}
 <section class="bolum">
 <h2>{{t "uyeler.ekle.baslik"}}</h2>

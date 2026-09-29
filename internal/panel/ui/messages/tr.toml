@@ -361,6 +361,7 @@ vazgecildi = "İki aşamalı doğrulama kurulumundan vazgeçildi. Hesabınızda 
 acildi = "İki aşamalı doğrulama açıldı."
 kapandi = "İki aşamalı doğrulama kapatıldı."
 kurtarma_var = "Kurtarma kodlarınız var: telefonunuzu ya da parolanızı kaybederseniz kimseyi beklemeden geri girebilirsiniz."
+kurtarma_yok = "Kurtarma kodunuz yok: iki aşamalı doğrulama açıkken telefonunuzu kaybederseniz, geri girmek için işletmeciyi beklemeniz gerekir. Açmadan önce aşağıdan kurtarma kodları üretin."
 
 [metin.hesap.gelistirici]
 baslik = "Geliştirici modu"
@@ -404,6 +405,18 @@ olusturuldu = "%s için davet bağlantısı hazır."
 baglanti_baslik = "Davet bağlantısı"
 baglanti_govde = "%s adresini %s rolüyle davet ettiniz. Bağlantıyı kendisine iletin."
 baglanti_ipucu = "Bu bağlantı yalnız bir kez gösterilir ve bir kez kullanılabilir. Kaybederseniz aynı adresi tekrar davet edin; yenisi üretilir ve eskisi geçersiz olur."
+
+# C7.2'nin ikinci ağı (B3h): hem telefonunu hem kurtarma kodlarını kaybeden
+# bir üye için işletmeci tek kullanımlık bir kod üretir. Yalnız işletmeciye
+# (geliştirici oturumu) gösteriliyor, geliştirici parolası her seferinde.
+[metin.uyeler.kurtarma]
+baslik = "Kurtarma kodu ver"
+aciklama = "Hem telefonunu hem kurtarma kodlarını kaybeden bir üye için tek kullanımlık bir kod üretir. Kod, kişinin kullanılmamış kodlarını hemen geçersiz kılar ve yalnız bir kez gösterilir."
+gonder = "Tek kullanımlık kod üret"
+sec = "Kişi seçin"
+yetki = "Başka birine kurtarma kodunu yalnız işletmeci verebilir."
+parola_gerekli = "Kod üretmek için geliştirici parolasını yazın."
+kapi_yok = "Bu kurulumda geliştirici parolası tanımlı değil, bu yüzden başka birine panelden kurtarma kodu verilemez."
 
 [metin.uyeler.sure]
 suresiz = "Süresiz"
@@ -832,7 +845,6 @@ trafik = "Bu bilgi şu anda toplanmıyor, yani burada gösterilecek bir ölçüm
 baslik = "Kurtarma kodlarınız"
 ilk = "Hesabınız hazır. Aşağıdaki kodları saklayın — parolanızı unutur ya da telefonunuzu kaybederseniz, kimseyi beklemeden panele geri girmenizi sağlarlar."
 yeni = "İşte yeni kurtarma kodlarınız. Eskiler artık geçersiz."
-verildi = "%s için yeni kurtarma kodları. Kendisine ulaştırın — bu kodlar bir daha gösterilmeyecek."
 uyari_baslik = "Bu kodlar bir daha gösterilmeyecek"
 uyari = "Şimdi bir yere kaydedin: parola yöneticiniz, telefonunuzun notları, ya da bir kâğıt. Sayfayı kapattığınızda kodların kendisi kaybolur; panelde yalnız karşılıkları saklanıyor."
 nasil = "Her kod yalnız bir kez çalışır. Giremediğinizde giriş sayfasındaki \"Giremiyorum\" bağlantısını kullanın. Kodlarınız biterse ya da hepsini kaybederseniz, hesap sayfanızdan yenilerini üretebilirsiniz."
@@ -842,6 +854,16 @@ kalan_az = "Kurtarma kodlarınız azalıyor. Bitmeden yenilerini üretin."
 kalan_yok = "Hiç kurtarma kodunuz kalmadı. Şimdi üretin — giremediğiniz gün geç olur."
 uret = "Yeni kurtarma kodları üret"
 uret_uyari = "Yeni kodlar üretmek eskileri geçersiz kılar."
+
+# İşletmecinin başka biri için ürettiği tek kullanımlık kod (B3h). Aynı
+# sayfa, başka okuyucu: kod okuyanın değil, ve onda kalmamalı.
+[metin.kurtarma.verildi]
+baslik = "Tek kullanımlık kurtarma kodu"
+govde = "%s için tek kullanımlık bir kurtarma kodu. Kişinin kullanılmamış kodları artık geçersiz."
+uyari_baslik = "Bu kod bir daha gösterilmeyecek ve sizde kalmamalı"
+uyari = "Kişiye güvenli bir yoldan iletin, sonra kendi tarafınızdan silin: kullanılana kadar bu hesabı açan bir anahtardır. Kullanıldığı anda geçersiz olur."
+nasil = "Kişi giriş sayfasındaki \"Giremiyorum\" bağlantısından bu kodla yeni bir parola belirler; telefonuna da erişemiyorsa \"Telefonuma da erişemiyorum\" kutusunu işaretler. Girdiğinde hiç kurtarma kodu kalmamış olur; panel onu yenilerini üretebileceği hesap sayfasına götürür."
+donus = "İlettim, üyelere dön"
 
 [metin.kurtarma.giris]
 baslik = "Giremiyorum"

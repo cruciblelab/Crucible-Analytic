@@ -1,6 +1,10 @@
 {{define "icerik"}}
+{{- /* Issued: the operator's page for somebody else's one-time code
+(B3h). Every sentence on it is for a different reader than the rest -
+"save them" would tell the operator to keep a key to another person's
+account. */}}
 {{- if .Data.Issued}}
-<p>{{t "kurtarma.verildi" .Data.For}}</p>
+<p>{{tf "kurtarma.verildi.govde" .Data.For}}</p>
 {{- else if .Data.FirstRun}}
 <p>{{t "kurtarma.ilk"}}</p>
 {{- else}}
@@ -8,8 +12,13 @@
 {{- end}}
 
 <div class="uyari" role="note">
+{{- if .Data.Issued}}
+<strong class="uyari-baslik">{{t "kurtarma.verildi.uyari_baslik"}}</strong>
+<p>{{t "kurtarma.verildi.uyari"}}</p>
+{{- else}}
 <strong class="uyari-baslik">{{t "kurtarma.uyari_baslik"}}</strong>
 <p>{{t "kurtarma.uyari"}}</p>
+{{- end}}
 </div>
 
 <ul class="kodlar">
@@ -18,9 +27,15 @@
 {{- end}}
 </ul>
 
+{{- if .Data.Issued}}
+<p class="ipucu">{{t "kurtarma.verildi.nasil"}}</p>
+{{- else}}
 <p class="ipucu">{{t "kurtarma.nasil"}}</p>
+{{- end}}
 
 {{- if .Data.NextURL}}
-<p><a class="dugme" href="{{.Data.NextURL}}">{{t "kurtarma.kaydettim"}}</a></p>
+<p><a class="dugme" href="{{.Data.NextURL}}">
+{{- if .Data.Issued}}{{t "kurtarma.verildi.donus"}}{{else}}{{t "kurtarma.kaydettim"}}{{end -}}
+</a></p>
 {{- end}}
 {{end}}

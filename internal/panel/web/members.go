@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 )
@@ -140,6 +141,10 @@ type membersPage struct {
 	// LockWindowMinutes is the sign-in throttle's window, for the
 	// sentences that have to name it.
 	LockWindowMinutes int
+	// Recovery is the operator's section, nil for everybody else: a
+	// one-time recovery code for a member who has lost both their phone
+	// and their codes (B3h, C7.2's second net).
+	Recovery *recoverySection
 
 	// Invites are the invitations nobody has accepted yet.
 	//
@@ -160,6 +165,21 @@ type membersPage struct {
 
 	Message string
 	Failed  bool
+}
+
+// recoverySection lists who the operator may issue a code for: this
+// site's live members, the same rows the table above shows.
+type recoverySection struct {
+	Members []recoveryChoice
+	// GateConfigured is false on a deployment with no developer password,
+	// where the form would be refused whatever was typed; the section
+	// says so instead of drawing it.
+	GateConfigured bool
+}
+
+type recoveryChoice struct {
+	UserID int64
+	Email  string
 }
 
 // inviteRow is one open invitation as the page shows it.
@@ -215,6 +235,13 @@ func (s *Server) membersHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveMembers(w http.ResponseWriter, r *http.Request, lang *ui.Language, access panel.Access) {
 	ctx := r.Context()
+
+	// Its own page on success - the code, once - so it answers the
+	// request itself rather than through the member list below.
+	if r.PostFormValue("islem") == "kurtarma-yenile" {
+		s.issueMemberRecovery(w, r, lang, access)
+		return
+	}
 
 	var data membersPage
 	switch r.PostFormValue("islem") {
@@ -497,6 +524,73 @@ func (s *Server) liftLoginLock(ctx context.Context, lang *ui.Language, access pa
 	return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 }
 
+// issueMemberRecovery mints one member's one-time recovery code and
+// shows it once (B3h).
+//
+// The store decides - the operator's authority, the developer password,
+// the membership - and writes the audit entry in its own transaction.
+// This turns its answer into a page: the code, or the member list with
+// the reason there is none.
+//
+// The operator's authority is also asked here, before the password is
+// read, and the order carries weight: the gate's failure budget belongs
+// to the whole deployment (devgate: five wrong answers in fifteen minutes
+// close it for everybody). Somebody who would be refused anyway must not
+// be able to spend it - a site's owner posting guesses to this form
+// would otherwise shut the developer password on every page that asks
+// for it.
+func (s *Server) issueMemberRecovery(w http.ResponseWriter, r *http.Request, lang *ui.Language,
+	access panel.Access) {
+
+	ctx := r.Context()
+	refuse := func(key string) {
+		s.renderMembers(w, r, lang, access, membersPage{Message: lang.T(key), Failed: true})
+	}
+	if !access.Principal.Superadmin {
+		refuse("uyeler.kurtarma.yetki")
+		return
+	}
+	userID, ok := parsePositiveID(r.PostFormValue("kullanici"))
+	if !ok {
+		refuse("uyeler.hata.kullanici_gecersiz")
+		return
+	}
+	if s.Gate == nil || !s.Gate.Configured() {
+		refuse("uyeler.kurtarma.kapi_yok")
+		return
+	}
+	result := s.Gate.Verify(ctx, devgate.RequestFrom(r, access.Principal.Label,
+		panel.RecoveryIssueGateAction))
+	switch {
+	case result.Decision == devgate.DecisionNoPassword:
+		refuse("uyeler.kurtarma.parola_gerekli")
+		return
+	case !result.OK():
+		s.renderMembers(w, r, lang, access, membersPage{Message: gateRefusalText(lang, result), Failed: true})
+		return
+	}
+
+	issued, err := s.Store.IssueRecoveryCode(ctx, access.SiteID, access.Principal,
+		result.For(panel.RecoveryIssueGateAction), userID)
+	switch {
+	case err == nil:
+		s.renderRecoveryCodes(w, r, lang, recoveryCodesPage{
+			Codes:   formatCodes([]string{issued.Code}),
+			NextURL: memberPath(access.SiteID),
+			Issued:  true,
+			For:     issued.Email,
+		})
+	case errors.Is(err, panel.ErrNotFound):
+		refuse("uyeler.hata.uye_yok")
+	default:
+		// The operator and the password were settled above, so a refusal
+		// of either from the store is a disagreement between the two
+		// layers, not a sentence for the reader.
+		s.logger().Error("panel: issuing a recovery code", "err", err)
+		refuse("uyeler.hata.kaydedilemedi")
+	}
+}
+
 // memberWriteFailed turns a store error into a page message.
 //
 // The last-owner refusal is the whole reason this exists. It is not a
@@ -612,6 +706,16 @@ func (s *Server) renderMembers(w http.ResponseWriter, r *http.Request, lang *ui.
 			continue
 		}
 		data.Members = append(data.Members, row)
+	}
+
+	// The operator's section, from the live rows just built: the same
+	// people the table shows, and nobody whose access has ended.
+	if access.Principal.Superadmin {
+		section := &recoverySection{GateConfigured: s.Gate != nil && s.Gate.Configured()}
+		for _, m := range data.Members {
+			section.Members = append(section.Members, recoveryChoice{UserID: m.UserID, Email: m.Email})
+		}
+		data.Recovery = section
 	}
 
 	// The open invitations, read after the members so the two lists come

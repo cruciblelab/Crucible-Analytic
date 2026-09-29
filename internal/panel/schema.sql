@@ -499,10 +499,13 @@ CREATE TABLE IF NOT EXISTS panel_recovery_codes (
     sha256  TEXT      NOT NULL UNIQUE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    -- Who issued this set. NULL when the account minted its own at
-    -- creation; set when an operator regenerated them for somebody who
-    -- lost theirs, which is the second path and the reason this column
-    -- exists rather than being inferred.
+    -- Who issued this set: the account itself when it made a new one on
+    -- its account page, NULL when the set was minted with the account.
+    -- NULL as well for the operator's one-time code (B3h), which this
+    -- comment once said would fill it: the operator is a developer
+    -- session, not a row in panel_users, so the audit entry
+    -- (recovery.issued, self = false) is the record of who issued it.
+    -- No page and no rule reads the column; a backup carries it.
     created_by BIGINT REFERENCES panel_users(id) ON DELETE SET NULL,
 
     -- Consumed atomically, like an invitation: a code that another
