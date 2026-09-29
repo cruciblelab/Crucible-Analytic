@@ -23553,3 +23553,122 @@ kırmızı, sonra üçte üç yeşil). Kapıda o serpiştirme yok, bu yüzden
 dosyada iki eşik vardı, biri düzeltildi. Öbürü on dokuz gün sonra, başka
 bir yükte, aynı cümleyle kırmızı verdi.* Ve: *ölçemediğini söyleyen bir
 test, ölçtüğü bir şeyin önüne geçiyorsa, dürüstlüğü teşhisi saklar.*
+
+## V systemd altında — panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu (2026-09-29)
+
+B3e'ye (#38, servis başına yeniden başlatma) başlamadan önce üzerine
+kurulacağı şeye baktım: V'nin zili. Tek çalanı yükseltici, ve yükseltici
+yalnız kendi biriminin içinde koşuyor. Birimi okuyunca üç engel çıktı,
+üst üste:
+
+1. `install.sh` ikili dizinini `root:root 0755` bırakıyor. Yükseltici
+   `crucible-upgrader` olarak koşuyor.
+2. `crucible-upgrader.service`: `ProtectSystem=strict`, `ReadWritePaths`
+   yalnız `-/var/lib/crucible-analytic`. Yani `/opt` bu birimde
+   salt-okunur; sahiplik düzeltilse de yazılamaz.
+3. Zil dizini `/run/crucible-analytic` da o birimde salt-okunur.
+   `ReadWritePaths=-/run/crucible-analytic` yalnız `crucible-restart.service`'te
+   var: zili **silen** birim listelemiş, **çalan** birim listelememiş.
+
+### Ölçüm
+
+Gerçek `upgrader` ikilisi, gerçek `crucible-upgrader` hesabı,
+`install.sh`'ın **systemd dalıyla** (`SYSTEMD_DIR` geçici, gerisi gerçek)
+kurulmuş v0.98.0, `releasesign` ile imzalanmış gerçek bir v0.99.0 paketi,
+https üzerinden (kendinden imzalı sertifika, `SSL_CERT_FILE`). İstek
+satırı panelin yazdığı gibi `panel_user` olarak. systemd yok: birimin
+sandbox'ı özel bir mount ad alanında kuruldu — kök salt-okunur bağlanıyor
+(`remount,bind,ro`; ana makinenin kökü `rw` kaldı, ölçüldü), birimin
+`ReadWritePaths` listesinin buradaki karşılıkları yazılabilir geri
+bağlanıyor, `/tmp` özel bir tmpfs. PID ad alanı yok, init yok.
+
+| Senaryo | Sonuç |
+|---|---|
+| S1 bugünkü ürün, sandbox yok | `mkdir .../bin/.previous-…: permission denied`, hiçbir şey değişmedi |
+| S2 bugünkü ürün, birimin sandbox'ı | `mkdir .../bin/.previous-…: read-only file system` |
+| S3 ikili dizini grupça yazılabilir, aynı sandbox | yine `read-only file system`: sandbox tek başına yetiyor |
+| S4 ikili dizini yazılabilir yol olursa | kurulum geçiyor (panel `v0.99.0` diyor), zil: `open /run/crucible-analytic/restart-please: read-only file system` |
+| S5 zil yolu da olursa | zil çalıyor; burada cevap veren yok, otuz saniye sonra geri dönüş çalışıyor, eskiler yerinde |
+
+Sayfanın müşteriye göstereceği şey S2'nin cümlesi: `mkdir
+/opt/crucible-analytic/bin/.previous-…: read-only file system`.
+Müşterinin yapabileceği bir şey yok.
+
+Sapma, yazılı: düzenek `/var/tmp/ca-v` altında olduğu için `/var/tmp`
+özelleştirilmedi (gerçek birim onu da özel yapar); ölçülen yazma yolları
+(`/opt` karşılığı, `/run/crucible-analytic`, `/tmp`) bundan etkilenmiyor.
+Betik `scratchpad/v-systemd-olc.py`.
+
+### V4b'nin cümlesi bu yüzden erişilemez bir durumu anlatıyordu
+
+V4b (2026-09-23) *"yeniden başlatıcıyı açan her dağıtımda her güncelleme
+geri alınıyordu"* diye yazdı. Yeniden başlatıcı bir systemd birimi;
+açıldığı her kurulumda yükseltici de kendi biriminde koşuyor, ve orada
+güncelleme geri alma noktasına hiç ulaşmıyor — ilk yazmada düşüyor. V4b'nin
+ölçtüğü şey (panel kalp atışı yazmıyordu) gerçekti ve düzeltmesi doğru;
+anlattığı sonuç, yalnız yükselticinin birimi dışında, root olarak elle
+koşturulduğu bir kurulumda olabilirdi.
+
+### Neden kimse görmedi
+
+Birimleri hiçbir test başlatmıyordu. Tarball süiti `--no-systemd`
+geçiyor; sürüm süiti birim dosyalarını geçici bir dizine yazıp
+`systemd-analyze verify`'a soruyor — ayrıştırılıyor mu, evet. Kurucunun
+testleri `t.TempDir()`'e kuruyor, orası her zaman yazılabilir. Yedek
+kusuru ("Yedek alma systemd kurulumunda hiç çalışmamış", `3d96968`, 5
+Eylül) tam olarak bu şekildeydi, ve düzeltmesi aynı birime yalnız durum
+dizinini ekledi. V'nin iki yazma yolu o gün de oradaydı: ikili dizini 3
+Eylül'den (V4), zil 4 Eylül'den (`ab376e5`). Birim dosyası bir gün önce
+gelen zili listelemeden düzeltildi — *kusuru bulan soru "yedek nereye
+yazıyor"du, "bu birimdeki süreç nereye yazıyor" değil.*
+
+### Gerçek systemd: gecelikte yeni iş
+
+`e2e/systemd_test.go` (`-tags systemd`), `nightly.yml`'de `systemd` işi.
+GitHub'ın sanal makinesinde systemd PID 1 ve `sudo` var. Geliştirme
+konteynerinde yok, ve orada bir ad alanında başlatılan systemd kurtarma
+kipine düşüp konteynerin `/tmp`'sini boşalttı (aynı gün, bir deneme;
+yerel ölçüm bu yüzden yukarıdaki mount ad alanıyla). Süit:
+
+1. İki imzalı paket (iş kendi anahtarını üretiyor, makineyle birlikte
+   gidiyor), eskisini `install.sh` ile **gerçekten** kuruyor — `/opt`,
+   `/etc`, `/etc/systemd/system`.
+2. Dört servisi systemd'ye başlatıyor, dördünün de kalp atışını bekliyor.
+3. Yeniden başlatıcıyı **KURULUM.md'deki komutlarla** açıyor: paketin
+   kendi KURULUM kopyasından başlığın altındaki ilk kabuk bloğunu okuyup
+   olduğu gibi koşturuyor. Belge ile test ayrışamaz.
+4. https kaynağı; yükselticiye sertifikayı bir drop-in ile güvendiriyor
+   (müşterinin yapmayacağı tek satır, yorumunda yazılı).
+5. İsteği panelin kendi çağrısıyla (`relupdate.Ask`, `panel_user`)
+   kuyruğa koyuyor, `systemctl start crucible-upgrader.service`.
+6. Satır `succeeded` olmalı; kurulu panel yeni sürümü söylemeli; dört
+   servisin `InvocationID`'si değişmeli (yeniden başlatmayı systemd
+   yapmış, varsayılmıyor); zil silinmiş, kontrol noktası kalkmış, ve
+   `crucible-restart.service`'in günlüğünde yeniden başlatma satırı.
+
+Kök değil, systemd PID 1 değil ya da `CA_SYSTEMD_TEST=1` yoksa süit
+**düşüyor**, atlamıyor: onu koşan iş başka hiçbir şey için yok. Bu
+makinede doğru sebeple reddettiği görüldü (PID 1 `process_api`).
+
+**Önce gönderildi:** süit, düzeltmeden önceki birimlerle ilk gecelikte
+kırmızı vermeli — S2'nin cümlesiyle. Vermezse süit bir şey ölçmüyordur.
+
+### Yolda: CI, CONTRIBUTING'in söylediği etiketleri vet'lemiyordu
+
+Yeni süitin CI'da nerede derleneceğini sorunca: CONTRIBUTING'in "CI ne
+koşuyor" bloğu `for tag in loadtest network release e2e docker; do go vet
+...` diyordu. `ci.yml` üçünü vet'liyordu, ikisini tek dizinde; döngü yerel
+kapınındı. `network`, `e2e`, `docker` altındaki dosyalar bir çekme
+isteğinde yalnız yazarı kapıyı koştuysa derleniyordu. Artık `ci.yml` her
+etiketi `./...` üstünde vet'liyor, ve `internal/invariants/civet_test.go`
+bunu **dosya başına**, Go'nun kendi kısıt değerlendiricisiyle soruyor:
+`e2e && systemd` altındaki bir dosyayı ne `-tags e2e` ne `-tags systemd`
+derler, etiket etiket soran bir kontrol onu kapsanmış sayardı. Çapraz
+derleme matrisi (`go build ./...`, dört GOOS/GOARCH) test olmayan
+dosyaları da sayılıyor, testleri değil — değişmezin ilk koşusu
+`internal/diskspace/diskspace_other.go`'yu (`!linux`) derlenmiyor diye
+bildirdi, çünkü yalnız vet adımına soruyordu; darwin ve windows derlemesi
+onu derliyor.
+
+*Bir kural bir dosyada yazıdır, bir iş akışında komuttur; ikisinin aynı
+şeyi söylediğini ancak ikisini birden okuyan bir test söyler.*

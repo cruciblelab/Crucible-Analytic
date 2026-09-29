@@ -140,7 +140,7 @@ check_gofmt() {
 
 check_tags() {
   local tag
-  for tag in loadtest network release e2e docker integration; do
+  for tag in loadtest network release e2e docker systemd integration; do
     go vet -tags "${tag}" ./... || return 1
   done
 }

@@ -61,15 +61,25 @@ jobs:
             exit 1
           fi
 
-      # Both tag sets. A test file that only compiles under a build tag
-      # is a test file nobody vets otherwise, and this repository has 37
-      # of them.
+      # Every tag set. A test file that only compiles under a build tag
+      # is a test file nobody vets otherwise, and this repository has
+      # dozens of them.
+      #
+      # Every tag, and over ./... - this used to vet three of them, each
+      # over one directory, while CONTRIBUTING.md said all of them were
+      # vetted here: network, e2e and docker were vetted only by the
+      # local gate. internal/invariants/suites_test.go now holds this
+      # list to the tags the tree actually carries.
       - name: go vet
         run: |
           go vet ./...
           go vet -tags integration ./...
-          go vet -tags loadtest ./internal/loadtest/
-          go vet -tags release ./release/
+          go vet -tags loadtest ./...
+          go vet -tags network ./...
+          go vet -tags release ./...
+          go vet -tags e2e ./...
+          go vet -tags docker ./...
+          go vet -tags systemd ./...
 
       # The reason this phase exists. The two worst findings in the
       # security audit were in dependencies and could not have been

@@ -35,6 +35,13 @@
 #             ratio paints the pipeline red 27 times for every time it is
 #             right, and a red that is usually wrong is a red people learn
 #             to click past. It reports; a person triages.
+#
+#   systemd   The product installed for real - root, /opt, /etc, units
+#             started by systemd - and the panel's version update carried
+#             through them. It changes the machine it runs on, so it can
+#             only run on one that is thrown away afterwards, and a runner
+#             is the one such machine this project has. See NOTES,
+#             "V systemd altında".
 name: nightly
 
 on:
@@ -466,3 +473,68 @@ jobs:
         run: |
           go test -tags integration -count=1 -timeout 20m -v -run "Sketch" ./internal/storage/
           go test -tags integration -count=1 -timeout 30m ./internal/upgradepath/
+
+  # The panel's version update and the restarter, under the units
+  # install.sh writes, on a real systemd.
+  #
+  # # Why this job exists
+  #
+  # Every other suite runs the binaries outside systemd, so the sandboxes
+  # the units declare had never been in force while the code they confine
+  # ran. The update button shipped on 2026-09-04 and could not complete on
+  # any systemd install: the upgrader's unit made the binary directory and
+  # the doorbell read-only. Measured with the real binary in a mount
+  # namespace first; this is the same question asked of systemd.
+  #
+  # # Why the suite is compiled as the runner and run as root
+  #
+  # It has to be root - it runs install.sh without --no-systemd and
+  # starts units - and root has no Go toolchain on its PATH and no module
+  # cache. A compiled test binary needs neither.
+  systemd:
+    name: the panel's update, under the real units
+    runs-on: ubuntu-latest
+
+    services:
+      timescale:
+        image: timescale/timescaledb:2.17.2-pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: psql, for the install script
+        run: command -v psql >/dev/null || sudo apt-get install -y postgresql-client
+      # Two packages signed with a key made for this run, which goes away
+      # with the VM. Only the version stamp differs: what is measured is
+      # the path from one to the other.
+      - name: two signed packages
+        run: |
+          go run ./cmd/releasesign -keygen > "$RUNNER_TEMP/key.txt"
+          key="$(sed -n 's/^CA_RELEASE_KEY=//p' "$RUNNER_TEMP/key.txt")"
+          echo "::add-mask::${key}"
+          pub="$(sed -n 's/^public_key = "\(.*\)"$/\1/p' "$RUNNER_TEMP/key.txt")"
+          test -n "${key}" && test -n "${pub}"
+          echo "CA_SYSTEMD_PUBKEY=${pub}" >> "$GITHUB_ENV"
+          for v in v0.98.0 v0.99.0; do
+            CA_RELEASE_KEY="${key}" VERSION="${v}" OUT=dist ./release/build.sh
+          done
+      - name: the suite, as root
+        run: |
+          go test -c -tags systemd -o systemd.test ./e2e/
+          sudo env CA_SYSTEMD_TEST=1 CA_SYSTEMD_PUBKEY="${CA_SYSTEMD_PUBKEY}" \
+            CA_SYSTEMD_DIST="${PWD}/dist" \
+            CA_SUPERUSER_DSN=postgres://postgres:postgres@localhost:5432/postgres \
+            ./systemd.test -test.v -test.timeout 20m

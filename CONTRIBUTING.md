@@ -103,7 +103,7 @@ gofmt -l .
 go build ./... && go vet ./...
 go test -count=1 -race ./...
 CA_BROWSER_TEST=1 go test -tags integration -race -count=1 ./...
-for tag in loadtest network release e2e docker; do go vet -tags "$tag" ./...; done
+for tag in loadtest network release e2e docker systemd; do go vet -tags "$tag" ./...; done
 gosec    ... | go run ./internal/sast/cmd/sastdiff    -report gosec.json
 deadcode ... | go run ./internal/sast/cmd/deadcodediff -report deadcode.txt
 ```
@@ -133,6 +133,13 @@ export CA_SUPERUSER_DSN="postgres://postgres@localhost:5432/postgres"
 go test -tags e2e    -count=1 -timeout 20m ./e2e/   # the tarball install
 go test -tags docker -count=1 -timeout 30m ./e2e/   # the image and compose
 ```
+
+**The systemd suite is not in that list on purpose.** `-tags systemd`
+installs the product for real - root, `/opt`, `/etc`, units started by
+systemd - and does not put the machine back. It refuses to run without
+`CA_SYSTEMD_TEST=1`, root and systemd as PID 1, and it is meant for the
+nightly's throwaway runner only; the job in `nightly.yml` shows the
+whole invocation, including the two signed packages it needs.
 
 **Behind a TLS-terminating proxy**, the image build needs the network's
 CA or `apk` cannot reach Alpine's repositories:

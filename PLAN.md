@@ -104,7 +104,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **7/8** | V5 — *(planda yoktu; müşterinin sorusu açtı — §V. V4b bitti: yeniden başlatma denetimi dört servisin kalp atışını bekliyordu ve panel hiç yazmıyordu — yeniden başlatıcıyı açan her dağıtımda her güncelleme geri alınıyordu; panel artık yazıyor, gerçek ikiliyle ölçüldü)* |
+| **V** Panelden güncelleme | 🟡 **9/10** | V7 — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7 açık:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyor, ve ikili dizini root'un; gerçek ikiliyle, birimin sandbox'ı bir mount ad alanında kurularak ölçüldü. Gerçek systemd'de ölçen gecelik iş eklendi)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -10404,10 +10404,64 @@ yeniden başlattığı her birimin ikilisi `main`'inde bir kalp atışı
 yazmaz), ve `relupdate.HealthServices` birim sayısıyla aynı boyda.
 Sekiz mutasyon, sekizi kırmızı. Ayrıntı NOTES'ta.
 
-#### V5 — Panel yüzeyi ⬜
+#### V5 — Panel yüzeyi ✅ *(2026-09-04, `630d63c`)*
 
 Sağlık sayfasında bölüm ve düğme, `KeyReleaseUpdateLocked` ayarı
 **varsayılan kilitli**, devgate ile, ve iki dilde mesajlar.
+
+*Başlık 4 Eylül'den 29 Eylül'e kadar ⬜ kaldı; iş o gün bitmişti
+(NOTES, "V5 — panelde güncelleme düğmesi"). Grup tablosu başlıklarla
+tutarlıydı, çünkü ikisi aynı yanlışı sayıyordu — tablo testinin
+göremediği tek ayrışma bu: başlık ile iş arasındaki.*
+
+#### V6 — Güncellemeleri kontrol et ✅ *(2026-09-04, `2265813`)*
+
+Panel hangi sürümlerin var olduğunu bilmiyordu; müşteri sürüm numarasını
+ezbere yazıyordu. Adresi ve açık anahtarı zaten tutan yükseltici artık
+imzalı bir manifest soruyor, doğruluyor ve bulduğunu bir satıra yazıyor;
+panel satırı okuyor, ağa hiç çıkmıyor. Ayrıntı NOTES'ta ("V6 —
+Güncellemeleri kontrol et"). *Bu başlık da 29 Eylül'e kadar hiç yazılmamıştı.*
+
+#### V7 — Güncelleme, systemd birimlerinin içinde ⬜ *(açıldı 2026-09-29)*
+
+**Bulgu (B3e'nin temelini okurken):** panelden sürüm güncellemesi
+hiçbir systemd kurulumunda tamamlanamıyordu. V4 kurucuyu `t.TempDir()`'de
+sınadı, V4b zili süreç içinde; ikisi de birimin içinde hiç koşmadı.
+Üç engel, üst üste:
+
+1. `install.sh` ikili dizinini `root:root 0755` bırakıyor; yükseltici
+   `crucible-upgrader` olarak koşuyor.
+2. Yükselticinin birimi `ProtectSystem=strict` ve `ReadWritePaths` yalnız
+   `/var/lib/crucible-analytic`: `/opt` salt-okunur. Sahiplik düzeltilse
+   bile yazamıyor.
+3. Zil (`/run/crucible-analytic`) o birimde de salt-okunur. Yazılabilir
+   yol olarak yalnız zili **silen** birimde listeli; **çalan** birimde değil.
+
+**Ölçüm:** gerçek `upgrader` ikilisi, gerçek hesap, `install.sh`'ın systemd
+dalının ürettiği sahiplik, imzalı gerçek paket, https. systemd'siz:
+birimin sandbox'ı özel bir mount ad alanında (kök salt-okunur, listedeki
+yollar yazılabilir, `/tmp` özel). Beş senaryo, NOTES'ta tablo:
+bugünkü ürün `permission denied` / `read-only file system` ile ilk
+yazmada düşüyor, hiçbir şey değişmiyor; ikili dizini yazılabilir yol
+olsa kurulum geçiyor ve zil `read-only file system` veriyor; zil yolu da
+olsa zincir geri dönüşe kadar işliyor.
+
+**Neden kimse görmedi:** birimleri hiçbir test başlatmıyordu. Tarball
+süiti `--no-systemd` geçiyor, sürüm süiti birim dosyalarını geçici bir
+dizine yazıp `systemd-analyze`'a soruyor. **Gecelikte yeni iş:**
+`e2e/systemd_test.go`, GitHub'ın sanal makinesinde (systemd PID 1,
+root) ürünü `install.sh` ile gerçekten kuruyor, KURULUM'daki komutları
+olduğu gibi koşturuyor, panelin çağrısıyla güncellemeyi kuyruğa koyuyor
+ve yükselticiyi kendi biriminde başlatıyor. İlk koşusu bugünkü kusuru
+kırmızı göstermek için düzeltmeden **önce** gönderildi.
+
+**Düzeltmenin şekli (yazılıyor):** `restart.sh` ikili dizininden
+yalnız root'un yazabildiği bir dizine taşınıyor — root'un koşturduğu bir
+betik, yükselticinin yazabileceği bir dizinde durmamalı; ikili dizinini
+yükselticiye açmak **isteğe bağlı bir adım** (yeniden başlatıcı gibi):
+bugünkü kurulumların duruşu değişmiyor; yükselticinin birimine zil yolu;
+ve ikili dizinine yazamayan bir yükseltici paketi indirmeden önce, ne
+yapılacağını söyleyerek duruyor.
 
 ---
 

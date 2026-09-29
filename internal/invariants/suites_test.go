@@ -44,6 +44,7 @@ var gatedTags = map[string]string{
 	"e2e":      "the whole chain built and running, minutes per run",
 	"docker":   "a built image and a container runtime",
 	"release":  "a full reproducible build, tens of minutes",
+	"systemd":  "root and systemd as PID 1: it installs into /opt and /etc and starts units, so only on a machine thrown away afterwards",
 }
 
 // integration is deliberately absent: ci.yml runs it over ./... on every

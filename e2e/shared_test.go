@@ -1,4 +1,4 @@
-//go:build e2e || docker
+//go:build e2e || docker || systemd
 
 // What both end-to-end suites need.
 //
@@ -9,6 +9,10 @@
 // already broken differently, so the shared half is the parts that are
 // genuinely the same: a TLS origin to proxy to, a request through the
 // collector, a pageview, and reading the cards off a rendered page.
+//
+// systemd_test.go borrows two of them: the origin, because a collector
+// started by its unit still needs something to proxy to, and the
+// self-signed certificate, for the release host it serves the upgrader.
 package e2e
 
 import (
