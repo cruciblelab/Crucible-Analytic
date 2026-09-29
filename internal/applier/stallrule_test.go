@@ -423,7 +423,7 @@ func (v stallVerdict) String() string {
 	}
 }
 
-// The paced probes' query floor, against the run that made it what it is.
+// Every probe's query floor, against the two runs that made it what it is.
 //
 // # Why this is a table and not left to the machine
 //
@@ -439,11 +439,16 @@ func (v stallVerdict) String() string {
 // thing it divides.
 //
 // A machine cannot be asked to be starved on demand, so the arithmetic
-// is asked here instead.
-func TestThePacedFloorAsksWhatTheMachineCanActuallyManage(t *testing.T) {
-	// The pause the two paced probes use. Named so a case cannot drift
-	// from the fixture it is about.
-	const paced = 20 * time.Millisecond
+// is asked here instead - for both kinds of probe, since CI 434 found the
+// unpaced writers still on a fixed hundred after the paced ones had been
+// given this rule.
+func TestTheQueryFloorAsksWhatTheMachineCanActuallyManage(t *testing.T) {
+	// The pause the two paced probes use, and the one the writers do not.
+	// Named so a case cannot drift from the fixture it is about.
+	const (
+		paced   = 20 * time.Millisecond
+		unpaced = 0
+	)
 
 	for _, c := range []struct {
 		name            string
@@ -485,6 +490,27 @@ func TestThePacedFloorAsksWhatTheMachineCanActuallyManage(t *testing.T) {
 				"loosening; it is the same number where the assumption holds",
 		},
 		{
+			// CI 434, 2026-09-29: the collector's insert, every other
+			// number in the run saying nothing was wrong.
+			name:  "the unpaced writer a loaded runner starved",
+			pause: unpaced, baseline: 352*ms + 201*time.Microsecond,
+			wantAtMost:  34,
+			wantAtLeast: 2,
+			why: "34 queries was the whole run for that probe, so any floor above it " +
+				"reports a stopped writer that was writing as fast as the database " +
+				"would commit - which the fixed hundred did",
+		},
+		{
+			// The same probe unloaded, on the development container.
+			name:  "an unpaced writer on a warm machine",
+			pause: unpaced, baseline: 10*ms + 866*time.Microsecond,
+			wantAtLeast: 20,
+			wantAtMost:  40,
+			why: "the probe managed 3860 queries here. A floor in the thirties " +
+				"still reports a writer that stopped after three, which is the " +
+				"check's job; a floor of two would pass that silently",
+		},
+		{
 			name:  "a machine slower than the whole baseline period",
 			pause: paced, baseline: 30 * time.Second,
 			wantAtLeast: 2, wantAtMost: 2,
@@ -495,9 +521,9 @@ func TestThePacedFloorAsksWhatTheMachineCanActuallyManage(t *testing.T) {
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := pacedFloor(c.pause, c.baseline)
+			got := queryFloor(c.pause, c.baseline)
 			if got < c.wantAtLeast || got > c.wantAtMost {
-				t.Errorf("pacedFloor(pause=%v, at rest=%v) = %d, want %d..%d.\n%s",
+				t.Errorf("queryFloor(pause=%v, at rest=%v) = %d, want %d..%d.\n%s",
 					c.pause, c.baseline, got, c.wantAtLeast, c.wantAtMost, c.why)
 			}
 		})
@@ -521,7 +547,7 @@ func TestTheOldPacedFloorAndTheNewOneDisagreeOnTheRunThatFailed(t *testing.T) {
 		measured = 17 // queries the probe actually managed
 	)
 	old := int(baselinePeriod/pause) / 4
-	now := pacedFloor(pause, atRest)
+	now := queryFloor(pause, atRest)
 
 	if old <= measured {
 		t.Fatalf("the old floor was %d against %d queries, so it would not have "+
@@ -534,4 +560,25 @@ func TestTheOldPacedFloorAndTheNewOneDisagreeOnTheRunThatFailed(t *testing.T) {
 	}
 	t.Logf("the run that failed: %d queries, old floor %d, new floor %d",
 		measured, old, now)
+}
+
+// TestTheFixedFloorAndTheDerivedOneDisagreeOnCI434: the same shape as the
+// test above, for the unpaced writers. The fixed hundred is written out
+// as the number it was, since it no longer exists to be referred to.
+func TestTheFixedFloorAndTheDerivedOneDisagreeOnCI434(t *testing.T) {
+	const (
+		fixed    = 100 // what the unpaced probes had to reach before
+		atRest   = 352*ms + 201*time.Microsecond
+		measured = 34 // queries the collector's insert managed
+	)
+	now := queryFloor(0, atRest)
+	if fixed <= measured {
+		t.Fatalf("the fixed floor was %d against %d queries, so it would not have "+
+			"failed that run and this change is about something else", fixed, measured)
+	}
+	if now > measured {
+		t.Errorf("the derived floor is %d against the %d queries that runner managed, "+
+			"so the run that prompted this would still be red", now, measured)
+	}
+	t.Logf("CI 434: %d queries, fixed floor %d, derived floor %d", measured, fixed, now)
 }

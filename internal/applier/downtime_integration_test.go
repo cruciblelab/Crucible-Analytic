@@ -333,13 +333,18 @@ func judgeStall(during, tail, baseline time.Duration) stallVerdict {
 	}
 }
 
-// minimumQueriesOverall is the floor that stops this test passing while
-// measuring nothing.
+// queryFloor is how many queries a probe must manage before this test
+// believes it measured anything.
 //
-// Without it, a load generator that failed to start - a bad DSN, a
+// # What it is for
+//
+// Without a floor, a load generator that failed to start - a bad DSN, a
 // cancelled context, a typo in a query - would produce zero queries, zero
 // errors and zero stalls, and this test would report an undisturbed
-// service. True, and meaningless.
+// service. True, and meaningless. The floor's whole job is to separate
+// "it ran" from "it never started"; zero overlaps with the upgrade window
+// is a different assertion, below, and it is what catches a goroutine
+// that stopped before the window.
 //
 // Against the whole run rather than against the upgrade window, which was
 // the first version and was wrong. The window is 35ms when the database
@@ -348,44 +353,41 @@ func judgeStall(during, tail, baseline time.Duration) stallVerdict {
 // everything worked, because the upgrade had been fast. A floor that goes
 // red when the thing under test performs *well* is not a floor.
 //
-// What replaces it for the window is the weaker claim that is actually
-// true by construction: each probe loops without pause, so there is
-// always one of its queries in flight, so any window overlaps at least
-// one. Zero overlapping queries means that goroutine stopped running.
-const minimumQueriesOverall = 100
-
-// pacedFloor is how many queries a paced probe must manage before this
-// test believes it measured anything.
+// # Derived from the run, for every probe - measured twice
 //
-// # The arithmetic this replaces assumed a free query - measured
-//
-// It was baselinePeriod/pause/4: what a probe should manage if the query
-// itself cost nothing. On the machines this was written against that was
-// nearly true - an at-rest worst of five milliseconds against a pause of
-// twenty.
+// A fixed number assumes a query that costs next to nothing, and the cost
+// of a query is exactly what a loaded machine changes.
 //
 // Measured 2026-09-10, the gate running every suite in parallel in a
 // container: the panel write probe's at-rest worst was 554,80ms, its
-// pause is 20ms, and it managed 17 queries against a floor of 18. Red,
-// on a run where nothing was wrong with the product - the same claim
-// the stall rule's old floor made, in the same shape: a threshold
-// computed from a number that does not bound the thing it divides.
+// pause is 20ms, and it managed 17 queries against a floor of 18
+// (baselinePeriod/pause/4, a free query). Red, on a run where nothing was
+// wrong with the product - a threshold computed from a number that does
+// not bound the thing it divides. That fix derived the floor for the
+// paced probes only.
 //
-// So the pause is not the whole cost of a cycle. What the machine
-// demonstrated it could do is, and it demonstrated it in this same run:
-// pause plus the worst that query took while nothing was being applied.
+// The unpaced ones kept a fixed hundred, the same assumption in a
+// different shape, and CI 434 (2026-09-29) found it: the collector's
+// insert ran 34 queries with an at-rest worst of 352ms, the beacon's 33
+// at 479ms, every other number in the run said nothing was wrong, and the
+// test went red for having been asked on a slow machine. Reproduced by
+// making every commit wait 100ms (commit_delay, commit_siblings 0): 29-30
+// queries at a 105ms worst, three runs out of three, the same sentence -
+// while the paced panel write, 29 queries on the same database, passed
+// its derived floor of 3.
 //
-// A quarter of that, and never less than two. Two rather than one
-// because one sample cannot show a probe that stalled after its first
-// query, and never zero because the floor's whole job is to separate
-// "it ran" from "it never started". Zero overlaps is a different
-// assertion, immediately below this one, and it is what catches a
-// goroutine that never began.
+// So every probe is asked what the machine demonstrated it could do, in
+// this same run: pause plus the worst that query took while nothing was
+// being applied is the longest a cycle took at rest, so a probe that ran
+// through the baseline managed at least baselinePeriod over that. A
+// quarter of it, and never less than two: two rather than one because one
+// sample cannot show a probe that stalled after its first query, and
+// never zero because a floor of nought is the check not existing.
 //
-// On a fast machine the floor still bites: a 5ms at-rest worst and a
-// 20ms pause give 1500/25/4 = 15, so a probe that managed three queries
-// is still reported.
-func pacedFloor(pause, baseline time.Duration) int {
+// On a fast machine the floor still bites: a 5ms at-rest worst and a 20ms
+// pause give 1500/25/4 = 15, and an unpaced probe with an 11ms worst
+// gives 34, so a probe that managed three queries is still reported.
+func queryFloor(pause, baseline time.Duration) int {
 	cycle := pause + baseline
 	if cycle <= 0 {
 		return 2
@@ -398,11 +400,10 @@ func pacedFloor(pause, baseline time.Duration) int {
 
 // baselinePeriod is how long the load runs before the upgrade starts.
 //
-// Named rather than written at the call site because the paced probe's
-// floor is derived from it: a probe that pauses cannot reach
-// minimumQueriesOverall and must not be asked to, but "it ran at all" is
-// still worth asserting. baselinePeriod/pause is what it should manage,
-// and a quarter of that is the floor - loose enough for a loaded runner,
+// Named rather than written at the call site because every probe's floor
+// is derived from it: baselinePeriod over the longest cycle at rest is
+// what a probe that ran through the baseline managed, and a quarter of
+// that is the floor - see queryFloor - loose enough for a loaded runner,
 // far above the zero that means the goroutine never started.
 const baselinePeriod = 1500 * time.Millisecond
 
@@ -481,9 +482,13 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 			//
 			// Fifty-nine thousand reads in four seconds took the service
 			// container, and the two writers got forty-three queries
-			// between them - under minimumQueriesOverall, so the test
-			// refused to report anything, correctly. The floor did its
-			// job; what produced the condition was this test's own load.
+			// between them - under the fixed hundred the unpaced probes
+			// then had to reach, so the test refused to report anything.
+			// Right about the cause, which was this test's own load, and
+			// the readers were paced. The floor itself was the other half
+			// of the lesson, read only later: CI 434 starved the writers
+			// from outside the test, and a fixed number cannot be met on a
+			// slow enough machine - see queryFloor.
 			//
 			// It does not show on a developer's database because these
 			// two reads are not free there: months of rows make them
@@ -738,10 +743,7 @@ func TestNoServiceStopsWhileTheSchemaIsApplied(t *testing.T) {
 				"two is being computed from the wrong thing", l.name, tail, during)
 		}
 
-		floor := minimumQueriesOverall
-		if l.pause > 0 {
-			floor = pacedFloor(l.pause, baseline)
-		}
+		floor := queryFloor(l.pause, baseline)
 		if len(r.samples) < floor {
 			t.Errorf("%s ran %d queries in total, which is too few to have measured "+
 				"anything - this test would report an undisturbed service without "+

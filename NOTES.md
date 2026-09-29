@@ -23453,3 +23453,103 @@ tarihli bir not düşüldü.
 *"Yapıldı" yazmayan ama yapılmış gibi anlatan bir belge cümlesi de
 koda sorulmalı.* Bu cümle bir faz başlığının değil, bir kurulum
 kılavuzunun içindeydi. Kimse onu PLAN'la karşılaştırmıyordu.
+
+---
+
+## CI 434 — Sabit eşik yavaş makinede ölçmeyi reddediyordu, ve yanlış yeri gösteriyordu (2026-09-29)
+
+B3d-2'nin commit'i (`f4cb1ea`: bir kod yorumu ve belgeler) "integration,
+first run"de düştü. Düşen `internal/applier`'daki
+`TestNoServiceStopsWhileTheSchemaIsApplied`, ve ürün hakkında bir şey
+söylemiyordu:
+
+    collector insert    34 queries (20 during) | worst during 170ms | worst at rest 352ms
+    collector insert ran 34 queries in total, which is too few to have measured anything
+    beacon insert       33 queries (20 during) | worst during 128ms | worst at rest 479ms
+
+Yükseltme sırasındaki en kötü sorgu bekleme anındakinin altındaydı. Test
+ölçmeyi reddetmişti: beklemeyen yoklayıcılar (collector ve beacon
+insert'i) toplam en az 100 sorgu yapmalıydı.
+
+### Sınıf bu dosyada zaten bir kez düzeltilmişti
+
+`pacedFloor`'un yorumu 2026-09-10'da tam bu kusuru anlatıyordu: bekleyen
+yoklayıcının eşiği sorgunun bedava olduğunu varsayıyordu, yüklü
+makinede ürün sağlamken kırmızı verdi, ve eşik aynı koşunun gösterdiğinden
+türetildi. O düzeltme yalnız **bekleyen** yoklayıcılara uygulanmıştı.
+Beklemeyenler sabit 100'de kaldı: aynı varsayım, başka bir biçimde. Aynı
+dosyada daha eski bir iz de vardı (43 sorgu, bekleme anında 280 ms). O
+zaman sebep testin kendi okuma yüküydü, okuyucular aralıklı yapıldı ve
+eşik kaldı.
+
+### Serpiştirme kasten kuruldu
+
+İlk iki deneme CI'nın şeklini üretmedi, ve bu da bir şey söyledi:
+- `internal/backup` ve `internal/api` döngüde aynı veritabanını
+  yüklerken: 2.300–3.100 sorgu, bekleme anında en kötü 14–31 ms. Bu
+  makine CI koşucusundan çok rahat.
+- CPU açlığı (200 meşgul döngü, dört çekirdek): en kötü 450–630 ms'ye
+  çıktı ama sayı 135–162'de kaldı. Açlık arada bir uzun bekleme
+  yaratıyor, sorguların çoğu hızlı kalıyor.
+
+CI'daki şekil tekdüze yavaşlıktı: 34 sorgu 3,4 saniyede, her insert ~100
+ms. Bu diskin ve WAL'ın beklettiği commit'in şekli. Doğrudan kuruldu:
+`commit_delay = 100 ms`, `commit_siblings = 0`, küme geneli ve ölçümden
+sonra sıfırlandı. Sonuç üç koşunun üçünde birebir CI: collector ve beacon
+insert'i 29–30 sorgu, bekleme anında ~105 ms, aynı cümle. Aynı koşuda panel
+yazısı da 29 sorgu yaptı ve türetilmiş eşiğini (3) geçti. Kırmızının tek
+kaynağı sabit 100.
+
+### Düzeltme: her yoklayıcının eşiği koşunun kendisinden
+
+`queryFloor` (eski `pacedFloor`) artık her yoklayıcıya uygulanıyor. Bekleme
+artı bekleme anındaki en kötü sorgu, bekleme anında bir turun en uzun
+sürdüğü süre. Taban süresi boyunca dönen bir yoklayıcı en az 1500 ms
+bölü bu kadar sorgu yapar; eşik bunun dörtte biri, en az iki. Bu, çalışan
+bir yoklayıcının **her makinede** karşılayabileceği bir eşik; sabit
+100'ün böyle bir garantisi yoktu. Hızlı makinede dişi duruyor: 11 ms'lik
+en kötüyle beklemeyen yoklayıcının eşiği 34, yani üç sorguda duran
+yoklayıcı yine bildiriliyor.
+
+### Asıl bulgu: eski eşik bir duraklamayı yanlış yere yazıyordu
+
+Düzeltmenin bir duraklamayı saklamadığı gösterilmeliydi. Şema dosyasına
+geçici olarak `traffic_snapshots`'ı kilitleyip uyuyan iki satır kondu,
+iki sürüm yan yana koştu (eskisi `-overlay` ile HEAD'in test dosyaları):
+
+| durum | şimdiki | eski eşik |
+|---|---|---|
+| yavaş commit, duraklama yok | 3/3 yeşil | 3/3 kırmızı, "çok az sorgu" |
+| yavaş commit, 2,5 sn duraklama | kırmızı: collector insert 2,64 sn bekledi, tavan 2 sn | kırmızı, ama collector için "çok az sorgu"; duraklama yalnız okuma API'sinde söylendi |
+| normal, 2,5 sn duraklama | kırmızı, doğru teşhis | kırmızı, doğru teşhis |
+| yavaş commit, 1,6 sn duraklama | yeşil | kırmızı, "çok az sorgu" |
+
+- İkinci satır düzeltmeyi gerekli yapan satır. Eski eşik, kilitlenen
+  tablonun kendi yoklayıcısını "ölçülemedi" diye bildiriyordu, çünkü eşik
+  kontrolü bekleme kuralından önce koşup `continue` ediyor. Yavaş bir
+  makinede test duraklamanın kendisini değil, ölçemediğini söylüyordu.
+- Son satır kuralın bilinen ve yazılı sınırı, düzeltmenin değil. Hassas
+  yarı yalnız **kuyruğa** bakıyor: pencerenin içinde başlayıp biten
+  beklemeler kabul edilen bedel, müşterinin fark edeceği her bekleme
+  2 saniyelik tavanda düşüyor. 1,6 sn tavanın altında, ve yüksüz
+  makinede de yeşil (ölçüldü: "during" 1,50 sn, kuyruk 0,23 ms). Eski
+  sürümün kırmızısı o duraklamayı görmekten değil, sorgu sayısından
+  geliyordu.
+
+Birim testleri iki yoklayıcı türünü de soruyor: CI 434'ün sayıları
+(bekleme anında 352 ms, 34 sorgu → eşik 2) ve ılık makine (11 ms →
+34). Ayrıca sabit 100 ile türetilmiş eşiğin CI 434'te **ayrıştığı**
+bir test var, 2026-09-10'dakinin kardeşi. Değişiklik bir değişikliktir ve
+bir şeyi değiştirdiği gösterilmeli.
+
+Mutasyon: eşik işlevine üç mutasyon (tabanı yok saymak, "en az iki"yi
+kaldırmak, dörtte bir yerine yarı), üçü de kırmızı. Çağrı yerinde
+beklemeyen yoklayıcıya sabit bir sayıyı geri koymayı birim testleri
+göremez; onu yukarıdaki yavaş commit serpiştirmesi ölçüyor (önce üçte üç
+kırmızı, sonra üçte üç yeşil). Kapıda o serpiştirme yok, bu yüzden
+ölçümün kendisi yazıldı: `scratchpad/ci434-yavas-commit.py`.
+
+*Bir kusur sınıfını düzeltirken sınıfın bütün üyelerini say. Aynı
+dosyada iki eşik vardı, biri düzeltildi. Öbürü on dokuz gün sonra, başka
+bir yükte, aynı cümleyle kırmızı verdi.* Ve: *ölçemediğini söyleyen bir
+test, ölçtüğü bir şeyin önüne geçiyorsa, dürüstlüğü teşhisi saklar.*
