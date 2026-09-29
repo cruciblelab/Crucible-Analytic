@@ -24,6 +24,16 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### KURULUM, panelde olmayan ayarları "işaretli" diye anlatıyordu
+
+**Kuran kişinin yapması gereken: hiçbir şey.** Belge düzeltmesi.
+
+KURULUM §12, beacon'ın tampon boyutlarının, önbellek pencerelerinin ve
+`asn_lookup.enabled`'ın panelde "yeniden başlatma gerekiyor" diye
+işaretli olduğunu söylüyordu. Panelde hiç yoklar; yalnız yapılandırma
+dosyasındalar. Belge artık bunu söylüyor, ve beacon tamponunun ölçülmüş
+bedelini de: dolu tampon her 10.000 olay için yaklaşık 13 MB bellek.
+
 ### Bir sitenin kaydı artık panelden duraklatılabiliyor
 
 **Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.

@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; kalan B3d-2, B3e–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; B3d-2 beacon tamponu ✅ ölçüldü ve ertelendi — kanal kapasitesi canlı olamaz, yeniden başlatma isteyen bir panel ayarı #38'siz SSH'ı kaldırmıyor, ve yolda KURULUM'un panelde olmayan ayarları "işaretli" diye anlatan cümlesi düzeldi; kalan B3e–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -1444,6 +1444,12 @@ sabitleniyor), `asn_lookup.enabled` (açmak ~135 MB tablo yüklemek),
 kapasitesi). Bunlar `Live: false` kalacak; panel "yeniden başlatma
 gerekiyor" diyecek. **Yalan söylemekten iyisi budur.**
 
+*(2026-09-29, B3d-2: bu değerler panele hiç girmedi, dosyada kaldılar;
+panelde "yeniden başlatma gerekiyor" işareti de yok. KURULUM ise tersini,
+panelin onları işaretlediğini anlatıyordu; düzeltildi. Panele girmeleri
+#38'i bekliyor: panel servisi yeniden başlatamadıkça, yeniden başlatma
+isteyen bir panel ayarı sunucuya bağlanmayı kaldırmaz.)*
+
 `storage.flush_interval_seconds` sınırda: ticker `Run` içinde bir kez
 kuruluyor, `Reset` ile canlı yapılabilir. Bu fazda **yapılmıyor** —
 sebebi kapsam değil, değer: yazma aralığını değiştirmek bir destek
@@ -2264,7 +2270,7 @@ yarısını başka adlarla karşıladı.
 | 29 | `ShowBeaconStatus` | yarım | ~~Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor)~~ → **B3b ✅**; site başına son olay ve son bir saatin olay sayısı yok → **B3g**, şemasız |
 | 30 | `ShowBeaconSnippet` | **var** | sahip için karşılama sayfası |
 | 31 | `SetBeaconSites` | **var** | `beacon.sites` |
-| 32 | `SetBeaconBuffer` | yok | şemasız: kayda üç canlı ayar |
+| 32 | `SetBeaconBuffer` | yok, bilerek | ~~şemasız: kayda üç canlı ayar~~ → **B3d-2**: ölçüldü ve ertelendi. Kanal kapasitesi canlı olamaz; yeniden başlatma isteyen bir panel ayarı, panel servisi yeniden başlatamadığı sürece (#38) sunucuya bağlanmayı kaldırmıyor. Dolu tampon ~13 MB / 10.000 olay |
 | 33 | `TestBeaconIngest` | yok | "gerçek rakamları asla kirletmez" bir işaret ister → **tasarım**, belki şema |
 | 34 | `SetAnalyticsProfile` | yarım | profil kurulumda seçiliyor (A2), Sağlık'ta görünüyor; panelden değişmesi tek tek `sources.*` ile |
 | 35 | `SetVerboseLogging` | **var** | `logs.verbose_until` — kendi söner; site başına değil, genel |
@@ -2333,8 +2339,17 @@ kez yazmak onu bir kez yapmaktır.
     grafikteki boşluk trafik düşüşü gibi okunuyordu. Artık seçilen
     aralığın içindeki biten duraklatmalar denetim kaydından türetilip
     anılıyor.
-- **B3d-2** — #32: beacon'ın tampon ayarları. Önce ölçülmüş bir ihtiyaç;
-  yoksa ölçümle reddedilecek.
+- **B3d-2** ✅ *(2026-09-29)* — #32 ölçüldü ve **ertelendi**. Gerçek
+  beacon ikilisiyle, tablo kilitliyken: tampon tam boyu kadar olay
+  tutuyor, fazlası düşüyor (tarayıcıya yine 204); dolu tampon her 10.000
+  olay için ~13 MB. Tampon bir kanal kapasitesi, canlı olamaz; yeniden
+  başlatma isteyen bir panel ayarı da panel servisi yeniden
+  başlatamadığı sürece (#38) sunucuya bağlanmayı kaldırmıyor. Ölçülmüş
+  tek taşma (Z5, bakım sırasında) kendi düzeltmesini bekliyor. Yolda iki
+  yanlış cümle düzeltildi: KURULUM yeniden başlatma isteyen ayarların
+  panelde işaretli olduğunu söylüyordu (panelde hiç yoklar), yazıcının
+  yorumu 10.000 satırı "birkaç megabayt" sanıyordu (ölçülen ~10 MB).
+  **#38 gelince yeniden sorulacak.**
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
 - **B3g** — #29'un öbür yarısı: site başına son olay ve son bir saatin

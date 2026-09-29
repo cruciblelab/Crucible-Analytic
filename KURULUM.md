@@ -1552,10 +1552,20 @@ Hiçbir şey engellemeyen kurulum bu özelliğin bedelini ödemez: sunucular
 bağlantının ülkesini çözmeden önce "engellenen bir şey var mı" diye
 sorar ve bu soru tek bir atomik okumadır.
 
-**Yeniden başlatma isteyenler** panelde öyle işaretlidir (tampon
-boyutları, önbellek pencereleri, `asn_lookup.enabled`) — süreç o
-değerleri kanallarını ve tablolarını kurarken sabitler. Panel bunu
-söyler; kabul edip sessizce yok saymaz.
+**Yeniden başlatma isteyenler panelde yok.** Tampon boyutları
+(`[buffer]`), önbellek pencereleri (`[cache]`) ve `asn_lookup.enabled`
+yalnız yapılandırma dosyasında: dosyayı değiştirip servisi yeniden
+başlatırsınız. Süreç bu değerleri kanallarını ve tablolarını kurarken
+sabitler, yani çalışırken değiştirmenin yolu yok. Panelin onları
+tutması da bir şey kazandırmazdı: panel bir servisi yeniden
+başlatamıyor, yani sunucuya yine bağlanmanız gerekirdi.
+
+Beacon'ın tamponunu büyütmeden önce bedeline bakın. Ölçüldü: veritabanı
+donmuşken beacon tam tampon boyu kadar olayı bellekte tutar ve
+fazlasını düşürür. Dolu bir tampon her 10.000 olay için yaklaşık 13 MB
+bellek ister (varsayılan 10.000'de süreç 24 MB'tan 34 MB'a çıktı).
+Tampon yalnız düşmenin ne zaman başlayacağını değiştirir. Bellek
+sınırı olan bir konteynerde, sınırın içinde kalacak bir boy seçin.
 
 ### Kaydı duraklatmak: olay sırasında
 

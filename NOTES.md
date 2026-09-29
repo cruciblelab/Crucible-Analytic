@@ -23302,7 +23302,8 @@ karşılaştırıyor.
   (`install.sh` ile kuruldu, ölçümden sonra silindi). Ayar `panel_user`
   rolüyle, panelin biçiminde yazıldı. İki sürecin bu yapılandırmayla
   bağlandığı `application_name` ile `pg_stat_activity`'den doğrulandı.
-  Yazma aralığı 10 sn (varsayılan), ayar yoklaması 2 sn.
+  Yazma aralığı 10 sn (varsayılan), ayar yoklaması 2 sn. Betik
+  `scratchpad/duraklat-olc.py`.
 
 | adım | şimdiki | ilk hâlin kuralı |
 |---|---|---|
@@ -23368,3 +23369,87 @@ bir mutasyonun **sınanmadan** geçeceği bir boşluktu:
   sormuyordu;
 - geçmişin testinde süren bir duraklatmayı "Varsayılana dön" ile kaldırma
   yoktu.
+
+---
+
+## B3d-2 — Beacon'ın tampon ayarları: ölçüldü ve ertelendi (2026-09-29)
+
+Katalog #32 (`SetBeaconBuffer(size, batch, flushSeconds)`), "ne zaman"
+sütunu boş. B3a'nın satırı "şemasız: kayda üç canlı ayar" diyordu. PLAN
+bunu "önce ölçülmüş bir ihtiyaç; yoksa ölçümle reddedilecek" diye
+sıraya koymuştu.
+
+### Ölçüldü: tampon ne yapıyor, neye mal oluyor
+
+Gerçek beacon ikilisi, kendi veritabanında (`install.sh` ile kuruldu,
+ölçümden sonra silindi). Tablo bir işlemde `ACCESS EXCLUSIVE`
+kilitlenerek "donmuş veritabanı" kuruldu. Tampon boyunun 20.000 fazlası
+kadar olay 16 bağlantıdan gönderildi, sonra kilit kaldırılıp yazılanlar
+sayıldı. Betik `scratchpad/tampon-olc.py` (yedeğe giriyor, depoya girmiyor).
+
+| tampon | gönderilen | cevap | yazılan | düşen | RSS boş → dolu |
+|---|---|---|---|---|---|
+| 10.000 | 30.000 | 204 ×30.000 | 10.500 | 19.500 | 24,0 → 33,9 MB |
+| 50.000 | 70.000 | 204 ×70.000 | 50.005 | 19.995 | 29,7 → 85,8 MB |
+| 100.000 | 120.000 | 204 ×120.000 | 100.500 | 19.500 | 29,8 → 151,5 MB |
+
+- Donmuş veritabanında beacon **tam tampon boyu** kadar olay tutuyor
+  (artı yazıcının elindeki bir parti), gerisini düşürüyor. Tarayıcı her
+  durumda 204 alıyor. Z grubunun 2026-09-22 ölçümüyle aynı: "donma
+  penceresinde her seferinde tam 10.000 satır".
+- Tampon düşmeyi **önlemiyor, erteliyor**. Veritabanı geri gelmezse
+  büyük bir tamponun tek farkı daha geç düşmek ve daha çok bellek.
+- **Bedel:** dolu tamponun fazladan her 10.000 olayı ~13 MB (50k→100k
+  arası 65,7 MB / 50.000 olay ≈ 1,3 KB/olay). Varsayılan 10.000'de süreç
+  24 MB'tan 34 MB'a çıktı.
+
+### Yolda: yazıcının yorumu beş kat yanlıştı
+
+`internal/beacon/writer.go` varsayılanı *"~10k rows of a few hundred bytes
+each is a couple of megabytes"* diye gerekçelendiriyordu. Ölçülen ~10 MB.
+Satırda URL, başlık, yönlendiren, tarayıcı kimliği gibi dizeler var ve
+her biri ayrı bir ayırma. Bu, Z1'in bellek bütçesi için önemli bir sayı:
+donma sırasında beacon'ın belleğinin üçte biri tampon. Yorum ölçümle
+değiştirildi.
+
+### Karar: ertelendi, üç sebep
+
+1. **Kanal kapasitesi canlı olamaz.** Tampon bir Go kanalı, bir kez
+   kuruluyor. Canlı değiştirmek, iki kanal arasında bir geçiş ister. O da
+   yazıcının "temiz kapanışta hiçbir şey kaybolmaz" garantisini (flush'ın
+   iptalden kopması, kapanışta boşaltma) yeniden kurmak demek, bir düğme
+   uğruna.
+2. **Yeniden başlatma isteyen bir panel ayarı bugün bir şey
+   kazandırmıyor.** Panel bir servisi yeniden başlatamıyor (#38 yok).
+   Ayarı panelden değiştiren işletmeci yine sunucuya bağlanıp servisi
+   yeniden başlatmalı; oradayken dosyayı da değiştirebilir. **#38 gelince
+   bu soru yeniden sorulacak.**
+3. **Ölçülmüş tek taşmanın kendi düzeltmesi var.** Z5 bakım sırasında 15
+   saniyede 2.690 olay düştüğünü ölçtü. Oradaki doğru cevap bakımın
+   ingest'e yol vermesi, sahibin şema kararını bekliyor. Tamponu büyütmek
+   o ölçümde işe yarardı ama bedelini bellekle ödeyerek.
+
+Ve bir erişim notu, ileride panele girerse diye: tamponu büyütmek
+belleği doğrusal büyütüyor, yani bellek sınırı olan bir konteynerde
+müşterinin kendi seçimiyle servisi sınıra itebileceği bir değer. Erişim
+ilkesine göre geliştirici parolasının arkasında durmalı.
+
+### Düzeltilen ikinci cümle: KURULUM
+
+KURULUM §12, *"Yeniden başlatma isteyenler panelde öyle işaretlidir
+(tampon boyutları, önbellek pencereleri, `asn_lookup.enabled`) … Panel bunu
+söyler"* diyordu. Koda soruldu:
+- kayıt defterinde bu üç değerin hiçbiri yok;
+- ayarlar şablonunda "yeniden başlatma gerekiyor" işareti yok;
+- panelin kendi metni doğruyu söylüyor: `asn_lookup` için *"bu ayar
+  panelden değiştirilemiyor"*.
+
+D4'ün planı onları `Live: false` ayarlar olarak panele koyacaktı; hiç
+konmadılar, ve KURULUM planı yapılmış gibi anlatıyordu. Artık "panelde
+yok, dosyada; ve panelde olsalar da bugün bir şey kazandırmazlardı"
+diyor, tamponun ölçülmüş bedeliyle birlikte. PLAN'ın D4 paragrafına da
+tarihli bir not düşüldü.
+
+*"Yapıldı" yazmayan ama yapılmış gibi anlatan bir belge cümlesi de
+koda sorulmalı.* Bu cümle bir faz başlığının değil, bir kurulum
+kılavuzunun içindeydi. Kimse onu PLAN'la karşılaştırmıyordu.

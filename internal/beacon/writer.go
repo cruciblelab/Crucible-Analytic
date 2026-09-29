@@ -98,10 +98,17 @@ type WriterConfig struct {
 
 func (c WriterConfig) withDefaults() WriterConfig {
 	if c.BufferSize <= 0 {
-		// ~10k rows of a few hundred bytes each is a couple of
-		// megabytes: enough to ride out a multi-second database stall
-		// at a healthy event rate, small enough that a wedged database
-		// cannot turn into unbounded memory growth.
+		// Enough to ride out a database stall of 10k events, small
+		// enough that a wedged database cannot turn into unbounded
+		// memory growth.
+		//
+		// What that costs, measured rather than estimated (2026-09-29,
+		// the real binary with the table locked, NOTES §B3d-2): a full
+		// 10k buffer took the process from 24 to 34 MB, and every
+		// further 10k about 13 MB - some 1.3 KB a buffered row, not the
+		// "few hundred bytes" this comment used to say. So a buffer is
+		// memory the process must have, and it is sized with the
+		// process's memory limit in mind, not only the stall it rides out.
 		c.BufferSize = 10_000
 	}
 	if c.BatchSize <= 0 {
