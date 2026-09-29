@@ -1455,11 +1455,16 @@ indirir:
 **Hiç çalıştırmamak desteklenen bir durumdur:** bilinen-bot sinyali
 olmaz, diğer bütün sinyaller çalışır, ve collector açılışta bunu söyler.
 
-Cron önerisi (haftada bir):
+Cron önerisi (haftada bir), `crucible` hesabıyla — `/etc/cron.d/crucible-analytic`
+dosyasına, kullanıcı sütunuyla:
 
 ```cron
-0 4 * * 1 /opt/crucible-analytic/bin/collector -config /etc/crucible-analytic/collector.toml -update-bot-data
+0 4 * * 1 crucible /opt/crucible-analytic/bin/collector -config /etc/crucible-analytic/collector.toml -update-bot-data
 ```
+
+Root'la değil: dosyayı servisin hesabı yazıyor ve okuyor, ve panelden
+güncellemeyi açtıysanız (§13.5) o dizindeki programları root
+çalıştırmamalı.
 
 Aynı dosyayı okuma API'si de okur — cevaplarındaki parmak izlerine isim
 koymak için. Yolu `analytics-api.toml`'da `bot_data_path`, ve **satır
@@ -2389,8 +2394,9 @@ sudo ./release/install.sh
 sudo systemctl restart crucible-collector crucible-beacon \
                        crucible-analytics-api crucible-panel
 
-# 4. Sürümü doğrulayın
-/opt/crucible-analytic/bin/panel -version
+# 4. Sürümü doğrulayın (servis hesabıyla; aşağıdaki "panelden
+#    güncellemeyi açın" başlığında niye)
+sudo -u crucible /opt/crucible-analytic/bin/panel -version
 ```
 
 Sonra **panelde Sağlık → Şema yükseltmesi**. Yeni yapı yeni bir şema
@@ -2407,14 +2413,83 @@ atomik: yolun yarım dosya içerdiği bir an yok.
 
 **Servisleri biz yeniden başlatmıyoruz** — siz istemedikçe. Binary'yi
 değiştirmek ile onu yeniden başlatmak iki ayrı karar, ve ikincisi o
-makinede başka ne döndüğünü bilen kişinin. Bir sonraki bölüm o kararı
-bize devretmenin yolunu anlatıyor.
+makinede başka ne döndüğünü bilen kişinin. Sonraki iki bölüm, önce
+güncellemeyi sonra yeniden başlatmayı panele devretmenin yolunu
+anlatıyor.
+
+### İsteğe bağlı: panelden güncellemeyi açın
+
+Açmazsanız hiçbir şey değişmez: yeni sürüme yukarıdaki dört adımla
+geçersiniz, ve panelin güncelleme düğmesi basıldığında **hiçbir şey
+indirmeden** bu başlığın adını söyleyerek durur.
+
+Panelden güncelleme, yükselticinin (`crucible-upgrader`) ikili dizinindeki
+dosyaları değiştirmesi demek. `install.sh` o dizini root'a bırakıyor ve
+yükselticinin birimi onu salt-okunur bağlıyor; ikisi de bilerek. Dört
+komut, bu sırayla:
+
+```bash
+sudo chgrp crucible-upgrader /opt/crucible-analytic/bin
+sudo chmod 0775 /opt/crucible-analytic/bin
+sudo install -D -m 0644 /opt/crucible-analytic/dropins/crucible-upgrader.service.d/panel-updates.conf \
+     /etc/systemd/system/crucible-upgrader.service.d/panel-updates.conf
+sudo systemctl daemon-reload
+```
+
+İlk ikisi dizini yükselticinin grubuna açar. Üçüncüsü yükselticinin
+birimine o dizini yazılabilir ekler; birim dosyasına dokunmaz, yanına bir
+ek dosya koyar. Dördüncüsü systemd'ye okutur. Biri eksik kalırsa düğme
+yine indirmeden durur ve satırda sebebi yazar.
+
+**Bu adım 29 Eylül 2026'ya kadar yoktu, ve onsuz panelden güncelleme
+hiçbir systemd kurulumunda tamamlanamıyordu.** Düğme 4 Eylül'den beri
+paneldeydi; paket indiriliyor, imzası doğrulanıyor, ve ilk yazmada
+*"read-only file system"* ile düşüyordu. Hiçbir şey değişmiyordu, ama
+sayfa müşterinin yapabileceği bir şey söylemiyordu. Gerçek systemd'de
+ölçüldü.
+
+**Ne vermiş oluyorsunuz.** Yükseltici artık dört servisin ikililerini
+değiştirebilir — sitenizin önündeki collector dahil. Yalnız imzamızla
+doğrulanan paketleri kuruyor, ama hesabını ele geçiren biri imzaya
+ihtiyaç duymaz. Bu, düğmenin kendisinin bedeli; açmadığınız sürece
+yükseltici bu dizine yazamaz.
+
+**Bu yüzden: bu dizindeki hiçbir şeyi root olarak çalıştırmayın.**
+Yükselticinin değiştirebildiği bir dosyayı root çalıştırırsa, yükseltici
+root'un yapabildiği her şeyi yapabilir. Ürün buna göre kuruldu: yeniden
+başlatıcının betiği (`restart.sh`) artık bu dizinde değil, yalnız
+root'un yazabildiği `/opt/crucible-analytic/libexec/`'te; bu sürümün
+`install.sh`'ı eskisini siler. Sizin tarafınızda: bu dizindeki
+programları `sudo -u crucible` ile çalıştırın — bu belgedeki `-version`
+ve bot verisi satırları öyle yazıldı.
+
+**`install.sh`'ı yeniden çalıştırmak bunu geri almaz.** Elle yeni sürüme
+geçerken dizin yükselticinin grubunda ve `0775` ise olduğu gibi
+bırakılıyor ve bu söyleniyor.
+
+### Panelden güncellemeyi kapatmak
+
+*(Kendi başlığında, çünkü bir önceki başlığın tek kabuk bloğunu gecelik
+süit gerçek bir makinede olduğu gibi koşturuyor; açan ve kapatan iki
+blok aynı başlıkta dursaydı hangisinin koşacağı sıraya kalırdı.)*
+
+```bash
+sudo rm /etc/systemd/system/crucible-upgrader.service.d/panel-updates.conf
+sudo systemctl daemon-reload
+sudo chown root:root /opt/crucible-analytic/bin /opt/crucible-analytic/bin/*
+sudo chmod 0755 /opt/crucible-analytic/bin
+```
+
+Dosyaların sahipliği de geri alınıyor: panelden kurulan her ikilinin
+sahibi yükseltici olur, ve dizini kapatmak onların içine yazmayı
+kapatmaz.
 
 ### İsteğe bağlı: yeniden başlatmayı da devredin
 
-Açmazsanız hiçbir şey değişmez. Açarsanız panelden yapılan güncelleme
-kendini tamamlar, ve **yeni sürüm geri gelmezse eskisi otomatik geri
-konur**.
+Bir önceki adımla birlikte anlamlı: panelden güncelleme açık değilse
+zili çalacak bir güncelleme de olmaz. Açmazsanız hiçbir şey değişmez.
+Açarsanız panelden yapılan güncelleme kendini tamamlar, ve **yeni sürüm
+geri gelmezse eskisi otomatik geri konur**.
 
 Üç komut, bu sırayla:
 
@@ -2443,14 +2518,12 @@ veritabanına bağlanamayan bir collector bu sınavı geçemez. Dördü de
 otuz saniye içinde yazmazsa önceki binary'ler geri konur, tekrar
 başlatılır, tekrar bakılır ve sonuç panele yazılır.
 
-**Dördü — panel dâhil, ve bu adım bir süre hiç geçemedi.** Panel,
-eylül sonuna kadarki sürümlerde kalp atışı yazmıyordu; yani yeniden
-başlatıcıyı açmış bir kurulumda **her** güncelleme otuz saniye sonra
-geri alınıyor ve *"panel_user did not come back ... The machine needs
-somebody"* diyordu. Gerçek panel ikilisiyle ölçüldü: 75 saniye çalıştı,
-tek satır yazmadı. Artık yazıyor ve aynı denetim sürümü kabul ediyor.
-Bu yeniden başlatıcıyı daha önce açıp güncellemelerinizin geri
-alındığını gördüyseniz sebebi buydu; sürüm ve veri kaybolmadı.
+**Dördü — panel dâhil.** Panel eylül sonuna kadarki sürümlerde kalp
+atışı yazmıyordu, yani bu denetim o sürümlerde her güncellemeyi otuz
+saniye sonra geri alırdı (gerçek panel ikilisiyle ölçüldü: 75 saniyede
+tek satır). Bir systemd kurulumunda bu noktaya hiç gelinmedi: güncelleme
+daha önce, ilk yazmada düşüyordu (bir önceki başlığın ikinci
+paragrafı). İkisi de düzeldi; sürüm ve veri hiçbir durumda kaybolmadı.
 
 **Sınır:** systemd birimi beş dakikada üç başlatmayla kısıtlı, ve
 betikte `stop`/`disable`/`mask` yok — hiçbir yol servisi kapalı
@@ -2458,7 +2531,7 @@ bırakmıyor. Yeni binary makinenin ağını veya diskini bozarsa buradaki
 hiçbir şey yardım edemez; geri dönüş veritabanına yazabilen bir makine
 varsayar.
 
-**Kapatmak için:**
+### Yeniden başlatıcıyı kapatmak
 
 ```bash
 sudo systemctl disable --now crucible-restart.path

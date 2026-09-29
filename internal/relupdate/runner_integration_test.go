@@ -22,9 +22,12 @@ package relupdate
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,7 +73,14 @@ func TestAQueuedRequestIsActuallyCarriedOut(t *testing.T) {
 	ctx := context.Background()
 
 	src, version := servedPackage(t)
+	// With its bin directory, as every machine the upgrader serves has
+	// one: the services run from it. This fixture used to leave it out
+	// and let Install create it, which is exactly how a wrong prefix
+	// "succeeded" - see TestAWrongPrefixIsRefusedBeforeAnythingIsFetched.
 	prefix := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(prefix, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
 		t.Fatal(err)
@@ -114,6 +124,112 @@ func TestAQueuedRequestIsActuallyCarriedOut(t *testing.T) {
 	// cannot vouch for.
 	if _, err := os.Stat(filepath.Join(prefix, "bin", "collector")); err != nil {
 		t.Errorf("the request succeeded and no binary was installed: %v", err)
+	}
+}
+
+// countedPackage serves a real, signed package and counts every request
+// for it - the evidence that a refusal came before the download rather
+// than after it.
+func countedPackage(t *testing.T) (Source, string, *atomic.Int64) {
+	t.Helper()
+	priv, pub := keys(t)
+	p := newPkg(t)
+	p.signWith = priv
+	body := p.build(t)
+	var hits atomic.Int64
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	return newSource(t, srv.URL, srv.Client(), pub), "v0.20.0", &hits
+}
+
+// TestAMachineThatCannotInstallRefusesBeforeAnythingIsFetched.
+//
+// The state of every systemd install where the operator has not opened
+// the binary directory to the upgrader - which, until 2026-09-29, was
+// every systemd install, because the step did not exist. Measured on a
+// real systemd (nightly run 41): the request downloaded the package,
+// verified it, and failed at the first write with "read-only file
+// system", a sentence the customer at the page can do nothing with.
+func TestAMachineThatCannotInstallRefusesBeforeAnythingIsFetched(t *testing.T) {
+	asks, pool := runnerQueue(t)
+	ctx := context.Background()
+
+	src, version, hits := countedPackage(t)
+	prefix := anInstallation(t, "the old one", "collector", "panel")
+	bin := filepath.Join(prefix, "bin")
+	readOnlyDir(t, bin)
+
+	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Pool: pool, Source: src, Name: "test-upgrader",
+		Install: Installer{Prefix: prefix, Verify: func(context.Context, string) error { return nil }}}
+	_, err := runner.RunOnce(ctx)
+	if !errors.Is(err, ErrNotEnabledHere) {
+		t.Fatalf("a machine whose binary directory cannot be written ended with %v; "+
+			"want ErrNotEnabledHere", err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("the package was requested %d time(s) before the refusal; the probe has "+
+			"to come before the download, or every press of the button downloads a "+
+			"package it can never install", n)
+	}
+
+	latest, err := Latest(ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.State != StateFailed || latest.RolledBack || latest.InstalledVersion != "" {
+		t.Errorf("the row says state=%s rolled_back=%v installed=%q; want failed, false, nothing",
+			latest.State, latest.RolledBack, latest.InstalledVersion)
+	}
+	// What the page shows, verbatim: the step, where it is written, and
+	// that nothing happened.
+	for _, want := range []string{"KURULUM.md", "13.5", "Nothing was downloaded or changed"} {
+		if !strings.Contains(latest.ErrorChain, want) {
+			t.Errorf("the row's reason does not say %q: %s", want, latest.ErrorChain)
+		}
+	}
+	body, err := os.ReadFile(filepath.Join(bin, "collector"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "the old one") {
+		t.Error("the binary changed on a machine that refused the install")
+	}
+}
+
+// TestAWrongPrefixIsRefusedBeforeAnythingIsFetched.
+//
+// A prefix with no bin directory under it names a place nothing runs
+// from. Install used to create the directory and succeed into it, and
+// the page said the update was installed while every service went on
+// running the old binaries somewhere else - the failure
+// upgrader.example.toml warns about in words.
+func TestAWrongPrefixIsRefusedBeforeAnythingIsFetched(t *testing.T) {
+	asks, pool := runnerQueue(t)
+	ctx := context.Background()
+
+	src, version, hits := countedPackage(t)
+	prefix := t.TempDir()
+
+	if _, err := Ask(ctx, asks, Actor{Kind: "user", Label: "test"}, "", "v0.0.1", version); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Pool: pool, Source: src, Name: "test-upgrader",
+		Install: Installer{Prefix: prefix, Verify: func(context.Context, string) error { return nil }}}
+	_, err := runner.RunOnce(ctx)
+	if !errors.Is(err, ErrNoBinaryDirectory) {
+		t.Fatalf("a prefix with no bin directory ended with %v; want ErrNoBinaryDirectory", err)
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("the package was requested %d time(s) for a prefix it could never be installed into", n)
+	}
+	if _, statErr := os.Stat(filepath.Join(prefix, "bin")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("the refused request still created the binary directory (%v)", statErr)
 	}
 }
 

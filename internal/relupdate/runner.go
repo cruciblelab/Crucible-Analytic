@@ -126,6 +126,19 @@ func (r Runner) carryOut(ctx context.Context, req *Request, log *slog.Logger) (s
 			"set base_url and public_key in upgrader.toml", ErrNotConfigured)
 	}
 
+	// Before the download, not after it.
+	//
+	// Without this the request fetched the whole package, verified it,
+	// and then failed at the first write with "read-only file system" -
+	// on every systemd install where nobody had opened the binary
+	// directory, which until 2026-09-29 was every systemd install. The
+	// page showed that sentence to a customer who could do nothing with
+	// it. Asked here, it fails before a byte is fetched and says which
+	// step is missing and where it is written down.
+	if err := r.Install.Writable(); err != nil {
+		return "", false, fmt.Errorf("%w. Nothing was downloaded or changed", err)
+	}
+
 	dir := r.WorkDir
 	if dir == "" {
 		tmp, err := os.MkdirTemp("", "crucible-release-*")

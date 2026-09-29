@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,6 +117,71 @@ type Installer struct {
 
 	// Now is time.Now, so a test can name the keep directory.
 	Now func() time.Time
+}
+
+// ErrNotEnabledHere means this process cannot replace the binaries on
+// this machine.
+//
+// On a systemd install that is the ordinary state until the operator
+// opens the binary directory to the upgrader (KURULUM.md 13.5): the
+// directory is root's, and the upgrader's unit mounts /opt read-only.
+// Both are deliberate. A process that fetches archives from the network
+// should not hold the power to replace the program in front of the
+// customer's website unless somebody decided that it should.
+var ErrNotEnabledHere = errors.New("updates from the panel are not enabled on this machine")
+
+// ErrNoBinaryDirectory means Prefix/bin is not there, so no service runs
+// from it and whatever was installed into it would run nowhere.
+var ErrNoBinaryDirectory = errors.New("relupdate: there is no binary directory under the configured prefix")
+
+// Writable reports whether this process can replace the binaries under
+// Prefix, asked the only way that answers it: by creating a file there
+// and removing it again.
+//
+// # Why a probe and not a look at the mode
+//
+// Two things stand between the upgrader and Prefix/bin under systemd,
+// and metadata sees only one of them. The directory's owner and mode say
+// root:root 0755 unless the operator opened it; the unit's
+// ProtectSystem=strict mounts /opt read-only whatever the mode says.
+// Measured with the real binary under a reproduction of that sandbox:
+// with the mode opened and the unit unchanged, the install still failed
+// with "read-only file system" (NOTES, "V systemd altında", S3).
+// backup.Runner.Writable asks the same way, for the same reason.
+//
+// # And a missing directory is its own answer
+//
+// Install creates Prefix/bin when it is absent, and that is how a wrong
+// prefix used to succeed: the binaries went into a directory nothing
+// runs from and the page said the update was installed. Every service
+// runs from that directory, so on a real machine it exists; when it does
+// not, the prefix is what is wrong, and the message says so rather than
+// sending somebody to open a directory that is not there.
+func (in Installer) Writable() error {
+	dir := filepath.Join(in.Prefix, "bin")
+	info, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%w: %s does not exist, so no service runs from it. The prefix in "+
+			"upgrader.toml's [release] section has to name where the running binaries are",
+			ErrNoBinaryDirectory, dir)
+	case err != nil:
+		return fmt.Errorf("relupdate: %s: %w", dir, err)
+	case !info.IsDir():
+		return fmt.Errorf("%w: %s is not a directory", ErrNoBinaryDirectory, dir)
+	}
+	f, err := os.CreateTemp(dir, ".write-probe-")
+	if err != nil {
+		return fmt.Errorf("%w: %s cannot be written by the upgrader (%v). On a systemd "+
+			"install this is a step the operator takes once: KURULUM.md, section 13.5, "+
+			"\"İsteğe bağlı: panelden güncellemeyi açın\"", ErrNotEnabledHere, dir, err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return fmt.Errorf("%w: %s: %v", ErrNotEnabledHere, dir, err)
+	}
+	return os.Remove(name)
 }
 
 // Install replaces the binaries under Prefix with the ones in root/bin.

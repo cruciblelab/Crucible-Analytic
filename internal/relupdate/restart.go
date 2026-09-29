@@ -140,7 +140,16 @@ func (d Doorbell) Ring() error {
 	path := filepath.Join(d.dir(), DoorbellName)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return fmt.Errorf("relupdate: asking for a restart: %w", err)
+		// Named, because the one way this has been measured to fail is
+		// the unit's sandbox: the directory exists, its permissions are
+		// right, and ProtectSystem=strict mounts /run read-only unless the
+		// unit lists the path. The upgrader's unit did not until
+		// 2026-09-29, and a machine still carrying that unit file fails
+		// exactly here (NOTES, "V systemd altında", S4).
+		return fmt.Errorf("relupdate: asking for a restart: %w. If the upgrader runs under "+
+			"systemd, its unit has to list %s in ReadWritePaths; the unit install.sh "+
+			"writes from this version on does, so re-running install.sh from this "+
+			"version's package puts it in place", err, d.dir())
 	}
 	return f.Close()
 }

@@ -23672,3 +23672,130 @@ onu derliyor.
 
 *Bir kural bir dosyada yazıdır, bir iş akışında komuttur; ikisinin aynı
 şeyi söylediğini ancak ikisini birden okuyan bir test söyler.*
+
+### Önce, gerçek systemd'de (gecelik 41, iş 109497077812)
+
+Süit düzeltmeden önce gönderildi ve GitHub'ın sanal makinesinde tam
+beklenen cümleyle kırmızı verdi:
+
+```
+mkdir /opt/crucible-analytic/bin/.previous-20260929-160443: read-only file system
+```
+
+Yerel yeniden kurulumdaki S2'nin cümlesi, harfi harfine. Ondan önceki
+zincirin tamamı da ilk kez gerçek systemd'de koştu ve geçti:
+`install.sh`'ın systemd dalı (`/opt`, `/etc`, `/etc/systemd/system`),
+dört servis kendi birimlerinde `active (running)` ve dördünün kalp
+atışı, KURULUM'daki yeniden başlatıcı komutları (`crucible-restart.path`
+`active (waiting)`), https kaynağından imzalı paketin indirilip
+doğrulanması. Birimlerin sandbox'ları dört servisin açılışını
+engellemiyor; engelledikleri tek şey yükselticinin iki yazma yoluydu.
+
+### Düzeltme
+
+1. **Zil yolu yükselticinin biriminde.** `ReadWritePaths=-/var/lib/crucible-analytic
+   -/run/crucible-analytic`. Yükselticiye tasarımın zaten verdiğinden
+   fazlasını vermiyor: dizin root'un, yükselticinin grubuyla
+   (tmpfiles girdisi); `-` yeniden başlatıcıyı açmamış makineler için.
+2. **İkili dizinini açmak isteğe bağlı bir adım.** KURULUM §13.5'e yeni
+   başlık, dört komut: `chgrp crucible-upgrader bin`, `chmod 0775 bin`,
+   yükselticinin birimine ek dosya
+   (`release/dropins/crucible-upgrader.service.d/panel-updates.conf`,
+   `ReadWritePaths=/opt/crucible-analytic/bin`), `daemon-reload`.
+   **Neden varsayılan değil:** açık dizinle yükseltici hesabı
+   collector'ı — müşterinin sitesinin önündeki programı —
+   değiştirebilir. İmza (V1) paketleri koruyor, hesabı değil. Bugün o
+   hesabı ele geçiren veritabanını ele geçirir; açık dizinle sitenin
+   trafiğini de. Panelden güncellemeyi hiç kullanmayacak bir kurulumun bu
+   bedeli ödemesi için sebep yok, ve yeniden başlatıcının zaten aynı
+   biçimde isteğe bağlı olması emsal. Varsayılanın açık olması sahibin
+   isteyebileceği bir karar; bugünkü duruşu değiştirmediği için bu
+   yönü seçtim.
+3. **`restart.sh` `bin`'den `libexec`'e.** Root olarak çalışan tek betik
+   yükselticiye açılabilen dizindeydi; açılsaydı yükseltici bir sonraki
+   zilde root'un ne çalıştıracağını seçebilirdi — zil tasarımının bütün
+   güvenlik iddiası ("en kötü ihtimalle bu yeniden başlatma") bir
+   `chgrp`'e kadar geçerliydi. `install.sh` eskisini siliyor ve
+   söylüyor. Aynı sebeple belgedeki `-version` ve bot verisi cron'u
+   `crucible` hesabıyla, `install.sh`'ın bastığı `-dev-link` ve
+   `-snippet` `sudo -u crucible` ile.
+4. **Yükseltici indirmeden önce soruyor.** `Installer.Writable` dizine
+   bir dosya yaratıp siliyor (mod bakmak sandbox'ı görmez — S3), ve iki
+   ayrı cevap veriyor: `ErrNotEnabledHere` (adım atılmamış; satırda
+   KURULUM başlığının adı) ve `ErrNoBinaryDirectory` (önek yanlış).
+   İkincisi bir davranış değişikliği: `Install` eksik `bin`'i yaratıp
+   oraya kuruyordu, yani yanlış bir önek "kuruldu" diyordu —
+   `upgrader.example.toml`'un kelimelerle uyardığı durum. Bunu bekleyen
+   tek fikstür (`TestAQueuedRequestIsActuallyCarriedOut`) gerçeğe
+   uyduruldu. Zil hatası artık hangi birime hangi yolun ekleneceğini
+   söylüyor.
+5. **`install.sh`:** `ensure_bin_mode` açılmış dizini yeniden kurulumda
+   kapatmıyor (`ensure_mode` görse 0755'e çevirirdi ve bir sonraki
+   panel güncellemesi sessizce düşerdi); ek dosya önek altına konuyor,
+   etkinleştirilmiyor; bastığı adımlar 2b (güncelleme) ve 2c (yeniden
+   başlatma, 2b'ye muhtaç). **Çıktıya bakmak bir kusur buldu:** 2b'deki
+   `install -D ... \` tırnaksız heredoc'ta tek satıra yapışıyordu
+   (ters bölü + satır sonu devam sayılıp siliniyor); `\\`.
+
+### Yeni kontroller
+
+- `internal/invariants/unitwrites_test.go`, üç kural, üçü de koddan
+  türetilmiş: zili kuran ikilinin (`relupdate.Doorbell{...}`, sözdizimi
+  ağacından) birimi `relupdate.DefaultDoorbellDir`'i listeliyor;
+  kurucuyu kuran ikilinin birimi `<varsayılan önek>/bin`'i **yalnız** bir
+  ek dosyayla açıyor, birimin kendisinde değil; ve root'un
+  çalıştırdığı hiçbir şey başka bir birimin ya da ek dosyanın
+  yazabildiği bir yolda durmuyor.
+- `release`: paket kurulumu `libexec/restart.sh`'ı (root'un, kimse
+  yazamıyor), ek dosyayı (önek altında, systemd'nin okuduğu yerde değil)
+  soruyor; yeniden kurulum testi eski kurulumun `bin/restart.sh`'ını ve
+  açılmış dizini kuruyor, ikinci `install.sh`'tan sonra ilkinin
+  gittiğini, ikincisinin kaldığını ve ikisinin de söylendiğini soruyor;
+  paketleme denetimi `dropins`'i ağaç olarak yürüyor. Ve zayıf bir
+  kontrol sıkılaştı: birimin koşturduğu dosyanın dizinini soran test
+  `${PREFIX}/bin`'i her dizin için kabul ediyordu, `libexec`'e taşınan
+  betik için yazılmamış bir `install.sh` onu geçerdi.
+- `internal/docs/systemdsuite_test.go`: gecelik süitin koşturduğu
+  KURULUM başlıkları belgede, altlarında kabuk bloğuyla — başlıklar
+  süitin kaynağından okunuyor. Bir yeniden adlandırma gece değil çekme
+  isteğinde düşer.
+- Gecelik süit artık iki şey soruyor: adım atılmadan istek **hiçbir
+  şey indirmeden** reddediliyor ve başlığın adını söylüyor; KURULUM'un
+  iki bloğundan sonra güncelleme tamamlanıyor, dört servisin
+  `InvocationID`'si değişiyor, zil siliniyor, kontrol noktası kalkıyor.
+  Ve `crucible-upgrader` `libexec`'e yazamıyor — makineye soruluyor.
+
+### Mutasyon: ilk turda 21'in 20'si kırmızı; D2 bir kusur gösterdi, D3 eklendi, 22'nin 22'si
+
+`scratchpad/mutasyon-v7b.py`. Yedi kod (yoklama sorulmuyor / hep evet /
+dosya kalıyor / eksik dizin adım sanılıyor / eksik dizin yaratılıyor /
+adımın adı yok / zil hatası yolu söylemiyor), beş birim (zil yolu yok,
+`bin` birimin kendisinde, ek dosya açmıyor, `restart.sh` yine `bin`'de,
+ek dosya olmayan bir birime), altı `install.sh`, bir `build.sh`, üç
+belge.
+
+**D2 sağ kaldı, ve sağ kalması bir kusurdu.** Belge testi "başlığın
+altında en az bir kabuk bloğu" diye soruyordu; süit **ilk** bloğu
+koşturuyor. Açma bloğu metne dönünce aynı başlıktaki **kapatma** bloğu
+ilk sıraya geçiyordu — gecelik süit özelliği kapatan komutları koşturur
+ve sonucu "açtım" diye ölçerdi. Yeniden başlatıcının bölümünde de aynı
+şekil vardı. İki kapatma bloğu kendi `###` başlıklarına ayrıldı, test
+"tam bir blok" soruyor, ve D3 (kapatma bloğu aynı başlıkta) eklendi;
+üç belge mutasyonu da kırmızı. *Bir tüketicinin "ilk"ini doğrulayan test,
+"var mı" diye sormamalı.*
+
+### Ölçüm, sonra (yerel, aynı düzenek, düzeltilmiş ikililer)
+
+| Senaryo | İndirme | Sonuç |
+|---|---|---|
+| S1 bugünkü duruş, sandbox yok | 0 | reddedildi, `permission denied`, KURULUM başlığı |
+| S2 bugünkü duruş, birimin sandbox'ı | 0 | reddedildi, `read-only file system`, başlık |
+| S3 grup açık, ek dosya yok | 0 | reddedildi, `read-only file system` |
+| S4 eski birim + açık `bin` | 1 | kuruldu, zil düştü — mesaj artık birime eklenecek yolu söylüyor |
+| S5 / S6 düzeltilmiş birim + isteğe bağlı adım | 1 | kuruldu, zil çaldı; cevap veren yok, geri dönüş işledi |
+| S7 düzeltilmiş birim, adım atılmamış | 0 | reddedildi, başlık |
+
+Buradaki makinede zile cevap verecek systemd olmadığı için S6'nın
+başarılı hâli (yeniden başlatma, kalp atışları, kontrol noktasının
+silinmesi) burada ölçülemiyor; onu gecelik süit gerçek systemd'de
+ölçüyor.

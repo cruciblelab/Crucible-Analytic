@@ -53,6 +53,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,9 +78,12 @@ const (
 	doorbellDir   = "/run/crucible-analytic"
 	unitDir       = "/etc/systemd/system"
 
-	// The heading KURULUM.md gives the restarter's opt-in under, and
-	// whose first shell block this suite runs as written.
-	restarterHeading = "### İsteğe bağlı: yeniden başlatmayı da devredin"
+	// The headings KURULUM.md gives the two opt-ins under, and whose
+	// first shell blocks this suite runs as written. internal/docs holds
+	// the document to them on every push, so a renamed heading fails
+	// there rather than only here, at night.
+	panelUpdatesHeading = "### İsteğe bağlı: panelden güncellemeyi açın"
+	restarterHeading    = "### İsteğe bağlı: yeniden başlatmayı da devredin"
 )
 
 // services are the four units the restarter restarts, with the role each
@@ -187,15 +191,8 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	t.Cleanup(func() { dumpUnits(t) })
 	waitHeartbeats(t, admin, started, "after the first start")
 
-	// ---- the restarter, by the commands KURULUM.md gives ----
-	runDocumentedBlock(t, pkg, restarterHeading)
-	if info, err := os.Stat(doorbellDir); err != nil || !info.IsDir() {
-		t.Fatalf("KURULUM's restarter commands ran and %s is not a directory (%v); the upgrader "+
-			"reads that directory's existence as 'a restarter is listening'", doorbellDir, err)
-	}
-
 	// ---- a release source the upgrader trusts ----
-	base := serveRelease(t, env.dist, toVersion)
+	base, downloads := serveRelease(t, env.dist, toVersion)
 	body, err := os.ReadFile(filepath.Join(installConf, "upgrader.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -208,9 +205,59 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(installConf, "upgrader.toml"), body, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	panelPool := servicePool(t, dsn, db, "panel_user")
+
+	// ---- first, without the opt-in: refused, and before the download ----
+	//
+	// The state every systemd install is in until the operator takes the
+	// step. Measured before this was fixed (nightly run 41, this job):
+	// the package was downloaded and verified, and the install failed at
+	// its first write with "read-only file system".
+	if _, err := relupdate.Ask(ctx, panelPool, relupdate.Actor{Kind: "user", Label: "systemd-suite"},
+		"", fromVersion, toVersion); err != nil {
+		t.Fatalf("queueing the update the way the panel does: %v", err)
+	}
+	systemctl(t, "start", "crucible-upgrader.service")
+	refused, err := relupdate.Latest(ctx, admin)
+	if err != nil || refused == nil {
+		t.Fatalf("reading the refused request back: %v", err)
+	}
+	if refused.State != relupdate.StateFailed ||
+		!strings.Contains(refused.ErrorChain, strings.TrimPrefix(panelUpdatesHeading, "### ")) {
+		t.Fatalf("before the opt-in the update ended %s with %q; want a refusal that names "+
+			"the KURULUM.md heading\n%s", refused.State, refused.ErrorChain,
+			journal(t, "crucible-upgrader.service"))
+	}
+	if n := downloads.Load(); n != 0 {
+		t.Errorf("the package was downloaded %d time(s) by a machine that could not install it", n)
+	}
+
+	// ---- the two opt-ins, by the commands KURULUM.md gives ----
+	runDocumentedBlock(t, pkg, panelUpdatesHeading)
+	runDocumentedBlock(t, pkg, restarterHeading)
+	if info, err := os.Stat(doorbellDir); err != nil || !info.IsDir() {
+		t.Fatalf("KURULUM's restarter commands ran and %s is not a directory (%v); the upgrader "+
+			"reads that directory's existence as 'a restarter is listening'", doorbellDir, err)
+	}
+
+	// ---- nothing root runs is where the upgrader may now write ----
+	//
+	// Asked of the machine rather than the files: the opt-in has just
+	// opened the binary directory, and the restarter runs as root.
+	for _, dir := range []string{filepath.Join(installPrefix, "libexec"),
+		filepath.Join(installPrefix, "libexec", "restart.sh")} {
+		if err := exec.Command("runuser", "-u", "crucible-upgrader", "--", "test", "-w", dir).Run(); err == nil {
+			t.Errorf("crucible-upgrader can write %s, and root runs the restarter from there", dir)
+		}
+	}
+	if line := systemctlOut(t, "show", "--property=ExecStart", "crucible-restart.service"); !strings.Contains(line, "/libexec/restart.sh") {
+		t.Errorf("crucible-restart.service does not run the libexec script: %s", line)
+	}
+	if _, err := os.Stat(filepath.Join(installPrefix, "bin", "restart.sh")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("restart.sh is in the binary directory the upgrader can now write (%v)", err)
+	}
 
 	// ---- the panel's request, through the panel's own call ----
-	panelPool := servicePool(t, dsn, db, "panel_user")
 	if _, err := relupdate.Ask(ctx, panelPool, relupdate.Actor{Kind: "user", Label: "systemd-suite"},
 		"", fromVersion, toVersion); err != nil {
 		t.Fatalf("queueing the update the way the panel does: %v", err)
@@ -342,16 +389,18 @@ func runDocumentedBlock(t *testing.T, pkg, heading string) {
 // The trust is the one line this suite adds that a customer would not:
 // a drop-in naming the certificate in SSL_CERT_FILE. A real release host
 // has a certificate the system already trusts.
-func serveRelease(t *testing.T, dist, version string) string {
+func serveRelease(t *testing.T, dist, version string) (string, *atomic.Int64) {
 	t.Helper()
 	name := fmt.Sprintf("crucible-analytic-%s-linux-amd64.tar.gz", version)
 	want := "/rel/" + version + "/" + name
 	pkgPath := filepath.Join(dist, name)
+	var downloads atomic.Int64
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != want {
 			http.NotFound(w, r)
 			return
 		}
+		downloads.Add(1)
 		http.ServeFile(w, r, pkgPath)
 	}))
 	cert := selfSigned(t)
@@ -382,7 +431,7 @@ func serveRelease(t *testing.T, dist, version string) string {
 		t.Fatal(err)
 	}
 	systemctl(t, "daemon-reload")
-	return "https://" + ln.Addr().String()
+	return "https://" + ln.Addr().String(), &downloads
 }
 
 // waitHeartbeats waits for all four services to write a heartbeat newer

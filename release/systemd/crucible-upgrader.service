@@ -58,7 +58,8 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
-# The state directory, and nothing else.
+# The state directory and the restart doorbell - and not the binary
+# directory, which the operator opens with a drop-in (see the end).
 #
 # # Why this line was missing, and what it cost
 #
@@ -94,6 +95,36 @@ SystemCallErrorNumber=EPERM
 # failing to start the unit: a deployment with no backups configured
 # never needs the path, and refusing to run the schema upgrader over a
 # directory it was not going to use would be the cure being worse.
-ReadWritePaths=-/var/lib/crucible-analytic
+#
+# # And the doorbell, which was missing the same way
+#
+# The upgrader asks for a restart by creating a file in
+# /run/crucible-analytic (internal/relupdate/restart.go), and this unit
+# mounted /run read-only along with everything else: every ring failed
+# with "read-only file system". crucible-restart.service listed the
+# directory - the unit that DELETES the file - and this one, the unit
+# that CREATES it, did not. The backup fix above went through this file
+# the day after the doorbell arrived and asked only where backups go.
+# Measured on 2026-09-29, with the real binary under a reproduction of
+# this sandbox and then on a real systemd (NOTES, "V systemd altında").
+#
+# Listing it gives the upgrader nothing it was not already meant to
+# have: the directory is root's with the upgrader's group (see
+# release/tmpfiles/crucible-analytic.conf), which is the whole of the
+# doorbell design. The `-` is for every machine that never opted into
+# the restarter, where the directory does not exist.
+#
+# # The binary directory is not here, on purpose
+#
+# Updates from the panel replace the binaries in
+# /opt/crucible-analytic/bin, and this unit cannot write there - nor can
+# the upgrader's account, which install.sh leaves root's. Opening both is
+# one decision the operator takes (KURULUM.md 13.5), with the drop-in
+# release/dropins/crucible-upgrader.service.d/panel-updates.conf. Put
+# here it would be taken for every install, including the ones that
+# never configured a release source, and a component that fetches
+# archives from the network would hold the power to replace the program
+# in front of the customer's website on machines that never asked for it.
+ReadWritePaths=-/var/lib/crucible-analytic -/run/crucible-analytic
 
 CapabilityBoundingSet=

@@ -104,7 +104,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **9/10** | V7 — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7 açık:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyor, ve ikili dizini root'un; gerçek ikiliyle, birimin sandbox'ı bir mount ad alanında kurularak ölçüldü. Gerçek systemd'de ölçen gecelik iş eklendi)* |
+| **V** Panelden güncelleme | 🟡 **9/10** | V7 — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un; gerçek ikiliyle ve gerçek systemd'de (gecelik 41) ölçüldü. Düzeltme yazıldı: zil yolu birimde, ikili dizini isteğe bağlı adımla açılıyor, root'un betiği `libexec`'te, yükseltici indirmeden önce soruyor; gerçek systemd'de başarılı koşu bekleniyor)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -10422,7 +10422,7 @@ imzalı bir manifest soruyor, doğruluyor ve bulduğunu bir satıra yazıyor;
 panel satırı okuyor, ağa hiç çıkmıyor. Ayrıntı NOTES'ta ("V6 —
 Güncellemeleri kontrol et"). *Bu başlık da 29 Eylül'e kadar hiç yazılmamıştı.*
 
-#### V7 — Güncelleme, systemd birimlerinin içinde ⬜ *(açıldı 2026-09-29)*
+#### V7 — Güncelleme, systemd birimlerinin içinde 🟡 *(açıldı 2026-09-29; düzeltme yazıldı ve yerelde ölçüldü, gerçek systemd koşusu bekleniyor)*
 
 **Bulgu (B3e'nin temelini okurken):** panelden sürüm güncellemesi
 hiçbir systemd kurulumunda tamamlanamıyordu. V4 kurucuyu `t.TempDir()`'de
@@ -10455,13 +10455,39 @@ olduğu gibi koşturuyor, panelin çağrısıyla güncellemeyi kuyruğa koyuyor
 ve yükselticiyi kendi biriminde başlatıyor. İlk koşusu bugünkü kusuru
 kırmızı göstermek için düzeltmeden **önce** gönderildi.
 
-**Düzeltmenin şekli (yazılıyor):** `restart.sh` ikili dizininden
-yalnız root'un yazabildiği bir dizine taşınıyor — root'un koşturduğu bir
-betik, yükselticinin yazabileceği bir dizinde durmamalı; ikili dizinini
-yükselticiye açmak **isteğe bağlı bir adım** (yeniden başlatıcı gibi):
-bugünkü kurulumların duruşu değişmiyor; yükselticinin birimine zil yolu;
-ve ikili dizinine yazamayan bir yükseltici paketi indirmeden önce, ne
-yapılacağını söyleyerek duruyor.
+**Önce, gerçek systemd'de:** süit düzeltmeden önce gönderildi; gecelik
+41 tam beklenen cümleyle kırmızı verdi (`mkdir .../bin/.previous-…:
+read-only file system`). Ondan önceki zincirin tamamı — `install.sh`'ın
+systemd dalı, dört servis kendi birimlerinde, KURULUM'daki yeniden
+başlatıcı komutları, imzalı paketin https'ten indirilip doğrulanması —
+ilk kez gerçek systemd'de koştu ve geçti.
+
+**Düzeltme (yazıldı):**
+
+- Zil yolu yükselticinin biriminde (`-/run/crucible-analytic`).
+- İkili dizinini yükselticiye açmak **isteğe bağlı bir adım** —
+  KURULUM §13.5, "İsteğe bağlı: panelden güncellemeyi açın": grup, kip ve
+  birime bir ek dosya. Varsayılan değil, çünkü açık dizinle yükseltici
+  hesabı collector'ı değiştirebilir; bugünkü kurulumların duruşu
+  değişmiyor. *Varsayılanın açık olması sahibin isteyebileceği bir
+  karar.*
+- `restart.sh` `libexec`'e: root'un koşturduğu betik yükselticiye
+  açılabilen dizinde durmamalı. Belgedeki `-version`, cron ve
+  `install.sh`'ın bastığı komutlar `crucible` hesabıyla.
+- Yükseltici **indirmeden önce** soruyor ve iki ayrı cevap veriyor: adım
+  atılmamış (satırda başlığın adı) ya da önek yanlış (eskiden eksik
+  dizini yaratıp "kuruldu" diyordu).
+- `install.sh` açılmış dizini yeniden kurulumda kapatmıyor, eski
+  `restart.sh`'ı siliyor.
+
+Yerelde ölçüldü (NOTES'ta tablo): adım atılmamış her durum sıfır
+indirmeyle reddediliyor; adım atılmışsa kurulum ve zil geçiyor. Başarılı
+yeniden başlatma burada ölçülemiyor (zile cevap verecek systemd yok);
+**gecelik süit onu gerçek systemd'de soruyor, ✅ o koşudan sonra.**
+Yeni değişmez `internal/invariants/unitwrites_test.go`: root'un
+çalıştırdığı hiçbir şey bir hizmet hesabının yazabildiği yolda değil;
+zili çalan birim zili, kurucunun birimi ikili dizinini yalnız ek dosyayla
+açıyor.
 
 ---
 

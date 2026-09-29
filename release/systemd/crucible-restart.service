@@ -26,7 +26,19 @@ StartLimitIntervalSec=300
 [Service]
 Type=oneshot
 # The command, fixed here. Nothing from the request reaches it.
-ExecStart=/opt/crucible-analytic/bin/restart.sh
+#
+# # And in libexec, not bin
+#
+# This is the one unit that runs as root, so where its script lives is
+# part of the security argument. It lived in /opt/crucible-analytic/bin
+# until updates from the panel could open that directory to the
+# upgrader (KURULUM.md 13.5). Left there, opening it would have let the
+# upgrader rewrite what root runs on the next ring - turning "the worst
+# it can do is cause this exact restart" into "the worst it can do is
+# anything". libexec is root's and no unit or drop-in lists it
+# writable; internal/invariants/unitwrites_test.go holds that for every
+# root unit against every other unit's writable paths.
+ExecStart=/opt/crucible-analytic/libexec/restart.sh
 
 # Root, said out loud rather than left to the default.
 #

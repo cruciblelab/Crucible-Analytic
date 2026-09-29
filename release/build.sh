@@ -130,6 +130,16 @@ cp release/systemd/*.service release/systemd/*.timer release/systemd/*.path "${S
 mkdir -p "${STAGE}/tmpfiles"
 cp release/tmpfiles/*.conf "${STAGE}/tmpfiles/"
 
+# And the drop-in that opens the binary directory to the upgrader.
+#
+# Without it in the package, updates from the panel could not be turned
+# on at all: the unit mounts /opt read-only, and the step KURULUM.md 13.5
+# gives installs this file. Copied as a tree because systemd reads a
+# drop-in from a directory named after its unit, and the package keeps
+# that name so the command that installs it can be read off the path.
+mkdir -p "${STAGE}/dropins"
+cp -R release/dropins/. "${STAGE}/dropins/"
+
 echo "== install and verify scripts"
 # The package carries its own installer and its own verifier. A release
 # whose install script lived only in the source repository would tell the

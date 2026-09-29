@@ -175,21 +175,39 @@ func TestThePackageCarriesWhatAnInstallNeeds(t *testing.T) {
 	// A missing unit is not a build failure. It is a package that
 	// installs, reports success, and is missing the half of a feature
 	// that only shows up the first time somebody needs it.
-	for _, dir := range []string{"systemd", "tmpfiles"} {
-		sources, err := filepath.Glob(filepath.Join(repoRoot(t), "release", dir, "*"))
+	//
+	// Walked rather than globbed: dropins keeps systemd's own layout, a
+	// directory named after the unit, and a glob one level deep would
+	// have found the directory and never looked at the file in it.
+	for _, dir := range []string{"systemd", "tmpfiles", "dropins"} {
+		base := filepath.Join(repoRoot(t), "release", dir)
+		var sources []string
+		err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() {
+				rel, err := filepath.Rel(base, path)
+				if err != nil {
+					return err
+				}
+				sources = append(sources, rel)
+			}
+			return nil
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(sources) == 0 {
 			t.Errorf("release/%s is empty, so this check examined nothing", dir)
 		}
-		for _, src := range sources {
-			want := filepath.Join(dir, filepath.Base(src))
+		for _, rel := range sources {
+			want := filepath.Join(dir, rel)
 			if _, err := os.Stat(filepath.Join(stage, want)); err != nil {
 				t.Errorf("release/%s is in the source tree and %s is not in the package. "+
 					"build.sh copies these by name; a file it was never told about is "+
 					"simply absent, and nothing downstream says so",
-					filepath.Join(dir, filepath.Base(src)), want)
+					filepath.Join(dir, rel), want)
 			}
 		}
 	}
@@ -527,8 +545,14 @@ var unitExpectations = map[string]struct {
 		// The cost: every backup on every systemd install failed with
 		// "read-only file system", and once the upgrade started taking
 		// one first, schema upgrades stopped too.
+		//
+		// And the restart doorbell, which it creates in /run/crucible-analytic
+		// and which this unit mounted read-only until 2026-09-29: every
+		// ring failed. The binary directory is NOT in the unit - opening it
+		// is the operator's drop-in (release/dropins); see
+		// internal/invariants/unitwrites_test.go for both rules.
 		writes: true,
-		why:    "one-shot; logs to the journal, and writes backups under the state directory",
+		why:    "one-shot; logs to the journal, writes backups under the state directory and rings the restart doorbell",
 	},
 
 	"crucible-restart.service": {

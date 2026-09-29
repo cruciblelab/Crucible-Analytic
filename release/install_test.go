@@ -9,6 +9,7 @@ package release
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/cruciblelab/crucible-analytic/internal/collector"
 	"github.com/cruciblelab/crucible-analytic/internal/profile"
@@ -19,6 +20,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -2268,7 +2270,12 @@ func TestEveryUnitRunsSomethingTheInstallerPutsThere(t *testing.T) {
 		// The installer has to do two things: know the directory, and
 		// know this binary belongs in it. Checking only the directory
 		// would pass on a script that installs four of the five.
-		installsDir := strings.Contains(text, `${PREFIX}/bin`) ||
+		//
+		// The directory as the unit names it, under ${PREFIX}. This
+		// accepted `${PREFIX}/bin` for any unit, so when restart.sh moved
+		// to libexec (2026-09-29) a script that never wrote libexec would
+		// have passed for the restarter on the strength of the binaries.
+		installsDir := strings.Contains(text, "${PREFIX}/"+filepath.Base(dir)) ||
 			strings.Contains(text, dir)
 		if !installsDir {
 			t.Errorf("%s runs %s and install.sh never writes into %s.\n"+
@@ -2510,6 +2517,125 @@ func TestTheBinariesStepKnowsWhenThereIsNothingToCopy(t *testing.T) {
 	})
 }
 
+// TestReinstallingKeepsTheOperatorsDecisionAndMovesTheRestarter.
+//
+// Moving to a new version by hand is re-running install.sh (KURULUM.md
+// 13.5), so this is what every existing systemd install meets the day it
+// takes this version. Two things have to happen and one must not:
+//
+//   - restart.sh, which root runs, leaves the binary directory: an
+//     install from before 2026-09-29 has it there, beside a unit that
+//     named it there, and this run replaces the unit;
+//   - a binary directory the operator opened to the upgrader (0775, the
+//     upgrader's group) stays open. ensure_mode would have seen 0775,
+//     wanted 0755 and set it, and the next update from the panel would
+//     have failed at its first write with nothing said;
+//   - and a directory nobody opened stays closed: the first install
+//     leaves it root's, 0755, as every install before this one did.
+func TestReinstallingKeepsTheOperatorsDecisionAndMovesTheRestarter(t *testing.T) {
+	const db = "ca_install_reinstall_test"
+
+	if os.Geteuid() != 0 {
+		t.Skip("the systemd stage needs root (it creates system accounts)")
+	}
+	if _, err := exec.LookPath("useradd"); err != nil {
+		t.Skip("useradd is not on PATH")
+	}
+	for _, account := range []string{"crucible", "crucible-upgrader"} {
+		if _, err := exec.Command("id", "-u", account).Output(); err != nil {
+			t.Cleanup(func() { _ = exec.Command("userdel", account).Run() })
+		}
+	}
+	demoteServiceSuperusers(t)
+	scratchDatabase(t, db)
+
+	root := repoRoot(t)
+	binDir := t.TempDir()
+	for _, name := range []string{"collector", "panel"} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte("#!/bin/sh\necho stub\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	confDir := t.TempDir()
+	for dir := confDir; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		if err := os.Chmod(dir, 0o711); err != nil {
+			t.Fatalf("opening the temp chain: %v", err)
+		}
+	}
+	prefix := t.TempDir()
+	env := append(os.Environ(),
+		"SUPERUSER_DSN="+dsnFor(superuserDSN(t), db),
+		"DB_NAME="+db,
+		"CONF_DIR="+confDir,
+		"SYSTEMD_DIR="+t.TempDir(),
+		"PREFIX="+prefix,
+		"LOG_DIR="+t.TempDir(),
+		"STATE_DIR="+t.TempDir(),
+	)
+	install := func() string {
+		t.Helper()
+		cmd := exec.Command("./release/install.sh", "--bin-dir", binDir)
+		cmd.Dir = root
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("install.sh: %v\n%s", err, out)
+		}
+		return string(out)
+	}
+	bin := filepath.Join(prefix, "bin")
+	modeAndGroup := func() (os.FileMode, string) {
+		t.Helper()
+		info, err := os.Stat(bin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("stat", "-c", "%G", bin).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Mode().Perm(), strings.TrimSpace(string(out))
+	}
+
+	// ---- a first install leaves the directory closed ----
+	install()
+	if mode, group := modeAndGroup(); mode != 0o755 || group != "root" {
+		t.Fatalf("a fresh install left %s mode %v, group %s; want 0755 and root - opening it "+
+			"is the operator's decision", bin, mode, group)
+	}
+
+	// ---- the machine as an older install and an operator left it ----
+	if err := os.WriteFile(filepath.Join(bin, "restart.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][]string{{"chgrp", "crucible-upgrader", bin}, {"chmod", "0775", bin}} {
+		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", c, err, out)
+		}
+	}
+
+	// ---- and moved to a new version by hand ----
+	out := install()
+	if mode, group := modeAndGroup(); mode != 0o775 || group != "crucible-upgrader" {
+		t.Errorf("re-running install.sh left %s mode %v, group %s; the operator had opened it "+
+			"to the upgrader (0775, crucible-upgrader), and the next update from the panel "+
+			"now fails at its first write", bin, mode, group)
+	}
+	if !strings.Contains(out, "left as it is") {
+		t.Errorf("the install did not say it kept the opened directory:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(bin, "restart.sh")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the old restart.sh is still in the binary directory (%v) - a file root "+
+			"runs, where the upgrader may now write", err)
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "libexec", "restart.sh")); err != nil {
+		t.Errorf("restart.sh is not in libexec after the reinstall: %v", err)
+	}
+	if !strings.Contains(out, "removed "+filepath.Join(bin, "restart.sh")) {
+		t.Errorf("the install removed the old restart.sh without saying so:\n%s", out)
+	}
+}
+
 // TestInstallingFromAPackageWritesEverythingAPackageCarries.
 //
 // # The layout nothing ran against
@@ -2602,12 +2728,48 @@ func TestInstallingFromAPackageWritesEverythingAPackageCarries(t *testing.T) {
 
 	// The restarter's two halves, which are useless separately: the unit
 	// runs a script, and the script needs a directory that only the
-	// tmpfiles entry creates.
-	for _, want := range []string{"bin/restart.sh", "tmpfiles/crucible-analytic.conf"} {
+	// tmpfiles entry creates. And the drop-in that opens the binary
+	// directory to the upgrader, which is useless if it is not there to
+	// be installed when the operator decides to.
+	for _, want := range []string{
+		"libexec/restart.sh",
+		"tmpfiles/crucible-analytic.conf",
+		"dropins/crucible-upgrader.service.d/panel-updates.conf",
+	} {
 		if _, err := os.Stat(filepath.Join(prefix, want)); err != nil {
 			t.Errorf("%s is not under the prefix after installing from a package: %v",
 				want, err)
 		}
+	}
+
+	// And the root-run script is nowhere the upgrader could be given.
+	//
+	// It lived in bin until updates from the panel could open bin to the
+	// upgrader (KURULUM.md 13.5). Asked of the installed files rather
+	// than the unit: a unit naming libexec while install.sh still put the
+	// script in bin would pass a check of the unit and leave the old copy
+	// for anyone who reads the directory to run.
+	if _, err := os.Stat(filepath.Join(prefix, "bin", "restart.sh")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("restart.sh is in the binary directory (%v); root runs it, and that "+
+			"directory can be opened to the upgrader", err)
+	}
+	for _, p := range []string{filepath.Join(prefix, "libexec"), filepath.Join(prefix, "libexec", "restart.sh")} {
+		info, err := os.Stat(p)
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid != 0 || info.Mode().Perm()&0o022 != 0 {
+			t.Errorf("%s is mode %v, owner uid %v; root runs what is in it, so it has to be "+
+				"root's and writable by nobody else", p, info.Mode().Perm(), st.Uid)
+		}
+	}
+	// And the drop-in is NOT where systemd reads it: opening the binary
+	// directory is the operator's decision, like the restarter's.
+	if _, err := os.Stat(filepath.Join(systemdDir, "crucible-upgrader.service.d")); err == nil {
+		t.Error("install.sh put the panel-updates drop-in where systemd reads it, which " +
+			"opens the binary directory on every install that never asked")
 	}
 
 	// And the tmpfiles entry is NOT in a search path, because the

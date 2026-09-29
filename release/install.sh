@@ -198,6 +198,23 @@ install as the owner of ${_dir}, or set the mode yourself and run it again."
   done
 }
 
+# ensure_bin_mode keeps the binary directory 0755 - unless the operator
+# has opened it to the upgrader, which is 0775 with the upgrader's group
+# (KURULUM.md 13.5, "İsteğe bağlı: panelden güncellemeyi açın").
+#
+# ensure_mode alone would see 0775, want 0755 and set it: re-running this
+# script to move to a new version by hand would quietly close the
+# directory again, and the next update from the panel would fail at its
+# first write. Opening it is the operator's decision, and an upgrade path
+# that reverses a decision without a word has made one for them.
+ensure_bin_mode() {
+  if [ "$(stat -c %G "$1" 2>/dev/null || printf '')" = "${RUN_AS_UPGRADER}" ] &&
+     [ "$(stat -c %a "$1" 2>/dev/null || printf '')" = "775" ]; then
+    return 0
+  fi
+  ensure_mode 0755 "$1"
+}
+
 # same_dir <a> <b> is true when two paths name one directory, however
 # they are spelled.
 #
@@ -1239,7 +1256,11 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     say "   already at ${PREFIX}/bin; nothing to copy"
   else
     mkdir -p "${PREFIX}/bin"
-    ensure_mode 0755 "${PREFIX}" "${PREFIX}/bin"
+    ensure_mode 0755 "${PREFIX}"
+    ensure_bin_mode "${PREFIX}/bin"
+    if [ "$(stat -c %a "${PREFIX}/bin")" = "775" ]; then
+      say "   ${PREFIX}/bin is open to ${RUN_AS_UPGRADER} (updates from the panel); left as it is"
+    fi
     # Probed, not deduced from the mode.
     #
     # ensure_mode has just satisfied itself that the directory is 0755,
@@ -1337,25 +1358,55 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
   fi
   say "   ${units_written} unit files -> ${SYSTEMD_DIR}"
 
-  # The restarter's script, beside the binaries its unit names.
+  # The restarter's script, in libexec.
   #
   # Installed even though nothing enables it, because the alternative is
   # an operator who decides to turn the restarter on and finds the unit
   # pointing at a file that is not there - which fails as
   # "status=203/EXEC", a message that names the symptom and not this.
   #
-  # The directory is created here rather than assumed. It is made in the
-  # binaries step, but only on the branch where ${BIN_DIR} exists: a
+  # Not beside the binaries any more. It runs as root, and the binary
+  # directory can be opened to the upgrader (KURULUM.md 13.5); a script
+  # root runs, in a directory another account may write, is that account
+  # choosing what root runs. libexec is root's and stays root's -
+  # internal/invariants/unitwrites_test.go holds the units to it.
+  #
+  # The directories are created here rather than assumed. bin is made in
+  # the binaries step, but only on the branch where ${BIN_DIR} exists: a
   # source checkout with nothing built yet skips it, and this install
   # then failed with "No such file or directory" on a path nobody had
   # asked about. Found by the release test, which runs the real script.
-  mkdir -p "${PREFIX}/bin"
-  ensure_mode 0755 "${PREFIX}" "${PREFIX}/bin"
+  mkdir -p "${PREFIX}/bin" "${PREFIX}/libexec"
+  ensure_mode 0755 "${PREFIX}" "${PREFIX}/libexec"
+  ensure_bin_mode "${PREFIX}/bin"
+  chown root:root "${PREFIX}/libexec"
   restart_script=""
   for candidate in "${HERE}/restart.sh" "${ROOT}/release/restart.sh"; do
     if [ -f "${candidate}" ]; then
-      install -m 0755 "${candidate}" "${PREFIX}/bin/restart.sh"
-      restart_script="${PREFIX}/bin/restart.sh"
+      install -m 0755 "${candidate}" "${PREFIX}/libexec/restart.sh"
+      restart_script="${PREFIX}/libexec/restart.sh"
+      break
+    fi
+  done
+  # The old place. A machine installed before 2026-09-29 has the script
+  # in the binary directory, beside a unit that named it there; this run
+  # has just replaced that unit. Removed rather than left behind, because
+  # a root-run script in a directory the upgrader may be given is the
+  # thing the move exists to end.
+  if [ -e "${PREFIX}/bin/restart.sh" ]; then
+    rm -f "${PREFIX}/bin/restart.sh"
+    say "   removed ${PREFIX}/bin/restart.sh; the restarter's script is in ${PREFIX}/libexec now"
+  fi
+  # And the drop-in that opens the binary directory to the upgrader -
+  # under ${PREFIX}, NOT under ${SYSTEMD_DIR}, for the reason the
+  # tmpfiles entry below gives: it is a decision (step 2b), and a file
+  # put where systemd reads it has taken that decision for everybody.
+  for candidate in "${HERE}/dropins/crucible-upgrader.service.d/panel-updates.conf" \
+                   "${ROOT}/dropins/crucible-upgrader.service.d/panel-updates.conf"; do
+    if [ -f "${candidate}" ]; then
+      mkdir -p "${PREFIX}/dropins/crucible-upgrader.service.d"
+      install -m 0644 "${candidate}" "${PREFIX}/dropins/crucible-upgrader.service.d/panel-updates.conf"
+      say "   ${PREFIX}/dropins/crucible-upgrader.service.d/panel-updates.conf (not enabled; see step 2b)"
       break
     fi
   done
@@ -1377,7 +1428,7 @@ if [ "${DRY_RUN}" -eq 0 ] && [ "${WANT_SYSTEMD}" -eq 1 ]; then
     if [ -f "${candidate}" ]; then
       mkdir -p "${PREFIX}/tmpfiles"
       install -m 0644 "${candidate}" "${PREFIX}/tmpfiles/crucible-analytic.conf"
-      say "   ${PREFIX}/tmpfiles/crucible-analytic.conf (not enabled; see step 2b)"
+      say "   ${PREFIX}/tmpfiles/crucible-analytic.conf (not enabled; see step 2c)"
       break
     fi
   done
@@ -1613,7 +1664,24 @@ NEXT
      The upgrader is a timer, not a service: enabling the service itself
      would run one upgrade and stop.
 
-  2b. Optional, and a decision: let the panel restart the services after
+  2b. Optional, and a decision: let the panel install version updates.
+
+       chgrp ${RUN_AS_UPGRADER} ${PREFIX}/bin
+       chmod 0775 ${PREFIX}/bin
+       install -D -m 0644 ${PREFIX}/dropins/crucible-upgrader.service.d/panel-updates.conf \\
+            ${SYSTEMD_DIR}/crucible-upgrader.service.d/panel-updates.conf
+       systemctl daemon-reload
+
+     Without it the panel's update button refuses before downloading
+     anything, and says it is this step that is missing. The binary
+     directory is root's, and the upgrader's unit mounts it read-only.
+
+     With it, the upgrader can replace the binaries - the collector in
+     front of your site included - with packages signed by our key.
+     Nothing root runs lives in that directory any more; do not run its
+     programs as root yourself either: sudo -u ${RUN_AS} ...
+
+  2c. Optional, and it needs 2b: let the panel restart the services after
      a version update.
 
        install -m 0644 ${PREFIX}/tmpfiles/crucible-analytic.conf /etc/tmpfiles.d/
@@ -1650,15 +1718,22 @@ NEXT
 NEXT
   fi
 
+  # As the service account where there is one. Nothing in ${PREFIX}/bin
+  # should be run by root once step 2b is taken, and a habit is formed
+  # by the first command somebody copies.
+  AS_SERVICE=""
+  if [ "${WANT_SYSTEMD}" -eq 1 ]; then
+    AS_SERVICE="sudo -u ${RUN_AS} "
+  fi
   cat <<NEXT
   3. Create the one-time developer link, open it, and run the wizard:
-       ${PREFIX}/bin/panel -config ${CONF_DIR}/panel.toml -dev-link -base-url https://${DOMAIN:-panel.example.com}
+       ${AS_SERVICE}${PREFIX}/bin/panel -config ${CONF_DIR}/panel.toml -dev-link -base-url https://${DOMAIN:-panel.example.com}
      The wizard ends by handing the installation to the customer's own
      account; after that this machine's operator cannot sign in without
      their approval.
 
   4. Put the snippet on the site - KURULUM.md section 10. It is printed by:
-       ${PREFIX}/bin/beacon -snippet https://${DOMAIN:-example.com} ${INSTALLED_SITE_ID:-<site-id>}
+       ${AS_SERVICE}${PREFIX}/bin/beacon -snippet https://${DOMAIN:-example.com} ${INSTALLED_SITE_ID:-<site-id>}
 
   Resource profile: ${INSTALLED_PROFILE}. The collector checks it against
   this machine's memory at startup and refuses only what a container

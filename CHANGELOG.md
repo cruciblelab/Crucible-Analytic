@@ -24,6 +24,38 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Panelden sürüm güncellemesi hiçbir systemd kurulumunda tamamlanamıyordu
+
+**Kuran kişinin yapması gereken:** bu sürümün `install.sh`'ını çalıştırın
+(elle yeni sürüme geçmenin zaten olağan yolu); panelden güncelleme
+kullanmak istiyorsanız ardından KURULUM.md §13.5'teki **"İsteğe bağlı:
+panelden güncellemeyi açın"** başlığının dört komutunu. Şema değişmedi.
+
+Güncelleme düğmesi 4 Eylül'den beri paneldeydi ve systemd kurulumunda
+hiç işe yaramadı: paket indiriliyor, imzası doğrulanıyor, ve ikililer
+yazılırken *"read-only file system"* ile düşüyordu. Hiçbir şey
+değişmiyordu, ama sayfa müşterinin yapabileceği bir şey söylemiyordu.
+Üç engel üst üste duruyordu: ikili dizini root'undu, yükselticinin
+birimi `/opt`'u salt-okunur bağlıyordu, ve yeniden başlatma zili
+(`/run/crucible-analytic`) da o birimde salt-okunurdu. Gerçek yükseltici
+ikilisiyle ve sonra gerçek systemd'de ölçüldü.
+
+Artık:
+
+- Yükselticinin birimi zil dizinine yazabiliyor (yeniden başlatıcıyı
+  açmamış kurulumlarda o dizin yok; bir şey değişmiyor).
+- İkili dizinini yükselticiye açmak **isteğe bağlı bir adım**: dört komut,
+  biri systemd'ye ek dosya koyuyor. Atılmamışsa düğme **hiçbir şey
+  indirmeden** durur ve adımın adını söyler. Önek yanlışsa (altında `bin`
+  yoksa) onu da ayrıca söyler; eskiden dizini yaratıp oraya kuruyor ve
+  "kuruldu" diyordu.
+- Yeniden başlatıcının betiği root olarak çalışıyor, bu yüzden ikili
+  dizininden `/opt/crucible-analytic/libexec/`'e taşındı; `install.sh`
+  eskisini siliyor. Yükselticinin yazabildiği bir dizinde root'un
+  çalıştırdığı bir dosya durmamalı. Aynı sebeple belgedeki `-version` ve
+  bot verisi cron satırı artık `crucible` hesabıyla.
+- `install.sh`'ı yeniden çalıştırmak açılmış dizini kapatmıyor.
+
 ### KURULUM, panelde olmayan ayarları "işaretli" diye anlatıyordu
 
 **Kuran kişinin yapması gereken: hiçbir şey.** Belge düzeltmesi.
