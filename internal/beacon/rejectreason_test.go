@@ -143,6 +143,9 @@ func TestTheHeartbeatCarriesTheReasons(t *testing.T) {
 		heartbeat.CounterRejectedInvalid:      0,
 		heartbeat.CounterRejectedOverCapacity: 0,
 		heartbeat.CounterRejectedOther:        0,
+		// Present at zero: the key itself is what tells the panel this
+		// build honours a pause (see heartbeat.CounterPaused).
+		heartbeat.CounterPaused: 0,
 	}
 	for key, n := range want {
 		got, present := row[key]

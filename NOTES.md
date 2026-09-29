@@ -23119,3 +23119,252 @@ alması; tam çıktı okunarak doğrulandı.
 "Herkes hesap sayfasına" mutasyonunu yakalayan, C7.2'nin var olan
 testi: ikinci faktörü koruyan hesabın `Location`'u tam olarak
 `SecondFactorPath` olmalı.
+
+---
+
+## B3d-1 — Kaydı duraklatmak: site başına, bitişi olan bir ayar (2026-09-29)
+
+Katalog #3 (`PauseCollection` / `ResumeCollection`): *"Vekili durdurmadan
+yalnız kaydı durdur. Olay ortasında güvenli hamle: trafik siteye ulaşmaya
+devam eder, disk dolmayı bırakır, biz çalışırken kimse satış kaybetmez."*
+B3a'nın envanterinde "yok" idi.
+
+### Şekli: bir anahtar değil, bir bitiş anı
+
+- Ayar `collection.paused_until`: site başına, canlı. Değeri bir an
+  (RFC 3339, UTC) ya da boş.
+- Sayfa süre sunuyor: 1 saat, 6 saat, 1 gün, 7 gün, ve "Kapalı"
+  (duraklatma açıkken "Şimdi kapat"). Saklanan, seçilen sürenin ulaştığı
+  an. Süre dolunca kayıt kendiliğinden sürüyor.
+- **Neden bitişli:** unutulan bir duraklatma sessiz veri kaybıdır. Pano
+  sakin bir hafta gösterir ve kimse bir şeye basıldığını hatırlamaz.
+  `logs.verbose_until`'ün şekli: kendi söner.
+- **En fazla bir hafta**, ve bunu depo da uyguluyor: sayfadan gelmeyen bir
+  değer (elle kurulmuş bir istek) bir yılı duraklatamıyor. Kalıcı bir
+  duraklatma sitenin kaldırılmasıdır.
+- **Katalogdan bilerek sapıldı.** B3a tablosu "site listesi canlı ayar"
+  diyordu. Liste genel bir ayar olurdu: ya bir sitenin yöneticisi başka
+  sitenin kaydını durdurabilirdi, ya da yalnız işletmeci durdurabilirdi.
+  Site başına ayar, o sitenin ayarlarını yönetenin (sahip, yönetici,
+  işletmeci) kendi verisi hakkındaki kararı. Geliştirici parolası
+  istemiyor: geliştiriciye iş çıkarmıyor (erişim ilkesi), ve her değişiklik
+  denetim kaydında kimin bastığıyla duruyor.
+- Yeni bir ayar türü, `KindUntil`: kendiliğinden biten bir durum. Sayfa
+  değeri hiçbir zaman ham göstermiyor; metin kutusundaki bir zaman damgası
+  kimsenin iki kez doğru dolduramadığı bir formdur.
+
+### Nerede uygulanıyor: yazmada, vekilde değil
+
+- **Collector** trafiği geçirmeye ve hız pencerelerini tutmaya devam
+  ediyor (skor ve sınırlar onlardan okuyor). Yalnız satırlar yazılmıyor.
+- **Beacon** olayı kabul edilmiş gibi cevaplıyor (204) ve kuyruğa
+  koymuyor. Sayfanın ve snippet'in farklı bir şey yapması gerekmiyor, ve
+  duraklatma ziyaretçinin işi değil. Kontrol site kontrolünden **sonra**:
+  duraklatma, hangi site adlarının kabul edildiğini öğrenmenin yolu
+  olmasın. Test bunu listede olmayan ama duraklatılmış bir site için 403
+  bekleyerek soruyor; iki kontrolün yerini değiştiren mutasyon kırmızı.
+- **Sayılıyor:** iki yazar da kalp atışında `duraklatilan` bildiriyor,
+  sıfır dahil, her zaman. Anahtarın **varlığı**, panelin "bu yapı
+  duraklatmayı tanıyor" bilgisi. Sağlık sayfası sayıyı yalnız sıfırdan
+  büyükken çiziyor; sıfırken her servisin altında olay anında okunan boş
+  bir satır olurdu.
+- **Günlük:** iki servis de iki kenarda satır yazıyor (`recording paused`
+  site ve bitişle, `recording resumed` siteyle), süre kendiliğinden
+  bittiğinde de. Eksik satırlar hakkında ilk sorulan soru budur.
+
+### Yolda bulunan: ilk hâlim duraklatmanın son aralığını kaydediyordu
+
+Collector satırları yazma turunda yazıyor (varsayılan 10 sn), ve bir
+satır adresin **son isteğinin** anına ait: hız deposunun tuttuğu tek şey
+bu.
+
+İlk hâlim yalnız bitişi tutuyor ve "yazma turu duraklatmada mı" diye
+soruyordu. İki kenar da tura kayıyordu:
+- bitişten sonraki ilk tur, duraklatmanın son aralığında görülen her
+  adresi yazıyordu: duraklatılmışken yapılan ziyaretler, kaydedilmiş;
+- duraklatmanın başladığı aralıkta, başlamadan önce yapılan ziyaretler
+  düşüyordu.
+
+Birim testim geçiyordu, çünkü turu duraklatmanın içinde koşturuyordu.
+Yani yalnız kısayolun alındığı durumu sınıyordu.
+
+Artık duraklatma bir aralık, `[başlangıç, bitiş)`:
+- başlangıç, bu sürecin duraklatmayı ilk duyduğu an;
+- bitiş, saklanan an ya da duraklatmanın kaldırıldığı an.
+
+Yazma turu, son isteği bu aralığa düşen adresleri tutuyor, tur ne zaman
+koşarsa koşsun. Testler iki kenarın iki yanını soruyor ve turu bitişten
+sonra koşturuyor.
+
+Gerçek ikiliyle ölçüldü (aşağıdaki D adımı): istek turdan 1,9 sn sonra,
+bitiş turdan 6,0 sn sonra, sonraki tur ~10 sn'de. İlk hâlin kuralıyla
+derlenmiş collector (`-overlay` ile tek satır) o adres için **1 satır**
+yazdı, şimdiki **0**. Diğer bütün adımlarda iki ikili aynı sonucu verdi.
+
+Kalan kaba kenarlar, bilerek:
+- Bir adres başlangıç anının iki yanında, aynı yazma turunda görüldüyse
+  o turun satırı duraklatmaya sayılıyor (son isteği aralıkta). En fazla
+  bir yazma turu, daha az veri yönünde.
+- Bitişten sonra yazılan bir satırın hız penceresi (dakikalık sayım)
+  aralığın içine uzanabilir. Satır bitişten sonraki isteğe ait, sayımı
+  pencereye.
+
+### Ne zaman geçerli
+
+Panelin yazdığı değer servislere bir ayar yoklamasında ulaşıyor (varsayılan
+bir dakika, `[settings] interval_seconds`). Duraklatma basıldığında değil,
+servis duyduğunda başlıyor; aradaki ziyaretler kaydediliyor. Ayarın
+yardım metni bunu söylüyor ("bir dakika içinde"). Elle sürdürme de
+yoklamada. Kendiliğinden gelen bitiş ise ikisinde de tam anında: beacon
+her olayda saate soruyor, collector satırın anını aralığın bitişiyle
+karşılaştırıyor.
+
+### Pano: sürerken ve bittikten sonra
+
+- **Sürerken** sitenin kendi sayfasında bir uyarı: ne zamana kadar,
+  aralığın geri getirilemeyeceği, nereden sürdürüleceği. Bir yazar taze
+  kalp atışında satır yazıyor ama sayacı taşımıyorsa (duraklatmayı
+  bilmeyen eski bir yapı), uyarı onu adıyla söylüyor: "kaydetmeye devam
+  ediyor". Liste servis adlarından değil sayaçlardan kuruluyor, yani bu
+  sayfanın hiç duymadığı bir yazar da soruluyor. Bayat satırlar (üç
+  dakikadır haber yok) ve satır yazmayan servisler sayılmıyor; ikisi de
+  testte, ikisinin de kuralını silen mutasyon kırmızı.
+- **Bittikten sonra:** ilk hâlim yalnız sürerken söylüyordu. Ekran
+  görüntüsüne bakarken sordum: bir hafta sonra o boşluğa bakan ne okur?
+  Trafik düşüşü. Artık seçilen aralığın içinde kalan biten duraklatmalar
+  bir bilgi notuyla anılıyor: "o saatlerdeki ziyaretler kaydedilmedi;
+  sayılar o kadar eksik". En yeni üçü saatleriyle, öncesi sayıyla.
+  - **Türetiliyor, saklanmıyor.** Kaynak denetim kaydı: `ApplySetting`
+    ve `ClearSetting` değeri yazdıkları yolda anı ve değeri de yazıyor.
+    İkinci bir kayıt, aynı gerçeğin yanlış olabileceği ikinci bir yer
+    olurdu, ve şemada olmayan bir tablo. Kural: süren bir duraklatmayı
+    yeni bir bitiş taşır (aynı aralık), boş değer ya da "Varsayılana dön"
+    o anda bitirir, bitişi geçmiş bir duraklatma bitişinde kapanmıştır.
+  - **Bir dakikadan kısa olan anılmıyor.** Servisler ayarı dakikada bir
+    yokluyor; bir dakika içinde geri alınan bir duraklatma hiçbir yazara
+    ulaşmamış olabilir, ve "kaydedilmedi" cümlesi bir hafta boyunca yanlış
+    kalırdı. Eşik bir testle yoklama aralığına (`settings.DefaultInterval`)
+    bağlı. Grafiğin en ince kovası da çeyrek saat.
+  - Anlar panelin. Servisler duraklatmaya en fazla bir yoklama geç
+    başlıyor; not bunu ayrıca söylemiyor.
+- Açıkken seçim kutusunun sıfır seçeneği **"Şimdi kapat"** diyor. İlk
+  hâlinde "Kapalı" yazıyordu ve "14:40 saatine kadar açık" diyen satırın
+  hemen altında şimdiki değer gibi okunuyordu. Ekran görüntüsünden.
+
+### Açık
+
+- Kalp atışı tablosu servis başına tek satır (birincil anahtar
+  `service`). İki collector koşan bir kurulumda (her biri bir site) pano
+  yalnız en son yazanın sayacını görür. Kalp atışının bugünkü şekli,
+  duraklatmaya özgü değil.
+- Geçmiş duraklatma notu yalnız sitenin panosunda; ayrıntı sayfalarında
+  (kırılımlar, teknik) yok.
+- Beacon'ın tamponunda duraklatmadan önce kabul edilmiş olaylar
+  yazılıyor. Bunlar duraklatmadan önceki ziyaretler.
+
+### Ölçüldü
+
+- **Collector'ın yazma turu (birim):**
+  - iki kenarın iki yanı: başlangıç −1 ns kaydediliyor, başlangıç
+    tutuluyor, bitiş −1 ns tutuluyor, bitiş kaydediliyor; tur bitişten
+    sonra koşarken;
+  - tekrarlanan ya da uzatılan yoklama aralığı yeniden başlatmıyor;
+  - kaldırma (boşaltma ve geçmiş bir an) aralığı o anda bitiriyor, ve
+    sonraki yoklama bitmiş aralığı unutturmuyor;
+  - hepsi tutulunca yazıcı hiç çağrılmıyor.
+- **Beacon (birim):** 204 ve satır yok; öbür site kaydediliyor; listede
+  olmayan site duraklatılmış olsa da 403; kalp atışında tutulan 1, kabul
+  1; bitiş anında kayıt; harita kopyalanıyor.
+- **Panelin deposu (birim):** bir haftanın ±1 dakikası, UTC'ye
+  çevirme, `UntilOf`'un iki yanı, tanımın kendisi.
+- **Servislerin okuyucusu (gerçek veritabanı, `panel_user`):** an, boş,
+  bozuk metin, sayı, hiç yok.
+- **Ayarlar sayfası ve pano (gerçek veritabanı, sayfanın alanlarıyla):**
+  - 6 saat seçilince saklanan an basıştan 6 saat sonra (±1 sn);
+  - sunulmayan süre (7 dk) 400 alıyor ve hiçbir şeyi değiştirmiyor;
+  - "Kapalı" sürdürüyor, pano susuyor;
+  - eski yazarın adı söyleniyor; bayat ve satır yazmayan servisler
+    söylenmiyor;
+  - biten aralık panoda tam saatleriyle, bugünün sayfasında yok, süren
+    duraklatma notta değil uyarıda.
+- **Geçmişin okuyucusu (gerçek veritabanı):** elle kaldırılan,
+  kendiliğinden biten, uzatılan, "Varsayılana dön" ile kaldırılan ve
+  süren duraklatma; başka site ve başka ayar karışmıyor (sitenin adı
+  duraklatmanın içinde değiştiriliyor, anahtar sorulmasa kaldırma gibi
+  okunurdu); aralık sınırının iki yanı. Değişiklikler ürünün kendi
+  yolundan yazılıyor, testin elinde yalnız saatleri var.
+- **Gerçek Chromium'da, tıklayarak:** sahip Toplama bölümünü açıyor,
+  satırın kendi listesinden 6 saati seçiyor ve kendi düğmesine basıyor.
+  Satır bitişi söylüyor, pano uyarıyı ve eski collector'ı. Sonra "Şimdi
+  kapat": satır kapalı, değer boş, pano sessiz (saniyeler süren
+  duraklatma anılmıyor). CSP ihlali yok, konsol hatası yok.
+- **Gerçek ikililer:** collector ve beacon, kendi veritabanında
+  (`install.sh` ile kuruldu, ölçümden sonra silindi). Ayar `panel_user`
+  rolüyle, panelin biçiminde yazıldı. İki sürecin bu yapılandırmayla
+  bağlandığı `application_name` ile `pg_stat_activity`'den doğrulandı.
+  Yazma aralığı 10 sn (varsayılan), ayar yoklaması 2 sn.
+
+| adım | şimdiki | ilk hâlin kuralı |
+|---|---|---|
+| A kayıt açık | collector 1 satır; olc-a 3, olc-b 3 | aynı |
+| B duraklatıldı (10 dk) | beacon 204 ×3; yalnız duraklatmada görülen adres 0 satır, duraklatmada ve sonra görülen 0; olc-a 3, olc-b 6 | aynı |
+| C sürdürüldü | yalnız duraklatmada görülen hâlâ 0; sonra da görülen 1; yalnız sonra görülen 1; olc-a 6 | aynı |
+| D kendiliğinden biten, istek son aralıkta | **0** | **1** |
+| E kalp atışı | collector yazılan 5, duraklatılan 3; beacon kabul 12, yazılan 12, duraklatılan 3 | collector yazılan 6, duraklatılan 2 |
+
+İki servisin günlüğü de iki kenarı yazdı, süre kendiliğinden bittiğinde
+de: bitiş `08:21:47Z`, satır bir sonraki yoklamada `08:21:47.498`.
+
+- **Yapısal:** `internal/invariants/pausewriters_test.go`.
+  - Satır yazdığını kalp atışında söyleyen her harita `duraklatilan`'ı
+    da taşıyor.
+  - Böyle bir kalp atışı bildiren her komut ayarı okuyor ve yazarına
+    veriyor: ya `SetPaused`, ya da aynı dosyada bir yazarın `Pause`
+    alanına verilen değer üzerinde `SetUntil`.
+  - Yazar listesi ağaçtan türetiliyor. İlk hâli `Pause: pause` satırını
+    silmeyi görmüyordu: ayar okunuyor, sayılıyor, uygulanmıyordu. Son
+    madde bu yüzden eklendi.
+
+### Mutasyonlar
+
+İki tur, altmış iki mutasyon (`scratchpad/mutasyon-duraklat.py`), altmış
+ikisi de kırmızı. Katmanlar: collector ve beacon'ın birim testleri,
+panelin deposu, servislerin okuyucusu, ayarlar sayfası ve pano (birim ve
+gerçek veritabanı), geçmişin okuyucusu, gerçek Chromium, değişmez.
+
+| yakalayan | mutasyon |
+|---|---|
+| collector'ın birim testleri | ilk hâlin kuralı (tur duraklatmada mı), başlangıç sorulmuyor, bitiş anı da tutuluyor, başlangıç anı kaydediliyor, her yoklama aralığı yeniden başlatıyor, kaldırmak bitirmiyor, bitmiş aralık sonraki yoklamada unutuluyor, tutulan sayılmıyor, hepsi tutulunca boş bir yazma |
+| beacon'ın birim testleri | duraklatma sorulmuyor, bitiş anı da tutuluyor, site kontrolünden önce, tutulan sayılmıyor, harita kopyalanmıyor |
+| beacon ve değişmez | beacon'ın kalp atışında sayaç yok |
+| yalnız değişmez | collector uygulamıyor, beacon uygulamıyor, collector'ın kalp atışında sayaç yok, collector ayarı okumuyor, collector duraklatmayı yazarına vermiyor (`Pause:`), beacon başka bir anahtarı okuyor |
+| panelin deposu | üst sınır yok, UTC'ye çevrilmiyor, canlı değil |
+| depo ve sayfa | bitişte hâlâ etkin, sınır en kısa seçenekten, bir aylık seçenek |
+| ayarlar sayfası | sunulmayan süre kabul, sıfır sürdürmüyor, gün hep saat, çoğul yok, satırın durumu okunmuyor, durum satırı hep kapalı, "Kapalı" seçeneği yok (ölü katalog anahtarı da) |
+| ayarlar sayfası ve tarayıcı | açıkken "Şimdi kapat" yok, kapalıyken "Kapalı" yok |
+| yalnız tarayıcı | seçim kutusunun adı |
+| pano | sürerken söylemiyor, eski yazar sorulmuyor, satır yazmayan da sayılıyor, bayat da sayılıyor, geçmiş bildirilmiyor, aralığın başı sorulmuyor |
+| servislerin okuyucusu | bozuk değer "sonsuz" okunuyor, site sorulmuyor |
+| Sağlık sayfası | sıfırken de çiziliyor, sırada yok, hiç çizilmiyor, sayacın tel adı |
+| geçmişin okuyucusu | uzatma yeni bir aralık, kaldırma kesmiyor (pano da), kendiliğinden biten kapanmıyor, aralık sınırı dahil, anahtar sorulmuyor, site sorulmuyor, "Varsayılana dön" sayılmıyor |
+| panonun notu | süren de anılıyor (pano da), kısası da anılıyor (tarayıcı da), eşik dahil değil, eşik başka bir sayı, üç yerine hepsi, en eskiler, öncesi sayılmıyor |
+
+İki mutasyon ilk koşuda kırmızı görünmedi, ikisi de benim yüzümden:
+- **Sayacın tel adı "sağ kaldı".** Onu yakalayan test vardı:
+  `TestEveryCounterHasWords` sayaç adlarını `internal/heartbeat`'in
+  kaynağından türetiyor. Katmanımın `-run` deseni onu dışarıda
+  bırakıyordu. Desen genişletildi, kırmızı.
+- **"Beacon ayarı okumuyor" derlenmedi.** Bileşik değişmezi bir `if`
+  başlığına yazmıştım. Yerine gerçekçi bir mutasyon kondu, yanlış
+  anahtar; değişmez yakaladı.
+
+Beş test, mutasyon listesini yazarken, koşmadan önce güçlendi. Her biri,
+bir mutasyonun **sınanmadan** geçeceği bir boşluktu:
+- panonun testinde bayat bir kalp atışı ve satır yazmayan bir servis
+  yoktu;
+- beacon'ın testinde listede olmayan ama duraklatılmış bir site yoktu;
+- değişmez `Pause: pause` satırının silinmesini görmüyordu;
+- collector'ın testi, hepsi tutulunca yazıcının hiç çağrılmadığını
+  sormuyordu;
+- geçmişin testinde süren bir duraklatmayı "Varsayılana dön" ile kaldırma
+  yoktu.

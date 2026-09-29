@@ -75,6 +75,26 @@ in and then not submit is a worse answer than being told why. */}}
 <input id="deger-{{.Key}}" type="text" name="deger" value="{{.Value}}">
 <span class="ipucu">{{t "ayarlar.liste_ipucu"}}</span>
 
+{{- else if eq .Kind "until"}}
+{{- /* A state that ends by itself: the choices are durations, the page
+says when the current one ends, and "off" ends it now. The stored value
+is a moment, never shown raw - a timestamp in a text box is a form
+nobody fills in correctly twice. */}}
+<p class="durum">
+{{- if .UntilActive}}{{tf "ayarlar.sure.acik_kadar" ($.F.DateTime .UntilAt)}}
+{{- else}}{{t "ayarlar.sure.kapali_durum"}}{{end -}}
+</p>
+<label class="gizli" for="deger-{{.Key}}">{{.Label}}</label>
+<select id="deger-{{.Key}}" name="deger">
+{{- /* While the state is on, the zero choice is an action - "switch off
+now" - rather than a state: a list that read "Off" under a line saying
+"on until 14:40" would be read as the current value. */}}
+<option value="0">{{if .UntilActive}}{{t "ayarlar.sure.simdi_kapat"}}{{else}}{{t "ayarlar.sure.kapat"}}{{end}}</option>
+{{- range .UntilChoices}}
+<option value="{{.Minutes}}">{{.Label}}</option>
+{{- end}}
+</select>
+
 {{- else}}
 <label class="gizli" for="deger-{{.Key}}">{{.Label}}</label>
 <input id="deger-{{.Key}}" type="text" name="deger" value="{{.Value}}">

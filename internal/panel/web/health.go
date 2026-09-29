@@ -325,6 +325,7 @@ var healthCounterOrder = []string{
 	heartbeat.CounterDropped,
 	heartbeat.CounterWritten,
 	heartbeat.CounterAccepted,
+	heartbeat.CounterPaused,
 	heartbeat.CounterRejected,
 	heartbeat.CounterErrors,
 	heartbeat.CounterDeadline,
@@ -601,6 +602,14 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 	for _, key := range healthCounterOrder {
 		value, present := counters[key]
 		if !present {
+			continue
+		}
+		// Only when a pause held something back. Every writer reports the
+		// counter, zero included, because its presence is what tells the
+		// panel the build honours a pause; drawn at zero it would be one
+		// line of nothing under every service on the page read during an
+		// incident.
+		if key == heartbeat.CounterPaused && value == 0 {
 			continue
 		}
 		c := healthCounter{

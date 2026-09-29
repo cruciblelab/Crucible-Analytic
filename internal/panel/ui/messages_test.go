@@ -413,6 +413,8 @@ var (
 	// against the real constants.
 	healthCounters = []string{
 		"yazilan", "dusurulen", "reddedilen", "kabul", "hata", "suresi_dolan", "gunluk_kaybi",
+		// What a recording pause held back (PLAN §4, #3).
+		"duraklatilan",
 		// The beacon's refusals by reason, drawn under "reddedilen".
 		"reddedilen_bilinmeyen_site", "reddedilen_bozuk", "reddedilen_gecersiz",
 		"reddedilen_kapasite", "reddedilen_diger",

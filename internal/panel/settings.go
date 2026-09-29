@@ -59,6 +59,15 @@ const (
 	KindString     Kind = "string"
 	KindEnum       Kind = "enum"
 	KindStringList Kind = "string_list"
+	// KindUntil is the moment a temporary state ends: an RFC3339
+	// timestamp, or empty for "not in effect".
+	//
+	// Offered as a choice of durations (Definition.Until) and stored as
+	// the end they reach, so the state ends by itself. A state somebody
+	// has to remember to switch off is one that stays on - see
+	// KeyCollectionPausedUntil for what that costs when the state is
+	// "record nothing".
+	KindUntil Kind = "until"
 )
 
 // Key names one setting. A closed set: see the registry below.
@@ -191,6 +200,20 @@ const (
 	// The most common support call this makes answerable without SSH: a
 	// customer adds a second domain.
 	KeyBeaconSites Key = "beacon.sites"
+	// KeyCollectionPausedUntil pauses recording for one site (PLAN §4,
+	// #3). Live, in both writers.
+	//
+	// The site and its visitors are untouched - the collector goes on
+	// proxying, the beacon goes on answering - and nothing about the
+	// site is written until the moment stored here. The catalogue's
+	// reason: a disk filling during an incident, stopped without
+	// stopping anybody's shop.
+	//
+	// An end time rather than a switch, because a pause that has to be
+	// remembered is one that is forgotten, and a forgotten pause is
+	// silent data loss: the dashboard would show a quiet week that
+	// happened.
+	KeyCollectionPausedUntil Key = "collection.paused_until"
 	// KeyCampaignDropParams removes standard query parameters. Live.
 	//
 	// The one that motivated all of this: when a customer's counsel says
@@ -483,6 +506,10 @@ type Definition struct {
 	Min, Max int
 	// Enum lists the admissible values of a KindEnum setting.
 	Enum []string
+	// Until lists the durations a KindUntil setting offers, shortest
+	// first. The longest is also the furthest end the store accepts, so
+	// a value that did not come from the page cannot pause for a year.
+	Until []time.Duration
 	// Check is an extra validator for values the Kind cannot describe.
 	//
 	// KindString means "some text", which is right for a site's name and
@@ -662,6 +689,18 @@ var registry = map[Key]Definition{
 		Help:      "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
 		Developer: true,
 		Live:      true,
+	},
+	KeyCollectionPausedUntil: {
+		Key: KeyCollectionPausedUntil, Scope: ScopeSite, Kind: KindUntil,
+		Category: CatToplama,
+		Default:  "",
+		Until:    []time.Duration{time.Hour, 6 * time.Hour, 24 * time.Hour, 7 * 24 * time.Hour},
+		Label:    "Kaydı duraklat",
+		Help: "Seçilen süre boyunca bu sitenin ziyaretleri hiç kaydedilmez; site ve " +
+			"ziyaretçileri etkilenmez. Süre dolunca kayıt kendiliğinden sürer. " +
+			"Duraklatılan aralığın verisi sonradan geri getirilemez. Değişiklik " +
+			"bir dakika içinde geçerli olur.",
+		Live: true,
 	},
 	KeyBlockedCountries: {
 		Key: KeyBlockedCountries, Scope: ScopeGlobal, Kind: KindStringList,
@@ -1188,8 +1227,52 @@ func canonicalise(def Definition, key Key, value any) (any, error) {
 			return nil, invalidf("%s has too many entries (max 1000)", key)
 		}
 		return list, nil
+
+	case KindUntil:
+		s, ok := value.(string)
+		if !ok {
+			return nil, invalidf("%s must be a string", key)
+		}
+		if s == "" {
+			return "", nil
+		}
+		end, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return nil, invalidf("%s: %q is not an RFC3339 timestamp", key, s)
+		}
+		// Bounded by the longest choice the page offers. The page
+		// computes now plus a choice before this runs, so its values
+		// always fit; a caller that did not come through it cannot
+		// stretch a temporary state into a permanent one.
+		if longest := longestUntil(def); longest > 0 && end.After(time.Now().Add(longest)) {
+			return nil, invalidf("%s: %s is further away than the longest choice (%s)", key, s, longest)
+		}
+		return end.UTC().Format(time.RFC3339), nil
 	}
 	return nil, fmt.Errorf("panel: %s has an unhandled kind %q", key, def.Kind)
+}
+
+// longestUntil is the furthest a KindUntil setting may reach.
+func longestUntil(def Definition) time.Duration {
+	var longest time.Duration
+	for _, d := range def.Until {
+		longest = max(longest, d)
+	}
+	return longest
+}
+
+// UntilOf reads a KindUntil value: the moment it ends, and whether that
+// is still ahead of now. An empty or unreadable value is not in effect.
+func UntilOf(value any, now time.Time) (time.Time, bool) {
+	text, _ := value.(string)
+	if text == "" {
+		return time.Time{}, false
+	}
+	end, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return end, end.After(now)
 }
 
 // toInt accepts the numeric shapes JSON round-tripping produces, so a

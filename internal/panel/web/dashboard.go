@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/analytics"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -357,6 +360,8 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	if data.Notice != "" {
 		page.Notices = append(page.Notices, ui.Notice{Level: ui.NoticeWarn, Body: data.Notice})
 	}
+	page.Notices = append(page.Notices, s.pauseNotice(r.Context(), lang, siteID, now)...)
+	page.Notices = append(page.Notices, s.pastPausesNotice(r.Context(), lang, siteID, from, to, now)...)
 	page.Notices = append(page.Notices, viewerNotice(lang, access)...)
 	s.Renderer.Render(w, r, http.StatusOK, "pano", page)
 }
@@ -668,4 +673,123 @@ func sitePath(siteID string) string {
 		return ""
 	}
 	return MembersPathPrefix + url.PathEscape(siteID)
+}
+
+// pauseNotice says on the site's own page that its recording is paused
+// (PLAN §4, #3), and until when.
+//
+// Here because this is where a quiet stretch would otherwise be read as
+// a quiet week: the numbers under a pause are true and incomplete, and
+// only this sentence says which.
+//
+// And it names any running writer that would not honour the pause. The
+// setting is what somebody chose; whether it is in force is the
+// services' to say, and a writer's heartbeat that reports rows written
+// but carries no pause counter is a build from before the pause - it
+// goes on recording. Said from the counters themselves rather than from
+// a list of service names, so a writer this page has never heard of is
+// still asked.
+func (s *Server) pauseNotice(ctx context.Context, lang *ui.Language, siteID string, now time.Time) []ui.Notice {
+	value, err := s.Store.GetSetting(ctx, panel.KeyCollectionPausedUntil, siteID)
+	if err != nil {
+		s.logger().Warn("panel: reading the recording pause", "err", err, "site", siteID)
+		return nil
+	}
+	until, active := panel.UntilOf(value, now)
+	if !active {
+		return nil
+	}
+	f := ui.NewFormatter(lang, s.zone(ctx))
+	body := lang.Tf("pano.duraklatildi", f.DateTime(until))
+
+	beats, err := heartbeat.Read(ctx, s.Store.Pool())
+	if err != nil {
+		s.logger().Warn("panel: reading heartbeats for the recording pause", "err", err)
+	}
+	var unaware []string
+	for _, b := range beats {
+		if b.Stale(now, heartbeat.DefaultInterval) {
+			continue
+		}
+		_, writes := b.Counters[heartbeat.CounterWritten]
+		_, honours := b.Counters[heartbeat.CounterPaused]
+		if writes && !honours {
+			name := b.Service
+			if key := "saglik.servis." + b.Service; lang.Has(key) {
+				name = lang.T(key)
+			}
+			unaware = append(unaware, name)
+		}
+	}
+	if len(unaware) > 0 {
+		sort.Strings(unaware)
+		body += " " + lang.Tf("pano.duraklatildi_eski", strings.Join(unaware, ", "))
+	}
+	return []ui.Notice{{Level: ui.NoticeWarn, Body: body}}
+}
+
+// pastPausesNotice says which stretches of the chosen range went
+// unrecorded because recording was paused.
+//
+// The part of a pause the banner above stops saying once the pause has
+// ended, and the part that is read wrong: a stretch of nothing in the
+// chart looks like a stretch without visitors, and a week later nobody
+// remembers pressing anything. Only pauses that have ended - a running
+// one has the banner. Information rather than a warning: nothing needs
+// doing, the reader needs to know how the numbers were made.
+func (s *Server) pastPausesNotice(ctx context.Context, lang *ui.Language, siteID string, from, to, now time.Time) []ui.Notice {
+	spans, err := s.Store.RecordingPauses(ctx, siteID, from, to)
+	if err != nil {
+		s.logger().Warn("panel: reading past recording pauses", "err", err, "site", siteID)
+		return nil
+	}
+	ended := endedPauses(spans, now)
+	if len(ended) == 0 {
+		return nil
+	}
+	f := ui.NewFormatter(lang, s.zone(ctx))
+	return []ui.Notice{{Level: ui.NoticeInfo, Body: pastPausesText(lang, f, ended)}}
+}
+
+// shortestReportedPause is the shortest stretch the notice names: the
+// services' settings poll, a minute by default (settings.DefaultInterval,
+// held to it by a test).
+//
+// A pause lifted sooner may never have reached a writer - each hears of a
+// change at its next poll - so "visits in those hours were not recorded"
+// could be false, and it would be said all week about a press somebody
+// undid at once. Nothing shorter shows in a chart either: its finest
+// bucket is a quarter of an hour.
+const shortestReportedPause = time.Minute
+
+// endedPauses is what the notice names: stretches that have ended - a
+// running one has the banner - and lasted at least shortestReportedPause.
+func endedPauses(spans []panel.PauseSpan, now time.Time) []panel.PauseSpan {
+	var out []panel.PauseSpan
+	for _, span := range spans {
+		if !span.Until.After(now) && span.Until.Sub(span.From) >= shortestReportedPause {
+			out = append(out, span)
+		}
+	}
+	return out
+}
+
+// shownPauses is how many stretches the notice names: the most recent.
+// A range with more pauses than this is one somebody is already looking
+// into, and the audit log has every one.
+const shownPauses = 3
+
+// pastPausesText names the most recent shownPauses stretches, oldest
+// first, and counts the ones before them.
+func pastPausesText(lang *ui.Language, f *ui.Formatter, spans []panel.PauseSpan) string {
+	earlier := max(len(spans)-shownPauses, 0)
+	parts := make([]string, 0, len(spans)-earlier)
+	for _, span := range spans[earlier:] {
+		parts = append(parts, lang.Tf("pano.duraklatma_araligi", f.DateTime(span.From), f.DateTime(span.Until)))
+	}
+	text := strings.Join(parts, ", ")
+	if earlier > 0 {
+		text += " " + lang.Tf("pano.duraklatma_oncesi", earlier)
+	}
+	return lang.Tf("pano.duraklatilmisti", text)
 }

@@ -85,6 +85,15 @@ const (
 	// CounterLogLost is log lines that never reached panel_logs. Added by
 	// the reporter itself from Options.Log, so no service can forget it.
 	CounterLogLost = "gunluk_kaybi"
+	// CounterPaused is what a writer held back because recording for its
+	// site was paused (PLAN §4, #3): rows for the collector, events for
+	// the beacon.
+	//
+	// Reported always, zero included, and that is half its job: a service
+	// whose row carries this key is one that honours the pause. The panel
+	// can tell an older build that would go on recording from one that
+	// simply has had nothing to hold back.
+	CounterPaused = "duraklatilan"
 
 	// The beacon's refusals, by reason. CounterRejected is their sum,
 	// and the beacon derives it from them rather than counting it a

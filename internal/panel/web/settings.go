@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
@@ -54,6 +55,11 @@ type settingRow struct {
 	Enum []settingChoice
 	// Min and Max bound a number control. Both zero means unbounded.
 	Min, Max int
+	// UntilChoices are a KindUntil setting's durations, UntilActive is
+	// whether its state is in effect now, and UntilAt when it ends.
+	UntilChoices []untilChoice
+	UntilActive  bool
+	UntilAt      time.Time
 
 	// Editable is whether there is a control at all. False draws Lock
 	// instead, and never draws a disabled control: a control somebody
@@ -80,6 +86,14 @@ type settingRow struct {
 type settingChoice struct {
 	Value    string
 	Selected bool
+}
+
+// untilChoice is one duration a KindUntil control offers: posted as
+// minutes, labelled in whole days when it is days and in hours
+// otherwise.
+type untilChoice struct {
+	Minutes int
+	Label   string
 }
 
 // categoryLabelKey maps a category to its catalogue key.
@@ -429,6 +443,9 @@ func parseSettingValue(def panel.Definition, r *http.Request) (any, error) {
 		}
 		return n, nil
 
+	case panel.KindUntil:
+		return untilValue(def, raw, time.Now())
+
 	case panel.KindStringList:
 		// Empty means the empty list, not a list with one empty entry.
 		if raw == "" {
@@ -480,7 +497,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, lang *ui
 			continue
 		}
 		byCategory[v.Definition.Category] = append(
-			byCategory[v.Definition.Category], settingRowFor(v))
+			byCategory[v.Definition.Category], settingRowFor(v, lang, time.Now()))
 	}
 	for _, cat := range panel.CategoryOrder {
 		rows := byCategory[cat]
@@ -527,7 +544,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, lang *ui
 }
 
 // settingRowFor turns one resolved setting into what the template draws.
-func settingRowFor(v panel.SettingView) settingRow {
+func settingRowFor(v panel.SettingView, lang *ui.Language, now time.Time) settingRow {
 	def := v.Definition
 	row := settingRow{
 		Key:       string(def.Key),
@@ -570,7 +587,41 @@ func settingRowFor(v panel.SettingView) settingRow {
 	for _, option := range def.Enum {
 		row.Enum = append(row.Enum, settingChoice{Value: option, Selected: option == row.Value})
 	}
+	if def.Kind == panel.KindUntil {
+		row.UntilAt, row.UntilActive = panel.UntilOf(v.Value, now)
+		for _, d := range def.Until {
+			choice := untilChoice{Minutes: int(d / time.Minute)}
+			if days := int(d / (24 * time.Hour)); d%(24*time.Hour) == 0 {
+				choice.Label = lang.Tn("ayarlar.sure.gun", days, strconv.Itoa(days))
+			} else {
+				hours := int(d / time.Hour)
+				choice.Label = lang.Tn("ayarlar.sure.saat", hours, strconv.Itoa(hours))
+			}
+			row.UntilChoices = append(row.UntilChoices, choice)
+		}
+	}
 	return row
+}
+
+// untilValue turns a posted KindUntil choice into the end it reaches.
+//
+// Minutes, and only the ones the definition offers: the form is a list
+// of strings from a browser, and a number it did not draw is refused
+// here rather than turned into a moment. Zero ends the state now.
+func untilValue(def panel.Definition, raw string, now time.Time) (any, error) {
+	minutes, err := strconv.Atoi(raw)
+	if err != nil {
+		return nil, errors.New("not a number of minutes")
+	}
+	if minutes == 0 {
+		return "", nil
+	}
+	for _, d := range def.Until {
+		if d == time.Duration(minutes)*time.Minute {
+			return now.Add(d).UTC().Format(time.RFC3339), nil
+		}
+	}
+	return nil, errors.New("not one of the offered durations")
 }
 
 // settingErrorText turns a store error into a sentence a customer reads.
@@ -629,6 +680,8 @@ func settingErrorText(lang *ui.Language, def panel.Definition, err error) string
 		return lang.Tf("ayarlar.hata.aralik", def.Min, def.Max)
 	case def.Kind == panel.KindEnum && len(def.Enum) > 0:
 		return lang.Tf("ayarlar.hata.secenek", strings.Join(def.Enum, ", "))
+	case def.Kind == panel.KindUntil:
+		return lang.T("ayarlar.hata.sure")
 	default:
 		return lang.T("ayarlar.hata.gecersiz")
 	}

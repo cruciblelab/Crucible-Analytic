@@ -31,6 +31,9 @@ func HeartbeatCounters(s *Server, w writerCounts) map[string]int64 {
 		// would ask an operator to add up two figures to answer one
 		// question.
 		heartbeat.CounterDropped: heartbeat.Count(serverDropped + writerDropped),
+		// Always, zero included: its presence is how the panel knows this
+		// build honours a pause.
+		heartbeat.CounterPaused: heartbeat.Count(s.Held()),
 	}
 	for key, n := range s.RejectionCounters() {
 		out[key] = n

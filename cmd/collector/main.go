@@ -174,6 +174,11 @@ func main() {
 	defer panelLog.Close()
 	slog.SetDefault(logger)
 
+	// This site's recording pause (PLAN §4, #3), made before the heartbeat
+	// that reports it and the flusher that applies it - see storage.Pause
+	// for why it is its own value.
+	pause := &storage.Pause{}
+
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
@@ -202,6 +207,9 @@ func main() {
 			return map[string]int64{
 				heartbeat.CounterWritten: heartbeat.Count(written),
 				heartbeat.CounterDropped: heartbeat.Count(failed),
+				// Always, zero included: its presence is how the panel
+				// knows this build honours a pause.
+				heartbeat.CounterPaused: heartbeat.Count(pause.Held()),
 			}
 		},
 	})
@@ -260,6 +268,7 @@ func main() {
 		Logger:    logger,
 		IPMode:    cfg.Privacy.IPMode(),
 		IPHashKey: cfg.Privacy.HashKey(),
+		Pause:     pause,
 	}
 	// Said out loud at startup, because it decides what personal data
 	// this process writes and it is the one setting nobody will
@@ -389,6 +398,8 @@ func main() {
 	lastCountrySrc, lastASNSrc, lastFallbacks := cfg.ASNLookup.LiveSources(nil)
 	lastBotASNs := knownBotASNs
 	lastIPMode := cfg.Privacy.IPMode()
+	var lastPause time.Time
+	lastPaused := false
 
 	// # Every setting below is applied on every poll, and compared only
 	// to decide whether to say so
@@ -447,6 +458,29 @@ func main() {
 			lastIPMode = mode
 		}
 		flusher.SetIPMode(lastIPMode)
+
+		// Recording for this site (PLAN §4, #3).
+		//
+		// In force before any traffic: the first call is above the
+		// listener, so a collector restarted during a pause records
+		// nothing it should not. (The flusher is already running then,
+		// with an empty rate store - nothing has been proxied yet.)
+		//
+		// Logged on both edges, the end included when the time simply
+		// runs out. A stretch of missing rows is the first thing somebody
+		// asks about afterwards, and the answer belongs in the log beside
+		// the rows that are missing.
+		now := time.Now()
+		until := live.Until(settings.KeyCollectionPausedUntil, cfg.SiteID)
+		paused := until.After(now)
+		switch {
+		case paused && !until.Equal(lastPause):
+			logger.Info("recording paused", "site", cfg.SiteID, "until", until.UTC().Format(time.RFC3339))
+		case !paused && lastPaused:
+			logger.Info("recording resumed", "site", cfg.SiteID)
+		}
+		lastPause, lastPaused = until, paused
+		pause.SetUntil(until, now)
 
 		// The blocklist. Logged at Info for the same reason as the
 		// limits and more so: this one refuses traffic outright, and

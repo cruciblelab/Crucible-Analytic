@@ -1535,6 +1535,7 @@ saldırı sürerken SSH'a ihtiyaç duymamanız için:
 | `sources.country`, `sources.asn`, `sources.fallback_order` | Hangi IP aralığı veri kümesinin kullanılacağı ve biri erişilemezse sıradakiler. Bir sonraki zamanlanmış yenilemede etkili olur — indirme anında, isteğin ortasında değil |
 | `beacon.trusted_proxies` | Hangi ağların ilettiği başlıklara güvenileceği |
 | `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
+| `collection.paused_until` (site başına) | Bir sitenin kaydını bir süre duraklatır; aşağıda |
 
 **Çekim kaydı.** `asn_lookup` açıkken her veri kümesi çekimi
 `ip_range_fetches` tablosuna bir satır yazar: hangi kaynak, hangi adres
@@ -1555,6 +1556,37 @@ sorar ve bu soru tek bir atomik okumadır.
 boyutları, önbellek pencereleri, `asn_lookup.enabled`) — süreç o
 değerleri kanallarını ve tablolarını kurarken sabitler. Panel bunu
 söyler; kabul edip sessizce yok saymaz.
+
+### Kaydı duraklatmak: olay sırasında
+
+**Ayarlar → Toplama → Kaydı duraklat**. Seçenekler 1 saat, 6 saat, 1 gün
+ve 7 gün. Bu sürede o sitenin ziyaretleri kaydedilmez, ama site ve
+ziyaretçileri hiçbir şey fark etmez: collector trafiği geçirmeye, beacon
+olayları cevaplamaya devam eder. Yalnız satırlar yazılmaz. Disk dolarken,
+bir saldırı ya da deneme trafiği sürerken, kimsenin satışını durdurmadan
+kaydı durdurmanın yolu budur. Sitenin sahibi ve yöneticisi kullanabilir,
+yalnız kendi sitesi için. Kimin bastığı denetim kaydında durur.
+
+- **Kendiliğinden biter.** Süre dolunca kayıt sürer. Erken sürdürmek için
+  aynı satırda **Şimdi kapat**. Bir haftadan uzun duraklatma yok: kalıcı
+  bir duraklatma sitenin kaldırılmasıdır, ve unutulan bir duraklatma
+  sessiz veri kaybıdır.
+- **Bir dakika içinde geçerli olur.** Servisler ayarları dakikada bir
+  okur (`[settings] interval_seconds`). Basmakla servisin duyması
+  arasındaki ziyaretler kaydedilir. Süre kendiliğinden dolduğunda ise
+  kayıt tam o anda sürer.
+- **Duraklatılan aralığın verisi geri getirilemez.** Sitenin sayfası bunu
+  duraklatma sürerken söyler. Bittikten sonra da seçilen aralığın içinde
+  kalan her duraklatmayı saatleriyle anar ("o saatlerdeki ziyaretler
+  kaydedilmedi"), böylece grafikteki boşluk trafik düşüşü sanılmaz. Bir
+  dakikadan kısa süren (hemen geri alınan) bir duraklatma anılmaz, çünkü
+  hiçbir servise ulaşmamış olabilir.
+- **Gerçekten uygulanıyor mu:** Sağlık sayfasında her yazarın satırında
+  "Kayıt duraklatıldığı için yazılmayan" sayısı görünür. Servislerin
+  günlüğünde `recording paused` ve `recording resumed` satırları vardır.
+  Collector'ı ya da beacon'ı bu özellikten eski bir sürüm çalışıyorsa
+  duraklatmayı tanımaz ve kaydetmeye devam eder. Sitenin sayfası o
+  servisi adıyla söyler; o servisi güncelleyin.
 
 ### Panelde hiç olmayan ayar: saklama süresi
 

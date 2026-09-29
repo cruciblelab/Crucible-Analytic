@@ -657,6 +657,16 @@ kaydedilemedi = "Karar kaydedilemedi."
 
 [metin.pano]
 hicbiri = "Bu site için gösterilecek hiçbir blok seçilmemiş. Kartlar ve kırılımlar site ayarlarından açılır."
+# Kaydı duraklatma (PLAN §4, #3). İkinci cümle yalnız duraklatmayı
+# tanımayan bir yazar çalışıyorsa eklenir.
+duraklatildi = "Bu sitenin kaydı %s saatine kadar duraklatıldı: bu aralıkta ziyaretler kaydedilmiyor ve sonradan geri getirilemez. Ayarlar → Toplama → Kaydı duraklat'tan hemen sürdürebilirsiniz."
+duraklatildi_eski = "Dikkat: %s bu sürümde duraklatmayı tanımıyor ve kaydetmeye devam ediyor."
+# Seçilen aralığın içinde bitmiş duraklatmalar: o saatlerin ziyaretleri
+# kaydedilmedi, grafikteki boşluk ziyaretçi yokluğu değil. En yeni üçü
+# adıyla, öncesi sayıyla.
+duraklatilmisti = "Seçilen aralıkta bu sitenin kaydı duraklatılmıştı: %s. O saatlerdeki ziyaretler kaydedilmedi; sayılar o kadar eksik."
+duraklatma_araligi = "%s – %s"
+duraklatma_oncesi = "(öncesinde %d duraklatma daha)"
 
 [metin.pano.kirilim]
 tumu = "Tümü (%s)"
@@ -1073,6 +1083,24 @@ varsayilan = "Varsayılan — kimse değiştirmemiş"
 site = "Bu siteye özel olarak ayarlanmış"
 genel = "Kurulum genelinde ayarlanmış"
 
+# Kendiliğinden biten bir durumun denetimi (bitiş zamanı olan ayarlar,
+# örneğin kaydı duraklatma): seçenekler süre, sayfa bitiş anını söylüyor.
+[metin.ayarlar.sure]
+kapali_durum = "Şu anda kapalı."
+acik_kadar = "%s saatine kadar açık. Süre dolunca kendiliğinden kapanır."
+kapat = "Kapalı"
+# Açıkken sıfır seçeneği bir eylem: "Kapalı" yazsaydı, "açık" diyen satırın
+# altında şimdiki değer gibi okunurdu.
+simdi_kapat = "Şimdi kapat"
+
+[metin.ayarlar.sure.saat]
+one = "%s saat"
+other = "%s saat"
+
+[metin.ayarlar.sure.gun]
+one = "%s gün"
+other = "%s gün"
+
 [metin.ayarlar.hata]
 onkosul = "Bu değer bu kurulumda kullanılamıyor: gereken yapılandırma henüz yok. Ayarın açıklamasında neyin önceden hazır olması gerektiği yazıyor."
 jeton_anahtari_sessiz = "Bu değer için IP jeton anahtarı gerekiyor ve adres yazan hiçbir servis henüz kendini bildirmedi — yani anahtarı olup olmadığı bilinmiyor. Collector (ve kullanıyorsanız beacon) bir kez çalıştıktan sonra bu ayar açılır."
@@ -1083,6 +1111,7 @@ bilinmeyen = "Böyle bir ayar yok."
 yetki = "Bu ayarı değiştirme yetkiniz yok."
 parola = "Bu ayar geliştirici parolası ister."
 parola_yanlis = "Geliştirici parolası kabul edilmedi."
+sure = "Seçilen süre bu ayarın sunduğu seçeneklerden biri değil."
 bekle = "Çok fazla deneme yapıldı. Biraz bekleyip tekrar deneyin."
 kapi_yok = "Bu kurulumda geliştirici parolası tanımlı değil, bu yüzden bu ayar panelden değiştirilemez — kimse tarafından. Güvenli yön budur."
 aralik = "Değer %d ile %d arasında olmalı."
@@ -1192,6 +1221,7 @@ kabul = "Kabul edilen"
 hata = "Hata"
 suresi_dolan = "Süresi dolan istek"
 gunluk_kaybi = "Kaybolan günlük satırı"
+duraklatilan = "Kayıt duraklatıldığı için yazılmayan"
 # Reddedilenlerin sebepleri: "Reddedilen" satırının altına, yalnız
 # gerçekleşenler çizilir.
 reddedilen_bilinmeyen_site = "bilinmeyen site"

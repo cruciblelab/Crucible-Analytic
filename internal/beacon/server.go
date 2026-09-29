@@ -202,10 +202,15 @@ type Server struct {
 	liveIPMode   atomic.Pointer[privacy.IPMode]
 	liveClientIP atomic.Pointer[ClientIPResolver]
 	liveDisclose atomic.Pointer[Disclosure]
+	// livePaused is when each paused site's recording resumes (PLAN §4,
+	// #3). Nil, or a site missing from it, is recording.
+	livePaused atomic.Pointer[map[string]time.Time]
 
 	visitorsOnce sync.Once
 	dropped      atomic.Uint64
 	accepted     atomic.Uint64
+	// held counts events a pause answered without recording.
+	held atomic.Uint64
 	// rejected is one counter per reason and no counter for the total:
 	// Counters sums these, so there is no second number to drift.
 	rejected [rejectReasons]atomic.Uint64
@@ -257,6 +262,31 @@ func (s *Server) Counters() (accepted, dropped, rejected uint64) {
 		rejected += s.rejected[r].Load()
 	}
 	return s.accepted.Load(), s.dropped.Load(), rejected
+}
+
+// Held is how many events a pause has kept out of the table since start.
+func (s *Server) Held() uint64 { return s.held.Load() }
+
+// SetPaused swaps which sites are paused, and until when (PLAN §4, #3).
+//
+// Copied, as SetSites copies: a caller that reused its map could
+// otherwise change what this server holds back while it serves.
+func (s *Server) SetPaused(ends map[string]time.Time) {
+	out := make(map[string]time.Time, len(ends))
+	for site, end := range ends {
+		out[site] = end
+	}
+	s.livePaused.Store(&out)
+}
+
+// pausedSite reports whether recording for site is paused now.
+func (s *Server) pausedSite(site string) bool {
+	ends := s.livePaused.Load()
+	if ends == nil {
+		return false
+	}
+	end, ok := (*ends)[site]
+	return ok && s.now().Before(end)
 }
 
 // RejectionCounters is the refusals by reason, keyed as the heartbeat
@@ -430,6 +460,17 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		// writing rows under someone else's site name.
 		s.rejectClaim(w, r, rejectUnknownSite, http.StatusForbidden, event.Site,
 			fmt.Sprintf("unknown site %q", sanitizeText(event.Site, 64)))
+		return
+	}
+	// Recording for this site is paused (PLAN §4, #3). After the site
+	// check, so a pause is never a way to learn which site names are
+	// accepted; before any work on the visitor, since none of it would be
+	// kept. Answered as an accepted event is: the page and its snippet
+	// have nothing to do differently, and a pause is not the visitor's
+	// business.
+	if s.pausedSite(event.Site) {
+		s.held.Add(1)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 

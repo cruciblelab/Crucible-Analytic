@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; kalan B3d–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; kalan B3d-2, B3e–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -2235,7 +2235,7 @@ yarısını başka adlarla karşıladı.
 |---|---|---|---|
 | 1 | `FlushNow` | yok | servise istek (aşağıda *istek kanalı*) |
 | 2 | `SetFlushInterval` | bilerek dışarıda | §0.5 risk tablosu: destek ihtiyacı değil, performans ayarı |
-| 3 | `Pause/ResumeCollection` | yok | şemasız: site listesi canlı ayar, yazma yolunda kontrol |
+| 3 | `Pause/ResumeCollection` | **var** | ~~yok~~ → **B3d-1 ✅**: Ayarlar → Toplama → "Kaydı duraklat" (`collection.paused_until`). Site listesi değil, site başına ve **bitişli** bir ayar (1 saat – 7 gün, kendiliğinden biter); yazma yolunda, iki yazarda; kalp atışında sayılıyor, pano sürerken ve bittikten sonra söylüyor |
 | 4 | `ReloadIPData` | **var** | Sağlık → kaynak yenile (M3): istek satırı, servis yokluyor |
 | 5 | `SetASNLookupMode` | **var** | `sources.asn`, `sources.country`, `sources.fallback_order` (A3, M1) |
 | 6 | `SetASNSource` | **var** | `sources.asn` — kapalı enum, yol değil |
@@ -2318,7 +2318,23 @@ kez yazmak onu bir kez yapmaktır.
   - Liste sahibi seçili açılıyordu.
 
   **Ulaşamadığı durum:** tek sahip (karar 6, #26).
-- **B3d** — #3 ve #32: canlı ayarlar.
+- **B3d-1** ✅ *(2026-09-29)* — #3: bir sitenin kaydını 1 saat, 6 saat,
+  1 gün ya da 7 gün duraklatmak. Site ve ziyaretçileri etkilenmiyor;
+  collector trafiği geçiriyor, beacon cevaplıyor, yalnız satırlar
+  yazılmıyor. Süre dolunca kendiliğinden sürüyor, çünkü unutulan bir
+  duraklatma sessiz veri kaybıdır. Katalogun "site listesi"nden bilerek
+  sapıldı: liste genel bir ayar olurdu, bir sitenin yöneticisi başka
+  sitenin kaydını durdurabilirdi. Yolda iki kusur çıktı:
+  - Collector'ın ilk hâli yazma turunu soruyordu, satırın anını değil.
+    Duraklatmanın son aralığında yapılan ziyaretler bitişten sonra
+    kaydediliyordu. Gerçek ikiliyle ölçüldü (ilk hâlin kuralıyla 1 satır,
+    şimdiki 0).
+  - Pano duraklatmayı yalnız sürerken söylüyordu. Bittikten sonra
+    grafikteki boşluk trafik düşüşü gibi okunuyordu. Artık seçilen
+    aralığın içindeki biten duraklatmalar denetim kaydından türetilip
+    anılıyor.
+- **B3d-2** — #32: beacon'ın tampon ayarları. Önce ölçülmüş bir ihtiyaç;
+  yoksa ölçümle reddedilecek.
 - **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
 - **B3g** — #29'un öbür yarısı: site başına son olay ve son bir saatin

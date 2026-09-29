@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -59,6 +60,84 @@ type Flusher struct {
 	liveIPMode atomic.Pointer[privacy.IPMode]
 	// IPHashKey keys the token stored in full mode.
 	IPHashKey []byte
+
+	// Pause, when set, is this site's recording pause (PLAN §4, #3).
+	// Nil is never paused, which is every test and every build before
+	// the pause existed.
+	Pause *Pause
+}
+
+// Pause is one site's recording pause: the span it covers, and how much it
+// has held back.
+//
+// Its own value rather than fields on Flusher, because two parts of the
+// collector need it and they start in the wrong order for sharing a
+// Flusher: the heartbeat, which reports what was held back, starts
+// before the flusher exists. Built first and handed to both, neither has
+// to exist for the other to start.
+//
+// Applied at the write, not at the proxy. The site goes on being served
+// and the rate windows go on being kept - they are what scoring and the
+// limits read - and only the rows stop.
+//
+// # A span, not an end
+//
+// A flush writes one row per address seen since the last one, and a row
+// belongs to the moment of the address's latest request - that is all the
+// rate store keeps. So a pause is the span [From, Until), and a flush
+// holds back the addresses last seen inside it, whenever the flush runs.
+//
+// The first version kept only the end and asked whether the flush itself
+// ran paused. That moved both edges to the flush ticks: the flush after
+// the end wrote every address last seen in the pause's final interval -
+// visits made while paused, recorded (up to flush_interval_seconds of
+// them, 10 by default) - and the first paused flush dropped the visits
+// made before the pause in the interval it began in.
+type Pause struct {
+	mu          sync.Mutex
+	from, until time.Time
+	held        atomic.Uint64
+}
+
+// SetUntil applies the pause setting as read at now: paused until end, or
+// recording if end is not after now (the zero time included).
+//
+// The span begins when a pause is first applied, not when it was pressed:
+// this process cannot know a moment it had not heard of, and a visit it
+// served before hearing was served while recording. Lifting the pause
+// ends the span at now; an end that simply passes ends it there.
+func (p *Pause) SetUntil(end, now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	inForce := now.Before(p.until)
+	switch {
+	case end.After(now) && inForce:
+		p.until = end // moved, the same pause
+	case end.After(now):
+		p.from, p.until = now, end
+	case inForce:
+		p.until = now // lifted
+	}
+	// Otherwise nothing was in force and nothing is: the last span stays
+	// as it ended, so a flush that has not yet passed it still holds it.
+}
+
+// Holds reports whether a row last seen at seen belongs to the pause.
+func (p *Pause) Holds(seen time.Time) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return !seen.Before(p.from) && seen.Before(p.until)
+}
+
+// Held is how many rows the pause has kept out of the table since start.
+func (p *Pause) Held() uint64 {
+	if p == nil {
+		return 0
+	}
+	return p.held.Load()
 }
 
 // SetIPMode swaps how much of each address is written, while the
@@ -149,6 +228,23 @@ func (f *Flusher) flushOnce(ctx context.Context, since, now time.Time) {
 	snapshots := f.Store.Snapshot(since, now)
 	if len(snapshots) == 0 {
 		return
+	}
+	// What was last seen while paused is not recorded, now or later - see
+	// Pause for why the address's latest request decides.
+	if f.Pause != nil {
+		kept := snapshots[:0]
+		for _, snap := range snapshots {
+			if !f.Pause.Holds(snap.LastSeen) {
+				kept = append(kept, snap)
+			}
+		}
+		if held := len(snapshots) - len(kept); held > 0 {
+			f.Pause.held.Add(uint64(held))
+			f.logger().Debug("rows held: recording is paused", "rows", held)
+		}
+		if snapshots = kept; len(snapshots) == 0 {
+			return
+		}
 	}
 
 	rows := BuildRows(snapshots, now, RowOptions{

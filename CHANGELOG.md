@@ -24,6 +24,27 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Bir sitenin kaydı artık panelden duraklatılabiliyor
+
+**Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.
+Duraklatmayı collector ve beacon'ın bu sürümü tanıyor. Eski bir
+sürüm çalışırken duraklatılan sitenin sayfası o servisi adıyla söylüyor.
+
+**Ayarlar → Toplama → Kaydı duraklat:** 1 saat, 6 saat, 1 gün ya da 7
+gün boyunca o sitenin ziyaretleri kaydedilmiyor. Site ve ziyaretçileri
+etkilenmiyor: collector trafiği geçirmeye, beacon olayları cevaplamaya
+devam ediyor, yalnız satırlar yazılmıyor. Süre dolunca kayıt kendiliğinden
+sürüyor; **Şimdi kapat** hemen sürdürüyor.
+- Değişiklik servislere bir dakika içinde ulaşıyor.
+- Duraklatılan aralığın verisi geri getirilemez.
+- Sitenin sayfası duraklatma sürerken bitiş saatini söylüyor. Bittikten
+  sonra da seçilen aralığın içinde kalan duraklatmaları saatleriyle
+  anıyor, böylece grafikteki boşluk trafik düşüşü sanılmıyor.
+- Sağlık sayfasında her yazarın satırında "Kayıt duraklatıldığı için
+  yazılmayan" sayısı.
+- Sitenin sahibi ve yöneticisi kullanabiliyor, yalnız kendi sitesi için.
+  Kimin bastığı denetim kaydında.
+
 ### Hem telefonunu hem kurtarma kodlarını kaybeden üye artık geri alınabiliyor
 
 **Kuran kişinin yapması gereken: hiçbir şey.** Şema değişmedi.

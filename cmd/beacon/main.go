@@ -284,10 +284,40 @@ func main() {
 	lastProxies := trustedProxies
 	lastLimits := cfg.Limits.LiveLimits(nil)
 	lastDisclosure := cfg.Privacy.LiveDisclosure(nil)
+	lastPaused := map[string]time.Time{}
 
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
-		srv.SetSites(live.Strings(settings.KeyBeaconSites, "", cfg.Sites))
+		sites := live.Strings(settings.KeyBeaconSites, "", cfg.Sites)
+		srv.SetSites(sites)
+
+		// Which of those sites is paused, and until when (PLAN §4, #3).
+		// Read per site from the list just applied: nothing is recorded
+		// for a site outside it, so no other site's pause matters here.
+		// In force before serving, as every setting in this function is.
+		//
+		// Logged on both edges, per site, for the collector's reason: a
+		// stretch of missing rows is the first thing somebody asks about
+		// afterwards.
+		now := time.Now()
+		paused := map[string]time.Time{}
+		for _, site := range sites {
+			if until := live.Until(settings.KeyCollectionPausedUntil, site); until.After(now) {
+				paused[site] = until
+			}
+		}
+		for site, until := range paused {
+			if !lastPaused[site].Equal(until) {
+				logger.Info("recording paused", "site", site, "until", until.UTC().Format(time.RFC3339))
+			}
+		}
+		for site := range lastPaused {
+			if _, still := paused[site]; !still {
+				logger.Info("recording resumed", "site", site)
+			}
+		}
+		lastPaused = paused
+		srv.SetPaused(paused)
 
 		// Trusted proxies. Logged on change, at Info, because getting
 		// this wrong is the single most consequential misconfiguration

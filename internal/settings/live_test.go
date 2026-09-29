@@ -389,3 +389,28 @@ func writeAt(t *testing.T, pool *pgxpool.Pool, key, site, jsonValue string, at t
 		t.Fatalf("writing %s: %v", key, err)
 	}
 }
+
+// TestSource_UntilReadsAMomentAndNothingElse: an "until" setting is a
+// moment the panel wrote in RFC 3339, and anything else - nothing stored,
+// the empty value that resumes, a hand edit that does not parse, a value
+// that is not text - reads as the zero time, which no service takes for
+// "paused". Per site, because the pause is.
+func TestSource_UntilReadsAMomentAndNothingElse(t *testing.T) {
+	pool := testPool(t)
+	const key = "test.settings.collection.paused_until"
+	write(t, pool, key, "site-a", `"2026-09-29T12:00:00Z"`)
+	write(t, pool, key, "site-b", `"yarın akşam"`)
+	write(t, pool, key, "site-c", `""`)
+	write(t, pool, key, "site-d", `360`)
+
+	src := New(context.Background(), pool, Config{})
+	want := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	if got := src.Until(key, "site-a"); !got.Equal(want) {
+		t.Errorf("site-a read %s, want the stored %s", got, want)
+	}
+	for _, site := range []string{"site-b", "site-c", "site-d", "site-e"} {
+		if got := src.Until(key, site); !got.IsZero() {
+			t.Errorf("%s read %s, want the zero time", site, got)
+		}
+	}
+}

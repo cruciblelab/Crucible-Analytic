@@ -336,6 +336,26 @@ func (s *Source) Bool(key, site string, fallback bool) bool {
 	return value
 }
 
+// Until returns the end of a temporary state for a site - the moment an
+// "until" setting stores - or the zero time when nothing is stored, the
+// value is empty, or it does not parse.
+//
+// Unparseable is not in effect, and that is the direction that fails
+// safe here: the panel only ever stores RFC3339 (see panel.KindUntil),
+// so a value that does not parse was written by hand, and a service
+// that read it as "paused forever" would stop recording on a typo.
+func (s *Source) Until(key, site string) time.Time {
+	text := s.String(key, site, "", nil)
+	if text == "" {
+		return time.Time{}
+	}
+	end, err := time.Parse(time.RFC3339, text)
+	if err != nil {
+		return time.Time{}
+	}
+	return end
+}
+
 // Strings returns a list setting, or fallback.
 //
 // The returned slice is a copy: a caller that sorted or appended to the
@@ -369,13 +389,16 @@ func (s *Source) Strings(key, site string, fallback []string) []string {
 // reads is a setting that does nothing. Both are caught by the test in
 // internal/panel that walks the registry.
 const (
-	KeyBeaconSites          = "beacon.sites"
-	KeyCampaignDropParams   = "campaign.drop_params"
-	KeyCampaignExtraParams  = "campaign.extra_params"
-	KeyCampaignStoreClickID = "campaign.store_click_ids"
-	KeyLogLevel             = "logs.level"
-	KeyLogVerboseUntil      = "logs.verbose_until"
-	KeyPrivacyIPStorage     = "privacy.ip_storage"
+	KeyBeaconSites = "beacon.sites"
+	// KeyCollectionPausedUntil stops recording one site until a moment
+	// (PLAN §4, #3). Read per site by both writers.
+	KeyCollectionPausedUntil = "collection.paused_until"
+	KeyCampaignDropParams    = "campaign.drop_params"
+	KeyCampaignExtraParams   = "campaign.extra_params"
+	KeyCampaignStoreClickID  = "campaign.store_click_ids"
+	KeyLogLevel              = "logs.level"
+	KeyLogVerboseUntil       = "logs.verbose_until"
+	KeyPrivacyIPStorage      = "privacy.ip_storage"
 
 	// P3: the visitor-facing surface. The switch decides whether the
 	// beacon serves the disclosure at all; the two addresses are what

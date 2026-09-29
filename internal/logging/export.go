@@ -98,7 +98,7 @@ var exportRules = map[string]ExportRule{
 	"step": ExportKept, "suggestion": ExportKept, "table": ExportKept,
 	"tables": ExportKept, "tables_bytes": ExportKept, "throttle_queue": ExportKept,
 	"through": ExportKept, "to": ExportKept, "to_days": ExportKept,
-	"took": ExportKept, "used": ExportKept, "using": ExportKept,
+	"took": ExportKept, "until": ExportKept, "used": ExportKept, "using": ExportKept,
 	"value": ExportKept, "version": ExportKept, "was": ExportKept,
 	"was_asns": ExportKept, "was_countries": ExportKept, "what": ExportKept,
 	"where": ExportKept, "why": ExportKept, "work": ExportKept,

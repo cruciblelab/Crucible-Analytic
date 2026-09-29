@@ -627,6 +627,14 @@ kaydedilemedi = "The decision could not be saved."
 
 [metin.pano]
 hicbiri = "No blocks are selected for this site. Cards and breakdowns are turned on in the site's settings."
+duraklatildi = "Recording for this site is paused until %s: visits in that time are not recorded and cannot be brought back later. Settings → Collection → Pause recording resumes it at once."
+duraklatildi_eski = "Note: %s does not know about pausing in this version and goes on recording."
+# Pauses that ended inside the chosen range: visits in those hours were
+# not recorded, so a gap in the chart is not an absence of visitors. The
+# three most recent by name, the earlier ones counted.
+duraklatilmisti = "Recording for this site was paused during the chosen range: %s. Visits in those hours were not recorded, and the numbers are short by them."
+duraklatma_araligi = "%s – %s"
+duraklatma_oncesi = "(and %d earlier)"
 
 [metin.pano.kirilim]
 tumu = "All %s"
@@ -1030,6 +1038,25 @@ varsayilan = "Default - nobody has changed it"
 site = "Set for this site"
 genel = "Set across the installation"
 
+# The control for a state that ends by itself (settings with an end time,
+# such as pausing recording): the choices are durations, and the page
+# says when the current one ends.
+[metin.ayarlar.sure]
+kapali_durum = "Off at the moment."
+acik_kadar = "On until %s. It switches itself off when the time is up."
+kapat = "Off"
+# While on, the zero choice is an action: "Off" under a line saying "on"
+# would read as the current value.
+simdi_kapat = "Switch off now"
+
+[metin.ayarlar.sure.saat]
+one = "%s hour"
+other = "%s hours"
+
+[metin.ayarlar.sure.gun]
+one = "%s day"
+other = "%s days"
+
 [metin.ayarlar.hata]
 onkosul = "This value cannot be used on this installation: the configuration it needs is not there yet. The setting's own description says what has to be in place first."
 jeton_anahtari_sessiz = "This value needs an IP token key, and no service that writes an address has reported yet - so whether one is configured is unknown. The setting opens once the collector (and the beacon, if you use it) has run once."
@@ -1040,6 +1067,7 @@ bilinmeyen = "There is no such setting."
 yetki = "You may not change this setting."
 parola = "This setting asks for the developer password."
 parola_yanlis = "The developer password was not accepted."
+sure = "The chosen duration is not one this setting offers."
 bekle = "Too many attempts. Wait a little and try again."
 kapi_yok = "This installation has no developer password set, so this setting cannot be changed from the panel by anybody. That is the safe direction."
 aralik = "The value has to be between %d and %d."
@@ -1149,6 +1177,7 @@ kabul = "Accepted"
 hata = "Errors"
 suresi_dolan = "Requests past deadline"
 gunluk_kaybi = "Log lines lost"
+duraklatilan = "Held back while recording was paused"
 reddedilen_bilinmeyen_site = "unknown site"
 reddedilen_bozuk = "unreadable request"
 reddedilen_gecersiz = "invalid event"
