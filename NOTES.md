@@ -23876,3 +23876,113 @@ ziyaretçi bağlantısıyla yapıyor. Sitenin yeni bağlantıları reddettiği e
 uzun süreyi dışarıdan ölçüyor ve güncellemeden sonra aynı "sekmeden" bir
 ziyaret daha istiyor. Düzeltmeden önce kırmızı vermeli; düzeltme bir
 sonraki commit.
+
+## Z7 — düzeltme: boştaki bağlantı kapanır, meşgul olan on saniye beklenir (2026-09-30)
+
+### Önce, gerçek systemd'de (gecelik 43, iş 109803045837)
+
+Önceki commit'in süiti düzeltmesiz kodla GitHub'ın sanal makinesinde
+koştu ve beklenen her şeyi gösterdi:
+
+- sitenin yeni bağlantıları reddettiği en uzun süre **90,01 sn** (907
+  denemenin 897'si);
+- systemd collector'ı `stop-sigterm` zaman aşımında **SIGKILL** ile
+  öldürdü;
+- yükseltici 30 sn bekleyip vazgeçti ve güncellemeyi **geri aldı**:
+  *"collector did not come back after the update ... The machine needs
+  somebody"*.
+
+Günlük bir şey daha gösterdi, ve o da ayrı bir kusur (PLAN §V8): geri
+alma yeniden başlatmak için zili yine çaldı. İlk yeniden başlatma hâlâ
+collector'ın durmasını beklerken çalındı ve **kayboldu**: `restart.sh`
+yalnız bir kez koştu. Beacon, API ve panel 08:26:06'da yeni ikiliyle
+başladılar ve eski ikililer geri konduktan sonra bir daha
+başlatılmadılar. Collector ise SIGKILL'den sonra, geri konmuş eski
+ikiliyle başladı. Z7'nin düzeltmesi bu üst üste binmeyi olağan akıştan
+çıkarıyor, zilin kendisini düzeltmiyor.
+
+### Düzeltme
+
+`internal/proxy/drain.go`. Kapanışta dinleyici kapanıyor, sonra:
+
+- **boşta olan hemen kapanır** — son veriyi istemciye giden ve
+  `DrainIdle` (2 sn) boyunca hiç veri taşımamış bağlantı;
+- **meşgul olan `DrainTimeout`'a (10 sn) kadar beklenir**, sonra her şey
+  kapanır ve kesilenler `WARN` olarak yazılır;
+- kuyrukta slot bekleyen ve arka uca bağlanmakta olan bağlantılar son
+  tarihte iptal edilir. İkisinin de kendi testi var, çünkü tek bir test
+  ikisini birbirinden ayıramıyordu;
+- son tarihten sonra hâlâ dönmeyen bir bağlantı varsa en çok bir saniye
+  daha beklenir, `ERROR` yazılır ve kapanış sürer.
+
+Tam vekil kipinin `http.Server.Shutdown`'ı aynı sözü veriyor. Onun on
+saniyesi artık adlı bir sabit (`fullproxy.ShutdownGrace`). Bir test iki
+sabiti, bir başka test de tam vekilin o sabiti gerçekten uyguladığını
+tutuyor.
+
+**Boşta mı, TLS'i açmadan.** Collector baytları okumuyor. Karşı taraftaki
+yanıt `splice(2)` ile süreç hiç görmeden geçiyor, ve baytları saymak için
+bağlantıyı sarmak her yanıtı kullanıcı alanına geri taşırdı. Onun yerine
+çekirdeğe soruluyor, istemci soketinin TCP_INFO'su:
+
+- son verinin iki yöne ne kadar önce gittiği;
+- iki yöne hiç veri gidip gitmediği;
+- istemciye giden bir yanıtın hâlâ yolda olup olmadığı.
+
+### Yolda: kuralın iki hâli testlerde düştü
+
+İlk hâl yalnız iki zamanlayıcıyı karşılaştırıyordu ve "eşit"i "son sözü
+sunucu söyledi" okuyordu. Çekirdeğin milisaniyesi, bir milisaniyenin
+içindeki iki olayı sıralayamıyor. Bağlanırken yazan bir istemcide (TLS'in
+ilk mesajı tam budur) iki zamanlayıcı eşit, ve cevabını bekleyen bir
+istek 200 ms'de boşta sanılıp kesildi. Küçük bir programla çekirdeğe
+soruldu: zamanlayıcılar doğru, sayaçlar da. Kural artık bayt sayaçlarına
+da bakıyor: istemciye hiç veri gitmemişse bağlantı meşgul.
+
+İkinci hâl eşitliği "meşgul" sayıyordu. Aynı makinedeki bir arka uç
+cevabı isteğin geldiği milisaniyede veriyor (önbellekten bir dosya, bir
+304), ve öyle bağlantılar son tarihe kadar meşgul kaldı. Eşitlik artık
+boşta sayılıyor. Yanlış okuduğu durum yazılı: önceki cevabın gittiği
+milisaniyede gelen ve `DrainIdle`'dan uzun süren yeni bir istek.
+
+**Göremediği, ve teste bağlanan:** aynı bağlantıda birden çok istek.
+HTTP/2 bunu sürekli yapar. Hızlı bir cevap son giden veriyse ve yavaş
+bir istek hâlâ arka uçtaysa, 2 saniye sessizlikten sonra bağlantı boşta
+görünür ve kesilir. `TestASlowRequestBehindAQuickAnswerIsCutAsDocumented`
+bu şekli tutuyor ki `drain.go`'daki cümle koddan ayrışamasın. Bedeli bir
+yeniden başlatmada kesilen bir istek. Yerine konduğu kuralın bedeli, açık
+bağlantı kaldıkça her yeni ziyaretçinin reddedilmesiydi.
+
+### Sonra, gerçek ikiliyle
+
+`scratchpad/b3e-bosaltma-olc.py`, aynı düzenek (gerçek gibi davranan
+eşler):
+
+| durum | önce | sonra |
+|---|---|---|
+| açık bağlantı yok | 0,0 sn | 0,05 sn |
+| boşta keep-alive, arka uç kapatmıyor | 40 sn'de yok | **1,06 sn** |
+| boşta, arka uç 15 sn'de kapatıyor | 14,02 sn | **1,05 sn** |
+| 3 sn süren istek | — | 4,82 sn, **cevap ulaştı** |
+| hiç cevaplanmayan istek | — | 10,05 sn, kesildi |
+
+Çıkış kodu hepsinde 0. Yeni bağlantı reddi her durumda 0,05 sn'de
+başlıyor: dinleyici hâlâ ilk iş kapanıyor. Sıfır kesinti, systemd'nin
+soketi elinde tutması (soket etkinleştirme) demek olurdu; o ayrı bir iş.
+
+Gecelik süit artık bu durumda ret süresinin `DrainIdle + 3 sn`'nin altında
+kalmasını istiyor. Boşu meşgulden ayıramayan bir kapanış son tarihi
+bekler ve bu sınırın üstüne düşer.
+
+Yirmi dört mutasyon, yirmi dördü kırmızı (`scratchpad/mutasyon-z7.py`):
+- kararın her dalı;
+- çekirdek okumasının her alanı: zamanlayıcıların yeri, birimi, bayt
+  sayaçları, "yolda";
+- son tarih, kuyruk iptali, arama iptali ve yedek sınır;
+- iki günlük seviyesi;
+- tam vekilin süresi ve o süreyi gerçekten kullanması;
+- yeni günlük anahtarlarının sınıflandırılması.
+
+Kuyruk iptali ile arama iptali aynı sonucu koruyordu. İlk testleri ikisini
+ayıramazdı. Artık kuyruk için kayıt sayısı, arama için dolu kuyruklu bir
+dinleyici (listen backlog 0) ayrı ayrı ölçüyor.

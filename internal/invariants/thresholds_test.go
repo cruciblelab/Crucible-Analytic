@@ -83,6 +83,10 @@ var timingVerdicts = map[string]string{
 		"reach argon2. Correct is an early return costing microseconds; the failure " +
 		"is fifteen real hashes, the better part of a second. The 200ms ceiling sits " +
 		"in a gap of three orders of magnitude",
+	"internal/fullproxy/grace_test.go": "against the grace the test itself set (300ms): " +
+		"the floor catches a request not waited for - an immediate return, 250ms under " +
+		"it - and the ceiling at grace + 3s catches a grace that is not the one set, " +
+		"which is ShutdownGrace's ten seconds or more",
 	"internal/fullproxy/slowloris_test.go": "a 5s ceiling on a connection the server " +
 		"is supposed to drop on its own deadline - the failure it catches is a " +
 		"connection held open forever, so the gap is unbounded",
@@ -95,6 +99,22 @@ var timingVerdicts = map[string]string{
 		"takes ~3ms and blocking took 1.88s. The 500ms ceiling is 150x the correct " +
 		"cost. It was 2s once, which sat *above* the failure - so a faster database " +
 		"would have slipped a blocking sink under it",
+	"internal/proxy/drain_linux_test.go": "measured both ways, each verdict against " +
+		"the deadline the test itself set (testTimeout, 4s): an idle connection closed " +
+		"after testQuiet (300ms) returned in 0.30s, a silent one in 0s, and the failure " +
+		"either catches is waiting out the deadline - the 3.5s threshold is 11x above " +
+		"correct and 0.5s under a failure that a timer decides, not the machine. The " +
+		"request in flight has a floor as well: its backend answers after 1.2s, correct " +
+		"returned in 1.5s, and the floor at 1.0s catches the cut that returns at ~0.3s. " +
+		"The documented limit is the same test run backwards: the slow answer comes at " +
+		"2s, the drain closes the connection ~0.3s after the quick one, and the verdict " +
+		"fails only if the drain waited for the slow answer - 5x apart",
+	"internal/proxy/drain_test.go": "the deadline is the test's own (800ms, 600ms), and " +
+		"the floor is the half that measures: DrainIdle is an hour there, so a return " +
+		"before the deadline can only be a busy connection cut early - which would " +
+		"land near zero, 750ms under the floor. The ceilings (deadline + 3s, and " +
+		"deadline + drainGrace + 3s for the connection whose store never answers) catch " +
+		"a shutdown that never finishes, an unbounded gap",
 	"internal/panel/analytics/client_test.go": "relative: one against 2*delay from " +
 		"the same run, one against the client's own configured RequestTimeout",
 	"internal/panel/rangefetches_integration_test.go": "twenty-nine days, against a " +

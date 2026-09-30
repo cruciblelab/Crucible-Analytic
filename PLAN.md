@@ -104,7 +104,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | ✅ **10/10** | — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
+| **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -5951,7 +5951,7 @@ yirmi sekizi kırmızı. Ayrıntı NOTES'ta.
   güncellemesi geri alınır — §V4b, **düzeltildi**. *(Bu maddenin ilk hâli
   yetkiyi geri almayı öneriyordu; o, düzeltmeyi imkânsız yapardı.)*
 
-#### Z7 — Collector kapanırken siteyi kapalı tutmasın 🟡 *(açıldı 2026-09-30; ölçüldü, gerçek systemd koşusu bekleniyor)*
+#### Z7 — Collector kapanırken siteyi kapalı tutmasın 🟡 *(açıldı 2026-09-30; düzeltildi ve gerçek ikiliyle ölçüldü, gerçek systemd koşusu bekleniyor)*
 
 *(Planda yoktu; B3e'nin — panelden servis yeniden başlatma — temelini
 okurken bulundu: yeniden başlatma "temiz çık, gözetmen yeniden başlatsın"
@@ -5980,9 +5980,23 @@ collector güncellemenin geri alınması demek. Gecelik systemd süiti bu
 soruyu artık açık bir ziyaretçi bağlantısıyla soruyor; düzeltmeden önce
 kırmızı vermeli.
 
-**Düzeltmenin şekli (bir sonraki commit):** tam vekille aynı söz — boşta
-olan hemen kapanır, meşgul olan on saniyeye kadar beklenir, sonra her şey
-kapanır.
+**Gerçek systemd'de, düzeltmeden önce (gecelik 43):** site yeni
+bağlantıları **90,01 sn** reddetti, systemd collector'ı SIGKILL ile öldürdü,
+yükseltici 30 sn'de vazgeçip güncellemeyi **geri aldı**.
+
+**Düzeltme (`internal/proxy/drain.go`).** Tam vekille aynı söz: boşta olan
+2 sn sessizlikten sonra kapanır, meşgul olan 10 sn'ye kadar beklenir, sonra
+her şey kapanır ve kesilen istekler `WARN` olarak yazılır. Boşta olup
+olmadığı TLS açılmadan, çekirdeğe (TCP_INFO) sorularak anlaşılıyor, yani
+yanıt baytları süreçten geçmeden (`splice`) akmaya devam ediyor. Kuralın
+iki ilk hâli testlerde düştü: çekirdeğin milisaniyesi, bağlanırken yazan
+bir istemcinin iki zamanlayıcısını eşit gösteriyor. Gerçek ikiliyle, boşta
+bir bağlantıyla kapanış **40 sn'de yok → 1,06 sn**; 3 sn süren bir isteğin
+cevabı ulaştı; cevaplanmayan bir istek 10 sn'de kesildi.
+
+**Bilinen sınır, teste bağlı:** aynı bağlantıda (HTTP/2) hızlı bir cevabın
+arkasında bekleyen yavaş bir istek, 2 sn hiç veri akmazsa boşta sanılıp
+kesilir. Ayrıntı NOTES'ta ("Z7 — düzeltme").
 
 ---
 
@@ -10044,7 +10058,7 @@ geçici bir `--bin-dir`, ve dosya oraya varmış mı diye bakmak.
 
 ---
 
-### V grubu — Panelden güncelleme ✅ **10/10** *(2026-09-29: V7 ile systemd kurulumunda da)*
+### V grubu — Panelden güncelleme 🟡 **10/11** *(2026-09-29: V7 ile systemd kurulumunda da; 2026-09-30: V8 açıldı)*
 
 *(Müşterinin sorusu: "Panele veremez miyiz? Geliştirici isterse ayarlardan
 şifre koyar, şifreyle müşteriler güncelleme yapabilir. Şifre koymazsa
@@ -10524,6 +10538,23 @@ Yeni değişmez `internal/invariants/unitwrites_test.go`: root'un
 çalıştırdığı hiçbir şey bir hizmet hesabının yazabildiği yolda değil;
 zili çalan birim zili, kurucunun birimi ikili dizinini yalnız ek dosyayla
 açıyor.
+
+#### V8 — Yeniden başlatma sürerken çalan zil 🟡 *(açıldı 2026-09-30, gecelik 43; ölçülecek)*
+
+*(Z7'nin gecelik koşusunun günlüğünden çıktı.)* Geri alma, servisleri eski
+ikiliyle yeniden başlatmak için zili yine çalıyor. Gecelik 43'te ilk
+yeniden başlatma hâlâ collector'ın durmasını beklerken çalındı. Günlükte
+`restart.sh` bir kez koştu: beacon, API ve panel yeni ikiliyle başladı ve
+eski ikililer geri konduktan sonra bir daha başlatılmadı.
+
+Muhtemel mekanizma: `crucible-restart.path` `PathModified=` kullanıyor, yani
+kenarla tetikleniyor. Birim zaten çalışırken gelen olay yeni bir koşu
+başlatmıyor. `PathExists=` ise birim durunca yeniden bakar.
+
+Kesin değil: döküm, ilk koşu bittikten 0,5 sn sonra alındı. Gerçek
+systemd'de ayrıca ölçülecek. Z7 bu üst üste binmeyi olağan akıştan
+çıkarıyor: collector'ın durması en çok 10 sn sürüyor, geri alma 30 sn'den
+önce çalmıyor, ve bu ilişkiyi bir test tutuyor. Zil ise düzelmiş değil.
 
 ---
 

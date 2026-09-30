@@ -61,6 +61,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
+	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
 )
 
@@ -274,12 +275,13 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	// any site with visitors. Without it the restart above measured an
 	// empty site: the collector stopped at once because nothing was open.
 	//
-	// Measured on the real binary before this was written (NOTES, Z7): in
-	// the default passthrough mode, SIGTERM closed the listener in 0.05 s
-	// and the process was still waiting for this one idle connection 40
-	// seconds later. Under systemd that wait ends at the unit's stop
-	// timeout, 90 seconds unless set - three times the window the upgrader
-	// gives a service to come back.
+	// Measured on the real binary before Z7 (NOTES): in the default
+	// passthrough mode, SIGTERM closed the listener in 0.05 s and the
+	// process was still waiting for this one idle connection 40 seconds
+	// later. Here, on systemd, that wait ended at the unit's 90-second stop
+	// timeout with a SIGKILL, the site refused new connections for all of
+	// it, and the upgrader - which waits 30 - undid the update (nightly
+	// run 43).
 	visitor := proxyClient(t, collectorAddr, origin, true)
 	visit(t, visitor, "before the update")
 	newcomers := watchRefusals(collectorAddr)
@@ -343,12 +345,16 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	// ---- and the visitor ----
 	//
 	// The site was closed to new connections while the collector
-	// restarted; how long is the number a customer notices. It has to be
-	// shorter than the upgrader's window at the least, or the restart
-	// that the upgrade needed is the reason the upgrade is undone.
-	if outage.longest >= relupdate.HealthWindow {
-		t.Errorf("the site refused new connections for %s during the restart; the upgrader "+
-			"waits %s for a service to come back", outage.longest.Round(time.Second), relupdate.HealthWindow)
+	// restarted; how long is the number a customer notices. Before Z7 it
+	// was 90 seconds - systemd's stop timeout, ending in a SIGKILL - and
+	// the update was undone (nightly run 43). Now the idle connection is
+	// closed as idle: the refusals last the drain's quiet period at most,
+	// plus a start. A drain that could not tell idle from busy would wait
+	// out DrainTimeout instead, and land above this.
+	if limit := proxy.DrainIdle + 3*time.Second; outage.longest >= limit {
+		t.Errorf("the site refused new connections for %s during the restart; an idle "+
+			"connection should be closed after %s of quiet, and the restart should refuse "+
+			"visitors for less than %s", outage.longest.Round(10*time.Millisecond), proxy.DrainIdle, limit)
 	}
 	// The same tab, afterwards. Its connection was closed under it by the
 	// restart; a browser opens a new one, and so does this client.

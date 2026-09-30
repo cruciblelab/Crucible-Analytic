@@ -85,6 +85,10 @@ type Server struct {
 	// sit with no request in flight. Defaults to defaultIdleTimeout if <= 0.
 	IdleTimeout time.Duration
 	Logger      *slog.Logger
+
+	// shutdownGrace is ShutdownGrace unless a test set it: a test cannot
+	// spend ten real seconds proving that ten seconds are given.
+	shutdownGrace time.Duration
 }
 
 // Timeout defaults for the front-facing HTTP server. Generous rather than
@@ -116,6 +120,12 @@ func (s *Server) logger() *slog.Logger {
 // connStateKey is the context key recordingHandler uses to retrieve the
 // connection's snoopConn (and thus its JA4 fingerprint) for each request.
 type connStateKey struct{}
+
+// ShutdownGrace is how long a shutdown waits for requests in flight.
+// http.Server.Shutdown closes idle connections at once and waits this long
+// for busy ones; the passthrough proxy makes the same promise with
+// proxy.DrainTimeout, and a test holds the two together (Z7).
+const ShutdownGrace = 10 * time.Second
 
 // ListenAndServe binds ListenAddr and serves until ctx is cancelled or a
 // fatal error occurs.
@@ -219,7 +229,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), orDefault(s.shutdownGrace, ShutdownGrace))
 		defer cancel()
 		if err := httpServer.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("fullproxy: shutdown: %w", err)

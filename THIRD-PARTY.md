@@ -99,13 +99,14 @@ Every direct dependency, from `go.mod`:
 | `github.com/alexedwards/scs/v2`, `.../scs/pgxstore` | MIT |
 | `github.com/pquerna/otp` | Apache-2.0 |
 | `golang.org/x/crypto` | BSD-3-Clause |
+| `golang.org/x/sys` | BSD-3-Clause |
 | `golang.org/x/term` | BSD-3-Clause |
 | `golang.org/x/text` | BSD-3-Clause |
 
 Indirect dependencies (`github.com/boombuler/barcode`,
 `github.com/jackc/pgpassfile`, `github.com/jackc/pgservicefile`,
-`github.com/jackc/puddle/v2`, `golang.org/x/sync`, `golang.org/x/sys`)
-are MIT or BSD-3-Clause.
+`github.com/jackc/puddle/v2`, `golang.org/x/sync`) are MIT or
+BSD-3-Clause.
 
 All of these are permissive and compatible with redistributing this
 project under Apache-2.0. None is copyleft, so no obligation propagates

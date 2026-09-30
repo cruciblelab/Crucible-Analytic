@@ -24,6 +24,27 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Collector yeniden başlarken siteyi 90 saniyeye kadar kapalı tutuyordu — ve panelden güncelleme bu yüzden geri alınıyordu
+
+**Kuran kişinin yapması gereken:** hiçbir şey; bu sürüme geçmek yeter.
+Şema değişmedi.
+
+Geçişli kipte (varsayılan) collector durdurulurken dinleyicisini kapatıp
+her açık bağlantının kendiliğinden bitmesini **süresiz** bekliyordu.
+Ziyaretçisi olan bir sitede bu, arka ucun keep-alive süresi (nginx'te
+75 sn) ya da systemd'nin durdurma süresi (90 sn, sonra SIGKILL) demekti.
+Site o süre boyunca yeni ziyaretçiyi reddediyordu. Panelden güncelleme
+servislerin 30 saniyede dönmesini beklediği için, açık bir bağlantısı olan
+her sitede güncelleme **geri alınıyordu**. Gecelik systemd süitinde gerçek
+systemd'de ölçüldü: ret 90,01 sn sürdü, collector SIGKILL ile öldü ve
+güncelleme geri alındı.
+
+Artık boştaki bağlantılar 2 saniye sessizlikten sonra kapanıyor, cevabı
+süren istekler en çok 10 saniye bekleniyor (tam vekil kipinin zaten
+verdiği süre). Gerçek ikiliyle boşta bir bağlantı varken kapanış 1,06 sn
+sürdü. Neyin boşta sayıldığı ve bilinen sınırı KURULUM.md §13.5'te
+("Collector yeniden başlarken siteniz").
+
 ### Panelden sürüm güncellemesi hiçbir systemd kurulumunda tamamlanamıyordu
 
 **Kuran kişinin yapması gereken:** bu sürümün `install.sh`'ını çalıştırın

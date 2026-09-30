@@ -2550,6 +2550,32 @@ Hayır, ama bir tavsiye var: **önce panel, sonra collector.** Panel
 geri kalanı yenilemeden önce durumu görebilmenizi sağlar. Collector
 siteyi önlediği için en son yeniden başlatılacak olan da odur.
 
+### Collector yeniden başlarken siteniz
+
+Collector sitenin önünde durduğu için onu yeniden başlatmak siteyi
+etkiler. Durmaya başladığı andan yenisi dinlemeye başlayana kadar **yeni
+bağlantılar reddedilir**. Açık bağlantılar şöyle ele alınır:
+
+- **Boştakiler** (sayfayı yüklemiş bir tarayıcının açık tuttuğu
+  bağlantı) 2 saniye sessizlikten sonra kapatılır. Tarayıcı bir sonraki
+  istekte yeni bağlantı açar.
+- **Cevabı süren bir istek en çok 10 saniye beklenir**, sonra kesilir ve
+  günlüğe `WARN` olarak düşer. Tam vekil kipinin de verdiği süre budur.
+
+Gerçek ikiliyle ölçüldü. Boşta bir bağlantı varken kapanış 1,06 sn sürdü.
+3 saniye süren bir isteğin cevabı ulaştı, sonra kapandı (4,82 sn).
+Hiç cevaplanmayan bir istek 10,05 sn'de kesildi. Bu sürümden önce
+kapanış, arka ucun keep-alive süresi (nginx'te 75 sn) ya da systemd'nin
+durdurma süresi (90 sn, sonra SIGKILL) kadar sürüyordu. Site o süre
+boyunca kapalı kalıyordu ve panelden güncelleme bu yüzden geri
+alınıyordu.
+
+**Bilinen sınır, geçişli kipte:** collector TLS'i açmadığı için isteği
+göremez; kimin en son veri gönderdiğine bakar. Aynı bağlantıda (HTTP/2
+bunu sürekli yapar) hızlı bir cevabın arkasında yavaş bir istek
+bekliyorsa ve 2 saniye hiç veri akmazsa, o istek boşta sanılıp kesilir.
+Tam vekil kipi HTTP'yi gördüğü için bu durumu doğru ayırır.
+
 ### Geri dönmek
 
 Eski paketi tekrar kurup servisleri yeniden başlatın. **Şema geri

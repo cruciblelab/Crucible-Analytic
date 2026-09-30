@@ -66,6 +66,14 @@ type Server struct {
 	DialTimeout time.Duration
 
 	Logger *slog.Logger
+
+	// drainIdle and drainTimeout are the shutdown's two numbers (Z7,
+	// drain.go); zero means DrainIdle and DrainTimeout. Unexported: the
+	// only reason to change them is a test that cannot spend ten real
+	// seconds per case, and a public field nothing in production sets
+	// would be a setting nobody could reason about.
+	drainIdle    time.Duration
+	drainTimeout time.Duration
 }
 
 // ListenAndServe binds ListenAddr and serves until ctx is cancelled or a
@@ -97,22 +105,76 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	s.logger().Info("proxy listening", "addr", ln.Addr().String(), "backend", s.BackendAddr)
 
+	// stopping ends the two waits a closed socket does not: a connection
+	// queued for a limiter slot, and a backend dial in progress. Cancelled
+	// at the drain's deadline and not before - a connection accepted
+	// before the shutdown began is served if it can be within it.
+	stopping, stop := context.WithCancel(context.Background())
+	defer stop()
+	live := newConnSet()
+
 	var wg sync.WaitGroup
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				wg.Wait()
+				done := make(chan struct{})
+				// no-recover: this goroutine waits on a WaitGroup and
+				// closes a channel. It holds no connection and touches no
+				// byte an attacker sent, which is the same reason the
+				// listener-closing goroutine above gives.
+				go func() {
+					wg.Wait()
+					close(done)
+				}()
+				s.logDrain(drain(live, done, stop, orDefault(s.drainIdle, DrainIdle),
+					orDefault(s.drainTimeout, DrainTimeout)))
 				return nil
 			}
 			return err
 		}
+		t := live.add(conn)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.handleConn(conn)
+			defer live.remove(t)
+			s.handleConn(stopping, t)
 		}()
 	}
+}
+
+// logDrain says what a shutdown did with the connections it found open.
+//
+// Nothing when there were none: a restart of an idle collector is not
+// news. Info when every connection ended by itself or was closed as idle,
+// Warn when the deadline cut some - those were requests in flight, and
+// "why did my upload fail at 03:12" is answered here.
+func (s *Server) logDrain(r drainReport) {
+	if r.open == 0 {
+		return
+	}
+	level, msg := slog.LevelInfo, "proxy: drained the open connections"
+	switch {
+	case r.stuck:
+		level, msg = slog.LevelError, "proxy: connections were closed at the shutdown deadline "+
+			"and some did not finish; returning anyway"
+	case r.cut > 0:
+		level, msg = slog.LevelWarn, "proxy: the shutdown deadline closed connections still in use"
+	}
+	// One call with the keys written out, not three sharing a slice: the
+	// export rules for the diagnostic file are held against the keys the
+	// tree writes, and a key inside a variable is one that check cannot
+	// read (internal/invariants/logkeys_test.go).
+	s.logger().Log(context.Background(), level, msg, "open", r.open, "closed_idle", r.idle,
+		"cut_at_deadline", r.cut, "took", r.took.Round(time.Millisecond))
+}
+
+// orDefault is d, or def when d is not positive.
+func orDefault(d, def time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return def
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -122,7 +184,8 @@ func (s *Server) logger() *slog.Logger {
 	return slog.Default()
 }
 
-func (s *Server) handleConn(conn net.Conn) {
+func (s *Server) handleConn(stopping context.Context, t *tracked) {
+	conn := t.client
 	// Ordered so conn.Close runs even when a panic unwinds through here:
 	// deferred calls run last-in-first-out, so recoverConn stops the
 	// unwinding first and Close then still fires. See recover.go for why
@@ -144,7 +207,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		return
 	}
 
-	decision, release := s.admit()
+	decision, release := s.admit(stopping)
 	if release != nil {
 		defer release()
 	}
@@ -158,23 +221,29 @@ func (s *Server) handleConn(conn net.Conn) {
 		// fail_open, over limit: skip the ClientHello peek and RecordRequest
 		// entirely (the whole point is minimizing collector overhead while
 		// it can't otherwise keep up) and splice bytes through unread.
-		s.pipeToBackend(conn, conn)
+		s.pipeToBackend(stopping, t, conn)
 		return
 	}
 
 	peeked, fingerprint := sniffClientHello(conn, s.HandshakeTimeout)
 	s.Store.RecordRequest(remoteIP, fingerprint, time.Now())
 
-	s.pipeToBackend(conn, io.MultiReader(bytes.NewReader(peeked), conn))
+	s.pipeToBackend(stopping, t, io.MultiReader(bytes.NewReader(peeked), conn))
 }
 
 // admit consults Limiter, treating a nil Limiter (tests, or a config with
 // every dimension explicitly unlimited) as always-proceed.
-func (s *Server) admit() (limiter.Decision, func()) {
+//
+// The wait for a throttled slot ends with stopping, which a shutdown
+// cancels at its deadline (Z7). It used to be context.Background: a
+// connection still queued when the other connections were closed at the
+// deadline would then take a freed slot and be spliced to the backend by
+// a process on its way out.
+func (s *Server) admit(stopping context.Context) (limiter.Decision, func()) {
 	if s.Limiter == nil {
 		return limiter.DecisionProceed, nil
 	}
-	return s.Limiter.Admit(context.Background())
+	return s.Limiter.Admit(stopping)
 }
 
 // geoBlocked reports whether remoteIP's country/ASN matches GeoBlocklist.
@@ -196,17 +265,29 @@ func (s *Server) geoBlocked(remoteIP netip.Addr) bool {
 
 // pipeToBackend dials BackendAddr and splices clientReader (everything the
 // client sent, including any bytes already peeked from conn) to it.
-func (s *Server) pipeToBackend(conn net.Conn, clientReader io.Reader) {
+//
+// The dial ends with stopping as well as with DialTimeout, and the backend
+// connection is registered with t before any byte is spliced, so a drain
+// can close it: a backend that ignores the half-close would otherwise
+// keep the copy towards the client open for as long as it liked.
+func (s *Server) pipeToBackend(stopping context.Context, t *tracked, clientReader io.Reader) {
 	dialTimeout := s.DialTimeout
 	if dialTimeout <= 0 {
 		dialTimeout = 10 * time.Second
 	}
-	backendConn, err := net.DialTimeout("tcp", s.BackendAddr, dialTimeout)
+	backendConn, err := (&net.Dialer{Timeout: dialTimeout}).DialContext(stopping, "tcp", s.BackendAddr)
 	if err != nil {
-		s.logger().Warn("proxy: dial backend failed", "backend", s.BackendAddr, "err", err)
+		if stopping.Err() == nil {
+			s.logger().Warn("proxy: dial backend failed", "backend", s.BackendAddr, "err", err)
+		}
+		return
+	}
+	if !t.attach(backendConn) {
+		// A drain closed this connection while the dial was in flight;
+		// attach has closed the backend too.
 		return
 	}
 	defer backendConn.Close()
 
-	pipeConns(s.logger(), conn, clientReader, backendConn)
+	pipeConns(s.logger(), t.client, clientReader, backendConn)
 }
