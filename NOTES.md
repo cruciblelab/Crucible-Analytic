@@ -23799,3 +23799,21 @@ Buradaki makinede zile cevap verecek systemd olmadığı için S6'nın
 başarılı hâli (yeniden başlatma, kalp atışları, kontrol noktasının
 silinmesi) burada ölçülemiyor; onu gecelik süit gerçek systemd'de
 ölçüyor.
+
+### Sonra, gerçek systemd'de (gecelik 42, iş 109509144545)
+
+Aynı süit, düzeltmeyle, GitHub'ın sanal makinesinde: **yeşil, 8,25 sn.**
+Sırasıyla — adım atılmadan kuyruğa konan istek **hiçbir şey indirmeden**
+reddedildi ve satırda KURULUM başlığının adı vardı; KURULUM'un
+"panelden güncellemeyi açın" (dört komut) ve "yeniden başlatmayı da
+devredin" (üç komut) blokları olduğu gibi koştu; kuyruğa konan ikinci
+istek `state=succeeded installed="v0.99.0" rolled_back=false`; kurulu
+panel (`crucible` hesabıyla) `v0.99.0` diyor; dört servisin
+`InvocationID`'si değişti ve dördü `active` — yeniden başlatmayı systemd
+yaptı, yol üstünde hiçbir şey varsayılmadı; zil silindi, kontrol noktası
+kalktı, `crucible-restart.service`'in günlüğünde yeniden başlatma satırı
+var; `crucible-upgrader` `libexec`'e yazamıyor.
+
+Panelden güncelleme ilk kez bir systemd kurulumunda uçtan uca tamamlandı.
+Gecelik iş artık her gece aynı soruyu soruyor.
+

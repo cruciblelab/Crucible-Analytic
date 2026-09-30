@@ -104,7 +104,7 @@ gerekçe değil bahane olur.
 | **S** İlk kurulum deneyimi | ✅ **3/3** | — *(planda yoktu; müşterinin sorusu açtı — §S)* |
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
-| **V** Panelden güncelleme | 🟡 **9/10** | V7 — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un; gerçek ikiliyle ve gerçek systemd'de (gecelik 41) ölçüldü. Düzeltme yazıldı: zil yolu birimde, ikili dizini isteğe bağlı adımla açılıyor, root'un betiği `libexec`'te, yükseltici indirmeden önce soruyor; gerçek systemd'de başarılı koşu bekleniyor)* |
+| **V** Panelden güncelleme | ✅ **10/10** | — *(planda yoktu; müşterinin sorusu açtı — §V. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -10011,7 +10011,7 @@ geçici bir `--bin-dir`, ve dosya oraya varmış mı diye bakmak.
 
 ---
 
-### V grubu — Panelden güncelleme 🟡
+### V grubu — Panelden güncelleme ✅ **10/10** *(2026-09-29: V7 ile systemd kurulumunda da)*
 
 *(Müşterinin sorusu: "Panele veremez miyiz? Geliştirici isterse ayarlardan
 şifre koyar, şifreyle müşteriler güncelleme yapabilir. Şifre koymazsa
@@ -10422,7 +10422,7 @@ imzalı bir manifest soruyor, doğruluyor ve bulduğunu bir satıra yazıyor;
 panel satırı okuyor, ağa hiç çıkmıyor. Ayrıntı NOTES'ta ("V6 —
 Güncellemeleri kontrol et"). *Bu başlık da 29 Eylül'e kadar hiç yazılmamıştı.*
 
-#### V7 — Güncelleme, systemd birimlerinin içinde 🟡 *(açıldı 2026-09-29; düzeltme yazıldı ve yerelde ölçüldü, gerçek systemd koşusu bekleniyor)*
+#### V7 — Güncelleme, systemd birimlerinin içinde ✅ *(2026-09-29, `4b3f90a` + `1d6403a`)*
 
 **Bulgu (B3e'nin temelini okurken):** panelden sürüm güncellemesi
 hiçbir systemd kurulumunda tamamlanamıyordu. V4 kurucuyu `t.TempDir()`'de
@@ -10481,9 +10481,12 @@ ilk kez gerçek systemd'de koştu ve geçti.
   `restart.sh`'ı siliyor.
 
 Yerelde ölçüldü (NOTES'ta tablo): adım atılmamış her durum sıfır
-indirmeyle reddediliyor; adım atılmışsa kurulum ve zil geçiyor. Başarılı
-yeniden başlatma burada ölçülemiyor (zile cevap verecek systemd yok);
-**gecelik süit onu gerçek systemd'de soruyor, ✅ o koşudan sonra.**
+indirmeyle reddediliyor; adım atılmışsa kurulum ve zil geçiyor.
+**Gerçek systemd'de, gecelik 42:** adım atılmadan istek indirmesiz
+reddedildi; KURULUM'un iki bloğu olduğu gibi koştu; güncelleme
+`succeeded`, kurulu panel `v0.99.0` diyor, dört servisin
+`InvocationID`'si değişti, zil silindi, kontrol noktası kalktı,
+`crucible-upgrader` `libexec`'e yazamıyor — 8,25 saniye.
 Yeni değişmez `internal/invariants/unitwrites_test.go`: root'un
 çalıştırdığı hiçbir şey bir hizmet hesabının yazabildiği yolda değil;
 zili çalan birim zili, kurucunun birimi ikili dizinini yalnız ek dosyayla
