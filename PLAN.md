@@ -91,7 +91,7 @@ gerekçe değil bahane olur.
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
 | **O** Ölçek altında okuma | 🟡 **5/6** | **O4a, O4b ve O4c kapandı** (tek geçiş ✅, JIT ✅, ja4'ün sıralaması ölçülüp reddedildi; kesişim uçlarında anahtar adres başına + ayrıntı yalnız sayfaya → **altı ölü düğmenin dördü geri geldi**; `top-ips` 90 günde 19,2 → 4,6 sn, `/timeseries`'in aynı düzeltmesi ölçülüp reddedildi). Kalan: yalnız O4 — iki adres listesi 90 günde 6,1 sn ve `/timeseries` 16,4 sn, ihtiyacı **ölçülmüş**, şema sahibin kararı — *(planda yoktu; ölçüm açtı — §O; A8 buraya taşındı)* |
 | **Y** İstek yolu yük altında | ✅ **4/4** | — *(planda yoktu; sahibin sorusu açtı — §Y)* |
-| **Z** Yük altında kendini koruma | 🟡 **4/6** | Z3, Z5 — *(İkisi de sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
+| **Z** Yük altında kendini koruma | 🟡 **4/7** | Z3, Z5, Z7 — *(**Z7 açıldı (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyor ve bu sürede site yeni bağlantı kabul etmiyor — boşta tek bir keep-alive bağlantısıyla 40 sn'de çıkmadı; gerçek systemd'de ölçülüyor, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
 | **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
@@ -5950,6 +5950,39 @@ yirmi sekizi kırmızı. Ayrıntı NOTES'ta.
   dedi. Yani yeniden başlatıcıyı açan her dağıtımda her ikili
   güncellemesi geri alınır — §V4b, **düzeltildi**. *(Bu maddenin ilk hâli
   yetkiyi geri almayı öneriyordu; o, düzeltmeyi imkânsız yapardı.)*
+
+#### Z7 — Collector kapanırken siteyi kapalı tutmasın 🟡 *(açıldı 2026-09-30; ölçüldü, gerçek systemd koşusu bekleniyor)*
+
+*(Planda yoktu; B3e'nin — panelden servis yeniden başlatma — temelini
+okurken bulundu: yeniden başlatma "temiz çık, gözetmen yeniden başlatsın"
+demek, ve temiz çıkışın ne kadar sürdüğünü kimse sormamıştı.)*
+
+**Bulgu.** Varsayılan geçişli kipte collector, SIGTERM'de dinleyiciyi
+kapatıyor ve **her açık bağlantının kendiliğinden bitmesini süresiz
+bekliyor** (`internal/proxy/server.go`: `ln.Close` + `wg.Wait`, son tarih
+yok). Tam vekil kipinde aynı bekleme on saniyeyle sınırlı
+(`http.Server.Shutdown`), boştaki bağlantıları da hemen kapatıyor;
+geçişli kip TLS'i açmadığı için hangisinin boşta olduğunu hiç sormuyor.
+
+Gerçek ikiliyle ölçüldü (`d3c5ad7`, kendi veritabanı): açık bağlantı
+yokken SIGTERM'den çıkışa 0,05 sn. Boşta tek bir keep-alive bağlantısı
+varken dinleyici 0,05 sn'de kapandı — yeni ziyaretçi bağlanamıyor — ve
+süreç **40 sn sonra hâlâ bekliyordu**. Bir tarayıcının sayfayı yükledikten
+sonra açık tuttuğu bağlantı tam budur; ziyaretçisi olan her sitede,
+yeniden başlatma anında böyle bağlantılar vardır.
+
+Bekleme, bağlantıyı önce kim kapatırsa onunla bitiyor: arka ucun
+keep-alive süresi (nginx'in varsayılanı 75 sn) ya da systemd'nin durdurma
+süresi (90 sn, birimlerde değiştirilmemiş). O süre boyunca **site yeni
+bağlantıları reddediyor.** Ve panelden güncelleme (V) servisleri yeniden
+başlatıp her birinin **30 saniyede** geri dönmesini bekliyor: dönmeyen
+collector güncellemenin geri alınması demek. Gecelik systemd süiti bu
+soruyu artık açık bir ziyaretçi bağlantısıyla soruyor; düzeltmeden önce
+kırmızı vermeli.
+
+**Düzeltmenin şekli (bir sonraki commit):** tam vekille aynı söz — boşta
+olan hemen kapanır, meşgul olan on saniyeye kadar beklenir, sonra her şey
+kapanır.
 
 ---
 

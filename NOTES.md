@@ -23817,3 +23817,62 @@ var; `crucible-upgrader` `libexec`'e yazamıyor.
 Panelden güncelleme ilk kez bir systemd kurulumunda uçtan uca tamamlandı.
 Gecelik iş artık her gece aynı soruyu soruyor.
 
+
+## Z7 (önce) — Collector kapanırken siteyi kapalı tutuyordu (2026-09-30)
+
+B3e'nin — panelden servis yeniden başlatma — temelini okurken bulundu.
+Katalog o operasyonu *"temiz çık, gözetmen yeniden başlatsın"* diye
+yazıyor. Temiz çıkışın ne kadar sürdüğünü kimse sormamıştı.
+
+### Kodda
+
+Varsayılan geçişli kipte `internal/proxy.Server.Serve` iptalde dinleyiciyi
+kapatıyor, sonra `wg.Wait()` ile her açık bağlantının kendiliğinden
+bitmesini bekliyor. Son tarih yok. Tam vekil kipi (`internal/fullproxy`)
+aynı işi `http.Server.Shutdown`'a on saniyelik bir bağlamla veriyor:
+boştaki bağlantılar hemen kapanıyor, meşguller en çok on saniye
+bekleniyor. Geçişli kip TLS'i açmadığı için bir bağlantının boşta olup
+olmadığını hiç sormuyor.
+
+### Gerçek ikiliyle
+
+`scratchpad/b3e-bosaltma-olc.py`. Gerçek collector (`d3c5ad7`), kendi
+veritabanı (`ca_b3e`, `scratchpad/b3e-kur.sh`), bir arka uç ve bir
+istemci bağlantısı. SIGTERM'den çıkışa kadar geçen süre ve yeni bir
+bağlantının ne zaman reddedildiği:
+
+| durum | yeni bağlantı reddi | çıkış |
+|---|---|---|
+| açık bağlantı yok | hemen | 0,0 sn |
+| boşta bir keep-alive bağlantısı, arka uç boştakini hiç kapatmıyor (Go `http.Server`'ın varsayılanı; gecelik süitin arka ucu da böyle) | 0,05 sn | **40 sn'de yok** |
+| aynısı, arka uç boştakini 15 sn'de kapatıyor (nginx gibi; nginx'in varsayılanı 75 sn) | 0,05 sn | **14,02 sn** |
+
+Yani kapanış, arka ucun keep-alive süresi kadar sürüyor. Yoksa systemd'nin
+durdurma süresi kadar: birimler `TimeoutStopSec` yazmıyor, varsayılan
+90 sn, sonra SIGKILL. Bütün bu süre boyunca **site yeni bağlantı kabul
+etmiyor**. Bir tarayıcının sayfayı yükledikten sonra açık tuttuğu
+bağlantı tam budur, ve ziyaretçisi olan her sitede yeniden başlatma anında
+böyle bağlantılar vardır.
+
+### Yolda: düzeneğin kendi kusuru
+
+İlk üç koşuda üçüncü satır "40 sn'de yok, istemci kapanınca da 30 sn'de
+yok" dedi. Aynı sırayı tek başına kurunca süreç çıkıyordu. Tahmin yerine
+SIGQUIT'le goroutine dökümü alındı: kalan tek bağlantı, SIGTERM anında
+dinleyici kapanmadan kabul edilen **yoklama** bağlantısıydı. Taklit arka
+ucum istemci kapatınca kendi tarafını kapatmıyordu; gerçek sunucular
+kapatır. Arka uç ve istemci gerçek gibi davranınca (karşı taraf kapatınca
+kapatırlar) satır 14,02 sn verdi.
+
+### Sonuçları, ölçülecek
+
+Panelden güncelleme (V) dört servisi yeniden başlatıp her birinin
+**30 saniyede** (`relupdate.HealthWindow`) kalp atışıyla dönmesini
+bekliyor. Dönmeyen collector güncellemenin geri alınması demek. Ziyaretçisi
+olan bir sitede collector'ın durması 75–90 sn sürüyorsa her güncelleme geri
+alınır. Bu bir akıl yürütme; ölçmek gerçek systemd istiyor. Gecelik
+systemd süiti artık güncellemeyi, collector üzerinden açık ve boşta bir
+ziyaretçi bağlantısıyla yapıyor. Sitenin yeni bağlantıları reddettiği en
+uzun süreyi dışarıdan ölçüyor ve güncellemeden sonra aynı "sekmeden" bir
+ziyaret daha istiyor. Düzeltmeden önce kırmızı vermeli; düzeltme bir
+sonraki commit.

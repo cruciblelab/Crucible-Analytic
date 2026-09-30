@@ -46,6 +46,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -157,7 +158,7 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	origin := startOrigin(t)
 	setConfig(t, pkg, "collector.toml", `^backend_addr = ".*"$`,
 		fmt.Sprintf(`backend_addr = %q`, origin.addr))
-	setConfig(t, pkg, "collector.toml", `^listen_addr = ".*"$`, `listen_addr = "127.0.0.1:18443"`)
+	setConfig(t, pkg, "collector.toml", `^listen_addr = ".*"$`, fmt.Sprintf(`listen_addr = %q`, collectorAddr))
 	setConfig(t, pkg, "beacon.toml", `^listen_addr = ".*"$`, `listen_addr = "127.0.0.1:18081"`)
 	setConfig(t, pkg, "analytics-api.toml", `^listen_addr = ".*"$`, `listen_addr = "127.0.0.1:18080"`)
 	setConfig(t, pkg, "panel.toml", `^listen_addr = ".*"$`, `listen_addr = "127.0.0.1:18090"`)
@@ -265,12 +266,40 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 
 	before := invocations(t)
 
+	// ---- a visitor, with the site open in a tab ----
+	//
+	// One request through the collector on a keep-alive connection, which
+	// then stays open and idle - what every browser that has just loaded a
+	// page holds, and what the collector is restarted in the middle of on
+	// any site with visitors. Without it the restart above measured an
+	// empty site: the collector stopped at once because nothing was open.
+	//
+	// Measured on the real binary before this was written (NOTES, Z7): in
+	// the default passthrough mode, SIGTERM closed the listener in 0.05 s
+	// and the process was still waiting for this one idle connection 40
+	// seconds later. Under systemd that wait ends at the unit's stop
+	// timeout, 90 seconds unless set - three times the window the upgrader
+	// gives a service to come back.
+	visitor := proxyClient(t, collectorAddr, origin, true)
+	visit(t, visitor, "before the update")
+	newcomers := watchRefusals(collectorAddr)
+
 	// ---- the timer's job, once ----
 	//
 	// Started by hand rather than by enabling the timer, so there is one
 	// run and this suite knows when it ends: a oneshot's `systemctl
 	// start` returns when the process exits.
 	systemctl(t, "start", "crucible-upgrader.service")
+	// The upgrader can give up while a unit is still stopping, and the
+	// outage is not over until every unit is back. Waited for without
+	// failing - what this measures is how long, and the assertions below
+	// say whether that was acceptable - but bounded, past systemd's own
+	// 90-second stop timeout, so a unit that never returns ends the wait.
+	settled := waitActive(t, 150*time.Second)
+	t.Logf("every unit active again %s after the upgrader returned", settled.Round(100*time.Millisecond))
+	outage := newcomers.stop()
+	t.Logf("the site refused new connections for %s at its longest (%d refused of %d attempts)",
+		outage.longest.Round(10*time.Millisecond), outage.refused, outage.attempts)
 
 	// ---- what the page will say ----
 	req, err := relupdate.Latest(ctx, admin)
@@ -310,6 +339,114 @@ func TestAPanelUpdateFinishesUnderTheRealUnits(t *testing.T) {
 	if j := journal(t, "crucible-restart.service"); !strings.Contains(j, "restart.sh: restarting") {
 		t.Errorf("crucible-restart.service's journal does not show a restart:\n%s", j)
 	}
+
+	// ---- and the visitor ----
+	//
+	// The site was closed to new connections while the collector
+	// restarted; how long is the number a customer notices. It has to be
+	// shorter than the upgrader's window at the least, or the restart
+	// that the upgrade needed is the reason the upgrade is undone.
+	if outage.longest >= relupdate.HealthWindow {
+		t.Errorf("the site refused new connections for %s during the restart; the upgrader "+
+			"waits %s for a service to come back", outage.longest.Round(time.Second), relupdate.HealthWindow)
+	}
+	// The same tab, afterwards. Its connection was closed under it by the
+	// restart; a browser opens a new one, and so does this client.
+	visit(t, visitor, "after the update")
+}
+
+// collectorAddr is where the suite's collector listens.
+const collectorAddr = "127.0.0.1:18443"
+
+// visit makes one request through the collector and wants the origin's
+// answer.
+func visit(t *testing.T, c *http.Client, when string) {
+	t.Helper()
+	resp, err := c.Get("https://127.0.0.1/")
+	if err != nil {
+		t.Fatalf("a visit %s: %v", when, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "origin-served-this" {
+		t.Fatalf("a visit %s: %d %q; want the origin's page", when, resp.StatusCode, body)
+	}
+}
+
+// refusals is what a stream of new visitors saw while something
+// restarted: how many of their connections were refused, and the longest
+// unbroken stretch of refusals.
+type refusals struct {
+	attempts, refused int
+	longest           time.Duration
+}
+
+// refusalWatch dials the collector every 100 ms until stopped.
+type refusalWatch struct {
+	quit chan struct{}
+	done chan refusals
+}
+
+// watchRefusals starts measuring, from outside, whether the site accepts
+// a new connection. A dial is enough: the listener is what closes while a
+// service stops, and a refused dial is what a new visitor gets.
+func watchRefusals(addr string) *refusalWatch {
+	w := &refusalWatch{quit: make(chan struct{}), done: make(chan refusals, 1)}
+	go func() {
+		var r refusals
+		var since time.Time // the start of the current run of refusals
+		for {
+			select {
+			case <-w.quit:
+				w.done <- r
+				return
+			default:
+			}
+			r.attempts++
+			c, err := net.DialTimeout("tcp", addr, time.Second)
+			now := time.Now()
+			if err != nil {
+				r.refused++
+				if since.IsZero() {
+					since = now
+				}
+				if d := now.Sub(since); d > r.longest {
+					r.longest = d
+				}
+			} else {
+				c.Close()
+				since = time.Time{}
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	return w
+}
+
+func (w *refusalWatch) stop() refusals {
+	close(w.quit)
+	return <-w.done
+}
+
+// waitActive waits until every service unit is active and returns how
+// long that took, or gives up at the limit and returns the limit.
+func waitActive(t *testing.T, limit time.Duration) time.Duration {
+	t.Helper()
+	start := time.Now()
+	for time.Since(start) < limit {
+		all := true
+		for _, s := range services {
+			if strings.TrimSpace(systemctlOut(t, "is-active", s.unit)) != "active" {
+				all = false
+				break
+			}
+		}
+		if all {
+			return time.Since(start)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return limit
 }
 
 // ---------------------------------------------------------------- steps
