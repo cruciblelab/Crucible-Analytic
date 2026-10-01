@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **5/6** | H3 — *(H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **6/8** | H3, H8 — *(**H7 bitti (2026-10-01):** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Paylaşılan test veritabanında o indeks yoktu: preflight'ın bir testi sütunu silip indeksi de götürüyordu. Gecelik fuzz buldu, iki gün okunmadı. H8 aynı sınıfın panel tarafındaki iki hafif üyesi. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -6746,6 +6746,48 @@ son tarih satırı (`deadline.Answer.LogPath`) ondan geçiyor. Liste,
 (`internal/invariants/tokenpaths_test.go`). Sonra: jeton hiçbir yerde
 yok, satırlar hâlâ rotayı ve sonucu söylüyor. Sekiz mutasyon, sekizi
 kırmızı.
+
+#### H7 — Tek bir beacon olayı bütün yığını düşürüyordu ✅ **yapıldı (2026-10-01)**
+
+*Planda yoktu; gecelik 41'in (29 Eylül) fuzz işinin kırmızısıydı ve iki gün
+okunmadı — aynı koşunun bilerek kırmızı olan systemd işinin yanında.*
+
+**Fuzz'ın bulduğu küçük:** yol önce 1024 rune'a kesilip sonra başına `/`
+konuyordu, 1025 çıkıyordu; `path` sınırsız `TEXT` ve indekssiz, zararı yok.
+**Sorusu büyüğünü buldu:** PostgreSQL 2704 bayttan büyük bir B-tree girdisini
+ve onunla bütün ifadeyi reddediyor; yazıcının ifadesi yığının COPY'si;
+kampanya indeksi üç `utm_*` değerini anahtar yapıyor ve değerler rune ile
+sınırlıydı, bayt ile değil. Gerçek beacon ikilisiyle: 50 normal olay + 1
+düşmanca (3.165 bayt, gövde sınırı 8.192) → 51 × 204, **0 satır**; sonra
+51/51.
+
+**Düzeltme:** kampanya değerine 512 baytlık sınır (iki baytlık her alfabe
+256 rune'unu korur), yol `/`'dan sonra kesiliyor. **Testi gizleyen de
+düzeltildi:** preflight'ın bir testi paylaşılan veritabanında
+`click_source`'u silip geri ekliyordu ve PostgreSQL kampanya indeksini
+sütunla birlikte siliyordu — test kendi veritabanına taşındı, her beklenen
+sütun kendi durumuyla. Yeni entegrasyon testi indeksleri katalogdan okuyup
+en büyük satırı iki masum satırla aynı yığında yazıyor; önce şemanın
+bildirdiği her indeksin veritabanında olduğunu soruyor. On üç mutasyon,
+ayrıntı NOTES'ta ("Beacon yığını").
+
+#### H8 — İndeks girdisi sınırı: sınıfın panel tarafı 🟡 *(açıldı 2026-10-01)*
+
+H7'nin sınıf sorusu: anahtarında metin taşıyan 26 indeksten hangisine
+dışarıdan gelen değer yazılıyor? `site_id` her yerde ≤64 ASCII. Kalan iki
+üye panel tarafında ve hafif, ikisi de yığın değil tek satır:
+
+- `panel_login_attempts.email` — e-postanın uzunluk sınırı yok. 2,7 KB'tan
+  uzun (gerçek bir hesabın olamayacağı) bir adresle yapılan deneme
+  kaydedilemiyor, sayfa yine reddediyor; IP sayacına girmiyor ama gerçek
+  bir hesaba karşı kullanılamaz.
+- `panel_logs.site_id` / `operation_id` — günlük değerinin 2048 rune'luk
+  sınırını taşıyor; istekten gelen bir site değeri o satırı tablo
+  kopyasından düşürür (dosya kopyası yerinde, kayıp sayacı artar).
+
+**Bitti ölçütü:** ikisi de bayt ile sınırlı, ve H7'nin testi gibi indeksleri
+katalogdan okuyan bir değişmez her indeksli metin sütununu ya ölçülmüş ya
+gerekçeli istiyor — yalnız `beacon_events` için değil, bütün tablolar için.
 
 #### H'nin gereksiz kılmadığı şey
 

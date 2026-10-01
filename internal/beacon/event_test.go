@@ -227,7 +227,7 @@ func TestBuildRow_TruncatesOverlongFields(t *testing.T) {
 		max int
 	}{
 		"EventName":    {row.EventName, maxNameLen},
-		"Path":         {row.Path, maxPathLen + 1}, // +1 for the normalizing leading slash
+		"Path":         {row.Path, maxPathLen},
 		"Title":        {row.Title, maxTitleLen},
 		"Language":     {row.Language, maxLanguageLen},
 		"ReferrerHost": {row.ReferrerHost, maxHostLen},
@@ -235,6 +235,63 @@ func TestBuildRow_TruncatesOverlongFields(t *testing.T) {
 	} {
 		if n := utf8.RuneCountInString(spec.got); n > spec.max {
 			t.Errorf("%s kept %d runes, want at most %d", field, n, spec.max)
+		}
+	}
+}
+
+// A path without its slash is given one, and the cap still holds.
+//
+// This test used to allow maxPathLen+1 for Path, "for the normalizing
+// leading slash" - it had written the defect down as the contract, while
+// the fuzz target beside it held the field to maxPathLen. The nightly
+// fuzzer found the disagreement on 2026-09-29: a 1024-rune path without
+// a slash, cut and then prefixed, came out at 1025. Both spellings are
+// asked here because only the second ever reached the prefix.
+func TestBuildRow_APathIsCutAfterItsSlashIsAdded(t *testing.T) {
+	long := strings.Repeat("ğ", maxPathLen+10)
+	for _, raw := range []string{"/" + long, long, "/" + long[:len("ğ")*(maxPathLen-1)], long[:len("ğ")*maxPathLen]} {
+		row := BuildRow(Event{Site: "s", Type: TypePageview, URL: raw}, Enrichment{}, DefaultCampaignPolicy())
+		if !strings.HasPrefix(row.Path, "/") {
+			t.Errorf("a %d-rune URL stored the path %.20q..., without its slash",
+				utf8.RuneCountInString(raw), row.Path)
+		}
+		if n := utf8.RuneCountInString(row.Path); n != maxPathLen {
+			t.Errorf("a %d-rune URL stored a %d-rune path, want exactly %d - the cap, and "+
+				"nothing of the path dropped that would have fitted",
+				utf8.RuneCountInString(raw), n, maxPathLen)
+		}
+	}
+}
+
+// truncateBytes cuts on a rune boundary at or below the bound, and keeps
+// everything that fits.
+//
+// The cases are the boundary itself: a value exactly at the bound, one
+// byte over it where the last rune would be split, and a rune that ends
+// exactly at the bound. A cut a byte early passes "at most" and fails
+// "everything that fits", which is why both are asked.
+func TestTruncateBytes_CutsOnARuneBoundary(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"abcd", 4, "abcd"},
+		{"abcd", 3, "abc"},
+		{"abğ", 4, "abğ"}, // 2 + 2 bytes: ends exactly at the bound
+		{"abğ", 3, "ab"},  // the ğ would be split
+		{"a𠀀", 4, "a"},    // a four-byte rune, three bytes left
+		{"a𠀀", 5, "a𠀀"},   // and exactly enough
+		{"𠀀𠀀", 7, "𠀀"},    // the second would need eight
+		{"", 0, ""},
+		{"ğ", 1, ""},
+	} {
+		got := truncateBytes(c.in, c.max)
+		if got != c.want {
+			t.Errorf("truncateBytes(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("truncateBytes(%q, %d) = %q, which is not valid UTF-8", c.in, c.max, got)
 		}
 	}
 }

@@ -370,6 +370,13 @@ func (c *Checker) checkAnalyticsSchema(ctx context.Context) CheckResult {
 	return result
 }
 
+// selfMigratingColumns are the columns schema.columns asks for, by table:
+// ones a schema file adds to a table that already existed.
+var selfMigratingColumns = map[string][]string{
+	"beacon_events": {"utm_source", "utm_medium", "utm_campaign", "click_source", "click_id"},
+	"panel_users":   {"totp_last_step"},
+}
+
 // checkSelfMigratingColumns catches the failure this project has already
 // had once: CREATE TABLE IF NOT EXISTS does nothing to a table that
 // already exists, so a column added to a schema file reaches an existing
@@ -383,12 +390,8 @@ func (c *Checker) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	if c.pool == nil {
 		return noDatabase(result)
 	}
-	expected := map[string][]string{
-		"beacon_events": {"utm_source", "utm_medium", "utm_campaign", "click_source", "click_id"},
-		"panel_users":   {"totp_last_step"},
-	}
 	var missing []string
-	for table, columns := range expected {
+	for table, columns := range selfMigratingColumns {
 		for _, column := range columns {
 			var exists bool
 			// pg_catalog for the same reason as missingTables:

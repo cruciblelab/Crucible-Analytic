@@ -17,10 +17,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -101,38 +103,184 @@ func TestPreflight_PassesAgainstAProperlySetUpDatabase(t *testing.T) {
 
 // The check that exists because CREATE TABLE IF NOT EXISTS does nothing
 // to an existing table - the failure this project has already had once.
+//
+// # In a database of its own
+//
+// This test used to drop beacon_events.click_source on the shared
+// database and add it back afterwards. PostgreSQL drops the indexes that
+// use a column along with it, and the campaign index's predicate names
+// click_source - so every run took idx_beacon_events_campaign away, and
+// putting the column back did not put the index back. Every suite after
+// it on that database measured a beacon_events without the index, which
+// is how a batch-poisoning defect in exactly that index went unseen
+// (NOTES, "Beacon yığını"). And for as long as the column was gone, any
+// beacon suite writing a row at the same moment failed on a column that
+// did not exist.
+//
+// So the tables are built here instead, in ca_preflight_columns, from
+// the shared database's own catalog: same names, same columns, same
+// types, one column missing per case. The check reads pg_attribute and
+// nothing else, so the copy needs no more than that - and copying the
+// shape rather than typing it means a column added to the schema reaches
+// this test without anybody remembering it.
+//
+// Every listed column gets its case. One case proved the check notices
+// click_source; it said nothing about the other five.
 func TestPreflight_DetectsASchemaFileThatWasNeverReapplied(t *testing.T) {
-	c := newTestChecker(t)
 	ctx := context.Background()
-
-	// Drop a self-migrating column, as a deployment that never re-ran the
-	// schema file would look.
-	//
-	// On a second connection, as whoever owns the schema. The checker
-	// stays as panel_user - that is the point of this suite - and
-	// panel_user cannot ALTER anything, which is correct and is exactly
-	// why the arrangement has to be two connections rather than one.
-	// Doing the DDL through the checker's own pool is what the first
-	// version did, and it worked only because the development database
-	// let the panel own the beacon's table.
 	admin := adminPool(t)
-	if _, err := admin.Exec(ctx, `ALTER TABLE beacon_events DROP COLUMN IF EXISTS click_source`); err != nil {
-		t.Fatalf("dropping column: %v", err)
+	own := newOwnColumnsDatabase(t, admin)
+
+	for table, columns := range selfMigratingColumns {
+		for _, column := range columns {
+			t.Run(table+"."+column, func(t *testing.T) {
+				own.build(t, table, column)
+
+				got := find(t, own.checker.Run(ctx, Config{}), "schema.columns")
+				if got.Status != CheckFail {
+					t.Fatalf("status = %s, want fail; %s.%s is missing and went unnoticed: %s",
+						got.Status, table, column, got.Detail)
+				}
+				// Exactly this column, so a copy that lost some other one
+				// cannot pass the case for the wrong reason.
+				if want := "Eksik sütun: " + table + "." + column + "."; !strings.HasPrefix(got.Detail, want) {
+					t.Errorf("detail = %q, want it to begin %q and name nothing else", got.Detail, want)
+				}
+				if got.Fix == "" {
+					t.Error("a failing check offered no command to fix it")
+				}
+			})
+		}
+	}
+
+	// And with nothing missing, the same copy passes - otherwise every
+	// case above could be failing on the copy rather than on the column.
+	own.build(t, "", "")
+	if got := find(t, own.checker.Run(ctx, Config{}), "schema.columns"); got.Status != CheckPass {
+		t.Fatalf("the complete copy fails the check: %s - the cases above measured the copy", got.Detail)
+	}
+}
+
+// ownColumnsDatabase is a database holding copies of the tables
+// selfMigratingColumns names, and a checker connected to it as the
+// panel's role.
+type ownColumnsDatabase struct {
+	shared  *pgxpool.Pool // the shared database, as its owner: where the shapes come from
+	pool    *pgxpool.Pool // the copy, as its owner
+	checker *Checker
+}
+
+const ownColumnsDBName = "ca_preflight_columns"
+
+func newOwnColumnsDatabase(t *testing.T, shared *pgxpool.Pool) *ownColumnsDatabase {
+	t.Helper()
+	ctx := context.Background()
+	// FORCE, so a database left by a run that died does not fail the next.
+	for _, sql := range []string{
+		`DROP DATABASE IF EXISTS ` + ownColumnsDBName + ` WITH (FORCE)`,
+		`CREATE DATABASE ` + ownColumnsDBName,
+		`GRANT CONNECT ON DATABASE ` + ownColumnsDBName + ` TO panel_user`,
+	} {
+		if _, err := shared.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
 	}
 	t.Cleanup(func() {
-		if _, err := admin.Exec(context.Background(),
-			`ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS click_source TEXT NOT NULL DEFAULT ''`); err != nil {
-			t.Errorf("putting click_source back: %v - the database is now missing a column", err)
+		if _, err := shared.Exec(context.Background(),
+			`DROP DATABASE IF EXISTS `+ownColumnsDBName+` WITH (FORCE)`); err != nil {
+			t.Errorf("dropping %s: %v", ownColumnsDBName, err)
 		}
 	})
 
-	got := find(t, c.Run(ctx, Config{}), "schema.columns")
-	if got.Status != CheckFail {
-		t.Fatalf("status = %s, want fail; the missing column went unnoticed", got.Status)
+	open := func(dsn string) *pgxpool.Pool {
+		pool, err := pgxpool.New(ctx, onDatabase(t, dsn, ownColumnsDBName))
+		if err != nil {
+			t.Fatalf("connecting to %s: %v", ownColumnsDBName, err)
+		}
+		// Registered after the drop above, so it runs first: the pools
+		// close before the database they are connected to is dropped.
+		t.Cleanup(pool.Close)
+		return pool
 	}
-	if got.Fix == "" {
-		t.Error("a failing check offered no command to fix it")
+	own := &ownColumnsDatabase{shared: shared, pool: open(os.Getenv("CA_SUPERUSER_DSN"))}
+	checkerPool := open(testDatabaseURL)
+
+	// Asked, not assumed: a DSN rewrite that did not take would put the
+	// checker back on the shared database, where every case would pass.
+	var landed string
+	if err := checkerPool.QueryRow(ctx, `SELECT current_database()`).Scan(&landed); err != nil {
+		t.Fatal(err)
 	}
+	if landed != ownColumnsDBName {
+		t.Fatalf("the checker reached %q, want %q", landed, ownColumnsDBName)
+	}
+	own.checker = New(checkerPool)
+	return own
+}
+
+// build replaces every table selfMigratingColumns names with a copy of
+// the shared database's, leaving out without.column of without.table.
+// An empty table leaves nothing out.
+func (o *ownColumnsDatabase) build(t *testing.T, withoutTable, withoutColumn string) {
+	t.Helper()
+	ctx := context.Background()
+	for table := range selfMigratingColumns {
+		rows, err := o.shared.Query(ctx, `
+			SELECT a.attname, format_type(a.atttypid, a.atttypmod)
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relname = $1
+			  AND a.attnum > 0 AND NOT a.attisdropped
+			ORDER BY a.attnum`, table)
+		if err != nil {
+			t.Fatalf("reading %s's shape: %v", table, err)
+		}
+		var defs []string
+		left := false
+		for rows.Next() {
+			var name, typ string
+			if err := rows.Scan(&name, &typ); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			if table == withoutTable && name == withoutColumn {
+				left = true
+				continue
+			}
+			defs = append(defs, pgx.Identifier{name}.Sanitize()+" "+typ)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		if len(defs) == 0 {
+			t.Fatalf("the shared database has no table %s to copy", table)
+		}
+		if table == withoutTable && !left {
+			t.Fatalf("%s has no column %s to leave out; the case measures nothing", table, withoutColumn)
+		}
+		ident := pgx.Identifier{"public", table}.Sanitize()
+		for _, sql := range []string{
+			`DROP TABLE IF EXISTS ` + ident,
+			`CREATE TABLE ` + ident + ` (` + strings.Join(defs, ", ") + `)`,
+		} {
+			if _, err := o.pool.Exec(ctx, sql); err != nil {
+				t.Fatalf("%s: %v", sql, err)
+			}
+		}
+	}
+}
+
+// onDatabase is dsn pointed at another database on the same server.
+func onDatabase(t *testing.T, dsn, name string) string {
+	t.Helper()
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme == "" {
+		t.Fatalf("cannot point %q at %s: it is not a URL", dsn, name)
+	}
+	u.Path = "/" + name
+	return u.String()
 }
 
 // The isolation the whole design rests on. A deployment where somebody

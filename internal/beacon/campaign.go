@@ -100,6 +100,31 @@ var standardParams = []string{
 // anything approaching this is a mistake or an attempt to bloat the row.
 const maxCampaignValueLen = 256
 
+// maxCampaignValueBytes bounds the same value in bytes, because one limit
+// on this table is counted in bytes and not in characters.
+//
+// idx_beacon_events_campaign keys on three of these values - utm_source,
+// utm_medium, utm_campaign - beside the site, and PostgreSQL refuses an
+// index entry larger than 2704 bytes. It refuses the whole statement, and
+// the writer's statement is the batch's COPY. 256 runes are up to 1024
+// bytes, and three of them in four-byte characters made an entry of 3104
+// bytes. Measured with the real beacon on a real database
+// (NOTES, "Beacon yığını"): one event of 3165 bytes, well inside the 8 KB
+// body cap, answered 204 like the fifty beside it - and none of the
+// fifty-one was written. That is the failure sanitizeText exists to
+// prevent, arriving through a limit it was not counting.
+//
+// 512 keeps 256 runes of any two-byte script whole - Turkish, Greek,
+// Cyrillic, Arabic, Hebrew - and cuts three- and four-byte scripts at 170
+// and 128 runes, which no campaign label comes near. Three of them beside
+// a 64-character site make an entry of about 1.6 KB.
+//
+// The arithmetic is not what holds it. The integration test
+// TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex writes the largest
+// row BuildRow can produce into the indexes the database actually has, so
+// a new index, or a larger cap, is measured rather than reasoned about.
+const maxCampaignValueBytes = 512
+
 // CampaignPolicy decides which query parameters survive into storage.
 //
 // It exists because the answer is a legal question as much as a
@@ -212,7 +237,7 @@ func (p CampaignPolicy) Apply(values url.Values) (Campaign, string) {
 		// Only the first value: a repeated parameter is either a mistake
 		// or an attempt to inflate the stored string, and neither is
 		// worth a multi-valued column.
-		return sanitizeText(vals[0], maxCampaignValueLen)
+		return truncateBytes(sanitizeText(vals[0], maxCampaignValueLen), maxCampaignValueBytes)
 	}
 
 	c.Source = get("utm_source")

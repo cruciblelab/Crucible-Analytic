@@ -24011,3 +24011,136 @@ denemelerle sunucunun gördüğü bağlantılar birbirini tutuyor.
 Sıfır değil, çünkü dinleyici hâlâ ilk iş kapanıyor ve yeni süreç açılana
 kadar port boş. Sıfırı systemd'nin soketi elinde tutması (soket
 etkinleştirme) verirdi; ayrı bir iş, ölçülmüş bir ihtiyaç olursa.
+
+## Beacon yığını — tek bir olay bütün yığını düşürüyordu (2026-10-01)
+
+*Planda yoktu. Gecelik 41'in (29 Eylül, `4b3f90a`) fuzz işi kırmızıydı ve
+iki gün okunmadı: o koşunun systemd işi bilerek kırmızıydı (V7'nin "önce"
+hâli), notlarım yalnız onu yazdı, aynı koşunun ikinci kırmızısına kimse
+bakmadı. Sahip "github run failed verdi" deyince koşular tek tek okundu.*
+
+### Fuzz'ın bulduğu
+
+`FuzzAnEventFromABrowserCannotPoisonTheBatch`, girdi `e036acc39268bbcf`:
+`Row.Path is 1025 runes, past its cap of 1024`. Sebep sıra: `splitURL` yolu
+önce 1024 rune'a kesiyor, **sonra** başına `/` koyuyordu; eğik çizgisiz
+1024+ rune'luk bir yol 1025 çıkıyordu. Yanındaki birim testi bunu sözleşme
+diye yazmıştı (`maxPathLen + 1 // for the normalizing leading slash`);
+fuzz hedefi aynı alanı `maxPathLen`'e tutuyordu. İki test anlaşmıyordu.
+
+Zararı veritabanına soruldu: **yok.** `beacon_events.path` sınırsız `TEXT`,
+üstünde indeks yok, tabloda hiç kısıt yok. Fuzz mesajının "sütun sınırlı,
+fazla uzun değer yazmayı düşürür" cümlesi bu sütun için yanlıştı.
+
+### Sorunun sorulması asıl kusuru buldu
+
+"Fazla uzun bir değer yazmayı gerçekte ne zaman düşürür?" PostgreSQL'in
+cevabı: B-tree indeks girdisi 2704 baytı aşınca, ve o zaman bütün ifadeyi.
+Yazıcının ifadesi yığının COPY'si. `beacon_events`'te ziyaretçinin
+doldurduğu metni anahtar yapan bir indeks var:
+`idx_beacon_events_campaign (site_id, utm_source, utm_medium, utm_campaign,
+time)`. Her kampanya değeri 256 **rune** ile sınırlı — bayt ile değil, ve
+4 baytlık karakterle 256 rune 1024 bayt.
+
+Taze kurulumda, ürünün `beacon_writer` rolüyle, tek satır:
+
+| üç değer, 256'şar rune | bayt | sonuç |
+|---|---|---|
+| rastgele 4 baytlık (CJK Ext B) | 3072 | `index row size 3112 exceeds btree version 4 maximum 2704` |
+| aynı 4 baytlık karakter tekrar | 3072 | yazıldı (sıkıştırılıyor) |
+| iki tanesi rastgele 4 baytlık | 2048 | yazıldı |
+| rastgele 3 baytlık (CJK) | 2304 | yazıldı |
+| rastgele 2 baytlık (Kiril) | 1536 | yazıldı |
+
+PostgreSQL uzun bir indeks değerini ölçmeden önce sıkıştırmayı deniyor;
+tekrar eden karakter sıkışıyor, birbirinden farklı karakter sıkışmıyor.
+Var olan "en uzun girdi" testi (`StoresLongButValidText`) tek kampanya
+alanını tekrar eden `ü` ile dolduruyordu — sınırın tam olarak saklandığı
+girdi.
+
+**Gerçek ikiliyle (`scratchpad/zehir-olc.py`):** kendi veritabanı
+(`b3e-kur.sh` sırasıyla), gerçek beacon, gerçek HTTP; aynı saniyeye 50
+normal olay + ortalarına 1 düşmanca olay (gövde **3.165 bayt**, sınır
+8.192):
+
+| | cevaplar | yazılan | beacon günlüğü |
+|---|---|---|---|
+| önce | 51 × 204 | **0** | `write failed, batch dropped ... index row size 3104 exceeds btree version 4 maximum 2704 ... rows: 51` |
+| sonra | 51 × 204 | **51** | — |
+
+Gönderen de dahil kimse fark etmiyor: her istek 204 alıyor. Yazıcının
+varsayılanları 500 satır ya da 2 saniye; yani her yığına bir olay — iki
+saniyede bir 3 KB, saniyede ~1,6 KB — beacon'ın topladığı her şeyi
+yazılmadan attırırdı. Görünen tek iz Sağlık sayfasında beacon'ın
+"Düşürülen" sayacı ve son hata satırı.
+
+### Testler neden görmedi — üç ayrı sebep
+
+1. **Hiçbir test bir indeks girdisinin boyutunu sormuyordu.** Sınırlar
+   rune ile yazılmış, en büyük girdi tekrar eden karakterle kurulmuştu.
+2. **Paylaşılan test veritabanında bu indeks yoktu.**
+   `internal/panel/preflight`'ın "şema yeniden uygulanmadı" testi, eksik
+   sütunu yakaladığını göstermek için paylaşılan veritabanında
+   `beacon_events.click_source`'u silip geri ekliyordu. PostgreSQL bir
+   sütunu kullanan indeksleri onunla birlikte siler — kampanya indeksinin
+   koşulu `click_source`'u anıyor — ve sütunu geri eklemek indeksi geri
+   getirmez. İz katalogda duruyordu: indeks OID'leri 17450 → 17452, arada
+   kurulumda yaratılıp sonra silinen 17451. Yani bu kusuru sınayacak bir
+   test yazılsaydı bile, o veritabanında yeşil verirdi. Ve sütun yokken
+   aynı anda yazan bir beacon süiti olmayan bir sütuna çarpardı.
+3. **Bir birim testi kusuru sözleşme diye yazmıştı** (yukarıda, yol).
+
+### Düzeltme
+
+- `maxCampaignValueBytes = 512` (`internal/beacon/campaign.go`): her
+  kampanya değeri rune sınırından sonra bayt ile de kesiliyor, rune
+  ortasından değil. 512, iki baytlık her alfabenin (Türkçe, Yunanca,
+  Kiril, Arapça, İbranice) 256 rune'unu bütün bırakıyor; üç ve dört
+  baytlıkları 170 ve 128 rune'da kesiyor. Üçü 64 karakterlik bir sitenin
+  yanında ~1,6 KB'lık bir girdi. Saklanan düşmanca satır: her değer 512
+  bayt / 128 rune.
+- `storedPath`: önce temizle, sonra `/`, **sonra** kes.
+- Preflight testi kendi veritabanında (`ca_preflight_columns`): tabloların
+  şekli paylaşılan veritabanının kataloğundan kopyalanıyor, her beklenen
+  sütun kendi durumunda eksik bırakılıyor (eski test yalnız
+  `click_source`'u soruyordu; altısının altısı artık soruluyor), ve eksiksiz
+  kopyanın geçtiği ayrıca soruluyor.
+
+### Testler
+
+- `TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex` (gerçek
+  veritabanı): BuildRow'un yapabildiği en büyük satır — her alan sınırının
+  iki katı, birbirinden farklı 4 baytlık karakterlerle, site 64 karakter —
+  iki masum satırla aynı yığında yazılıyor ve üçü de yazılmalı. Hangi
+  sütunların indeksli olduğu katalogdan okunuyor; her indeksli metin
+  sütunu ya en büyük satırın gerçekten doldurduğu bir sütun ya da
+  `serverBounded`'da sınırı yazılı bir sütun olmak zorunda. Yani yarın
+  ziyaretçinin doldurduğu bir sütuna eklenen indeks, eklendiği gün
+  ölçülüyor. Önce, şema dosyasının bildirdiği her indeksin veritabanında
+  olduğu soruluyor — sorulmasaydı, paylaşılan veritabanında bu test
+  yeşil verirdi (sorulduğunda ilk koşu tam olarak bunu söyledi).
+- Fuzz hedefi: kampanya değerlerine bayt iddiası; gecelik 41'in girdisi ve
+  dört baytlık kampanya girdisi tohum. İkisi de kendi mutasyonunu tek
+  başına yakalıyor.
+- Birim: `truncateBytes`'ın sınır durumları, yolun iki yazılışı,
+  kampanya değerinin bayt sınırı ve iki baytlık alfabenin bütün kalması.
+
+On üç mutasyon (`scratchpad/mutasyon-zehir.py`), on biri kırmızı, ikisi
+tasarım gereği sağ: "en büyük satır kampanyayı doldurmaz" mutasyonunu
+yalnız doluluk koşulu yakalıyor (ikisi birlikte sağ kalıyor), "katalog
+metin sütunu görmez" mutasyonunu yalnız "en az üç sütun" tabanı (ikisi
+birlikte sağ kalıyor). Ürün tarafında: bayt sınırının kaldırılması, 1024'e
+çıkarılması, bir bayt erken ve rune ortasından kesme, yolun önce kesilmesi;
+preflight'ta: denetçinin paylaşılan veritabanına dönmesi, sütunun
+bırakılmaması, ürünün `click_id`'yi sormaması. 90 saniyelik fuzz temiz.
+
+### Sınıfın geri kalanı (H8)
+
+Anahtarında metin taşıyan 26 indeksin hangilerine dışarıdan gelen bir
+değer yazıldığı koda soruldu. `site_id` her yerde ≤64 ASCII (yapılandırma
+deseni, beacon izin listesi). Diğer iki üye panel tarafında ve hafif:
+`panel_login_attempts.email` hiç uzunluk sınırı taşımıyor — 2,7 KB'tan uzun
+bir e-postayla (gerçek bir hesabın olamayacağı) deneme kaydedilemiyor;
+`panel_logs.site_id`/`operation_id` günlük değerinin 2048 rune sınırını
+taşıyor — istekten gelen bir site değeri o satırı tablo kopyasından
+düşürebilir (dosya kopyası yerinde). İkisi de PLAN §H8'de, sıradaki iş.

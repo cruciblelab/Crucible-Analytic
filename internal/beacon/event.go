@@ -26,6 +26,7 @@ import (
 
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
@@ -232,11 +233,24 @@ func splitURL(raw string, policy CampaignPolicy) (path string, campaign Campaign
 	// string as a path and let sanitizeText make it safe.
 	u, err := url.Parse(raw)
 	if err != nil {
-		return normalizePath(sanitizeText(raw, maxPathLen)), Campaign{}, ""
+		return storedPath(raw), Campaign{}, ""
 	}
 
 	campaign, query = policy.Apply(u.Query())
-	return normalizePath(sanitizeText(u.Path, maxPathLen)), campaign, query
+	return storedPath(u.Path), campaign, query
+}
+
+// storedPath is a path as the row keeps it: made storable, given its
+// leading slash, and only then cut to the cap.
+//
+// In that order because the slash is a character too. The cut used to
+// come first, so a path of 1024 runes or more without a slash came out
+// at 1025 - found by the nightly fuzzer on 2026-09-29. Harmless in the
+// table as it stands (path is unbounded TEXT with no index), but the cap
+// is a promise the fuzz target holds every field to, and a promise kept
+// only when nothing is prepended is not one.
+func storedPath(p string) string {
+	return truncateRunes(normalizePath(strings.TrimSpace(textsafe.Storable(p))), maxPathLen)
 }
 
 // normalizePath guarantees a leading slash, so "/pricing" and "pricing"
@@ -314,6 +328,21 @@ func truncateRunes(s string, maxRunes int) string {
 		}
 	}
 	return s
+}
+
+// truncateBytes cuts s to at most maxBytes bytes, never mid-rune, for a
+// value whose limit is counted in bytes - an index key's, see
+// maxCampaignValueBytes. s must already be valid UTF-8, which every
+// caller's sanitizeText has made it.
+func truncateBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 // storedIP and storedIPHash render the row's two mutually exclusive

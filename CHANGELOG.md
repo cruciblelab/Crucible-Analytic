@@ -24,6 +24,33 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Tek bir hazırlanmış beacon olayı, aynı anda gelen bütün olayların kaydedilmesini engelleyebiliyordu
+
+**Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.
+Kaybolan olaylar geri getirilemez; olup olmadığını görmek için aşağıya
+bakın.
+
+Beacon olayları veritabanına yığın yığın yazar (en çok 500 olay ya da 2
+saniye). Kampanya bağlantılarının `utm_source`, `utm_medium` ve
+`utm_campaign` değerleri bir indekste tutuluyor ve PostgreSQL 2704 bayttan
+büyük bir indeks girdisini — ve onunla bütün yığını — reddediyor. Her
+değer 256 karakterle sınırlıydı ama bayt ile değil: dört baytlık
+karakterlerle üç değer bu sınırı aşıyordu. Yani internetten gelen tek bir
+istek (yaklaşık 3 KB) kendi yığınındaki bütün ziyaretçilerin olaylarını
+yazılmadan attırabiliyordu, ve bütün istekler yine "kabul edildi" cevabı
+alıyordu. Gerçek beacon ile ölçüldü: 50 normal olayın yanına gönderilen
+tek bir olay, 51'inin de yazılmamasına yol açtı.
+
+Artık her kampanya değeri ayrıca 512 bayt ile sınırlı; Türkçe gibi iki
+baytlık alfabelerde 256 karakterin tamamı kalıyor. Aynı ölçüm: 51 olayın
+51'i yazıldı.
+
+**Kurulumunuzda olmuş mu:** Sağlık sayfasında beacon satırının
+**Düşürülen** sayacı (servis son başladığından beri) ve son hata satırı;
+ya da beacon günlüğünde `beacon: write failed, batch dropped` ile
+`index row size` geçen satırlar. Tanı paketi son yedi günün hata
+satırlarını taşıyor.
+
 ### Collector yeniden başlarken siteyi 90 saniyeye kadar kapalı tutuyordu — ve panelden güncelleme bu yüzden geri alınıyordu
 
 **Kuran kişinin yapması gereken:** hiçbir şey; bu sürüme geçmek yeter.

@@ -70,6 +70,20 @@ func FuzzAnEventFromABrowserCannotPoisonTheBatch(f *testing.F) {
 	f.Add([]byte(`{"site":"s","type":"pageview","url":"?a=1"}`))
 	f.Add([]byte(`{"site":"s","type":"pageview","url":"https://magaza.example"}`))
 
+	// The shape the nightly run found on 2026-09-29 (failing input
+	// e036acc39268bbcf): a path of the full cap without its slash, cut
+	// first and prefixed after, came out one rune over.
+	f.Add([]byte(`{"site":"s","type":"pageview","url":"` + strings.Repeat("a", maxPathLen) + `"}`))
+
+	// And what that finding led to. Three campaign values of four-byte
+	// characters - varied, so nothing compresses them - made an index
+	// entry PostgreSQL refuses, and the refusal took the whole batch.
+	// Each was inside its rune cap; the bound they broke is counted in
+	// bytes (see maxCampaignValueBytes).
+	f.Add([]byte(`{"site":"s","type":"pageview","url":"/?utm_source=` + fourByteRunes(0, maxCampaignValueLen) +
+		`&utm_medium=` + fourByteRunes(1, maxCampaignValueLen) +
+		`&utm_campaign=` + fourByteRunes(2, maxCampaignValueLen) + `"}`))
+
 	f.Fuzz(func(t *testing.T, body []byte) {
 		var e Event
 		// Unknown fields ignored, as the server does; see handleEvent
@@ -98,6 +112,26 @@ func FuzzAnEventFromABrowserCannotPoisonTheBatch(f *testing.F) {
 			"Title":     maxTitleLen,
 			"Language":  maxLanguageLen,
 		})
+
+		// In bytes, for the values an index keys on. A rune cap says
+		// nothing about an index entry, whose limit PostgreSQL counts in
+		// bytes; which columns are indexed is the database's answer, and
+		// TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex asks it.
+		// Every campaign value is held to the bound here, not only the
+		// three indexed today, because they share one extraction and an
+		// index on a fourth is one line of schema away.
+		for name, v := range map[string]string{
+			"Source": row.Campaign.Source, "Medium": row.Campaign.Medium,
+			"Name": row.Campaign.Name, "Term": row.Campaign.Term,
+			"Content": row.Campaign.Content, "Ref": row.Campaign.Ref,
+			"ClickID": row.Campaign.ClickID,
+		} {
+			if len(v) > maxCampaignValueBytes {
+				t.Fatalf("Campaign.%s is %d bytes, past %d. The campaign index refuses an "+
+					"entry over 2704 bytes, and refuses the whole batch with it",
+					name, len(v), maxCampaignValueBytes)
+			}
+		}
 
 		// Path is the one field with a shape as well as a bound. Two
 		// spellings of one page are two rows, so "/" and "" and
@@ -145,9 +179,15 @@ func checkStorable(t *testing.T, path string, v reflect.Value, caps map[string]i
 				"batch is refused", path, s)
 		}
 		if n, ok := caps[fieldName(path)]; ok {
+			// Not "the write fails": these columns are unbounded TEXT, and
+			// this message said so until a finding put it to the database
+			// (2026-10-01: a 1025-rune path wrote). The cap is a promise
+			// about every row, and what makes a write fail is an index
+			// entry's size - which the byte check below and the
+			// integration test hold.
 			if got := utf8.RuneCountInString(s); got > n {
-				t.Fatalf("%s is %d runes, past its cap of %d. The column is "+
-					"bounded and an over-long value is a write that fails",
+				t.Fatalf("%s is %d runes, past its cap of %d. Every row is promised "+
+					"the cap, and a field that can break it is a field nobody is bounding",
 					path, got, n)
 			}
 		}
@@ -176,6 +216,25 @@ func fieldName(path string) string {
 		return path[i+1:]
 	}
 	return path
+}
+
+// fourByteRunes is n runes that each take four bytes in UTF-8 and do not
+// repeat, so neither a rune cap nor compression hides how large they are.
+// One character repeated is the other thing a test reaches for, and it
+// is the case that hides the limit: PostgreSQL compresses a long index
+// value before measuring it, and 256 copies of one rune compress to
+// almost nothing (measured: the same three values that fail varied were
+// written repeated). seed varies the run, so three values are three.
+//
+// CJK Extension B: every code point in it is assigned, and none is one
+// textsafe strips.
+func fourByteRunes(seed, n int) string {
+	const first, span = 0x20000, 0xA6E0
+	var b strings.Builder
+	for i := range n {
+		b.WriteRune(rune(first + (seed*7919+i*104729)%span))
+	}
+	return b.String()
 }
 
 // TestEveryStringInARowIsWalkedByTheFuzzTarget.

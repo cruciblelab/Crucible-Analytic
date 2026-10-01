@@ -237,3 +237,27 @@ func TestCampaignPolicy_DropParamsIgnoresConfiguredCase(t *testing.T) {
 		t.Errorf("Source = %q, want keep", c.Source)
 	}
 }
+
+// A campaign value is bounded in bytes as well as runes - the bound the
+// campaign index needs (see maxCampaignValueBytes) - and a two-byte script
+// keeps its full rune budget.
+func TestCampaignPolicy_BoundsAValueInBytes(t *testing.T) {
+	four := strings.Repeat("𠀀", maxCampaignValueLen)
+	two := strings.Repeat("ğ", maxCampaignValueLen)
+	c, _ := DefaultCampaignPolicy().Apply(url.Values{
+		"utm_source": {four}, "utm_medium": {four}, "utm_campaign": {four},
+		"utm_term": {four}, "utm_content": {two}, "ref": {four},
+	})
+	for name, v := range map[string]string{
+		"Source": c.Source, "Medium": c.Medium, "Name": c.Name, "Term": c.Term, "Ref": c.Ref,
+	} {
+		if len(v) != maxCampaignValueBytes {
+			t.Errorf("%s is %d bytes from %d four-byte runes, want %d - the byte bound, and "+
+				"every whole rune that fits under it", name, len(v), maxCampaignValueLen, maxCampaignValueBytes)
+		}
+	}
+	if n := len([]rune(c.Content)); n != maxCampaignValueLen {
+		t.Errorf("Content kept %d runes of a two-byte script, want all %d: the byte bound "+
+			"is chosen so that no two-byte script loses a rune to it", n, maxCampaignValueLen)
+	}
+}

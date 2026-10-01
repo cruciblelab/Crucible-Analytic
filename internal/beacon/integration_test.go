@@ -141,9 +141,17 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 // fails the entire statement. Because rows are written in batches, one
 // hostile payload landing in a batch would otherwise destroy every
 // other visitor's events in it. This test drives a real, hostile
-// payload through the real HTTP handler into a real COPY alongside
-// innocent rows, which is the only way to prove the sanitizing in
-// event.go is actually sufficient for the database.
+// payload through BuildRow - the function the handler calls - into a
+// real COPY alongside innocent rows, which is the only way to prove the
+// sanitizing in event.go is actually sufficient for the database.
+//
+// (It said "through the real HTTP handler" until 2026-10-01, and it never
+// went near one. The handler's part - the body cap, the site check - is
+// measured with the real binary in NOTES, "Beacon yığını".)
+//
+// Character validity is one of the two ways a value fails a statement;
+// size is the other, and TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex
+// holds it.
 func TestWriter_RealTimescaleDB_HostilePayloadDoesNotPoisonTheBatch(t *testing.T) {
 	site := "beacon-poison-test"
 	writer := newTestWriter(t, site, WriterConfig{})
