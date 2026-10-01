@@ -42,7 +42,8 @@ güncelleme geri alındı.
 Artık boştaki bağlantılar 2 saniye sessizlikten sonra kapanıyor, cevabı
 süren istekler en çok 10 saniye bekleniyor (tam vekil kipinin zaten
 verdiği süre). Gerçek ikiliyle boşta bir bağlantı varken kapanış 1,06 sn
-sürdü. Neyin boşta sayıldığı ve bilinen sınırı KURULUM.md §13.5'te
+sürdü. Aynı gecelik süitte, aynı açık bağlantıyla, ret 1,1 sn sürdü ve
+güncelleme tamamlandı. Neyin boşta sayıldığı ve bilinen sınırı KURULUM.md §13.5'te
 ("Collector yeniden başlarken siteniz").
 
 ### Panelden sürüm güncellemesi hiçbir systemd kurulumunda tamamlanamıyordu

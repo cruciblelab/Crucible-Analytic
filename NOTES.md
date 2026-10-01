@@ -23986,3 +23986,28 @@ Yirmi dört mutasyon, yirmi dördü kırmızı (`scratchpad/mutasyon-z7.py`):
 Kuyruk iptali ile arama iptali aynı sonucu koruyordu. İlk testleri ikisini
 ayıramazdı. Artık kuyruk için kayıt sayısı, arama için dolu kuyruklu bir
 dinleyici (listen backlog 0) ayrı ayrı ölçüyor.
+
+### Sonra, gerçek systemd'de (gecelik 44, iş 109813119393)
+
+Aynı süit, düzeltmeyle, GitHub'ın sanal makinesinde: **yeşil, 9,59 sn.**
+Güncelleme boyunca ziyaretçinin keep-alive bağlantısı açıktı — gecelik
+43'te 90 saniyelik reddin sebebi olan bağlantı.
+
+| | gecelik 43 (önce) | gecelik 44 (sonra) |
+|---|---|---|
+| sitenin yeni bağlantıyı en uzun reddettiği süre | 90,01 sn | **1,1 sn** (30 denemenin 12'si) |
+| collector'ın durması | systemd'nin süresi doldu, SIGKILL | kendisi çıktı (SIGKILL ancak 90 sn'de gelirdi) |
+| birimlerin `active`'e dönmesi | — | yükseltici döndüğünde zaten |
+| güncelleme | 30 sn'de vazgeçildi, **geri alındı** | `succeeded`, `v0.99.0`, geri alınmadı |
+
+Ölçen tarafın bir çapraz kontrolü günlükte kendiliğinden duruyor. Ret
+izleyicisi collector'a 100 ms'de bir bağlanıp hemen kapatıyor. Collector'ın
+kabul ettiği her deneme arkadaki test sunucusuna iletiliyor, ve o sunucu
+el sıkışmadan kapanan bağlantıyı `TLS handshake error ... EOF` diye
+yazıyor. Yeniden başlatmadan önce 10, sonra 8 satır var; aradaki 1,3
+saniyelik boşluk ret penceresi. 10 + 8 + 12 = 30: izleyicinin saydığı
+denemelerle sunucunun gördüğü bağlantılar birbirini tutuyor.
+
+Sıfır değil, çünkü dinleyici hâlâ ilk iş kapanıyor ve yeni süreç açılana
+kadar port boş. Sıfırı systemd'nin soketi elinde tutması (soket
+etkinleştirme) verirdi; ayrı bir iş, ölçülmüş bir ihtiyaç olursa.
