@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // Audit actions. Constants rather than free-form strings so the log can
@@ -259,13 +261,22 @@ func recordIn(ctx context.Context, q rowQuerier, e AuditEntry) (int64, error) {
 		ip = *e.IP
 	}
 
+	// Made storable here, once, for every entry. The label of a failed
+	// sign-in is whatever address was typed - by anybody - and a NUL or
+	// an invalid byte in it made PostgreSQL refuse the INSERT: measured
+	// through the real handler (PLAN §H8), the attempt went unrecorded in
+	// the one log that is append-only on purpose. The text columns are
+	// cleaned rather than refused, as everywhere else this product writes
+	// what somebody else chose; the entry is what matters.
 	var id int64
 	err = q.QueryRow(ctx, `
 		INSERT INTO panel_audit_log
 		  (actor_kind, actor_id, actor_label, action, site_id, target, detail, ip, user_agent)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING id`,
-		string(e.ActorKind), actorID, e.ActorLabel, e.Action, e.SiteID, e.Target, detail, ip, e.UserAgent).
+		string(e.ActorKind), actorID, textsafe.Storable(e.ActorLabel), e.Action,
+		textsafe.Storable(e.SiteID), textsafe.Storable(e.Target), detail, ip,
+		textsafe.Storable(e.UserAgent)).
 		Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("panel: record audit entry: %w", err)

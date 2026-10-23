@@ -469,9 +469,27 @@ func TestTwoOwnersLiftingAtOnceLiftOnce(t *testing.T) {
 
 // TestALiftThatCannotBeRecordedDoesNotHappen: the audit entry is written
 // inside the lift's own transaction, so a lift whose record is refused is
-// no lift at all. The record is refused here by an actor label PostgreSQL
-// will not store (a NUL byte); what matters is that the refusal comes from
-// the audit INSERT, the last statement, after the failures were deleted.
+// no lift at all. What matters is that the refusal comes from the audit
+// INSERT, the last statement, after the failures were deleted.
+//
+// # How the record is refused
+//
+// It used to be a NUL in the actor's label, which PostgreSQL will not
+// store. recordIn now cleans the label (PLAN §H8: a failed sign-in's
+// label is whatever anybody typed, and a NUL in it lost that entry), and
+// nothing else in this entry is the caller's to spoil: the kind is fixed,
+// the actor is the owner the lift was authorised for, the site and the
+// target are rows that already exist. With the NUL the entry was written,
+// the lift went through, and this test went red.
+//
+// So the database refuses it, the way a real failure would: a trigger
+// that raises for this test's own entry and no other - the unlock of this
+// member's address. It is the one piece of DDL this suite runs on the
+// shared database, and it is chosen so that it cannot reach anybody
+// else's row: it touches no column and no index, it matches one address
+// nobody else writes, and a run that dies and leaves it behind leaves a
+// trigger that can refuse nothing but this test's own next attempt -
+// which replaces it first.
 func TestALiftThatCannotBeRecordedDoesNotHappen(t *testing.T) {
 	ns := "panel-kayitsiz"
 	s := newTestStore(t, ns)
@@ -486,9 +504,9 @@ func TestALiftThatCannotBeRecordedDoesNotHappen(t *testing.T) {
 		t.Fatal(err)
 	}
 	failTimes(t, s, member.Email, 5)
+	refuseUnlockEntryFor(t, member.Email)
 
 	actor := principalOf(owner)
-	actor.Label = "sahip\x00" + ns
 	_, err := s.UnlockLogin(ctx, site, actor, member.ID)
 	if err == nil {
 		t.Fatal("a lift whose audit entry could not be written reported success")
@@ -502,4 +520,52 @@ func TestALiftThatCannotBeRecordedDoesNotHappen(t *testing.T) {
 	if n := unlockEntries(t, s, member.Email); n != 0 {
 		t.Errorf("%d unlock entries", n)
 	}
+}
+
+// refuseUnlockEntryFor makes the database refuse one audit entry: the
+// unlock of email. See TestALiftThatCannotBeRecordedDoesNotHappen for why
+// a trigger, and why this one cannot reach another test's row.
+func refuseUnlockEntryFor(t *testing.T, email string) {
+	t.Helper()
+	admin := testdb.Admin(t)
+	ctx := context.Background()
+	const fn, trigger = "ca_test_refuse_unlock_entry", "ca_test_refuse_unlock_entry"
+	drop := []string{
+		`DROP TRIGGER IF EXISTS ` + trigger + ` ON panel_audit_log`,
+		`DROP FUNCTION IF EXISTS ` + fn + `()`,
+	}
+	for _, sql := range drop {
+		if _, err := admin.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	// The address is a literal in the function body: a trigger cannot take
+	// a parameter per call, and this one must match one row's worth.
+	if _, err := admin.Exec(ctx, `CREATE FUNCTION `+fn+`() RETURNS trigger
+		LANGUAGE plpgsql AS $body$
+		BEGIN
+		  IF NEW.action = '`+ActionLoginUnlocked+`' AND NEW.target = `+quoteLiteral(NormalizeEmail(email))+` THEN
+		    RAISE EXCEPTION 'test: this unlock entry is refused on purpose';
+		  END IF;
+		  RETURN NEW;
+		END
+		$body$`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `CREATE TRIGGER `+trigger+` BEFORE INSERT ON panel_audit_log
+		FOR EACH ROW EXECUTE FUNCTION `+fn+`()`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, sql := range drop {
+			if _, err := admin.Exec(context.Background(), sql); err != nil {
+				t.Errorf("%s: %v - a trigger refusing one address's unlock entries is left on panel_audit_log", sql, err)
+			}
+		}
+	})
+}
+
+// quoteLiteral is s as an SQL string literal.
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

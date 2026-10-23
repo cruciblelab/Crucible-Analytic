@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -34,8 +35,13 @@ import (
 // value of a repeated two-byte character, and a repeated character is
 // the input that hides the limit: PostgreSQL compresses a long index
 // value before measuring it.
-// So the values here are varied four-byte runes (fourByteRunes), and the
-// site is as long as the configuration allows.
+// So the values here are varied four-byte runes (fourByteRunes), and so
+// is the site: the longest one the beacon accepts, which is the panel's
+// live list's bound and not the configuration file's (siteid.Keyable, 256
+// bytes, against siteid.Valid's 64 ASCII characters - PLAN §H8). A site
+// of 64 ASCII characters was the maximal one until that list was bounded,
+// and would go on passing here if somebody raised the bound past what the
+// indexes hold.
 //
 // # Why the index list is asked rather than written down
 //
@@ -49,10 +55,11 @@ import (
 // what bounds it.
 func TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex(t *testing.T) {
 	ctx := context.Background()
-	// The longest identifier siteIDPattern accepts.
-	site := "beacon-maxrow-" + strings.Repeat("x", 64-len("beacon-maxrow-"))
-	if !siteIDPattern.MatchString(site) {
-		t.Fatalf("%q is not a site id this configuration accepts; the case is not the maximal one", site)
+	// The longest identifier a site may have: the panel's live list takes
+	// siteid.Keyable ones, in bytes and not in ASCII.
+	site := fourByteRunes(0, siteid.MaxKeyBytes/4)
+	if !siteid.Keyable(site) || len(site) != siteid.MaxKeyBytes {
+		t.Fatalf("a %d-byte site is not the longest the beacon accepts; the case is not the maximal one", len(site))
 	}
 	writer := newTestWriter(t, site, WriterConfig{})
 	reader := testdb.Pool(t, testdb.Reader)
@@ -99,10 +106,10 @@ func TestWriter_RealTimescaleDB_AMaximalRowFitsEveryIndex(t *testing.T) {
 		t.Fatalf("%d rows in the database, want %d", got, len(batch))
 	}
 
-	// What bounds the indexed text columns a visitor does not fill.
+	// What bounds the indexed text columns a visitor does not fill. Not the
+	// site: the maximal row carries the longest one, so the write measures
+	// it like the campaign values.
 	serverBounded := map[string]string{
-		"site_id": "siteIDPattern - 64 ASCII characters - and an event is refused " +
-			"unless its site is configured",
 		"visitor_id": "an HMAC the server computes, 32 hex characters",
 	}
 	checked := 0

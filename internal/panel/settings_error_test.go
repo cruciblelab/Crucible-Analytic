@@ -35,6 +35,7 @@ func TestOnlyValidationErrorsAreSafeToShow(t *testing.T) {
 		{"string over the length cap", KeySiteName, strings.Repeat("a", 2000)},
 		{"timezone this machine cannot load", KeyPanelTimezone, "Avrupa/İstanbul"},
 		{"list that is not a list", KeyBeaconSites, 7},
+		{"site list with an entry no site can have", KeyBeaconSites, []any{"magaza", strings.Repeat("x", 300)}},
 	}
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {

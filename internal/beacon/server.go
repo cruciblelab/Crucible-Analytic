@@ -25,6 +25,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 //go:embed beacon.js
@@ -655,17 +656,34 @@ func (s *Server) logForwardedClaim(r *http.Request) {
 // new, never half of each.
 func (s *Server) SetCampaignPolicy(p CampaignPolicy) { s.liveCampaign.Store(&p) }
 
-// SetSites swaps the allowlist.
+// SetSites swaps the allowlist, and returns the entries it refused.
 //
 // The most common support call this makes answerable without SSH: a
 // customer adds a second domain, and today that is a config edit and a
 // restart.
-func (s *Server) SetSites(sites []string) {
+//
+// An entry that cannot be stored as a key (siteid.Keyable) is left out.
+// The list comes from the panel's settings table, which took any string
+// until H8 and may still hold one a panel of that age saved; an event
+// naming such a site would be written under it, into every index keyed
+// on site_id - and an entry past 2704 bytes fails the whole batch it
+// lands in (PLAN §H7). Not the stricter pattern: an identifier a
+// deployment is already recording under must not stop being recorded
+// because an upgrade learned a rule (see internal/siteid). The caller
+// says which were refused, once.
+func (s *Server) SetSites(sites []string) (refused []string) {
 	// Copied, so a caller that later reuses its slice cannot mutate what
 	// this server is authorising against.
-	out := make([]string, len(sites))
-	copy(out, sites)
+	out := make([]string, 0, len(sites))
+	for _, site := range sites {
+		if !siteid.Keyable(site) {
+			refused = append(refused, site)
+			continue
+		}
+		out = append(out, site)
+	}
 	s.liveSites.Store(&out)
+	return refused
 }
 
 // campaignPolicy is the policy in force right now.

@@ -342,12 +342,13 @@ func TestSetupWizardInABrowser(t *testing.T) {
 	server := httptest.NewServer(srv.Handler())
 	defer server.Close()
 
+	noAccountYet(t, store)
 	token, req, err := store.RequestDevAccess(context.Background(), testReasonPrefix+"tarayici", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !req.AutoApproved {
-		t.Skip("this database already has accounts, so the link needs an owner's approval")
+		t.Fatal("a deployment with no accounts did not auto-approve the link")
 	}
 
 	script := writeWizardScript(t)

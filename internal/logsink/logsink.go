@@ -48,6 +48,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // OperationKey is the attribute a log line carries to say which
@@ -83,6 +84,24 @@ const SiteKey = "site"
 // document. The tree keeps them all; this is the copy that shares a
 // database with the customer's analytics.
 const maxAttrs = 32
+
+// maxKeyBytes bounds the two values this table indexes, site_id and
+// operation_id, in bytes.
+//
+// PostgreSQL refuses an index entry over 2704 bytes along with the
+// INSERT that wrote it, and both values come from a log attribute - text
+// a caller passed, sometimes straight from a request. A value bounded
+// only by the log's own cap (2048 runes, up to 8 KB) lost its line from
+// this table, counted as one more lost line (PLAN §H8). A site id is at
+// most 64 ASCII characters and an operation id is minted by the panel,
+// so a value past 256 bytes is neither; the line is kept with the value
+// cut rather than lost with it.
+const maxKeyBytes = 256
+
+// indexKey is an attribute value as an indexed column keeps it.
+func indexKey(v string) string {
+	return textsafe.FitBytes(logging.SanitizeValue(v), maxKeyBytes)
+}
 
 // Config is what a service supplies.
 type Config struct {
@@ -391,10 +410,10 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 	collect := func(a slog.Attr) bool {
 		switch a.Key {
 		case SiteKey:
-			rec.siteID = logging.SanitizeValue(a.Value.String())
+			rec.siteID = indexKey(a.Value.String())
 			return true
 		case OperationKey:
-			rec.operation = logging.SanitizeValue(a.Value.String())
+			rec.operation = indexKey(a.Value.String())
 			return true
 		case logging.CategoryKey:
 			rec.category = logging.SanitizeValue(a.Value.String())

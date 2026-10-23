@@ -75,7 +75,7 @@ var exportRules = map[string]ExportRule{
 	"files": ExportKept, "fingerprints": ExportKept, "from": ExportKept,
 	"from_days": ExportKept, "gomaxprocs": ExportKept, "gomemlimit": ExportKept,
 	"gomemlimit_from": ExportKept, "hint": ExportKept, "how": ExportKept,
-	"id": ExportKept, "in_force": ExportKept, "installed": ExportKept,
+	"id": ExportKept, "ignored_sites": ExportKept, "in_force": ExportKept, "installed": ExportKept,
 	"interval": ExportKept, "ipv4_err": ExportKept, "ipv4_ranges": ExportKept,
 	"ipv6_err": ExportKept, "ipv6_ranges": ExportKept, "keep_days": ExportKept,
 	"key": ExportKept, "keys": ExportKept, "label": ExportKept,

@@ -28,6 +28,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -286,10 +287,22 @@ func main() {
 	lastDisclosure := cfg.Privacy.LiveDisclosure(nil)
 	lastPaused := map[string]time.Time{}
 
+	var lastRefusedSites []string
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
 		sites := live.Strings(settings.KeyBeaconSites, "", cfg.Sites)
-		srv.SetSites(sites)
+		// Said once per change, not once per refresh: the list is read
+		// every interval, and the same refusal every minute is a line
+		// somebody stops reading.
+		if refused := srv.SetSites(sites); !slices.Equal(refused, lastRefusedSites) {
+			if len(refused) > 0 {
+				logger.Warn("beacon: the site list has entries that cannot be a site's key "+
+					"(longer than 256 bytes, or characters that cannot be stored); they are "+
+					"ignored, and events naming them are refused as unknown sites",
+					"ignored_sites", refused)
+			}
+			lastRefusedSites = refused
+		}
 
 		// Which of those sites is paused, and until when (PLAN §4, #3).
 		// Read per site from the list just applied: nothing is recorded

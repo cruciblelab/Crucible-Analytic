@@ -15,13 +15,8 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
-
-// siteIDPattern must stay identical to config.siteIDPattern in the
-// collector: a beacon accepting a site_id the collector could never
-// have written would produce beacon_events rows that no
-// traffic_snapshots row can ever join to.
-var siteIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
 
 // paramNamePattern bounds a configured extra query parameter name.
 // Narrow on purpose: the name is compared against what a browser sent,
@@ -269,7 +264,7 @@ func (c Config) validate() error {
 		return fmt.Errorf("beacon: sites is required (the site_ids this beacon accepts events for)")
 	}
 	for _, site := range c.Sites {
-		if !siteIDPattern.MatchString(site) {
+		if !siteid.Valid(site) {
 			return fmt.Errorf("beacon: invalid site %q (want 1-64 characters, letters/digits/underscore/dash only)", site)
 		}
 	}
@@ -339,7 +334,7 @@ func (c Config) validate() error {
 			c.Retention.Days, retention.MinDays, retention.MaxDays)
 	}
 	for site, days := range c.Retention.PerSite {
-		if !siteIDPattern.MatchString(site) {
+		if !siteid.Valid(site) {
 			return fmt.Errorf("beacon: retention.per_site has an invalid site %q", site)
 		}
 		if days < retention.MinDays || days > retention.MaxDays {

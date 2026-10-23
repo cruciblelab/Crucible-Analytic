@@ -52,12 +52,13 @@ func TestHandoverCreatesAnOwner(t *testing.T) {
 
 	// ---- the developer reaches the handover step ----
 	dev := newClient(t, server.URL)
+	noAccountYet(t, store)
 	token, req, err := store.RequestDevAccess(ctx, testReasonPrefix+"devir", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !req.AutoApproved {
-		t.Skip("this database already has accounts, so the developer link needs approval")
+		t.Fatal("a deployment with no accounts did not auto-approve the developer link")
 	}
 	resp, err := dev.Get(server.URL + DevAccessPathPrefix + token)
 	if err != nil {
@@ -75,6 +76,24 @@ func TestHandoverCreatesAnOwner(t *testing.T) {
 	status, body = post(t, dev, handover, url.Values{"eposta": {""}})
 	if status != http.StatusBadRequest {
 		t.Errorf("an empty address answered %d", status)
+	}
+
+	// ---- and so is one no account can have, by name (PLAN §H8) ----
+	//
+	// Here and not at the far end. The claim table keys nothing on the
+	// address, so before H8 this link was minted and handed over, and
+	// opening it failed creating the account - the users table's index
+	// refused an entry past 2704 bytes - by which time the developer was
+	// gone.
+	// The same reason the taken-address check is on this step.
+	unusable := "devir-" + fourByteAddressRunes(700) + "@devir-testi.invalid"
+	status, body = post(t, dev, handover, url.Values{"eposta": {unusable}})
+	want := srv.Renderer.Catalogs().Base().T("kurulum.devir.eposta_gecersiz")
+	if status != http.StatusBadRequest || !strings.Contains(body, want) {
+		t.Errorf("an address no account can have answered %d: %q", status, messageOf(body))
+	}
+	if claimLinkPattern.MatchString(body) {
+		t.Error("a link was minted for an address no account can have")
 	}
 
 	// ---- and a real one mints a link, shown once ----

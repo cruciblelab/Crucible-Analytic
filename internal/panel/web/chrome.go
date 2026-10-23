@@ -7,6 +7,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 // The signed-in shell: who is looking, what they may reach, and the
@@ -54,6 +55,17 @@ func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (panel.Prin
 // deployment's customers from any account on it.
 func (s *Server) siteAccess(w http.ResponseWriter, r *http.Request, p panel.Principal, siteID string) (panel.Access, bool) {
 	lang := s.language(r)
+	// A site that cannot exist, refused before anybody's access to it is
+	// worked out. The identifier comes from the path, and an operator's
+	// access does not depend on membership - so without this, whatever a
+	// URL said became the site_id of a setting, an audit entry, an
+	// invitation, in indexes PostgreSQL refuses an entry past 2704 bytes
+	// in (PLAN §H8). Keyable rather than the pattern: a site a deployment
+	// already has members under keeps its pages (see internal/siteid).
+	if !siteid.Keyable(siteID) {
+		s.Renderer.ErrorIn(w, r, http.StatusNotFound, lang)
+		return panel.Access{}, false
+	}
 	access, err := s.Store.AccessFor(r.Context(), p, siteID)
 	if err != nil {
 		s.logger().Error("panel: resolving site access", "err", err, "site", siteID)

@@ -72,6 +72,9 @@ func (s *Store) CreateOwnerClaim(ctx context.Context, email, displayName string,
 	if email == "" {
 		return "", OwnerClaim{}, errors.New("panel: an invitation needs an email address")
 	}
+	if !UsableEmail(email) {
+		return "", OwnerClaim{}, ErrEmailUnusable
+	}
 	if ttl <= 0 {
 		ttl = DefaultOwnerClaimTTL
 	}

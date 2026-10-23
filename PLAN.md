@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **6/8** | H3, H8 — *(**H7 bitti (2026-10-01):** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Paylaşılan test veritabanında o indeks yoktu: preflight'ın bir testi sütunu silip indeksi de götürüyordu. Gecelik fuzz buldu, iki gün okunmadı. H8 aynı sınıfın panel tarafındaki iki hafif üyesi. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **7/8** | H3 — *(**H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -6771,23 +6771,56 @@ en büyük satırı iki masum satırla aynı yığında yazıyor; önce şemanı
 bildirdiği her indeksin veritabanında olduğunu soruyor. On üç mutasyon,
 ayrıntı NOTES'ta ("Beacon yığını").
 
-#### H8 — İndeks girdisi sınırı: sınıfın panel tarafı 🟡 *(açıldı 2026-10-01)*
+#### H8 — İndeks girdisi sınırı: sınıfın panel tarafı ✅ **yapıldı (2026-10-01)**
 
-H7'nin sınıf sorusu: anahtarında metin taşıyan 26 indeksten hangisine
-dışarıdan gelen değer yazılıyor? `site_id` her yerde ≤64 ASCII. Kalan iki
-üye panel tarafında ve hafif, ikisi de yığın değil tek satır:
+*H7'nin sınıf sorusundan açıldı: anahtarında metin taşıyan bir indekse
+dışarıdan gelen değer hangi yoldan yazılıyor?*
 
-- `panel_login_attempts.email` — e-postanın uzunluk sınırı yok. 2,7 KB'tan
-  uzun (gerçek bir hesabın olamayacağı) bir adresle yapılan deneme
-  kaydedilemiyor, sayfa yine reddediyor; IP sayacına girmiyor ama gerçek
-  bir hesaba karşı kullanılamaz.
-- `panel_logs.site_id` / `operation_id` — günlük değerinin 2048 rune'luk
-  sınırını taşıyor; istekten gelen bir site değeri o satırı tablo
-  kopyasından düşürür (dosya kopyası yerinde, kayıp sayacı artar).
+**Açılırken yazdığım iki cümle eksikti.** "`site_id` her yerde ≤64 ASCII"
+yalnız yapılandırma dosyaları için doğruydu: panelin canlı `beacon.sites`
+listesi hiç denetlenmiyordu ve beacon onu olduğu gibi uyguluyordu; site
+sayfaları yoldaki kimliği — işletmeci için üyelik sorulmadan — ayarın,
+denetim kaydının, davetin `site_id`'si yapıyordu. Ve giriş denemesi "hafif"
+değildi. Gerçek işleyiciyle, düzeltmeden önceki kod:
 
-**Bitti ölçütü:** ikisi de bayt ile sınırlı, ve H7'nin testi gibi indeksleri
-katalogdan okuyan bir değişmez her indeksli metin sütununu ya ölçülmüş ya
-gerekçeli istiyor — yalnız `beacon_events` için değil, bütün tablolar için.
+| yazılan adres | cevap | deneme satırı | denetim kaydı |
+|---|---|---|---|
+| 700 dört baytlık karakter | 401 | **yazılmadı** | yazıldı |
+| NUL içeren | **500** | yok | yok |
+| geçersiz UTF-8 | 401 | yazıldı | **kayboldu** |
+
+Davet ve devir de böyle bir adrese bağlantı **basıyordu** (iki tabloda da
+e-posta indekssiz); bağlantı açılınca hesap kurulamıyordu
+(`panel_users_email_key`, 2.832 bayt) — devirde, geliştirici gittikten
+sonra.
+
+**Düzeltme:** "bir hesabın olabileceği adres" tek tanım
+(`panel.UsableEmail`: giriş anahtarı — kaydedilebilir, 254 bayt — adresi
+değiştirmiyor); üç kurucu yazmadan önce reddediyor, iki sayfa adıyla
+söylüyor, `UserByEmail` sıradan "bulunamadı" (NUL artık 401). Denetim
+kaydının serbest metinleri temizleniyor; `panel_logs`'un site/işlem
+değeri 256 bayta kesiliyor. Site kimliğinin iki sorusu tek pakette:
+`siteid.Valid` (64 ASCII, yapılandırma dosyaları) ve `siteid.Keyable` (256
+bayt — canlı liste, beacon, site sayfaları). Canlı listede desen değil
+`Keyable`: desen noktalı bir girdiyi yükseltmede beacon'dan düşürür, panel
+de listenin tamamını boş okurdu.
+
+**Bitti ölçütü tuttu:** `internal/testdb/indexedtext_integration_test.go`
+— B-tree anahtarındaki her metin sütunu (29; ikisi yalnız eklentili
+kurulumlarda) katalogdan okunuyor ve her biri onu baytla neyin
+sınırladığını söyleyen bir girdi istiyor, iki yönlü. H7'nin en büyük
+satırı artık en uzun anahtarlanabilir siteyle (256 bayt) kuruluyor — 64
+ASCII'lik eski hâli bu sınırı indekse bağlamıyordu.
+
+**Yolda:** dört panel/web süiti, paylaşılan veritabanında herhangi bir
+hesap varken **sessizce atlanıyordu** (devir zinciri, kurulum akışı,
+saklama parolası, posta sonuçları); bir mutasyonun sızdırdığı tek hesap
+dördünü de kapattı ve bir mutasyonu "sağ" gösterdi. Artık sızan hesabı
+adıyla söyleyip düşüyorlar. Ve düzeltme iki testin NUL'lu hata
+enjeksiyonunu söktü; yerine ürünün temizleyemeyeceği iki ret kondu.
+
+Mutasyon: 28, 27 kırmızı, biri tasarım gereği sağ. Ayrıntı NOTES'ta
+("İndeks girdisi sınırı, panel tarafı").
 
 #### H'nin gereksiz kılmadığı şey
 

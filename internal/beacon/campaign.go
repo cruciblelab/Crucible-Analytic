@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // Campaign is the acquisition context an event arrived with, split into
@@ -237,7 +239,7 @@ func (p CampaignPolicy) Apply(values url.Values) (Campaign, string) {
 		// Only the first value: a repeated parameter is either a mistake
 		// or an attempt to inflate the stored string, and neither is
 		// worth a multi-valued column.
-		return truncateBytes(sanitizeText(vals[0], maxCampaignValueLen), maxCampaignValueBytes)
+		return textsafe.FitBytes(sanitizeText(vals[0], maxCampaignValueLen), maxCampaignValueBytes)
 	}
 
 	c.Source = get("utm_source")

@@ -117,6 +117,40 @@ func NormalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// MaxEmailBytes bounds an address in bytes: 254, the longest a mailbox
+// can be under RFC 5321 (a path is 256 octets, its angle brackets
+// included).
+//
+// # Why a byte bound, and why here
+//
+// The address is a key in two indexes - panel_users_email_key and
+// idx_panel_login_attempts_email - and PostgreSQL refuses an index entry
+// over 2704 bytes along with the statement that wrote it (PLAN §H7,
+// §H8). The sign-in form takes an address from anybody, and 700
+// four-byte characters are 2.8 KB: measured through the real handler, a
+// failed sign-in with such an address recorded no attempt and so counted
+// towards nothing. No address that can receive mail is longer than 254
+// bytes, so no account loses anything to the bound.
+const MaxEmailBytes = 254
+
+// ErrEmailUnusable refuses an address no account can have: longer than
+// MaxEmailBytes, or carrying what a text column cannot store.
+var ErrEmailUnusable = errors.New("panel: that is not an address an account can have")
+
+// UsableEmail reports whether an address can belong to an account: not
+// empty once normalized, and unchanged by what the sign-in records do to
+// an address (loginKey).
+//
+// The second half is what keeps one key per account. The throttle counts
+// failures under loginKey of whatever was typed; the members page reads
+// an account's failures, and lifts its lock, under the stored address.
+// The two agree only because an account cannot be created with an
+// address loginKey would change - which every constructor asks here.
+func UsableEmail(email string) bool {
+	n := NormalizeEmail(email)
+	return n != "" && loginKey(n) == n
+}
+
 // userColumns is the select list every user query shares, so a new
 // column cannot be added to one scan path and forgotten in another.
 const userColumns = `id, email, display_name, password_hash, totp_secret,
@@ -153,6 +187,9 @@ func (s *Store) CreateUser(ctx context.Context, email, displayName, passwordHash
 	if email == "" {
 		return User{}, fmt.Errorf("panel: email is required")
 	}
+	if !UsableEmail(email) {
+		return User{}, ErrEmailUnusable
+	}
 
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO panel_users (email, display_name, password_hash, is_superadmin)
@@ -174,7 +211,14 @@ func (s *Store) CreateUser(ctx context.Context, email, displayName, passwordHash
 }
 
 // UserByEmail looks an account up for login.
+//
+// An address no account can have is no account, answered without asking
+// the database: a NUL in it made the query itself fail, and the sign-in
+// page said 500 where it meant "wrong address" (PLAN §H8).
 func (s *Store) UserByEmail(ctx context.Context, email string) (User, error) {
+	if !UsableEmail(email) {
+		return User{}, ErrNotFound
+	}
 	return scanUser(s.pool.QueryRow(ctx,
 		`SELECT `+userColumns+` FROM panel_users WHERE email = $1`, NormalizeEmail(email)))
 }

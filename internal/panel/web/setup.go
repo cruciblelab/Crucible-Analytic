@@ -833,6 +833,10 @@ func (s *Server) handOver(r *http.Request, lang *ui.Language, access panel.Acces
 			data.Message, data.Failed = lang.T("kurulum.devir.eposta_kayitli"), true
 			return
 		}
+		if errors.Is(err, panel.ErrEmailUnusable) {
+			data.Message, data.Failed = lang.T("kurulum.devir.eposta_gecersiz"), true
+			return
+		}
 		s.logger().Error("panel: creating owner invitation", "err", err)
 		data.Message, data.Failed = lang.T("hesap.hata.kaydedilemedi"), true
 		return

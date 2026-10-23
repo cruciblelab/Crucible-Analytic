@@ -431,6 +431,14 @@ func (s *Server) inviteMember(ctx context.Context, lang *ui.Language, r *http.Re
 			return membersPage{Message: lang.Tf("uyeler.hata.davet_cok",
 				panel.MaxOpenInvitesPerSite), Failed: true}
 		}
+		// An address no account can have (PLAN §H8). The lookup above
+		// answered "no such account" for it, which is true, and the
+		// store refused the invitation. Said by name rather than as
+		// "could not be saved": the address is the whole of what is
+		// wrong, and the person who typed it can fix that.
+		if errors.Is(err, panel.ErrEmailUnusable) {
+			return membersPage{Message: lang.T("uyeler.hata.eposta_gecersiz"), Failed: true}
+		}
 		s.logger().Error("panel: creating member invitation", "err", err)
 		return membersPage{Message: lang.T("uyeler.hata.kaydedilemedi"), Failed: true}
 	}

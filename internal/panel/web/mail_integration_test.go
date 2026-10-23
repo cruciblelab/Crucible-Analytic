@@ -604,12 +604,13 @@ func TestTheInvitationLinkSurvivesEveryMailOutcome(t *testing.T) {
 			defer server.Close()
 
 			dev := newClient(t, server.URL)
+			noAccountYet(t, store)
 			token, req, err := store.RequestDevAccess(ctx, testReasonPrefix+"posta-devir", 0, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if !req.AutoApproved {
-				t.Skip("this database already has accounts, so the developer link needs approval")
+				t.Fatal("a deployment with no accounts did not auto-approve the developer link")
 			}
 			resp, err := dev.Get(server.URL + DevAccessPathPrefix + token)
 			if err != nil {

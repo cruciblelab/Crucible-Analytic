@@ -434,3 +434,54 @@ func TestAnInvitedAddressThatAlreadyHasAnAccountIsNotSignedIn(t *testing.T) {
 			"already had one, without anybody proving they held the old one")
 	}
 }
+
+// TestAnAddressNoAccountCanHaveIsRefusedByName (PLAN §H8).
+//
+// An address past MaxEmailBytes, or carrying a NUL, cannot be an
+// account's: the sign-in records would key it differently from the
+// account, and the members page would read and lift a lock nobody holds.
+// The store refuses such an address at every constructor. The page asks
+// first and says what is wrong - without that, the lookup answers "no
+// such account", the invitation is refused underneath, and the reader
+// gets "could not be saved", which names nothing.
+//
+// The sentence is read from the catalog, so the test holds the wiring
+// rather than the wording.
+func TestAnAddressNoAccountCanHaveIsRefusedByName(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+
+	owner := makeUser(t, store, "h8-uye-sahip", false)
+	if err := store.AddMember(ctx, inviteWebSite, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		_, _ = store.Pool().Exec(bg, `DELETE FROM panel_member_invites WHERE site_id = $1`, inviteWebSite)
+		_, _ = store.Pool().Exec(bg, `DELETE FROM panel_site_members WHERE site_id = $1`, inviteWebSite)
+	})
+	server := httptest.NewServer(srv.Handler())
+	t.Cleanup(server.Close)
+	client := signedIn(t, server.URL, owner.Email)
+	want := srv.Renderer.Catalogs().Base().T("uyeler.hata.eposta_gecersiz")
+
+	long := strings.Repeat("a", panel.MaxEmailBytes+1-len(testEmailSuffix)) + testEmailSuffix
+	for name, email := range map[string]string{
+		"one byte past the bound": long,
+		"a NUL":                   "h8\x00uye" + testEmailSuffix,
+	} {
+		_, body := post(t, client, server.URL+memberPath(inviteWebSite), url.Values{
+			"islem": {"ekle"}, "eposta": {email}, "rol": {"viewer"},
+		})
+		if !strings.Contains(body, want) {
+			t.Errorf("%s: the page does not say %q; its alert reads %q", name, want, messageOf(body))
+		}
+	}
+	open, err := store.OpenMemberInvites(ctx, inviteWebSite)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 0 {
+		t.Errorf("an unusable address minted %d invitation(s)", len(open))
+	}
+}

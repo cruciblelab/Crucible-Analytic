@@ -279,6 +279,51 @@ func TestTheOperationIdAndSiteBecomeColumns(t *testing.T) {
 	}
 }
 
+// TestAnOverLongSiteOrOperationStillWritesItsLine is PLAN §H8 as a test.
+//
+// Both columns are in an index, and PostgreSQL refuses an index entry
+// over 2704 bytes along with the INSERT. A site or operation value of 700
+// four-byte characters - 2.8 KB, well inside the log's own 2048-rune cap
+// - lost its line from this table, and the only trace was one more in
+// the lost-line count. Varied characters, because a repeated one
+// compresses and the limit hides behind it.
+//
+// The line must be written, and what it keeps of each value must be the
+// value's head: a cut that kept nothing, or kept some other text, would
+// pass "a row exists" and lose the one thing the column is for.
+func TestAnOverLongSiteOrOperationStillWritesItsLine(t *testing.T) {
+	s, read := newTestSink(t, testdb.Collector)
+	logger := slog.New(s.Handler())
+
+	long := func(seed int) string {
+		var b strings.Builder
+		for i := range 700 {
+			b.WriteRune(rune(0x20000 + (seed*7919+i*104729)%0xA6E0))
+		}
+		return b.String()
+	}
+	site, op := "site-"+long(1), "op-"+long(2)
+	logger.Warn("uzun bir anahtarın satırı", SiteKey, site, OperationKey, op)
+	waitForRows(t, s, 1)
+
+	var gotSite, gotOp string
+	if err := read.QueryRow(context.Background(),
+		`SELECT site_id, operation_id FROM panel_logs WHERE service = $1`, testdb.Collector).
+		Scan(&gotSite, &gotOp); err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string][2]string{"site_id": {gotSite, site}, "operation_id": {gotOp, op}} {
+		got, sent := c[0], c[1]
+		if len(got) > maxKeyBytes {
+			t.Errorf("%s kept %d bytes, want at most %d", name, len(got), maxKeyBytes)
+		}
+		if len(got) < maxKeyBytes-3 || !strings.HasPrefix(sent, got) {
+			t.Errorf("%s kept %d bytes that are not the head of what was sent - the line "+
+				"was written, and the value it was about was not", name, len(got))
+		}
+	}
+}
+
 // TestASecretLookingValueIsRedactedHereAsInTheTree: the tree's backstop,
 // on this side of the tee too.
 //

@@ -24,6 +24,44 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Panelde bazı e-posta adresleri ve site kimlikleri kaydın kendisini yazılamaz yapıyordu
+
+**Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.
+
+H7'deki sınırın (PostgreSQL 2704 bayttan büyük bir indeks girdisini ve
+onunla bütün ifadeyi reddediyor) panel tarafındaki yolları. Hepsi gerçek
+veritabanında, düzeltmeden önceki ve sonraki kodla ölçüldü:
+
+- **Giriş sayfası.** NUL baytı içeren bir e-posta adresiyle yapılan giriş
+  denemesi sayfayı **500** ile düşürüp her seferinde bir ERROR satırı
+  yazıyordu — herkesin yapabileceği bir istekle. 2,8 KB'lık bir adresle
+  yapılan deneme **kaydedilmiyordu**, yani adresin deneme sınırı onu hiç
+  saymıyordu. Geçersiz UTF-8 içeren adresin denetim kaydı kayboluyordu.
+  Artık üçü de sıradan bir yanlış giriş: deneme ve denetim kaydı yazılıyor.
+- **Üye daveti ve sahiplik devri** bir hesabın olamayacağı adrese (254
+  bayttan uzun ya da kaydedilemeyen karakterli) bağlantı basıyordu, ve
+  bağlantı açılınca hesap kurulamıyordu — devirde, kurulumu yapan kişi
+  gittikten sonra. Artık iki sayfa da adresi adıyla reddediyor ("Bu bir
+  e-posta adresi olamaz").
+- **Günlük tablosu:** site ya da işlem değeri çok uzun bir günlük satırı
+  `panel_logs`'a yazılamıyordu (disk günlüğünde duruyordu). Artık o iki
+  değer tabloda 256 bayta kesiliyor, satır yazılıyor.
+- **Site kimlikleri.** Panelin **Kabul edilen siteler** ayarı (geliştirici
+  görünümünde) her şeyi kabul ediyordu ve beacon listeyi olduğu gibi
+  uyguluyordu; panelin site sayfaları adresteki kimliği sınırsız kabul
+  ediyordu. Artık 256 bayttan uzun ya da kaydedilemeyen karakterli bir
+  site kimliği kaydedilmiyor, beacon onu yok sayıp günlüğe bir kez WARN
+  yazıyor, ve site sayfaları ona 404 veriyor. Noktalı kimlikler
+  (`site.tr`) listede kabul edilmeye devam ediyor; yapılandırma
+  dosyasındaki `site_id` kuralı değişmedi.
+
+**Kurulumunuzda olmuş mu:** panel günlüğünde `index row size` ya da
+`invalid byte sequence for encoding "UTF8"` geçen WARN veya ERROR
+satırları; beacon
+günlüğünde `ignored_sites` geçen bir WARN satırı (listede kimlik olamayacak
+bir girdi var: **Ayarlar → Toplama → Kabul edilen siteler**'den düzeltip
+kaydedin).
+
 ### Tek bir hazırlanmış beacon olayı, aynı anda gelen bütün olayların kaydedilmesini engelleyebiliyordu
 
 **Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.

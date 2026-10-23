@@ -480,3 +480,67 @@ func TestOpenInvitationsAreListedAndDemotionWithdrawsThem(t *testing.T) {
 		t.Errorf("%d invitations are still listed as open after being withdrawn", len(open))
 	}
 }
+
+// TestNoConstructorTakesAnAddressNoAccountCanHave (PLAN §H8).
+//
+// Three ways an address becomes an account's - an invitation, an owner's
+// claim, and CreateUser itself - and each must refuse an address that
+// loginKey would change, before anything is written. If one let it
+// through, the account's sign-in failures would be counted under one
+// key and read under another: the members page would never see the
+// account locked, and "lift the lock" would delete nothing.
+//
+// Two addresses, one per way an address fails: one byte past the bound,
+// and a NUL. Rows are counted after each refusal, so a constructor that
+// wrote first and refused second fails here too.
+//
+// And they are removed at both ends. A constructor that wrote would leave
+// an account on the shared database, and an account there is not this
+// test's problem alone: it closes the window before a deployment's first
+// account that four panel/web suites need (noAccountYet). The mutation
+// round that measured this test did exactly that.
+func TestNoConstructorTakesAnAddressNoAccountCanHave(t *testing.T) {
+	store := newTestStore(t, "davet")
+	ctx := context.Background()
+	owner := inviteFixture(t, store, "h8-kurucu", RoleOwner, false)
+	by := Principal{UserID: owner.ID, Label: owner.Email}
+
+	const suffix = "@h8-kurucu.invalid"
+	clean := func() {
+		for _, table := range []string{"panel_member_invites", "panel_owner_claims", "panel_users"} {
+			if _, err := store.Pool().Exec(context.Background(),
+				`DELETE FROM `+table+` WHERE email LIKE '%`+suffix+`'`); err != nil {
+				t.Errorf("removing %s rows: %v", table, err)
+			}
+		}
+	}
+	clean()
+	t.Cleanup(clean)
+	for name, email := range map[string]string{
+		"one byte past the bound": strings.Repeat("a", MaxEmailBytes+1-len(suffix)) + suffix,
+		"a NUL":                   "h8\x00kurucu" + suffix,
+	} {
+		if _, _, err := store.CreateMemberInvite(ctx, inviteSite, email, RoleViewer, by, 0, 0); !errors.Is(err, ErrEmailUnusable) {
+			t.Errorf("%s: CreateMemberInvite = %v, want ErrEmailUnusable", name, err)
+		}
+		if _, _, err := store.CreateOwnerClaim(ctx, email, "", by, 0); !errors.Is(err, ErrEmailUnusable) {
+			t.Errorf("%s: CreateOwnerClaim = %v, want ErrEmailUnusable", name, err)
+		}
+		if _, err := store.CreateUser(ctx, email, "", "x", false); !errors.Is(err, ErrEmailUnusable) {
+			t.Errorf("%s: CreateUser = %v, want ErrEmailUnusable", name, err)
+		}
+	}
+	for table, sql := range map[string]string{
+		"panel_member_invites": `SELECT count(*) FROM panel_member_invites WHERE email LIKE '%` + suffix + `'`,
+		"panel_owner_claims":   `SELECT count(*) FROM panel_owner_claims WHERE email LIKE '%` + suffix + `'`,
+		"panel_users":          `SELECT count(*) FROM panel_users WHERE email LIKE '%` + suffix + `'`,
+	} {
+		var n int
+		if err := store.Pool().QueryRow(ctx, sql).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", table, err)
+		}
+		if n != 0 {
+			t.Errorf("%s holds %d row(s) for a refused address", table, n)
+		}
+	}
+}

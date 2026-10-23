@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // Login throttling limits. Two independent counters, because they stop
@@ -56,6 +58,20 @@ var (
 	windowSQL     = fmt.Sprintf("interval '%d seconds'", int(LoginThrottleWindow.Seconds()))
 	lockThreshold = strconv.Itoa(maxFailuresPerEmail)
 )
+
+// loginKey is an address as the sign-in records keep it: normalized,
+// made storable, and bounded in bytes.
+//
+// The form takes the address from anybody, so it is cleaned before it is
+// a key. Measured through the real handler (PLAN §H8): a NUL made the
+// throttle's own query fail - 500 and an ERROR line, for anybody who sent
+// one - and 700 four-byte characters made an index entry PostgreSQL
+// refuses, so the attempt was never recorded and never counted towards
+// the address's limit. For an address an account can have it is the
+// address itself; UsableEmail is that promise, kept by every constructor.
+func loginKey(email string) string {
+	return textsafe.FitBytes(textsafe.Storable(NormalizeEmail(email)), MaxEmailBytes)
+}
 
 // accountFailures is the condition the per-account counter counts: the
 // failed attempts on one address inside the window.
@@ -118,7 +134,7 @@ type Throttle struct {
 
 // CheckLoginThrottle counts recent failures for an email and an address.
 func (s *Store) CheckLoginThrottle(ctx context.Context, email string, ip netip.Addr) (Throttle, error) {
-	email = NormalizeEmail(email)
+	email = loginKey(email)
 
 	var ipArg any
 	if ip.IsValid() {
@@ -160,7 +176,7 @@ func (s *Store) RecordLoginAttempt(ctx context.Context, email string, ip netip.A
 	}
 	if _, err := s.pool.Exec(ctx,
 		`INSERT INTO panel_login_attempts (email, ip, success) VALUES ($1,$2,$3)`,
-		NormalizeEmail(email), ipArg, success); err != nil {
+		loginKey(email), ipArg, success); err != nil {
 		return fmt.Errorf("panel: record login attempt: %w", err)
 	}
 	return nil
@@ -185,7 +201,7 @@ func (s *Store) RecordLoginAttempt(ctx context.Context, email string, ip netip.A
 func (s *Store) ClearLoginFailures(ctx context.Context, email string) error {
 	if _, err := s.pool.Exec(ctx,
 		`DELETE FROM panel_login_attempts WHERE email = $1 AND NOT success`,
-		NormalizeEmail(email)); err != nil {
+		loginKey(email)); err != nil {
 		return fmt.Errorf("panel: clear login failures: %w", err)
 	}
 	return nil

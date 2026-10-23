@@ -162,8 +162,15 @@ func TestOnlyTheOperatorWithThePasswordIssuesACode(t *testing.T) {
 
 // TestAnIssueThatCannotBeRecordedDoesNotHappen: a code for another person,
 // minted with no record of who minted it, cannot commit. The record is
-// refused by an actor label PostgreSQL will not store; the old codes still
-// work afterwards.
+// refused by an actor id that names no account - the audit table's
+// foreign key - and the old codes still work afterwards.
+//
+// It used to be refused by a NUL in the actor's label. recordIn now cleans
+// the label (PLAN §H8: a failed sign-in's label is whatever anybody typed,
+// and a NUL in it lost that entry), so the label can no longer make the
+// INSERT fail: with the NUL, the entry was written, the issue went
+// through, and this test went red. A foreign key is a refusal the product
+// cannot clean away.
 func TestAnIssueThatCannotBeRecordedDoesNotHappen(t *testing.T) {
 	ns := "panel-kurtarma-kayit"
 	s := newTestStore(t, ns)
@@ -178,7 +185,7 @@ func TestAnIssueThatCannotBeRecordedDoesNotHappen(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := operator()
-	actor.Label = "gelistirici\x00" + ns
+	actor.UserID = -1
 	_, err = s.IssueRecoveryCode(ctx, site, actor, authorizeAction(t, testGate(t, s), RecoveryIssueGateAction), member.ID)
 	if err == nil || !strings.Contains(err.Error(), "record audit entry") {
 		t.Fatalf("err = %v; the issue should fail at its audit entry", err)

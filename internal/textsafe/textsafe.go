@@ -36,10 +36,15 @@
 //
 // # What is not here
 //
-// Truncation. The two existing callers cut differently on purpose: a
-// stored title must not gain a character it did not have, and a log
-// value should say that it was cut. One function that did both would
-// take a flag, and a flag is two functions wearing one name.
+// Truncation to a length somebody reads. The two existing callers cut
+// differently on purpose: a stored title must not gain a character it
+// did not have, and a log value should say that it was cut. One
+// function that did both would take a flag, and a flag is two functions
+// wearing one name.
+//
+// One cut is here, FitBytes, because it is not a length anybody reads:
+// it is the size PostgreSQL measures an index entry in, and every caller
+// with a value in an index key needs the same answer to it.
 //
 // *Bir kuralın iki yazımı varsa, bakılmayan yazım er geç ayrılır.*
 package textsafe
@@ -76,4 +81,32 @@ func Storable(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// FitBytes cuts s to at most maxBytes bytes, never inside a rune.
+//
+// # Why a byte count, beside every rune cap this product has
+//
+// PostgreSQL refuses a B-tree entry larger than 2704 bytes (8 KB pages),
+// and refuses the statement that wrote it - a batch's COPY, or the one
+// INSERT that was the record of something. A cap in runes is not a cap
+// in bytes: a four-byte character makes 256 runes 1024 bytes. Three
+// beacon campaign values inside their rune caps made a 3104-byte entry,
+// and one event lost its whole batch (PLAN §H7); an address of 700 such
+// characters was a failed sign-in nothing recorded (§H8).
+//
+// s must be valid UTF-8 - Storable's output - or the search for a rune
+// boundary can stop inside a sequence that never was a rune.
+func FitBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	if maxBytes <= 0 {
+		return ""
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

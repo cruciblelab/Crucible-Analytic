@@ -2061,6 +2061,15 @@ gönderen yazıyor ve bir yabancının metni sahibin ekranına ulaşmamalı;
 `security.log` onları tutuyor. Sayı servis başladığından beri sayılır —
 düzeltildikten sonra artmayı bırakır.
 
+Listeye 256 bayttan uzun ya da kaydedilemeyen karakter taşıyan bir girdi
+yazılamaz; nokta ve boşluk yazılabilir (yapılandırma dosyasının `site_id`
+kuralı daha sıkı: `[a-zA-Z0-9_-]{1,64}`). Daha eski bir sürümün kaydettiği
+böyle bir girdiyi beacon yok sayar ve liste her değiştiğinde günlüğe bir
+kez `ignored_sites` alanıyla WARN yazar; o girdiyi taşıyan olaylar
+"bilinmeyen site" sayılır. Panel ise geçmeyen bir listeyi **bütünüyle**
+okumaz — hoş geldin sihirbazı ve sahiplik devri o listeyi boş görür —, o
+yüzden listeyi düzeltip yeniden kaydedin.
+
 İki şey bilerek hata sayılmaz: süresi dolan istek (kendi sayacı var,
 satırı WARN) ve **istemcinin vazgeçtiği** istek — panelin beş saniyelik
 sınırı ya da bağlantıyı kapatan bir program. Onu servis yapmadı; disk

@@ -162,6 +162,9 @@ func (s *Store) CreateMemberInvite(ctx context.Context, siteID string, email str
 	if email == "" {
 		return "", MemberInvite{}, errors.New("panel: an invitation needs an email address")
 	}
+	if !UsableEmail(email) {
+		return "", MemberInvite{}, ErrEmailUnusable
+	}
 	if ttl <= 0 {
 		ttl = DefaultMemberInviteTTL
 	}

@@ -262,36 +262,3 @@ func TestBuildRow_APathIsCutAfterItsSlashIsAdded(t *testing.T) {
 		}
 	}
 }
-
-// truncateBytes cuts on a rune boundary at or below the bound, and keeps
-// everything that fits.
-//
-// The cases are the boundary itself: a value exactly at the bound, one
-// byte over it where the last rune would be split, and a rune that ends
-// exactly at the bound. A cut a byte early passes "at most" and fails
-// "everything that fits", which is why both are asked.
-func TestTruncateBytes_CutsOnARuneBoundary(t *testing.T) {
-	for _, c := range []struct {
-		in   string
-		max  int
-		want string
-	}{
-		{"abcd", 4, "abcd"},
-		{"abcd", 3, "abc"},
-		{"abğ", 4, "abğ"}, // 2 + 2 bytes: ends exactly at the bound
-		{"abğ", 3, "ab"},  // the ğ would be split
-		{"a𠀀", 4, "a"},    // a four-byte rune, three bytes left
-		{"a𠀀", 5, "a𠀀"},   // and exactly enough
-		{"𠀀𠀀", 7, "𠀀"},    // the second would need eight
-		{"", 0, ""},
-		{"ğ", 1, ""},
-	} {
-		got := truncateBytes(c.in, c.max)
-		if got != c.want {
-			t.Errorf("truncateBytes(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
-		}
-		if !utf8.ValidString(got) {
-			t.Errorf("truncateBytes(%q, %d) = %q, which is not valid UTF-8", c.in, c.max, got)
-		}
-	}
-}

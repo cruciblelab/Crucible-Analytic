@@ -26,7 +26,6 @@ import (
 
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
@@ -328,21 +327,6 @@ func truncateRunes(s string, maxRunes int) string {
 		}
 	}
 	return s
-}
-
-// truncateBytes cuts s to at most maxBytes bytes, never mid-rune, for a
-// value whose limit is counted in bytes - an index key's, see
-// maxCampaignValueBytes. s must already be valid UTF-8, which every
-// caller's sanitizeText has made it.
-func truncateBytes(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	cut := maxBytes
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
 }
 
 // storedIP and storedIPHash render the row's two mutually exclusive

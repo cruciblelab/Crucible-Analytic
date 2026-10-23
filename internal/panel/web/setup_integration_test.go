@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -93,6 +94,49 @@ func clearSiteSettings(t *testing.T, store *panel.Store, sites ...string) {
 // testReasonPrefix marks every dev-access row these tests create, so
 // the cleanup can find them and nothing else.
 const testReasonPrefix = "web-testi:"
+
+// noAccountYet fails the test, naming them, when the shared database
+// holds an account.
+//
+// The suites that call it need the window before a deployment's first
+// account: the first-run page, and a developer link the product approves
+// by itself. They used to skip outside that window, on the reading that a
+// run which died before its cleanup leaves a dirty database and skipping
+// is the honest answer. It is the silent one. CI and the gate run the
+// tests without -v, so a skip prints nothing, and every assertion after
+// it stops being made: during H8's mutation round one account a mutant
+// left behind turned four suites - the owner hand-over among them - into
+// skips, and a mutation the hand-over suite catches reported as survived.
+// Five suites called it then, the browser wizard the fifth.
+//
+// AccountsLock is what makes failing the right answer. Every suite that
+// writes panel_users holds it while its accounts exist, and
+// setupTestServer has taken it before this runs - so an account seen here
+// is one some suite did not remove, and its address says which.
+func noAccountYet(t *testing.T, store *panel.Store) {
+	t.Helper()
+	rows, err := store.Pool().Query(context.Background(),
+		`SELECT email FROM panel_users ORDER BY id LIMIT 6`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, fmt.Sprintf("%.60q", email))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(left) > 0 {
+		t.Fatalf("the shared database holds account(s) a suite did not remove: %s. "+
+			"This suite needs the window before a deployment's first account; remove "+
+			"them, and find the suite that left them", strings.Join(left, ", "))
+	}
+}
 
 func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 	t.Helper()
@@ -254,23 +298,19 @@ func TestSetupFlow(t *testing.T) {
 	// leaves a gap the panel package's suite can write an account into,
 	// and this failed exactly that way roughly one run in three.
 	//
-	// Still conditional, for the case the lock cannot help with: a
-	// previous run that died before its cleanup, leaving real accounts
-	// behind. That is a dirty database rather than a race, and skipping
-	// is the honest response.
-	if n, err := store.CountUsers(ctx); err == nil && n == 0 {
-		status, body := get(t, client, server.URL+"/")
-		if status != http.StatusOK {
-			t.Errorf("the front page answered %d", status)
-		}
-		if !strings.Contains(body, "henüz hiç hesap yok") {
-			t.Errorf("a deployment with no accounts did not say so on its front page:\n%s", body)
-		}
-		if !strings.Contains(body, "-dev-link") {
-			t.Error("the front page does not name the command that produces a link")
-		}
-	} else {
-		t.Logf("this database already has accounts; skipping the first-run front page check")
+	// And the count is zero, or the test says whose accounts are in the
+	// way: this used to skip the check on a dirty database, and the
+	// developer link below with it (see noAccountYet).
+	noAccountYet(t, store)
+	status, body = get(t, client, server.URL+"/")
+	if status != http.StatusOK {
+		t.Errorf("the front page answered %d", status)
+	}
+	if !strings.Contains(body, "henüz hiç hesap yok") {
+		t.Errorf("a deployment with no accounts did not say so on its front page:\n%s", body)
+	}
+	if !strings.Contains(body, "-dev-link") {
+		t.Error("the front page does not name the command that produces a link")
 	}
 
 	// ---- a link minted on the server, exactly as -dev-link does ----
@@ -278,21 +318,8 @@ func TestSetupFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RequestDevAccess: %v", err)
 	}
-	users, err := store.CountUsers(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if users == 0 && !req.AutoApproved {
+	if !req.AutoApproved {
 		t.Fatal("a deployment with no accounts did not auto-approve the link")
-	}
-	if users > 0 {
-		// Another test left accounts behind, so this link is inert
-		// until approved - which is the rule, not a problem. Approve it
-		// the way an owner would.
-		t.Logf("this database already has %d account(s); approving the link as an owner would", users)
-		if err := store.ApproveDevAccess(ctx, req.ID, panel.User{ID: 0, Email: "test"}); err != nil {
-			t.Skipf("cannot approve without a real owner account: %v", err)
-		}
 	}
 
 	// ---- redeeming it opens the wizard ----
@@ -516,12 +543,13 @@ func TestRetentionNeedsTheDeveloperPassword(t *testing.T) {
 	defer server.Close()
 	client := newClient(t, server.URL)
 
+	noAccountYet(t, store)
 	token, req, err := store.RequestDevAccess(ctx, testReasonPrefix+"saklama", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !req.AutoApproved {
-		t.Skip("this database already has accounts, so the link needs an owner's approval")
+		t.Fatal("a deployment with no accounts did not auto-approve the link")
 	}
 	resp, err := client.Get(server.URL + DevAccessPathPrefix + token)
 	if err != nil {

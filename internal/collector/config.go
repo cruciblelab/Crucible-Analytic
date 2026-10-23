@@ -13,7 +13,6 @@ package collector
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +24,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 // Mode selects which proxy implementation main.go wires up.
@@ -394,12 +394,6 @@ func (r RetentionConfig) Interval() time.Duration {
 	return time.Hour
 }
 
-// siteIDPattern restricts SiteID to characters that are safe unescaped in
-// a URL path segment and in a filename, so the same identifier can be used
-// verbatim in the read API's routes without any encoding step that could
-// disagree between the collector writing rows and the API reading them.
-var siteIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
-
 // NetworkConfig covers where the collector listens and what it proxies to.
 // BackendAddr is a plain host:port in both modes: passthrough dials it
 // directly over TCP, full mode treats it as a plaintext HTTP backend (the
@@ -638,7 +632,7 @@ func (c *Config) validate() error {
 	if c.SiteID == "" {
 		return fmt.Errorf("config: site_id is required (identifies which site this collector's rows belong to)")
 	}
-	if !siteIDPattern.MatchString(c.SiteID) {
+	if !siteid.Valid(c.SiteID) {
 		return fmt.Errorf("config: invalid site_id %q (want 1-64 characters, letters/digits/underscore/dash only)", c.SiteID)
 	}
 

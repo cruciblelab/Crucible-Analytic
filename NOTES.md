@@ -24144,3 +24144,182 @@ bir e-postayla (gerçek bir hesabın olamayacağı) deneme kaydedilemiyor;
 `panel_logs.site_id`/`operation_id` günlük değerinin 2048 rune sınırını
 taşıyor — istekten gelen bir site değeri o satırı tablo kopyasından
 düşürebilir (dosya kopyası yerinde). İkisi de PLAN §H8'de, sıradaki iş.
+*(Bu paragrafın iki cümlesi — "`site_id` her yerde ≤64 ASCII" ve
+"hafif" — H8'de eksik çıktı; bir sonraki bölüm.)*
+
+## İndeks girdisi sınırı, panel tarafı — H8 (2026-10-01)
+
+*H7'nin sınıf sorusu: anahtarında metin taşıyan bir indekse dışarıdan
+gelen bir değer hangi yoldan yazılıyor? H7'nin sonunda iki üye saymış ve
+ikisine "hafif" demiştim. Koda ve gerçek işleyiciye sorulunca iki cümle
+de eksik çıktı.*
+
+### Açarken yazdığım iki cümle
+
+**"`site_id` her yerde ≤64 ASCII"** yalnız yapılandırma dosyaları için
+doğruydu:
+
+- Panelin canlı `beacon.sites` listesi (geliştirici ayarı) hiçbir
+  denetimden geçmiyordu ve beacon onu olduğu gibi uyguluyordu. Yani
+  `beacon_events.site_id`'nin tek sınırı o ayarı yazan kişiydi.
+- Panelin site sayfaları yoldaki kimliği — işletmeci için üyelik
+  sorulmadan — bir ayarın, denetim kaydının, davetin `site_id`'si
+  yapıyordu.
+- Collector ile beacon aynı deseni iki kopya taşıyordu; ikisini
+  karşılaştıran yoktu.
+
+**"Giriş denemesi hafif"** ölçülmeden yazılmıştı. Gerçek işleyiciyle,
+hesabı olmayan üç adresle ve yanlış parolayla; H8'in testi, düzeltmeden
+önceki kodla derlenerek (`-overlay`):
+
+| yazılan adres | cevap | deneme satırı | denetim kaydı |
+|---|---|---|---|
+| 700 farklı dört baytlık karakter (2,8 KB) | 401 | **yazılmadı** | yazıldı |
+| NUL içeren | **500** + ERROR | yok | yok |
+| geçersiz UTF-8 (`\xff`) | 401 | yazıldı | **kayboldu** |
+
+Yazılmayan deneme, adresin deneme sınırının hiç saymadığı denemedir. NUL'lu
+istek, herkesin yapabileceği bir 500 ve her seferinde bir ERROR satırı:
+operatörün okuduğu günlüğü doldurmanın yolu. Geçersiz UTF-8'in denemesi
+ise bir yan etki sayesinde kaydediliyordu — `NormalizeEmail` küçük harfe
+çeviriyor, `strings.ToLower` geçersiz baytı U+FFFD yapıyor — ama denetim
+kaydının etiketi yazılanın kendisiydi ve PostgreSQL onu reddetti. Hiçbiri
+bir hesaba ulaşmıyordu: böyle bir adresle hesap olamaz.
+
+**Davet ve devir bu adresi basıyordu.** Aynı yolla, mağaza düzeyinde:
+
+| adres | bağlantı | bağlantı açılınca |
+|---|---|---|
+| 700 farklı dört baytlık karakter | basıldı | hesap kurulamadı: `index row size 2832 exceeds btree version 4 maximum 2704 for index "panel_users_email_key"` |
+| aynı karakterin 700 tekrarı | basıldı | hesap kuruldu (sıkıştırma sınırı saklıyor) |
+| NUL içeren | hata (`invalid byte sequence ... 0x00`) | — |
+| geçersiz UTF-8 | basıldı | hesap U+FFFD'li adresle kuruldu |
+
+Davet ve devir tablolarında e-posta indekssiz; ret ancak uzak uçta, hesabı
+kuran INSERT'te geliyordu — devirde, geliştirici gittikten sonra. Devir
+adımı "bu adresin zaten hesabı var" kontrolünü tam bu sebeple yapıyordu;
+aynı sebep bu adresi de kapsıyormuş. (NUL'un sayfadaki karşılığı koddan:
+ERROR satırı ve "kaydedilemedi".)
+
+### Düzeltme
+
+- **Bir hesabın olabileceği adres, tek tanım:** `panel.UsableEmail` —
+  normalize edilmiş adres boş değil ve giriş anahtarı onu değiştirmiyor.
+  Giriş anahtarı `loginKey`: normalize et, kaydedilebilir yap
+  (`textsafe.Storable`), 254 bayta kes (`textsafe.FitBytes`, rune
+  ortasından değil). 254, RFC 5321'in bir adrese bıraktığı yer. Kısıt,
+  deneme kaydı ve kısıtı kaldırma aynı anahtarı kullanıyor; ikisinin
+  ayrışmaması bir hesabın başarısız denemelerinin iki anahtar altında
+  yaşaması olurdu (üye sayfası kilidi hiç görmez, "kısıtı kaldır" hiçbir
+  şey silmez).
+- **Üç kurucu** (`CreateUser`, davet, devir) yazmadan önce
+  `ErrEmailUnusable` ile reddediyor; üye sayfası ve devir adımı bunu
+  adıyla söylüyor ("Bu bir e-posta adresi olamaz: ..."). `UserByEmail`
+  böyle bir adrese sıradan bir "bulunamadı" veriyor: NUL artık 500 değil,
+  yanlış giriş.
+- **Denetim kaydının dört serbest metni** (`ActorLabel`, `SiteID`,
+  `Target`, `UserAgent`) `textsafe.Storable`'dan geçiyor.
+- **`panel_logs`:** site ve işlem değeri tabloda 256 bayta kesiliyor
+  (`logsink`); satır kaybolmuyor, dosya kopyası zaten tamdı.
+- **Site kimliğinin iki sorusu tek pakette** (`internal/siteid`): `Valid`
+  (desen, 64 ASCII — yapılandırma dosyaları; collector ve beacon artık
+  aynı fonksiyonu soruyor) ve `Keyable` (256 bayt, kaydedilebilir —
+  panelin canlı listesi, beacon'ın uyguladığı liste, her site sayfası).
+  Site sayfası, bir sitenin olamayacağı kimliğe — işletmeciye de — 404.
+- Beacon canlı listeden anahtar olamayacak girdiyi bırakıyor ve liste
+  değiştikçe bir kez WARN yazıyor (`ignored_sites`); ayar böyle bir
+  girdiyi kaydetmiyor (`checkSiteList`).
+
+**Canlı listede desen değil `Keyable`, çünkü desen bir yükseltmeyi
+bozardı.** Desen nokta kabul etmiyor; panel bugüne kadar listeye her şeyi
+kaydediyordu, ve `site.tr` gibi bir girdi akla yatkın. Desenle o girdi
+yükseltme anında beacon'dan düşerdi — o sitenin toplaması dururdu — ve
+panel, ayarı okurken bugünkü denetimden yeniden geçirdiği için listenin
+**tamamını** kayıt defterinin varsayılanı (boş liste) okurdu. `Keyable`
+yalnız indeksin taşıyamayacağını ve kaydedilemeyeni reddediyor; aynı
+gerekçeyle site sayfaları da `Keyable` soruyor (üyeleri olan noktalı bir
+site sayfalarını kaybetmesin).
+
+### Testler
+
+- **Defter:** `internal/testdb/indexedtext_integration_test.go`. Bir
+  B-tree anahtarındaki her metin sütunu katalogdan okunuyor ve her biri
+  onu baytla neyin sınırladığını söyleyen bir girdi istiyor; iki yönlü
+  (listede olmayan indeksli sütun da, artık indekslenmeyen listedeki
+  sütun da düşüyor). 29 sütun, ikisi yalnız eklentili kurulumlarda
+  (`visitor_sketch*`). Gerekçeler düzyazı ve hiçbir şey ölçmüyor; ölçüm,
+  değeri başkasından gelen her sütunun girdisinde adı geçen testte.
+- Giriş: üç adres, her biri 401 + bir deneme + bir denetim kaydı
+  (yukarıdaki ilk tablo bu testin önceki kodla çıktısı).
+- Kurucular: iki adres (bir bayt fazla, NUL) × üç kurucu, her retten sonra
+  üç tabloda satır sayımı; iki uçta temizlik (aşağıda, 3).
+- Üye sayfası ve devir adımı adresi adıyla reddediyor; devirde bağlantı
+  basılmıyor.
+- Site sayfaları: 257 ve 3.000 karakter ve bir kontrol karakteri 404 —
+  işletmeciye; `h8-bilinmeyen`, `bir site`, `site.tr` 404 değil, yani
+  404'ler sınırın, "bilinmeyen site"nin değil.
+- Eski bir panelin kaydedebileceği 3.000 karakterlik girdili liste:
+  panelin satır yazdığı hiçbir site onun altında değil.
+- `panel_logs`: 700 dört baytlık karakterlik site ve işlem değeriyle satır
+  yazılıyor.
+
+### Yolda üç şey
+
+**1. H7'nin "en büyük satırı" bayatlamıştı, H8'in kendisi yüzünden.**
+Test "bir sitenin olabileceği en uzun kimlik" diye 64 ASCII karakter
+kullanıyordu; H8'den beri beacon canlı listeden 256 baytlık, dört baytlık
+karakterli de olabilen bir kimlik kabul ediyor. En büyük satır artık 64
+farklı dört baytlık karakterlik (256 bayt) siteyle kuruluyor ve site,
+ölçülen sütunlardan biri. Mutasyonla: `MaxKeyBytes` 2048 → test kırmızı
+(COPY, indeks satırı boyutu); eski test bütünüyle geri konunca aynı
+mutasyon **sağ kalıyor** (sınırı indekse bağlayan şey yeni hâl); yalnız
+site 64 ASCII'ye dönerse, ölçülen sütunun tabanının altında kaldığı için
+yine kırmızı.
+
+**2. Düzeltme iki testin hata enjeksiyonunu söktü.**
+`TestAnIssueThatCannotBeRecordedDoesNotHappen` ve
+`TestALiftThatCannotBeRecordedDoesNotHappen` denetim kaydını etikete NUL
+koyarak reddettiriyordu. `recordIn` etiketi temizleyince kayıt yazıldı,
+işlem gerçekleşti ve iki test kırmızıya döndü (eski test dosyaları yeni
+kodla derlenerek ölçüldü — sessiz değil, ama bir test yorumu "sessizce boş
+iddia ederdi" diyordu; düzeltildi). Yerine ürünün temizleyemeyeceği iki
+ret: var olmayan bir hesaba işaret eden aktör kimliği (yabancı anahtar),
+ve yalnız bu testin kaydını reddeden, testin kendi kurup kaldırdığı bir
+tetikleyici. İkisi de mutasyonla yük taşıyor.
+
+**3. Dört süit sessizce atlanıyordu — mutasyon turum açtı.** İlk turda
+"devir adımı adresi adıyla söylemiyor" mutasyonu sağ kaldı. Sebep: bir
+önceki mutasyon (kurucunun koruması yok) paylaşılan veritabanında 255
+baytlık bir hesap bıraktı — kurucu testinin temizliği yoktu, reddedilen
+adres için satır beklemiyordu — ve "veritabanında hesap var, geliştirici
+bağlantısı onay ister" diyen dört süit `t.Skip` etti: devir zinciri,
+kurulum akışı, saklamanın geliştirici parolası, davet bağlantısının posta
+sonuçları (beşincisi tarayıcı sihirbazı). CI ve kapı `-v`'siz koşuyor;
+atlama hiçbir şey basmıyor. Hesap silinince dördü de koşup geçti.
+
+Artık atlamıyorlar: `noAccountYet` sızan hesabı adresiyle söyleyip
+düşüyor. Elle bir hesap dikilerek ölçüldü: dördü de adresle kırmızı.
+`AccountsLock` bunu doğru cevap yapıyor — `panel_users`'a yazan her süit
+hesapları dururken kilidi tutuyor, yani burada görülen hesap birinin
+silmediği hesap. Kurucu testi artık iki uçta temizliyor, mutasyon betiği
+her mutasyondan sonra kalan hesabı soruyor. Ve bir ders daha: ilk turda E1'i
+(kurtarma enjeksiyonu yok) yakalayan da enjeksiyonun kendi testi değil,
+önceki mutasyonun bıraktığı devir satırlarıydı; ikinci turda kendi testi
+yakaladı.
+
+Mutasyon: 28 (`scratchpad/mutasyon-h8.py`), 27 kırmızı, biri tasarım
+gereği sağ (eski en büyük satır testinin sınırı bağlamadığını gösteren).
+Her kırmızının hangi testten geldiğine bakıldı.
+
+### Bilerek bırakılan
+
+- H8'den önce, bir hesabın olamayacağı bir adresle (254 bayttan uzun ya da
+  kontrol karakterli) kurulmuş bir hesap varsa artık giriş yapamaz:
+  `UserByEmail` onu aramıyor. Böyle bir adres ancak daveti ya da devri
+  elle kurulmuş bir istekle yazan biri tarafından verilebilirdi ve posta
+  ona hiç ulaşamazdı. Çaresi gerçek adresle yeniden davet.
+- H8'den önce kaydedilmiş geçersiz bir listede panel ile beacon ayrışıyor:
+  panel listenin tamamını boş okuyor (hoş geldin sihirbazı site sormaz,
+  devirde sahip o sitelerin üyesi yapılmaz), beacon yalnız o girdiyi
+  bırakıyor. Ayar bugün böyle bir listeyi kaydetmiyor; liste düzeltilip
+  kaydedilince ikisi buluşur. İzi beacon'ın `ignored_sites` WARN'ı.

@@ -15,6 +15,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 // Settings are the operational values a deployment can change while it
@@ -689,6 +690,7 @@ var registry = map[Key]Definition{
 		Help:      "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
 		Developer: true,
 		Live:      true,
+		Check:     checkSiteList,
 	},
 	KeyCollectionPausedUntil: {
 		Key: KeyCollectionPausedUntil, Scope: ScopeSite, Kind: KindUntil,
@@ -1683,6 +1685,33 @@ func checkCountryCodes(value any) error {
 			if r < 'A' || r > 'Z' {
 				return fmt.Errorf("%q is not a two-letter country code (TR, DE, CN)", entry)
 			}
+		}
+	}
+	return nil
+}
+
+// checkSiteList refuses an entry that cannot be a site's key.
+//
+// The list is the beacon's allowlist, so each entry is a site_id the
+// beacon writes rows under - into every index it keeps per site, where
+// PostgreSQL refuses an entry over 2704 bytes along with the batch that
+// carried it (PLAN §H7). This setting took any string until H8 (§H8).
+//
+// Keyable, not the configuration files' pattern, because the panel runs
+// this on every read as well as every save: a stored list with one
+// entry the pattern refuses - a dotted domain name, which the beacon has
+// been recording under - would read back as the default, an empty list,
+// and stop recording a site on the day of an upgrade. Length and an
+// unstorable character are what hurt; those are what is refused.
+func checkSiteList(value any) error {
+	entries, ok := value.([]string)
+	if !ok {
+		return errors.New("expected a list of site identifiers")
+	}
+	for _, entry := range entries {
+		if !siteid.Keyable(entry) {
+			return fmt.Errorf("%.40q cannot be a site identifier: longer than %d bytes, "+
+				"or carrying characters that cannot be stored", entry, siteid.MaxKeyBytes)
 		}
 	}
 	return nil
