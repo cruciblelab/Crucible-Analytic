@@ -24,6 +24,20 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Go 1.26.10 ile derleniyor — standart kütüphanedeki on iki açık kapandı
+
+**Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.
+Kaynaktan derliyorsanız Go **1.26.10** gerekiyor (eski bir araç zinciri
+modülü baştan reddeder; `GOTOOLCHAIN=auto` ise kendisi indirir).
+
+Kod değişmeden, Ekim 2026'da Go 1.25.13'ün standart kütüphanesine on iki
+güvenlik ilanı yayımlandı ve `govulncheck` hepsine ürünün kendi kodundan
+ulaşılabildiğini gösterdi: `net/http` (yedi; HTTP/2 sunucusunda bellek
+tüketimi dahil), `crypto/tls`, `crypto/x509`, `html/template` (iki) ve
+`mime/multipart`. Düzeltmeler yalnız Go 1.26 dalında. Bir ilan da
+`golang.org/x/text`'te (v0.41.0'a geçildi). Bu sürümle `govulncheck`
+yine sıfır buluyor. Konteyner imajı da aynı sürümle derleniyor.
+
 ### Panelde bazı e-posta adresleri ve site kimlikleri kaydın kendisini yazılamaz yapıyordu
 
 **Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.

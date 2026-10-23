@@ -180,7 +180,7 @@ yazdığı iki yarı birbirini bulamaz olur, hata vermeden.
 
 | Gereken | Sürüm | Not |
 |---|---|---|
-| Go | **1.25.13+** | `go.mod`'daki sürüm. **Yama sürümü kasıtlı:** 1.25.0 ile derlenen bir ağaçta `govulncheck` standart kütüphanede 34 erişilebilir zafiyet buluyor, 1.25.13 ile sıfır *(ölçüldü 2026-08-26)*. Kod değişmedi; CVE'ler sonradan yayımlandı. Eski bir araç zinciri ileride bir özellikte patlamaz, modülü baştan reddeder. Sunucuda gerekmez — başka yerde derleyip binary'yi kopyalayabilirsiniz. |
+| Go | **1.26.10+** | `go.mod`'daki sürüm. **Yama sürümü kasıtlı:** 1.25.0 ile derlenen bir ağaçta `govulncheck` standart kütüphanede 34 erişilebilir zafiyet buluyor, 1.25.13 ile sıfır *(ölçüldü 2026-08-26)*. Ekim 2026'da 1.25.13'e on iki yeni ilan geldi (`net/http`, `crypto/tls`, `crypto/x509`, `html/template`, `mime/multipart`) ve düzeltmeleri yalnız 1.26 dalında: 1.26.10 ile yine sıfır *(ölçüldü 2026-10-23)*. Kod değişmedi; CVE'ler sonradan yayımlandı. Eski bir araç zinciri ileride bir özellikte patlamaz, modülü baştan reddeder. Sunucuda gerekmez — başka yerde derleyip binary'yi kopyalayabilirsiniz. |
 | PostgreSQL | **16.6 ile test edildi** | Aşağıya bakın. |
 | TimescaleDB | **2.17.2 ile test edildi** | Saklama politikaları ve sıkıştırma bunu ister. |
 | `psql` | — | Şemaları uygulamak için. |
@@ -535,7 +535,7 @@ sorduğunda okunacak satır bu:
 
 ```bash
 $ bin/collector -version
-collector v0.4.1 (go1.25.13 linux/amd64)
+collector v0.4.1 (go1.26.10 linux/amd64)
 ```
 
 Damgasız derlerseniz de bir şey söyler: Go'nun her yapıya gömdüğü commit

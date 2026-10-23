@@ -24323,3 +24323,27 @@ Her kırmızının hangi testten geldiğine bakıldı.
   devirde sahip o sitelerin üyesi yapılmaz), beacon yalnız o girdiyi
   bırakıyor. Ayar bugün böyle bir listeyi kaydetmiyor; liste düzeltilip
   kaydedilince ikisi buluşur. İzi beacon'ın `ignored_sites` WARN'ı.
+
+## Gecelik on beş gün kırmızıydı: govulncheck, değişmeyen kod (2026-10-23)
+
+*Sahip "github run failed" dedi. Gecelik #53'ten (8 Ekim) #68'e (23 Ekim)
+her gün kırmızı; tek kırmızı iş "govulncheck against unchanged code".
+Gecelik `main`'de koşuyor (`385936c`, ileri sarma sahibin kararını
+bekliyor), ama dalın `go.mod`'u aynı sürümü taşıyordu: aynı açıklar
+dalda da vardı ve CI'ın kendi `govulncheck` adımı bir sonraki push'u da
+düşürecekti.*
+
+Yerelde birebir: `go 1.25.13` + `x/text v0.39.0` ile **13** erişilebilir
+açık — on ikisi standart kütüphanede (`net/http` yedi, `crypto/tls`,
+`crypto/x509`, `html/template` iki, `mime/multipart`), biri
+`golang.org/x/text`'te. Standart kütüphanenin düzeltmeleri yalnız
+1.26.9/1.26.10'da; 1.25 dalına yama yok. G1'deki kararın aynısı
+(KURULUM'daki "yama sürümü kasıtlı" satırı): `go.mod` ve Dockerfile'ın
+derleme imajı **1.26.10**, `x/text` v0.41.0 (`x/sync` onunla v0.22.0).
+Sonra `govulncheck` **0** (çağrılmayan modül açıkları ve eskisi gibi
+21, kapı onları saymıyor). İmajın var olduğu Docker Hub'a soruldu
+(`1.26.10-alpine`, 22 Ekim). README "1.25.0+" diyordu — `go.mod` o
+sırada 1.25.13'tü, yani o cümle zaten bayattı.
+
+Dil sürümü 1.25 → 1.26 bir dil değişikliği de: kapı `--all` bu sürümle
+koşuldu (vet, gosec, staticcheck, yarış, entegrasyon).
