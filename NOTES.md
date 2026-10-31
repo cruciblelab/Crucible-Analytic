@@ -24347,3 +24347,38 @@ sırada 1.25.13'tü, yani o cümle zaten bayattı.
 
 Dil sürümü 1.25 → 1.26 bir dil değişikliği de: kapı `--all` bu sürümle
 koşuldu (vet, gosec, staticcheck, yarış, entegrasyon).
+
+## Gecelik, ikinci kırmızı: koşucunun systemd'si başka dosyalardan şikâyet ediyor (2026-10-31)
+
+*Dal yeşildi: CI 443 ve elle tetiklenen gecelik #69 (`df108b9`), dokuz işin
+dokuzu. `main`'in zamanlanmış koşuları (#70–#77, `385936c`) govulncheck'e ek
+olarak 24 Ekim'den beri bir iş daha düşürüyordu: "the package builds twice
+to the same bytes, and installs".*
+
+Düşen test `TestTheUnitsAreValidAccordingToSystemd`. Satırlar (#77):
+
+    crucible-beacon.service: /usr/lib/systemd/system/xfs_scrub_all.service:26:
+      Support for option CPUAccounting= has been removed and it is ignored
+    ... system-xfs_scrub.slice:15, walinuxagent.service:21 — her birim için
+
+GitHub'ın koşucu imajı `CPUAccounting=`'i kaldıran bir systemd'ye geçti, ve
+`systemd-analyze verify` bizim birimimizi doğrularken makinenin yüklediği
+birimlerden de şikâyet ediyor. Üç dosyanın hiçbiri bizim değil, bizim
+dosyalarımızda `CPUAccounting=` yok. Test her satırı birimimizin şikâyeti
+sayıyordu. Kod değişmedi; dal aynı testi taşıdığı için bir sonraki
+geceliği o da düşürecekti.
+
+**Düzeltme:** `unitComplaint` — bir dosyadan şikâyet eden satır onu mutlak
+yolu ve satır numarasıyla adlandırıyor; yolu doğrulanan birimin dizininde
+değilse makinenin işidir. Yolsuz ya da bizim dosyamızı adlandıran satır
+sayılmaya devam ediyor. Testler: #77'nin satırları birebir (ve yanımızdaki
+bir dizin bizim değil), ve **gerçek** `systemd-analyze`'a birimimizin
+bilinmeyen bir anahtar eklenmiş kopyası — süzgeç tam o satırı tutmalı.
+Mutasyon: süzgeci kaldırmak, yollu her satırı atmak (bunu gerçek systemd'li
+test de yakalıyor), dizin yerine önek karşılaştırmak → üçü kırmızı. Eski
+"not found" ayrıksamasını kaldırmak **sağ kaldı**: o satırı bugün ne yerel
+systemd 255 ne koşucu üretiyor; neyi süzdüğü bilinmiyor, uydurma bir
+satırla bağlamadım.
+
+Yerel systemd 255 bu uyarıyı basmıyor; yeni davranış yalnız koşucuda
+ölçülebiliyor — doğrulaması bu commit'ten sonraki dal geceliği.

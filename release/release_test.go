@@ -442,17 +442,107 @@ func TestTheUnitsAreValidAccordingToSystemd(t *testing.T) {
 		// The exit status is not the signal: systemd-analyze also fails
 		// because ExecStart points at /opt, which does not exist on a
 		// machine that has not installed the package. Those lines are
-		// filtered and everything else is a real complaint.
+		// filtered and everything else is a real complaint - except one
+		// about another file on this machine (unitComplaint).
 		for _, line := range strings.Split(string(out), "\n") {
-			switch {
-			case strings.TrimSpace(line) == "",
-				strings.Contains(line, "is not executable"),
-				strings.Contains(line, "not found"),
-				strings.Contains(line, "Failed to prepare"):
-				continue
+			if unitComplaint(line, filepath.Dir(unit)) {
+				t.Errorf("%s: %s", name, strings.TrimSpace(line))
 			}
-			t.Errorf("%s: %s", name, strings.TrimSpace(line))
 		}
+	}
+}
+
+// unitComplaint reports whether a line of `systemd-analyze verify` output
+// is a complaint about the units in ours - the directory being verified.
+//
+// verify loads every unit the one named depends on, and the machine's own
+// units with them, and reports what it dislikes in all of them. A line
+// about a file names it, by absolute path and line number, so a path
+// outside ours is the machine's business. That is not a theoretical case:
+// GitHub's runner image moved to a systemd that removed CPUAccounting=,
+// and from 24 October 2026 every unit here was failed for
+// /usr/lib/systemd/system/xfs_scrub_all.service and walinuxagent.service -
+// files this package does not ship, on a machine it does not install to.
+// A line that names one of our files, or none, is still ours.
+func unitComplaint(line, ours string) bool {
+	line = strings.TrimSpace(line)
+	switch {
+	case line == "",
+		strings.Contains(line, "is not executable"),
+		strings.Contains(line, "not found"),
+		strings.Contains(line, "Failed to prepare"):
+		return false
+	}
+	if strings.HasPrefix(line, "/") {
+		if path, _, ok := strings.Cut(line, ":"); ok && filepath.Dir(path) != filepath.Clean(ours) {
+			return false
+		}
+	}
+	return true
+}
+
+// TestOnlyOurFilesAreOurComplaints holds unitComplaint to the lines that
+// failed nightly 70 to 77 and to the lines it must keep. The first group
+// is copied from that log; a filter written from memory would pass a
+// line shaped the way I remembered it.
+func TestOnlyOurFilesAreOurComplaints(t *testing.T) {
+	const ours = "/home/runner/work/x/release/systemd"
+	for _, c := range []struct {
+		line string
+		want bool
+	}{
+		// The machine's units, nightly 77.
+		{"/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored", false},
+		{"/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored", false},
+		{"/usr/lib/systemd/system/walinuxagent.service:21: Support for option CPUAccounting= has been removed and it is ignored", false},
+		// A directory beside ours is not ours.
+		{"/home/runner/work/x/release/systemd-old/crucible-beacon.service:3: Unknown key name 'X' in section 'Service', ignoring.", false},
+		// Ours, by path: the case the test exists for.
+		{ours + "/crucible-beacon.service:21: Unknown key name 'BogusKey' in section 'Service', ignoring.", true},
+		{ours + "/crucible-upgrader.timer:9: Support for option CPUAccounting= has been removed and it is ignored", true},
+		// Ours, by unit name, with no path.
+		{"crucible-panel.service: Service has no ExecStart=, ExecStop=, or SuccessAction=. Refusing.", true},
+		// The machine has not installed the package.
+		{"crucible-beacon.service: Command /opt/crucible-analytic/bin/beacon is not executable: No such file or directory", false},
+		{"   ", false},
+	} {
+		if got := unitComplaint(c.line, ours); got != c.want {
+			t.Errorf("unitComplaint(%q) = %v, want %v", c.line, got, c.want)
+		}
+	}
+}
+
+// TestAComplaintAboutOurUnitStillFails is the same rule against the real
+// systemd-analyze: one of our units, copied and given a key systemd does
+// not know, must still be reported - so the filter above cannot have
+// learned to drop every line with a path in it.
+func TestAComplaintAboutOurUnitStillFails(t *testing.T) {
+	verifier, err := exec.LookPath("systemd-analyze")
+	if err != nil {
+		t.Skip("systemd-analyze is not on this machine")
+	}
+	dir := t.TempDir()
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "release", "systemd", "crucible-beacon.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken := strings.Replace(string(src), "[Service]\n", "[Service]\nBogusKeyForTheTest=1\n", 1)
+	if broken == string(src) {
+		t.Fatal("the unit has no [Service] line to break")
+	}
+	unit := filepath.Join(dir, "crucible-beacon.service")
+	if err := os.WriteFile(unit, []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := exec.Command(verifier, "verify", unit).CombinedOutput()
+	var kept []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if unitComplaint(line, dir) {
+			kept = append(kept, line)
+		}
+	}
+	if len(kept) != 1 || !strings.Contains(kept[0], "BogusKeyForTheTest") {
+		t.Errorf("verify said:\n%s\nand the filter kept %q; it must keep exactly the line about the unknown key", out, kept)
 	}
 }
 
