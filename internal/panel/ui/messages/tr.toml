@@ -1215,6 +1215,45 @@ beacon_writer = "Beacon"
 analytics_reader = "Okuma API'si"
 panel_user = "Panel"
 
+[metin.saglik.yb]
+baslik = "Servisi yeniden başlat"
+aciklama = "Panel hiçbir servisi kendisi başlatmaz: istek veritabanına yazılır, servis birkaç saniye içinde görür ve temiz biçimde kapanır; onu sistemin gözetmeni (systemd ya da Docker) yeniden başlatır. Aşağıdaki durum, düğmeye basılmış olmasından değil, servisin kendi bildirdiği başlama zamanından okunur."
+okunamadi = "Yeniden başlatma durumu okunamadı."
+alan = "Servis"
+sec = "Servis seçin"
+parola = "Geliştirici parolası"
+parola_ipucu = "Yeniden başlatma her seferinde geliştirici parolası ister."
+dugme = "Yeniden başlat"
+kapi_yok = "Bu kurulumda geliştirici parolası tanımlı değil, bu yüzden servisler panelden yeniden başlatılamaz."
+secilecek_yok = "Şu an panelden yeniden başlatılabilecek bir servis yok."
+# YER TUTUCU (B3e): kesinti süresi henüz ölçülmedi. Ölçülünce sayı bu
+# cümleye yazılacak (en.toml'daki karşılığı da).
+uyari_collector = "Toplayıcı (collector) yeniden başlarken siteniz yaklaşık 2 saniye erişilemez. O anda süren bir indirme varsa bu süre 12 saniyeye kadar uzar ve indirme 10 saniyenin sonunda kesilir. Erişilemeyen sürede gelen ziyaretçiler bağlantı hatası görür."
+uyari_panel = "Panel kendini yeniden başlatırsa bu sayfa birkaç saniye cevap vermez."
+istendi = "%s için yeniden başlatma istendi. Servis birkaç saniye içinde görüp yeniden başlamalı; bu bölüm kendini yeniliyor."
+parola_gerek = "Geliştirici parolası kabul edilmedi. Yeniden başlatma her seferinde bu parolayı ister."
+cok_yakin = "Bu servisin yeniden başlatılması bir dakikadan kısa süre önce istendi. Aynı servis dakikada bir kez istenebilir."
+duymaz_ret = "Bu servisin veritabanı rolü panel ayarlarını okuyamıyor, yani isteği hiç görmez. Bu yüzden panelden yeniden başlatılamaz."
+raporsuz_ret = "Bu servis hiç rapor vermedi, yani isteği alıp almadığı bilinemez. Önce sunucuda çalıştığından emin olun."
+bilinmeyen = "Böyle bir servis yok."
+yetkisiz = "Bu hesabın servisleri yeniden başlatma yetkisi yok."
+hata = "Yeniden başlatma istenemedi. Ayrıntı işlem kaydında."
+
+[metin.saglik.yb.sutun]
+son_istek = "Son istek"
+durum = "Durum"
+
+[metin.saglik.yb.durum]
+yok = "İstenmedi"
+bekliyor = "Bekleniyor: servis birkaç saniye içinde görüp yeniden başlamalı."
+basladi = "İstekten sonra yeniden başladı (%s)."
+uygulanmadi = "Uygulanmadı"
+sessiz_etiket = "Rapor vermiyor"
+sessiz = "Servis rapor vermiyor: son kalp atışı eski. Süreç çalışmıyor ya da veritabanına ulaşamıyor olabilir, yani isteği de okuyamaz. Sunucuda bakın."
+yok_saydi = "Servis rapor veriyor ama isteği uygulamadı. Yeniden başlatma isteğini tanımayan eski bir sürüm çalışıyor olabilir."
+duymaz = "Panelden istenemez: bu servisin veritabanı rolü panel ayarlarını okuyamıyor."
+raporsuz = "Panelden istenemez: servis henüz hiç rapor vermedi."
+
 [metin.saglik.sayac]
 yazilan = "Yazılan"
 dusurulen = "Düşürülen"

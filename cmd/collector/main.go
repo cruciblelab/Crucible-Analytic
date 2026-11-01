@@ -30,6 +30,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/proxy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
 	"github.com/cruciblelab/crucible-analytic/internal/resources"
+	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
@@ -96,8 +97,17 @@ func main() {
 	// operator reads, not only on stderr. See internal/resources.
 	resources.Apply(logger)
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Everything below runs under ctx, which ends two ways: a signal, or
+	// a restart request from the panel (internal/restartreq). Both take
+	// the one path out SIGTERM has always taken - here the proxy's drain,
+	// then the flusher's last write - and the cause says which. sigCtx is
+	// the parent of ctx and nothing else: a consumer watching it directly
+	// would be a path only a signal reaches. internal/invariants holds
+	// that.
+	ctx, exit := context.WithCancelCause(sigCtx)
+	defer exit(nil)
 
 	// Updating the fingerprint set is a one-shot command, not part of
 	// starting the collector. It is here rather than in a separate
@@ -214,6 +224,20 @@ func main() {
 		},
 	})
 	go beat.Run(ctx)
+
+	// Restart requests from the panel (PLAN §4, #38). On the monitoring
+	// pool, because a service whose work pool is exhausted is one a
+	// restart is for; against this reporter's start, which is in the
+	// database's clock; and out through exit, the path SIGTERM takes - the
+	// drain included. The supervisor starts the process again.
+	restart := &restartreq.Watcher{
+		Pool:    monitor,
+		Started: beat.Started,
+		Exit:    func() { exit(restartreq.ErrRequested) },
+		Logger:  logger,
+	}
+	go restart.Run(ctx)
+	stopped := restartreq.LogStopping(ctx, logger)
 
 	// ASN/country lookup is entirely optional and additive - unlike the
 	// TimescaleDB connection above, a failure to set it up here doesn't
@@ -608,6 +632,9 @@ func main() {
 	logger.Info("starting collector", "mode", cfg.Mode)
 
 	serveErr := server.ListenAndServe(ctx)
+	// The line saying why, written when ctx ended, is in the log before
+	// anything below says the shutdown is complete.
+	stopped()
 
 	// Wait for the flusher's own ctx-triggered shutdown flush before
 	// closing the writer/store under it, so the last partial interval's

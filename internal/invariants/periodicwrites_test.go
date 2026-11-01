@@ -60,6 +60,11 @@ var periodicLoops = map[string]string{
 	"internal/heartbeat/heartbeat.go:Run": "liveness, not data: the ctx.Done() branch " +
 		"writes nothing at all, and a beat cut short is replaced by the next one. A " +
 		"missing heartbeat while the service is stopping is the correct signal",
+	"internal/restartreq/restartreq.go:Run": "two reads and no write: a cancel cuts a " +
+		"question short, and the service is stopping anyway - which is what the " +
+		"question was for. The cancelled question is not reported as a failure " +
+		"(step checks ctx.Err first), and the request row is the panel's and " +
+		"stays where it is",
 	"internal/asnlookup/asnlookup.go:Run": "an import inside a transaction. A cancel " +
 		"rolls it back whole, leaving the previous ranges intact, and the source is a " +
 		"URL that can be fetched again",

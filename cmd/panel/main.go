@@ -39,6 +39,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/web"
 	"github.com/cruciblelab/crucible-analytic/internal/resources"
+	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
 
@@ -175,8 +176,16 @@ func main() {
 			cfg.Language, strings.Join(languageCodes(catalogs), ", ")))
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Everything below runs under ctx, which ends two ways: a signal, or
+	// a restart request from the panel (internal/restartreq). Both take
+	// the one path out SIGTERM has always taken, and the cause says which.
+	// sigCtx is the parent of ctx and nothing else: a consumer watching
+	// it directly would be a path only a signal reaches.
+	// internal/invariants holds that.
+	ctx, exit := context.WithCancelCause(sigCtx)
+	defer exit(nil)
 
 	// Connect now rather than on the first page that needs a row. A
 	// panel that starts against an unreachable database looks healthy
@@ -321,8 +330,26 @@ func main() {
 	})
 	go beat.Run(ctx)
 
-	if err := srv.ListenAndServe(ctx); err != nil {
-		fatal(logger, "panel server error", err)
+	// Restart requests (PLAN §4, #38) - this process's own included: the
+	// panel writes the request, and the panel reads it back like any
+	// other service. On the monitoring pool, against this reporter's
+	// start, and out through exit, the path SIGTERM takes. The
+	// supervisor starts the process again.
+	restart := &restartreq.Watcher{
+		Pool:    monitor,
+		Started: beat.Started,
+		Exit:    func() { exit(restartreq.ErrRequested) },
+		Logger:  logger,
+	}
+	go restart.Run(ctx)
+	stopped := restartreq.LogStopping(ctx, logger)
+
+	serveErr := srv.ListenAndServe(ctx)
+	// The line saying why, written when ctx ended, is in the log before
+	// the line saying the shutdown is complete.
+	stopped()
+	if serveErr != nil {
+		fatal(logger, "panel server error", serveErr)
 	}
 	logger.Info("shutdown complete")
 }

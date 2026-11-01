@@ -351,6 +351,29 @@ const ReleaseQueueLock = 0x72656C65617365FF // "release"
 // that guard whole schemas.
 const IPModeSettingLock = 0x69706d6f64650001 // "ipmode" + 1
 
+// RestartRequestLock serialises the suites that write the restart
+// request rows - panel_settings under restartreq.KeyPrefix (B3e).
+//
+// One row per service, global by construction: internal/panel and
+// internal/panel/web write them through the panel, and a service's own
+// watcher suite writes the one its role reads. Each of those needs the
+// row it wrote to be the one read back - "too soon" depends on the
+// previous request's age, "restarted" on the request's time - and a
+// write from another package lands in between as a product defect in
+// whichever suite read second.
+//
+// Scoped to those keys, like IPModeSettingLock to its one row: every
+// other settings key is written by one suite.
+//
+// # Ordering
+//
+// After AccountsLock and IPModeSettingLock, before HeartbeatLock. The
+// panel suites build their server or store first (AccountsLock), and the
+// page tests then write heartbeat rows beside the requests, so the
+// heartbeat lock - taken after every other lock but the schema ones -
+// comes after this one.
+const RestartRequestLock = 0x72657374617274FF // "restart"
+
 // HeartbeatLock serialises the suites that write service_heartbeat, or
 // read it for who has *not* written.
 //

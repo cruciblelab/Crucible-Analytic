@@ -153,6 +153,19 @@ type releaseStore interface {
 		operationID, current, toVersion string) (*relupdate.Request, error)
 }
 
+// restartReader is what drawing the restart section may ask for.
+type restartReader interface {
+	RestartStatus(ctx context.Context, a panel.Access) (panel.RestartStatus, error)
+}
+
+// restartStore adds what pressing the button may ask for.
+type restartStore interface {
+	restartReader
+	operationStore
+	RequestRestart(ctx context.Context, a panel.Access, auth devgate.Authorization,
+		service string) (panel.RestartRequest, error)
+}
+
 // upgradeReader is what drawing the schema section may ask for.
 type upgradeReader interface {
 	UpgradeStatus(ctx context.Context, a panel.Access) (panel.UpgradeStatus, error)
@@ -183,6 +196,25 @@ func (s *Server) ranges() rangeRefreshStore { return s.Store }
 
 // releases narrows the store to the version section's surface.
 func (s *Server) releases() releaseStore { return s.Store }
+
+// restarts narrows the store to the restart section's surface.
+func (s *Server) restarts() restartStore { return s.Store }
+
+// restartStatusReader is what draws the restart section: the store, unless
+// a test has put a reader that fails in its place.
+//
+// A seam and not a database state, because there is no longer a row that
+// makes the status unreadable: a value that is not a time is no request
+// (restartreq.ParseRequest), which is what the service makes of it too,
+// and every other way to fail the read - a lock, a revoked grant - takes
+// the rest of the page down with it, which is the opposite of what the
+// test asks. Production never sets it.
+func (s *Server) restartStatusReader() restartReader {
+	if s.restartReadOverride != nil {
+		return s.restartReadOverride
+	}
+	return s.Store
+}
 
 // upgrades narrows the store to the schema section's surface.
 func (s *Server) upgrades() upgradeStore { return s.Store }

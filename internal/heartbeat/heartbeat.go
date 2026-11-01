@@ -247,8 +247,12 @@ type Beat struct {
 	// Service is the database role the service connects as. It is also
 	// what the row-level policy checks, so this field is the identity
 	// rather than a label for one.
-	Service   string
-	Version   string
+	Service string
+	Version string
+	// StartedAt is when the process started, in the database's clock -
+	// the same clock as BeatAt. See Reporter.Started for how a process
+	// learns it and why it is not the process's own clock. A row written
+	// by a build older than B3e carries the process's clock here instead.
 	StartedAt time.Time
 	BeatAt    time.Time
 	Counters  map[string]int64
@@ -284,7 +288,9 @@ func (b Beat) Stale(now time.Time, interval time.Duration) bool {
 	return b.Age(now) > 3*interval
 }
 
-// Uptime is how long the process has been running.
+// Uptime is how long the process has been running: two timestamps from
+// one clock, the database's, so a service machine whose clock is wrong
+// cannot make it wrong.
 func (b Beat) Uptime() time.Duration { return b.BeatAt.Sub(b.StartedAt) }
 
 // Reporter writes one service's row on a timer.
@@ -323,6 +329,45 @@ type Reporter struct {
 	// line a minute, forever. The first failure is worth a line; the
 	// four hundredth is noise that buries whatever else happened.
 	warned bool
+	// startedDB is this process's start in the database's clock, and
+	// startedKnown whether a write has established it yet. Set once, by
+	// the first write that succeeds, and never moved; see Started.
+	startedDB    time.Time
+	startedKnown bool
+}
+
+// Started is when this process started, in the database's clock, and
+// whether that is known yet: false until a heartbeat write has
+// succeeded.
+//
+// It is what restartreq.Watcher.Started is set to, and the reason it
+// exists. A restart request is the database's now() at the moment the
+// panel wrote it, and the one rule that decides both "this process must
+// exit" (the watcher) and "the service has restarted" (the health page)
+// compares the request against this value. So it must be in the same
+// clock as the request, and the watcher and the page must be reading
+// the same value - which they are: this is what the row's started_at
+// holds, returned by the write that put it there.
+//
+// # How it is measured
+//
+// The first successful write computes it in the database, as now() minus
+// the time this process has been running by its own monotonic clock
+// (Options.Started to Options.Now). An elapsed duration does not care
+// which clock it came from; a timestamp does. A service machine an hour
+// ahead used to write a started_at an hour in the future, which made
+// Uptime negative and would have made every restart request look
+// already honoured.
+//
+// Measured once and then fixed, rather than recomputed on every beat:
+// each recomputation would differ by the latency of its own statement,
+// so the value would jitter by milliseconds from beat to beat, and a
+// comparison against a request made in that window would answer
+// differently depending on which beat it read.
+func (r *Reporter) Started() (time.Time, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.startedDB, r.startedKnown
 }
 
 // Options configures a Reporter. Only Pool, Service and Started are
@@ -353,8 +398,13 @@ type Options struct {
 	// unknown, which is what the read API means and what the panel
 	// reads as "do not offer full mode on my account".
 	IPTokenKey TokenKeyState
-	Started    time.Time
-	Counters   func() map[string]int64
+	// Started is when the process started, by this machine's clock; zero
+	// means the moment New is called. Only the time elapsed since it is
+	// used - see Reporter.Started - so give it a value from time.Now,
+	// which carries the monotonic reading that makes that elapsed time
+	// immune to the wall clock being stepped.
+	Started  time.Time
+	Counters func() map[string]int64
 	// Log is the service's panel log copy - the sink logsink.Attach
 	// returned. The row's last error and its log-loss counter come from
 	// it; every service main passes it, and internal/invariants holds
@@ -639,19 +689,46 @@ func truncate(s string, max int) string {
 func (r *Reporter) write(ctx context.Context, counters []byte, lastError string, errAt *time.Time) error {
 	r.columnsOnce.Do(func() { r.detectColumns(ctx) })
 
+	// A connection of its own before anything is measured. The start is
+	// computed from an elapsed time taken here and the now() of the
+	// statement, and whatever passes between the two lands in started_at
+	// as a start that is later than the real one. pool.QueryRow would put
+	// the wait for a free connection in that gap - up to the five-second
+	// deadline on a busy monitoring pool - where acquiring first leaves
+	// one trip to the server.
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
 	// The fixed half. now() rather than a parameter: the beat time is
 	// the database's opinion, so two services on two machines with two
 	// clock skews still sort against each other correctly on the health
 	// page.
+	//
+	// started_at is the database's opinion too, for the same reason and
+	// one more - see Started. Until a write has succeeded it is computed
+	// from how long this process has been running; after that it is the
+	// value that write returned, so every beat writes the same one.
+	r.mu.Lock()
+	started, known := r.startedDB, r.startedKnown
+	r.mu.Unlock()
+	startedValue := `$3::timestamptz`
+	var startedArg any = started
+	if !known {
+		startedValue = `now() - make_interval(secs => $3::float8)`
+		startedArg = r.now().Sub(r.started).Seconds()
+	}
 	columns := `service, version, started_at, beat_at, counters, last_error, last_error_at`
-	values := `$1, $2, $3, now(), $4, $5, $6`
+	values := `$1, $2, ` + startedValue + `, now(), $4, $5, $6`
 	sets := `version = EXCLUDED.version,
 		    started_at = EXCLUDED.started_at,
 		    beat_at = now(),
 		    counters = EXCLUDED.counters,
 		    last_error = EXCLUDED.last_error,
 		    last_error_at = EXCLUDED.last_error_at`
-	args := []any{r.service, r.version, r.started, counters, lastError, errAt}
+	args := []any{r.service, r.version, startedArg, counters, lastError, errAt}
 
 	// And the optional half, assembled from the columns this database
 	// turned out to have.
@@ -682,12 +759,28 @@ func (r *Reporter) write(ctx context.Context, counters []byte, lastError string,
 		args = append(args, opt.value)
 	}
 
-	_, err := r.pool.Exec(ctx, `
+	// RETURNING rather than a second read: the value kept is the value
+	// this statement stored, so the watcher (Started) and the page (the
+	// row) cannot disagree by a rounding or by a second query's now().
+	// Every role that writes a heartbeat may read the table, and the read
+	// policy is open, so RETURNING asks for nothing the writer lacks.
+	var stored time.Time
+	if err := conn.QueryRow(ctx, `
 		INSERT INTO service_heartbeat (`+columns+`)
 		VALUES (`+values+`)
 		ON CONFLICT (service) DO UPDATE SET
-		    `+sets, args...)
-	return err
+		    `+sets+`
+		RETURNING started_at`, args...).Scan(&stored); err != nil {
+		return err
+	}
+	if !known {
+		r.mu.Lock()
+		if !r.startedKnown {
+			r.startedDB, r.startedKnown = stored, true
+		}
+		r.mu.Unlock()
+	}
+	return nil
 }
 
 // reported pairs each optional column with the value this process would

@@ -26,6 +26,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/argon2id"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
+	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -78,11 +79,14 @@ func settingsStoreAndBeats(t *testing.T) (*Store, *heartbeatFixture) {
 		}
 		defer fresh.Close()
 		// Everything except the "test." namespace, which internal/settings'
-		// live suite owns. Both suites share this table and `go test ./...`
-		// runs them in parallel, so a bare DELETE here would clear rows
-		// that suite is in the middle of reading.
+		// live suite owns, and the restart requests, which are not settings
+		// and which internal/panel/web's restart suite writes under
+		// testdb.RestartRequestLock. Both suites share this table and `go
+		// test ./...` runs them in parallel, so a bare DELETE here would
+		// clear rows they are in the middle of reading.
 		if _, err := fresh.Pool().Exec(context.Background(),
-			`DELETE FROM panel_settings WHERE key NOT LIKE 'test.%'`); err != nil {
+			`DELETE FROM panel_settings WHERE key NOT LIKE 'test.%' AND key NOT LIKE $1`,
+			restartreq.KeyPrefix+"%"); err != nil {
 			t.Logf("cleanup: clearing panel_settings: %v", err)
 		}
 	})

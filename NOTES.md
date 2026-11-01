@@ -24382,3 +24382,143 @@ satırla bağlamadım.
 
 Yerel systemd 255 bu uyarıyı basmıyor; yeni davranış yalnız koşucuda
 ölçülebiliyor — doğrulaması bu commit'ten sonraki dal geceliği.
+
+## Servisi panelden yeniden başlatmak — B3e (2026-11-01)
+
+Katalogun #38'i. Sahip bir servisi yeniden başlatmak için sunucuya
+bağlanmak zorundaydı.
+
+### Mekanizma: zil değil, temiz çıkış
+
+İki tasarım tartıldı (2026-09-30). V'nin zili root'un çalıştırdığı bir
+birimi tetikleyen bir dosya: internete bakan bir sürece root'un koşacağı
+bir yol açar, her systemd kurulumunda ayrı bir adım ister, Docker'da hiç
+yok, ve yöneticinin bilerek durdurduğu bir servisi başlatabilir. Katalog
+mekanizmayı Ağustos'ta zaten yazmıştı: "temiz çık, systemd yeniden
+başlatsın — panel hiçbir şey spawn etmez". Seçilen bu.
+
+- **İstek** bir `panel_settings` satırı: `scope = 'global'`,
+  `site_id = ''`, anahtar `process.restart.<rol>`, değer
+  `to_jsonb(now())`. Anahtar ayar kayıt defterinde yok. Ayar sayfası
+  defteri geziyor, servislerin önbelleği satırı tutup kullanmıyor.
+- **Tek kural** `restartreq.Satisfied(istek, başlangıç)`. İzleyici
+  (çık ⇔ değil) ve sayfa (yeniden başladı ⇔ evet) aynı fonksiyonu
+  çağırıyor; panel değeri de servisin fonksiyonuyla okuyor
+  (`ParseRequest`).
+- **İzleyici** izleme havuzunda (Z4), 5 sn'de bir. Önce rolün tabloyu
+  okuyabildiğini **okumadan** soruyor (`to_regclass` +
+  `has_table_privilege`). Yoksa bir kez INFO yazıyor ve 5 dakikada bir
+  yeniden soruyor. Başlangıç bilinmeden hiçbir şey yapmıyor.
+- **Çıkış** main'in `WithCancelCause(sigCtx)` iptali; SIGTERM'in yolunun
+  aynısı, collector'da boşaltma dahil. Sebep `stopping` satırında.
+- **Bekçi:** iptalden 30 sn sonra süreç hâlâ duruyorsa ERROR ve
+  `os.Exit(1)`.
+
+### Yolda: başlangıç sürecin saatindeydi
+
+`service_heartbeat.started_at` sürecin duvar saatiyle, `beat_at`
+veritabanının `now()`'ıyla yazılıyordu, ve `Uptime` ikisini çıkarıyordu.
+Kuralın iki tarafı da (istek, başlangıç) aynı saatte olmalı. Artık ilk
+başarılı yazmada `now() - make_interval(secs => monotonik geçen süre)`
+hesaplanıyor, `RETURNING` ile alınıyor ve sabit kalıyor
+(`Reporter.Started`). Bağlantı ölçümden **önce** alınıyor; yoksa havuzda
+bağlantı beklemek başlangıcı geç gösterirdi (bir mutasyon bunu ancak test
+düzeneği koşulu gerçekten kurunca yakaladı).
+
+### Taslakta bulunanlar
+
+- Bozuk değer SQL'de zamana çevriliyordu: her 5 sn'de veritabanı
+  günlüğüne bir ERROR. Artık Go'da çözülüyor, değer başına tek WARN.
+- **İleri tarihli istek döngü kurardı:** her yeni süreç yine istekten
+  önce başlar ve yine çıkar. İstek ancak veritabanının saati ona
+  ulaşınca uygulanıyor. Aynı sorguda okunuyor, pay sıfır, çünkü bir pay
+  kendisinden hızlı bir yeniden başlatmayı yine döngüye sokardı.
+- Tek hata bayrağı iki ayrı hatayı birbirine karıştırıyordu.
+- Kapanışın kestiği sorgu sahte bir uyarı yazıyordu.
+- İzin sonradan kalkarsa her 5 sn'de bir ERROR düşüyordu.
+
+### Panel tarafı
+
+Kapı ve iki yasak:
+
+- Kapı sürüm ve yükseltme formlarının kalıbı: ayar yetkisi ve her
+  seferinde geliştirici parolası.
+- Kapalı liste `relupdate.HealthServices`.
+- Rolü tabloyu okuyamayan servis ve hiç rapor vermemiş servis istenemez.
+  Sayfa seçtirmiyor, mağaza da reddediyor.
+
+Aralık ve kayıt:
+
+- Dakikada bir: tek ifadede `ON CONFLICT ... WHERE updated_at <= now()
+  - 60 sn`.
+- Denetim kaydı istekle aynı işlemde yazılıyor.
+
+Ekran görüntüsü iki kusur buldu:
+
+- Seçim kutusu ilk seçenek olan **collector seçili** açılıyordu. Parolayı
+  yazıp basan biri sitenin önündeki servisi yeniden başlatırdı.
+- Bayat kalp atışlı satırın rozeti de "Uygulanmadı" diyordu.
+
+### Ölçüm: gerçek ikililer
+
+Kurulum: `install.sh --no-systemd` ile ayrı bir veritabanı, Python bir
+gözetmen (Restart=always ve RestartSec=2 taklidi), passthrough
+collector'ın arkasında TLS'li bir upstream.
+
+| | |
+|---|---|
+| İstek → çıkış | 0,37–4,94 sn |
+| Çıkış kodu | 9 / 9 sıfır |
+| Yeniden başlama | 2,003–2,011 sn |
+| 70 sn'de ikinci çıkış | 0 |
+| Öteki servislerin PID'i | aynı |
+| analytics-api | çıkmadı, tek INFO, pg günlüğünde 0 satır |
+| Collector ret penceresi | 2.035–2.046 ms; süren bir indirmeyle 12.041 ms (boşaltma 10 sn) |
+
+Bekçi gerçek ikilide tetiklenemedi: kapanışın her yolu 30 sn'den kısa
+sınırlı (boşaltma 10 sn, son yazma 5 sn). Yalnız birim testinde.
+
+### Mutasyonlar
+
+- 10 (kalp atışı) + 26 (izleyici) + 32 (panel) + 3 (birleştirmede):
+  hepsi kırmızı.
+- Bağlama, değişmezler ve gözetmen politikası: 30 mutasyon, 29 kırmızı,
+  1 bilerek yeşil (StartLimitBurst=3, eşiğin öbür yanı).
+- Yeni değişmezler:
+  - `restartwatch_test.go`: kalp atışı yazan her main izleyiciyi aynı
+    raporcunun başlangıcı, izleme havuzu ve türetilen bağlamla kuruyor.
+  - `supervisor_test.go`: Restart=always, unless-stopped,
+    StartLimitBurst ile dakikada bir aralığın ilişkisi, ve uyarı
+    cümlesindeki sayıların sabitlerden gelmesi.
+
+### Birleştirirken iki ders
+
+- **Bir düzeltme bir testin hata enjeksiyonunu yine söktü.** Panelin
+  durum okuması `ParseRequest`'e geçince, sayfanın "okunamadı" testi
+  bozuk değerle hata üretemez oldu. Bu düzeltmenin amacı da buydu.
+  Veritabanından başka temiz bir enjeksiyon yok: kilit ya da yetki
+  sayfanın geri kalanını da düşürür. Test artık dar arayüze okuyamayan
+  bir okuyucu veriyor. Üründe kimse kurmuyor, iki mutasyonla bağlı.
+- **Paralel koşan iki süit aynı tabloyu paylaşıyordu.** `internal/panel`
+  ayar süitinin temizliği `test.` dışındaki her `panel_settings`
+  satırını siliyordu; panel/web'in yeniden başlatma satırları da
+  gidiyordu. Artık o önek dışarıda. Aynı silme `privacy.ip_storage`'ı
+  kilitsiz götürüyor; PLAN §6'da açık borç.
+
+### Bu fazın çalışma biçimi
+
+Faz dört dilime bölündü ve ayrı çalışma ağaçlarında, paralel çalışan dört
+ajanla yazıldı:
+
+- A: kalp atışı
+- B: izleyici
+- C: panel
+- D: bağlama ve ölçüm
+
+Dilimler ortak bir brifing ve tasarım notundan çalıştı. Her farkı
+birleştirmeden önce okudum ve her dilimden en az bir mutasyonu kendim
+yeniden koşturdum. Raporlarda iki değerli şey çıktı: C'nin ekran
+görüntüsündeki seçili collector ve D'nin bulduğu bozulmuş test. Bir
+tuzak da çıktı: ajan ağaçları deponun içinde (`.claude/worktrees/`) ve
+dosya sistemini gezen değişmezler onları da tarıyor. Kapı ancak ağaçlar
+kaldırıldıktan sonra anlamlı.

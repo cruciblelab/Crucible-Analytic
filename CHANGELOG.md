@@ -24,6 +24,27 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Servisler panelden yeniden başlatılabiliyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi. Birimler
+(`Restart=always`) ve `docker/compose.yml` (`restart: unless-stopped`)
+zaten gerekeni söylüyor. Kendi birim ya da compose dosyanızı
+yazdıysanız, servis kendi isteğiyle çıktığında yeniden başlatıldığından
+emin olun.
+
+**Sağlık → Servisi yeniden başlat**: collector, beacon ya da panel,
+geliştirici parolasıyla, dakikada bir. Panel hiçbir şey başlatmıyor:
+istek veritabanına yazılıyor, servis onu görüp temiz biçimde çıkıyor,
+gözetmen yeniden başlatıyor. Sayfadaki durum servisin bildirdiği başlama
+zamanından okunuyor. Collector yeniden başlarken site yaklaşık 2 saniye,
+o anda süren bir indirme varsa 12 saniye erişilemiyor. Okuma API'si
+panelden yeniden başlatılamıyor; ayrıntı KURULUM'da.
+
+Sağlık sayfasındaki çalışma süresi artık doğru: servisin başlangıcı
+sürecin kendi saatiyle yazılıyordu, yani saati kaymış bir makinedeki
+servis eksi ya da şişkin bir süre gösterebiliyordu. Başlangıç artık
+veritabanının saatiyle yazılıyor.
+
 ### Go 1.26.10 ile derleniyor — standart kütüphanedeki on iki açık kapandı
 
 **Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.

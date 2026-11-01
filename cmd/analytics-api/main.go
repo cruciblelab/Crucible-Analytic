@@ -37,6 +37,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/resources"
+	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
@@ -107,8 +108,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Everything below runs under ctx, which ends two ways: a signal, or
+	// a restart request from the panel (internal/restartreq). Both take
+	// the one path out SIGTERM has always taken, and the cause says which.
+	// sigCtx is the parent of ctx and nothing else: a consumer watching
+	// it directly would be a path only a signal reaches.
+	// internal/invariants holds that.
+	ctx, exit := context.WithCancelCause(sigCtx)
+	defer exit(nil)
 
 	store, err := api.NewStore(ctx, cfg.TimescaleDSN)
 	if err != nil {
@@ -195,8 +204,29 @@ func main() {
 
 	go beat.Run(ctx)
 
-	if err := srv.ListenAndServe(ctx); err != nil {
-		logger.Error("api server error", "err", err)
+	// Restart requests from the panel (PLAN §4, #38), wired like the
+	// other three services'. This one's role cannot read panel_settings
+	// today - the grant is a schema change and the owner's decision - so
+	// the watcher says so in one line and then asks only whether it may,
+	// every few minutes, without reading. The day the grant exists, the
+	// panel can restart this service with nothing changed here.
+	restart := &restartreq.Watcher{
+		Pool:    monitor,
+		Started: beat.Started,
+		Exit:    func() { exit(restartreq.ErrRequested) },
+		Logger:  logger,
+	}
+	go restart.Run(ctx)
+	stopped := restartreq.LogStopping(ctx, logger)
+
+	serveErr := srv.ListenAndServe(ctx)
+	// The line saying why, written when ctx ended, is in the log before
+	// the line saying the shutdown is complete. Measured without this:
+	// this service stops in microseconds, and its log had them the other
+	// way round.
+	stopped()
+	if serveErr != nil {
+		logger.Error("api server error", "err", serveErr)
 		os.Exit(1)
 	}
 	logger.Info("shutdown complete")

@@ -87,8 +87,15 @@ func TestTheRowSaysWhatTheServiceKnows(t *testing.T) {
 	if got.Service != "collector" {
 		t.Errorf("service = %q, want the connection's role", got.Service)
 	}
-	if !got.StartedAt.Equal(started) {
-		t.Errorf("started_at = %v, want %v", got.StartedAt, started)
+	// Within a second rather than equal. The row's start is the
+	// database's now() minus how long the reporter has been running
+	// (see Reporter.Started), so it is the given start moved by however
+	// long the statement took to reach the server - on one machine,
+	// where the two clocks agree, that is the whole difference. The
+	// skew test below is what says the database's clock is the one used.
+	if diff := got.StartedAt.Sub(started); diff < -time.Second || diff > time.Second {
+		t.Errorf("started_at = %v, want within a second of %v (off by %v)",
+			got.StartedAt, started, diff)
 	}
 	if got.Counters[CounterWritten] != 4210 || got.Counters[CounterDropped] != 7 {
 		t.Errorf("counters = %v", got.Counters)
@@ -109,6 +116,191 @@ func TestTheRowSaysWhatTheServiceKnows(t *testing.T) {
 	// so a clock that moved between them cannot make it a stored lie.
 	if up := got.Uptime(); up < 89*time.Minute {
 		t.Errorf("uptime = %v, want about 90 minutes", up)
+	}
+}
+
+// TestTheStartIsInTheDatabasesClock.
+//
+// B3e's restart rule compares a request - the database's now() when the
+// panel wrote it - against the service's start. A start taken from the
+// service machine's clock makes that a comparison between two clocks,
+// and the failure is quiet in both directions: a machine ahead makes
+// every request look already honoured, so the service never restarts; a
+// machine behind makes the new process look older than the request, so
+// it restarts again.
+//
+// So the machine's clock here is an hour ahead and the process has been
+// running five minutes by it. The row must say "five minutes before the
+// database's now", which no value derived from the machine's wall clock
+// can produce: that one is fifty-five minutes in the future.
+func TestTheStartIsInTheDatabasesClock(t *testing.T) {
+	pool := testPool(t)
+	admin := testdb.Admin(t)
+	ctx := context.Background()
+
+	// An extra amount the test can move the reporter's clock by, which
+	// the database does not see. Read and written on this goroutine only:
+	// beat is called directly, never from Run.
+	var shift time.Duration
+	now := func() time.Time { return time.Now().Add(time.Hour + shift) }
+	r := New(Options{
+		Pool: pool, Version: "v-skew",
+		Now:     now,
+		Started: now().Add(-5 * time.Minute),
+	})
+	r.beat(ctx)
+
+	var dbNow, first time.Time
+	if err := admin.QueryRow(ctx,
+		`SELECT now(), started_at FROM service_heartbeat WHERE service = $1 AND version = 'v-skew'`,
+		testdb.Collector).Scan(&dbNow, &first); err != nil {
+		t.Fatalf("the row was not written: %v", err)
+	}
+	want := dbNow.Add(-5 * time.Minute)
+	if diff := first.Sub(want); diff < -2*time.Second || diff > 2*time.Second {
+		t.Fatalf("started_at = %v, want about %v - five minutes before the database's now - "+
+			"(off by %v).\nAn hour off means the machine's wall clock was written instead of "+
+			"the database's", first, want, diff)
+	}
+
+	// What the watcher reads is what the page reads: the same instant,
+	// not a second computation of it.
+	got, known := r.Started()
+	if !known {
+		t.Fatal("Started() says unknown after a write that succeeded")
+	}
+	if !got.Equal(first) {
+		t.Errorf("Started() = %v and the row says %v; the watcher and the health page "+
+			"would be comparing a request against two different starts", got, first)
+	}
+
+	// And it is fixed. The reporter's clock moves on by three seconds
+	// more than the database's between the beats - a start recomputed
+	// from it would come out three seconds earlier, and one recomputed
+	// against the second statement's now() would differ by that
+	// statement's latency. Neither is allowed: equal, not close.
+	shift = 3 * time.Second
+	r.beat(ctx)
+	var second time.Time
+	if err := admin.QueryRow(ctx,
+		`SELECT started_at FROM service_heartbeat WHERE service = $1 AND version = 'v-skew'`,
+		testdb.Collector).Scan(&second); err != nil {
+		t.Fatal(err)
+	}
+	if !second.Equal(first) {
+		t.Errorf("the second beat wrote started_at = %v, the first %v (moved by %v); "+
+			"the start must be measured once and then kept", second, first, second.Sub(first))
+	}
+	if got, _ := r.Started(); !got.Equal(first) {
+		t.Errorf("Started() moved to %v after the second beat; the first write's %v must stay",
+			got, first)
+	}
+}
+
+// TestTheWaitForAConnectionIsNotPartOfTheStart.
+//
+// The start is the statement's now() minus an elapsed time the reporter
+// measured, so anything between the measurement and the statement moves
+// the start later than it was. The one wait that can be long is for a
+// free connection - the monitoring pool has two, shared with the log
+// copy - and write acquires before it measures for that reason.
+//
+// Measured on a pool of one connection that this test holds for a second
+// and a half: the start must still be the one given, to well under that.
+// The database and this test share a machine, so their clocks agree and
+// any difference is the reporter's.
+func TestTheWaitForAConnectionIsNotPartOfTheStart(t *testing.T) {
+	testPool(t) // the lock and the cleanup; the reporter gets its own pool
+	ctx := context.Background()
+
+	cfg, err := pgxpool.ParseConfig(testdb.DSN(testdb.Collector))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	one, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(one.Close)
+
+	started := time.Now().Add(-5 * time.Minute)
+	r := New(Options{Pool: one, Version: "v-wait", Started: started})
+	// The two questions a first beat asks before it writes - who am I,
+	// which columns exist - are asked here, while the connection is free.
+	// Both come before anything is measured, so a wait inside them is not
+	// the wait this test is about, and the first version of this test,
+	// which left the identity to the beat, measured nothing: the second
+	// and a half went into SELECT current_user, and a reporter that
+	// measured before acquiring passed.
+	if !r.resolveService(ctx) {
+		t.Fatal("could not resolve the role")
+	}
+	r.columnsOnce.Do(func() { r.detectColumns(ctx) })
+
+	held, err := one.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wait = 1500 * time.Millisecond
+	go func() {
+		time.Sleep(wait)
+		held.Release()
+	}()
+	r.beat(ctx)
+
+	got, known := r.Started()
+	if !known {
+		t.Fatal("the write did not succeed; nothing was measured")
+	}
+	if diff := got.Sub(started); diff < -500*time.Millisecond || diff > 500*time.Millisecond {
+		t.Errorf("started_at = %v, want %v (off by %v); a start %v late is the wait for "+
+			"the connection, counted as time the process had not been running",
+			got, started, diff, wait)
+	}
+}
+
+// TestTheStartIsUnknownUntilAWriteSucceeds.
+//
+// The watcher does nothing while the start is unknown, and that is the
+// whole of its safety: with no start it cannot tell an old request from
+// a new one. So "known" must mean a write succeeded - not that one was
+// attempted, and not that the reporter was built.
+func TestTheStartIsUnknownUntilAWriteSucceeds(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	refused := New(Options{
+		Pool: pool, Version: "v-unknown",
+		// Refused by row-level security on every write, as in
+		// TestAMissingTableDoesNotStopTheService.
+		Service: "beacon_writer",
+	})
+	if _, known := refused.Started(); known {
+		t.Fatal("Started() is known before any write")
+	}
+	refused.beat(ctx)
+	if at, known := refused.Started(); known {
+		t.Fatalf("Started() = %v after a write the database refused", at)
+	}
+
+	accepted := New(Options{Pool: pool, Version: "v-unknown"})
+	if _, known := accepted.Started(); known {
+		t.Fatal("Started() is known before any write")
+	}
+	accepted.beat(ctx)
+	got, known := accepted.Started()
+	if !known {
+		t.Fatal("Started() is still unknown after a write that succeeded")
+	}
+	var row time.Time
+	if err := testdb.Admin(t).QueryRow(ctx,
+		`SELECT started_at FROM service_heartbeat WHERE service = $1 AND version = 'v-unknown'`,
+		testdb.Collector).Scan(&row); err != nil {
+		t.Fatalf("the accepted write left no row: %v", err)
+	}
+	if !got.Equal(row) {
+		t.Errorf("Started() = %v, the row says %v", got, row)
 	}
 }
 
@@ -440,21 +632,40 @@ func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
 			// A fresh reporter each time: the column check is once per
 			// process, so one that had already looked would carry the
 			// answer from before the rename.
-			New(Options{
+			//
+			// The machine's clock is an hour ahead here too, as in
+			// TestTheStartIsInTheDatabasesClock: the statement this
+			// path builds is a different one, and the start it writes
+			// must still be the database's.
+			now := func() time.Time { return time.Now().Add(time.Hour) }
+			r := New(Options{
 				Pool: pool, Version: "v-behind-" + column,
 				Profile: "tam", IPTokenKey: TokenKeyPresent,
-			}).beat(ctx)
+				Now: now, Started: now().Add(-5 * time.Minute),
+			})
+			r.beat(ctx)
 
-			var version string
+			var (
+				version       string
+				started, want time.Time
+			)
 			if err := admin.QueryRow(ctx,
-				`SELECT version FROM service_heartbeat WHERE service = $1`,
-				testdb.Collector).Scan(&version); err != nil {
+				`SELECT version, started_at, now() - interval '5 minutes' FROM service_heartbeat WHERE service = $1`,
+				testdb.Collector).Scan(&version, &started, &want); err != nil {
 				t.Fatalf("no heartbeat row was written against the older schema: %v\n"+
 					"The panel would show this service as down for as long as the upgrade "+
 					"takes, which is when somebody is watching it", err)
 			}
 			if version != "v-behind-"+column {
 				t.Errorf("version = %q, want %q", version, "v-behind-"+column)
+			}
+			if diff := started.Sub(want); diff < -2*time.Second || diff > 2*time.Second {
+				t.Errorf("started_at = %v against the older schema, want about %v (off by %v)",
+					started, want, diff)
+			}
+			if got, known := r.Started(); !known || !got.Equal(started) {
+				t.Errorf("Started() = %v, %v against the older schema; the row says %v",
+					got, known, started)
 			}
 
 			// And the reader survives it too, for the same reason: the

@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; B3d-2 beacon tamponu ✅ ölçüldü ve ertelendi — kanal kapasitesi canlı olamaz, yeniden başlatma isteyen bir panel ayarı #38'siz SSH'ı kaldırmıyor, ve yolda KURULUM'un panelde olmayan ayarları "işaretli" diye anlatan cümlesi düzeldi; kalan B3e–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; B3d-2 beacon tamponu ✅ ölçüldü ve ertelendi — kanal kapasitesi canlı olamaz, yeniden başlatma isteyen bir panel ayarı #38'siz SSH'ı kaldırmıyor, ve yolda KURULUM'un panelde olmayan ayarları "işaretli" diye anlatan cümlesi düzeldi; B3e servis yeniden başlatma ✅ — Sağlık sayfasından, geliştirici parolasıyla, dakikada bir; panel hiçbir şey başlatmıyor, servis isteği görüp temiz çıkıyor ve gözetmen başlatıyor; okuma API'si karar 8'i bekliyor; kalan B3f–B3g ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -581,7 +581,7 @@ bir eksik, unutulmuş bir eksiktir.
 | **IP jeton anahtarı iki serviste aynı mı** — preflight varlığı görür, aynılığı göremez | **F2** (kullanıcı: "kontrolü ekleriz") |
 | Verbose penceresi kullanıcıya yerel saatte gösterilmeli | **D4** (C4'e yazılmıştı; C4 giriş kapısıydı, **müşteriye dönük ayar sayfası hâlâ yok** — tek ayar yüzeyi kurulum sihirbazı) |
 | **Geliştirici şifresi kısıtlaması yalnız süreç içinde** | **E** (tek panel süreci varsayımı; birden çok süreç olursa sayaç paylaşılmalı) |
-| **Geliştirici parolasının hata bütçesini Sağlık sayfasına ulaşan bir sahip de harcayabiliyor.** Şema yükseltmesi, sürüm ve sırlar yedeği formlarında yetki parolanın kendisi, parolayı bilen sahip de kullanabiliyor. Beş yanlış tahmin kapıyı on beş dakika herkese kapatıyor. Ayarlar ve B3h işletmeci olmayanı parola okunmadan reddediyor | **açık** (2026-09-28, B3h'de bulundu; NOTES §B3h). Kişi başına bütçe kaba kuvvet korumasını zayıflatır; çözüm bir tasarım sorusu |
+| **Geliştirici parolasının hata bütçesini Sağlık sayfasına ulaşan bir sahip de harcayabiliyor.** Şema yükseltmesi, sürüm, sırlar yedeği ve (B3e'den beri) servis yeniden başlatma formlarında yetki parolanın kendisi, parolayı bilen sahip de kullanabiliyor. Beş yanlış tahmin kapıyı on beş dakika herkese kapatıyor. Ayarlar ve B3h işletmeci olmayanı parola okunmadan reddediyor | **açık** (2026-09-28, B3h'de bulundu; NOTES §B3h). Kişi başına bütçe kaba kuvvet korumasını zayıflatır; çözüm bir tasarım sorusu |
 | **Kilitli satırın gösterimi şablon işi** — `SettingsView` hazır, kilit metni ve gerekçe dönüyor | **D4** (aynı sebep: gösterecek sayfa henüz yok) |
 | **Panel çok süreçli çalışırsa varlık hash'i ve katalog süreç içinde** | bilinçli — gömülü oldukları için tüm süreçlerde aynı |
 | **Sağdan-sola dil denenmedi** — `dir` ve mantıksal CSS hazır, ama hiçbir RTL paket render edilmedi | **açık** (bir RTL paket yazıldığında düzen gözden geçirilmeli) |
@@ -2350,7 +2350,29 @@ kez yazmak onu bir kez yapmaktır.
   panelde işaretli olduğunu söylüyordu (panelde hiç yoklar), yazıcının
   yorumu 10.000 satırı "birkaç megabayt" sanıyordu (ölçülen ~10 MB).
   **#38 gelince yeniden sorulacak.**
-- **B3e** — #1, #16, #39 istek kanalıyla; #38 zil yetkisiyle.
+- **B3e** ✅ *(2026-11-01)* — #38 panelden servis yeniden başlatma.
+  Mekanizma zil değil, katalogun yazdığı "temiz çık, gözetmen yeniden
+  başlatsın": panel `panel_settings`'e `process.restart.<rol>` satırını
+  veritabanının saatiyle yazıyor; her servis izleme havuzunda 5 sn'de bir
+  bakıyor ve istek kendi başlangıcından yeniyse SIGTERM'in yolundan
+  çıkıyor (`internal/restartreq`). Panel hiçbir şey başlatmıyor; durdurulmuş
+  bir süreç isteği okuyamadığı için yöneticinin `systemctl stop`'u da
+  geri alınamıyor. Gerçek ikililerle ölçüldü: istekten çıkışa en çok
+  5 sn, çıkış kodu 0, gözetmenin yeniden başlatması 2 sn, 70 sn içinde
+  ikinci çıkış yok, öteki servislerin süreçleri aynı; sitenin önündeki
+  collector ~2 sn bağlantı reddediyor, süren bir indirme varsa 12 sn.
+  Yolda: kalp atışının `started_at`'i sürecin saatindeydi (Uptime iki
+  saati karıştırıyordu) → veritabanının saati; bozuk ya da ileri tarihli
+  bir istek satırının servisi döngüye sokması kapandı. **Açık:** okuma
+  API'sinin rolü `panel_settings`'i okuyamıyor (karar 8, şema); bekçi
+  (`ExitWithin`, 30 sn) gerçek ikilide tetiklenemedi, çünkü kapanışın
+  her yolu daha kısa sınırlı — yalnız birim testinde; gecelik systemd
+  süitine "yalnız istenen birimin InvocationID'si değişir" eklenmedi;
+  Docker altındaki kesinti ölçülmedi. #1, #16 ve #39'un "yeniden
+  başlatmanın içinde" olduğu koda soruldu (temiz kapanış boşaltıyor,
+  saklama açılışta koşuyor, dosya açılışta okunuyor), ayrı kanal
+  gerekmedi. **B3d-2'nin sorusu yeniden açık:** artık panel servisi
+  yeniden başlatabildiği için tampon boyu bir panel ayarı olabilir.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
 - **B3g** — #29'un öbür yarısı: site başına son olay ve son bir saatin
   olay sayısı. Pano bugün "hiç ölçüm gelmedi" ile "bu dönemde hareket
@@ -11102,6 +11124,7 @@ olursa madde olur.
 | ASN skorlama ağırlığı düz bonus | `KnownBotJA4`'ün düz bonus şeklini yansıtıyor; ağırlıklı şekil gerekene kadar yapılmayacak |
 | Ülke/ASN kural motoru yalnız engelleme listesi | Kural başına politika motoru gerçek ek karmaşıklık; gerçek ihtiyaç çıkana kadar bekliyor |
 | Yalnız sonda temizleyen fikstürler | Ölçüldü (2026-09-17, CI 384 sonrası): ağaçta satır silen **48** `t.Cleanup` bloğu var ve `testdb.CleanSite` dışında hiçbiri tohumlamadan önce temizlemiyor. Biri gerçekten ısırdı — `internal/retention`'ın kalıntısı ürün kusuru diye raporlandı — ve o bir tanesi iki uçta temizleyecek şekilde düzeltildi. Sınıfı kapatmak 48 yerin ortak bir deyime (bir kez çağrılan + `t.Cleanup`'a verilen tek kapanış) taşınmasını ister, yani kendi fazı. **Ve yapısal bir kontrol tek başına yetmez:** kalıntının bir iddiayı değiştirip değiştirmediği sözdizimi ağacında yazılı değil — satır sayısı iddiası taşıyan bir fikstürde değiştirir, belirli bir satırın içeriğine bakan fikstürde değiştirmez |
+| Kendi yazmadığı ayar satırlarını silen panel ayar testi | Bulundu (2026-11-01, B3e): `internal/panel` ayar süitinin temizliği `test.` dışındaki **her** `panel_settings` satırını siliyor. B3e'nin yeniden başlatma satırları artık dışarıda (paralel koşan panel/web süiti onları kilit altında yazıyor); ama aynı silme `privacy.ip_storage`'ı da `IPModeSettingLock`'u almadan götürüyor. Kırmızı görülmedi, ölçülmedi. Düzeltmesi silmeyi testin kendi yazdığı anahtarlara indirmek |
 
 ---
 

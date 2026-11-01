@@ -75,6 +75,8 @@ const (
 	// made to decide wrongly.
 	eylemYedekDogrula = "yedek_dogrula"
 	eylemYedekYukle   = "yedek_yukle"
+	// eylemYenidenBaslat asks one service to restart (B3e).
+	eylemYenidenBaslat = "yeniden_baslat"
 )
 
 // healthPage is Data for the template.
@@ -169,6 +171,11 @@ type healthPage struct {
 	// it.
 	Backup      backupSection
 	BackupError string
+
+	// The restart button (B3e) and what each service did with the last
+	// request. Its own error field, like every section on this page.
+	Restart      restartSection
+	RestartError string
 }
 
 // healthSchema is what the database says its schema is, next to what
@@ -378,6 +385,9 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		case eylemYedekYukle:
 			section, sectionErr := s.backupRestorePost(r, s.backups(), lang, access)
 			posted.backup, posted.backupErr = &section, sectionErr
+		case eylemYenidenBaslat:
+			section, sectionErr := s.restartPost(r, s.restarts(), lang, access)
+			posted.restart, posted.restartErr = &section, sectionErr
 		default:
 			s.Renderer.ErrorIn(w, r, http.StatusBadRequest, lang)
 			return
@@ -446,6 +456,8 @@ type pressed struct {
 	backup     *backupSection
 	backupErr  string
 	refreshErr string
+	restart    *restartSection
+	restartErr string
 }
 
 func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.Language,
@@ -496,6 +508,11 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 		data.Backup, data.BackupError = *posted.backup, posted.backupErr
 	} else {
 		data.Backup, data.BackupError = s.backupStatusFor(ctx, s.backups(), lang, access)
+	}
+	if posted.restart != nil {
+		data.Restart, data.RestartError = *posted.restart, posted.restartErr
+	} else {
+		data.Restart, data.RestartError = s.restartStatusFor(ctx, s.restartStatusReader(), lang, access)
 	}
 
 	page := s.page(r, lang, panel.Access{Principal: p}, "saglik", lang.T("saglik.baslik"))

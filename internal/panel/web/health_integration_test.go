@@ -247,6 +247,17 @@ func TestThePanelIsOneRowOnTheHealthPage(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("the health page answered %d", status)
 	}
+	// Counted in the services section alone. The restart section (B3e)
+	// below it draws one row per service too, and the question here is
+	// whether the services table holds two panel rows - two writers of
+	// one heartbeat - not how many sections name the panel.
+	heading := "<h2>" + testLang(t).T("saglik.servis.baslik") + "</h2>"
+	start := strings.Index(body, heading)
+	if start < 0 {
+		t.Fatal("the page has no services section")
+	}
+	body = body[start:]
+	body = body[:strings.Index(body, "</section>")]
 	const label = `<th scope="row">Panel</th>`
 	if n := strings.Count(body, label); n != 1 {
 		t.Fatalf("the page draws %d Panel rows, want exactly 1", n)

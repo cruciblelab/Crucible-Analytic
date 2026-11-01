@@ -181,6 +181,16 @@ const (
 	// pressed six times or six people pressed once.
 	ActionRangeRefreshRequested = "rangerefresh.requested"
 
+	// ActionRestartRequested marks somebody asking a service to restart
+	// (B3e). Target is the service's database role.
+	//
+	// Written in the same transaction as the request row, unlike the
+	// queued requests above: there is no request row that outlives the
+	// next press - the next one overwrites it - so the audit entry is the
+	// only record that this one ever happened, and a request without it
+	// must not exist.
+	ActionRestartRequested = "restart.requested"
+
 	// Developer password attempts, on the settings that carry legal
 	// weight. Both outcomes, because a record of failures alone cannot
 	// show that the successful attempt at 03:00 followed an hour of

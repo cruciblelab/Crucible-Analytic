@@ -119,6 +119,10 @@ var timingVerdicts = map[string]string{
 		"the same run, one against the client's own configured RequestTimeout",
 	"internal/panel/rangefetches_integration_test.go": "twenty-nine days, against a " +
 		"row the test inserted with a chosen timestamp - the age of a fixture",
+	"internal/restartreq/restartreq_test.go": "a floor only, and the test's own: the " +
+		"backstop must not fire before the ExitWithin the test set (300ms). A timer " +
+		"never fires early, so a slower machine can only widen the gap; the ceiling " +
+		"is a 5s select, 16x the setting, against a failure that never fires at all",
 	"internal/proxy/sniff_test.go": "self-referential: the floor is the deadline the " +
 		"test passed into sniffClientHello, and the ceiling is ten times it",
 }

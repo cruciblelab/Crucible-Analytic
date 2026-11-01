@@ -54,6 +54,9 @@ type Server struct {
 	// a database it could not reach - cannot be shown at all without
 	// waiting out whatever the budget is. Production never sets it.
 	HealthCheckBudget time.Duration
+	// restartReadOverride replaces the store when drawing the restart
+	// section; see restartStatusReader. Tests only.
+	restartReadOverride restartReader
 	// ConfigPath is the panel's own config file, quoted back in the
 	// command the first-run page tells the installer to run.
 	ConfigPath string

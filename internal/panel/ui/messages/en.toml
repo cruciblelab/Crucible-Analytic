@@ -1171,6 +1171,45 @@ beacon_writer = "Beacon"
 analytics_reader = "Read API"
 panel_user = "Panel"
 
+[metin.saglik.yb]
+baslik = "Restart a service"
+aciklama = "The panel starts nothing itself: the request is written to the database, the service sees it within a few seconds and shuts down cleanly, and the system's supervisor (systemd or Docker) starts it again. The status below is read from the start time the service itself reports, not from the button having been pressed."
+okunamadi = "The restart status could not be read."
+alan = "Service"
+sec = "Choose a service"
+parola = "Developer password"
+parola_ipucu = "A restart asks for the developer password every time."
+dugme = "Restart"
+kapi_yok = "This deployment has no developer password, so services cannot be restarted from the panel."
+secilecek_yok = "No service can be restarted from the panel right now."
+# PLACEHOLDER (B3e): the outage has not been measured yet. Once it is,
+# the number goes into this sentence (and its Turkish twin).
+uyari_collector = "While the collector restarts your site is unreachable for about 2 seconds. If a download is in progress at that moment this grows to up to 12 seconds, and the download is cut off after 10. Visitors arriving in that time get a connection error."
+uyari_panel = "If the panel restarts itself, this page does not answer for a few seconds."
+istendi = "A restart of %s was requested. The service should see it and restart within a few seconds; this section refreshes itself."
+parola_gerek = "The developer password was not accepted. A restart asks for it every time."
+cok_yakin = "A restart of this service was requested less than a minute ago. One service can be asked once a minute."
+duymaz_ret = "This service's database role cannot read the panel's settings, so it would never see the request. It cannot be restarted from the panel."
+raporsuz_ret = "This service has never reported, so there is no way to know whether it received the request. Make sure it is running on the server first."
+bilinmeyen = "There is no such service."
+yetkisiz = "This account may not restart services."
+hata = "The restart could not be requested. The detail is in the operation record."
+
+[metin.saglik.yb.sutun]
+son_istek = "Last request"
+durum = "Status"
+
+[metin.saglik.yb.durum]
+yok = "Not requested"
+bekliyor = "Waiting: the service should see it and restart within a few seconds."
+basladi = "Restarted after the request (%s)."
+uygulanmadi = "Not applied"
+sessiz_etiket = "Not reporting"
+sessiz = "The service is not reporting: its last heartbeat is old. The process may not be running or may not reach the database, so it cannot read the request either. Look on the server."
+yok_saydi = "The service is reporting but did not apply the request. It may be running an older build that does not know about restart requests."
+duymaz = "Cannot be asked from the panel: this service's database role cannot read the panel's settings."
+raporsuz = "Cannot be asked from the panel: the service has never reported."
+
 [metin.saglik.sayac]
 yazilan = "Written"
 dusurulen = "Dropped"

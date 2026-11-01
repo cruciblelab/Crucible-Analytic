@@ -1562,8 +1562,10 @@ sorar ve bu soru tek bir atomik okumadır.
 yalnız yapılandırma dosyasında: dosyayı değiştirip servisi yeniden
 başlatırsınız. Süreç bu değerleri kanallarını ve tablolarını kurarken
 sabitler, yani çalışırken değiştirmenin yolu yok. Panelin onları
-tutması da bir şey kazandırmazdı: panel bir servisi yeniden
-başlatamıyor, yani sunucuya yine bağlanmanız gerekirdi.
+tutması da bugün bir şey kazandırmazdı: değerleri yine dosyada
+değiştirmeniz gerekir. Yeniden başlatmayı ise artık panelden
+isteyebilirsiniz (**Sağlık → Servisi yeniden başlat**, aşağıda); bu
+ayarların panele taşınması ayrı bir iş olarak bekliyor.
 
 Beacon'ın tamponunu büyütmeden önce bedeline bakın. Ölçüldü: veritabanı
 donmuşken beacon tam tampon boyu kadar olayı bellekte tutar ve
@@ -2089,6 +2091,59 @@ istemci, dört gerçek sorgu hatası, ve `panel_logs` 20 saniye kilitliyken
 
 Önceki hâlinde Sağlık sayfası bu servis hakkında hiçbir şey
 söylemiyordu; "son hata" satırı hiçbir kurulumda hiç dolmamıştı.
+
+### Servisi yeniden başlatmak: Sağlık sayfasından
+
+**Sağlık → Servisi yeniden başlat.** Servisi seçin, geliştirici
+parolasını yazın, basın. Parola her seferinde sorulur. Aynı servis
+dakikada en fazla bir kez istenebilir.
+
+**Panel hiçbir şey başlatmaz.** İstek veritabanına, veritabanının
+saatiyle yazılır. Servis kendi bağlantısıyla en geç 5 saniyede bir
+bakar. İstek kendi başlangıcından yeniyse SIGTERM aldığında izlediği
+yoldan temiz biçimde çıkar (çıkış kodu 0) ve günlüğüne `stopping`
+satırını `cause="restart requested from the panel"` ile yazar. Onu
+gözetmen yeniden başlatır: systemd birimlerinde `Restart=always`,
+Docker'da `restart: unless-stopped`. Durdurulmuş bir süreç isteği
+okuyamaz, yani `systemctl stop` ile kapattığınız bir servisi panel
+başlatamaz.
+
+Satırdaki durum düğmeye basılmış olmasından değil, servisin kendi
+bildirdiği başlama zamanından okunur:
+
+| Durum | Ne demek |
+|---|---|
+| İstekten sonra yeniden başladı | Servisin başlangıcı isteğin anında ya da sonrasında. |
+| Bekleniyor | İstek bir dakikadan yeni, servis henüz görmedi. |
+| Uygulanmadı | Servis rapor veriyor ama bir dakika geçti ve yeniden başlamadı. Yeniden başlatmayı tanımayan eski bir sürüm olabilir. |
+| Rapor vermiyor | Son kalp atışı eski: süreç çalışmıyor ya da veritabanına ulaşamıyor, isteği de okuyamaz. Sunucuya bakın. |
+| Panelden istenemez | Servisin veritabanı rolü panel ayarlarını okuyamıyor, ya da servis hiç rapor vermemiş. |
+
+**Ölçüldü (gerçek ikililer, Restart=always ve RestartSec=2 taklit eden bir
+gözetmen):**
+
+- İstekten çıkışa 0,4–4,9 saniye; dokuz isteğin dokuzunda çıkış kodu 0.
+- Yeniden başlama 2,0 saniye sonra.
+- Takip eden 70 saniyede ikinci bir çıkış yok.
+- Öteki servislerin süreçleri değişmedi.
+- **Sitenin önündeki collector yeniden başlarken site yaklaşık 2 saniye
+  bağlantı reddeder.** O anda süren bir indirme varsa collector onu
+  10 saniye bekler, sonra keser; site bu durumda 12 saniye erişilemez.
+- Docker altındaki süre ölçülmedi.
+
+**Okuma API'si panelden yeniden başlatılamaz.** Rolü panel ayarlarını
+okuyamıyor; okuyabilmesi bir şema kararı. Servis bunu açılışta tek bir
+INFO satırıyla söyler, veritabanının günlüğüne hata düşürmez, ve izni
+beş dakikada bir yeniden sorar.
+
+**Sınırlar:**
+
+- Birimlerin başlatma sınırı 60 saniyede 5. İstekler dakikada bir kabul
+  edildiği için düğme bu sınıra yaklaştırmaz.
+- Temiz kapanış 30 saniyede bitmezse servis kendini 1 koduyla sonlandırır
+  ve gözetmen yine başlatır.
+- Güncelleme ve şema formlarıyla aynı kapıdan geçer: yanlış parola
+  tahminleri kurulumun ortak geliştirici parolası bütçesinden düşer.
 
 ---
 

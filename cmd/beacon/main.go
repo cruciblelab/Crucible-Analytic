@@ -41,6 +41,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/resources"
+	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/retention"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
@@ -124,8 +125,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Everything below runs under ctx, which ends two ways: a signal, or
+	// a restart request from the panel (internal/restartreq). Both take
+	// the one path out SIGTERM has always taken - the server's shutdown,
+	// and only then the writer's and the settings' own contexts - and the
+	// cause says which. sigCtx is the parent of ctx and nothing else: a
+	// consumer watching it directly would be a path only a signal
+	// reaches. internal/invariants holds that.
+	ctx, exit := context.WithCancelCause(sigCtx)
+	defer exit(nil)
 
 	writer, err := beacon.NewWriter(ctx, cfg.TimescaleDSN, beacon.WriterConfig{
 		BufferSize:    cfg.Buffer.Size,
@@ -270,6 +280,19 @@ func main() {
 		},
 	})
 	go beat.Run(ctx)
+
+	// Restart requests from the panel (PLAN §4, #38). On the monitoring
+	// pool, against this reporter's start, and out through exit - the
+	// path SIGTERM takes: the server shuts down first, then the writer
+	// drains. The supervisor starts the process again.
+	restart := &restartreq.Watcher{
+		Pool:    monitor,
+		Started: beat.Started,
+		Exit:    func() { exit(restartreq.ErrRequested) },
+		Logger:  logger,
+	}
+	go restart.Run(ctx)
+	stopped := restartreq.LogStopping(ctx, logger)
 
 	// Seeded from the config so the first applySettings call reports the
 	// mode the process is actually starting on, rather than reporting a
@@ -482,6 +505,9 @@ func main() {
 	}()
 
 	serveErr := srv.ListenAndServe(ctx)
+	// The line saying why, written when ctx ended, is in the log before
+	// anything below says the shutdown is complete.
+	stopped()
 	stopSettings()
 	<-retentionDone
 	<-settingsDone

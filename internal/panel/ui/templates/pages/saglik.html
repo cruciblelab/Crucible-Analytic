@@ -107,6 +107,83 @@ them for whoever reads the server. */}}
 {{- end}}
 </section>
 
+{{- /* The restart button (B3e), under the services it acts on. Each row
+says what the service did, judged by the start it reported - never by the
+press - so "restarted" cannot be printed about a process that did not. */}}
+{{- if .Data.RestartError}}
+<section class="bolum">
+<h2>{{t "saglik.yb.baslik"}}</h2>
+<p class="uyari" role="note">{{.Data.RestartError}}</p>
+</section>
+{{- else}}
+<section class="bolum" id="yeniden-baslatma-durumu"
+{{- if .Data.Restart.Pending}}
+  hx-get="{{$.Data.SelfURL}}" hx-select="#yeniden-baslatma-durumu"
+  hx-target="this" hx-swap="outerHTML" hx-trigger="every 5s"
+{{- end}}>
+<h2>{{t "saglik.yb.baslik"}}</h2>
+{{- if .Data.Restart.Notice}}
+<p class="{{if .Data.Restart.Failed}}uyari{{else}}ipucu{{end}}" role="status">{{.Data.Restart.Notice}}</p>
+{{- end}}
+<p class="ipucu">{{t "saglik.yb.aciklama"}}</p>
+<table class="liste">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.sutun.servis"}}</th>
+<th scope="col">{{t "saglik.yb.sutun.son_istek"}}</th>
+<th scope="col">{{t "saglik.yb.sutun.durum"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Data.Restart.Rows}}
+<tr>
+<th scope="row">{{t (printf "saglik.servis.%s" .Name)}}</th>
+<td>{{if .Requested.IsZero}}<span class="ipucu">—</span>{{else}}{{$.F.Since .Requested}}{{end}}</td>
+<td>
+  {{- if eq .State "basladi"}}{{tf "saglik.yb.durum.basladi" ($.F.Since .Started)}}
+  {{- else if eq .State "bekliyor"}}{{t "saglik.yb.durum.bekliyor"}}
+  {{- else if eq .State "sessiz"}}<span class="uyari satir-ici">{{t "saglik.yb.durum.sessiz_etiket"}}</span> {{t "saglik.yb.durum.sessiz"}}
+  {{- else if eq .State "uygulanmadi"}}<span class="uyari satir-ici">{{t "saglik.yb.durum.uygulanmadi"}}</span> {{t "saglik.yb.durum.yok_saydi"}}
+  {{- else if eq .State "duymaz"}}<span class="ipucu">{{t "saglik.yb.durum.duymaz"}}</span>
+  {{- else if eq .State "raporsuz"}}<span class="ipucu">{{t "saglik.yb.durum.raporsuz"}}</span>
+  {{- else}}<span class="ipucu">{{t "saglik.yb.durum.yok"}}</span>{{end}}
+</td>
+</tr>
+{{- end}}
+</tbody>
+</table>
+
+{{- if .Data.Restart.Allowed}}
+{{- if not .Data.Restart.AskingForPassword}}
+<p class="ipucu">{{t "saglik.yb.kapi_yok"}}</p>
+{{- else if not .Data.Restart.Choices}}
+<p class="ipucu">{{t "saglik.yb.secilecek_yok"}}</p>
+{{- else}}
+<p class="uyari" role="note">{{t "saglik.yb.uyari_collector"}}</p>
+<p class="ipucu">{{t "saglik.yb.uyari_panel"}}</p>
+<form method="post" action="" class="dar">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="eylem" value="yeniden_baslat">
+<label for="yb-servis">{{t "saglik.yb.alan"}}</label>
+{{- /* No service is chosen until somebody chooses one. The first in the
+list is the collector, and a select that arrived with it chosen would make
+"typed the password and pressed" take the website down. */}}
+<select id="yb-servis" name="servis" required>
+<option value=""{{if not .Data.Restart.Chosen}} selected{{end}}>{{t "saglik.yb.sec"}}</option>
+{{- range .Data.Restart.Choices}}
+<option value="{{.}}"{{if eq . $.Data.Restart.Chosen}} selected{{end}}>{{t (printf "saglik.servis.%s" .)}}</option>
+{{- end}}
+</select>
+<p class="ipucu">{{t "saglik.yb.parola_ipucu"}}</p>
+<label for="yb-parola">{{t "saglik.yb.parola"}}</label>
+<input type="password" id="yb-parola" name="developer_password" autocomplete="off" required>
+<button type="submit">{{t "saglik.yb.dugme"}}</button>
+</form>
+{{- end}}
+{{- end}}
+</section>
+{{- end}}
+
 <section class="bolum">
 <h2>{{t "saglik.sema.baslik"}}</h2>
 
