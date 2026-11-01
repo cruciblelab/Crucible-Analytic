@@ -629,6 +629,7 @@ kaydedilemedi = "The decision could not be saved."
 
 [metin.pano]
 hicbiri = "No blocks are selected for this site. Cards and breakdowns are turned on in the site's settings."
+son_olay = "Last event: %s."
 duraklatildi = "Recording for this site is paused until %s: visits in that time are not recorded and cannot be brought back later. Settings → Collection → Pause recording resumes it at once."
 duraklatildi_eski = "Note: %s does not know about pausing in this version and goes on recording."
 # Pauses that ended inside the chosen range: visits in those hours were
@@ -1238,6 +1239,7 @@ kontrol_yok = "Setup checks are not wired into this panel."
 gunluk = "From the log lines, the client's own claim (claimed) and unclassified fields are removed; network addresses are cut to /24 and /64, email addresses to their domain; only lines about sites the downloader may see are included."
 site = "No per-site settings: all three are display (site name, visible cards, visible breakdowns)."
 sir = "No secrets: passwords and keys live in configuration files, which the panel does not read."
+beacon_site = "No per-site measurements: the time of each site's last event comes from visits, and this file leaves the machine; the Health page shows it."
 
 [metin.saglik.depolama]
 baslik = "Storage"
@@ -1361,6 +1363,17 @@ ayarsiz = "No read API address is configured. The site pages say the numbers are
 ulasildi = "Reached and answering."
 ulasilamadi = "The read API could not be reached."
 ne_demek = "The numbers on the site pages come from this API and will look empty right now. The panel itself, its members and its settings are unaffected."
+
+[metin.saglik.beacon_site]
+baslik = "What the sites are sending"
+site = "Site"
+son_olay = "Last event"
+hic = "No event yet"
+okunamadi = "Could not be read"
+site_yok = "There is no site you can see."
+liste_yok = "The sites you can see could not be read."
+fazlasi = "%d more sites; the first %d are shown."
+ipucu = "The last event is when the snippet on the site's pages last sent a measurement, including one a bot ran. There are no counts here: the Health page shows no numbers about visitors; those are on the site's dashboard. \"No event yet\" means the snippet is not on the site or the site is not on the beacon's list; a time some while ago means nothing has come since."
 
 [metin.ayarlar.hakkinda]
 baslik = "About"

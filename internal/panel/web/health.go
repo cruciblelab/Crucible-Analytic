@@ -102,6 +102,10 @@ type healthPage struct {
 
 	API healthAPI
 
+	// BeaconSites is when each site the viewer may see last heard from
+	// its snippet (B3g); see beaconactivity.go.
+	BeaconSites beaconActivitySection
+
 	Schema      healthSchema
 	SchemaError string
 
@@ -479,6 +483,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
 	data.Disk = s.healthDiskSection(ctx, s.database(), lang)
 	data.API = s.healthAPI(ctx)
+	data.BeaconSites = s.beaconActivityFor(ctx, lang, p)
 
 	// Read fresh unless the press just built it, because the answer a
 	// pressed section carries is about the press rather than about the

@@ -659,6 +659,10 @@ kaydedilemedi = "Karar kaydedilemedi."
 
 [metin.pano]
 hicbiri = "Bu site için gösterilecek hiçbir blok seçilmemiş. Kartlar ve kırılımlar site ayarlarından açılır."
+# B3g: "bu dönemde hareket yok" diyen beacon kartına eklenir. %s göreli
+# zaman ("3 saat önce", "dün 14:02") ya da tarih; veritabanının saatine
+# göre ölçülür.
+son_olay = "Son olay: %s."
 # Kaydı duraklatma (PLAN §4, #3). İkinci cümle yalnız duraklatmayı
 # tanımayan bir yazar çalışıyorsa eklenir.
 duraklatildi = "Bu sitenin kaydı %s saatine kadar duraklatıldı: bu aralıkta ziyaretler kaydedilmiyor ve sonradan geri getirilemez. Ayarlar → Toplama → Kaydı duraklat'tan hemen sürdürebilirsiniz."
@@ -1284,6 +1288,7 @@ kontrol_yok = "Kurulum kontrolleri bu panelde bağlı değil."
 gunluk = "Günlük satırlarından istemcinin kendi iddiası (claimed) ve sınıflandırılmamış alanlar çıkarıldı; ağ adresleri /24 ve /64'e, e-posta adresleri alan adına kısaltıldı; yalnız dosyayı indirenin görebildiği sitelerin satırları var."
 site = "Site başına ayarlar yok: üçü de görünüm (site adı, görünür kartlar, görünür kırılımlar)."
 sir = "Sırlar yok: parolalar ve anahtarlar yapılandırma dosyalarında, panel onları okumuyor."
+beacon_site = "Sitelerden gelen ölçüm yok: site başına son olayın zamanı ziyaretlerden türüyor ve bu dosya makineden çıkıyor; Sağlık sayfasında görünüyor."
 
 [metin.saglik.depolama]
 baslik = "Depolama"
@@ -1407,6 +1412,20 @@ ayarsiz = "Okuma API'si adresi tanımlı değil. Site sayfaları \"sayılar şu 
 ulasildi = "Ulaşıldı ve cevap alındı."
 ulasilamadi = "Okuma API'sine ulaşılamadı."
 ne_demek = "Site sayfalarındaki sayılar bu API'den gelir; şu anda boş görünecekler. Panelin kendisi, üyeler ve ayarlar etkilenmez."
+
+# B3g: site başına beacon'ın son olayı. Yalnız zaman, sayı yok: Sağlık
+# sayfasında ziyaretçiye dair sayı olmaz. "okunamadi" satırı "hic" gibi
+# görünmemeli.
+[metin.saglik.beacon_site]
+baslik = "Sitelerden gelen ölçüm"
+site = "Site"
+son_olay = "Son olay"
+hic = "Hiç olay gelmedi"
+okunamadi = "Okunamadı"
+site_yok = "Görebildiğiniz bir site yok."
+liste_yok = "Görebildiğiniz siteler okunamadı."
+fazlasi = "%d site daha var; ilk %d site gösteriliyor."
+ipucu = "Son olay, sitenin sayfalarındaki snippet'in en son ne zaman ölçüm gönderdiğidir; bir botun çalıştırdığı snippet de buna dahil. Burada sayı yok: Sağlık sayfası ziyaretçilere dair sayı göstermez, sayılar sitenin panosunda. \"Hiç olay gelmedi\" bir sitede snippet eklenmemiş ya da site beacon listesinde değil demektir; bir süre önce kesilmişse o zamandan beri gelmiyor demektir."
 
 [metin.ayarlar.hakkinda]
 baslik = "Hakkında"

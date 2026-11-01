@@ -475,6 +475,7 @@ one. For the dishonest ones, see `/crossover/js-bots`.
 | Endpoint | Returns |
 | --- | --- |
 | `/api/v1/beacon/sites` | Site IDs with beacon data, which is not necessarily the same list as `/api/v1/sites` - a site can have one collection process running and not the other. |
+| `/api/v1/sites/{site}/beacon/activity` | When the site last sent an event (`null` if never) and how many arrived in the last hour, with `as_of` in the database's clock. Takes no range: the question is "did it stop, and when". |
 | `/api/v1/sites/{site}/beacon/summary` | Pageviews, custom events, visitors, sessions, bounce rate, pages per session, average session duration. |
 | `/api/v1/sites/{site}/beacon/timeseries` | Pageviews, visitors and sessions bucketed over time. A session is counted in the bucket it *started* in, so the column never sums to more than the range's own total. |
 | `/api/v1/sites/{site}/beacon/pages` | Pageviews and visitors per path. |
@@ -2423,7 +2424,7 @@ collector-side addresses of which one had run the snippet gave
 and the headless context in `js-bots`.
 
 `internal/api`'s route lists are deliberately exhaustive rather than
-sampled - every one of the 34 routes is asserted to reject a missing
+sampled - every one of the 35 routes is asserted to reject a missing
 token, to reject a token whose grant doesn't cover the site, to refuse
 non-`GET`, and to return JSON. The seven `/beacon/` breakdowns share one
 handler wired from a map, so there is also a test that each route

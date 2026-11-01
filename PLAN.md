@@ -85,7 +85,7 @@ gerekçe değil bahane olur.
 |---|---|---|
 | **AI** ara işler | ✅ **4/4** | — |
 | **A** Ayarlar ve saklama | ✅ **12/12** *(+2 düştü)* | — *(A9 düştü — yerine P; A8 düştü — yerine O2a)* |
-| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; B3d-2 beacon tamponu ✅ ölçüldü ve ertelendi — kanal kapasitesi canlı olamaz, yeniden başlatma isteyen bir panel ayarı #38'siz SSH'ı kaldırmıyor, ve yolda KURULUM'un panelde olmayan ayarları "işaretli" diye anlatan cümlesi düzeldi; B3e servis yeniden başlatma ✅ — Sağlık sayfasından, geliştirici parolasıyla, dakikada bir; panel hiçbir şey başlatmıyor, servis isteği görüp temiz çıkıyor ve gözetmen başlatıyor; okuma API'si karar 8'i bekliyor; kalan B3f–B3g ve şema isteyen altısı, §B3a)* |
+| **B** Gözlemlenebilirlik | 🟡 **5/7** | B3, B5 — *(B3 dilimli: B3a envanter ✅ — 39'un 16'sı zaten vardı; B3b ret sebepleri ✅ — "JS verisi gelmiyor"un cevabı artık Sağlık sayfasında; B3c-1 tanı paketi ✅ — Sağlık sayfasının olguları tek JSON dosyasında; B3c-2a giriş kısıtı ✅ — beş hak, on beş dakika, sahip kaldırabiliyor, ve yolda ikinci faktörün parolayla sıfırlanan bütçesi kapandı; B3c-2b günlük satırları ✅ — maskeli, sınıflandırılmış, indirenin siteleriyle sınırlı, ve yolda günlük tablosunun hiç dolmayan site sütunu düzeldi; B3h ikinci ağ ✅ — işletmecinin tek kullanımlık kodu, ve yolda C7.2'den beri çizilemeyen bir şablon dalı ile kod kalmayana "kodlarınız var" diyen hesap sayfası; B3d-1 kaydı duraklatma ✅ — site başına, bitişli, yazmada uygulanıyor; pano sürerken ve bittikten sonra söylüyor, ve yolda collector'ın duraklatmanın son aralığını kaydettiği ilk hâl ölçülüp düzeldi; B3d-2 beacon tamponu ✅ ölçüldü ve ertelendi — kanal kapasitesi canlı olamaz, yeniden başlatma isteyen bir panel ayarı #38'siz SSH'ı kaldırmıyor, ve yolda KURULUM'un panelde olmayan ayarları "işaretli" diye anlatan cümlesi düzeldi; B3e servis yeniden başlatma ✅ — Sağlık sayfasından, geliştirici parolasıyla, dakikada bir; panel hiçbir şey başlatmıyor, servis isteği görüp temiz çıkıyor ve gözetmen başlatıyor; okuma API'si karar 8'i bekliyor; B3g site başına son olay ✅ — Sağlık'ta (yalnız zaman) ve panoda, okuma API'sinin yeni ucuyla; 2M olayda 3–7 ms, ve yolda Sağlık'ın "ziyaretçi sayısı yok" kontrolü elle yazılmış beş türden ulaşılabilen 33 türe genişledi; kalan B3f ve şema isteyen altısı, §B3a)* |
 | **C** Panel HTTP yüzeyi | ✅ **16/16** | — |
 | **D** Dashboard | 🟡 **6/9** | D4b, D6–D8 (D4a ve D4c yapıldı; D3'ten yalnız ham dışa aktarma kaldı) |
 | **E** Birleştirme | ⬜ **0/3** | hepsi |
@@ -2267,7 +2267,7 @@ yarısını başka adlarla karşıladı.
 | 26 | `GrantOwnership` | yarım | yalnız ilk devir teslim (kurulum sihirbazı, `CreateOwnerClaim`); sonrası üyeler sayfası. **Tek sahip giderse geliştiricinin sahip ataması, "sahip hesabı açıldıktan sonra geliştirici erişimi sahibin onayına bağlı" kuralıyla çelişiyor → sahibin kararı** |
 | 27 | `RevokeAPIToken` | yok | API jetonları dosyada (`analytics-api.toml`), panel göremiyor → B5 ile birlikte, **şema** |
 | 28 | `SetDeveloperMode` | **var** | Hesap → geliştirici görünümü (kişinin kendisi) |
-| 29 | `ShowBeaconStatus` | yarım | ~~Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor)~~ → **B3b ✅**; site başına son olay ve son bir saatin olay sayısı yok → **B3g**, şemasız |
+| 29 | `ShowBeaconStatus` | **var** | ~~Sağlık toplam sayaçları gösteriyor; ret **sebebi** yok (altı sınıf tek `rejected` sayacına akıyor)~~ → **B3b ✅**; ~~site başına son olay ve son bir saatin olay sayısı yok~~ → **B3g ✅**: Sağlık → "Sitelerden gelen ölçüm" (yalnız zaman; son saatin sayısı API'de, Sağlık'ta değil — sayfa ziyaretçiye dair sayı göstermez), panoda boş dönemin cümlesinde |
 | 30 | `ShowBeaconSnippet` | **var** | sahip için karşılama sayfası |
 | 31 | `SetBeaconSites` | **var** | `beacon.sites` |
 | 32 | `SetBeaconBuffer` | yok, bilerek | ~~şemasız: kayda üç canlı ayar~~ → **B3d-2**: ölçüldü ve ertelendi. Kanal kapasitesi canlı olamaz; yeniden başlatma isteyen bir panel ayarı, panel servisi yeniden başlatamadığı sürece (#38) sunucuya bağlanmayı kaldırmıyor. Dolu tampon ~13 MB / 10.000 olay |
@@ -2374,11 +2374,29 @@ kez yazmak onu bir kez yapmaktır.
   gerekmedi. **B3d-2'nin sorusu yeniden açık:** artık panel servisi
   yeniden başlatabildiği için tampon boyu bir panel ayarı olabilir.
 - **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
-- **B3g** — #29'un öbür yarısı: site başına son olay ve son bir saatin
-  olay sayısı. Pano bugün "hiç ölçüm gelmedi" ile "bu dönemde hareket
-  yok"u ayırıyor; eksik olan "en son ne zaman" — dün mü kesildi.
-  Şemasız; okuma bedeli ölçek altında ölçülerek. *(İlk dilim planı bu
-  yarıyı hiçbir dilime bağlamamıştı; 2026-09-28'de eklendi, NOTES.)*
+- **B3g** ✅ *(2026-11-02)* — #29'un öbür yarısı: site başına son olay ve
+  son bir saatin olay sayısı. Okuma API'sinde yeni uç
+  `/sites/{site}/beacon/activity` (son olay + son saatin sayısı,
+  `siteHandler` arkasında: site kapsamlı jeton yalnız kendi sitesini
+  görür). Sağlık'ta görenin sitelerine bir tablo, **yalnız zaman**: sahip
+  yalnız kendininkileri, işletmeci hepsini görür; en çok 50 site, fazlası
+  sayıyla. Panoda boş dönemin cümlesine bir kez "Son olay: …" eklenir,
+  grafikte ya da grafik kapalıysa ilk beacon kartında. **Katalogdan
+  sapma:** son saatin sayısı Sağlık'ta yok, tanı paketi bölümü hiç
+  taşımıyor. Sağlık sayfasının sözü "ziyaretçiye dair sayı yok"; dosya
+  makineden çıkıyor. İlk hâl ikisini de yapıyordu. Yakalanmadı, çünkü iki
+  yapısal kontrol yalnız elle adlandırılmış türleri ve tek dosyayı
+  tarıyordu. İkisi de artık sayfanın/dosyanın **ulaşabildiği** her türü
+  yansımayla geziyor (5 → 33, dosyada 19). **Ölçüldü:** 2.040.050 olay / 90 gün /
+  53 site, ürünün sıkıştırmasıyla (12/14 parça): site başına sonda
+  ikilinin cevabıyla soğuk 3–7 ms, sıcak 1–5 ms; 40 gün önce kesilmiş
+  sitede de (sıkıştırılmış parçanın `(site_id, zaman aralığı)` indeksi
+  açmadan cevaplıyor, 39 tampon). Reddedilen şekil: bütün satırları
+  gruplayan `GROUP BY`, aynı veride 107–124 ms ve tabloyla büyüyor.
+  Okunamayan satır "Okunamadı" diyor, "hiç gelmedi" değil; "ne zaman"
+  veritabanının saatiyle.
+  *(İlk dilim planı bu yarıyı hiçbir dilime bağlamamıştı; 2026-09-28'de
+  eklendi, NOTES.)*
 
 Şema isteyen altısı (#20, #22, #23, #24, #27, #33) sahibin şema
 kararına gidiyor. Şema 24 yayımlanmadı — en yeni etiket `v0.24.0+L4`

@@ -2018,6 +2018,8 @@ görüntüsü almaktan da terminalde komut çalıştırmaktan da kolay.
   görünür kırılımlar.
 - **Sırlar.** Parolalar ve anahtarlar yapılandırma dosyalarında; panel
   onları okumuyor.
+- **Sitelerden gelen ölçüm** (site başına son olay). Ziyaretlerden
+  türüyor; Sağlık sayfasında görünüyor, dosyaya girmiyor.
 - **Ziyaretçi sayısı.** Hiçbir alan ziyaretçiyle ilgili bir sayı olamaz;
   bunu bir test alan adlarından denetliyor.
 
@@ -2091,6 +2093,43 @@ istemci, dört gerçek sorgu hatası, ve `panel_logs` 20 saniye kilitliyken
 
 Önceki hâlinde Sağlık sayfası bu servis hakkında hiçbir şey
 söylemiyordu; "son hata" satırı hiçbir kurulumda hiç dolmamıştı.
+
+### Sitelerden gelen ölçüm: snippet en son ne zaman gönderdi
+
+Sağlık sayfasının sonunda, görebildiğiniz her site için bir satır:
+sitenin sayfalarındaki snippet'in **en son ne zaman** bir olay gönderdiği.
+"JavaScript verisi hiç gelmiyor" şikâyetinin öbür yarısı bu (ilk yarısı
+yukarıdaki "bilinmeyen site" sayacı): kapıda geri çevrilmiyorsa, gerçekten
+hiç gelmiyor mu, yoksa dün 14:02'de mi kesildi?
+
+| Satır | Ne demek |
+|---|---|
+| "4 dakika önce" | Snippet çalışıyor. |
+| "29 Ekim 2026, 17:50" | O zamandan beri hiçbir olay gelmedi: snippet kaldırılmış, site taşınmış ya da betik engelleniyor. |
+| Hiç olay gelmedi | Snippet bu siteye hiç eklenmemiş ya da site kabul edilen siteler listesinde değil. |
+| Okunamadı | Okuma API'sine ulaşılamadı. "Hiç olay gelmedi" yazmaz, çünkü o, eklenmemiş bir snippet'in görüntüsü. |
+
+**Sayı yok, yalnız zaman.** Sağlık sayfası ziyaretçilere dair sayı
+göstermez; bir sitenin trafiği o sitenin panosunda. Okuma API'si son bir
+saatin olay sayısını da veriyor (`/api/v1/sites/{site}/beacon/activity`),
+ama bu sayfa onu çizmez. **Tanı paketi bu bölümü hiç taşımaz**: site
+başına son olayın zamanı ziyaretlerden türüyor ve dosya makineden çıkıyor.
+Dosyanın `omitted` listesi bunu söyler.
+
+Sahip yalnız kendi sitelerini, işletmeci (geliştirici oturumu) bütün
+siteleri görür. Bir botun çalıştırdığı snippet de "son olay" sayılır: soru
+kimin geldiği değil, snippet'in çalışıp çalışmadığı. Zaman veritabanının
+saatine göre söylenir. En çok 50 site gösterilir; fazlası sayıyla
+belirtilir.
+
+Panoda da aynı bilgi var: seçilen aralıkta hiç olay yoksa grafiğin
+yerindeki "Bu dönemde hareket yok." cümlesine son olayın zamanı eklenir
+(grafik kapalıysa ilk beacon kartına), bir kez.
+
+**Ölçüldü:** 90 güne yayılmış 2.040.050 olay, 53 site, ürünün kendi
+sıkıştırmasıyla (14 parçanın 12'si). Okuma API'sinin cevabı soğukken
+3–7 ms, sıcakken 1–5 ms. 40 gün önce kesilmiş bir site de, hiç olay
+göndermemiş bir site de aynı bantta.
 
 ### Servisi yeniden başlatmak: Sağlık sayfasından
 

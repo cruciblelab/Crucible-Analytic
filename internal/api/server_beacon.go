@@ -9,6 +9,7 @@ import (
 // BeaconQuerier is the read-only access the beacon handlers need.
 type BeaconQuerier interface {
 	BeaconSites(ctx context.Context) ([]string, error)
+	BeaconActivity(ctx context.Context, siteID string) (BeaconActivity, error)
 	BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error)
 	BeaconTimeseries(ctx context.Context, siteID string, from, to time.Time, interval, zone string, bots BotFilter, campaign campaignFilter) ([]BeaconBucket, error)
 	BeaconPages(ctx context.Context, siteID string, p beaconParams) ([]BeaconGroupStat, int, error)
@@ -54,6 +55,7 @@ type CrossoverQuerier interface {
 func (s *Server) registerBeaconRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/beacon/sites", s.handleBeaconSites)
 
+	mux.HandleFunc("GET /api/v1/sites/{site}/beacon/activity", s.siteHandler(s.handleBeaconActivity))
 	mux.HandleFunc("GET /api/v1/sites/{site}/beacon/summary", s.siteHandler(s.handleBeaconSummary))
 	mux.HandleFunc("GET /api/v1/sites/{site}/beacon/timeseries", s.siteHandler(s.handleBeaconTimeseries))
 	mux.HandleFunc("GET /api/v1/sites/{site}/beacon/entry-pages", s.siteHandler(s.handleBeaconEntryPages))
@@ -162,6 +164,29 @@ func (s *Server) handleBeaconSites(w http.ResponseWriter, r *http.Request) {
 		sites = tok.Sites
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sites": sites})
+}
+
+// handleBeaconActivity answers "when did this site last send anything".
+//
+// No range: the question is about now, and a from/to would only invite
+// a caller to ask "the newest event before last Tuesday", which is a
+// different question with a different cost.
+//
+// Every event counts, a self-identified bot's too: the question is
+// whether the snippet is still reporting, not who is visiting, and the
+// beacon's bot filter answers the second. bot_score_min is refused like
+// on every beacon route, for the reason rejectBotScoreMin gives.
+func (s *Server) handleBeaconActivity(w http.ResponseWriter, r *http.Request, site string) {
+	if err := rejectBotScoreMin(r.URL.Query()); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, err := s.Store.BeaconActivity(r.Context(), site)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleBeaconSummary(w http.ResponseWriter, r *http.Request, site string) {

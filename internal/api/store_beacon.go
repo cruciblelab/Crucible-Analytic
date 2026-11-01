@@ -815,6 +815,56 @@ func (s *Store) BeaconRaw(ctx context.Context, siteID string, p beaconParams) ([
 	return events, total, rows.Err()
 }
 
+// BeaconActivity is when one site last sent anything, and how much in
+// the last hour (B3g, catalog #29).
+//
+// The question it answers is "did it stop, and when": a dashboard whose
+// range holds nothing can say whether the period is quiet or the
+// snippet stopped reporting yesterday, and the health page can show it
+// per site without anybody opening a range picker.
+type BeaconActivity struct {
+	SiteID string `json:"site_id"`
+	// LastEvent is the newest event's time, null for a site that has
+	// never sent one. A pointer rather than a zero time: "never" is an
+	// answer, and 0001-01-01 is a date somebody would format.
+	LastEvent *time.Time `json:"last_event"`
+	// LastHour counts events in the hour before AsOf.
+	LastHour int64 `json:"last_hour"`
+	// AsOf is the database's clock when the two were read, so a reader
+	// computes "how long ago" against the clock that wrote the events
+	// rather than its own (the B3e lesson: two machines, two clocks).
+	AsOf time.Time `json:"as_of"`
+}
+
+// BeaconActivity reads one site's newest event and its last hour.
+//
+// # Why two probes and not one GROUP BY
+//
+// Measured on 2,040,050 events over 90 days with the product's own
+// compression (12 of 14 chunks compressed, B3g's ca_b3g): one probe per
+// site is 15-21 ms warm whether the site is the busiest, one that
+// stopped 40 days ago, or one that never sent anything, because
+// ORDER BY time DESC LIMIT 1 walks the chunks newest first and stops at
+// the first that holds the site - and a compressed chunk answers that
+// from its (site_id, time range) index without decompressing (39 buffers
+// for the stopped site). The GROUP BY shape reads every row of the
+// sites asked about: 107-124 ms on the same data, growing with the
+// table. The ORDER BY is what makes the probe stop early, so it is the
+// query's one load-bearing clause.
+func (s *Store) BeaconActivity(ctx context.Context, siteID string) (BeaconActivity, error) {
+	out := BeaconActivity{SiteID: siteID}
+	err := s.pool.QueryRow(ctx, `
+		SELECT (SELECT time FROM beacon_events
+		         WHERE site_id = $1 ORDER BY time DESC LIMIT 1),
+		       (SELECT count(*) FROM beacon_events
+		         WHERE site_id = $1 AND time >= now() - interval '1 hour'),
+		       now()`, siteID).Scan(&out.LastEvent, &out.LastHour, &out.AsOf)
+	if err != nil {
+		return BeaconActivity{}, fmt.Errorf("api: beacon activity: %w", err)
+	}
+	return out, nil
+}
+
 // BeaconSites returns every site ID present in beacon_events. Separate
 // from Sites, which reads traffic_snapshots: a site can have one source
 // running and not the other, so answering "which sites have beacon data"

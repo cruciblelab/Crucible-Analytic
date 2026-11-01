@@ -24,6 +24,21 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Her site için snippet'in en son ne zaman ölçüm gönderdiği görünüyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.
+
+**Sağlık → Sitelerden gelen ölçüm**: görebildiğiniz her site için son
+olayın zamanı. Snippet hiç eklenmemişse "Hiç olay gelmedi" yazar, okuma
+API'sine ulaşılamıyorsa "Okunamadı". Sahip yalnız kendi sitelerini görür.
+Sağlık sayfası ziyaretçilere dair sayı göstermediği için burada sayı yok;
+aynı sebeple tanı paketi bu bölümü taşımıyor. Panoda seçilen aralıkta hiç
+olay yoksa "Bu dönemde hareket yok." cümlesine son olayın zamanı
+ekleniyor. Böylece boş bir dönemin sessiz bir hafta mı, yoksa dün kesilmiş
+bir snippet mi olduğu ayırt ediliyor. Okuma API'sinde yeni uç:
+`/api/v1/sites/{site}/beacon/activity` (son olay ve son bir saatin olay
+sayısı).
+
 ### Sağlık sayfasındaki işlemlerin kaydı, retleri doğru adlandırıyor ve uzun bir sürüm adıyla kaybolmuyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.

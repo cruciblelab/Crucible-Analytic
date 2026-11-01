@@ -358,6 +358,17 @@ func (f *Formatter) Since(t time.Time) string {
 	return f.sinceAt(t, f.now())
 }
 
+// SinceAt is Since measured against a clock the caller names.
+//
+// For a time another machine stamped: the beacon's events carry the
+// database's clock, and "how long ago" read off the panel's own clock is
+// a third answer whenever the two disagree (B3e measured the panel's
+// uptime mixing them). The caller passes the database's now with the
+// time it read.
+func (f *Formatter) SinceAt(t, now time.Time) string {
+	return f.sinceAt(t, now)
+}
+
 func (f *Formatter) sinceAt(t, now time.Time) string {
 	if t.IsZero() {
 		return f.Dash()

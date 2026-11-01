@@ -376,3 +376,104 @@ func TestTheRestOfThePanelSurvivesTheAPIGoingAway(t *testing.T) {
 		t.Errorf("signing out answered %d with the analytics API down", resp.StatusCode)
 	}
 }
+
+// TestAQuietPeriodSaysWhenTheLastEventCame (B3g).
+//
+// One pageview three days ago, a one-day range: the beacon cards say the
+// period is empty, and now also when the snippet last reported - the
+// difference between a quiet day and a snippet that stopped. Read
+// through the real API from the real table, so the route, the client's
+// decoder and the page all have to agree.
+//
+// And the two states where the sentence must not appear: a range that
+// holds the event (there is a number, nothing to explain) and a site the
+// beacon has never seen (that card says "install the snippet", and a
+// "last event" would contradict it).
+func TestAQuietPeriodSaysWhenTheLastEventCame(t *testing.T) {
+	srv, store := setupTestServer(t)
+	ctx := context.Background()
+	base, token := analyticsAPI(t)
+	client, err := analytics.New(base, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Analytics = client
+
+	const quiet, never = "son-olay-sessiz", "son-olay-hic"
+	owner := makeUser(t, store, "son-olay-sahip", false)
+	for _, site := range []string{quiet, never} {
+		if err := store.AddMember(ctx, site, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The card visibility this test changes, reset at both ends: a run
+	// that fails half way otherwise leaves the next one with no chart.
+	resetCards := func() {
+		if err := store.ResetSetting(ctx, panel.KeyVisibleCards, quiet); err != nil {
+			t.Errorf("resetting the visible cards: %v", err)
+		}
+	}
+	resetCards()
+	t.Cleanup(resetCards)
+	seedBeacon(t, quiet, time.Now().Add(-72*time.Hour), []beaconRow{{visitor: "a", kind: "pageview", path: "/"}})
+	testdb.CleanSite(t, testdb.Admin(t), never)
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	c := signedIn(t, server.URL, owner.Email)
+	lang := srv.Renderer.Catalogs().Base()
+	empty := shown(lang.T("pano.bos.bos.beacon"))
+	last, _, _ := strings.Cut(lang.T("pano.son_olay"), "%s")
+	last = shown(last)
+
+	_, body := get(t, c, server.URL+sitePath(quiet)+"?gun=1")
+	if !strings.Contains(body, empty) {
+		t.Fatal("a one-day range three days after the last event does not say the period is empty; " +
+			"the state this sentence belongs to was never reached")
+	}
+	// Once, and on the chart: the widest block, above the cards. The
+	// same date on every quiet card was the first version, and the
+	// screenshot of it read as noise.
+	quietChart := `<p class="grafik-bos durum-` + string(nothingInRange) + `">` + empty
+	if !strings.Contains(body, quietChart) {
+		t.Fatal("the chart does not say the period is empty, so its branch was never reached")
+	}
+	if !strings.Contains(body, quietChart+" "+last) {
+		t.Error("the empty chart does not say when the last event came")
+	}
+	if n := strings.Count(body, last); n != 1 {
+		t.Errorf("the last event is said %d times on the page, want once", n)
+	}
+
+	// No chart - both charted cards turned off - and the first quiet
+	// beacon card says it instead.
+	if err := store.SetSetting(ctx, panel.KeyVisibleCards, quiet,
+		[]string{string(cardSessions), string(cardBounceRate)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	_, body = get(t, c, server.URL+sitePath(quiet)+"?gun=1")
+	if strings.Contains(body, quietChart) {
+		t.Fatal("the chart still says the period is empty with both of its cards turned off")
+	}
+	quietCard := `<p class="kart-bos durum-` + string(nothingInRange) + `">` + empty
+	if !strings.Contains(body, quietCard+" "+last) {
+		t.Error("with no chart, no quiet beacon card says when the last event came")
+	}
+	if n := strings.Count(body, last); n != 1 {
+		t.Errorf("the last event is said %d times with no chart, want once", n)
+	}
+	resetCards()
+
+	_, body = get(t, c, server.URL+sitePath(quiet)+"?gun=7")
+	if strings.Contains(body, last) {
+		t.Error("a range holding the event still explains when the last one came")
+	}
+
+	_, body = get(t, c, server.URL+sitePath(never)+"?gun=1")
+	if !strings.Contains(body, shown(lang.T("pano.bos.kurulmamis.beacon"))) {
+		t.Fatal("a site the beacon never saw is not drawn as not installed")
+	}
+	if strings.Contains(body, last) {
+		t.Error("a site that never sent an event is told when its last event came")
+	}
+}

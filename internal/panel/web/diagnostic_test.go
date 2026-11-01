@@ -128,3 +128,46 @@ func TestTheAPISectionKeepsItsMeasurement(t *testing.T) {
 		t.Errorf("the detail kept a newline, so one value could read as two: %q", got.Detail)
 	}
 }
+
+// TestEveryTypeTheDiagnosticFileReachesCarriesNoVisitorNumbers is the
+// check above, by reachability rather than by file.
+//
+// The one above reads the struct types declared in diagnostic.go. A
+// field whose type is declared anywhere else - another file of this
+// package, or another package altogether - is a field name it checks
+// and a struct it never opens. B3g's first version put a per-site event
+// count in the file from a type in a new file, past that scan (it was
+// taken out again; see beaconactivity.go). This walks everything the
+// file can marshal, across packages.
+func TestEveryTypeTheDiagnosticFileReachesCarriesNoVisitorNumbers(t *testing.T) {
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(tp reflect.Type) {
+		for tp.Kind() == reflect.Pointer || tp.Kind() == reflect.Slice ||
+			tp.Kind() == reflect.Array || tp.Kind() == reflect.Map {
+			tp = tp.Elem()
+		}
+		if tp.Kind() != reflect.Struct || seen[tp] {
+			return
+		}
+		seen[tp] = true
+		for i := range tp.NumField() {
+			field := tp.Field(i)
+			for _, name := range []string{field.Name, strings.Split(field.Tag.Get("json"), ",")[0]} {
+				for _, word := range visitorWords {
+					if name != "" && strings.Contains(strings.ToLower(name), word) {
+						t.Errorf("%s.%s is a field named %q; the diagnostic file leaves this "+
+							"machine, and nothing in it may be a number about a visitor",
+							tp, field.Name, name)
+					}
+				}
+			}
+			walk(field.Type)
+		}
+	}
+	walk(reflect.TypeOf(diagnosticBundle{}))
+	if !seen[reflect.TypeOf(diagnosticLogLine{})] {
+		t.Fatalf("the walk did not reach diagnosticLogLine, a type outside diagnostic.go; "+
+			"reached %d types", len(seen))
+	}
+}

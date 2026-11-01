@@ -24,6 +24,14 @@ func (f *fakeStore) BeaconSites(ctx context.Context) ([]string, error) {
 	return f.sites, f.err
 }
 
+func (f *fakeStore) BeaconActivity(ctx context.Context, siteID string) (BeaconActivity, error) {
+	f.gotCall, f.gotSite = "BeaconActivity", siteID
+	if f.err != nil {
+		return BeaconActivity{}, f.err
+	}
+	return BeaconActivity{SiteID: siteID, LastHour: 3}, nil
+}
+
 func (f *fakeStore) BeaconSummary(ctx context.Context, siteID string, from, to time.Time, bots BotFilter, campaign campaignFilter) (BeaconSummary, error) {
 	f.gotCampaign = campaign
 	f.gotCall, f.gotSite, f.gotFrom, f.gotTo, f.gotBots = "BeaconSummary", siteID, from, to, bots
@@ -190,6 +198,7 @@ func (f *fakeStore) JSBots(ctx context.Context, siteID string, from, to time.Tim
 // one route forgetting an authorization check leaks another customer's
 // data, and a sampled list is exactly how that gets missed.
 var beaconRoutes = []string{
+	"/api/v1/sites/site-a/beacon/activity",
 	"/api/v1/sites/site-a/beacon/summary",
 	"/api/v1/sites/site-a/beacon/timeseries",
 	"/api/v1/sites/site-a/beacon/pages",
@@ -466,6 +475,36 @@ func TestServer_BeaconStoreErrorsAre500WithoutLeakingDetail(t *testing.T) {
 		}
 		if strings.Contains(w.Body.String(), errStoreFailed.Error()) {
 			t.Errorf("%s leaked the database error: %s", route, w.Body)
+		}
+	}
+}
+
+// TestServer_BeaconActivityNeverIsNull: a site that never sent anything
+// is answered with last_event null, not with a zero time a client would
+// format as the year one.
+func TestServer_BeaconActivityNeverIsNull(t *testing.T) {
+	fs := &fakeStore{}
+	h := newTestServer(t, fs)
+	w := do(h, http.MethodGet, "/api/v1/sites/site-a/beacon/activity", "ahmet-secret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	if fs.gotCall != "BeaconActivity" || fs.gotSite != "site-a" {
+		t.Errorf("the handler called %q for %q", fs.gotCall, fs.gotSite)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["last_event"]) != "null" {
+		t.Errorf("last_event is %s for a site that never sent one, want null", body["last_event"])
+	}
+	if string(body["last_hour"]) != "3" {
+		t.Errorf("last_hour is %s, want the store's 3", body["last_hour"])
+	}
+	for _, key := range []string{"site_id", "as_of"} {
+		if _, ok := body[key]; !ok {
+			t.Errorf("the response has no %q", key)
 		}
 	}
 }

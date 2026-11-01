@@ -791,4 +791,48 @@ in either case and the two situations need different sentences. */}}
 {{- end}}
 {{- end}}
 </section>
+
+{{- /* B3g: when each site's snippet last reported - a time, never a
+count (this page carries no number about a visitor). A row that could not
+be read says so: "no event yet" is what a snippet nobody embedded looks
+like, and an unreachable API must never look like that. */}}
+{{- with .Data.BeaconSites}}
+{{- if .Configured}}
+<section class="bolum" id="beacon-siteler">
+<h2>{{t "saglik.beacon_site.baslik"}}</h2>
+{{- if .Error}}
+<p class="uyari" role="note">{{.Error}}</p>
+{{- else if not .Rows}}
+<p class="ipucu">{{t "saglik.beacon_site.site_yok"}}</p>
+{{- else}}
+<table class="veri">
+<thead>
+<tr>
+<th scope="col">{{t "saglik.beacon_site.site"}}</th>
+<th scope="col">{{t "saglik.beacon_site.son_olay"}}</th>
+</tr>
+</thead>
+<tbody>
+{{- range .Rows}}
+<tr data-site="{{.Site}}" data-durum="{{.State}}">
+<th scope="row"><code>{{.Site}}</code></th>
+{{- if eq .State "var"}}
+<td>{{.LastEvent}}</td>
+{{- else if eq .State "hic"}}
+<td>{{t "saglik.beacon_site.hic"}}</td>
+{{- else}}
+<td><span class="rozet pasif">{{t "saglik.beacon_site.okunamadi"}}</span></td>
+{{- end}}
+</tr>
+{{- end}}
+</tbody>
+</table>
+{{- if .More}}
+<p class="ipucu">{{tf "saglik.beacon_site.fazlasi" .More (len .Rows)}}</p>
+{{- end}}
+<p class="ipucu">{{t "saglik.beacon_site.ipucu"}}</p>
+{{- end}}
+</section>
+{{- end}}
+{{- end}}
 {{end}}

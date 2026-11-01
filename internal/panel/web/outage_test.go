@@ -38,6 +38,13 @@ var analyticsCallers = []string{
 	// which is the property TestASectionThatCannotBeFilledDoesNotTakeThePageDown
 	// holds open.
 	"health.go",
+	// beaconactivity.go (B3g) is the Health page's per-site beacon
+	// section: when each site's snippet last reported - a time, never a
+	// count (TestTheHealthPageCarriesNoVisitorNumbers). What it shows on a
+	// failed fetch is written into the row's state: "okunamadı", never
+	// "no event yet", because the second is what a snippet nobody
+	// embedded looks like (TestABeaconRowThatCouldNotBeReadSaysSo).
+	"beaconactivity.go",
 }
 
 // TestOnlyTheAnalyticsPagesTalkToTheAnalyticsAPI.

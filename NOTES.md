@@ -24594,3 +24594,136 @@ kasten ölçüyor. *Bir yan etkinin olmadığını varsaymak, onu ölçmeden
 M16 sağ kaldı, M5 derlenmedi (mutasyon `fmt`'yi kullanılmaz bıraktı);
 ikisi de düzeltilip yeniden koşuldu. `-run` deseni test dosyalarındaki
 adlardan türetiliyor (B3e'nin beşinci dersi).
+
+## Site başına son olay — B3g (2026-11-02)
+
+Katalog #29 (`ShowBeaconStatus`) dört parçaydı. B3b ret sebeplerini
+kurulum geneli olarak Sağlık'a koydu; site başına "son olay" ve "son bir
+saat" hiçbir dilimde değildi (2026-09-28 notu). Soru tek: *"JS verisi
+gelmiyor"*. Kapıda geri çevrilmiyorsa, hiç mi gelmedi, yoksa dün mü
+kesildi?
+
+**Önce okuma bedeli, sonra kod.** O serisinin dersi: `/overview` hiç
+ölçülmemişti, 11M satırda 90 gün 9,23 sn çıktı. `ca_scale` ve
+`ca_beacon` konteyner baştan kurulunca gitmişti, o yüzden ayrı bir küme
+kuruldu: `ca_b3g`, `install.sh` ile, 2.040.050 olay / 90 gün, 50 site
+1/x dağılımla, artı üç özel site. `kesilmis` son olayını 40 gün önce
+almış (sıkıştırılmış bölgede, en kötü durum), `dun-kesilmis` 26 saat
+önce, `yeni` yalnız son yarım saatte. Sıkıştırma ürünün kendi
+sarmalayıcısıyla (`ca_set_compression`, 7 gün): 14 parçanın 12'si.
+
+İki şekil ölçüldü. Site başına iki sonda (`ORDER BY time DESC LIMIT 1` +
+son bir saatin `count`'u) psql'de sıcakken 15–21 ms; 7 site ile 54 site
+arasında fark yok. Bütün satırları gruplayan `GROUP BY site_id` aynı
+veride 107–124 ms ve tabloyla büyüyor. Plan sondanın neden ucuz olduğunu
+söylüyor: `ChunkAppend` parçaları yeniden eskiye geziyor ve siteyi
+taşıyan ilk parçada duruyor. Sıkıştırılmış parça soruyu
+`(site_id, _ts_meta_min, _ts_meta_max)` indeksinden, **açmadan**
+cevaplıyor: `kesilmis` için 39 tampon. O2b'nin dersi burada tersinden
+doğrulandı. Sıkıştırılmış parçada satır indeksi yok, ama sonda erken
+durabiliyorsa segment meta verisi yetiyor.
+
+Asıl rakam ikilinin cevabı (`$SP/b3g/olc.py`). Port önce çekirdeğe
+soruldu, ölçülen sürecin `ca_b3g`'yi okuduğu `pg_stat_activity`'deki
+`application_name`'den doğrulandı. Her turda PostgreSQL yeniden
+başlatıldı, sayfa önbelleği boşaltıldı, sıra turdan tura döndü:
+
+| site | soğuk (med / min / max ms) | sıcak (med / min / max ms) |
+|---|---|---|
+| site-00 (en yoğun) | 4,6 / 1,5 / 5,2 | 1,2 / 1,0 / 1,5 |
+| site-25 | 4,0 / 1,7 / 4,9 | 1,4 / 1,0 / 2,7 |
+| kesilmis (40 gün) | 4,9 / 4,8 / 6,7 | 1,3 / 1,0 / 2,3 |
+| dun-kesilmis | 3,9 / 3,6 / 4,1 | 1,2 / 1,1 / 4,5 |
+| yeni | 3,6 / 3,0 / 4,6 | 1,3 / 1,1 / 1,6 |
+| yok-boyle (hiç) | 3,3 / 1,6 / 3,7 | 1,3 / 1,1 / 1,5 |
+
+Bir not: hazır olma yoklaması `yok-boyle`'yi bir kez soruyordu, yani o
+satırın "soğuk"u turun ilk sorgusu değil. Rakamı değiştirecek büyüklükte
+değil, ama yazılmalı.
+
+**Yetki modeli değişmedi.** Yeni uç site başına
+(`/sites/{site}/beacon/activity`) ve `siteHandler`'ın arkasında, yani
+site kapsamlı bir jeton yalnız kendi sitesini soruyor. Tümüne bakan bir
+uç, okuma API'sine ikinci bir yetki yolu açardı. Panelin jetonu her
+siteyi görüyor; kiracı yalıtımını panelin kendi listesi yapıyor. Sahip
+yalnız sahibi olduğu siteleri, işletmeci (geliştirici oturumu) üyeliği
+olan bütün siteleri görüyor: `diagnosticLogs`'un kuralı, aynı gerekçeyle.
+Liste okunamazsa "hepsi"ne genişlemiyor.
+
+**Kendi kuralımı ilk hâlde çiğnedim, ve kontrol görmedi.** İlk hâl
+Sağlık'ta site başına son saatin olay sayısını gösteriyor, tanı
+paketine de aynı satırları sayısıyla koyuyordu. Belgeye yazarken
+KURULUM'un tanı paketi bölümünde şu cümleye denk geldim: *"Ziyaretçi
+sayısı. Hiçbir alan ziyaretçiyle ilgili bir sayı olamaz; bunu bir test
+alan adlarından denetliyor."* Sağlık sayfasının kendi kuralı da aynı:
+*"nothing on the health page may be a number about a visitor - that is
+the isolation this panel's whole design rests on"*. Saatlik olay sayısı
+site başına bir trafik sayısı. Yanındaki süreç başına "yazılan"
+sayacına benzemiyor. Ve tanı paketi makineden çıkıyor; sahibin 2026-09-28
+kararı oradan neyin çıkabileceğini sınırladı.
+
+İki kontrol de yeşildi. Sayfanınki **elle adlandırılmış beş türü**,
+dosyanınki yalnız `diagnostic.go`'da bildirilen türleri tarıyordu. Benim
+türlerim yeni bir dosyadaydı (`beaconactivity.go`). Sayfadaki boşluk
+benden önce de vardı: `disk.go`'daki `healthDisk`/`healthFilesystem` ve
+bütün düğme bölümlerinin türleri o beşin dışındaydı. (Dosya tarafında
+"`diagnosticLogs` başka dosyada" diye yazmıştım; yanlış, yalnız işlevleri
+orada. Dosyanın bütün türleri `diagnostic.go`'da. Yeni test başka paketin
+türünü de açıyor, eskisi açmıyordu; mutasyon R2 tam bunu gösteriyor.) İkisi artık sayfanın ve dosyanın **ulaşabildiği** her türü
+paketler arası yansımayla geziyor: sayfada 5'ten 33'e, dosyada 19 tür.
+Sayfada tek gerçek eşleşme `healthFilesystem.Paths` çıktı (bağlama
+noktaları, ziyaretçinin sayfaları değil). Gerekçeli bir istisna oldu;
+istisna kullanılmaz hâle gelirse test bunu söylüyor.
+
+Düzeltme: Sağlık'ta **yalnız zaman**. Son olayın ne zaman geldiği
+snippet'in çalışıp çalışmadığını söyler, sitenin ne kadar trafik aldığını
+değil; bir servisin son kalp atışıyla aynı türden bir olgu. Bu bir
+yargı, ve sahibe öyle söyleniyor. Tanı paketi bölümü hiç taşımıyor, ve
+`omitted` listesi bunu söylüyor (yokluk sağlıklı bir sıfır sanılmasın).
+API son saatin sayısını yine veriyor; o, analitiğin okunduğu yer.
+
+Kelime listesi bir sayının *kime ait olduğunu* bilemez: `LastHour` adlı
+bir alan hiçbir yasak kelimeyi içermiyor. Sayının sayfaya dönmesini
+davranış testi tutuyor (satırda `<td>sayı</td>` yok). Yapısal test
+yalnız adları tutuyor; ikisi farklı şeyleri koruyor.
+
+**Okunamayan "hiç gelmedi" değildir.** Yalnız ulaşılabilirlik soran ve
+bu yüzden analitik çizmeyen tek analitik çağıran `health.go`'ydu.
+Yeni bölüm `outage_test.go`'nun listesine kendi dosyasıyla ve kendi
+gerekçesiyle girdi. Okunamayan satır "Okunamadı" diyor, "Hiç olay
+gelmedi" değil, çünkü ikincisi eklenmemiş bir snippet'in görüntüsü.
+
+**Saat veritabanınınki.** API `as_of`'u `now()` ile aynı sorgudan
+döndürüyor; "kaç dakika önce" ona göre söyleniyor
+(`Formatter.SinceAt`). B3e'nin dersi: başlangıç sürecin saatindeydi ve
+Uptime iki saati karıştırıyordu. Birim testi iki yıl kaymış saatlerle
+kuruyor; panelin saatiyle okunsaydı olay "gelecekte" çıkıp mutlak
+tarihe dönerdi.
+
+**Ekran görüntüsü bir tasarım kararını değiştirdi.** İlk hâl, son olayı
+"bu dönemde hareket yok" diyen her beacon kartına ve grafiğe ekliyordu.
+Ekranda aynı tarih beş kez göründü. Kırılımlar için "altı kopya gürültü"
+diye kendim gerekçe yazmıştım ve aynı gerekçe kartlar için de geçerliydi.
+Artık bir kez yazılıyor: grafik boşsa grafikte, grafik kapalıysa (iki
+çizilen kart kapatılmış) ilk sessiz beacon kartında. İki dal da kendi
+testinde; "sayfada tam bir kez" iddiası her kartta tekrarı (P7)
+yakalıyor.
+
+**Yolda iki test kusurum.** (1) Beklenen dakika yanlıştı:
+`seedBeacon` satırları birer dakika arayla yazıyor, en yeni olay 20
+değil 19 dakika önceydi. Ürün doğruydu. (2) Grafiksiz dalın testi kart
+görünürlüğünü değiştirip sonda geri alıyordu. İlk kırmızı koşu geri
+almadan düştü ve sonraki koşu grafiksiz bir panoyla başladı. Ayrıca
+`SetSetting(nil)` hiç geçerli bir değer değilmiş, geri alma hiç
+çalışmayacaktı. Artık `ResetSetting` iki uçta. Aynı tabloda
+`gorunum-testi-2`'nin `panel.cards` satırı başka bir süitin kalıntısı;
+PLAN §6'daki 48 fikstürlük sınıfın üyesi, dokunulmadı.
+
+**Mutasyon:** `$SP/mutasyon-b3g.py`, sonuç commit mesajında. `-run`
+desenleri test dosyalarındaki adlardan türetiliyor.
+
+**Açık:** kırılım bölümleri "bu dönemde hareket yok" diyor ve son olayı
+bilerek söylemiyor (yukarıdaki kart gerekçesi). Okuma API'si site başına
+istek alıyor; 50'den çok sitesi olan bir işletmeci için ilk 50 soruluyor.
+Collector tarafının eşi ("trafik toplayıcı en son ne zaman bağlantı
+gördü") bu dilimde değil. Katalog #29 beacon'ı soruyordu.

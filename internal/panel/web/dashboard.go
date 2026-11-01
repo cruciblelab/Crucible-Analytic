@@ -453,6 +453,13 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	// fetched, so a skipped summary does not buy a lookup nothing reads.
 	presence := s.presence(ctx, req, board, siteID)
 
+	// quietBeacon is the beacon cards that say "nothing in this period",
+	// in page order - the one state where "when was the last event" is
+	// the next question
+	// (B3g): "bu dönemde hareket yok" is true of a quiet week and of a
+	// snippet that stopped reporting yesterday, and the reader cannot
+	// tell which.
+	var quietBeacon []int
 	for _, id := range shown.Cards {
 		def, ok := cards[id]
 		if !ok {
@@ -478,6 +485,9 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 			}
 		} else {
 			view.EmptyText = lang.T("pano.bos." + string(view.Empty) + "." + string(def.Source))
+			if view.Empty == nothingInRange && def.Source == sourceBeacon {
+				quietBeacon = append(quietBeacon, len(data.Cards))
+			}
 		}
 		data.Cards = append(data.Cards, view)
 	}
@@ -486,6 +496,25 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	data.Chart, data.ChartEmpty = s.chart(lang, f, req, site, presence, now, from, to)
 	if data.ChartEmpty != hasData {
 		data.ChartEmptyText = lang.T("pano.bos." + string(data.ChartEmpty) + "." + string(sourceBeacon))
+	}
+	// Asked once for the page and only when a beacon card or the chart
+	// says the period is empty - the state that costs a page nothing
+	// else to draw, so the one extra call lands where it answers
+	// something.
+	//
+	// And said once: on the chart when the chart is empty, since it is
+	// the widest block and sits above the cards; otherwise on the first
+	// quiet beacon card (a site that turned both charted cards off has
+	// no chart). The first version put it on every quiet card and the
+	// chart, and the screenshot showed the same date five times.
+	if len(quietBeacon) > 0 || data.ChartEmpty == nothingInRange {
+		if line := s.lastBeaconEvent(ctx, lang, f, siteID); line != "" {
+			if data.ChartEmpty == nothingInRange {
+				data.ChartEmptyText += " " + line
+			} else {
+				data.Cards[quietBeacon[0]].EmptyText += " " + line
+			}
+		}
 	}
 
 	// The histogram and the coverage summary. Fetched separately from the
@@ -792,4 +821,25 @@ func pastPausesText(lang *ui.Language, f *ui.Formatter, spans []panel.PauseSpan)
 		text += " " + lang.Tf("pano.duraklatma_oncesi", earlier)
 	}
 	return lang.Tf("pano.duraklatilmisti", text)
+}
+
+// lastBeaconEvent is the sentence naming when this site's snippet last
+// reported, or nothing when that cannot be said.
+//
+// Nothing rather than a guess on failure, the rule presence follows: the
+// card already says the period is empty, which is true, and a failed
+// lookup must not turn it into "never reported". Nothing too when the
+// answer is "never": nothingInRange means presence found the site's
+// events, so a nil here is a race with retention or a failed read, and
+// either way not a sentence worth adding.
+func (s *Server) lastBeaconEvent(ctx context.Context, lang *ui.Language, f *ui.Formatter, siteID string) string {
+	act, err := s.Analytics.BeaconActivity(ctx, siteID)
+	if err != nil {
+		s.logger().Warn("panel: reading the beacon's last event", "site", siteID, "err", err)
+		return ""
+	}
+	if act.LastEvent == nil {
+		return ""
+	}
+	return lang.Tf("pano.son_olay", f.SinceAt(*act.LastEvent, act.AsOf))
 }

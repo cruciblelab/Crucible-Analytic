@@ -225,6 +225,7 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel
 			lang.T("saglik.tani.disarida.gunluk"),
 			lang.T("saglik.tani.disarida.site"),
 			lang.T("saglik.tani.disarida.sir"),
+			lang.T("saglik.tani.disarida.beacon_site"),
 		},
 	}
 	out.Schema = s.diagnosticSchema(ctx)

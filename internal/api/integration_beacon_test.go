@@ -861,6 +861,52 @@ func TestStore_RealTimescaleDB_BeaconSitesListsOnlyBeaconSites(t *testing.T) {
 	}
 }
 
+// TestStore_RealTimescaleDB_BeaconActivityIsTheNewestAndTheLastHour.
+//
+// Events on both sides of the hour, a second site whose event is newer
+// than every one of the first site's (so a probe that forgot site_id
+// answers with the wrong time), and a site that never sent anything.
+// The bot-flagged event is the newest of the site: the question is
+// whether the snippet reports, so it counts.
+func TestStore_RealTimescaleDB_BeaconActivityIsTheNewestAndTheLastHour(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	site, other, never := "api-beacon-activity", "api-beacon-activity-b", "api-beacon-activity-yok"
+	newest := now.Add(-10 * time.Minute)
+
+	store := seedBeacon(t, []beaconSeed{
+		{site: site, visitor: "v1", at: now.Add(-3 * time.Hour)},
+		{site: site, visitor: "v2", at: now.Add(-70 * time.Minute)},
+		{site: site, visitor: "v3", at: now.Add(-30 * time.Minute)},
+		{site: site, visitor: "v4", at: newest, botUA: true},
+		{site: other, visitor: "v5", at: now.Add(-1 * time.Minute)},
+	})
+	testdb.CleanSite(t, testdb.Admin(t), never)
+
+	got, err := store.BeaconActivity(context.Background(), site)
+	if err != nil {
+		t.Fatalf("BeaconActivity: %v", err)
+	}
+	if got.LastEvent == nil || !got.LastEvent.Equal(newest) {
+		t.Errorf("the last event is %v, want %v - the site's newest, not another site's "+
+			"and not its oldest", got.LastEvent, newest)
+	}
+	if got.LastHour != 2 {
+		t.Errorf("the last hour holds %d events, want 2 (30 and 10 minutes ago; "+
+			"70 minutes and 3 hours ago are outside it)", got.LastHour)
+	}
+	if d := got.AsOf.Sub(now); d < -time.Minute || d > time.Minute {
+		t.Errorf("as_of is %v, %v from this test's clock - it should be the database's now", got.AsOf, d)
+	}
+
+	none, err := store.BeaconActivity(context.Background(), never)
+	if err != nil {
+		t.Fatalf("BeaconActivity for a site with nothing: %v", err)
+	}
+	if none.LastEvent != nil || none.LastHour != 0 {
+		t.Errorf("a site that never sent anything answered %v / %d, want nil / 0", none.LastEvent, none.LastHour)
+	}
+}
+
 func TestStore_RealTimescaleDB_EmptyRangeIsZeroNotAnError(t *testing.T) {
 	// A site with no beacon data at all must produce zeroes and empty
 	// lists, not errors or nulls - a panel showing a brand new site

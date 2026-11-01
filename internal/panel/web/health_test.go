@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -182,18 +183,64 @@ var visitorWords = []string{
 //
 // By field name rather than by value: a value test would need the field
 // to exist first, which is one commit too late.
+//
+// # Every type the page can reach, not a list
+//
+// It named five types by hand until 2026-11-02, and B3g's first version
+// put an hourly event count per site on this page in a type declared in
+// a new file - beaconactivity.go - that the list did not name. So the
+// types are now everything reachable from healthPage, across packages,
+// by reflection: 33 of them where five were checked.
 func TestTheHealthPageCarriesNoVisitorNumbers(t *testing.T) {
-	forbidden := visitorWords
-	for _, typeName := range []string{"healthPage", "healthService", "healthStorage", "healthCounter", "healthAPI"} {
-		for _, field := range structFieldNames(t, "health.go", typeName) {
-			lower := strings.ToLower(field)
-			for _, word := range forbidden {
-				if strings.Contains(lower, word) {
-					t.Errorf("%s has a field named %q; nothing on the health page may be a number "+
+	// notAboutVisitors are field names that contain a word below and mean
+	// something else, each with what it is.
+	notAboutVisitors := map[string]string{
+		"web.healthFilesystem.Paths": "the mount points a filesystem carries - directories, not a visitor's pages",
+	}
+	used := map[string]bool{}
+	seen := map[reflect.Type]bool{}
+	var walk func(reflect.Type)
+	walk = func(tp reflect.Type) {
+		for tp.Kind() == reflect.Pointer || tp.Kind() == reflect.Slice ||
+			tp.Kind() == reflect.Array || tp.Kind() == reflect.Map {
+			tp = tp.Elem()
+		}
+		if tp.Kind() != reflect.Struct || seen[tp] {
+			return
+		}
+		seen[tp] = true
+		for i := range tp.NumField() {
+			field := tp.Field(i)
+			key := tp.String() + "." + field.Name
+			for _, name := range []string{field.Name, strings.Split(field.Tag.Get("json"), ",")[0]} {
+				lower := strings.ToLower(name)
+				for _, word := range visitorWords {
+					if name == "" || !strings.Contains(lower, word) {
+						continue
+					}
+					if _, ok := notAboutVisitors[key]; ok {
+						used[key] = true
+						continue
+					}
+					t.Errorf("%s is a field named %q; nothing on the health page may be a number "+
 						"about a visitor - that is the isolation this panel's whole design rests on",
-						typeName, field)
+						key, name)
 				}
 			}
+			walk(field.Type)
+		}
+	}
+	walk(reflect.TypeOf(healthPage{}))
+
+	if len(seen) < 20 {
+		t.Fatalf("reached %d types from healthPage; the walk is not following the page", len(seen))
+	}
+	if !seen[reflect.TypeOf(beaconActivityRow{})] {
+		t.Error("the walk did not reach the beacon section's row, the type that escaped the old list")
+	}
+	for key := range notAboutVisitors {
+		if !used[key] {
+			t.Errorf("%s is exempted and no longer matches anything; remove it", key)
 		}
 	}
 }
