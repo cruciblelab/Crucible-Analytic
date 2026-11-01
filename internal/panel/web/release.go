@@ -173,8 +173,12 @@ func (s *Server) releasePost(r *http.Request, db releaseStore, lang *ui.Language
 	// The operation record opens before the work, so its id reaches the
 	// log lines the work produces - including the upgrader's, which runs
 	// in another process and finds the id on the request row.
+	//
+	// The typed version is the target and not the site: it is read
+	// before anything checks it, and BeginOperation cleans and cuts a
+	// target where an over-long site would have cost the record.
 	op, opErr := db.BeginOperation(r.Context(), access,
-		panel.ActionReleaseRequested, "release", typed)
+		panel.ActionReleaseRequested, typed, "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the release", "err", opErr)
 	}

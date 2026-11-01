@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -307,7 +308,7 @@ func (s *Server) backupVerifyPost(r *http.Request, db backupStore, lang *ui.Lang
 	}
 
 	op, opErr := db.BeginOperation(r.Context(), access,
-		panel.ActionBackupVerified, "backup", strconv.FormatInt(id, 10))
+		panel.ActionBackupVerified, backupTarget(id), "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the check", "err", opErr)
 	}
@@ -364,7 +365,7 @@ func (s *Server) backupRestorePost(r *http.Request, db backupStore, lang *ui.Lan
 	}
 
 	op, opErr := db.BeginOperation(r.Context(), access,
-		panel.ActionBackupRestored, "backup", strconv.FormatInt(id, 10))
+		panel.ActionBackupRestored, backupTarget(id), "")
 	if opErr != nil {
 		s.logger().Warn("panel: could not open an operation record for the restore", "err", opErr)
 	}
@@ -439,4 +440,14 @@ func backupErrorText(lang *ui.Language, err error) string {
 		// nothing.
 		return lang.T("saglik.yedek.secim_yok")
 	}
+}
+
+// backupTarget names one backup in an operation record, in the audit
+// log's words for it, so the two records read side by side.
+//
+// The number used to go into the record's site column. It fit - a
+// number is short - and it said the operation happened to a site called
+// "17". BeginOperation now refuses a site that is not one.
+func backupTarget(id int64) string {
+	return fmt.Sprintf("yedek-%d", id)
 }

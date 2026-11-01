@@ -141,7 +141,7 @@ func (s *Server) restartPost(r *http.Request, db restartStore, lang *ui.Language
 		section.Failed = true
 		log.Warn("panel: restart request refused", "err", err, "service", service)
 		op.Step("istek yaz", false, "")
-		_ = op.Finish(r.Context(), restartOutcome(err), err, nil)
+		_ = op.Finish(r.Context(), outcomeFor(err), err, nil)
 		return section, ""
 	}
 
@@ -151,25 +151,6 @@ func (s *Server) restartPost(r *http.Request, db restartStore, lang *ui.Language
 	op.Step("istek yaz", true, "")
 	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, nil)
 	return section, ""
-}
-
-// restartOutcome is a refusal or a failure.
-//
-// Every refusal this store can give is the system working - a missing
-// password, a service that cannot hear, a press inside the minute - and
-// burying them among failures is how a real fault gets missed.
-func restartOutcome(err error) panel.Outcome {
-	switch {
-	case errors.Is(err, panel.ErrSettingNotWritable),
-		errors.Is(err, panel.ErrRestartNeedsPassword),
-		errors.Is(err, panel.ErrRestartUnknownService),
-		errors.Is(err, panel.ErrRestartCannotHear),
-		errors.Is(err, panel.ErrRestartNeverReported),
-		errors.Is(err, panel.ErrRestartTooSoon):
-		return panel.OutcomeRefused
-	default:
-		return panel.OutcomeFailed
-	}
 }
 
 // restartErrorText turns a refusal into a sentence that says what to do

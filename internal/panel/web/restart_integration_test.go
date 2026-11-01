@@ -347,6 +347,7 @@ func TestPressingRestartWithAWrongPasswordWritesNothing(t *testing.T) {
 	p := newRestartPage(t)
 	p.ran(testdb.Collector, 10*time.Minute, 5*time.Second)
 
+	since := dbNow(t)
 	_, body := postForm(t, p.client, p.server.URL+HealthPath, url.Values{
 		"eylem":           {eylemYenidenBaslat},
 		restartFormField:  {testdb.Collector},
@@ -354,6 +355,14 @@ func TestPressingRestartWithAWrongPasswordWritesNothing(t *testing.T) {
 	})
 	if p.requested(testdb.Collector) {
 		t.Error("a wrong password wrote a request")
+	}
+	// And the operation record calls it a refusal. B3e merged its own
+	// classifier into outcomeFor; nothing asked what the record said,
+	// so recording every restart refusal as a failure passed the suite.
+	if _, _, outcome, found := operationSince(t, panel.ActionRestartRequested, since); !found {
+		t.Error("no operation was recorded for the refused press")
+	} else if outcome != string(panel.OutcomeRefused) {
+		t.Errorf("a wrong password is recorded as %q, want %q", outcome, panel.OutcomeRefused)
 	}
 	section := restartSectionOf(t, body)
 	if !strings.Contains(section, testLang(t).T("saglik.yb.parola_gerek")) {

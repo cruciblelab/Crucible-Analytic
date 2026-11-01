@@ -24522,3 +24522,75 @@ görüntüsündeki seçili collector ve D'nin bulduğu bozulmuş test. Bir
 tuzak da çıktı: ajan ağaçları deponun içinde (`.claude/worktrees/`) ve
 dosya sistemini gezen değişmezler onları da tarıyor. Kapı ancak ağaçlar
 kaldırıldıktan sonra anlamlı.
+
+## İşlem kaydına site olmayan değer — H9 (2026-11-02)
+
+B3e'yi dört ajanla yaptığımda panel dilimini yazan ajanın raporunda
+ölçülmemiş bir not vardı: *"`web/release.go` sürümü
+`panel_operations.site_id`'ye yazıyor olabilir."* Ölçülmemiş bir not,
+ölçülene kadar bir sorudur. Sorduğumda doğru çıktı ve tek başına da
+değildi.
+
+**Ne yazılıyordu.** `BeginOperation`'ın imzası `(action, target, site)`.
+Altı çağıranın üçü son argümanı eldeki ayrıntı için kullanıyordu: sürüm
+formu kişinin yazdığı sürümü, yedek kontrolü ve geri yükleme yedeğin
+numarasını. Numara kısa, sığıyordu; kayıt "17 adlı sitede yedek
+denetlendi" diyordu. Sürüm ise formdan **hiçbir şey denetlemeden**
+okunuyor (kayıt işten önce açılıyor, kimliği günlük satırlarına girsin
+diye), ve `site_id` `idx_panel_operations_site`'ın anahtarı. Gerçek
+tabloda `panel_user` olarak: 3.200 baytlık birbirinden farklı dört
+baytlık karakter (H7'nin dersi: tekrar eden karakter sıkışır ve sınırı
+saklar) → `index row size 3224 exceeds btree version 4 maximum 2704`.
+`BeginOperation` hata döndü, işleyici bir WARN yazdı ve `op` nil ile
+devam etti. Ardından gelen ret yalnız günlükte kaldı; kaydın amacı tam da
+buydu. NUL içeren sürüm de aynı yoldan düşüyordu.
+
+H8'in defteri (`indexedtext_integration_test.go`) bu sütun için "site
+sayfasının sitesi, `siteAccess`'te `Keyable`" diyordu. Defter bir
+**iddia** tutuyordu, çağıranları değil. Altı çağıranın üçü için yanlıştı.
+Defterin satırı artık yazarın kendi korumasını adlandırıyor.
+
+**Düzeltme iki katmanda.** Yazar, site olmayan bir değeri (`Keyable`
+değil) PostgreSQL'den önce ve adıyla reddediyor. Ayrıntının yeri
+`target`: indekssiz, yazılmadan önce `Storable` ve 256 bayta kesiliyor.
+Formlar düzeldi: sürüm hedef oldu, yedekler denetim kaydının adıyla
+(`yedek-<n>`) hedef oldu, site boş. Yazarın reddi yalnız uzun ve bozuk
+değeri yakalıyor; "v9.9.9" `Keyable`. Yani formların doğru argümanı
+geçtiğini yalnız formu basan testler söyleyebilir. Mutasyonların ikisi
+(M2: sürüm hem hedef hem site; M3/M4: numara site) bunu gösteriyor.
+
+**Aynı kayıtlarda ikinci kusur.** İlk testim uzun sürümün "refused"
+yazılmasını bekledi ve "failed" buldu. `outcomeFor` Ayarlar sayfasının
+beş retini biliyordu. Şema yükseltmesi, sürüm, üç yedek düğmesi ve
+aralık yenileme de onu çağırıyordu ve hiçbirinin reti listede değildi.
+Yanlış geliştirici parolası, sürüm olmayan sürüm, zaten süren yedek:
+hepsi "başarısız" kaydediliyordu. Kodun kendi yorumu ve şemanın yorumu
+tam bunun tehlikesini anlatıyordu. B3e'nin yeniden başlatma formu (ajan
+C) bunu fark etmiş ve kendi listesini kurmuştu. O listeyi
+`OutcomeFailed`'a çeviren mutasyon da (M16) sağ kaldı: hiçbir test
+kaydın ne dediğini sormuyordu. *Bir sınıflandırıcıyı kopyalamak bir
+kusuru düzeltir; tek bir listeye taşımak sınıfı kapatır, o listeyi
+türetmek de kapalı tutar.* Tek liste `operationRefusals`; çürümemesi için
+`internal/panel`'in her `Err…` değişkeni kaynaktan (go/parser) okunuyor
+ve test tablosunda ya ret ya gerekçeli "işlem kaydı olmayan yer" diye
+sınıflandırılmış olmak zorunda. Okuyucunun boş liste döndürmesi (M15) de
+alt sınırla yakalanıyor.
+
+**Kendi kusurum.** Yedek testinin ilk hâli, yanlış parolanın iki düğmeyi
+durduracağını varsaydı. Durdurmuyor: ikisi de bilerek parolasız
+(`VerifyBackup`'ın yorumu: "yedeğim sağlam mı" sorusu bize sorulacak bir
+soru olmamalı). İlk koşu paylaşılan veritabanında 987654321 numaralı
+yedek için bekleyen bir kontrol isteği bıraktı. Kuyruğun tek yuvası
+dolduğu için sonraki mutasyon turunda geri yükleme "zaten süren bir yedek"
+diye reddedildi: M18'i yakalayan, testin kendi kalıntısıydı. Satır
+silindi. Test artık `BackupQueueLock`'u (testdb'nin bildirdiği sırayla,
+`AccountsLock`'tan önce) alıp kuyruğu iki uçta da süpürüyor ve
+kontrolün başarısını, ardından geri yüklemenin "kuyruk dolu" reddini
+kasten ölçüyor. *Bir yan etkinin olmadığını varsaymak, onu ölçmeden
+önce bir düzeneği kirletmektir.* Kontrol: bütün koşulardan sonra
+`panel_backup_requests` 0 satır.
+
+**Rakamlar:** 18 mutasyon, 18'i kırmızı (`$SP/mutasyon-h9.py`). İlk turda
+M16 sağ kaldı, M5 derlenmedi (mutasyon `fmt`'yi kullanılmaz bıraktı);
+ikisi de düzeltilip yeniden koşuldu. `-run` deseni test dosyalarındaki
+adlardan türetiliyor (B3e'nin beşinci dersi).

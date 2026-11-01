@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **7/8** | H3 — *(**H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **8/9** | H3 — *(**H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -8034,6 +8034,62 @@ servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
 aşamaya hiç girilmemişti.
 
 ---
+
+#### H9 — İşlem kaydına site olmayan değer yazılıyordu ✅ **yapıldı (2026-11-02)**
+
+*B3e'nin ajan raporundaki ölçülmemiş bir nottan açıldı: "`web/release.go`
+sürümü `panel_operations.site_id`'ye yazıyor olabilir." Yazıyordu.*
+
+**Kusur:** `BeginOperation(…, action, target, site)`'in son argümanını üç
+form site olmayan bir şey için kullanıyordu. Sürüm formu kişinin yazdığı
+sürümü, iki yedek düğmesi yedeğin numarasını oraya koyuyordu. Sürüm
+formundaki hâl yalnız yanlış ad değildi: değer hiçbir şey onu
+denetlemeden okunuyor, `site_id` `idx_panel_operations_site`'ın anahtarı,
+ve 2704 bayttan uzun bir girdi işlemin **kaydının kendisini** düşürüyordu.
+Gerçek tabloda, düzeltmeden önce: 3.200 baytlık birbirinden farklı dört
+baytlık karakter → `index row size 3224 exceeds btree version 4 maximum
+2704`. Ardından gelen ret yalnız günlüğe yazıldı. NUL içeren bir sürüm de
+aynı sonucu veriyordu. H8'in defteri bu sütun için "site sayfasının
+sitesi, `siteAccess`'te `Keyable`" diyordu; üç çağrı için doğru değildi.
+
+**Yolda ikinci kusur, aynı kayıtlarda:** `outcomeFor` yalnız Ayarlar
+sayfasının beş retini tanıyordu ve beş form daha onu çağırıyordu (şema
+yükseltmesi, sürüm, üç yedek düğmesi, aralık yenileme). Hiçbirinin reti
+listede değildi: yanlış geliştirici parolası, sürüm olmayan bir sürüm,
+zaten süren bir yedek — hepsi **başarısız** diye kaydediliyordu. Tablonun
+şeması reddi ayrı bir sonuç olarak tutmasının sebebini "retleri
+başarısızlıkların arasına gömmek gerçek bir arızanın gözden kaçma yolu"
+diye yazıyor. B3e'nin yeniden başlatma formu bunu fark edip kendi listesini
+kurmuştu, ama onu soran bir test yoktu (o liste `OutcomeFailed`'a
+çevrilince bütün süit yeşil kalıyordu).
+
+**Düzeltme:** `BeginOperation` site olmayan bir değeri (`siteid.Keyable`
+değil) adıyla reddediyor; ayrıntının yeri `target`, ve o yazılmadan önce
+temizleniyor (`textsafe.Storable`) ve 256 bayta kesiliyor. Sürüm formu
+yazılan sürümü hedef olarak, yedek düğmeleri denetim kaydının adıyla
+(`yedek-<n>`) gönderiyor, siteyi boş bırakıyor. Tek ret listesi
+(`operationRefusals`); yeniden başlatmanınki ona katıldı. Listenin
+çürümemesi türetilmiş: `internal/panel`'in bildirdiği her `Err…`
+değişkeni kaynaktan okunuyor ve her birinin bir test satırında
+sınıflandırılmış olması gerekiyor — yeni bir ret ya listeye girer ya da
+niye girmediği yazılır.
+
+**Ölçüldü:** gerçek işleyiciyle (formu basarak) uzun sürüm reddedildi ve
+**kaydedildi**, hedef yazılanın ilk ≤256 baytı, site boş; NUL'lu sürüm
+temizlenmiş hedefle kaydedildi; yanlış parola artık "refused"; yedek
+kontrolü kaydını başarıyla, ardından gelen geri yükleme (kuyruk dolu)
+"refused" olarak yazıyor. 18 mutasyon, 18'i kırmızı; ilk turda biri
+(yeniden başlatmanın sonucu) sağ kaldı ve var olan bir teste iddia
+ekletti. **Yolda kendi kusurum:** ilk yedek testi yanlış parolanın
+düğmeleri durduracağını varsaydı. Durdurmuyor, ikisi de bilerek parolasız.
+İlk koşu paylaşılan veritabanında bekleyen bir kontrol isteği bıraktı ve
+kuyruğun tek yuvasını tuttu. Satır silindi, test artık `BackupQueueLock`'u
+alıp kuyruğu iki uçta da süpürüyor.
+
+**Açık:** `panel_operations`'ı okuyan bir panel sayfası hâlâ yok
+(geliştirici tabloya bakıyor), yani bu kayıtların okuyucusu bugün yalnız
+destek oturumu.
+
 
 ## 2.5 Ara iş (bu fazda yapıldı): sunucu otoritesi ve log ağacı
 

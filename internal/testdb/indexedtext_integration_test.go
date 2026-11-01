@@ -47,7 +47,7 @@ var indexedText = map[string]string{
 	"panel_settings.site_id":       "a site page's site, siteid.Keyable at siteAccess",
 	"panel_site_members.site_id":   "a site page's site, or the configured list the panel re-validates on read (TestTheConfiguredSitesLeaveOutWhatNoSiteCanBe)",
 	"panel_member_invites.site_id": "a site page's site, siteid.Keyable at siteAccess",
-	"panel_operations.site_id":     "a site page's site, siteid.Keyable at siteAccess",
+	"panel_operations.site_id":     "BeginOperation refuses a site that is not siteid.Keyable (TestAnOperationsSiteMustBeASite); details go in target",
 	"panel_audit_log.site_id":      "a site page's site, siteid.Keyable at siteAccess",
 	"panel_logs.site_id":           "a log attribute, cut to logsink.maxKeyBytes (TestAnOverLongSiteOrOperationStillWritesItsLine)",
 

@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
+	"github.com/cruciblelab/crucible-analytic/internal/textsafe"
 )
 
 // An operation is what happened while somebody was changing something.
@@ -66,11 +69,42 @@ const (
 	OutcomeRefused Outcome = "refused"
 )
 
+// maxOperationTargetBytes is the longest target an operation records.
+//
+// target is not indexed, so this is not PostgreSQL's limit. It is here
+// because the column names what was being changed, and some callers
+// name it with what somebody typed - the release form's version, before
+// anything has checked it. A record that keeps the first 256 bytes of a
+// three-kilobyte paste still says what was attempted; one that keeps
+// all of it says nothing more.
+const maxOperationTargetBytes = 256
+
 // BeginOperation opens a record and returns it with its id.
 //
 // The id is usable immediately - that is the point - so a caller can
 // attach it to every log line the work produces before the work starts.
+//
+// # site is a site, and only a site
+//
+// site_id is a key of idx_panel_operations_site, and the column means
+// "the site this happened to". Until 2026-11-02 three callers used it
+// for whatever detail they had: the release form put the version the
+// person typed there, the backup check and restore put the backup's
+// number. The first was a fault, not only a misnomer - the version is
+// read from the form before anything checks it, a typed string of more
+// than 2704 bytes is an index entry PostgreSQL refuses, and the INSERT
+// that was the record of the attempt failed with it. The refusal that
+// followed was logged and never recorded. So a value that is not a site
+// identifier is refused here by name, before it can be refused by the
+// index without one; the detail belongs in target, which is cleaned and
+// cut instead.
 func (s *Store) BeginOperation(ctx context.Context, a Access, action, target, site string) (*Operation, error) {
+	if site != "" && !siteid.Keyable(site) {
+		return nil, fmt.Errorf("panel: begin operation: the site of a %s operation is not a site id "+
+			"(%d bytes) - a detail belongs in target", action, len(site))
+	}
+	target = textsafe.FitBytes(textsafe.Storable(target), maxOperationTargetBytes)
+
 	id, err := newOperationID()
 	if err != nil {
 		return nil, err

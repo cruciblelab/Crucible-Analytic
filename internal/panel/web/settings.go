@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
@@ -339,17 +340,54 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 // missing capability, a wrong password, a value out of bounds - and
 // burying those among genuine faults is how a real one gets missed in a
 // list of them.
+//
+// # One list for every form that records an operation
+//
+// It was the settings page's, and five more forms called it: the schema
+// upgrade, the release, the three backup buttons and the range refresh.
+// None of their refusals were on it, so a wrong developer password on
+// any of them, a version that is not one, a backup already running,
+// were all recorded as failures - the burying this function exists to
+// prevent, in every operation that was not a setting. The restart form
+// (B3e) had noticed and grown a list of its own; it is merged here, so
+// there is one place to add a refusal and one test that asks for it
+// (TestEveryRefusalThePanelNamesIsRecordedAsOne).
 func outcomeFor(err error) panel.Outcome {
-	switch {
-	case errors.Is(err, panel.ErrSettingNotWritable),
-		errors.Is(err, panel.ErrDeveloperPasswordRequired),
-		errors.Is(err, panel.ErrUnknownSetting),
-		errors.Is(err, panel.ErrPreconditionUnmet),
-		errors.Is(err, panel.ErrInvalidSetting):
-		return panel.OutcomeRefused
-	default:
-		return panel.OutcomeFailed
+	for _, refusal := range operationRefusals {
+		if errors.Is(err, refusal) {
+			return panel.OutcomeRefused
+		}
 	}
+	return panel.OutcomeFailed
+}
+
+// operationRefusals are the errors a form that records an operation can
+// be refused with.
+var operationRefusals = []error{
+	// Settings.
+	panel.ErrSettingNotWritable,
+	panel.ErrDeveloperPasswordRequired,
+	panel.ErrUnknownSetting,
+	panel.ErrPreconditionUnmet,
+	panel.ErrInvalidSetting,
+	// Schema upgrade.
+	panel.ErrUpgradeLocked,
+	panel.ErrUpgradeNotNeeded,
+	// Release.
+	panel.ErrReleaseLocked,
+	panel.ErrReleaseBadVersion,
+	// Backups.
+	panel.ErrSecretsPasswordRequired,
+	panel.ErrBackupInFlight,
+	backup.ErrMixedRequest,
+	// Range refresh.
+	panel.ErrRangeRefreshBusy,
+	// Restart.
+	panel.ErrRestartNeedsPassword,
+	panel.ErrRestartUnknownService,
+	panel.ErrRestartCannotHear,
+	panel.ErrRestartNeverReported,
+	panel.ErrRestartTooSoon,
 }
 
 // authorizeSetting verifies the developer password for one setting.

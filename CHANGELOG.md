@@ -24,6 +24,19 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Sağlık sayfasındaki işlemlerin kaydı, retleri doğru adlandırıyor ve uzun bir sürüm adıyla kaybolmuyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.
+
+Panel, Sağlık sayfasındaki düğmelere her basışı bir işlem kaydına yazıyor
+(destek bu kayda bakıyor). İki kusur vardı. Sürüm güncellemesi alanına
+2,7 KB'tan uzun bir metin yazılırsa kaydın kendisi veritabanına
+yazılamıyordu ve ret yalnız günlükte kalıyordu. Şema yükseltmesi, sürüm,
+yedek ve IP aralığı yenileme düğmelerinde yanlış geliştirici parolası ya
+da zaten süren bir iş gibi her ret "başarısız" diye kaydediliyordu; artık
+"reddedildi". Yedek düğmelerinin kaydı yedeği, site yerine kendi adıyla
+(`yedek-<numara>`) anıyor.
+
 ### Servisler panelden yeniden başlatılabiliyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi. Birimler
