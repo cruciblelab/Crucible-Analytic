@@ -41,10 +41,15 @@ const (
 )
 
 // settingsServerAs signs in a user with one role on settingsSite.
+//
+// On a deployment whose only site is settingsSite (setupSoleTenantServer):
+// the customer these tests mean is the one-customer deployment's, who may
+// change a deployment-wide setting when they own every site (H10). The
+// owner of one site among others is TestATenantCannotChangeTheWholeDeployment's.
 func settingsServerAs(t *testing.T, role panel.Role) (*httptest.Server, *http.Client, *panel.Store) {
 	t.Helper()
 
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	withRealAPI(t, srv)
 
 	user := makeUser(t, store, "ayar-"+string(role), false)

@@ -30,6 +30,8 @@ import (
 //	Locked    value and reason, a lock, and no control - the operator
 //	          owns this one and it carries legal weight
 //	ReadOnly  value and reason, no control - the operator owns it
+//	Shared    value and reason, no control - it applies to sites this
+//	          principal does not own (H10)
 type SettingAccess string
 
 const (
@@ -44,6 +46,10 @@ const (
 	// SettingReadOnly means the operator owns it. Visible, explained,
 	// not editable.
 	SettingReadOnly SettingAccess = "read_only"
+	// SettingShared means the setting applies to the whole deployment
+	// and the deployment has sites this principal does not own. Visible,
+	// explained, not editable. See Access.OwnsEverySite.
+	SettingShared SettingAccess = "shared"
 )
 
 // Editable reports whether the panel should render a control at all.
@@ -89,6 +95,16 @@ func (s *Store) checkPrecondition(ctx context.Context, key Key, value any) error
 // change, and no password you could type would make it so".
 var ErrSettingNotWritable = fmt.Errorf("panel: this setting is managed by the developer")
 
+// ErrSettingShared is the refusal for a deployment-wide setting asked for
+// by somebody who does not own every site it applies to.
+//
+// It wraps ErrSettingNotWritable, because it is one - every caller that
+// treats "not yours" as a refusal goes on doing so - and is its own value
+// because the sentence differs: not "the developer manages this" but
+// "this also changes sites that are not yours", which sends the reader to
+// a different person.
+var ErrSettingShared = fmt.Errorf("%w: it applies to sites this account does not own", ErrSettingNotWritable)
+
 // operator reports whether this principal is the party that runs the
 // servers, as opposed to the customer whose site is on them.
 //
@@ -122,6 +138,26 @@ func (a Access) operator() bool {
 //
 // Being a developer-mode setting is not one of the questions. It decides
 // which page a setting appears on, not who may touch it.
+//
+// # A deployment-wide setting is not one site's to change (H10)
+//
+// A fourth question, asked of ordinary settings only, and it was missing
+// until H10: a setting whose scope is global changes every site on the
+// deployment at once - beacon.sites decides which sites' events the
+// beacon accepts at all, collector.blocked_countries refuses visitors to
+// every site, privacy.visitor_surface switches every site's disclosure
+// page off. The rule above let anybody who could manage the settings of
+// ONE site change them, an admin included, so the admin of one customer's
+// site could stop another customer's site from being measured. Measured
+// before the fix: three such writes answered 200, from an owner and from
+// an admin.
+//
+// So a global setting needs authority over every site it touches: the
+// operator, or a principal who owns every site on the deployment (the
+// one-customer deployment, where nothing changes). An admin never - the
+// panel's own welcome wizard already said deployment-wide decisions are
+// the owner's rather than their staff's. Asked after the role check, so a
+// viewer still reads the viewer's sentence.
 func (a Access) AccessTo(def Definition) SettingAccess {
 	if def.ConfigFileOnly {
 		return SettingReadOnly
@@ -134,6 +170,9 @@ func (a Access) AccessTo(def Definition) SettingAccess {
 	}
 	if !a.Can(CapManageSettings) {
 		return SettingReadOnly
+	}
+	if def.Scope == ScopeGlobal && !a.operator() && !(a.Role == RoleOwner && a.OwnsEverySite) {
+		return SettingShared
 	}
 	return SettingWritable
 }
@@ -187,6 +226,19 @@ const (
 	// us for something their own owner can grant.
 	LockNoticeViewer = "Bu ayarı görebilirsiniz; değiştirmek için ayar yönetimi yetkisi gerekir. " +
 		"Bu yetkiyi kendi hesabınızın sahibi verebilir."
+
+	// LockNoticeShared explains a deployment-wide setting to somebody who
+	// does not own every site on the deployment.
+	//
+	// Says what the setting reaches - every site, not only this one -
+	// because that is the reason, and who can change it, because a
+	// customer told only "no" asks the wrong person.
+	//
+	// Short, because it is drawn under every deployment-wide row a tenant
+	// opens - over twenty of them. The first draft was four clauses and
+	// the screenshot was the same paragraph three times in one section.
+	LockNoticeShared = "Bu ayar kurulumdaki bütün siteleri etkiler. Yalnız bütün " +
+		"sitelerin sahibi ya da işletmeci değiştirebilir."
 )
 
 // DeveloperModeNotice is what the dashboard shows when somebody opens
@@ -279,6 +331,8 @@ func (s *Store) SettingsView(ctx context.Context, a Access, site string) ([]Sett
 		switch view.Access {
 		case SettingLocked:
 			view.Lock = LockNoticeLegal
+		case SettingShared:
+			view.Lock = LockNoticeShared
 		case SettingReadOnly:
 			if def.ConfigFileOnly {
 				view.Lock = LockNoticeConfigFile

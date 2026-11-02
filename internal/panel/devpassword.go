@@ -138,8 +138,8 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 	// work. A customer is refused here on who they are, whatever they
 	// typed - so no password they could supply changes the answer, and
 	// no attempt of theirs consumes the operator's failure budget.
-	if !a.AccessTo(def).Editable() {
-		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
+	if err := refuseNotEditable(a, def); err != nil {
+		return err
 	}
 	// Checked before the write and before the audit entry, so a value
 	// the deployment cannot honour never gets recorded as if it had
@@ -189,8 +189,8 @@ func (s *Store) ClearSetting(ctx context.Context, a Access, key Key, site string
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
 	}
-	if !a.AccessTo(def).Editable() {
-		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, key)
+	if err := refuseNotEditable(a, def); err != nil {
+		return err
 	}
 	// No precondition check here, and that is not an omission: clearing
 	// restores the default, and every default is a value the deployment
@@ -312,4 +312,18 @@ func (p DeveloperPasswordPrompt) String() string {
 		fmt.Fprintf(&b, "\n\n- %s: %s", reason.Label, reason.Reason)
 	}
 	return b.String()
+}
+
+// refuseNotEditable is the entitlement check ApplySetting and ClearSetting
+// share: nil when this principal has a control for the setting, the
+// refusal that names why otherwise.
+func refuseNotEditable(a Access, def Definition) error {
+	switch access := a.AccessTo(def); {
+	case access.Editable():
+		return nil
+	case access == SettingShared:
+		return fmt.Errorf("%w (%s)", ErrSettingShared, def.Key)
+	default:
+		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, def.Key)
+	}
 }

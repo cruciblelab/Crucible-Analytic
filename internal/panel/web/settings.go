@@ -681,6 +681,10 @@ func settingErrorText(lang *ui.Language, def panel.Definition, err error) string
 	switch {
 	case errors.Is(err, panel.ErrDeveloperPasswordRequired):
 		return lang.T("ayarlar.hata.parola")
+	// Before the general refusal it wraps: the sentence says who can
+	// change it instead, and that is a different person.
+	case errors.Is(err, panel.ErrSettingShared):
+		return lang.T("ayarlar.hata.paylasilan")
 	case errors.Is(err, panel.ErrSettingNotWritable):
 		return lang.T("ayarlar.hata.yetki")
 	case errors.Is(err, panel.ErrUnknownSetting):

@@ -37,6 +37,7 @@ var panelErrors = map[string]struct {
 }{
 	// Refusals of a form that records an operation.
 	"ErrSettingNotWritable":        {panel.ErrSettingNotWritable, true, ""},
+	"ErrSettingShared":             {panel.ErrSettingShared, true, ""},
 	"ErrDeveloperPasswordRequired": {panel.ErrDeveloperPasswordRequired, true, ""},
 	"ErrUnknownSetting":            {panel.ErrUnknownSetting, true, ""},
 	"ErrPreconditionUnmet":         {panel.ErrPreconditionUnmet, true, ""},

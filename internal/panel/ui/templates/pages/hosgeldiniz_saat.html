@@ -1,6 +1,9 @@
 {{define "icerik"}}
 {{template "hosgeldiniz_ilerleme" .}}
 <p>{{t "hosgeldiniz.adim.saat.govde"}}</p>
+{{- if .Data.TimezoneShared}}
+<p class="uyari" id="saat-paylasilan">{{t "hosgeldiniz.saat.yetki"}}</p>
+{{- else}}
 <form method="post" action="" class="dar">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 <div class="alan">
@@ -21,5 +24,6 @@ found; the list beside it is examples, not the menu. */}}
 </div>
 <button type="submit">{{t "kaydet"}}</button>
 </form>
+{{- end}}
 {{template "hosgeldiniz_gezinme" .}}
 {{end}}

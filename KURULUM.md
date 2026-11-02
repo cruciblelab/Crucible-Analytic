@@ -729,6 +729,18 @@ yabancının var olan siteyi olmayandan ayırt **edememesini** sınıyor
 (404 ile 403 arasındaki fark, makinedeki müşterilerin listesini
 sızdırır).
 
+**Kurulum geneli ayarlar** (site listesi, engellenen ülkeler ve ağlar,
+gizlilik sayfası, günlük süreleri, saat dilimi ve öteki `global`
+kapsamlı ayarlar) bütün müşterileri birden etkiler. Bunları panelde
+yalnız işletmeci (geliştirici oturumu) ya da kurulumdaki **her sitenin
+sahibi** olan hesap değiştirebilir; bir sitenin yöneticisi hiçbir
+zaman. Öteki sahipler satırı ve değeri görür, kontrol görmez. "Her site",
+üyeliği olan her site ile `beacon.sites`'taki her site demek: bir
+müşteri için siteyi kurup sahibini henüz davet etmediyseniz o site de
+sayılır. Bu kural bugün ayarlar için geçerli; posta ayarları, geliştirici
+erişimi onayı ve Sağlık'taki işlemler hâlâ herhangi bir sitenin sahibine
+açık (PLAN H10, sahibin kararını bekliyor).
+
 Yine de bilmeniz gereken şudur: **bu sınır bir uygulama kontrolüdür,
 veritabanı kısıtı değildir.** Düzenleyici bir gereklilik ya da kendi
 riski nedeniyle veritabanı düzeyinde ayrım isteyen bir müşteriniz varsa,

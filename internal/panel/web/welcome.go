@@ -84,6 +84,9 @@ type welcomePage struct {
 	// overriding rather than replacing a value they never knew about.
 	Timezone           string
 	ConfiguredTimezone string
+	// TimezoneShared is set when this person may not change the zone:
+	// it applies to every site and some are not theirs (H10).
+	TimezoneShared bool
 	// Zones is a short list of plausible choices. Not exhaustive: the
 	// field accepts any zone this machine knows, and a select of six
 	// hundred names is worse than a text field with examples.
@@ -422,9 +425,12 @@ func (s *Server) saveTimezone(ctx context.Context, lang *ui.Language, p panel.Pr
 	zone string) welcomePage {
 
 	// A global setting, so it needs a global access decision rather than
-	// a per-site one.
+	// a per-site one - the same one the settings page asks of every
+	// deployment-wide setting (panel.Access.AccessTo, H10). It asked
+	// ownsAnySite until then: the owner of one customer's site could
+	// move every other customer's day boundaries.
 	access := panel.Access{Principal: p}
-	if !s.ownsAnySite(ctx, p) {
+	if !s.mayChangeDeploymentSettings(ctx, p) {
 		return welcomePage{Message: lang.T("hosgeldiniz.saat.yetki"), Failed: true}
 	}
 	if err := s.Store.SetSetting(ctx, panel.KeyPanelTimezone, "", zone, actorOf(access)); err != nil {
@@ -481,6 +487,10 @@ func (s *Server) renderWelcome(w http.ResponseWriter, r *http.Request, lang *ui.
 		}
 
 	case "saat":
+		// The form only for somebody whose save would be accepted; the
+		// others read why instead. A field that can be filled in and
+		// never saved is a worse answer than a sentence.
+		data.TimezoneShared = !s.mayChangeDeploymentSettings(ctx, p)
 		data.Timezone = s.storedTimezone(ctx)
 		data.ConfiguredTimezone = s.ConfiguredTimezone
 		data.Zones = suggestedZones
@@ -551,6 +561,27 @@ func (s *Server) configuredSites(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return toStringList(value), nil
+}
+
+// mayChangeDeploymentSettings reports whether this principal may change a
+// setting that applies to every site: the operator, or an account that
+// owns every site on the deployment (panel.Store.OwnsEverySite, H10).
+//
+// A read that fails refuses. Widening a deployment-wide write for want
+// of an answer is the one direction this must not err in.
+func (s *Server) mayChangeDeploymentSettings(ctx context.Context, p panel.Principal) bool {
+	if p.Superadmin {
+		return true
+	}
+	if p.Kind != panel.PrincipalUser {
+		return false
+	}
+	every, err := s.Store.OwnsEverySite(ctx, p.UserID)
+	if err != nil {
+		s.logger().Error("panel: asking whether an account owns every site", "err", err)
+		return false
+	}
+	return every
 }
 
 // ownsAnySite reports whether this principal owns at least one site.

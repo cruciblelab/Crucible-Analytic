@@ -884,14 +884,25 @@ func defaultValueFor(t *testing.T, def Definition) any {
 
 func customerAccess() Access {
 	// The most authority the panel can give a customer: owner of their
-	// own site, with a real membership row. UserID stays zero so the
-	// audit row records the label without a foreign key to a user this
-	// test never created.
+	// own site, with a real membership row - and, since H10, of every
+	// site on the deployment, which is the one-customer deployment these
+	// tests are about. The customer who owns one site among others is
+	// tenantAccess. UserID stays zero so the audit row records the label
+	// without a foreign key to a user this test never created.
 	return Access{
-		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
-		Role:      RoleOwner,
-		Member:    true,
+		Principal:     Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
+		Role:          RoleOwner,
+		Member:        true,
+		OwnsEverySite: true,
 	}
+}
+
+// tenantAccess is an owner of one site on a deployment that has others
+// (H10): every right on their own site, and no deployment-wide setting.
+func tenantAccess() Access {
+	a := customerAccess()
+	a.OwnsEverySite = false
+	return a
 }
 
 func operatorAccess() Access {
@@ -1003,10 +1014,7 @@ func TestApplySetting_RefusesTheCustomerWhateverTheySupply(t *testing.T) {
 	// theirs. Developer mode decides which page a setting appears on,
 	// not who may touch it, and asserting the opposite here was the
 	// mistake this test now guards against.
-	unweighted := Access{
-		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
-		Role:      RoleOwner, Member: true,
-	}
+	unweighted := customerAccess()
 	if err := store.ApplySetting(ctx, unweighted, KeyLogArchiveAfterDays, "", 3, devgate.Authorization{}, nil); err != nil {
 		t.Errorf("the customer could not change a setting with no legal weight: %v", err)
 	}
@@ -1115,10 +1123,7 @@ func TestTheVisitorSurfaceSettingsBelongToTheCustomer(t *testing.T) {
 	store := settingsStore(t)
 	ctx := context.Background()
 
-	customer := Access{
-		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
-		Role:      RoleOwner, Member: true,
-	}
+	customer := customerAccess()
 
 	// The default first: on. A deployment where nobody has been near the
 	// panel serves the disclosure.
@@ -1166,10 +1171,7 @@ func TestTheVisitorSurfaceAddressesAreCheckedBeforeTheyAreStored(t *testing.T) {
 	store := settingsStore(t)
 	ctx := context.Background()
 
-	customer := Access{
-		Principal: Principal{Kind: PrincipalUser, Label: "musteri@example.com"},
-		Role:      RoleOwner, Member: true,
-	}
+	customer := customerAccess()
 
 	for _, tc := range []struct {
 		key   Key

@@ -42,7 +42,13 @@ those are different facts and only one of them is a decision. */}}
 {{- /* A sentence, never a disabled control. Something somebody can fill
 in and then not submit is a worse answer than being told why. */}}
 <p class="kilit">{{.Lock}}</p>
+{{- /* A switch in words, as the control would have drawn it: "true" is
+the value's spelling in Go, not in the panel. */}}
+{{- if eq .Kind "bool"}}
+<p class="deger-salt-okunur">{{if .Checked}}{{t "ayarlar.acik"}}{{else}}{{t "ayarlar.kapali"}}{{end}}</p>
+{{- else}}
 <p class="deger-salt-okunur"><code>{{.Value}}</code></p>
+{{- end}}
 
 {{- else}}
 <form method="post" action="" class="ayar-form">

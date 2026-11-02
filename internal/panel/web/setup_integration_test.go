@@ -140,8 +140,31 @@ func noAccountYet(t *testing.T, store *panel.Store) {
 
 func setupTestServer(t *testing.T) (*Server, *panel.Store) {
 	t.Helper()
+	return setupTestServerAt(t, testDatabaseURL)
+}
 
-	store, err := panel.NewStore(context.Background(), testDatabaseURL)
+// setupSoleTenantServer is setupTestServer on a deployment whose sites
+// are this test's alone: panel_site_members and panel_settings are copies
+// in a schema of its own (testdb.SiteCopy), everything else is shared.
+//
+// For the tests about a one-customer deployment, where the owner may
+// change deployment-wide settings (H10). On the shared tables that
+// deployment cannot exist - every suite's sites are on them - and a test
+// that needs it would be refused, correctly, by the product.
+func setupSoleTenantServer(t *testing.T) (*Server, *panel.Store) {
+	t.Helper()
+	// Before the server, so the schema is dropped after its pool closes.
+	sites := testdb.NewSiteCopy(t, "ca_h10_web_tek")
+	srv, store := setupTestServerAt(t, sites.DSN(testDatabaseURL))
+	sites.Reaches(store.Pool())
+	return srv, store
+}
+
+// setupTestServerAt is setupTestServer against a chosen DSN.
+func setupTestServerAt(t *testing.T, dsn string) (*Server, *panel.Store) {
+	t.Helper()
+
+	store, err := panel.NewStore(context.Background(), dsn)
 	if err != nil {
 		t.Fatalf("NewStore: %v (is the database up and installed? see internal/testdb)", err)
 	}

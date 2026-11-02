@@ -23,8 +23,19 @@ func TestAccessTo(t *testing.T) {
 	owner := Access{Principal: Principal{Kind: PrincipalUser, Label: "owner"}, Role: RoleOwner, Member: true}
 	admin := Access{Principal: Principal{Kind: PrincipalUser, Label: "admin"}, Role: RoleAdmin, Member: true}
 	viewer := Access{Principal: Principal{Kind: PrincipalUser, Label: "viewer"}, Role: RoleViewer, Member: true}
+	// The one-customer deployment: this owner owns every site on it.
+	soleOwner := owner
+	soleOwner.OwnsEverySite = true
+	// OwnsEverySite on an admin is a value AccessFor never produces; set
+	// here so the role half of the rule is asked on its own, rather than
+	// riding on the field being false.
+	adminEvery := admin
+	adminEvery.OwnsEverySite = true
 
 	ordinary := Definition{Key: "test.ordinary"}
+	sitewide := Definition{Key: "test.site", Scope: ScopeSite}
+	global := Definition{Key: "test.global", Scope: ScopeGlobal}
+	globalGuarded := Definition{Key: "test.global.guarded", Scope: ScopeGlobal, RequiresDeveloperPassword: true}
 	developerOwned := Definition{Key: "test.developer", Developer: true}
 	guarded := Definition{Key: "test.guarded", Developer: true, RequiresDeveloperPassword: true}
 	configFile := Definition{Key: "test.configfile", Developer: true, ConfigFileOnly: true}
@@ -61,6 +72,23 @@ func TestAccessTo(t *testing.T) {
 		{"operator, config file", operator, configFile, SettingReadOnly},
 		{"owner, config file", owner, configFile, SettingReadOnly},
 		{"viewer, config file", viewer, configFile, SettingReadOnly},
+
+		// H10: a deployment-wide setting needs authority over every site.
+		{"operator, global", operator, global, SettingWritable},
+		{"developer session, global", developer, global, SettingWritable},
+		{"owner of every site, global", soleOwner, global, SettingWritable},
+		{"owner of one site among others, global", owner, global, SettingShared},
+		{"owner of one site among others, per-site", owner, sitewide, SettingWritable},
+		{"admin, global", admin, global, SettingShared},
+		{"admin flagged as owning every site, global", adminEvery, global, SettingShared},
+		{"admin, per-site", admin, sitewide, SettingWritable},
+		// The role check comes first: a viewer reads the viewer's
+		// sentence, not the shared one.
+		{"viewer, global", viewer, global, SettingReadOnly},
+		// And a guarded global setting stays the operator's, password and
+		// all; owning every site does not open it.
+		{"owner of every site, global guarded", soleOwner, globalGuarded, SettingLocked},
+		{"operator, global guarded", operator, globalGuarded, SettingGated},
 	}
 
 	for _, tc := range cases {
@@ -78,15 +106,17 @@ func TestAccessTo_NoSettingIsInvisibleToAnyone(t *testing.T) {
 	for _, a := range []Access{
 		{Principal: Principal{Superadmin: true}},
 		{Principal: Principal{}, Role: RoleOwner},
+		{Principal: Principal{}, Role: RoleOwner, OwnsEverySite: true},
+		{Principal: Principal{}, Role: RoleAdmin},
 		{Principal: Principal{}, Role: RoleViewer},
 		{Principal: Principal{}}, // no role at all
 	} {
 		for _, def := range AllDefinitions() {
 			access := a.AccessTo(def)
 			switch access {
-			case SettingWritable, SettingGated, SettingLocked, SettingReadOnly:
+			case SettingWritable, SettingGated, SettingLocked, SettingReadOnly, SettingShared:
 			default:
-				t.Errorf("%s produced %q, which is not one of the four renderable states", def.Key, access)
+				t.Errorf("%s produced %q, which is not one of the five renderable states", def.Key, access)
 			}
 		}
 	}
@@ -259,7 +289,10 @@ func TestRegistry_OnlyLegallyWeightedSettingsAreWithheld(t *testing.T) {
 		weighted[key] = true
 	}
 
-	customer := Access{Principal: Principal{Kind: PrincipalUser}, Role: RoleOwner, Member: true}
+	// The customer who owns the whole deployment: the one-customer case,
+	// where H10's rule withholds nothing. A customer who owns one site
+	// among others is asked about below.
+	customer := Access{Principal: Principal{Kind: PrincipalUser}, Role: RoleOwner, Member: true, OwnsEverySite: true}
 	for _, def := range AllDefinitions() {
 		editable := customer.AccessTo(def).Editable()
 		switch {
@@ -375,5 +408,41 @@ func TestConfigFileSettings_EveryEntryExplainsItself(t *testing.T) {
 		// "you may not" goes looking for who may; told "nobody does this
 		// here", they know the shape of the answer.
 		t.Errorf("the notice does not say the limit applies to everyone:\n%s", ConfigFileNotice)
+	}
+}
+
+// TestAnOwnerOfOneSiteChangesNoDeploymentWideSetting is H10's rule over
+// the real registry: an owner who does not own every site has a control
+// for every ordinary per-site setting and for no global one, and every
+// global one it withholds says why with the shared sentence - never the
+// developer's or the viewer's, which would send the reader to the wrong
+// person.
+func TestAnOwnerOfOneSiteChangesNoDeploymentWideSetting(t *testing.T) {
+	owner := Access{Principal: Principal{Kind: PrincipalUser}, Role: RoleOwner, Member: true}
+	globals := 0
+	for _, def := range AllDefinitions() {
+		if def.ConfigFileOnly || def.RequiresDeveloperPassword {
+			continue
+		}
+		got := owner.AccessTo(def)
+		switch def.Scope {
+		case ScopeGlobal:
+			globals++
+			if got != SettingShared {
+				t.Errorf("%s is deployment-wide and an owner of one site gets %q, want %q", def.Key, got, SettingShared)
+			}
+		case ScopeSite:
+			if got != SettingWritable {
+				t.Errorf("%s is per-site and the site's owner gets %q, want %q", def.Key, got, SettingWritable)
+			}
+		default:
+			t.Errorf("%s has no scope", def.Key)
+		}
+	}
+	if globals == 0 {
+		t.Fatal("the registry has no ordinary global setting; the rule above asked nothing")
+	}
+	if !strings.Contains(LockNoticeShared, "bütün siteleri") {
+		t.Errorf("the shared sentence does not say the setting reaches every site:\n%s", LockNoticeShared)
 	}
 }

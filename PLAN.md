@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **8/9** | H3 — *(**H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **9/10** | H3 — *(**H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -8052,6 +8052,84 @@ servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
 aşamaya hiç girilmemişti.
 
 ---
+
+#### H10 — Bir sitenin sahibi kurulum geneli ayarları değiştirebiliyordu ✅ **yapıldı (2026-11-02)**
+
+*B3f'yi (#12, engellenen ülke/ASN) tasarlarken "bu ayarı kim yazabiliyor"
+diye sorulunca açıldı.*
+
+**Kusur:** `Access.AccessTo` bir ayarı kimin değiştirebileceğini üç soruyla
+veriyordu: dosyada mı, hukuki ağırlığı var mı, `CapManageSettings` var
+mı. Ayarın **kapsamı** sorulmuyordu. Kapsamı `global` olan 28 sıradan ayar
+(guarded olmayan) kurulumdaki bütün siteleri birden değiştiriyor, ve
+yöneticinin de `CapManageSettings`'i var. Gerçek panelde, formu basarak,
+düzeltmeden önce: bir sitenin **sahibi** ve ayrı bir testte **yöneticisi**
+`beacon.sites`'ı yalnız kendi sitesine indirdi (beacon öteki müşterilerin
+olaylarını `reddedilen_bilinmeyen_site` diye reddetmeye başlar),
+`collector.blocked_countries`'e TR yazdı (bütün sitelerin ziyaretçileri)
+ve `privacy.visitor_surface`'i kapattı (bütün sitelerin açıklama
+sayfası) — altı istek, altısı 200. Karşılama sihirbazının saat dilimi
+adımı aynı kusurun ikinci kapısıydı: `ownsAnySite` ile korunuyordu, yani
+herhangi bir sitenin sahibi bütün sitelerin gün sınırını kaydırabiliyordu.
+KURULUM §4.5 "tek makinede birden çok müşteri"yi açıkça anıyor ve okuma
+tarafı bu ayrımı yapıyordu (B3c-2b, B3g); yazma tarafı yapmıyordu.
+
+**Karar (sahip, 2026-11-02):** kurulum geneli bir ayarı **işletmeci ya da
+kurulumdaki her sitenin sahibi** değiştirir; yönetici hiçbir zaman. Tek
+sahipli kurulumda hiçbir şey değişmiyor. Bu tur **yalnız ayarlar**; aynı
+"herhangi bir sitenin sahibi = kurulumun müşterisi" kuralını taşıyan öteki
+kapılar ayrı bir tur (aşağıda).
+
+**Düzeltme:**
+- `Access.OwnsEverySite`, `AccessFor`'da yalnız sahip için dolduruluyor;
+  sıfır değeri reddeden değer. `Store.OwnsEverySite` tek ifade:
+  "kurulumun bildiği her site" = üyeliği olan her site (bitmiş üyelikler
+  dahil, `allSites` ile aynı liste) ∪ `beacon.sites` (işletmecinin henüz
+  kimseyi davet etmediği bir müşteri sitesi tam da korunması gereken site);
+  boş küme için hayır.
+- `AccessTo`'ya dördüncü soru, rol sorusundan **sonra** (izleyici
+  izleyicinin cümlesini okusun): `Scope == global` ve işletmeci değil ve
+  (sahip ve her sitenin sahibi) değil → yeni durum `SettingShared`
+  ("shared"): değer ve gerekçe görünür, kontrol yok, cümle
+  `LockNoticeShared`.
+- `ApplySetting`/`ClearSetting` bunu `ErrSettingShared` ile reddediyor;
+  `ErrSettingNotWritable`'ı sarıyor (her ret okuyucusu için hâlâ ret,
+  işlem kaydında "refused"), ama sayfadaki cümle farklı: kimin
+  değiştirebileceğini söylüyor.
+- Saat dilimi adımı `mayChangeDeploymentSettings` soruyor; soramayan
+  kişiye alan değil cümle çiziliyor.
+- **Sınıf:** `internal/panel/web/globalwrites_test.go` — bu paketin
+  `SetSetting` çağıran her işlevi ya yalnız site kapsamlı anahtar adlandırır
+  (kapsam kayıt defterinden, yani bir anahtarın kapsamı değişirse çağrı
+  soruya döner) ya `mayChangeDeploymentSettings` sorar ya da gerekçesiyle
+  `deferredGlobalWrites`'tadır.
+
+**Ölçüldü:** `TestOwnsEverySiteAsksEverySiteTheDeploymentKnows` soruyu
+kendi şemasındaki iki tablo kopyasında (`testdb.SiteCopy`) satır satır
+kurulan bir kuruluma soruyor — paylaşılan tablolar her süitin sitesini
+taşıdığı için tek müşterili kurulum orada kurulamıyor. Formu basarak:
+sahip de yönetici de reddediliyor, liste değişmiyor, kayıt "refused",
+kendi sitesinin adı hâlâ onların; öteki sahip siteyi devredince aynı form
+kabul ediliyor. Dokuz var olan test "müşteri = bir sitenin sahibi" diye
+yazılmıştı ve tek müşterili kurulumu kastediyordu; o kurulumda koşuyorlar
+(`setupSoleTenantServer`), kastettikleri artık adında. 20 mutasyon, 20'si
+kırmızı (ilk turda ikisi sağ kaldı; NOTES'ta). Ekran görüntüsü kilitli bir
+anahtarın değerini `true` diye bastığını gösterdi (izleyiciler için de
+öyleydi, H10 onu 28 satıra yaydı) → artık "Açık"/"Kapalı".
+
+**Açık — sahibin kararı, ayrı tur:** `ownsAnySite` hâlâ şu kapıları
+açıyor ve hepsi kurulum geneli:
+1. teknik kapıdan kurulum sihirbazı — `siteler` adımı `beacon.sites`'ı
+   yazıyor (yapısal testte `deferredGlobalWrites`'ın tek girdisi);
+2. posta ayarları (SMTP, hesabı ele geçirmeye yakın);
+3. geliştirici erişimi onayı (bir sahibin onayı geliştiriciye her siteyi
+   açıyor);
+4. Sağlık'taki işlemler — şema yükseltmesi, sürüm, yedek, yeniden
+   başlatma (`healthAccess` "herhangi bir sitenin sahibi kurulumun
+   müşterisidir" diyor).
+Bunların her biri kendi ölçümünü istiyor; birkaçı (yükseltme, yeniden
+başlatma) zaten geliştirici parolasının arkasında.
+
 
 #### H9 — İşlem kaydına site olmayan değer yazılıyordu ✅ **yapıldı (2026-11-02)**
 

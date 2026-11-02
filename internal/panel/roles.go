@@ -212,6 +212,14 @@ type Access struct {
 	// then reads another is the bug this field exists to make
 	// unwriteable.
 	SiteID string
+	// OwnsEverySite reports whether this principal holds a live owner
+	// membership on every site the deployment knows (Store.OwnsEverySite)
+	// - the authority a deployment-wide setting needs (AccessTo, H10).
+	//
+	// Filled by AccessFor, and only for an owner: nobody else can own
+	// every site. The zero value is the refusing one, so an Access built
+	// anywhere else never grants it by omission.
+	OwnsEverySite bool
 }
 
 // Can reports whether this principal may perform c on this site.

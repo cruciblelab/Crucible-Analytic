@@ -279,7 +279,8 @@ func TestOwnerWizardRefusesAnythingButAnOwner(t *testing.T) {
 // name it cannot load and then renders in UTC tells a shop in Istanbul
 // its evening peak happened in the afternoon, and nothing says why.
 func TestTimezoneSettingIsCheckedRatherThanAccepted(t *testing.T) {
-	srv, store := setupTestServer(t)
+	// A one-customer deployment: the zone is every site's (H10).
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	const site = "saat-testi"
 

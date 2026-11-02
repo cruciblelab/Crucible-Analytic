@@ -24727,3 +24727,99 @@ bilerek söylemiyor (yukarıdaki kart gerekçesi). Okuma API'si site başına
 istek alıyor; 50'den çok sitesi olan bir işletmeci için ilk 50 soruluyor.
 Collector tarafının eşi ("trafik toplayıcı en son ne zaman bağlantı
 gördü") bu dilimde değil. Katalog #29 beacon'ı soruyordu.
+
+## Kurulum geneli ayarlar, bir sitenin sahibi — H10 (2026-11-02)
+
+B3f'ye (#12, engellenen ülke/ASN için son 24 saatin isabeti) başlarken ilk
+soru şuydu: önizlemeyi kime göstereceğiz? Kural başına isabet, kurulumun
+**bütün** sitelerinin trafiği. O yüzden önce bu ayarı kimin
+değiştirebildiğine baktım. Cevap tasarımı değil, sırayı değiştirdi.
+
+**Kural ne diyordu.** `AccessTo` üç soru soruyordu: ayar dosyada mı,
+hukuki ağırlığı var mı, kişinin bu sitede `CapManageSettings`'i var mı.
+Ayarın **kapsamı** sorulmuyordu. Kapsamı `global` olan 28 sıradan ayar
+var, ve yöneticinin de `CapManageSettings`'i var. Paylaşılan veritabanında,
+gerçek paneli formu basarak sordum (geçici bir sonda testi):
+
+| kim | `beacon.sites` | `collector.blocked_countries` | `privacy.visitor_surface` |
+|---|---|---|---|
+| bir sitenin sahibi | 200, `[gp-a]` | 200, `[TR]` | 200, `false` |
+| bir sitenin yöneticisi | 200, `[gp-a]` | 200, `[TR]` | 200, `false` |
+
+İlki öteki müşterilerin bütün JS olaylarını `reddedilen_bilinmeyen_site`
+yapar. İkincisi onların ziyaretçilerini reddeder, üçüncüsü onların
+açıklama sayfasını kapatır. KURULUM §4.5 "tek makinede birden çok
+müşteri"yi açıkça anıyor. Okuma tarafı bu ayrımı yapıyordu: tanı
+paketinin günlükleri (B3c-2b) ve Sağlık'ın beacon bölümü (B3g) sahibe
+yalnız kendi sitelerini gösteriyor. Yazma tarafı yapmıyordu.
+
+**Kod iki modeli birden taşıyordu.** `healthAccess`'in yorumu *"herhangi
+bir sitenin sahibi bu kurulumun müşterisidir"* diyor ve `ownsAnySite`
+sekiz kapıyı bu kuralla açıyor. Okuma kapıları ise sahipleri ayrı
+müşteriler sayıyor. Hangisinin doğru olduğu benim değil sahibin
+kararıydı. Sordum, iki soru:
+1. Kurulum geneli bir ayarı kim değiştirsin? → **her sitenin sahibi**
+   (ya da işletmeci).
+2. Aynı kural posta, geliştirici erişimi onayı, Sağlık işlemleri ve
+   kurulum sihirbazına da uygulansın mı? → **şimdilik yalnız ayarlar.**
+
+Yöneticinin bu ayarları yazması iki modelde de kusurdu. Kodun kendi
+karşılama sihirbazı kurulum geneli kararları "müşterinin, personelinin
+değil" diye yalnız sahibe veriyordu, Ayarlar sayfası ise yöneticiye.
+
+**"Her site" ne demek.** Üyeliği olan her site (bitmiş üyelik dahil,
+çünkü sahibinin üyeliği biten site hâlâ birinin sitesi), artı
+`beacon.sites`'taki her site. İkincisinin sebebi şu: işletmeci bir
+müşteri için siteyi kurup sahibini henüz davet etmediyse, korunması
+gereken site tam olarak o. Collector'ın yapılandırma dosyasındaki site
+sayılmıyor; panel o dosyayı okuyamıyor ve okumamalı. Boş küme "hayır"
+(sahibi olunan hiçbir şey yokken her şeyin sahibi olunmaz). Tek SQL
+ifadesi, `liveMembership` ile.
+
+**Testin kuramadığı kurulum.** Tek müşterili bir kurulum paylaşılan
+veritabanında kurulamıyor: `panel_site_members` her süitin her sitesini
+taşıyor, ve paralel koşan paketler yenilerini ekliyor. Dokuz var olan
+test (panelde dört, web'de dört, karşılama sihirbazında bir) "müşteri =
+bir sitenin sahibi" diye yazılmıştı. Hepsi tek müşterili kurulumu
+kastediyordu ve hepsi kırmızıya döndü. Ürün haklıydı. Çözüm
+`testdb.SiteCopy`: iki tablonun `LIKE ... INCLUDING ALL` kopyası test
+şemasında, `search_path`'te önde (C3'ün ve `HeartbeatCopy`'nin
+şekli). Paneldeki testler ise `Access`'i elle kuruyor; orada müşteri
+artık açıkça `OwnsEverySite: true` taşıyor ve kiracı `tenantAccess()`.
+
+**Sınıf.** `ApplySetting` kuralı soruyor; `SetSetting` soramaz, çünkü
+`Access` değil hesap numarası alıyor. Saat dilimi adımı bu ikinci
+kapıydı. `globalwrites_test.go` bu paketin `SetSetting` çağıran her
+işlevini sınıflıyor. Koşullar: adlandırdığı her anahtar site kapsamlı
+olmalı (kapsam kayıt defterinden okunuyor) ya da işlev
+`mayChangeDeploymentSettings` sormalı. Tek istisna kurulum sihirbazının
+site listesi, sahibin ertelediği kapı, gerekçesiyle. Kontrol bulduğu
+yazıcıları da sayıyor: tarama hiçbir şeye ulaşmasa yeşil kalırdı.
+
+**Mutasyon.** İlk tur 19 mutasyon, ikisi sağ kaldı:
+- **S6.** `userID == 0` için erken dönüş eşdeğerdi: hiçbir üyelik sıfır
+  numaralı hesabı anmıyor, SQL zaten "hayır" diyor. Koruma değil
+  kısayoldu; kaldırıldı, "sıfır hesap evet" mutasyonu artık kırmızı.
+- **W4.** "Veritabanı cevap vermezse hayır" iddiasını hiçbir test
+  sormuyordu. Kapalı havuzlu bir store ile test yazıldı.
+- **S1'in geniş kırmızısı mutasyonumundu:** UNION kolunu silince `$2`
+  kullanılmaz kaldı, sorgu hata verdi ve on testi o hata düşürdü. Kolu
+  boşaltan temiz mutasyonu yalnız
+  `TestOwnsEverySiteAsksEverySiteTheDeploymentKnows` yakalıyor, olması
+  gereken de bu. *Bir mutasyonun kırmızısı da sorulur: kıran iddia mı,
+  mutasyonun yan etkisi mi?*
+- **S4** (iç sorgudan `liveMembership`'i silmek) yalnız
+  `TestEveryMembershipReadFiltersOrIsExcused` ile yakalanıyor. Sahiplik
+  bitemediği için (CHECK) davranışta görünmüyor; ama üyelik okuyan her
+  sorgu onu taşır, kuralı da o değişmez tutuyor.
+
+Ekran görüntüsünden bir şey daha çıktı: kilitli bir aç/kapa ayarının
+değeri `true` basılıyordu. İzleyiciler için hep öyleydi; H10 bunu bir
+kiracının gördüğü 28 satıra yaydı. Artık "Açık"/"Kapalı", bir mutasyonla
+ölçüldü. İlk cümle taslağı dört yan cümleydi ve aynı bölümde üç kez
+tekrar ediyordu; iki kısa cümleye indi.
+
+**Açık, sahibin kararıyla ertelendi:** `ownsAnySite` hâlâ dört kurulum
+geneli kapıyı açıyor: kurulum sihirbazı (`beacon.sites`'ı yazıyor), posta
+ayarları, geliştirici erişimi onayı ve Sağlık işlemleri. PLAN H10'da
+sırasıyla.

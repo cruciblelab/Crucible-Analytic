@@ -176,7 +176,57 @@ func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Acce
 		return access, nil
 	}
 	access.Role, access.Member = role, true
+	if role == RoleOwner {
+		every, err := s.OwnsEverySite(ctx, p.UserID)
+		if err != nil {
+			return Access{}, err
+		}
+		access.OwnsEverySite = every
+	}
 	return access, nil
+}
+
+// OwnsEverySite reports whether this account holds a live owner
+// membership on every site the deployment knows (H10).
+//
+// "Every site the deployment knows" is two lists, and a deployment-wide
+// setting reaches both:
+//
+//   - every site anybody holds a membership for, live or ended - the list
+//     the operator's own site list is built from (allSites). A site whose
+//     only owner's membership ran out is still somebody's site, and the
+//     account that lost it is not its owner any more;
+//   - every site on the beacon's allowlist (beacon.sites), member or not.
+//     A site the operator has set up for a customer who has not been
+//     invited yet is exactly the one another customer must not be able to
+//     switch off by editing that list.
+//
+// A site known only to a collector's config file is not here: the panel
+// cannot read that file and must not gain a way to.
+//
+// False for an account that owns nothing, rather than vacuously true for
+// an empty list - and so for account zero, the developer and system
+// principals, which no membership names. Asked of the database in one
+// statement, against the same liveMembership every access decision uses.
+func (s *Store) OwnsEverySite(ctx context.Context, userID int64) (bool, error) {
+	var every bool
+	err := s.pool.QueryRow(ctx, `
+		WITH sites AS (
+			SELECT site_id FROM panel_site_members
+			UNION
+			SELECT jsonb_array_elements_text(value) FROM panel_settings
+			 WHERE scope = 'global' AND site_id = '' AND key = $2
+			   AND jsonb_typeof(value) = 'array'
+		)
+		SELECT coalesce(bool_and(EXISTS (
+			SELECT 1 FROM panel_site_members m
+			 WHERE m.site_id = sites.site_id AND m.user_id = $1
+			   AND m.role = 'owner' AND `+liveMembership("m")+`)), false)
+		FROM sites`, userID, string(KeyBeaconSites)).Scan(&every)
+	if err != nil {
+		return false, fmt.Errorf("panel: does this account own every site: %w", err)
+	}
+	return every, nil
 }
 
 // Members lists a site's members, with the account details the UI needs.

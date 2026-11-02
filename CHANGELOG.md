@@ -24,6 +24,24 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Kurulum geneli ayarları artık bir sitenin sahibi tek başına değiştiremiyor
+
+**Kuran kişinin yapması gereken:** tek müşteriniz varsa ve her siteniz
+aynı hesabın sahipliğindeyse hiçbir şey. Birden çok müşteriniz varsa:
+kurulum geneli bir ayarı (site listesi, engellenen ülkeler, gizlilik
+sayfası, günlük süreleri, saat dilimi ...) artık siz işletmeci olarak
+değiştiriyorsunuz.
+
+Bütün siteleri birden etkileyen bir ayar, Ayarlar sayfasında herhangi bir
+sitenin sahibi ya da **yöneticisi** tarafından değiştirilebiliyordu. Yani
+bir müşteri öteki müşterilerin sitelerini ölçümden çıkarabilir, onların
+ziyaretçilerini bir ülkeden engelleyebilir ya da gizlilik sayfalarını
+kapatabilirdi. Artık böyle bir ayarı yalnız işletmeci ya da kurulumdaki
+her sitenin sahibi olan hesap değiştiriyor. Öteki sahipler satırı,
+değeri ve neden değiştiremediklerini görüyor. Karşılama sihirbazının saat
+dilimi adımı da aynı kurala bağlı. Değiştirilemeyen bir aç/kapa ayarının
+değeri artık `true`/`false` değil "Açık"/"Kapalı" diye yazıyor.
+
 ### Her site için snippet'in en son ne zaman ölçüm gönderdiği görünüyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.
