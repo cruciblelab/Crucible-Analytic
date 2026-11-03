@@ -25009,3 +25009,45 @@ arkasında herkes için tek kova (H12), `[service_urls]` örneğinin API
 satırı beacon'ın portuna bakıyor ve sihirbazın site listesi denetim kaydına
 girmiyor (H13), aynı sunucudaki iki collector Sağlık'ta tek satır, ve
 sahte beacon olaylarının panoda insan sayılması (sahibin kararı).
+
+## Panelin giriş kısıtı ve ters vekil — H12 (2026-11-03)
+
+Aynı canlı düzenekte panel, KURULUM §8'in tarif ettiği gibi bir TLS
+vekilinin arkasındaydı. Bir saldırgan (3.80.10.10) var olmayan
+e-postalarla 31 kez denedi. Ardından iki sahip, Türkiye'den ve Almanya'dan,
+doğru parolalarıyla girmeyi denedi; ikisi de 429 aldı. Panel adresi hep
+bağlantının kendisinden okuyordu, vekilin arkasında bu her zaman
+127.0.0.1'di. Adres başına sayılan 30 deneme bütün internetin bütçesiydi.
+
+`peerAddr`'ın yorumu bu davranışı bilerek seçmişti: *"Vekilin arkasındaysa
+vekili kaydeder, bu en azından doğrudur."* Bu, denetim kaydı için
+düşünülmüş bir cümleydi ve orada yalnız işe yaramazdı. Aynı işlev sonra
+kısıtın anahtarı oldu ve cümle yerinde kaldı. *Bir gerekçe yazıldığı
+kullanım için doğru olabilir ve işlevin sonraki kullanımına taşınmaz.*
+
+Çözüm yeni bir kural değil: beacon'ın kuralı (`trusted_proxies`, zinciri
+sağdan çöz), kendi paketine taşındı. İki servisin aynı başlığın hangi
+halkasına inanacağı tek koddan geliyor.
+
+**Asıl ders yolda çıktı.** Düzeltme `web.Server`'a bir alan ekliyordu, ve
+`cmd/panel` o alanı unutsa paneldeki hiçbir test kırılmazdı: testler
+sunucularını kendileri kuruyor. Soruyu bütün alanlara sordum ve iki alan
+daha buldum. Bunlar yazıldıkları günden beri hiçbir kurulumda dolmamıştı:
+`BeaconURL` ve `ConfiguredTimezone`. `beacon_url` örnek dosyada belgeliydi,
+okunuyordu, ve bir yere gitmiyordu. *Bir yapılandırma anahtarının
+okunması, kullanılması değildir; arada bir atama vardır ve atamayı yalnız
+çağıran tarafın testi görür.* Sınıf `TestEveryPanelServerFieldIsFilled`'da;
+`preflight.Config` için aynı kural vardı, bir kat aşağıda.
+
+Ve bir kat daha: `BeaconURL` dolunca karşılama sihirbazının hiç
+çizilmemiş dalı çizildi. Dal, kurulumdaki bütün siteleri dolaşıyordu.
+Ayşe, Mehmet'in sitesinin parçacığını gördü. Aynı listeyi kullanan "Site
+adları" adımı bunu baştan beri yapıyordu (öteki müşterinin site kimliği ve
+adı). Kaydetme yetkiye göre süzüldüğü için kimse fark etmemişti. *Sayfanın
+çizdiği şey, kaydetmenin kabul ettiğinden türemeli* (C9.3'ün dersi,
+sihirbazda).
+
+Ölçerken tökezlediğim bir şey: kapı ilk koşuda "too many clients"
+dedi. Canlı düzeneğin servisleri 24 bağlantı tutuyordu ve paralel paketler
+kalanı aştı. Paket tek başına geçti, kapı düzenek durdurulunca yeşildi.
+*Canlı bir düzenek de paylaşılan kümenin bir kiracısıdır.*

@@ -105,9 +105,9 @@ type devAccessRow struct {
 	// half once somebody has actually used a link - is exactly the sort
 	// of defect that reaches production.
 	UsedAt time.Time
-	// UsedFrom is where the link was redeemed from, as text. The address
-	// the connection came from and never a forwarded header - see
-	// peerAddr.
+	// UsedFrom is where the link was redeemed from, as text: the
+	// server's conclusion, never a header on its own word - see
+	// clientAddr.
 	UsedFrom string
 }
 

@@ -112,7 +112,7 @@ func (s *Server) submitJoin(w http.ResponseWriter, r *http.Request, lang *ui.Lan
 		return
 	}
 
-	got, err := s.Store.RedeemMemberInvite(ctx, page.Token, name, hash, peerAddr(r))
+	got, err := s.Store.RedeemMemberInvite(ctx, page.Token, name, hash, s.clientAddr(r))
 	if err != nil {
 		if errors.Is(err, panel.ErrInviteInvalid) {
 			// It was open when the page was drawn and is not now: it

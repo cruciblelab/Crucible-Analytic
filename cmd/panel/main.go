@@ -279,20 +279,36 @@ func main() {
 
 	sessions := panel.NewSessions(store, cfg.SessionLifetime(), cfg.CookiesAreSecure())
 
+	// Validated when the file was loaded; read again here because the
+	// resolver is a value the config builds, not a field it holds.
+	clientIP, err := cfg.ClientIPResolver()
+	if err != nil {
+		fatal(logger, "trusted_proxies", err)
+	}
+
 	srv := &web.Server{
-		ListenAddr:       cfg.ListenAddr,
-		Renderer:         renderer,
-		Logger:           logger,
-		HSTS:             cfg.HSTS,
-		SecretKey:        secretKey,
-		Zone:             zone,
-		Language:         cfg.Language,
-		Store:            store,
-		Sessions:         sessions,
-		Analytics:        analyticsClient,
-		Gate:             gate,
-		ConfigPath:       *configPath,
-		ConfigFileValues: configFileValues(cfg),
+		ListenAddr: cfg.ListenAddr,
+		Renderer:   renderer,
+		Logger:     logger,
+		HSTS:       cfg.HSTS,
+		SecretKey:  secretKey,
+		Zone:       zone,
+		// The file's value as written, which the welcome wizard's
+		// timezone step shows beside the stored one, and the address
+		// its snippet step prints. Both were parsed and never passed
+		// on, so the snippet step said "ask whoever installed this" on
+		// every deployment that had told it - found by the field
+		// invariant H12 added (TestEveryPanelServerFieldIsFilled).
+		ConfiguredTimezone: cfg.Timezone,
+		BeaconURL:          cfg.BeaconURL,
+		ClientIP:           clientIP,
+		Language:           cfg.Language,
+		Store:              store,
+		Sessions:           sessions,
+		Analytics:          analyticsClient,
+		Gate:               gate,
+		ConfigPath:         *configPath,
+		ConfigFileValues:   configFileValues(cfg),
 		// Derived from the config rather than listed here, so a
 		// directory added to panel.toml is measured without anybody
 		// remembering to come back to this call site. An invariant in

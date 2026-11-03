@@ -3,9 +3,7 @@ package web
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
-	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -736,7 +734,7 @@ func (s *Server) devAccessHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grant, err := s.Store.RedeemDevAccess(r.Context(), token, peerAddr(r))
+	grant, err := s.Store.RedeemDevAccess(r.Context(), token, s.clientAddr(r))
 	if err != nil {
 		// Every failure is the same page: unknown, expired, already
 		// used, or approved for a deployment that has since acquired an
@@ -752,24 +750,6 @@ func (s *Server) devAccessHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, SetupPathPrefix+wizardSteps[0].ID, http.StatusSeeOther)
-}
-
-// peerAddr is the address the redemption is recorded against.
-//
-// Deliberately r.RemoteAddr and never a forwarded header. The audit
-// record exists to answer "where was this link used from", and a value
-// the person using the link can set is not an answer. If the panel sits
-// behind a proxy this records the proxy, which is at least true.
-func peerAddr(r *http.Request) netip.Addr {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	addr, err := netip.ParseAddr(host)
-	if err != nil {
-		return netip.Addr{}
-	}
-	return addr
 }
 
 func (s *Server) preflightConfig() preflight.Config {

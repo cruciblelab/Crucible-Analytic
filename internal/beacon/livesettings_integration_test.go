@@ -129,10 +129,10 @@ func TestTrustedProxiesComeFromTheDatabaseWhenItHasThem(t *testing.T) {
 	// ---- and it actually changes who is believed ----
 	// The point of the setting, rather than the value of a variable.
 	resolver := ClientIPResolver{TrustedProxies: fromPanel}
-	if !resolver.trusts(netip.MustParseAddr("173.245.48.9")) {
+	if !resolver.Trusts(netip.MustParseAddr("173.245.48.9")) {
 		t.Error("a proxy the panel named is still not believed")
 	}
-	if resolver.trusts(netip.MustParseAddr("198.51.100.9")) {
+	if resolver.Trusts(netip.MustParseAddr("198.51.100.9")) {
 		t.Error("an address nobody named is believed")
 	}
 }

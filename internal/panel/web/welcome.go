@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -214,7 +215,7 @@ func (s *Server) submitClaim(w http.ResponseWriter, r *http.Request, lang *ui.La
 		return
 	}
 
-	user, codes, err := s.Store.RedeemOwnerClaim(ctx, token, hash, sites, peerAddr(r))
+	user, codes, err := s.Store.RedeemOwnerClaim(ctx, token, hash, sites, s.clientAddr(r))
 	if err != nil {
 		if errors.Is(err, panel.ErrClaimInvalid) {
 			// It was open when the page was drawn and is not now: it
@@ -388,26 +389,20 @@ func (s *Server) saveWelcome(w http.ResponseWriter, r *http.Request, lang *ui.La
 func (s *Server) saveSiteNames(ctx context.Context, lang *ui.Language, p panel.Principal,
 	r *http.Request) welcomePage {
 
-	sites, err := s.configuredSites(ctx)
+	mine, err := s.welcomeSites(ctx, p)
 	if err != nil {
 		s.logger().Error("panel: reading configured sites", "err", err)
 		return welcomePage{Message: lang.T("hesap.hata.kaydedilemedi"), Failed: true}
 	}
 
 	// Only the sites this deployment is configured for, and only the
-	// ones this principal owns. The form field names carry site ids from
-	// the browser; iterating over the configured list rather than over
-	// the submitted fields means a fabricated one names nothing.
+	// ones this principal may name - the list the page drew. The form
+	// field names carry site ids from the browser; iterating over that
+	// list rather than over the submitted fields means a fabricated one
+	// names nothing.
 	saved := 0
-	for _, site := range sites {
-		access, err := s.Store.AccessFor(ctx, p, site)
-		if err != nil {
-			s.logger().Error("panel: resolving access", "err", err, "site", site)
-			return welcomePage{Message: lang.T("hesap.hata.kaydedilemedi"), Failed: true}
-		}
-		if !access.Can(panel.CapManageSettings) {
-			continue
-		}
+	for _, m := range mine {
+		site, access := m.site, m.access
 		name := strings.TrimSpace(r.PostFormValue("ad:" + site))
 		if err := s.Store.SetSetting(ctx, panel.KeySiteName, site, name, actorOf(access)); err != nil {
 			s.logger().Error("panel: saving site name", "err", err, "site", site)
@@ -466,11 +461,15 @@ func (s *Server) renderWelcome(w http.ResponseWriter, r *http.Request, lang *ui.
 		})
 	}
 
-	sites, err := s.configuredSites(ctx)
+	mine, err := s.welcomeSites(ctx, p)
 	if err != nil {
 		s.logger().Error("panel: reading configured sites", "err", err)
 		s.Renderer.ErrorIn(w, r, http.StatusInternalServerError, lang)
 		return
+	}
+	sites := make([]string, 0, len(mine))
+	for _, m := range mine {
+		sites = append(sites, m.site)
 	}
 
 	switch step.ID {
@@ -555,6 +554,41 @@ func beaconSnippet(baseURL, siteID string) string {
 
 // configuredSites reads the beacon's allowlist: the sites this
 // deployment exists to measure.
+// welcomeSite is one site the welcome wizard shows its reader, with the
+// reader's access to it.
+type welcomeSite struct {
+	site   string
+	access panel.Access
+}
+
+// welcomeSites is the configured sites this principal may manage: the
+// ones the name step draws a field for, the snippet step prints a tag
+// for, and the name step's save accepts. One list for the three, so the
+// page cannot offer what the save refuses.
+//
+// It used to be every configured site. On a deployment with two
+// customers the owner of one was drawn a name field for the other's site
+// - id and stored name - and, once H12 passed beacon_url on to the
+// server, its snippet. The save refused the field; drawing it was the
+// leak. Found on the live rig.
+func (s *Server) welcomeSites(ctx context.Context, p panel.Principal) ([]welcomeSite, error) {
+	sites, err := s.configuredSites(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []welcomeSite
+	for _, site := range sites {
+		access, err := s.Store.AccessFor(ctx, p, site)
+		if err != nil {
+			return nil, fmt.Errorf("resolving access to %s: %w", site, err)
+		}
+		if access.Can(panel.CapManageSettings) {
+			out = append(out, welcomeSite{site: site, access: access})
+		}
+	}
+	return out, nil
+}
+
 func (s *Server) configuredSites(ctx context.Context) ([]string, error) {
 	value, err := s.Store.GetSetting(ctx, panel.KeyBeaconSites, "")
 	if err != nil {

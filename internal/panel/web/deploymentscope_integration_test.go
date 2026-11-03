@@ -224,3 +224,63 @@ func TestAnUnansweredOwnershipQuestionRefuses(t *testing.T) {
 		t.Error("an ownership question the database did not answer was taken as yes")
 	}
 }
+
+// TestTheWelcomeWizardShowsATenantOnlyItsOwnSites.
+//
+// Found on the live rig: the welcome wizard drew a name field for every
+// configured site, so the owner of one customer's site read the other
+// customer's site id and stored name, and - once H12 passed beacon_url on
+// to the server - its snippet. The save refused the field; drawing it was
+// the leak. The page now draws exactly what the save accepts.
+func TestTheWelcomeWizardShowsATenantOnlyItsOwnSites(t *testing.T) {
+	srv, store := setupSoleTenantServer(t)
+	srv.BeaconURL = "https://olcum.example"
+	ctx := context.Background()
+	restoreGlobal(t, store, panel.KeyBeaconSites)
+	clearSiteSettings(t, store, tenantOwn)
+	clearSiteSettings(t, store, tenantOther)
+
+	owner := makeUser(t, store, "h12-hosgeldin", false)
+	other := makeUser(t, store, "h12-hosgeldin-oteki", false)
+	if err := store.AddMember(ctx, tenantOwn, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMember(ctx, tenantOther, other.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{tenantOwn, tenantOther}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(ctx, panel.KeySiteName, tenantOther, "Öteki Müşteri Blog", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	c := signedIn(t, server.URL, owner.Email)
+
+	_, names := get(t, c, server.URL+WelcomePathPrefix+"site")
+	if !strings.Contains(names, `name="ad:`+tenantOwn+`"`) {
+		t.Fatal("the owner is not offered their own site's name")
+	}
+	_, snippets := get(t, c, server.URL+WelcomePathPrefix+"olcum")
+	if !strings.Contains(snippets, `data-site=&#34;`+tenantOwn+`&#34;`) && !strings.Contains(snippets, `data-site="`+tenantOwn+`"`) {
+		t.Fatalf("the owner is not shown their own snippet:\n%s", messageOf(snippets))
+	}
+	for step, body := range map[string]string{"site": names, "olcum": snippets} {
+		for _, leak := range []string{tenantOther, "Öteki Müşteri Blog"} {
+			if strings.Contains(body, leak) {
+				t.Errorf("step %q shows the owner of %s another customer's %q", step, tenantOwn, leak)
+			}
+		}
+	}
+
+	// A forged field for the other site names nothing.
+	if status, _ := postWithToken(t, c, server.URL+WelcomePathPrefix+"site", sessionToken(t, c, server.URL),
+		url.Values{"ad:" + tenantOwn: {"Kendi"}, "ad:" + tenantOther: {"Ele geçirildi"}}); status >= 500 {
+		t.Fatalf("saving names answered %d", status)
+	}
+	if v, _ := store.GetSetting(ctx, panel.KeySiteName, tenantOther); v != "Öteki Müşteri Blog" {
+		t.Errorf("the other customer's site name became %v", v)
+	}
+}

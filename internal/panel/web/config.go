@@ -19,6 +19,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/cruciblelab/crucible-analytic/internal/clientip"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
@@ -46,6 +47,18 @@ type RolesConfig struct {
 // until the day it matters.
 type Config struct {
 	ListenAddr string `toml:"listen_addr"`
+	// TrustedProxies names the reverse proxies whose X-Forwarded-For the
+	// panel believes (H12): CIDRs or bare addresses, the beacon's format.
+	//
+	// The sign-in limits count failures per address. Behind the proxy
+	// KURULUM section 8 recommends, every request arrives from that
+	// proxy, so without this every visitor is one address and thirty
+	// wrong passwords from anybody lock every account out of the form for
+	// fifteen minutes - measured on the live rig. Empty trusts nothing:
+	// the peer's own address is used and forwarded headers are ignored,
+	// which is right only when nothing stands in front of the panel. The
+	// example names loopback, because the panel listens on loopback.
+	TrustedProxies []string `toml:"trusted_proxies"`
 	// PanelDSN is the panel's database. Required: every page below the
 	// login form reads from it, and a panel that starts without one
 	// would only be able to report its own failure.
@@ -236,7 +249,19 @@ func (c Config) validate() error {
 	if err := c.validateServiceURLs(); err != nil {
 		return err
 	}
+	if _, err := c.ClientIPResolver(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// ClientIPResolver is the trusted-proxy rule this config describes.
+func (c Config) ClientIPResolver() (clientip.Resolver, error) {
+	prefixes, err := clientip.ParseTrustedProxies(c.TrustedProxies)
+	if err != nil {
+		return clientip.Resolver{}, fmt.Errorf("panel: trusted_proxies: %w", err)
+	}
+	return clientip.Resolver{TrustedProxies: prefixes}, nil
 }
 
 // serviceName is what a service may be called in [service_urls].

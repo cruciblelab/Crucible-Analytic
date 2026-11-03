@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
+	"github.com/cruciblelab/crucible-analytic/internal/clientip"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -636,8 +637,8 @@ func (s *Server) logForwardedClaim(r *http.Request) {
 	if claim == "" {
 		return
 	}
-	peer, _ := peerIP(r.RemoteAddr)
-	if s.clientIP().trusts(peer) {
+	peer, _ := clientip.Peer(r.RemoteAddr)
+	if s.clientIP().Trusts(peer) {
 		return
 	}
 	s.logger().Debug("beacon: forwarding header ignored",

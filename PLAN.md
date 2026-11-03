@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **10/11** | H3 — *(**H11 bitti (2026-11-03):** kurulum sihirbazının geliştirici oturumu devir tesliminden sonra iki saat daha yazabiliyordu — sahibin sayfası o erişime "artık geçersiz" derken; bağlantının kullanımı kuralı soruyordu, açılmış oturum hiç sormuyordu. Canlı denemede bulundu. **H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **11/12** | H3 — *(**H12 bitti (2026-11-03):** panelin giriş kısıtı, KURULUM'un önerdiği ters vekilin arkasında herkesi tek adres sayıyordu — 30 yanlış deneme bütün sahipleri 15 dakika dışarıda bırakıyordu; yolda `beacon_url`'in hiç sunucuya verilmediği ve karşılama sihirbazının öteki müşterinin sitesini gösterdiği çıktı. **H11 bitti (2026-11-03):** kurulum sihirbazının geliştirici oturumu devir tesliminden sonra iki saat daha yazabiliyordu — sahibin sayfası o erişime "artık geçersiz" derken; bağlantının kullanımı kuralı soruyordu, açılmış oturum hiç sormuyordu. Canlı denemede bulundu. **H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -8089,6 +8089,60 @@ servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
 aşamaya hiç girilmemişti.
 
 ---
+
+#### H12 — Panelin giriş kısıtı, ters vekilin arkasında herkesi tek adres sayıyordu ✅ **yapıldı (2026-11-03)**
+
+*Canlı denemede bulundu (H11 ile aynı düzenek): panel KURULUM §8'deki gibi
+bir TLS vekilinin arkasına konunca.*
+
+**Kusur:** `CheckLoginThrottle` başarısız denemeleri hesap başına (5) ve
+adres başına (30) sayıyor; adres `peerAddr(r)`, yani her zaman
+`RemoteAddr`. Yorumu bunu bilerek yazmıştı: *"vekilin arkasındaysa
+vekili kaydeder, bu en azından doğrudur."* Denetim kaydı için bu yalnız
+işe yaramazdı; kısıt için kilitti, ve anahtarı herkesteydi. Canlıda:
+3.80.10.10'dan var olmayan e-postalarla 31 deneme; 31.'si 429. Ardından
+Ayşe (85.105.20.11, TR) ve Mehmet (84.128.1.20, DE) doğru parolalarıyla:
+ikisi de *"15 dakika sonra tekrar deneyin"*. `panel_login_attempts`'te
+30 satırın 30'u `127.0.0.1`.
+
+**Düzeltme:**
+- Beacon'ın güvenilen vekil çözümü kendi paketine taşındı
+  (`internal/clientip`; beacon eski adlarıyla takma ad olarak kullanıyor).
+  Tek uygulama, böylece iki servis `X-Forwarded-For`'un hangi halkasına
+  inanacağı konusunda ayrışamaz.
+- `panel.toml` → `trusted_proxies` (boş = eskisi gibi). Örnek dosya
+  loopback'i yazıyor, çünkü panel loopback'te dinliyor. `install.sh` örneği
+  kopyaladığı için yeni kurulumlarda var. Ayrıştırılamayan bir giriş
+  açılışta reddediliyor.
+- `Server.clientAddr` paneldeki adres soran her yerin tek kapısı: giriş,
+  ikinci adım, kurtarma kodu, davet, sahiplenme, geliştirici bağlantısı,
+  geliştirici parolası. `peerAddr` silindi.
+- Eski kurulumlar için: güvenilmeyen bir eşten vekil başlığı gelirse günlüğe
+  bir kez **WARN** (adres `peer` anahtarında, tanı paketinde maskeli).
+
+**Yolda, sınıfıyla:** düzeltmenin alanını `cmd/panel` unutsa
+`internal/panel/web`'in bütün testleri geçerdi (sunucularını kendileri
+kuruyorlar). Soru `web.Server`'ın her alanına soruldu
+(`TestEveryPanelServerFieldIsFilled`) ve iki alan daha çıktı. Bunlar
+yazıldıkları günden beri hiçbir kurulumda dolmamıştı: `BeaconURL`
+(`panel.toml`'daki belgeli `beacon_url`; karşılama sihirbazının ölçüm kodu
+adımı her müşteriye "kurulumu yapana sorun" diyordu) ve
+`ConfiguredTimezone`. `BeaconURL` dolunca o adımın hiç çizilmemiş dalı da
+çizildi, ve **o dal da yanlıştı**: sihirbaz bütün yapılandırılmış siteleri
+dolaşıyordu. İki müşterili kurulumda Ayşe, Mehmet'in sitesinin parçacığını
+ve "Site adları" adımında onun site kimliği ile adını gördü (kaydetme
+yetkiye göre süzülüyordu, gösterim süzülmüyordu). Artık üçü tek listeden:
+`welcomeSites`.
+
+**Ölçüldü:** birim testleri (güvenilmeyen eşin başlığı yok sayılıyor;
+güvenilen vekilin arkasında ziyaretçi sağdaki halka; tek vekilin arkasındaki
+iki ziyaretçi iki adres; uyarı bir kez, gereksiz yere hiç), uçtan uca test
+(vekil arkasında 40 sahte deneme kendi adresinde 429, sahip başka adresten
+303, kayıtta vekil yok), iki müşterili sihirbaz testi. 10 mutasyon, 10'u
+kırmızı. Canlı düzenekte, önce/sonra aynı ikiliyle: satır yokken iki sahip
+429 ve günlükte tek WARN; `trusted_proxies = ["127.0.0.1/32"]` ile saldırgan
+kendi adresinde 429, Ayşe ve Mehmet 303, kayıtta `3.80.10.10` ×30. Ölçüm
+kodu adımı eski ikiliyle "bildirilmemiş", yeniyle parçacık.
 
 #### H11 — Kurulum oturumu devir tesliminden sonra da yazabiliyordu ✅ **yapıldı (2026-11-03)**
 

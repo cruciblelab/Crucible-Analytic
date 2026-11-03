@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/clientip"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -116,6 +117,16 @@ type Server struct {
 	// that one instead; this is the answer when the browser expresses no
 	// preference the panel can serve.
 	Language string
+
+	// ClientIP decides which address a request is attributed to: the
+	// sign-in limits count by it, and the audit records carry it. The
+	// zero value trusts no proxy, so it is the peer's own address. See
+	// clientAddr.
+	ClientIP clientip.Resolver
+
+	// warnedForward is set once the log has said that a forwarding
+	// header arrived from a peer trusted_proxies does not name.
+	warnedForward atomic.Bool
 
 	// pastDeadline counts requests internal/deadline answered 503 - the
 	// panel's own number for the counter the read API reports through

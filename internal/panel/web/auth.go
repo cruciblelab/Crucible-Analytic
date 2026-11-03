@@ -110,7 +110,7 @@ func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request, lang *ui.La
 	email := strings.TrimSpace(r.PostFormValue("eposta"))
 	password := r.PostFormValue("parola")
 	next := s.rawNext(r.PostFormValue("next"))
-	addr := peerAddr(r)
+	addr := s.clientAddr(r)
 
 	refuse := func() {
 		s.renderLogin(w, r, lang, http.StatusUnauthorized, loginPage{
@@ -297,7 +297,7 @@ func (s *Server) secondFactorHandler(w http.ResponseWriter, r *http.Request) {
 func (s *Server) submitSecondFactor(w http.ResponseWriter, r *http.Request, lang *ui.Language, user panel.User) {
 	ctx := r.Context()
 	next := s.rawNext(r.PostFormValue("next"))
-	addr := peerAddr(r)
+	addr := s.clientAddr(r)
 
 	// The same throttle as the password step, on the same account.
 	//

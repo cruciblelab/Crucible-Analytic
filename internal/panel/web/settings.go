@@ -460,10 +460,10 @@ func (s *Server) authorizeSetting(ctx context.Context, r *http.Request, lang *ui
 		Actor:     access.Principal.Label,
 		ActorKind: string(access.Principal.Kind),
 		ActorID:   access.Principal.UserID,
-		// r.RemoteAddr, never a forwarded header: the record answers
-		// "where was this password typed from", and a value the person
-		// typing it can set is not an answer.
-		Peer: peerAddr(r).String(),
+		// The record answers "where was this password typed from", so
+		// it is the server's conclusion (clientAddr), never a header
+		// the person typing it could set.
+		Peer: s.clientAddr(r).String(),
 	})
 	if !result.OK() {
 		return devgate.Authorization{}, settingsPage{

@@ -1212,6 +1212,25 @@ server {
 }
 ```
 
+**Vekilin arkasında panel `trusted_proxies` ister.** `panel.toml`'da:
+
+```toml
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+```
+
+Giriş formunun kısıtı başarısız denemeleri adres başına sayar (15
+dakikada 30). Bu satır yoksa panel her isteği vekilin adresinden gelmiş
+görür ve kısıt bütün internet için tek kova olur. Canlı ölçüldü: tek bir
+makineden, var olmayan e-postalarla 30 yanlış deneme yapıldı, ardından iki
+sahip başka ülkelerden doğru parolalarıyla "15 dakika sonra tekrar
+deneyin" aldı. Satırla birlikte panel, `X-Forwarded-For`'u yalnız
+adı verilen vekilden gelince okur ve zinciri sağdan çözer (beacon'ın
+kuralı); yukarıdaki nginx bloğu o başlığı zaten yazıyor. Vekil başka bir
+makinedeyse onun adresini yazın. Panel doğrudan açıksa boş bırakın.
+`install.sh` örneği kopyaladığı için yeni kurulumlarda satır var. Eski bir
+kurulumda satır yoksa ve istek bir vekilden geliyorsa panel bunu
+günlüğe bir kez **WARN** olarak yazar (`security.log`, tanı paketi).
+
 **`analytics-api`'yi internete açmayın.** Sadece panelin ulaşması
 yeterli; `127.0.0.1` üzerinde bırakın.
 

@@ -73,7 +73,7 @@ func (s *Server) submitRecovery(w http.ResponseWriter, r *http.Request, lang *ui
 	password := r.PostFormValue("yeni_parola")
 	repeat := r.PostFormValue("yeni_parola_tekrar")
 	clear := r.PostFormValue("ikinci_faktor") == "1"
-	addr := peerAddr(r)
+	addr := s.clientAddr(r)
 
 	page := recoveryPage{Email: email, ClearSecondFactor: clear}
 	refuse := func(status int, msg string) {

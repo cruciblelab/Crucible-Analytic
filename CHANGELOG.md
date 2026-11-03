@@ -24,6 +24,36 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Panelin giriş kısıtı, ters vekilin arkasında herkesi tek adres sayıyordu
+
+**Kuran kişinin yapması gereken:** panel bir ters vekilin (KURULUM §8'deki
+nginx gibi) arkasındaysa `panel.toml`'a şunu ekleyip paneli yeniden
+başlatın:
+
+```toml
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+```
+
+(vekil başka bir makinedeyse onun adresi). Yeni kurulumlarda satır zaten
+var.
+
+Giriş formu başarısız denemeleri adres başına sayıyor (15 dakikada 30).
+Panel ise adresi hep bağlantının kendisinden okuyordu, yani vekilin
+arkasında her ziyaretçi vekilin adresiydi. Herhangi biri 30 yanlış
+denemeyle bütün sahiplerin girişini 15 dakika kapatabiliyordu, dakikada iki
+istekle de süresiz. Canlı ölçüldü. Panel artık beacon'ın kuralını
+kullanıyor: `X-Forwarded-For` yalnız adı verilen vekilden gelince okunuyor,
+zincir sağdan çözülüyor. Satır yoksa davranış eskisi gibi; ama istek bir
+vekilden geliyorsa panel bunu günlüğe bir kez WARN olarak yazar. Denetim
+kayıtlarının "nereden" sütunu da artık vekili değil ziyaretçiyi taşıyor.
+
+Yolda iki kusur daha kapandı. `panel.toml`'daki `beacon_url` okunuyor ama
+sunucuya hiç verilmiyordu: karşılama sihirbazının ölçüm kodu adımı, adres
+yazılmış olsa da "kurulumu yapana sorun" diyordu. Aynı sihirbaz, birden çok
+müşterili bir kurulumda bir sitenin sahibine öteki müşterinin site
+kimliğini ve adını gösteriyordu. Artık yalnız yönetebildiği siteleri
+gösteriyor.
+
 ### Kurulum oturumu, sahip hesabını açınca biter
 
 **Kuran kişinin yapması gereken:** hiçbir şey.

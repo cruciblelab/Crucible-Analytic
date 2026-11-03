@@ -1,7 +1,6 @@
 package web
 
 import (
-	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -123,32 +122,6 @@ func TestToStringList(t *testing.T) {
 		if !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("toStringList(%#v) = %v, want %v", tc.in, got, tc.want)
 		}
-	}
-}
-
-// TestPeerAddrIgnoresForwardedHeaders. The redemption record answers
-// "where was this link used from", and a value the person using the
-// link can set is not an answer.
-func TestPeerAddrIgnoresForwardedHeaders(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "192.0.2.10:44321"
-	r.Header.Set("X-Forwarded-For", "203.0.113.1")
-	r.Header.Set("X-Real-IP", "203.0.113.2")
-
-	got := peerAddr(r)
-	if got.String() != "192.0.2.10" {
-		t.Fatalf("peerAddr = %q; a forwarded header was believed", got)
-	}
-}
-
-func TestPeerAddrSurvivesRubbish(t *testing.T) {
-	for _, remote := range []string{"", "not-an-address", "[::1]:80", "127.0.0.1"} {
-		r := httptest.NewRequest("GET", "/", nil)
-		r.RemoteAddr = remote
-		// The only requirement is that it does not panic; an
-		// unparsable address becomes the zero value, which the store
-		// records as unknown.
-		_ = peerAddr(r)
 	}
 }
 
