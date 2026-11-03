@@ -8,6 +8,39 @@ twenty outcomes, and the one that failed is the one nobody reads. */}}
 <p class="ipucu">{{t "ayarlar.bos"}}</p>
 {{- end}}
 
+{{- /* B3f: a save that adds a country or ASN rule stops here once. The
+numbers count every site; only somebody who may save is shown them. */}}
+{{- with .Data.Preview}}
+<section class="ayar onizleme" id="onizleme">
+<h2>{{t "ayarlar.onizleme.baslik"}}: {{.Label}}</h2>
+<p>{{t "ayarlar.onizleme.giris"}}</p>
+{{- with .Error}}<p class="uyari">{{.}}</p>{{end}}
+{{- with .NoPlace}}<p class="uyari">{{.}}</p>{{end}}
+<table>
+<thead><tr><th>{{t "ayarlar.onizleme.kural"}}</th><th>{{t "ayarlar.onizleme.adres"}}</th></tr></thead>
+<tbody>
+{{- range .Rows}}
+<tr data-kural="{{.Rule}}"><td><code>{{.Rule}}</code></td><td>{{.Addresses}}</td></tr>
+{{- end}}
+</tbody>
+</table>
+{{- with .More}}<p class="ipucu">{{.}}</p>{{end}}
+{{- with .Totals}}<p class="ipucu">{{.}}</p>{{end}}
+{{- with .InForce}}<p class="ipucu">{{.}}</p>{{end}}
+{{- with .Refused}}<p class="ipucu">{{.}}</p>{{end}}
+<p id="onizleme-liste">{{t "ayarlar.onizleme.liste"}} <code>{{.Value}}</code></p>
+<form method="post" action="" class="ayar-form">
+<input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+<input type="hidden" name="anahtar" value="{{.Key}}">
+<input type="hidden" name="islem" value="kaydet">
+<input type="hidden" name="deger" value="{{.Value}}">
+<input type="hidden" name="onay" value="{{.Confirm}}">
+<button type="submit">{{t "ayarlar.onizleme.onayla"}}</button>
+<a href="">{{t "ayarlar.onizleme.vazgec"}}</a>
+</form>
+</section>
+{{- end}}
+
 {{- /* One <details> per category, and native rather than scripted.
 The Content-Security-Policy has neither unsafe-inline nor unsafe-eval,
 so an accordion built from a click handler would need a bundled script

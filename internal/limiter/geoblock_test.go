@@ -31,51 +31,51 @@ func TestAnEmptyBlocklistIsUsableAndInactive(t *testing.T) {
 		if b.Active() {
 			t.Error("an empty blocklist reports active, so every connection would pay for a lookup")
 		}
-		if b.Blocked("CN", 64512) {
+		if b.matches("CN", 64512) {
 			t.Error("an empty blocklist blocked something")
 		}
 	}
 	// And nil stays safe, because a server may have no blocklist at all.
 	var none *GeoBlocklist
-	if none.Active() || none.Blocked("CN", 64512) {
+	if none.Active() || none.matches("CN", 64512) {
 		t.Error("a nil blocklist is not inert")
 	}
 }
 
 func TestGeoBlocklist_CountryMatch(t *testing.T) {
 	b := NewGeoBlocklist([]string{"CN", "RU"}, nil)
-	if !b.Blocked("CN", 0) {
+	if !b.matches("CN", 0) {
 		t.Error("Blocked(CN, 0) = false, want true")
 	}
-	if !b.Blocked("RU", 12345) {
+	if !b.matches("RU", 12345) {
 		t.Error("Blocked(RU, 12345) = false, want true (country match alone is enough)")
 	}
-	if b.Blocked("US", 0) {
+	if b.matches("US", 0) {
 		t.Error("Blocked(US, 0) = true, want false")
 	}
 }
 
 func TestGeoBlocklist_CountryMatchIsCaseInsensitive(t *testing.T) {
 	b := NewGeoBlocklist([]string{"cn"}, nil)
-	if !b.Blocked("CN", 0) {
+	if !b.matches("CN", 0) {
 		t.Error("Blocked(CN, 0) = false, want true (blocklist entry was lowercase)")
 	}
 
 	b2 := NewGeoBlocklist([]string{"CN"}, nil)
-	if !b2.Blocked("cn", 0) {
+	if !b2.matches("cn", 0) {
 		t.Error("Blocked(cn, 0) = false, want true (queried value was lowercase)")
 	}
 }
 
 func TestGeoBlocklist_ASNMatch(t *testing.T) {
 	b := NewGeoBlocklist(nil, []int{64512, 64513})
-	if !b.Blocked("", 64512) {
+	if !b.matches("", 64512) {
 		t.Error("Blocked(\"\", 64512) = false, want true")
 	}
-	if !b.Blocked("US", 64513) {
+	if !b.matches("US", 64513) {
 		t.Error("Blocked(US, 64513) = false, want true (ASN match alone is enough)")
 	}
-	if b.Blocked("US", 64514) {
+	if b.matches("US", 64514) {
 		t.Error("Blocked(US, 64514) = true, want false")
 	}
 }
@@ -85,14 +85,14 @@ func TestGeoBlocklist_UnresolvedValuesNeverMatch(t *testing.T) {
 	// values would be a bug: "" / 0 mean "not resolved" (asnlookup's own
 	// zero-value convention), not "matched an empty rule".
 	b := NewGeoBlocklist([]string{"CN"}, []int{64512})
-	if b.Blocked("", 0) {
+	if b.matches("", 0) {
 		t.Error("Blocked(\"\", 0) = true, want false - unresolved country/ASN must never match")
 	}
 }
 
 func TestGeoBlocklist_NilBlocklistNeverBlocks(t *testing.T) {
 	var b *GeoBlocklist
-	if b.Blocked("CN", 64512) {
+	if b.matches("CN", 64512) {
 		t.Error("nil GeoBlocklist blocked a lookup, want it to always report false")
 	}
 }
@@ -118,7 +118,7 @@ func TestSetReplacesTheRulesWhileBlockedIsRunning(t *testing.T) {
 				case <-stop:
 					return
 				default:
-					b.Blocked("CN", 64512)
+					b.matches("CN", 64512)
 					b.Active()
 				}
 			}
@@ -141,10 +141,10 @@ func TestSetReplacesTheRulesWhileBlockedIsRunning(t *testing.T) {
 	if !b.Active() {
 		t.Error("a blocklist with a country in it reports inactive")
 	}
-	if !b.Blocked("RU", 0) {
+	if !b.matches("RU", 0) {
 		t.Error("the country just set is not blocked")
 	}
-	if b.Blocked("CN", 64512) {
+	if b.matches("CN", 64512) {
 		t.Error("a rule from a previous version of the list is still in force")
 	}
 }
@@ -155,5 +155,28 @@ func TestSetIsSafeOnNil(t *testing.T) {
 	b.Set([]string{"CN"}, []int{64512})
 	if b.Active() {
 		t.Error("a nil blocklist became active")
+	}
+}
+
+// TestRefusesCountsEachRefusalAndNothingElse: a match by country and a
+// match by ASN each count once, a miss and an unresolved address count
+// nothing, and a nil list answers zero.
+func TestRefusesCountsEachRefusalAndNothingElse(t *testing.T) {
+	b := NewGeoBlocklist([]string{"CN"}, []int{64512})
+	for _, c := range []struct {
+		country string
+		asn     int
+		want    bool
+	}{{"US", 1, false}, {"CN", 0, true}, {"", 64512, true}, {"", 0, false}} {
+		if got := b.Refuses(c.country, c.asn); got != c.want {
+			t.Errorf("Refuses(%q, %d) = %v, want %v", c.country, c.asn, got, c.want)
+		}
+	}
+	if n := b.Refused(); n != 2 {
+		t.Errorf("Refused() = %d, want 2", n)
+	}
+	var none *GeoBlocklist
+	if none.Refuses("CN", 64512) || none.Refused() != 0 {
+		t.Error("a nil list refused something or counted")
 	}
 }

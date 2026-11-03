@@ -1108,6 +1108,25 @@ other = "%s saat"
 one = "%s gün"
 other = "%s gün"
 
+[metin.ayarlar.onizleme]
+baslik = "Kaydetmeden önce"
+giris = "Engellenen ülke ve ağ kuralları bütün sitelerde, hiçbir kayıt bırakmadan bağlantıyı geri çevirir; yanlış bir giriş gerçek ziyaretçileri sessizce kaybettirir. Yeni eklediğiniz her kuralın son 24 saatte kaç ayrı adresle eşleştiği aşağıda; sayılar bütün sitelerin toplamı. Kaydetmek için aşağıdaki düğmeye basın."
+liste = "Kaydedilecek liste:"
+kural = "Yeni kural"
+adres = "Son 24 saatte eşleşen adres"
+toplam = "Bu sürede bütün sitelerde %s ayrı adres görüldü; %s tanesinin ülkesi, %s tanesinin ağı belirlenebildi."
+fazlasi = "%d kural daha eklendi ama önizlenmedi: bir seferde en çok %d kural sorulabiliyor."
+okunamadi = "İsabetler okunamadı. Kaydedebilirsiniz, ama bu kuralların neyi geri çevireceği bilinmiyor."
+api_yok = "Panel okuma API'sine bağlı değil, isabetler sayılamadı. Kaydedebilirsiniz, ama bu kuralların neyi geri çevireceği bilinmiyor."
+yururlukte = "Listede zaten olan %d kural yukarıda yok: yürürlükteki bir kuralın geri çevirdiği trafik hiç kaydedilmez, yani son 24 saati sayılamaz."
+ret = "Collector %s başladığından beri ülke ve ağ kurallarıyla %s bağlantı ya da isteği geri çevirdi."
+ret_bilinmiyor = "Collector, kuralların geri çevirdiği trafiği bildirmiyor: henüz başlamadı ya da sürümü bu sayıdan eski."
+onayla = "Bu kurallarla kaydet"
+vazgec = "Vazgeç"
+cozumsuz_ulke = "Son 24 saatte hiçbir adresin ülkesi belirlenemedi: ülke çözümü kapalı ya da çalışmıyor. Bu durumda ülke kuralları hiçbir şeyi geri çevirmez."
+cozumsuz_asn = "Son 24 saatte hiçbir adresin ağı (ASN) belirlenemedi: ağ çözümü kapalı ya da çalışmıyor. Bu durumda ağ kuralları hiçbir şeyi geri çevirmez."
+
+
 [metin.ayarlar.hata]
 onkosul = "Bu değer bu kurulumda kullanılamıyor: gereken yapılandırma henüz yok. Ayarın açıklamasında neyin önceden hazır olması gerektiği yazıyor."
 jeton_anahtari_sessiz = "Bu değer için IP jeton anahtarı gerekiyor ve adres yazan hiçbir servis henüz kendini bildirmedi — yani anahtarı olup olmadığı bilinmiyor. Collector (ve kullanıyorsanız beacon) bir kez çalıştıktan sonra bu ayar açılır."
@@ -1269,6 +1288,7 @@ hata = "Hata"
 suresi_dolan = "Süresi dolan istek"
 gunluk_kaybi = "Kaybolan günlük satırı"
 duraklatilan = "Kayıt duraklatıldığı için yazılmayan"
+cografi_engel = "Engellenen ülke ya da ağ kuralıyla geri çevrilen"
 # Reddedilenlerin sebepleri: "Reddedilen" satırının altına, yalnız
 # gerçekleşenler çizilir.
 reddedilen_bilinmeyen_site = "bilinmeyen site"

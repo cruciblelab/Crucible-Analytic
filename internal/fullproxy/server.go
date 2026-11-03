@@ -351,5 +351,5 @@ func (s *Server) geoBlocked(remoteIP netip.Addr) bool {
 		return false
 	}
 	geo := s.Resolver.Resolve(remoteIP)
-	return s.GeoBlocklist.Blocked(geo.Country, geo.ASN)
+	return s.GeoBlocklist.Refuses(geo.Country, geo.ASN)
 }

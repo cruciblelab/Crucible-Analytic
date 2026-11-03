@@ -36,6 +36,9 @@ type fakeStore struct {
 	// a map, so a copy-paste slip there would route /browsers to the
 	// devices query with nothing else failing - this is what catches it.
 	gotCall string
+	// gotCountries and gotASNs are the blocklist preview's rules.
+	gotCountries []string
+	gotASNs      []int
 }
 
 func (f *fakeStore) Sites(ctx context.Context) ([]string, error) {

@@ -37,6 +37,8 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -49,7 +51,7 @@ func perSiteRoutes(t *testing.T) []string {
 	t.Helper()
 
 	var found []string
-	for _, file := range []string{"server.go", "server_beacon.go"} {
+	for _, file := range routeFiles(t) {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, file, nil, 0)
 		if err != nil {
@@ -60,6 +62,34 @@ func perSiteRoutes(t *testing.T) []string {
 
 	sort.Strings(found)
 	return found
+}
+
+// routeFiles is every non-test file of this package.
+//
+// It was two names - server.go and server_beacon.go - and a route added
+// in a third file would have gone unprobed, the blindness this file
+// exists to remove. B3f added server_blocklist.go, which is how it was
+// noticed. Every file, so the next one cannot be missed; at least the
+// two that register the bulk of the routes, so a glob that matched
+// nothing cannot pass for a scan.
+func routeFiles(t *testing.T) []string {
+	t.Helper()
+	all, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var files []string
+	for _, f := range all {
+		if !strings.HasSuffix(f, "_test.go") {
+			files = append(files, f)
+		}
+	}
+	for _, want := range []string{"server.go", "server_beacon.go", "server_blocklist.go"} {
+		if !slices.Contains(files, want) {
+			t.Fatalf("the route scan does not see %s; found %v", want, files)
+		}
+	}
+	return files
 }
 
 // routesIn walks one file for every mux.HandleFunc whose pattern names a
@@ -73,6 +103,13 @@ func perSiteRoutes(t *testing.T) []string {
 // with another customer's? - and it is answerable whether or not the
 // registration remembered its wrapper.
 func routesIn(t *testing.T, fset *token.FileSet, f *ast.File) []string {
+	t.Helper()
+	return routesInCollecting(t, fset, f, nil)
+}
+
+// routesInCollecting is routesIn, also appending every literal route
+// without a {site} to siteless when it is not nil.
+func routesInCollecting(t *testing.T, fset *token.FileSet, f *ast.File, siteless *[]string) []string {
 	t.Helper()
 
 	// Loop variables that range over a map literal, so a pattern built as
@@ -125,6 +162,8 @@ func routesIn(t *testing.T, fset *token.FileSet, f *ast.File) []string {
 			s, _ := stringLit(pattern)
 			if p := strings.TrimPrefix(s, "GET "); strings.Contains(p, "{site}") {
 				out = append(out, p)
+			} else if siteless != nil {
+				*siteless = append(*siteless, p)
 			}
 		case *ast.BinaryExpr:
 			// prefix + loopVariable
@@ -280,5 +319,77 @@ func TestTheHandWrittenRouteListsAreStillComplete(t *testing.T) {
 		t.Errorf("%d per-site route(s) appear in the router and in neither hand-written list:\n  %s\n"+
 			"Add them to perSiteRouteSuffixes or beaconRoutes, so the assertions those lists carry "+
 			"run against them too", len(missing), strings.Join(missing, "\n  "))
+	}
+}
+
+// sitelessRoutes is what a token scoped to some sites gets from each
+// route whose path names no site.
+//
+// The per-site routes share one guard, siteHandler, and the tests above
+// probe every one of them. These do not: each decides for itself, and
+// nothing asked whether a new one decided at all. A route here either
+// filters its answer to the token's sites, refuses a scoped token, or
+// carries no data.
+var sitelessRoutes = map[string]string{
+	"/api/v1/sites":             "filtered", // the token's own list
+	"/api/v1/overview":          "filtered", // the store is passed the token's sites
+	"/api/v1/beacon/sites":      "filtered", // the token's own list
+	"/api/v1/blocklist/preview": "refused",  // counts every site (B3f)
+	"/healthz":                  "public",   // no data, no token
+}
+
+// TestEveryRouteWithoutASiteSaysWhatAScopedTokenSees.
+//
+// The list is read from the router's source and must match the map both
+// ways; then each route is asked with the token for site-a only, over a
+// store that knows site-b too. A refused route answers 403 without asking
+// the store; a filtered one answers without naming site-b.
+func TestEveryRouteWithoutASiteSaysWhatAScopedTokenSees(t *testing.T) {
+	var siteless []string
+	for _, file := range routeFiles(t) {
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		routesInCollecting(t, fset, f, &siteless)
+	}
+	for _, route := range siteless {
+		if _, ok := sitelessRoutes[route]; !ok {
+			t.Errorf("%s names no site and is not in sitelessRoutes; say what a scoped token gets from it", route)
+		}
+	}
+	for route := range sitelessRoutes {
+		if !slices.Contains(siteless, route) {
+			t.Errorf("sitelessRoutes lists %s, which the router no longer registers", route)
+		}
+	}
+
+	for route, kind := range sitelessRoutes {
+		t.Run(route, func(t *testing.T) {
+			store := &fakeStore{sites: []string{"site-a", "site-b"}}
+			w := do(newTestServer(t, store), http.MethodGet, route, "ahmet-secret")
+			switch kind {
+			case "refused":
+				if w.Code != http.StatusForbidden || store.gotCall != "" {
+					t.Errorf("answered %d and reached %q; want 403 before the store", w.Code, store.gotCall)
+				}
+			case "filtered":
+				if w.Code != http.StatusOK || strings.Contains(w.Body.String(), "site-b") {
+					t.Errorf("answered %d: %s; want 200 without site-b", w.Code, w.Body)
+				}
+				// The fake's overview row is fixed, so the body cannot show a
+				// widened query; what the store was handed can.
+				if route == "/api/v1/overview" && !slices.Equal(store.gotSites, []string{"site-a"}) {
+					t.Errorf("the overview asked the store for %q, want only [site-a]", store.gotSites)
+				}
+			case "public":
+				if w.Code != http.StatusOK {
+					t.Errorf("answered %d", w.Code)
+				}
+			default:
+				t.Fatalf("unknown kind %q", kind)
+			}
+		})
 	}
 }

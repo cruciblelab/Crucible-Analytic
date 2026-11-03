@@ -189,6 +189,17 @@ func main() {
 	// for why it is its own value.
 	pause := &storage.Pause{}
 
+	// Always a real blocklist, empty or not, because the lists can be
+	// replaced from the panel while this process runs (A5.2). Only wired
+	// into a server below when lookup is also non-nil, since a blocklist
+	// is meaningless without a resolver to check it against - and the
+	// servers ask Active() per connection, so an empty one costs an
+	// atomic load rather than a geography lookup.
+	//
+	// Built before the heartbeat, which reports what it has refused
+	// (heartbeat.CounterGeoBlocked).
+	geoBlocklist := limiter.NewGeoBlocklist(cfg.ASNLookup.BlockedCountries, cfg.ASNLookup.BlockedASNs)
+
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
@@ -220,6 +231,9 @@ func main() {
 				// Always, zero included: its presence is how the panel
 				// knows this build honours a pause.
 				heartbeat.CounterPaused: heartbeat.Count(pause.Held()),
+				// Always too, for the same reason: the panel says how
+				// many a rule in force turned away, zero included (B3f).
+				heartbeat.CounterGeoBlocked: heartbeat.Count(geoBlocklist.Refused()),
 			}
 		},
 	})
@@ -268,14 +282,6 @@ func main() {
 	} else {
 		close(lookupDone)
 	}
-
-	// Always a real blocklist, empty or not, because the lists can be
-	// replaced from the panel while this process runs (A5.2). Only wired
-	// into a server below when lookup is also non-nil, since a blocklist
-	// is meaningless without a resolver to check it against - and the
-	// servers ask Active() per connection, so an empty one costs an
-	// atomic load rather than a geography lookup.
-	geoBlocklist := limiter.NewGeoBlocklist(cfg.ASNLookup.BlockedCountries, cfg.ASNLookup.BlockedASNs)
 
 	// nil unless apply_to_scoring is explicitly on and at least one ASN
 	// is configured - map lookups against a nil map are safe and always

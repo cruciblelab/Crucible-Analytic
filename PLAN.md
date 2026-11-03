@@ -2250,7 +2250,7 @@ yarısını başka adlarla karşıladı.
 | 9 | `SetOverloadPolicy` | **var** | `*.limits.overload_policy` — varsayılanı Z3 kararını bekliyor |
 | 10 | `SetThrottleQueueSize` | **var** | `*.limits.throttle_queue_size` |
 | 11 | `SetBotScoreThreshold` | yok | eşik yalnız API'nin istek parametresi (`bot_score_min`); site ayarı eskizlerin eşiğini de değiştirir ve O3'ten beri eşik değişince eskizler baştan hesaplanıyor — bedeli ölçülmeli |
-| 12 | `SetBlockedCountries/ASNs` | yarım | ayarlar var; katalogun istediği "kabulden önce kural başına son 24 saatin isabeti" yok — collector'da sayaç ister |
+| 12 | `SetBlockedCountries/ASNs` | **var** | B3f-1: yeni bir kural kaydedilmeden önce son 24 saatin isabeti kural başına gösteriliyor; yürürlükteki kuralların geri çevirdiği collector sayacında (`cografi_engel`) |
 | 13 | `SetKnownBotASNs` | **var** | `collector.known_bot_asns` |
 | 14 | `ShowTableSizes` | **var** | Sağlık → depolama (B4): boyut, satır değil |
 | 15 | `SetRetention` | bilerek dışarıda | §0.6/1: hukuki ağırlıklı, dosyadan |
@@ -2373,7 +2373,32 @@ kez yazmak onu bir kez yapmaktır.
   saklama açılışta koşuyor, dosya açılışta okunuyor), ayrı kanal
   gerekmedi. **B3d-2'nin sorusu yeniden açık:** artık panel servisi
   yeniden başlatabildiği için tampon boyu bir panel ayarı olabilir.
-- **B3f** — #12 ve #11: sayaç ve eşik, bedelleri ölçülerek.
+- **B3f-1** ✅ *(2026-11-03)* — #12. Engellenen ülke ya da ağ listesine
+  **yeni** bir giriş ekleyen kayıt bir kez duruyor ve her yeni kuralın son
+  24 saatte bütün sitelerde kaç ayrı adresle eşleştiğini gösteriyor;
+  aynı form onaylanınca kaydediliyor. Okuma API'sinde yeni uç
+  `/api/v1/blocklist/preview`, **yalnız joker jeton** (site kapsamlı jetona
+  403: cevap bütün sitelerin trafiği). Sayıları yalnız ayarı
+  değiştirebilen görüyor — H10'dan beri işletmeci ya da her sitenin
+  sahibi; başkasının kaydı önizlemeye hiç ulaşmadan reddediliyor.
+  **Uyarır, engellemez:** binlerce adresle eşleşen bir kural bir saldırının
+  istediği şey olabilir; okunamayan bir önizleme de kaydı sunmaya devam
+  ediyor (sayının yerinde tire, asla 0). Yürürlükteki bir kuralın geri
+  çevirdiği trafik hiç kaydedilmediği için önizlenemiyor; onun yerine
+  collector'ın kendi sayacı (`cografi_engel`, kalp atışında, sıfır dahil)
+  gösteriliyor. Sayaç `limiter.GeoBlocklist.Refuses`'ta tutuluyor ve
+  eşleşmeyi soran tek dışa açık yöntem o, yani sayılmayan bir coğrafi ret
+  yazılamaz. Adres hiçbir ülkeye/ağa yerleştirilemiyorsa (çözüm kapalı)
+  sayfa kuralın hiçbir şeyi geri çevirmeyeceğini söylüyor. **Ölçüldü**
+  (`ca_b3f`, son 24 saatte 3M anlık görüntü, 62.472 adres, 40 site;
+  29 mutasyon, 29'u kırmızı):
+  ikilinin cevabıyla soğuk 1,06–1,61 sn, sıcak 0,71–2,19 sn; 3 kural da
+  200 kural da aynı bant. Reddedilen şekil: anahtarı her satırda kurmak,
+  psql'de soğuk 2,26–2,56 sn (aynı psql düzeneğinde seçilen şekil
+  1,59–1,66). **Ölçülmedi:** sıkıştırmanın 1 güne çekildiği bir kurulum
+  (varsayılan 7 gün, 24 saatlik pencere sıkıştırılmamış).
+- **B3f-2** — #11: site başına bot eşiği; O3'ten beri eşik eskizlerin
+  içinde yazılı, değişince eskizler baştan hesaplanıyor — bedeli ölçülerek.
 - **B3g** ✅ *(2026-11-02)* — #29'un öbür yarısı: site başına son olay ve
   son bir saatin olay sayısı. Okuma API'sinde yeni uç
   `/sites/{site}/beacon/activity` (son olay + son saatin sayısı,

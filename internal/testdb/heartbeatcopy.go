@@ -149,6 +149,22 @@ func (h *HeartbeatCopy) Says(service, state string) {
 	}
 }
 
+// Counts records what one service reported in its counters column, as
+// JSON, and when it started: a started time an hour back, so a reader can
+// tell it from the beat time.
+func (h *HeartbeatCopy) Counts(service, counters string) {
+	h.t.Helper()
+	if _, err := h.admin.Exec(context.Background(), `
+		INSERT INTO `+h.schema+`.service_heartbeat
+		    (service, version, started_at, beat_at, counters)
+		VALUES ($1, 'fixture', now() - interval '1 hour', now(), $2::jsonb)
+		ON CONFLICT (service) DO UPDATE SET counters = EXCLUDED.counters,
+		    started_at = EXCLUDED.started_at, beat_at = now()`,
+		service, counters); err != nil {
+		h.t.Fatalf("recording %s's counters: %v", service, err)
+	}
+}
+
 // Forget removes one service's row.
 func (h *HeartbeatCopy) Forget(service string) {
 	h.t.Helper()

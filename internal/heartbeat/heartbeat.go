@@ -94,6 +94,18 @@ const (
 	// can tell an older build that would go on recording from one that
 	// simply has had nothing to hold back.
 	CounterPaused = "duraklatilan"
+	// CounterGeoBlocked is what the collector turned away because a
+	// country or ASN rule matched (collector.blocked_countries,
+	// collector.blocked_asns): connections in passthrough mode, requests
+	// in full mode.
+	//
+	// Not one of the RejectionCounters, and not summed into
+	// CounterRejected: the collector does not count its other refusals,
+	// so a total built from this one would claim to be all of them.
+	// Reported always, zero included, like CounterPaused - its presence
+	// tells the panel this build counts, so "0 refused" can be said about
+	// a rule in force rather than guessed (B3f).
+	CounterGeoBlocked = "cografi_engel"
 
 	// The beacon's refusals, by reason. CounterRejected is their sum,
 	// and the beacon derives it from them rather than counting it a

@@ -161,6 +161,10 @@ type settingsPage struct {
 
 	Message string
 	Failed  bool
+
+	// Preview stops a save that adds a country or ASN rule, once, with
+	// what each new rule would have matched (blocklistpreview.go).
+	Preview *blocklistPreview
 }
 
 // settingsHandler serves and processes a site's settings.
@@ -241,6 +245,19 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	site := ""
 	if def.Scope == panel.ScopeSite {
 		site = access.SiteID
+	}
+
+	// A save that adds a country or ASN rule stops once to show what the
+	// new rules would have turned away (B3f). Only for somebody whose
+	// save would be accepted: the counts are every site's, and anybody
+	// else goes on to ApplySetting's refusal. Before the operation record,
+	// because nothing has changed yet.
+	if r.PostFormValue("islem") == "kaydet" && blocklistKey(key) &&
+		access.AccessTo(def) == panel.SettingWritable {
+		if preview, stop := s.blocklistPreviewFor(ctx, lang, def, r); stop {
+			s.renderSettings(w, r, lang, access, settingsPage{Preview: &preview, Focus: string(key)})
+			return
+		}
 	}
 
 	// The authorization, if this setting needs one. The action name

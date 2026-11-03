@@ -24,6 +24,24 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Engellenen ülke ya da ağ eklemeden önce son 24 saatte neyi geri çevireceği görünüyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.
+
+Engellenen ülkeler ve engellenen ağlar listesi bütün sitelerde
+bağlantıyı hiçbir kayıt bırakmadan geri çeviriyor. Yanlış bir giriş
+(TM yerine TR, müşterilerin yarısının kullandığı mobil operatörün ağı)
+gerçek ziyaretçileri sessizce kaybettiriyordu. Artık listeye yeni bir
+giriş ekleyen kayıt bir kez duruyor ve her yeni kuralın son 24 saatte
+bütün sitelerde kaç ayrı adresle eşleştiğini, kaydedilecek listeyle
+birlikte gösteriyor; düğmeye basılınca kaydediliyor. Engellemiyor, yalnız
+söylüyor. Ülke ya da ağ çözümü kapalıysa sayfa kuralın hiçbir şeyi geri
+çevirmeyeceğini söylüyor. Collector artık ülke ve ağ kurallarıyla geri
+çevirdiklerini sayıyor ve kalp atışında bildiriyor; Sağlık sayfasında
+"Engellenen ülke ya da ağ kuralıyla geri çevrilen" satırı, sayı sıfırdan
+büyükse görünüyor. Okuma API'sinde yeni uç: `/api/v1/blocklist/preview`,
+yalnız joker jetonla.
+
 ### Kurulum geneli ayarları artık bir sitenin sahibi tek başına değiştiremiyor
 
 **Kuran kişinin yapması gereken:** tek müşteriniz varsa ve her siteniz

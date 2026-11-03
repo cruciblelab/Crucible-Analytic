@@ -303,6 +303,10 @@ func TestServer_GeoBlockedConnectionIsRejectedBeforeBackendDial(t *testing.T) {
 	if len(snap) != 0 {
 		t.Errorf("RateStore has %d entries, want 0 - a geo-blocked connection must never reach RecordRequest", len(snap))
 	}
+	// And the refusal is counted: it is the only trace the rule leaves.
+	if n := blocklist.Refused(); n != 1 {
+		t.Errorf("the blocklist counted %d refusals, want 1", n)
+	}
 }
 
 func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
@@ -340,5 +344,8 @@ func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("echoed data = %q, want %q", got, want)
+	}
+	if n := blocklist.Refused(); n != 0 {
+		t.Errorf("a connection that matched no rule was counted as refused (%d)", n)
 	}
 }

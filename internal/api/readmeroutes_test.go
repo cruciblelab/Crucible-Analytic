@@ -76,3 +76,15 @@ func readReadmeFromRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// TestEveryRouteWithoutASiteIsInTheReadme: the per-site routes are
+// counted above; these are few enough to be named, and each one says in
+// the README what a scoped token gets from it.
+func TestEveryRouteWithoutASiteIsInTheReadme(t *testing.T) {
+	readme := readReadmeFromRoot(t)
+	for route := range sitelessRoutes {
+		if !regexp.MustCompile("\\| `" + regexp.QuoteMeta(route) + "` \\|").MatchString(readme) {
+			t.Errorf("README's endpoint tables have no row for %s", route)
+		}
+	}
+}

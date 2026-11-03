@@ -24823,3 +24823,102 @@ tekrar ediyordu; iki kısa cümleye indi.
 geneli kapıyı açıyor: kurulum sihirbazı (`beacon.sites`'ı yazıyor), posta
 ayarları, geliştirici erişimi onayı ve Sağlık işlemleri. PLAN H10'da
 sırasıyla.
+
+## Engel listesine kural eklemeden önce son 24 saat — B3f-1 (2026-11-03)
+
+Katalog #12 tek bir cümle istiyordu: *"Yanlış giriş gerçek trafiği
+sessizce atar, o yüzden operasyon kabul etmeden önce kural başına son 24
+saatin isabet sayısını gösterir."* İlk soru "kime" oldu ve H10'u açtı.
+Bir sitenin sahibi bu listeyi bütün kurulum için yazabiliyordu. H10'dan
+sonra sayıları görecek kişi belli: ayarı yazabilen, yani işletmeci ya da
+her sitenin sahibi. Bütün sitelerin trafiği onların kendi verisi.
+
+**İki yarı, çünkü bir yarısı imkânsız.** Yürürlükteki bir kural vekilden
+önce 403 veriyor (tam kip) ya da bağlantıyı kapatıyor (geçiş kipi).
+Geri çevirdiği trafik `traffic_snapshots`'a hiç düşmüyor; ne günlük
+satırı var ne sayaç. Önizleme ona "0" derdi, ve 0 tam olarak "güvenle
+ekle" diye okunan cevap. O yüzden:
+- **yeni** kurallar tablodan önizleniyor; cevap, kuralın şu an geçen
+  trafikten ek olarak neyi geri çevireceği;
+- yürürlükteki kurallar önizlenmiyor ve sayfa bunu söylüyor; onların
+  yerine collector'ın kendi sayacı (`cografi_engel`) gösteriliyor.
+
+**Sayaç, unutulamayacak yerde.** Eşleşme iki sunucuda soruluyordu
+(`proxy`, `fullproxy`), ikisi de `GeoBlocklist.Blocked`'ı çağırıyordu.
+Sunucu başına bir sayaç, birinin unutacağı bir sayaç olurdu. Eşleşme artık
+dışa kapalı (`matches`); tek dışa açık soru `Refuses`, ve o sayıyor.
+Sayaç kalp atışında, sıfır dahil her zaman: varlığı "bu yapı sayıyor"
+demek, yani panel yürürlükteki bir kural için "0" diyebiliyor, tahmin
+etmiyor. `reddedilen`in parçası değil: collector kapasite retlerini
+saymıyor, o yüzden coğrafi reddi toplam diye yazmak toplamı yanlış
+yapardı. Yapısal kural `geoblockcount_test.go`: bir engel listesi kuran
+her dosya, aynı listenin `Refused()`'ını `CounterGeoBlocked` altında
+bildirmek zorunda.
+
+**Ölçüm, kod yazılmadan önce.** `ca_b3f`, ürünün `install.sh`'ı ile:
+son 24 saatte 3M anlık görüntü (ca_scale'in bir gününün ~20 katı),
+önceki 6 günde 3M daha, 62.472 maskeli adres, 182 ülke, 7.691 ASN, 40
+site. Üretecin ilk hâli kusurluydu: rastgele seçimi `JOIN ... ON` içinde
+yapınca PostgreSQL onu bir kez hesapladı, tek adres ve tek ülke çıktı.
+Sayılar sorulmasaydı "1 ülke, 3 ms" diye ölçecektim (O4d'nin dersi: bir
+kümenin kardinalitesi ölçüm önkoşulu).
+- Psql'de, soğuk (PG yeniden başlatma + sayfa önbelleği boşaltma):
+  anahtarı her satırda kurmak (`coalesce(ip_hash, inet_send(ip))`)
+  2,26–2,56 sn; önce ham sütunlarla `DISTINCT`, anahtarı sonra kurmak
+  1,59–1,66 sn. Aralıklar örtüşmüyor; ikincisi seçildi (O4b'nin satır
+  başına `inet_send` dersi).
+- Kural sayısı maliyeti değiştirmiyor: 3+3 kural 1,55–1,63 sn, 100+100
+  kural 1,62–1,86 sn. Maliyet pencerenin taranması.
+- İkilinin cevabıyla (`analytics-api`, `ca_b3f`): soğuk 1,06–1,61 sn,
+  sıcak 0,71–2,19 sn. Panelin bu çağrı için sınırı 8 sn.
+- **Ölçülmedi:** sıkıştırmanın 1 güne çekildiği bir kurulum. Varsayılan
+  7 gün; 24 saatlik pencere sıkıştırılmamış parçada.
+
+**Okuma API'si: yalnız joker jeton.** Cevap bütün sitelerin trafiği.
+Site kapsamlı bir jetona kendi sitelerinin cevabını aynı adla vermek,
+aynı adın altında başka bir sayı vermek olurdu; 403. Bunu yazarken
+API'nin yalıtım testinin rotaları yalnız iki dosyadan okuduğu çıktı.
+Üçüncü bir dosyaya eklenen site rotası hiç sınanmazdı. Liste artık
+paketin her dosyası. Site içermeyen rotalar (`/sites`, `/overview`,
+`/beacon/sites`, `/healthz` ve yenisi) için hiçbir şey "kapsamlı jeton
+burada ne görüyor" diye sormuyordu. Şimdi her birinin sınıfı yazılı
+(süzülmüş / reddedilir / herkese açık), kaynaktan türetilen listeyle iki
+yönlü karşılaştırılıyor ve sınanıyor. Her biri README'nin uç tablosunda
+satır olarak var mı, o da soruluyor.
+
+**Panel, API paketini içe aktarmıyor.** Kural sınırı (200) ilk hâlde
+`api.MaxBlocklistPreviewRules`'tan okunuyordu; panel ikilisine API
+sunucusunu ve pgx store'unu taşıyacaktı. Panelin istemci paketinde kendi
+sabiti var, bir test ikisini eşit tutuyor.
+
+**Panel akışı.** `saveSetting`, işlem kaydı açılmadan önce: kayıt iki
+listeden birine **yeni** bir giriş ekliyorsa ve formun `onay` alanı o
+eklenenlere eşit değilse sayfa önizlemeyle dönüyor. Karşılaştırma
+collector'ın karşılaştırması: ülke kodu büyük/küçük harfsiz, ASN sayı
+olarak. Onay alanı **eklenenlerin** listesi, değerin kendisi değil.
+Önizleme ile kayıt arasında liste değişirse eklenenler değişir ve sayfa
+yeniden önizler; eski bir cevapla kaydedilmez. Kaldırma önizlenmiyor
+(hiçbir şeyi yeni geri çevirmiyor). Okunamayan önizlemede sayının yerinde
+tire var, asla 0, ve kayıt yine sunuluyor (sahibin kuralı: zarar yoksa
+uyar, bırak). "Panel API'ye bağlı değil" cümlesi yalnız yapılandırma
+yokken çıkıyor. İlk hâl `ErrUnavailable`'a bakıyordu, o da
+"ulaşılamıyor" demek; test yakaladı. Ekran görüntüsü bir eksik buldu:
+sayfa kaydedilecek listeyi göstermiyordu. Düğmeye basan neyi onayladığını
+göremiyordu; artık satır olarak var.
+
+**Mutasyon.** 29 mutasyon, 29'u kırmızı. İlk turda ikisi soru çıktı:
+- A9 benim kusurumdu: mutasyon `math`'i kullanılmaz bıraktı ve derlenmedi.
+  Yeniden yazılan hâli (üst sınır yanlış yerde) kırmızı.
+- A12 (taramayı iki dosyaya geri döndürmek) tek başına sağ kaldı, çünkü
+  bugün üçüncü dosyada site rotası yok: eşdeğer. Tetikleyen durumla
+  birleştirildi. Üçüncü dosyaya bir site rotası eklemek bugünkü taramayla
+  kırmızı, eski taramayla **sağ**. Değişikliğin yük taşıdığı bu çiftle
+  gösterildi.
+
+**Yolda ayrı bir kusur (ayrı commit'te):** panel beacon'ın kalp atışı
+satırını `"beacon"` adıyla arıyor. Satırlar rol adıyla yazılıyor
+(`current_user`, varsayılan kurulumda `beacon_writer`). Ölçüldü:
+`Collecting{Collector:tam Beacon:""}`. Bir rol adı sabiti olarak
+`GeoRefusals` da aynı soruyu taşıyor: varsayılan `collector` doğru, ama
+`[roles]` ile adı değiştirilmiş bir kurulumda okunmaz. İkisi birlikte
+ele alınacak.

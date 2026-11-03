@@ -19,16 +19,18 @@ import (
 // implements it; tests substitute a fake so the HTTP/auth layer can be
 // exercised without a live database.
 //
-// Composed of three interfaces rather than written as one long list,
+// Composed of four interfaces rather than written as one long list,
 // because the split is meaningful: TrafficQuerier reads
 // traffic_snapshots, BeaconQuerier reads beacon_events, and
 // CrossoverQuerier reads both - so an endpoint's group tells you which
 // of the two collection processes has to be running for it to return
-// anything.
+// anything. DeploymentQuerier is the odd one: it answers about every
+// site at once, and its routes refuse any token that is not a wildcard.
 type Querier interface {
 	TrafficQuerier
 	BeaconQuerier
 	CrossoverQuerier
+	DeploymentQuerier
 }
 
 // TrafficQuerier is the read-only access the collector-side handlers
@@ -117,6 +119,9 @@ func (s *Server) Handler() http.Handler {
 	// because they read a different table and speak a different
 	// vocabulary - visitors and sessions rather than addresses.
 	s.registerBeaconRoutes(mux)
+
+	// Questions about every site at once, for wildcard tokens only.
+	s.registerDeploymentRoutes(mux)
 
 	// Unauthenticated on purpose: it reports only that the process is up,
 	// no data at all, so a load balancer or uptime check can use it

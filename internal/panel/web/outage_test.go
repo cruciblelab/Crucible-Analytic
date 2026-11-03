@@ -17,6 +17,11 @@ import (
 // held up by construction stops being true the first time somebody puts
 // a visitor count on the site list.
 var analyticsCallers = []string{
+	// B3f's preview before a country or ASN rule is saved. A failed read
+	// draws each new rule with a dash, never 0 - zero is the one answer
+	// that reads as "safe to add" - and a sentence saying the matches
+	// could not be counted; the save is still offered.
+	"blocklistpreview.go",
 	"breakdown.go",
 	"dashboard.go",
 	// D3's developer-mode views. What each shows when the fetch fails is

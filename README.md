@@ -450,6 +450,7 @@ the long ranges that can come near this are listed in PLAN §O4.
 | `/healthz` | Liveness only, no data - the one route needing no token. |
 | `/api/v1/sites` | Site IDs this token may read. |
 | `/api/v1/overview` | Every site the token can read, each with its headline numbers, in **one** request - built for a panel's landing page so it doesn't have to fan out per customer. |
+| `/api/v1/blocklist/preview` | **Wildcard tokens only** - a token scoped to some sites gets `403`, because the answer counts every site. For `country=` and `asn=` rules (repeatable, at most 200 together), how many distinct addresses each matched in the last 24 hours on the database's clock, plus how many addresses were seen and how many of them the lookup placed in a country and in a network. An address a rule already in force refuses is never recorded, so this counts what a *new* rule would add. The panel asks it before it accepts a new blocked country or network. |
 | `/api/v1/sites/{site}/summary` | Unique IPs, bot/human split, peak+avg request rate, busiest-window request count. |
 | `/api/v1/sites/{site}/timeseries` | Unique IPs, bot IPs and rates bucketed over time, for charts. |
 | `/api/v1/sites/{site}/top-ips` | Highest-scoring IPs with their country/ASN/JA4, known-bot flags and last-seen time. |

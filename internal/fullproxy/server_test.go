@@ -201,6 +201,10 @@ func TestServer_GeoBlockedRequestGets403AndIsNotRecorded(t *testing.T) {
 	if len(snaps) != 0 {
 		t.Errorf("RateStore has %d entries, want 0 - a geo-blocked request must never reach RecordRequest", len(snaps))
 	}
+	// Counted per request, the unit full mode refuses in.
+	if n := blocklist.Refused(); n != 1 {
+		t.Errorf("the blocklist counted %d refusals, want 1", n)
+	}
 }
 
 func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
@@ -236,6 +240,9 @@ func TestServer_NonMatchingGeoBlocklistStillProxiesNormally(t *testing.T) {
 	snaps := store.Snapshot(time.Time{}, time.Now())
 	if len(snaps) != 1 {
 		t.Errorf("RateStore has %d entries, want 1 (the non-blocked request should still be recorded)", len(snaps))
+	}
+	if n := blocklist.Refused(); n != 0 {
+		t.Errorf("a request that matched no rule was counted as refused (%d)", n)
 	}
 }
 

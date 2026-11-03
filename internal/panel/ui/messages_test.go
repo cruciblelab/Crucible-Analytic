@@ -415,6 +415,8 @@ var (
 		"yazilan", "dusurulen", "reddedilen", "kabul", "hata", "suresi_dolan", "gunluk_kaybi",
 		// What a recording pause held back (PLAN §4, #3).
 		"duraklatilan",
+		// What the collector's country and ASN rules turned away (B3f).
+		"cografi_engel",
 		// The beacon's refusals by reason, drawn under "reddedilen".
 		"reddedilen_bilinmeyen_site", "reddedilen_bozuk", "reddedilen_gecersiz",
 		"reddedilen_kapasite", "reddedilen_diger",

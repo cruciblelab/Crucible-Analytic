@@ -1554,6 +1554,19 @@ saldırı sürerken SSH'a ihtiyaç duymamanız için:
 | `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
 | `collection.paused_until` (site başına) | Bir sitenin kaydını bir süre duraklatır; aşağıda |
 
+**Engel listesine yeni kural eklerken.** Panelden engellenen ülkelere ya
+da ağlara yeni bir giriş eklediğinizde kayıt bir kez durur ve her yeni
+kuralın son 24 saatte **bütün sitelerde** kaç ayrı adresle eşleştiğini
+gösterir; "Bu kurallarla kaydet" ile kaydedilir. Panel engellemez, yalnız
+söyler. Listede zaten olan kurallar önizlenmez: yürürlükteki bir kuralın
+geri çevirdiği trafik hiç kaydedilmez. Onların yerine collector'ın son
+başlatmadan beri ülke ve ağ kurallarıyla geri çevirdiği bağlantı (geçiş
+kipi) ya da istek (tam kip) sayısı görünür; aynı sayı Sağlık sayfasında
+da var. Önizleme okuma API'sini joker jetonla sorar; panelin jetonu zaten
+`sites = ["*"]` olmalı. Son 24 saatte hiçbir adresin ülkesi ya da ağı
+belirlenmediyse sayfa bunu söyler: o durumda `asn_lookup` kapalı ya da
+çalışmıyordur ve kural hiçbir şeyi geri çevirmez.
+
 **Çekim kaydı.** `asn_lookup` açıkken her veri kümesi çekimi
 `ip_range_fetches` tablosuna bir satır yazar: hangi kaynak, hangi adres
 ailesi, kaç satır, kaç bayt, ve başarısızsa tam hata zinciri. "Coğrafya

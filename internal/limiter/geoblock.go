@@ -31,6 +31,9 @@ import (
 // of its check even if another list arrives mid-decision.
 type GeoBlocklist struct {
 	rules atomic.Pointer[geoRules]
+	// refused counts the matches Refuses has answered: every connection
+	// (passthrough) or request (full) a rule turned away.
+	refused atomic.Uint64
 }
 
 // geoRules is one immutable version of the lists.
@@ -58,7 +61,7 @@ func NewGeoBlocklist(countries []string, asns []int) *GeoBlocklist {
 
 // Set replaces the rules.
 //
-// Safe to call while Blocked is running on other goroutines: the new
+// Safe to call while Refuses is running on other goroutines: the new
 // rules are built first and published in one store, so no reader ever
 // sees a half-filled map.
 func (b *GeoBlocklist) Set(countries []string, asns []int) {
@@ -95,7 +98,7 @@ func (b *GeoBlocklist) Set(countries []string, asns []int) {
 // The question callers used to answer with a nil check. Worth asking
 // before resolving an address, because a deployment that blocks nothing
 // - the default - should not pay for a geography lookup per connection.
-// Nil-safe, like Blocked.
+// Nil-safe, like Refuses.
 func (b *GeoBlocklist) Active() bool {
 	if b == nil {
 		return false
@@ -104,13 +107,43 @@ func (b *GeoBlocklist) Active() bool {
 	return rules != nil && (len(rules.countries) > 0 || len(rules.asns) > 0)
 }
 
-// Blocked reports whether country or asn is on the blocklist. country ==
+// Refuses reports whether country or asn is on the blocklist, and counts
+// it when it is: the one question the servers ask, so every refusal is
+// counted (B3f, catalog #12).
+//
+// # Why the count lives here
+//
+// A refusal is a 403 (full mode) or a closed connection (passthrough),
+// before anything is recorded - the traffic a rule turns away leaves no
+// row, no log line, nothing. The count is the only trace a rule in force
+// leaves, and the panel shows it beside the lists. It was one
+// exported Blocked and two servers; a count each server had to remember
+// would be a count one of them forgets, so the match is now unexported
+// and this is the only way to ask it.
+func (b *GeoBlocklist) Refuses(country string, asn int) bool {
+	if !b.matches(country, asn) {
+		return false
+	}
+	b.refused.Add(1)
+	return true
+}
+
+// Refused is how many times Refuses has said yes since this process
+// started. Nil-safe.
+func (b *GeoBlocklist) Refused() uint64 {
+	if b == nil {
+		return 0
+	}
+	return b.refused.Load()
+}
+
+// matches reports whether country or asn is on the blocklist. country ==
 // "" or asn == 0 (asnlookup's own "not resolved" zero values) never
 // match on their own - a rule needs a known value to compare against, so
 // an unresolved lookup can never be geo-blocked. Safe to call on a nil
 // *GeoBlocklist (always false), matching this package's other nil-safe
 // accessors.
-func (b *GeoBlocklist) Blocked(country string, asn int) bool {
+func (b *GeoBlocklist) matches(country string, asn int) bool {
 	if b == nil {
 		return false
 	}

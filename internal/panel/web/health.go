@@ -338,6 +338,7 @@ var healthCounterOrder = []string{
 	heartbeat.CounterAccepted,
 	heartbeat.CounterPaused,
 	heartbeat.CounterRejected,
+	heartbeat.CounterGeoBlocked,
 	heartbeat.CounterErrors,
 	heartbeat.CounterDeadline,
 	heartbeat.CounterLogLost,
@@ -632,6 +633,12 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 		// line of nothing under every service on the page read during an
 		// incident.
 		if key == heartbeat.CounterPaused && value == 0 {
+			continue
+		}
+		// The same for the country and ASN rules (B3f): reported at zero
+		// by every collector that counts, drawn only when a rule turned
+		// something away.
+		if key == heartbeat.CounterGeoBlocked && value == 0 {
 			continue
 		}
 		c := healthCounter{
