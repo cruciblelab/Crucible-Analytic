@@ -169,3 +169,64 @@ func TestTheComposeFilePublishesOnlyWhatTheInternetNeeds(t *testing.T) {
 		}
 	}
 }
+
+// serviceURLLine finds a [service_urls] entry that points at this
+// machine: `api = "http://127.0.0.1:8082/healthz"`. Remote entries (the
+// beacon behind the customer's proxy) carry no port of ours to check.
+//
+// Unanchored, and the quote may be escaped: the wizard's own advice in
+// internal/panel/preflight is a Go string that prints such a line.
+var serviceURLLine = regexp.MustCompile(`\b(api|beacon|collector)\s*=\s*\\?"https?://(?:127\.0\.0\.1|localhost|\[::1\]):(\d+)/`)
+
+// TestEveryLocalServiceURLPointsAtThatService.
+//
+// Found on the live rig (H13): panel.example.toml - and the panel.toml
+// install.sh writes from it, and the block KURULUM section 9.3 shows -
+// said api = "http://127.0.0.1:8081/healthz". 8081 is the beacon's port.
+// The setup wizard's "is the api service running" check asked the beacon,
+// so with the API stopped it answered "geçti" and "Kurulum devre hazır":
+// a handover to a customer whose every chart would say the numbers
+// cannot be read. Same class as analytics_api_url above - a pointer that
+// drifted from the port it points at.
+func TestEveryLocalServiceURLPointsAtThatService(t *testing.T) {
+	root := repoRootFromWD(t)
+	listenFile := map[string]string{
+		"api":       "analytics-api.example.toml",
+		"beacon":    "beacon.example.toml",
+		"collector": "config.example.toml",
+	}
+	listens := map[string]string{}
+	for svc, file := range listenFile {
+		body, err := os.ReadFile(filepath.Join(root, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range addrLine.FindAllStringSubmatch(string(body), -1) {
+			if m[1] == "listen_addr" {
+				listens[svc] = port(m[2])
+			}
+		}
+		if listens[svc] == "" {
+			t.Fatalf("no listen_addr in %s", file)
+		}
+	}
+
+	checked := 0
+	for _, name := range []string{"panel.example.toml", "KURULUM.md", "internal/panel/preflight/preflight.go"} {
+		body, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range serviceURLLine.FindAllStringSubmatch(string(body), -1) {
+			checked++
+			if want := listens[m[1]]; m[2] != want {
+				t.Errorf("%s: %s points at port %s, and %s listens on %s - the setup wizard's "+
+					"check for %s would ask another service", name, m[1], m[2], m[1], want, m[1])
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no local [service_urls] entry found in panel.example.toml or KURULUM.md; " +
+			"either the example stopped naming one or this pattern stopped matching it")
+	}
+}

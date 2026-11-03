@@ -157,25 +157,59 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 		return err
 	}
 
-	// Recorded after the write succeeded, so the log never claims a
-	// change that did not happen. The reverse ordering - record, then
-	// write - would produce an audit trail that is wrong in the
-	// direction nobody checks.
-	auditID, err := s.recordForReturningID(ctx, a.Principal, AuditEntry{
+	auditID, err := s.recordSettingChange(ctx, a.Principal, def, site, before, value)
+	if err != nil {
+		return err
+	}
+	op.LinkAudit(ctx, auditID)
+	return nil
+}
+
+// RecordSetting writes an unguarded setting and records the change, for
+// the forms that decide their own entitlement before they write: the
+// setup wizard's site list (operator only), its visibility step, and the
+// welcome wizard's site names and time zone.
+//
+// Those four called SetSetting, which records nothing (H13). On the live
+// rig the installer's browser wrote beacon.sites twice - once after the
+// handover - and panel_audit_log had no row for either; a retention
+// change made a minute earlier through ApplySetting had one. The setting
+// that decides whose events the beacon accepts was the one with no
+// history. The entitlement stays the caller's (the wizards answer it
+// differently from the settings page's per-site AccessTo); the record is
+// not optional, which is why it is here and not beside each caller.
+func (s *Store) RecordSetting(ctx context.Context, p Principal, key Key, site string, value any) error {
+	def, ok := registry[key]
+	if !ok {
+		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	before, err := s.GetSetting(ctx, key, site)
+	if err != nil {
+		return err
+	}
+	if err := s.SetSetting(ctx, key, site, value, actorIDOf(p)); err != nil {
+		return err
+	}
+	_, err = s.recordSettingChange(ctx, p, def, site, before, value)
+	return err
+}
+
+// recordSettingChange is the audit entry for one write, from and to.
+//
+// Recorded after the write succeeded, so the log never claims a change
+// that did not happen. The reverse ordering - record, then write - would
+// produce an audit trail that is wrong in the direction nobody checks.
+func (s *Store) recordSettingChange(ctx context.Context, p Principal, def Definition, site string, before, value any) (int64, error) {
+	return s.recordForReturningID(ctx, p, AuditEntry{
 		Action: ActionSettingChanged,
 		SiteID: site,
-		Target: string(key),
+		Target: string(def.Key),
 		Detail: map[string]any{
 			"from":    before,
 			"to":      value,
 			"guarded": def.RequiresDeveloperPassword,
 		},
 	})
-	if err != nil {
-		return err
-	}
-	op.LinkAudit(ctx, auditID)
-	return nil
 }
 
 // ClearSetting removes a stored value so the default applies again, and

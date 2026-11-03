@@ -24,6 +24,21 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Kurulum sihirbazının "api çalışıyor mu" kontrolü beacon'a soruyordu
+
+**Kuran kişinin yapması gereken:** `panel.toml`'da `[service_urls]`
+altında `api = "http://127.0.0.1:8081/healthz"` yazıyorsa `8082` yapın.
+
+Örnek dosya, KURULUM §9.3 ve sihirbazın öneri metni API için `8081`
+diyordu. O port beacon'ın. Sihirbaz API kapalıyken "geçti" ve "devre
+hazır" diyordu. Artık bir test, yerel her servis adresinin portunu o
+servisin dinlediği portla karşılaştırıyor.
+
+Ayrıca: kurulum sihirbazının site listesi, görünüm adımı ve karşılama
+sihirbazının site adı ve saat dilimi adımları ayarları denetim kaydı
+yazmadan değiştiriyordu. Artık her biri, ayarlar sayfası gibi, kimin neyi
+neden neye çevirdiğini kaydediyor.
+
 ### Panelin giriş kısıtı, ters vekilin arkasında herkesi tek adres sayıyordu
 
 **Kuran kişinin yapması gereken:** panel bir ters vekilin (KURULUM §8'deki

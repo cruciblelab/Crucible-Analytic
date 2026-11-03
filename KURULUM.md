@@ -1330,7 +1330,7 @@ gerçekten ürettiği kontrol sayısıyla karşılaştırıyor. Bu satır aylarc
 
 ```toml
 [service_urls]
-api = "http://127.0.0.1:8081/healthz"
+api = "http://127.0.0.1:8082/healthz"
 beacon = "https://olcum.musteri.example/_ca/healthz"
 ```
 
@@ -1352,6 +1352,14 @@ düştüğünde de kırmızı verir — karar dağıtımı yapanın.
 `başarısız` (*"…adresine ulaşılamadı: connection refused"*), ve devir
 teslim adımı **"Zorunlu kontroller geçmediği için devir teslim kapalı:
 beacon servisi çalışıyor mu"** diyerek kapandı.
+
+**Portu kontrol edin.** Bu bölümün örneği ve `panel.example.toml`
+2026-11-03'e kadar API için `8081` yazıyordu. O port beacon'ın; API
+`8082`'de dinler. Canlı denemede API durdurulduğunda sihirbaz *"api
+servisi çalışıyor mu — geçti"* ve *"Kurulum devre hazır"* dedi. O
+tarihten önce kurulmuş bir `panel.toml`'da satır hâlâ `8081` diyorsa
+`8082` yapın. Artık bir test her yerel adresin portunu, adlandırdığı
+servisin dinleme portuyla karşılaştırıyor.
 
 Zorunlu kontrollerin hepsi geçmeden devir teslim adımı açılmaz. Burada
 "geçti" ile "bakılamadı" aynı şey değil: **bakılamayan zorunlu bir

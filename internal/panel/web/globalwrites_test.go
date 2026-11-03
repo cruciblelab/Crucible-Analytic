@@ -73,7 +73,7 @@ func TestEveryDeploymentWideWriteAsksWhoOwnsTheDeployment(t *testing.T) {
 				case *ast.CallExpr:
 					if sel, ok := n.Fun.(*ast.SelectorExpr); ok {
 						switch sel.Sel.Name {
-						case "SetSetting", "SetGuardedSetting":
+						case "SetSetting", "SetGuardedSetting", "RecordSetting":
 							writes = true
 						}
 					}
@@ -201,4 +201,53 @@ func settingKeyNames(t *testing.T) map[string]panel.Key {
 		t.Fatalf("reading internal/panel's Key constants did not find KeyBeaconSites; found %d", len(out))
 	}
 	return out
+}
+
+// TestEverySettingWriteHereLeavesARecord (H13).
+//
+// The store has two kinds of write: SetSetting and SetGuardedSetting,
+// which store a value and nothing else, and ApplySetting, ClearSetting
+// and RecordSetting, which also write the audit row - who changed what
+// from what. Every form in this package is somebody changing the
+// deployment, so it takes the second kind. Four took the first: the
+// setup wizard's site list (the beacon's allowlist, and on the live rig
+// the installer wrote it after the handover with nothing to show for it),
+// its visibility step, and the welcome wizard's site names and time zone.
+func TestEverySettingWriteHereLeavesARecord(t *testing.T) {
+	fset := token.NewFileSet()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		checked++
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			switch sel.Sel.Name {
+			case "SetSetting", "SetGuardedSetting", "ResetGuardedSetting":
+				t.Errorf("%s: %s writes a setting and records nothing; use RecordSetting "+
+					"(a form that decides its own entitlement) or ApplySetting/ClearSetting "+
+					"(the settings page's path)", fset.Position(call.Pos()), sel.Sel.Name)
+			}
+			return true
+		})
+	}
+	if checked == 0 {
+		t.Fatal("no source files read; the check reads nothing and so reports nothing")
+	}
 }

@@ -571,7 +571,7 @@ func (s *Server) saveSites(r *http.Request, lang *ui.Language, access panel.Acce
 		data.Message, data.Failed = lang.T("kurulum.siteler.bos"), true
 		return
 	}
-	if err := s.Store.SetSetting(r.Context(), panel.KeyBeaconSites, "", sites, actorOf(access)); err != nil {
+	if err := s.Store.RecordSetting(r.Context(), access.Principal, panel.KeyBeaconSites, "", sites); err != nil {
 		// settingProblem, not err.Error(). The registry's validation
 		// messages are written for the installer and naming the refused
 		// value is the point - but the same call also returns wrapped
@@ -671,14 +671,6 @@ func same(stored any, n int) bool {
 		return v == float64(n)
 	}
 	return false
-}
-
-func actorOf(access panel.Access) *int64 {
-	if access.Principal.UserID == 0 {
-		return nil
-	}
-	id := access.Principal.UserID
-	return &id
 }
 
 // parseSiteList accepts one site per line or a comma-separated list,

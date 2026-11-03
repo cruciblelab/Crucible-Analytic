@@ -150,7 +150,7 @@ func (s *Server) saveVisible(r *http.Request, lang *ui.Language, access panel.Ac
 			panel.KeyVisibleBreakdowns: chosen(r, row.BreakdownField, validBreakdown),
 		}
 		for key, value := range picked {
-			if err := s.Store.SetSetting(r.Context(), key, row.SiteID, value, actorOf(access)); err != nil {
+			if err := s.Store.RecordSetting(r.Context(), access.Principal, key, row.SiteID, value); err != nil {
 				// settingProblem rather than err.Error(): the same call
 				// returns both the registry's installer-facing refusals
 				// and wrapped database errors carrying query text.

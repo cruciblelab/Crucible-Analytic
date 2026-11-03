@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **11/12** | H3 — *(**H12 bitti (2026-11-03):** panelin giriş kısıtı, KURULUM'un önerdiği ters vekilin arkasında herkesi tek adres sayıyordu — 30 yanlış deneme bütün sahipleri 15 dakika dışarıda bırakıyordu; yolda `beacon_url`'in hiç sunucuya verilmediği ve karşılama sihirbazının öteki müşterinin sitesini gösterdiği çıktı. **H11 bitti (2026-11-03):** kurulum sihirbazının geliştirici oturumu devir tesliminden sonra iki saat daha yazabiliyordu — sahibin sayfası o erişime "artık geçersiz" derken; bağlantının kullanımı kuralı soruyordu, açılmış oturum hiç sormuyordu. Canlı denemede bulundu. **H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **12/13** | H3 — *(**H13 bitti (2026-11-03):** sihirbazın "api çalışıyor mu" kontrolü beacon'ın portuna bakıyordu (API kapalıyken "devre hazır"), ve dört form ayarı denetim kaydı yazmadan değiştiriyordu — beacon'ın kabul ettiği site listesi dahil. **H12 bitti (2026-11-03):** panelin giriş kısıtı, KURULUM'un önerdiği ters vekilin arkasında herkesi tek adres sayıyordu — 30 yanlış deneme bütün sahipleri 15 dakika dışarıda bırakıyordu; yolda `beacon_url`'in hiç sunucuya verilmediği ve karşılama sihirbazının öteki müşterinin sitesini gösterdiği çıktı. **H11 bitti (2026-11-03):** kurulum sihirbazının geliştirici oturumu devir tesliminden sonra iki saat daha yazabiliyordu — sahibin sayfası o erişime "artık geçersiz" derken; bağlantının kullanımı kuralı soruyordu, açılmış oturum hiç sormuyordu. Canlı denemede bulundu. **H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -8089,6 +8089,56 @@ servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
 aşamaya hiç girilmemişti.
 
 ---
+
+#### H13 — Sihirbazın API kontrolü beacon'a soruyordu; dört form kayıtsız yazıyordu ✅ **yapıldı (2026-11-03)**
+
+*Canlı denemede, H11/H12 ile aynı düzenekte.*
+
+**Birinci kusur:** `panel.example.toml` (ve ondan yazılan `panel.toml`)
+ile KURULUM §9.3 `api = "http://127.0.0.1:8081/healthz"` diyordu. 8081
+beacon'ın portu, API 8082'de. Sihirbazın kendi öneri metni
+(`noServiceURLs`) de aynı satırı basıyordu. Canlıda API durduruldu,
+sihirbaz *"api servisi çalışıyor mu — geçti"* ve *"Kurulum devre hazır"*
+dedi. Operatör, panoları "okunamadı" diyecek bir kurulumu devredebilirdi.
+`analytics_api_url` için tam bu sınıfın testi vardı
+(`TestNoTwoShippedDefaultsShareAPort`); `[service_urls]`'e uzanmamıştı.
+
+**İkinci kusur:** paneldeki dört form `Store.SetSetting`'i doğrudan
+çağırıyordu, ve o yöntem denetim kaydı yazmıyor. Formlar: kurulum
+sihirbazının site listesi (`beacon.sites`), görünüm adımı, karşılama
+sihirbazının site adı ve saat dilimi. Canlıda geliştirici `beacon.sites`'ı
+iki kez yazdı (biri devirden sonra, H11) ve `panel_audit_log`'da sıfır
+satır vardı. Bir dakika önce `ApplySetting` yoluyla değişen saklama süresinin
+satırı vardı. Hangi müşterinin olaylarının kabul edileceğine karar veren
+ayarın geçmişi yoktu.
+
+**Düzeltme:**
+- Üç yerde port `8082`. Yeni test `TestEveryLocalServiceURLPointsAtThatService`
+  her yerel `[service_urls]` adresinin portunu, adlandırdığı servisin örnek
+  dosyadaki `listen_addr`'ıyla karşılaştırıyor: örnek, KURULUM ve
+  sihirbazın Go kaynağındaki öneri. Öneri metni tek literal yapıldı; ilk
+  hâli iki parçaydı ve test onu göremiyordu (ters yönde denenince çıktı).
+- `Store.RecordSetting`: yazar ve kaydeder (eski/yeni). Yetki kararı
+  çağıranda kalıyor; sihirbazlar bunu ayarlar sayfasının site başına
+  `AccessTo`'sundan farklı veriyor. Kayıt ise isteğe bağlı değil, o yüzden
+  her çağıranın yanında değil burada. `ApplySetting` ile kaydın gövdesi
+  ortak (`recordSettingChange`).
+- Sınıf: `TestEverySettingWriteHereLeavesARecord`: `internal/panel/web`'de
+  hiçbir kaynak `SetSetting`/`SetGuardedSetting`/`ResetGuardedSetting`
+  çağıramaz. H10'un küresel yazma değişmezi `RecordSetting`'i de yazma
+  sayıyor.
+
+**Ölçüldü:** port testi düzeltmeden önce iki yeri adıyla gösterdi.
+Dört formun her biri gerçek istekle tam bir kayıt satırı bırakıyor. 9
+mutasyon, 9'u kırmızı (ilk turda iki mutasyon derlenmedi ve yeniden kuruldu;
+biri yanlış pakete yönlendirilmişti, eski/yeni değeri tutan test
+`internal/panel`'de). Canlı: aynı form şimdi `setting.changed` satırı
+bırakıyor. `panel.toml` `8082` yapılınca API kapalıyken kontrol
+*"başarısız … connection refused"* ve devir kapalı; API açılınca "geçti".
+
+**Mevcut kurulumlar:** `install.sh` var olan `panel.toml`'a dokunmaz.
+Eski bir kurulumda satır `8081` diyorsa elle `8082` yapılmalı. CHANGELOG ve
+KURULUM §9.3 bunu söylüyor.
 
 #### H12 — Panelin giriş kısıtı, ters vekilin arkasında herkesi tek adres sayıyordu ✅ **yapıldı (2026-11-03)**
 

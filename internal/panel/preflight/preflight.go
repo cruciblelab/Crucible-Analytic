@@ -1195,8 +1195,10 @@ func noServiceURLs() CheckResult {
 		Label: "Servislerin ayakta olup olmadığı",
 		Detail: "Servislerin adresleri verilmedi, o yüzden hiçbirine istek yapılmadı. " +
 			"Bu liste collector, beacon ve API hakkında hiçbir şey söylemiyor.",
-		Fix: "panel.toml'a [service_urls] bölümünü ekleyin, örn: api = " +
-			"\"http://127.0.0.1:8081/healthz\"",
+		// The example line in one literal, so release/ports_test.go can
+		// check its port against the API's (H13: it said the beacon's).
+		Fix: "panel.toml'a [service_urls] bölümünü ekleyin, örn: " +
+			"api = \"http://127.0.0.1:8082/healthz\"",
 	}
 }
 

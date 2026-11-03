@@ -194,5 +194,5 @@ level = "info"
 # örnekte yok, kararı dağıtımı yapanın.
 
 [service_urls]
-api = "http://127.0.0.1:8081/healthz"
+api = "http://127.0.0.1:8082/healthz"
 # beacon = "https://olcum.musteri.example/_ca/healthz"

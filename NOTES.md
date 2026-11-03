@@ -25051,3 +25051,26 @@ sihirbazda).
 dedi. Canlı düzeneğin servisleri 24 bağlantı tutuyordu ve paralel paketler
 kalanı aştı. Paket tek başına geçti, kapı düzenek durdurulunca yeşildi.
 *Canlı bir düzenek de paylaşılan kümenin bir kiracısıdır.*
+
+## Bir portun kopyası ve kayıtsız dört form — H13 (2026-11-03)
+
+Sihirbazın "api servisi çalışıyor mu" kontrolü beacon'ın portuna
+soruyordu. Bunu bulan, API'yi bilerek durdurup kontrolü koşturmak oldu.
+Yeşil bir kontrolün neyi ölçtüğünü, ölçtüğü şeyi kapatmadan bilemezdim.
+KURULUM'un "Ölçüldü: adres verilen API geçti" cümlesi de büyük ihtimalle
+beacon'ı ölçmüştü: iki servis de ayaktaydı ve cevap aynıydı. *Bir sağlık
+kontrolünü, baktığı servisi durdurarak sına.*
+
+Port kuralı vardı (`analytics_api_url` API'nin portuyla aynı olmalı), ama
+yalnız bildiği anahtara bakıyordu. Yeni kural adresin **adlandırdığı
+servise** bakıyor. Bu kural Go kaynağındaki öneri metnini ilk hâliyle
+göremedi: dize iki literale bölünmüştü. Ters yönde mutasyon (doğru dosya
+yanlış port) bunu gösterdi. Dize tek literal yapıldı. *Kaynağı tarayan bir
+kural, kaynağın biçimine bağlıdır; biçimi kuralın görebileceği hâle getir
+ve nedenini yanına yaz.*
+
+Kayıtsız formlar canlıda, geliştiricinin devirden sonraki yazmasını
+(H11) denetim kaydında ararken çıktı. Satır yoktu, ama devirden önceki
+yazmanın da satırı yoktu. Sebep yetki değil yoldu: `SetSetting` kayıt
+yazmıyor, `ApplySetting` yazıyor, ve dört form ilkini çağırıyordu. Kayıt
+artık yetki kararından ayrı tek bir yöntemde.

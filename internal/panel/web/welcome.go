@@ -404,7 +404,7 @@ func (s *Server) saveSiteNames(ctx context.Context, lang *ui.Language, p panel.P
 	for _, m := range mine {
 		site, access := m.site, m.access
 		name := strings.TrimSpace(r.PostFormValue("ad:" + site))
-		if err := s.Store.SetSetting(ctx, panel.KeySiteName, site, name, actorOf(access)); err != nil {
+		if err := s.Store.RecordSetting(ctx, access.Principal, panel.KeySiteName, site, name); err != nil {
 			s.logger().Error("panel: saving site name", "err", err, "site", site)
 			return welcomePage{Message: s.settingProblem(lang, err), Failed: true}
 		}
@@ -428,7 +428,7 @@ func (s *Server) saveTimezone(ctx context.Context, lang *ui.Language, p panel.Pr
 	if !s.mayChangeDeploymentSettings(ctx, p) {
 		return welcomePage{Message: lang.T("hosgeldiniz.saat.yetki"), Failed: true}
 	}
-	if err := s.Store.SetSetting(ctx, panel.KeyPanelTimezone, "", zone, actorOf(access)); err != nil {
+	if err := s.Store.RecordSetting(ctx, access.Principal, panel.KeyPanelTimezone, "", zone); err != nil {
 		return welcomePage{Message: s.settingProblem(lang, err), Failed: true}
 	}
 	return welcomePage{Message: lang.T("kaydedildi")}
