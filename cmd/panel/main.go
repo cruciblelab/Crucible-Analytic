@@ -198,6 +198,10 @@ func main() {
 		fatal(logger, "panel database", err)
 	}
 	defer store.Close()
+	// Which heartbeat rows are the collector's and the beacon's: the rows
+	// carry the role a service connects as, and [roles] is where this
+	// deployment names them (panel.ServiceRoles).
+	store.SetServiceRoles(panel.ServiceRoles{Collector: cfg.Roles.Collector, Beacon: cfg.Roles.Beacon})
 
 	// Minting a link is a one-shot command rather than a running
 	// service, and it happens here rather than in a separate binary

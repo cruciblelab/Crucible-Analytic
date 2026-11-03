@@ -46,12 +46,6 @@ type Collecting struct {
 	Beacon profile.Level
 }
 
-// Heartbeat service names, as the three services write them.
-const (
-	serviceCollector = "collector"
-	serviceBeacon    = "beacon"
-)
-
 // Collecting reads what each source is gathering.
 //
 // Through heartbeat.Read rather than its own query, because that
@@ -64,15 +58,16 @@ func (s *Store) Collecting(ctx context.Context) (Collecting, error) {
 		return Collecting{}, fmt.Errorf("panel: reading what the services collect: %w", err)
 	}
 	var out Collecting
+	roles := s.serviceRoles()
 	for _, b := range beats {
 		level, ok := levelOf(b.Profile)
 		if !ok {
 			continue
 		}
 		switch b.Service {
-		case serviceCollector:
+		case roles.Collector:
 			out.Collector = level
-		case serviceBeacon:
+		case roles.Beacon:
 			out.Beacon = level
 		}
 	}

@@ -30,8 +30,9 @@ func (s *Store) GeoRefusals(ctx context.Context) (GeoRefusals, error) {
 	if err != nil {
 		return GeoRefusals{}, fmt.Errorf("panel: reading the collector's refusals: %w", err)
 	}
+	collector := s.serviceRoles().Collector
 	for _, b := range beats {
-		if b.Service != serviceCollector {
+		if b.Service != collector {
 			continue
 		}
 		n, ok := b.Counters[heartbeat.CounterGeoBlocked]

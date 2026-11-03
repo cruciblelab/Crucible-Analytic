@@ -24922,3 +24922,38 @@ satırını `"beacon"` adıyla arıyor. Satırlar rol adıyla yazılıyor
 `GeoRefusals` da aynı soruyu taşıyor: varsayılan `collector` doğru, ama
 `[roles]` ile adı değiştirilmiş bir kurulumda okunmaz. İkisi birlikte
 ele alınacak.
+
+## Beacon'ın kalp atışı, yanlış adla aranıyordu (2026-11-03)
+
+B3f-1'in `GeoRefusals`'ını yazarken collector'ın satırını
+`serviceCollector` sabitiyle seçtim ve yanındaki sabite baktım:
+`serviceBeacon = "beacon"`. Kalp atışı satırının adı servisin söylediği
+bir ad değil, bağlantının `current_user`'ı: `internal/heartbeat` ilk
+atışta veritabanına soruyor. `install.sh` beacon'a `beacon_writer` rolünü
+veriyor. Yani o sabit hiçbir kurulumda hiçbir satıra eşleşmedi.
+
+Ölçüldü, panelin kendi store'uyla, kalp atışı tablosunun kopyasında
+(`testdb.HeartbeatCopy`): `collector` ve `beacon_writer` satırları, ikisi
+de `tam` → `Collecting{Collector:tam Beacon:""}`.
+
+**Etkisi.** `Collecting` yalnız kırılım sayfasının "bu veri toplanmıyor"
+kararını besliyor (D5). Beacon kırılımları için cevap hep "bilinmiyor"du
+ve sayfa sıradan boş-durum cümlesine düşüyordu. Bilinmeyeni yok
+saymamak bilerek seçilmiş güvenli yöndü, o yüzden yanlış bir şey
+söylenmedi; ama D5'in beacon yarısı hiç çalışmadı. PLAN D5 "Beacon artık
+kendi seviyesini bildiriyor" diyordu, ve doğruydu: bildiriyordu, okuyan
+yoktu.
+
+**Düzeltme.** Sabit değil yapılandırma: rol adları `panel.toml`'un
+`[roles]`'unda zaten var (ön kontrol oradan okuyor). Panelin `main`'i
+onları `Store.SetServiceRoles` ile veriyor; boş bırakılan ad
+`install.sh`'ın adı (`DefaultServiceRoles`). Bir test varsayılanları
+`panel.example.toml` ile, bir başkası geliştirme kümesinin rolleriyle
+bağlıyor. Yeniden adlandırılmış rollerle iki okuyucunun da yeni adları
+okuduğu ve eskileri okumadığı ayrıca sınanıyor. 7 mutasyon, 7'si kırmızı;
+`main`'deki çağrıyı silmek yalnız erişilemez ayarlayıcı değişmezinde
+(`TestNoStoreSetterIsCalledOnlyByTests`) kırmızı. Değişmez tam bu iş için
+yazılmıştı.
+
+*Bir sabitin değerini, adlandırdığı şeyi yazan koda sor.* `"beacon"`
+okunaklı bir addı ve yanlıştı. Satırı yazan kod, adı kendisi seçmiyor.

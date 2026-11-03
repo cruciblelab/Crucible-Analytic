@@ -47,6 +47,9 @@ var ErrEmailTaken = errors.New("panel: that email address is already registered"
 // Store is the panel's database access. Safe for concurrent use.
 type Store struct {
 	pool *pgxpool.Pool
+	// roles is the heartbeat names of the collector and the beacon; see
+	// ServiceRoles. The zero value means the defaults.
+	roles ServiceRoles
 }
 
 // NewStore opens a pool to databaseURL and verifies it is reachable -

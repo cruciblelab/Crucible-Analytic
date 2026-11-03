@@ -4264,6 +4264,18 @@ tablosunda var. Collector'ın profilinden beacon hakkında sonuç çıkarmak,
 bir servisin yapılandırmasını başka bir servis hakkında kanıt saymak
 olurdu. Beacon artık kendi seviyesini bildiriyor.
 
+**Düzeltme (2026-11-03): bildiriyordu, panel okumuyordu.** Kalp atışı
+satırı servisin bağlandığı rolün adıyla yazılıyor (`current_user`) ve
+beacon `beacon_writer` olarak bağlanıyor; `Collecting` onu `"beacon"`
+diye arıyordu. Ölçüldü: iki satır da `tam` iken
+`Collecting{Collector:tam Beacon:""}`. Yani beacon kırılımları "bu veri
+toplanmıyor" cümlesine hiçbir kurulumda ulaşamadı, hep boş-durum kuralına
+düştü (bilerek seçilmiş güvenli yön, ama özelliğin kendisi yoktu). Rol
+adları artık `panel.toml`'un `[roles]`'undan (`panel.ServiceRoles`,
+boşsa `install.sh`'ın adları); B3f-1'in `GeoRefusals`'ı da aynı yoldan
+okuyor. B3f-1 yaparken kalp atışına kimin hangi adla yazdığı sorulunca
+çıktı.
+
 **Ayrımı düz tutmak gerek: profil neyin *toplandığına*, geliştirici modu
 neyin *gösterildiğine* karar verir.** Geliştirici modu kapalı bir Tam
 Crucible kurulumu yine her şeyi toplar — sahip bugün parmak izlerine

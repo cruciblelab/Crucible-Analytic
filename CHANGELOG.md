@@ -24,6 +24,16 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Beacon'ın topladığı veri kırılım sayfasında doğru anılıyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. `panel.toml`'da `[roles]`
+bölümünde rol adlarını değiştirdiyseniz panel artık onları kullanıyor.
+
+Panel, beacon'ın neyi topladığını (profilini) okuyamıyordu: servisin
+kendi raporunu yanlış adla arıyordu. Bunun sonucu, örneğin ülke çözümü
+kapalı bir beacon'ın ülke kırılımında "bu veri toplanmıyor" yerine sıradan
+"bu dönemde veri yok" cümlesinin görünmesiydi.
+
 ### Engellenen ülke ya da ağ eklemeden önce son 24 saatte neyi geri çevireceği görünüyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. Şema değişmedi.
