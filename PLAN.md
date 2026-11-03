@@ -94,7 +94,7 @@ gerekçe değil bahane olur.
 | **Z** Yük altında kendini koruma | 🟡 **5/7** | Z3, Z5 — *(**Z7 bitti (2026-09-30):** geçişli collector kapanırken her açık bağlantıyı süresiz bekliyordu ve bu sürede site yeni bağlantı kabul etmiyordu — gerçek systemd'de 90 sn ret, SIGKILL ve geri alınan güncelleme; artık boştaki bağlantı 2 sn sessizlikten sonra kapanıyor, meşgul olan 10 sn bekleniyor, ret 1,1 sn, §Z7. Z3 ile Z5 sahibin kararını bekliyor: Z3'ün varsayılanı, ve Z5'in şeması — planlanan mekanizma şemasız hiçbir şey yapmazdı, §Z5. Z3'ün önerdiği `throttle` hız sınırıyla birlikte kırıktı ve düzeltildi (CI 416): kuyruk kendi yoklamalarını trafik sayıyor, collector'ı yeniden başlatılana kadar kilitliyordu — §Z3. Z6 bitti: Sağlık sayfasının "son hata" satırı hiçbir kurulumda dolmamıştı ve günlük kaybı hiçbir yere bildirilmiyordu — ikisinin de girdisi yalnız testlerden geliyordu; artık her servisin satırı kendi günlük kopyasından okuyor, API başarısız ve süresi dolan isteği sayıyor. Z4 bitti: kalp atışı ve panelin günlük kopyası kendi havuzundan yazıyor; sürekli yükte kalp atışı 0 → 3/3, `panel_logs`'a ulaşan satır 7/33 → 36/36. Z2 bitti: süresini aşan istek artık 0 bayt yerine 55 sn'de dürüst bir 503 alıyor ve günlüğe yazılıyor; panelin erişim günlüğü hiç gönderilmemiş cevaba "200" yazıyordu. Z1 bitti: servis bellek tavanını kendisi okuyor, beacon'ın tabanı 20–24 MB'tan 12 MB'ın altına indi ve sınırda ölmek yerine yavaşlıyor; havuz boyu artık konteynerin CPU payından. Planda yoktu; sahibin "worker sistemi yapılamaz mı" sorusu açtı. Y ölçtü, Z davranışı değiştiriyor. Yazma yolu bilerek kapsam dışı: sekiz yapılandırmada da p50 0,14 ms ve RSS 32 MB, veritabanı donmuşken bile — §Z)* |
 | **R** Taklit altında bot kararı | ✅ **3/3** | — *(planda yoktu; sahibin sorusu açtı — §R)* |
 | **G** Yayın hattı | ✅ **2/2** | — (F2 kurulum betiği F'de) |
-| **H** Güvenlik taraması | 🟡 **9/10** | H3 — *(**H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
+| **H** Güvenlik taraması | 🟡 **10/11** | H3 — *(**H11 bitti (2026-11-03):** kurulum sihirbazının geliştirici oturumu devir tesliminden sonra iki saat daha yazabiliyordu — sahibin sayfası o erişime "artık geçersiz" derken; bağlantının kullanımı kuralı soruyordu, açılmış oturum hiç sormuyordu. Canlı denemede bulundu. **H10 bitti (2026-11-02):** bir sitenin sahibi ya da yöneticisi kurulum geneli 28 ayarı değiştirebiliyordu — `beacon.sites`'ı kendi sitesine indirip öteki müşterilerin olaylarını reddettirmek dahil; artık yalnız işletmeci ya da her sitenin sahibi (sahibin kararı). Öteki kurulum geneli kapılar ayrı tur. **H9 bitti (2026-11-02):** sürüm formu yazılan sürümü işlem kaydının site sütununa koyuyordu ve 2,7 KB'tan uzun bir girdi kaydı düşürüyordu; yolda beş formun retlerinin "başarısız" diye kaydedildiği çıktı, ret listesi artık tek ve türetilmiş. **H8 bitti (2026-10-01):** H7'nin sınıfı panelde "hafif" değildi — NUL'lu bir giriş adresi herkese 500 + ERROR veriyordu, 2,8 KB'lık adresin denemesi hiç kaydedilmiyordu, davet ve devir hesabın kurulamayacağı adrese bağlantı basıyordu, canlı site listesi ve site sayfaları sınırsızdı; artık B-tree anahtarındaki her metin sütunu bir defterde baytla sınırlı. Yolda dört panel/web süitinin bir hesap sızınca sessizce atlandığı çıktı. **H7 bitti:** tek bir beacon olayı, üç kampanya değeriyle kampanya indeksinin 2704 baytlık girdi sınırını aşıp kendi yığınındaki bütün olayları düşürüyordu — gerçek ikiliyle 51 olaydan 0'ı yazıldı; değerler artık baytla da sınırlı. Gecelik fuzz buldu, iki gün okunmadı. H6 bitti: yoldaki davet/sahiplenme/geliştirici jetonları günlüğe açık metin yazılıyordu, biri Z2'nin satırıyla `panel_logs`'a da; H1 bitti: altı hedef, beş gerçek kusur)* |
 | **F** Ertelenen | 🟡 **2/3** | F3 filo — bilerek sonraya *(F1'in on alt fazı da bitti: a–j)* |
 | **N** Kurulumun ikinci yolu | ✅ **8/8** | — |
 | **K** Kanıt ve dağıtım | ✅ **3/3** | — *(planda yoktu; §K grubu neden araya girdiğini yazıyor)* |
@@ -8089,6 +8089,51 @@ servis başlamıyordu. Betiğin tek testi `--no-systemd` geçtiği için o
 aşamaya hiç girilmemişti.
 
 ---
+
+#### H11 — Kurulum oturumu devir tesliminden sonra da yazabiliyordu ✅ **yapıldı (2026-11-03)**
+
+*Sahibin "bir site kurup en gerçeğe yakın şekilde deneyelim" isteğiyle
+yapılan canlı denemede bulundu: sürüm paketi `install.sh` ile taze bir
+veritabanına kuruldu, sihirbaz gerçek tarayıcıyla yürütüldü.*
+
+**Kusur:** sahibin kuralı *"geliştirici erişimi sahip hesabı açıldıktan
+sonra düşer"*. `RedeemDevAccess` bunu uyguluyordu: kurulum sırasında
+kendiliğinden onaylanmış bir bağlantı, bir hesap var olduğu anda
+kullanılamıyor. Ama **açılmış oturum** kuralı bir daha sormuyordu:
+`Principal` geliştirici için yalnız çerezdeki süre bitimine (2 saat)
+bakıyordu. Canlıda, sırayla: geliştirici bağlantıyla girdi (10:20), devir
+bağlantısını üretti, sahip hesabını açtı (10:21:46). Sahibin **Erişim
+istekleri** sayfası o erişimi *"Kurulum onayı — artık geçersiz"* diye
+gösterdi. Aynı tarayıcı 10:22:20'de `/kurulum/siteler`'e yeni bir site
+yazdı ve *"Kaydedildi"* aldı. Sahibin kapatma düğmesi yoktu, ve bu yazma
+denetim kaydına da girmedi (ayrı bulgu, H13). Kural ve sayfa aynı şeyi
+söylüyordu; oturum ikisini de dinlemiyordu.
+
+**Düzeltme:**
+- Koşul tek SQL parçası: `bootstrapGrantAlive` (*kendiliğinden onaylı değil
+  ya da hiç hesap yok*). Kullanım (`RedeemDevAccess`) ve oturum ikisi de onu
+  okuyor; iki kopya, bugün anlaşan iki kural olurdu.
+- `Store.DevSessionLive`: oturumun izni satırıyla, **her istekte**.
+  `Principal` önce çerezin süresine, sonra satıra soruyor; satır "hayır"
+  derse oturum **yok ediliyor** (yalnız reddedilmiyor). Satırın silinmiş
+  olması da oturumu bitiriyor.
+- Sorguda yalnız kullanımdan sonra değişebilen koşullar var. Kullanılmış
+  bir izin reddedilemiyor, ve `session_expires_at` çerezin zaten taşıdığı
+  değer; bunlara koşul yazmak hiçbir durumun ulaşmadığı korumalar olurdu.
+
+**Ölçüldü:** dört test gerçek veritabanında, izinler gerçek
+istek + kullanım yoluyla (eskiden test, tabloda satırı olmayan uydurma
+kimliklerle oturum açıyordu ve bu, kusurun ta kendisiydi). Kurulum oturumu
+hesap açılınca biter, hesap sonra silinse de geri gelmez; sahibin onayladığı
+oturum yeni bir hesap açılınca **bitmez** (yoksa "herhangi bir hesap var mı"
+da geçerdi); satırı silinen oturum biter, tabloda başka canlı bir izin
+dururken (yoksa "herhangi bir canlı izin var mı" da geçerdi — ilk turda o
+mutasyon bu yüzden sağ kaldı). 7 mutasyon, 7'si kırmızı. Canlı düzenekte
+düzeltilmiş ikiliyle: devirden kalan kurulum oturumu `/kurulum/siteler`
+**403**, sahibin onayladığı oturum 200.
+
+**Açık:** sahibin onayladığı bir oturumu süresi dolmadan bitirecek bir
+düğme yok (onaylanan izin iki saat açık). Ayrı bir karar.
 
 #### H10 — Bir sitenin sahibi kurulum geneli ayarları değiştirebiliyordu ✅ **yapıldı (2026-11-02)**
 

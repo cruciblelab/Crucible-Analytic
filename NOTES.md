@@ -24957,3 +24957,55 @@ yazılmıştı.
 
 *Bir sabitin değerini, adlandırdığı şeyi yazan koda sor.* `"beacon"`
 okunaklı bir addı ve yanlıştı. Satırı yazan kod, adı kendisi seçmiyor.
+
+## Canlı deneme ve kurulum oturumu — H11 (2026-11-03)
+
+Sahip *"bir site kurup simüle, en gerçeğe yakın şekilde deneyelim"* dedi.
+Düzenek, bir müşterinin yapacağı gibi kuruldu ve hiçbir testin taklit
+etmediği yerleri kapsadı:
+
+- `release/build.sh` paketi, paketin `install.sh`'ı ile taze bir
+  veritabanı (`--profile tam`, `--no-systemd`);
+- iki müşteri sitesi, her biri kendi `mode = "full"` collector'ının
+  arkasında, gerçek TLS ve isimle bağlanılarak (SNI/JA4);
+- nginx yerine kırk satırlık bir Go ön sunucusu (`/_ca/` → beacon);
+- panel KURULUM §8'deki gibi bir TLS vekilinin arkasında;
+- ziyaretçiler loopback'e eklenmiş **gerçek genel adreslerden**: dokuz ülke,
+  gerçek ASN'ler. Tarayıcılar için adres başına bir SOCKS kapısı kuruldu,
+  böylece TLS ve JA4 Chromium'un kendisi.
+
+Bu konteynerde `ip` komutu yok; adresler ham netlink ile eklendi
+(`RTM_NEWADDR`). IPv6 çekirdekte kapalı.
+
+**Doğru çıkanlar, sayıyla.** 90 + 12 gerçek Chromium oturumu (%30 mobil,
+Google, Instagram ve bülten girişleri, sepete ekleme, iletişim formu)
+gerçeği bir dosyaya yazdı. Panonun bütün kırılımları iki sitede de birebir
+tuttu: ülke (TR 87/22, US 33/5 …), cihaz, sayfa, kaynak, kampanya ve olay.
+Kiracılar arası istekler (geçerli oturum ve CSRF ile) 404, izleyicinin
+yazması 403 aldı. Botların hepsi bilinen JA4 ile 50 ve üstü puan aldı,
+insanlar 0–3. Sahte `X-Forwarded-For` yok sayıldı. Önizlemeli coğrafi engel,
+duraklatma ve tanı paketi çalıştı.
+
+**H11.** Sihirbazı geliştirici olarak yürütüp devri yaptıktan sonra aynı
+tarayıcı, sahibin "artık geçersiz" dediği erişimle site listesine yazabildi.
+Kod yorumu niyeti tam yazıyordu: *"Access during installation does not
+quietly become access afterwards."* Ama bunu yalnız bağlantının kullanıldığı
+anda uyguluyordu. Mevcut test geliştirici oturumunu, tabloda satırı
+olmayan uydurma izin kimlikleriyle (1 ve 2) açıyordu. Yani süit, oturumun
+izne hiç bakmadığı bir dünyayı sınıyordu, ve o dünya üründü. Düzeltmeden
+sonra o test kırıldı; doğrusu buydu.
+
+*Bir kuralın iki anı varsa (kapıdan girerken ve içerideyken) ikisini de
+aynı ifade uygulamalı.* Kapıda soran bir kural, içeride bir daha sormuyorsa
+yalnız kapıyı korur.
+
+Mutasyon turunda "kimliği sorma" mutasyonu ilk turda sağ kaldı. Oturumun
+izni silindiğinde tabloda başka canlı izin yoktu, yani "herhangi bir izin
+var mı" sorusu da "hayır" diyordu. Teste ikinci bir canlı izin eklendi.
+*Bir mutasyon bir testi yazdırabilir* (O4b'den beri üçüncü kez).
+
+Denemenin öteki bulguları ayrı işler, sıradaki commit'lerde: panel giriş kısıtı vekilin
+arkasında herkes için tek kova (H12), `[service_urls]` örneğinin API
+satırı beacon'ın portuna bakıyor ve sihirbazın site listesi denetim kaydına
+girmiyor (H13), aynı sunucudaki iki collector Sağlık'ta tek satır, ve
+sahte beacon olaylarının panoda insan sayılması (sahibin kararı).

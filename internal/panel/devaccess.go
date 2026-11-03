@@ -89,6 +89,46 @@ type DevAccessGrant struct {
 	Bootstrap bool
 }
 
+// bootstrapGrantAlive is the one condition a grant approved during
+// installation lives on: no account exists yet.
+//
+// One fragment, read in two places, because the rule has two moments. A
+// link redeemed after the owner's account exists is refused
+// (RedeemDevAccess). And a session opened from that link before the
+// account existed ends on its next request (DevSessionLive) - which is
+// what H11 found missing: the redemption checked it, the session never
+// asked again, and the installer's browser kept operator authority for
+// the rest of its two hours while the owner's page called that access
+// "no longer valid". Two copies of the clause would be two rules that
+// agree today.
+const bootstrapGrantAlive = `(NOT auto_approved OR NOT EXISTS (SELECT 1 FROM panel_users))`
+
+// DevSessionLive reports whether the developer session opened by grant
+// id may still act, read from the grant's row on every request.
+//
+// The session cookie carries the grant's expiry, and Principal checks it
+// first; this is the part a cookie cannot know - whether the grant has
+// been overtaken since. Same reasoning as reloading the user row on
+// every request: authority that can be withdrawn has to be asked for
+// each time it is used.
+//
+// Only the conditions something can change after redemption are here.
+// A used grant cannot be denied (decideDevAccess acts on pending rows
+// only) and its session_expires_at is the value the cookie already
+// holds, so clauses on those would be guards no state reaches. The row
+// being gone - purged - also ends the session.
+func (s *Store) DevSessionLive(ctx context.Context, grantID int64) (bool, error) {
+	var live bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM panel_dev_access
+			WHERE id = $1 AND `+bootstrapGrantAlive+`)`, grantID).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("panel: reading developer grant %d: %w", grantID, err)
+	}
+	return live, nil
+}
+
 // RequestDevAccess creates a request and returns the raw token, which is
 // not recoverable afterwards - only its hash is stored.
 //
@@ -376,7 +416,7 @@ func (s *Store) RedeemDevAccess(ctx context.Context, token string, from netip.Ad
 		  AND denied_at IS NULL
 		  AND approved_at IS NOT NULL
 		  AND request_expires_at > now()
-		  AND (NOT auto_approved OR NOT EXISTS (SELECT 1 FROM panel_users))
+		  AND `+bootstrapGrantAlive+`
 		RETURNING id, reason, session_expires_at, auto_approved`,
 		hashToken(token), fromA).Scan(&grant.ID, &grant.Reason, &grant.ExpiresAt, &grant.Bootstrap)
 	if errors.Is(err, pgx.ErrNoRows) {

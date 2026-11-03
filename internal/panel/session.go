@@ -206,6 +206,18 @@ func (s *Sessions) Principal(ctx context.Context) (Principal, error) {
 			_ = s.mgr.Destroy(ctx)
 			return Principal{}, ErrNoSession
 		}
+		// And the grant's row, every request (H11). The cookie knows when
+		// the visit was meant to end; only the database knows whether
+		// something has ended it since - for an installer's grant, the
+		// owner's account coming into existence.
+		live, err := s.store.DevSessionLive(ctx, grantID)
+		if err != nil {
+			return Principal{}, err
+		}
+		if !live {
+			_ = s.mgr.Destroy(ctx)
+			return Principal{}, ErrNoSession
+		}
 		return developerPrincipal(), nil
 	}
 

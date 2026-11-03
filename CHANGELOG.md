@@ -24,6 +24,18 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Kurulum oturumu, sahip hesabını açınca biter
+
+**Kuran kişinin yapması gereken:** hiçbir şey.
+
+Kurulum sihirbazına geliştirici bağlantısıyla giren tarayıcı, sahip
+hesabını açtıktan sonra da bağlantının iki saatlik süresi boyunca
+sihirbazda yazabiliyordu; sahibin **Erişim istekleri** sayfası o erişimi
+"artık geçersiz" diye gösteriyordu. Kural bağlantıyı kullanırken
+uygulanıyordu, açılmış oturumda değil. Artık oturum her istekte izninin
+satırını okuyor: sahip hesabı açıldığı anda kurulum oturumu bir sonraki
+tıklamada biter. Sahibin onayladığı geliştirici erişimi etkilenmiyor.
+
 ### Beacon'ın topladığı veri kırılım sayfasında doğru anılıyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. `panel.toml`'da `[roles]`

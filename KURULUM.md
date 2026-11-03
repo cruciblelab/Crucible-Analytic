@@ -1254,7 +1254,10 @@ Bu bağlantı:
 - kullanıldığı adres denetim kaydına geçer,
 - ve **ilk hesap oluşturulduğu anda otomatik onayı biter.** Sonrasında
   aynı komut çalışır ama bağlantı, sahip panelden onaylayana kadar
-  çalışmaz.
+  çalışmaz. **Bağlantıyla açtığınız oturum da o anda biter:** sahip devir
+  bağlantısıyla hesabını açtığında, sizin tarayıcınızdaki bir sonraki
+  tıklama "kurulum bekleniyor" sayfasına düşer. Devir teslimi sihirbazın
+  son adımı yapın; sonrasında sunucuya girmeniz gerekirse §9.5.
 
 ### 9.3 Sihirbazı yürütün
 

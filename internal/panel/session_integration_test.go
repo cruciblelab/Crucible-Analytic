@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -386,37 +387,152 @@ func TestSessions_RealDB_CSRFFailsClosedWithoutAnIssuedToken(t *testing.T) {
 	}
 }
 
+// devSignIn opens a developer session from grant through a real request,
+// under a path of its own so one test can open several.
+func (tp *testPanel) devSignIn(t *testing.T, path string, grant DevAccessGrant) {
+	t.Helper()
+	tp.route(t, path, func(w http.ResponseWriter, r *http.Request) {
+		if err := tp.sessions.LogInDeveloper(r.Context(), grant); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write([]byte("in"))
+	})
+	if body, code := tp.get(t, path); code != http.StatusOK {
+		t.Fatalf("developer sign-in failed: %d %s", code, body)
+	}
+}
+
+// redeemedGrant requests developer access and redeems it, the way the
+// -dev-link command and the link's page do. With no account present the
+// request approves itself (a bootstrap grant); otherwise approver says yes.
+func redeemedGrant(t *testing.T, s *Store, ns string, approver *User) DevAccessGrant {
+	t.Helper()
+	ctx := context.Background()
+	token, req, err := s.RequestDevAccess(ctx, "oturum-"+ns, time.Hour, time.Hour)
+	if err != nil {
+		t.Fatalf("RequestDevAccess: %v", err)
+	}
+	if approver != nil {
+		if err := s.ApproveDevAccess(ctx, req.ID, *approver); err != nil {
+			t.Fatalf("ApproveDevAccess: %v", err)
+		}
+	}
+	grant, err := s.RedeemDevAccess(ctx, token, netip.Addr{})
+	if err != nil {
+		t.Fatalf("RedeemDevAccess: %v", err)
+	}
+	return grant
+}
+
 // Approving developer access grants a visit, so the visit has to end on
 // its own schedule rather than whenever the browser is closed.
 func TestSessions_RealDB_DeveloperSessionExpiresWithItsGrant(t *testing.T) {
 	ns := "panel-devsession"
 	tp := newTestPanel(t, ns)
+	wipeUsers(t)
 
-	tp.route(t, "/devin-live", func(w http.ResponseWriter, r *http.Request) {
-		grant := DevAccessGrant{ID: 1, ExpiresAt: time.Now().Add(time.Hour)}
-		if err := tp.sessions.LogInDeveloper(r.Context(), grant); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte("in"))
-	})
-	tp.route(t, "/devin-stale", func(w http.ResponseWriter, r *http.Request) {
-		grant := DevAccessGrant{ID: 2, ExpiresAt: time.Now().Add(-time.Minute)}
-		if err := tp.sessions.LogInDeveloper(r.Context(), grant); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Write([]byte("in"))
-	})
-
-	tp.get(t, "/devin-live")
+	grant := redeemedGrant(t, tp.store, ns, nil)
+	tp.devSignIn(t, "/devin-live", grant)
 	body, code := tp.get(t, "/whoami")
 	if code != http.StatusOK || body != "developer:"+DeveloperLabel {
 		t.Fatalf("/whoami during a developer session = %d %q", code, body)
 	}
 
-	tp.get(t, "/devin-stale")
+	// The same live grant, with the visit's end in the past: the cookie's
+	// copy of the expiry alone has to end it.
+	stale := grant
+	stale.ExpiresAt = time.Now().Add(-time.Minute)
+	tp.devSignIn(t, "/devin-stale", stale)
 	if body, code := tp.get(t, "/whoami"); code != http.StatusUnauthorized {
 		t.Errorf("an expired developer grant still had a session: %d %q", code, body)
+	}
+}
+
+// H11. Measured on the live rig before this test existed: the installer
+// redeemed the bootstrap link, the owner accepted the handoff, the
+// owner's access page called the installer's grant "no longer valid" -
+// and the installer's browser wrote beacon.sites half a minute later and
+// was told "Kaydedildi". Redemption refused a bootstrap link once an
+// account existed; the session it had already opened never asked again.
+func TestSessions_RealDB_BootstrapSessionEndsWhenAnAccountAppears(t *testing.T) {
+	ns := "panel-devboot-session"
+	tp := newTestPanel(t, ns)
+	wipeUsers(t)
+
+	grant := redeemedGrant(t, tp.store, ns, nil)
+	if !grant.Bootstrap {
+		t.Fatalf("with no account present the grant should be a bootstrap one: %+v", grant)
+	}
+	tp.devSignIn(t, "/devin", grant)
+	if body, code := tp.get(t, "/whoami"); code != http.StatusOK {
+		t.Fatalf("the installer's session did not open: %d %q", code, body)
+	}
+
+	// The owner accepts the handoff. Nothing about the session or the
+	// grant's expiry changes - only that an account now exists.
+	mustUser(t, tp.store, ns, "owner", false)
+
+	if body, code := tp.get(t, "/whoami"); code != http.StatusUnauthorized {
+		t.Fatalf("the installer's session outlived the owner's account: %d %q", code, body)
+	}
+	// Ended, not merely refused once: the session is destroyed, so the
+	// same cookie stays refused even if the account went away again.
+	if _, err := tp.store.pool.Exec(context.Background(),
+		`DELETE FROM panel_users WHERE email LIKE $1`, "%"+ns+"%"); err != nil {
+		t.Fatalf("removing the account: %v", err)
+	}
+	if body, code := tp.get(t, "/whoami"); code != http.StatusUnauthorized {
+		t.Errorf("the ended session came back when the account went away: %d %q", code, body)
+	}
+}
+
+// The other half of the same rule: what ends a bootstrap session is the
+// account existing, and an owner-approved grant was approved by an
+// account in the first place - one more account appearing must not end
+// it. Without this, "any account exists" would pass the test above.
+func TestSessions_RealDB_ApprovedSessionOutlivesNewAccounts(t *testing.T) {
+	ns := "panel-devapproved-session"
+	tp := newTestPanel(t, ns)
+	wipeUsers(t)
+
+	owner := mustUser(t, tp.store, ns, "owner", false)
+	grant := redeemedGrant(t, tp.store, ns, &owner)
+	if grant.Bootstrap {
+		t.Fatalf("an owner-approved grant reported itself as bootstrap: %+v", grant)
+	}
+	tp.devSignIn(t, "/devin", grant)
+	mustUser(t, tp.store, ns, "second", false)
+
+	if body, code := tp.get(t, "/whoami"); code != http.StatusOK || body != "developer:"+DeveloperLabel {
+		t.Errorf("an approved developer session ended when another account appeared: %d %q", code, body)
+	}
+}
+
+// A session naming a grant that is not in the table - purged, or never
+// there - is not a session. The cookie's expiry alone used to be enough.
+func TestSessions_RealDB_DeveloperSessionNeedsItsGrantRow(t *testing.T) {
+	ns := "panel-devgrant-row"
+	tp := newTestPanel(t, ns)
+	wipeUsers(t)
+
+	grant := redeemedGrant(t, tp.store, ns, nil)
+	tp.devSignIn(t, "/devin", grant)
+	if _, code := tp.get(t, "/whoami"); code != http.StatusOK {
+		t.Fatal("the session did not open")
+	}
+	// Another live grant stays in the table. Without it "is there a live
+	// grant" and "is this session's grant live" answer alike, and a check
+	// that forgot which grant it was asking about would pass.
+	other := redeemedGrant(t, tp.store, ns, nil)
+	if other.ID == grant.ID {
+		t.Fatal("the second grant is the first one")
+	}
+	if _, err := tp.store.pool.Exec(context.Background(),
+		`DELETE FROM panel_dev_access WHERE id = $1`, grant.ID); err != nil {
+		t.Fatalf("purging the grant: %v", err)
+	}
+	if body, code := tp.get(t, "/whoami"); code != http.StatusUnauthorized {
+		t.Errorf("a session outlived its grant's row: %d %q", code, body)
 	}
 }
