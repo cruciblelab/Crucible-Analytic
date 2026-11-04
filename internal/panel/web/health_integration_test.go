@@ -425,7 +425,10 @@ func TestTheRefreshButtonWorksFromThePage(t *testing.T) {
 	// this held FetchLogLock and waited for AccountsLock, and go test
 	// killed both packages at ten minutes. The order is now checked, by
 	// TestNoTwoSuitesTakeTheSameLocksInOppositeOrders.
-	srv, store := setupTestServer(t)
+	//
+	// A one-customer deployment (setupSoleTenantServer): the refresh is
+	// the deployment's, and its owner is the owner of every site (W1b).
+	srv, store := setupSoleTenantServer(t)
 	admin := testdb.Admin(t)
 	testdb.Lock(t, admin, testdb.FetchLogLock)
 	testdb.Lock(t, admin, testdb.RefreshQueueLock)

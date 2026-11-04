@@ -118,8 +118,8 @@ func (s *Store) RequestUpgrade(ctx context.Context, a Access, auth devgate.Autho
 	// Entitlement first, and before anything that costs work. A viewer
 	// is refused on who they are, whatever they typed - so no password
 	// they could supply changes the answer.
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (upgrade)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "upgrade"); err != nil {
+		return nil, err
 	}
 
 	locked, err := s.GetBoolSetting(ctx, KeyUpgradeLocked, "")

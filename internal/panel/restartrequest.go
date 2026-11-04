@@ -106,8 +106,8 @@ type RestartRequest struct {
 func (s *Store) RequestRestart(ctx context.Context, a Access, auth devgate.Authorization,
 	service string) (RestartRequest, error) {
 
-	if !a.Can(CapManageSettings) {
-		return RestartRequest{}, fmt.Errorf("%w (restart)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "restart"); err != nil {
+		return RestartRequest{}, err
 	}
 	if !auth.Authorizes(RestartGateAction) {
 		return RestartRequest{}, ErrRestartNeedsPassword

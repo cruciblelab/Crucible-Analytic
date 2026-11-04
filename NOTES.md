@@ -25123,9 +25123,9 @@ alıp devam et" dedi; karar:
   parolasının arkasında. Ama belgeleri yazarken "hangileri değil" diye
   koda sordum: yedek alma, özet yenileme ve **yedeği geri yükleme**
   parola istemiyor. `RestoreBackup` yalnız `CapManageSettings` soruyor ve
-  `healthAccess` her site sahibine sahip rolünü veriyor. Bu, bir müşterinin
-  bütün veritabanını geri sarabileceği anlamına geliyor gibi; canlıda
-  upgrader'la ölçülmeden yazmıyorum → PLAN W1b, sıradaki iş. *"Çoğu
+  `healthAccess` her site sahibine sahip rolünü veriyor. Burada "bir
+  müşteri bütün veritabanını geri sarabilir gibi" yazmıştım; **yanlıştı**,
+  W1b'de düzeltildi (geri yükleme yalnız yan veritabanına). *"Çoğu
   parolanın arkasında" bir ölçüm değildi; hangilerinin olmadığını sormak
   ölçümdü.*
 - **`RecordSetting` yetkiyi kendisi soruyor.** H13 yetkiyi çağırana
@@ -25176,3 +25176,62 @@ kapatıldı): iki müşterinin paketi de, Ayarlar sayfası da
 Mehmet'inki `["ikinci-site"]`, öteki kimlik sayfada hiç geçmiyor; teknik
 kapı ve sihirbaz "Kurulum bekleniyor" (403), elle devir POST'u 403, posta
 403; `beacon.sites` iki site, `panel_smtp` 0 satır, talep 0.
+
+## Sağlık işlemleri ve bir sitenin sahibi — W1b (2026-11-04)
+
+**Önce kendi yanlışım.** W1'in sonunda PLAN'a, koddan okuyarak, "bir
+müşteri bütün veritabanının eski bir yedeğe geri yüklenmesini isteyebilir
+görünüyor" yazmıştım. "Ölçülmedi" diye işaretlemiştim; ölçmeye
+başlamadan önce `RestoreInto`'yu okuyunca yanlış olduğu çıktı. Panelin geri
+yüklemesi canlı veritabanına hiç yazmıyor: hedef `upgrader.toml`'daki
+ayrı bir veritabanı. İşaret tablosu taşımayan her hedef reddediliyor,
+canlı veritabanı dahil. Canlıya geçiş kabukta. Bu karar PLAN F1'de
+yazılıydı ve ben onu hatırlamadan zarar tarif etmiştim. *Bir zararı
+yazmadan önce, o zarara karşı daha önce verilmiş bir kararı ara.*
+
+**Ölçülen (canlı, iki müşteri).** Ayşe yedi işlemi formdan geçmeden
+gönderdi:
+- IP veri kümesi yenilemesi kabul edildi.
+- Yedek doğrulaması kabul edildi ve kuyruğun **tek yuvasını** tutan
+  bekleyen bir istek yazdı. Ardından gelen geri yükleme "kuyruk dolu"
+  diye reddedildi; işletmecinin kuyruğu bir müşterinin elindeydi.
+- Yedek alma denendi (düzenekte yedek yapılandırılmadığı için "failed").
+- Yeniden başlatma, yükseltme ve sürüm parola istediği için reddedildi.
+
+Koddan: geri yükleme raporu (`restoreSummary`) bütün kurulumun tablo
+başına satır sayısını yazıyor ve Sağlık'ın her okuyucusuna çiziliyordu.
+
+**Karar.** Okuma kalıyor, işlemler kurulumun:
+- `healthAccess` rolünü `DeploymentAccess`'ten alıyor.
+- Yedi `Request…` işlevi `mayOperateDeployment` soruyor (`RecordSetting`'in
+  W1'deki şekli: kim çağırırsa çağırsın veri katmanı reddediyor).
+- Rapor yalnız `Allowed` olana çiziliyor.
+
+Depolama bölümünün tablo boyutları da kurulumun toplamı ve aynı çıkarımı
+kabaca mümkün kılıyor. Bunu kapatmadım: o bölüm B3g'den beri bilerek her
+sahibe açık bir disk raporu, ve kapatmak sayfanın ne olduğu sorusu
+(sahibe soru olarak yazıldı).
+
+**Mutasyon.** 11, 11'i kırmızı (`$SP/mutasyon-w1b.py`, `-2.py`).
+- İlk turda iki tanesi sağ kaldı: rol kontrolünü silmek yalnız
+  izleyicinin ret cümlesini değiştiriyordu, çünkü `ErrSettingShared`
+  `ErrSettingNotWritable`'ı sarıyor ve testler `errors.Is` ile soruyordu.
+  Yeni iddia: izleyici paylaşılan-ayar sebebini almaz. Raporu herkese
+  çizmeyi ise hiçbir test sormuyordu; raporlu bir satır tohumlayan web
+  testi yazıldı.
+- Dördü ilk turda derlenmedi: yer değiştirme metnim `if err := ` önekini
+  koruyup yanına bir `err :=` daha ekliyordu. *Bir mutasyonun metnini,
+  değiştirdiği satırın tamamıyla birlikte oku.*
+
+**Testler.** Veri katmanında, kurulum yetkisi olan bir erişimin kapıdan
+geçtiği süresi geçmiş bir bağlamla gösteriliyor. Çağrı veritabanına
+ulaşıyor ve orada ölü bağlam yüzünden düşüyor; böylece hiçbir kuyruğa satır
+yazılmıyor ve öbür süitlerin okuduğu kuyruk temiz kalıyor. Var olan beş
+"müşteri" yardımcısı tek müşterili kurulumun sahibini kastediyordu;
+`OwnsEverySite: true` aldılar.
+
+**Canlı, önce → sonra:**
+- Sağlık 200 → 200, bölümlerin hepsi yerinde.
+- Çizilen işlem formu 4 → 0.
+- Kabul edilen POST 2 → 0; yedisi de işlem kaydında "refused".
+- Kuyrukta bekleyen istek 1 → 0.

@@ -415,11 +415,21 @@ func (s *Server) healthAccess(ctx context.Context, p panel.Principal) panel.Acce
 	if p.Superadmin || p.Kind == panel.PrincipalDeveloper {
 		return access
 	}
-	// An owner of any site is the customer this deployment belongs to.
-	// The schema is deployment-wide, so there is no per-site answer to
-	// give here.
-	if s.ownsAnySite(ctx, p) {
-		access.Role = panel.RoleOwner
+	// The schema, the backups, the restarts are the deployment's, so the
+	// answer is the deployment's: an owner of every site (W1b). It used to
+	// be "an owner of any site is the customer this deployment belongs
+	// to", which is true of a deployment with one customer and false of
+	// one with two - where it let either of them press every button on
+	// this page for both. The owner of one site among others still reads
+	// the page (requireHealthReader); the forms are not drawn for them,
+	// and the store refuses them if posted anyway (mayOperateDeployment).
+	deployment, err := s.Store.DeploymentAccess(ctx, p)
+	if err != nil {
+		s.logger().Error("panel: asking whether an account owns every site", "err", err)
+		return access
+	}
+	if deployment.SpeaksForDeployment() {
+		access = deployment
 		access.Member = true
 	}
 	return access

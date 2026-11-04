@@ -745,8 +745,11 @@ kurulum sihirbazı (son adımı açtığı hesabı **her** sitenin sahibi yapıy
 posta sunucusu (panelin gönderdiği davet bağlantıları oradan geçiyor) ve
 geliştirici erişimi onayı (onaylanan geliştirici her müşterinin verisine
 ulaşıyor). Birden çok müşteriniz varsa bunları siz yaparsınız. Sağlık
-sayfası her site sahibine açık; işlemlerinin çoğu geliştirici parolası
-istiyor (PLAN H10).
+sayfası her site sahibine okunur. İşlemleri (yedek, yedek kontrolü, yan
+veritabanına geri yükleme, IP veri kümesi yenileme, yeniden başlatma,
+şema yükseltmesi, sürüm güncellemesi) ve geri yükleme raporu (her tablonun
+satır sayısı) aynı kurala bağlı: tek müşterili kurulumda sahip, birden
+çok müşterili kurulumda siz.
 
 Yine de bilmeniz gereken şudur: **bu sınır bir uygulama kontrolüdür,
 veritabanı kısıtı değildir.** Düzenleyici bir gereklilik ya da kendi

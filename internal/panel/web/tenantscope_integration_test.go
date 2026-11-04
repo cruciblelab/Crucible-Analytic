@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
+	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
 const (
@@ -202,6 +203,13 @@ func TestATenantReachesNothingThatActsOnTheOtherCustomer(t *testing.T) {
 			t.Errorf("the owner of one site is offered %s, which refuses her", path)
 		}
 	}
+	// Read, not run (W1b): every button on the health page acts on the
+	// whole deployment - backups, their check and restore, the range
+	// refresh, restarts, upgrades - so none is drawn for her. The store
+	// refuses them if posted (TestNoOperationOnTheMachineIsOneCustomersToRun).
+	if strings.Contains(home, `name="eylem"`) {
+		t.Error("the owner of one site among others is drawn an operation on the health page")
+	}
 
 	// The store refuses the same writes, whatever page asks.
 	p := panel.Principal{Kind: panel.PrincipalUser, UserID: owner.ID, Label: owner.Email}
@@ -252,7 +260,74 @@ func TestATenantReachesNothingThatActsOnTheOtherCustomer(t *testing.T) {
 			t.Errorf("GET %s answered %d to the owner of every site, want 200", path, status)
 		}
 	}
+	if _, page := get(t, c, server.URL+HealthPath); !strings.Contains(page, `name="eylem"`) {
+		t.Error("the owner of every site is drawn no operation on the health page")
+	}
 	if err := store.RecordSetting(ctx, p, panel.KeyBeaconSites, "", both); err != nil {
 		t.Errorf("RecordSetting(beacon.sites) by the owner of every site: %v", err)
+	}
+}
+
+// TestARestoreReportIsShownOnlyToWhoeverMayRunOne (W1b).
+//
+// A restore's report counts every table's rows, and on a deployment
+// shared by two customers those are both customers' rows: the owner of
+// one site, who knows her own volume, reads the other's off the
+// difference. The report is drawn for whoever may run the work, which is
+// whoever speaks for the deployment.
+//
+// A finished restore with a report is seeded, and the health page is read
+// by the owner of one site among others and then, once she owns every
+// site, by the same person.
+func TestARestoreReportIsShownOnlyToWhoeverMayRunOne(t *testing.T) {
+	// BackupQueueLock before setupSoleTenantServer's AccountsLock: the
+	// order testdb declares and backupPage takes them in.
+	testdb.Lock(t, testdb.Pool(t, testdb.SchemaAdmin), testdb.BackupQueueLock)
+	sweep := func() {
+		if _, err := testdb.Pool(t, testdb.Panel).Exec(context.Background(),
+			`DELETE FROM panel_backup_requests`); err != nil {
+			t.Errorf("sweeping the backup queue: %v", err)
+		}
+	}
+	sweep()
+	t.Cleanup(sweep)
+
+	srv, store := setupSoleTenantServer(t)
+	ctx := context.Background()
+	owner := makeUser(t, store, "w1b-sahip", false)
+	other := makeUser(t, store, "w1b-oteki", false)
+	if err := store.AddMember(ctx, w1Own, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMember(ctx, w1Other, other.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+
+	const report = "beacon_events 424242"
+	if _, err := testdb.Admin(t).Exec(ctx, `
+		INSERT INTO panel_backup_requests
+		  (actor_kind, actor_label, operation_id, kind, sets, target_id, state, finished_at, result)
+		VALUES ('developer', 'Geliştirici', '', 'geri_yukle', '{}', 1, 'succeeded', now(), $1)`,
+		"veritabanı: yan\n1 satır, 1 tablo: "+report); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(srv.Handler())
+	defer server.Close()
+	c := signedIn(t, server.URL, owner.Email)
+
+	status, page := get(t, c, server.URL+HealthPath)
+	if status != http.StatusOK {
+		t.Fatalf("the owner of one site was refused the health page: %d", status)
+	}
+	if strings.Contains(page, report) {
+		t.Error("the owner of one site among others reads a restore report that counts every customer's rows")
+	}
+
+	if err := store.AddMember(ctx, w1Other, owner.ID, panel.RoleOwner, panel.Grant{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, page := get(t, c, server.URL+HealthPath); !strings.Contains(page, report) {
+		t.Error("the owner of every site is not shown the restore report; the seeded row did not reach the page")
 	}
 }

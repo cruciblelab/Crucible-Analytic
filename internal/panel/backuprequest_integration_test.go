@@ -53,6 +53,9 @@ func backupOwner() Access {
 		Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "yedek-sahibi"},
 		Role:      RoleOwner,
 		Member:    true,
+		// The owner of a one-customer deployment, as customerAccess is:
+		// a backup is the deployment's (W1b, mayOperateDeployment).
+		OwnsEverySite: true,
 	}
 }
 

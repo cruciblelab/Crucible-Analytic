@@ -177,6 +177,31 @@ func (a Access) AccessTo(def Definition) SettingAccess {
 	return SettingWritable
 }
 
+// mayOperateDeployment is the entitlement of every operation that acts
+// on the machine rather than on a site: a backup, its check and its
+// restore, a range refresh, a restart, a schema upgrade, a release update
+// (W1b). Each used to ask only CapManageSettings, and the health page
+// handed that to the owner of any site - so on a deployment shared by two
+// customers, one of them could start a backup of everybody's data, take
+// the backup queue's only slot with a check (the other customer's
+// operator then read "a backup is already running"), and prepare a
+// restore whose report counts every customer's rows. Measured on the live
+// rig. Asked here, beside the work, for the reason RecordSetting asks for
+// itself: whatever page builds the Access, the store is where it is
+// refused.
+//
+// The refusal names the reason in the words the settings use: not
+// "you may not", but "it reaches sites that are not yours".
+func mayOperateDeployment(a Access, what string) error {
+	if !a.Can(CapManageSettings) {
+		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, what)
+	}
+	if !a.SpeaksForDeployment() {
+		return fmt.Errorf("%w (%s)", ErrSettingShared, what)
+	}
+	return nil
+}
+
 // ownSitesOnly narrows a list of site ids to the reader's own (W1).
 //
 // The live rig found the beacon's allowlist going out whole: the

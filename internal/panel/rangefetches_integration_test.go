@@ -232,6 +232,8 @@ func mayManageSettings() Access {
 		Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "sahip@example.invalid"},
 		Role:      RoleOwner,
 		Member:    true,
+		// The owner of a one-customer deployment (W1b).
+		OwnsEverySite: true,
 	}
 }
 

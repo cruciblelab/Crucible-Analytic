@@ -8306,9 +8306,9 @@ anahtarın değerini `true` diye bastığını gösterdi (izleyiciler için de
 
 **W1'de kapandı (2026-11-04):** aşağıdaki 1–3, canlı düzenekte ölçülünce
 ertelenecek kapı değil ele geçirme yolu çıktı (PLAN W1). Kalan tek madde 4:
-Sağlık işlemleri hâlâ herhangi bir site sahibine açık. Çoğu geliştirici
-parolası istiyor; yedek alma, yedeği geri yükleme ve özet yenileme
-istemiyor → PLAN W1b.
+Sağlık işlemleri de W1b'de kurulum yetkisine bağlandı (yedek, doğrulama,
+yan geri yükleme, veri kümesi yenileme, yeniden başlatma, yükseltme,
+sürüm). Sayfa her site sahibine okunur kaldı.
 
 **Açık — sahibin kararı, ayrı tur (2026-11-02'deki hâli):** `ownsAnySite`
 hâlâ şu kapıları açıyor ve hepsi kurulum geneli:
@@ -11140,25 +11140,71 @@ Canlı, önce → sonra:
 
 Ayrıntı NOTES "Öbür müşterinin sitesi".
 
-##### W1b — Sağlık işlemleri, bir sitenin sahibi ⬜ *(sıradaki)*
+##### W1b — Sağlık işlemleri, bir sitenin sahibi ✅ **yapıldı (2026-11-04)**
 
-**Koddan okunan, canlıda henüz ölçülmedi.** `healthAccess` herhangi bir
-sitenin sahibine sahip rolünü veriyor. `Store.RestoreBackup` yalnız
-`CapManageSettings` soruyor ve geliştirici parolası istemiyor. Yani iki
-müşterili kurulumda bir müşteri, **bütün veritabanının** eski bir yedeğe
-geri yüklenmesini isteyebilir görünüyor: öbür müşterinin verisi geri sarılır.
-Bu, "müşteri alır, geliştirici geri yükler" kararıyla da çelişiyor (H9'da
-"yedek doğrula/yükle parolasız" diye not düşülmüştü). Yedek alma ve özet
-yenileme de kurulumun tamamına dokunuyor.
+**Önce yazdığım yanlıştı.** W1'in sonunda buraya, koddan okuyarak,
+"bir müşteri bütün veritabanının eski bir yedeğe geri yüklenmesini
+isteyebilir görünüyor; öbür müşterinin verisi geri sarılır" yazmıştım.
+Ölçmeden önce `RestoreInto`'yu okudum: panelin geri yüklemesi **canlı
+veritabanına hiç yazmıyor**. Hedef `upgrader.toml`'daki ayrı bir
+veritabanı. İşaret tablosu taşımayan her hedef, canlı veritabanı dahil,
+reddediliyor. Canlıya geçiş kabukta (PLAN F1: "panel gösterir, hazırlar,
+sorar; takası yapmaz"). Doğrulama ve yan geri yükleme bilerek parolasız.
+*"Görünüyor" diye yazılan bir zarar, ölçülene kadar bir sorudur; ve
+cevabı bazen "hayır, ve bunu daha önce kararlaştırdık"tır.*
 
-**Tasarım (ölçümden sonra kesinleşecek):** Sağlık sayfası her site
-sahibine okunur kalır. İşlemler `SpeaksForDeployment` ister. Geri yükleme
-ayrıca kararın dediği gibi geliştiricinin olur.
+**Ölçülen (canlı düzenek, iki müşteri):** Ayşe (yalnız `canli-deneme`'nin
+sahibi) Sağlık'ta yedi işlemi formdan geçmeden gönderdi.
+- IP veri kümesi yenileme kabul edildi.
+- Yedek doğrulama kabul edildi ve kuyruğun **tek yuvasını** tutan bekleyen
+  bir istek yazdı. Ardından gelen geri yükleme "kuyruk dolu" diye
+  reddedildi; yani işletmecinin yedek kuyruğu bir müşterinin elindeydi.
+- Yedek alma denendi (düzenekte yedek yapılandırılmadığı için "failed").
+- Yeniden başlatma, yükseltme ve sürüm parola istediği için reddedildi.
 
-**Bitti ölçütü:**
-- Düzenekte upgrader çalışırken "önce": Ayşe yedek alıyor ve geri yükleme
-  istiyor; ne kabul ediliyor, upgrader ne yapıyor.
-- "Sonra": aynı istekler 403; tek müşterili kurulumda sahip yedek alabiliyor.
+Koddan, ölçülene eşdeğer: geri yükleme raporu bütün kurulumun tablo
+başına satır sayılarını yazıyor ve Sağlık'ın her okuyucusuna çiziliyordu.
+Kendi hacmini bilen müşteri farktan öbürünün hacmini okur.
+
+**Karar:** Sağlık sayfası her site sahibine okunur kalıyor. Yedi işlem
+(yedek, doğrulama, yan geri yükleme, veri kümesi yenileme, yeniden
+başlatma, şema yükseltmesi, sürüm) kurulum yetkisi istiyor:
+- `healthAccess` rolünü `DeploymentAccess`'ten alıyor.
+- Yedi `Request…` işlevi `mayOperateDeployment` soruyor; yetkisi olmayan
+  `ErrSettingShared` alıyor.
+- Geri yükleme raporu yalnız işlemi yürütebilene çiziliyor.
+
+Tek müşterili kurulumda hiçbir şey değişmiyor ("müşteri alır" kararı
+orada aynen geçerli).
+
+**Ölçüm:** veri katmanı testi yedi işlemi, öbür müşterisi olan bir sahiple
+soruyor (`ErrSettingShared`). Aynı işlemleri bir izleyiciyle de soruyor:
+izleyici izleyici olarak reddediliyor, paylaşılan-ayar cümlesini almıyor.
+Her sitenin sahibi olunca yetki kapısından geçiliyor; bunu süresi geçmiş
+bir bağlamla gösteriyor, hiçbir kuyruğa satır yazmadan. Web testi iki
+şeyi soruyor: Sağlık'ta işlem formunun çizilmediğini ve tohumlanmış bir
+geri yükleme raporunun gösterilmediğini; ikisi de öbür site devredilince
+çiziliyor. 11 mutasyon, 11'i kırmızı. İlk turda ikisi sağ kaldı ve iki
+iddia yazdırdı: rol kontrolünü silmek yalnız izleyicinin ret cümlesini
+değiştiriyordu; raporu herkese çizmeyi hiçbir test sormuyordu. Dördü
+ilk turda derlenmedi (yer değiştirme metnim `err :=`'yi iki kez
+yazıyordu).
+
+**Canlı, önce → sonra** (Ayşe): Sağlık 200 → 200 ve bölümlerin hepsi
+yerinde. Çizilen işlem formu 4 → 0. Yedi POST'tan kabul edilen 2 → 0;
+yedisi de işlem kaydında "refused". Yedek kuyruğunda bekleyen istek
+1 → 0.
+
+PLAN H10'un "Açık" listesi böylece kapandı.
+
+**Açık — sahibin kararı:** Sağlık'ın Depolama bölümü (tablo başına disk
+boyutu) ve yedek listesi (yedek boyutları) kurulumun toplamı. Birden çok
+müşterili kurulumda bir müşteri kendi hacmini bildiği için öbürünün
+hacmini kabaca çıkarabilir. Bu bölümler B3g'den beri bilerek her sahibe
+açık birer disk raporu; kapatmak "Sağlık sayfası birden çok müşterili
+kurulumda bir müşteriye ne gösterir" sorusu. Öneri: birden çok
+müşterili kurulumda tek-site sahibine bu iki bölümün yerine "kurulumun
+diski işletmecide" cümlesi; tek müşterili kurulumda değişiklik yok.
 
 #### W2 — Sahte beacon olayları insan sayılıyor
 

@@ -622,8 +622,10 @@ that is the isolation working, not a gap. */}}
 {{- /* What the work produced, which for a restore is the whole point:
 which tables came back, with how many rows, from which schema. Shown
 separately from ErrorChain because a restore that succeeded has more to
-say than one that failed. */}}
-{{- if .Latest.Result}}
+say than one that failed. Only for somebody who may run the work (W1b):
+the row counts are every customer's, and on a deployment shared by
+several, the owner of one site would read the others' volume off them. */}}
+{{- if and .Allowed .Latest.Result}}
 <pre class="ipucu">{{.Latest.Result}}</pre>
 {{- end}}
 {{- end}}

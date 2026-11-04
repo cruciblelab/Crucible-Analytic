@@ -129,8 +129,8 @@ func (s *Store) BackupStatus(ctx context.Context, a Access) (BackupStatus, error
 func (s *Store) RequestBackup(ctx context.Context, a Access, auth devgate.Authorization,
 	operationID string, sets []string) (*backup.Request, error) {
 
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "backup"); err != nil {
+		return nil, err
 	}
 
 	// Which artifact this is, before anything else. KindOf is also what
@@ -198,8 +198,8 @@ func (s *Store) RequestBackup(ctx context.Context, a Access, auth devgate.Author
 func (s *Store) VerifyBackup(ctx context.Context, a Access, operationID string,
 	backupID int64) (*backup.Request, error) {
 
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "backup"); err != nil {
+		return nil, err
 	}
 
 	req, err := backup.AskVerify(ctx, s.pool, backupActorFor(a.Principal), operationID, backupID)
@@ -240,8 +240,8 @@ func (s *Store) VerifyBackup(ctx context.Context, a Access, operationID string,
 func (s *Store) RestoreBackup(ctx context.Context, a Access, operationID string,
 	backupID int64) (*backup.Request, error) {
 
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (backup)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "backup"); err != nil {
+		return nil, err
 	}
 
 	req, err := backup.AskRestore(ctx, s.pool, backupActorFor(a.Principal), operationID, backupID)

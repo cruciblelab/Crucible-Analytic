@@ -138,8 +138,8 @@ func (s *Store) ReleaseStatus(ctx context.Context, a Access, current string) (Re
 func (s *Store) RequestRelease(ctx context.Context, a Access, auth devgate.Authorization,
 	operationID, current, toVersion string) (*relupdate.Request, error) {
 
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (release)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "release"); err != nil {
+		return nil, err
 	}
 
 	locked, err := s.GetBoolSetting(ctx, KeyReleaseUpdateLocked, "")

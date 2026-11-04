@@ -157,6 +157,8 @@ func TestUnlockedTheCustomerCanPressItWithNoPassword(t *testing.T) {
 	customer := Access{
 		Principal: Principal{Kind: PrincipalUser, UserID: 1, Label: "musteri@example.invalid"},
 		Role:      RoleOwner, Member: true,
+		// The owner of a one-customer deployment (W1b).
+		OwnsEverySite: true,
 	}
 
 	status, err := store.UpgradeStatus(ctx, customer)

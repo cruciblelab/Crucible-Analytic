@@ -70,7 +70,8 @@ func newRestartFixture(t *testing.T) *restartFixture {
 	owner := mustUser(t, store, restartNS, "sahip", false)
 	return &restartFixture{
 		t: t, store: store, gate: testGate(t, store), admin: admin,
-		owner: Access{Principal: principalOf(owner), Role: RoleOwner, Member: true},
+		// The owner of a one-customer deployment (W1b).
+		owner: Access{Principal: principalOf(owner), Role: RoleOwner, Member: true, OwnsEverySite: true},
 	}
 }
 

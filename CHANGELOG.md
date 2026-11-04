@@ -46,8 +46,15 @@ Canlı denemede, iki müşterili kurulumda yalnız bir sitenin sahibi:
 Artık bunların hepsi "işletmeci ya da her sitenin sahibi" kuralına bağlı
 (kurulum geneli ayarlar için zaten geçerli olan kural). Site listesi gibi
 bütün siteleri adlandıran bir değer, kurulum adına karar veremeyen
-okuyucuya yalnız kendi siteleriyle gösteriliyor. Sağlık sayfası her site
-sahibine açık kalıyor.
+okuyucuya yalnız kendi siteleriyle gösteriliyor.
+
+Sağlık sayfası her site sahibine okunur kalıyor, ama işlemleri de aynı
+kurala bağlandı. İki müşterili kurulumda bir sitenin sahibi önceden şunları
+yapabiliyordu: IP veri kümesi yenilemesi başlatmak, bir yedek kontrolüyle
+yedek kuyruğunun tek yuvasını tutmak (işletmecinin geri yüklemesi "kuyruk
+dolu" diye reddedildi), bütün kurulumun satır sayılarını yazan geri
+yükleme raporunu okumak. Geri yükleme canlı veritabanına hiçbir zaman
+yazmıyordu (yalnız yan veritabanına).
 
 ### Kurulum sihirbazının "api çalışıyor mu" kontrolü beacon'a soruyordu
 

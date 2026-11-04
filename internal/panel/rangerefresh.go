@@ -119,8 +119,8 @@ func (s *Store) RequestRangeRefresh(ctx context.Context, a Access,
 
 	// Entitlement first, and before anything that costs work. A viewer
 	// is refused on who they are.
-	if !a.Can(CapManageSettings) {
-		return nil, fmt.Errorf("%w (range refresh)", ErrSettingNotWritable)
+	if err := mayOperateDeployment(a, "range refresh"); err != nil {
+		return nil, err
 	}
 
 	// Not fatal when it fails: the ask below either succeeds or reports
