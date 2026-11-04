@@ -105,6 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
+| **W** Yanıltmayan panel (canlı denemeden) | ⬜ **0/3** | W1–W3 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -10997,6 +10998,178 @@ systemd'de ayrıca ölçülecek. Z7 bu üst üste binmeyi olağan akıştan
 önce çalmıyor, ve bu ilişkiyi bir test tutuyor. Zil ise düzelmiş değil.
 
 ---
+
+### W grubu — Yanıltmayan panel ⬜ **0/3** *(2026-11-04, canlı denemeden)*
+
+*Sahip, canlı denemenin raporundan sonra: "Sahte olayların sayılması
+sıkıntı, yanıltıcı, saymamalıyız. Başka sunucu diğer sunucuyu
+etkilememeli, ikinciyi de düzeltmeliyiz. Küçük maddeler de müşteriyi,
+kullanan kişileri yanıltır, düzeltelim."*
+
+Canlı denemenin düzenini yeniden kurmak bu grubun ölçüm aracı. Paket
+`install.sh` ile kuruluyor; iki site, iki collector (tam vekil, TLS),
+panel vekilin arkasında, ziyaretçiler gerçek genel adreslerden (NOTES
+"Canlı deneme ve kurulum oturumu"). Her fazın "önce" ve "sonra" ölçümü
+o düzenekte, aynı simülasyonla yapılır: 90 insan oturumunun gerçek dosyası
+ve aynı saldırılar. **Ortak ölçüt: insanların sayıları gerçekle birebir
+kalır.** Bir düzeltme bir insanı bot saydıysa, öbür yönden yanıltıyordur.
+
+Sıra sahibin sırası: W1, W2, W3. W3'ün maddeleri birbirinden bağımsız,
+araya girebilir.
+
+#### W1 — Sahte beacon olayları insan sayılıyor
+
+**Ölçülen (2026-11-03):** OVH'den (51.75.10.10) curl ile `/_ca/event`'e
+303 sahte sayfa görüntülemesi gönderildi. Panonun gösterdikleri:
+- görüntüleme 189 yerine **492**;
+- ülkelerde **FR %63,4**;
+- kaynaklarda "Doğrudan" 455;
+- sayfa/oturum 11,7.
+
+Aynı adrese collector **74** puan vermişti (bilinen JA4 ve hız), ama
+`bots=exclude` yalnız tarayıcının kendi bildirdiği kimliğe bakıyor. Kesişim
+verisi bu bilgiyi taşıyor, beacon okuması kullanmıyor. Aynı açıktan,
+kurulumdaki **başka bir müşterinin** site kimliğiyle de olay yazılabildi.
+Snippet herkese açık olduğu için bu kimlik bir sır değil.
+
+**Karar (sahip):** sayılmayacak.
+
+**Tasarım, iki katman.** İkisi de **veriyi silmiyor**, işaretliyor:
+yanlış işaretlenen bir insan geri alınabilir olsun.
+
+- **(a) Collector'ın kararı olayın kendisine.** Tam vekil kipinde collector
+  beacon isteğini zaten taşıyor ve o bağlantının JA4'ünü ve adresin hızını
+  biliyor. İsteğe kendi kararını (puan) bir başlıkla ekler; istemcinin
+  gönderdiği aynı adlı başlığı önce siler. Beacon başlığa yalnız
+  `trusted_proxies`'teki bir eşten inanır ve olaya yazar (`beacon_events`'e
+  bir sütun). Sorgu zamanında adres birleşimi gerekmez. Bu yüzden maskeli
+  kipte aynı /24'ü paylaşan insanlar (Türkiye'de mobil CGNAT) bir botun
+  bedelini ödemez. Okuma tarafındaki birleşim de aday, ama o yan etki
+  ölçülmeden seçilmeyecek.
+- **(b) Collector'ın göremediği kurulumlar** (geçişli kip, collector'sız
+  beacon) ve UA döndüren sel için: beacon'ın bellekte, **tam adres başına**
+  olay hızı tavanı. Adres diske inmez; kimlik HMAC'i UA'yı da içerdiği için
+  ziyaretçi başına tavan, UA döndüren selde her isteği yeni bir ziyaretçi
+  sayar ve yetmez. Tavanın üstündeki olaylar işaretlenir. Eşik ölçülerek
+  konur: gerçek bir insanın en yüksek olay hızı (SPA, hızlı gezinme) ve
+  ofis NAT'ı (bir adreste çok kişi). Ölçülmeden yazılan bir eşik insanı bot
+  sayar.
+- **(c) Okuma ve sayfa:** `bots=exclude` (panonun varsayılanı) üç kaynağı
+  da dışlar: UA, collector kararı, hız tavanı. Pano dışlananı ayrıca yazar:
+  *"bu dönemde N olay otomatik sayıldı ve sayılara katılmadı"*. `bots=only`
+  ile görülebilir kalır. Sessizce dışlanan sayı da yanıltır; müşteri
+  trafiğinin neden düştüğünü sorar.
+
+**Şema:** `beacon_events`'e sütun. Hipertabloda `ADD COLUMN`, O1'de ölçülen
+kabul edilen DDL sınıfı. Şema 24 henüz yayımlanmadı (son etiket şema 21
+taşıyor). 24'e mi ekleneceği, 25'e mi çıkılacağı
+`TestAReleasedSchemaVersionIsNeverEdited` kuralıyla fazın başında
+kararlaştırılır.
+
+**Bitti ölçütü (canlı düzenekte):**
+- 90 insan oturumunun bütün kırılımları gerçekle birebir: yanlış pozitif 0.
+- 303 sahte olayın 303'ü dışlanıyor ve "otomatik" diye sayılıyor.
+- Ek senaryolar:
+  - UA döndüren sel;
+  - başsız Chrome (UA ile zaten yakalanıyor);
+  - aynı /24'te insan ve bot;
+  - collector'sız beacon (yalnız (b));
+  - başlığı kendisi gönderen istemci (yok sayılmalı).
+
+**Bilinen sınır (yazılacak, saklanmayacak):** gerçek bir tarayıcı motorunu
+insan hızında süren otomasyon ayrılamaz (R grubunun sınırı). Ayrıca tek bir
+sahte olay, hız tavanının altında kalan bir curl isteği, collector yoksa
+sayılır. Collector varsa JA4'ü onu yakalar.
+
+#### W2 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
+
+**Ölçülen (2026-11-03):** `service_heartbeat`'in anahtarı yalnız rol adı
+(`service TEXT PRIMARY KEY`). README "bir sunucuda site başına bir
+collector" dağıtımını anıyor; o dağıtımda iki collector tek satıra yazıyor.
+- **Kör nokta:** collector-b durduruldu, `ikinci.deneme` 3,5 dakika
+  erişilemezdi. Mehmet'in Sağlık sayfası *"Toplayıcı: az önce"* dedi, çünkü
+  satırı A yazıyordu.
+- **Kaybolan sayaçlar:** satır A ile B arasında gidip geldi. A'nın
+  duraklatma sayacı ve B'nin coğrafi ret sayacı hiç görünmedi.
+- **Toplu yeniden başlatma:** "Yeniden başlat → Toplayıcı" iki süreci de
+  kapattı. Sayfa "siteniz 2 saniye erişilemez" diyor; gerçekte iki site.
+
+**Tasarım:**
+- **Tablo:** `service_heartbeat`'e `instance`, anahtar `(service, instance)`.
+  Collector için örnek adı `site_id`; öbür servisler için yapılandırmadan,
+  varsayılan boş (bugünkü tek satır).
+- **Satır güvenliği:** değişmiyor (`service = current_user`). Aynı rolün
+  süreçleri birbirinin satırını yazabilir; aynı rol aynı güven demek, bunu
+  yazacağım.
+- **Okuyanlar (bugün 11 dosya) örnek başına:**
+  - Sağlık her örneği ayrı satırda gösterir.
+  - D5'in "toplanıyor mu"su sitenin collector'ını `site_id`'den bulur.
+  - Coğrafi ret ve duraklatma sayaçları örnek başına ve toplam olarak.
+  - Yeniden başlatma isteği bir örneği ya da hepsini seçer; sayfa kaç
+    sürecin, kaç sitenin kapanacağını söyler.
+  - `relupdate` her örneği bekler: yeniden başlatmadan önceki son N
+    dakikada görülen örnekleri. Kaldırılmış bir örnek güncellemeyi
+    sonsuza kadar bekletmesin.
+  - Tanı paketi de örnek başına.
+- **Bir kiracı başka bir kiracının collector'ını görmez:** tek sitenin
+  sahibine yalnız kendi sitesinin örneği. B3g'nin okuma kuralı.
+
+**Şema:** anahtar değişikliği küçük, hipertablo olmayan bir tabloda.
+W1'le aynı şema kararına bağlı.
+
+**Bitti ölçütü (canlı düzenekte):**
+- collector-b durdurulunca Mehmet'in Sağlık sayfası B'yi *"haber
+  alınamıyor"* gösterir, Ayşe'ninki etkilenmez.
+- Yeniden başlatma yalnız seçileni kapatır.
+- İki sitenin sayaçları ayrı ayrı doğru.
+- Panelden güncellemede (`relupdate`) iki örnek de beklenir.
+
+#### W3 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
+
+Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
+türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
+
+1. **Tanı paketi kurulum geneli ayarları tek-site sahibine de veriyor.**
+   Ayşe'nin paketinde `beacon.sites` öbür müşterinin site kimliğini
+   taşıyordu; panelde o ayar yalnız geliştirici görünümünde. → Kurulum
+   geneli ayarı yazamayan okuyucuya (H10'un sorusu) `beacon.sites` yalnız
+   kendi siteleriyle, öbürleri "paylaşılan ayar" olarak gider.
+2. **Sihirbaz ve Sağlık "Yedekleme: Bu sistem yedek almaz" diyor.** Ürünün
+   yedek özelliği var (Sağlık → yedek, `panel_backup_policy`). → Kontrol
+   yedek politikasını ve son başarılı yedeği sorar; ikisi de yoksa doğru
+   cümleyle uyarır.
+3. **Sihirbazın önerdiği komutlar kaynak ağacının yollarını yazıyor.**
+   Örnekler: `psql -f internal/panel/schema.sql`,
+   `for f in internal/*/schema.sql`, `go run ./cmd/devpass`, "README'deki
+   CREATE ROLE blokları", `crucible.toml`. Sayılar da yanlış ("dört rol",
+   altı kalem için "sekiz anahtar"). Müşteride sürüm paketi var: `schema/`,
+   `bin/devpass`, `release/install.sh`. → Komutlar paketin yollarıyla,
+   sayılar türetilmiş, ve bir test komutların adlandırdığı dosyaların
+   pakette olduğunu sorar.
+4. **"Bilinen bot verisi getirildi mi" kontrolü hiçbir varsayılan kurulumda
+   bakmıyor.** `panel.toml`'da `bot_data_path` yorumda, yani sayfa
+   *"Panele bildirilmemiş"* diyor. API'ninki de varsayılan dışı bir
+   `STATE_DIR` ile yanlış yere bakıyor; canlıda *"bot data not present"*
+   yazdı, dosya başka yerdeydi. → Örneklerde açık; `install.sh` üç dosyada
+   da `STATE_DIR`'a yazar; bir test üç yolun aynı dosyayı adlandırdığını
+   sorar.
+5. **Sihirbazın 5. adımı ("Yapılandırma dosyaları") her anahtar için
+   "panele bildirilmemiş" diyor.** Sayfa bilgi taşımıyor. → Ya servisler bu
+   değerleri sırsız olarak bildirir (kalp atışı), ya da adım neyi neden
+   gösteremediğini tek cümleyle söyler ve boş tabloyu çizmez. Önce hangi
+   değerin bildirilebileceği ölçülür.
+6. **Sihirbazın 3. ve 4. adımı beacon'ın gerçekte kabul ettiği siteleri
+   bilmiyor.** Beacon dosyadan iki siteyi kabul ederken 4. adım *"Henüz
+   site tanımlı değil"* dedi. → Beacon kabul ettiği listeyi ve kaynağını
+   (dosya ya da panel) bildirir, adımlar onu gösterir.
+7. **"Ayar kaydedildi" cümlesi canlı ayarların servislere bir dakikaya
+   kadar ulaştığını söylemiyor.** Ölçüldü: engel listesi A'ya 2 sn, B'ye
+   30 sn sonra ulaştı. Arada test eden biri ayarın çalışmadığını sanar
+   (benim ilk ölçümüm sandı). → Canlı ayarlarda cümle bunu söyler.
+
+**Bu grupta olmayan:** tek sitenin sahibinin kurulum geneli geliştirici
+erişimini onaylayabilmesi. Bu, H10'un "şimdilik yalnız ayarlar" kararıyla
+ertelenen kapılardan biri (H10 → Açık); ayrı bir sahip kararı.
 
 ### Ertelenmiş kararlar
 
