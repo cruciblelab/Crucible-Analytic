@@ -329,7 +329,7 @@ func TestTimezoneSettingIsCheckedRatherThanAccepted(t *testing.T) {
 // TestTheTechnicalDoorWarnsBeforeItOpens covers the confirmation, and
 // the two refusals around it.
 func TestTheTechnicalDoorWarnsBeforeItOpens(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	const site = "teknik-kapi"
 

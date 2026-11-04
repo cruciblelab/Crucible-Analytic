@@ -25074,3 +25074,105 @@ Kayıtsız formlar canlıda, geliştiricinin devirden sonraki yazmasını
 yazmanın da satırı yoktu. Sebep yetki değil yoldu: `SetSetting` kayıt
 yazmıyor, `ApplySetting` yazıyor, ve dört form ilkini çağırıyordu. Kayıt
 artık yetki kararından ayrı tek bir yöntemde.
+
+## Öbür müşterinin sitesi: okunan, yazılan, ele geçirilen — W1 (2026-11-04)
+
+PLAN'daki W1 tek bir sızıntıydı: tek-site sahibinin tanı paketi
+`beacon.sites`'ı tam taşıyordu. Düzeltmenin yerini ararken aynı değeri
+**yazan** yollara baktım ve canlı düzenekte (iki müşteri: Ayşe yalnız
+`canli-deneme`'nin, Mehmet yalnız `ikinci-site`'ın sahibi) dördünü ölçtüm.
+Hepsi Ayşe'nin kendi oturumuyla, tarayıcıdan:
+
+| Yol | Önce | Sonuç |
+|---|---|---|
+| Tanı paketi, Ayarlar sayfası | `beacon.sites` = iki site | Mehmet'in site kimliği okunuyor |
+| Teknik kapı → sihirbaz "Siteler" | Kaydet → 200 "Kaydedildi." | `beacon.sites = ["canli-deneme"]`; beacon Mehmet'in olayına **403 unknown site** |
+| Sihirbaz "Müşteri ne görecek" | Mehmet'in sitesinin kartları çiziliyor | öbür sitenin görünüm ayarı yazılabiliyor |
+| Sihirbaz "Devir teslim" (form çizilmiyor, POST elle) | 200, sahiplik bağlantısı | yeni hesap **`ikinci-site`'ın sahibi**, üyeler sayfası 200 |
+| Posta | 200 | `panel_smtp.host = smtp.ayse-kontrolunde.deneme`; Mehmet'in davetleri oradan gider |
+
+Devir adımı formu "devir teslim yapılmış görünüyor" diye çizmiyordu ama
+POST'u reddetmiyordu; ilk denemede yalnız "api servisi çalışmıyor" ön
+kontrolü yüzünden 400 döndü. API'yi başlatınca 200. *Çizilmeyen bir form
+koruma değildir; tesadüfen düşen bir ön kontrol de.*
+
+Düzenek her ölçümden sonra geri alındı: `beacon.sites` (ilk geri alma bir
+`psql -c` içinde üç ifadeydi, üçüncüsü hata verince tek işlem olarak geri
+alındı — beacon iki dakika 403 vermeye devam edince fark ettim; ayrı
+koşturdum, 204), yeni hesap, üyelikleri, kurtarma kodları, talep satırı,
+posta satırı.
+
+**Sebep tek cümle:** H10 kurulum geneli *ayarlar* için "işletmeci ya da
+her sitenin sahibi" kuralını koymuştu; kurulumun tamamına dokunan dört
+**kapı** hâlâ "herhangi bir sitenin sahibi" (`ownsAnySite`) soruyordu ve
+sahibin kararıyla ayrı tura bırakılmıştı. Ölçüm bunların ikisinin
+(sihirbaz ve posta) ertelenebilecek bir kapı değil, öbür müşterinin
+sitesini ele geçirme yolu olduğunu gösterdi. Sahip "mantıklı kararları
+alıp devam et" dedi; karar:
+
+- **Tek kural, tek yer:** `panel.Access.SpeaksForDeployment` (işletmeci ya
+  da her sitenin sahibi). `AccessTo` onu soruyor; `Store.DeploymentAccess`
+  bir sitesi olmayan kararlar için `Access` kuruyor; web'deki
+  `speaksForDeployment` onu çağırıyor.
+- **Kapılar:** teknik kapı, kurulum sihirbazı, posta ve geliştirici
+  erişimi onayı artık bunu soruyor. Onay da girdi, çünkü onaylanan
+  geliştirici her müşterinin verisine ulaşıyor; bir müşterinin onayı
+  öbürünün yerine karar vermek olurdu.
+- **Sağlık işlemleri girmedi:** okuma tek-site sahibinde kalıyor (görünümler
+  zaten kendi sitelerine daraltılmış), işlemlerin çoğu geliştirici
+  parolasının arkasında. Ama belgeleri yazarken "hangileri değil" diye
+  koda sordum: yedek alma, özet yenileme ve **yedeği geri yükleme**
+  parola istemiyor. `RestoreBackup` yalnız `CapManageSettings` soruyor ve
+  `healthAccess` her site sahibine sahip rolünü veriyor. Bu, bir müşterinin
+  bütün veritabanını geri sarabileceği anlamına geliyor gibi; canlıda
+  upgrader'la ölçülmeden yazmıyorum → PLAN W1b, sıradaki iş. *"Çoğu
+  parolanın arkasında" bir ölçüm değildi; hangilerinin olmadığını sormak
+  ölçümdü.*
+- **`RecordSetting` yetkiyi kendisi soruyor.** H13 yetkiyi çağırana
+  bırakmıştı ve yorumu "site listesi yalnız işletmeci" diyordu; yanlıştı.
+  Site ayarı → `AccessFor`, kurulum geneli → `DeploymentAccess`; yalnız
+  `SettingWritable` geçiyor, yani geliştirici parolası isteyen bir ayar
+  parola sormayan yoldan işletmeci için de yazılmıyor.
+- **Okuma:** `SettingsView`, kurulum adına konuşmayan okuyucuya
+  `NamesSites` taşıyan değeri (bugün yalnız `beacon.sites`) kendi
+  siteleriyle daraltıyor. Tanı paketi artık indirenin `Access`'iyle
+  okuyor (önceden boş `Access` — "kimse" — ile okuyordu ve boş `Access`
+  daraltılmıyordu). Pakete her okuyucuda aynı bir not eklendi ("ayarlar,
+  indirenin gördüğü hâliyle"); yalnız daraltıldığında görünseydi varlığı
+  öbür müşterinin varlığını söylerdi.
+- **Gezinme:** Posta ve Erişim bağlantıları yalnız kurulum adına
+  konuşana; Sağlık bağlantısı her site sahibine (`readsHealth` ayrı).
+
+**Testler.** `TestATenantReachesNothingThatActsOnTheOtherCustomer` iki
+müşterili kurulumu `testdb.SiteCopy` ile kuruyor ve beş yolu sayfadan ve
+store'dan soruyor; sonra öbür müşteri sitesini devrediyor ve aynı
+istekler kabul ediliyor — ret sebebinin öbür site olduğunu, başka bir şey
+olmadığını gösteren yarı. Geliştirici modu bilerek açılıyor: kapalıyken
+sayfa geliştirici ayarlarını hiç çizmez ve "sızıntı yok" iddiası
+düzeltmesiz de geçerdi. `TestEveryListOfSitesIsNarrowedForATenant`
+`NamesSites`'ı `checkSiteList`'e iki yönlü bağlıyor. Var olan on üç test
+"sahip" derken tek müşterili kurulumu kastediyordu; H10'daki gibi
+`setupSoleTenantServer`'a taşındılar. On üçüncüsünü kapı buldu: bir
+tarayıcı testi, yalnız `CA_BROWSER_TEST=1` ile koşuyor ve benim paket
+koşularım o değişkeni vermiyordu. *Bir paketi "yeşil" diye koşturmak,
+kapının o pakette koştuğu her etiketi ve değişkeni vermek demek.*
+
+**Mutasyon.** 21 mutasyon, 21'i kırmızı (`$SP/mutasyon-w1.py`). Biri ilk
+turda derlenmedi (kullanılmayan değişken), `_ = a` ile yeniden koştu.
+Biri sağ kaldı ve bir test yazdırdı: yapısal testte "`SetSetting` soramaz"
+dalını "soruyor" yapmak hiçbir şeyi kırmadı, çünkü bu pakette artık
+`SetSetting` çağıran yazıcı yok; dal yalnız gelecekteki yazıcıya bekçi.
+Tarama bir işleve ayrıldı (`scanSettingWriters`) ve bu amaçla yazılmış bir
+kaynakla iki yönden soruluyor (`SetSetting` bildiriliyor, `RecordSetting`
+ve soran `SetSetting` bildirilmiyor). *Hiçbir dosyanın ulaşmadığı bir dal,
+hiçbir mutasyonun yakalanamayacağı daldır; ona kendi girdisini ver.*
+`deferredGlobalWrites` boşaldı: tek girdisi bu sihirbazdı.
+
+**Canlı, sonra:** aynı betikler, aynı oturumlar (`$SP/canli/w1-*.mjs`,
+çıktılar `w1-once.txt`, `w1-sonra.txt`). Ayarlar sayfasının "önce"si
+ayrıca eski ikiliyle ölçüldü (geliştirici modu ölçüm için açılıp
+kapatıldı): iki müşterinin paketi de, Ayarlar sayfası da
+`["canli-deneme","ikinci-site"]`. Sonra: Ayşe'ninki `["canli-deneme"]`,
+Mehmet'inki `["ikinci-site"]`, öteki kimlik sayfada hiç geçmiyor; teknik
+kapı ve sihirbaz "Kurulum bekleniyor" (403), elle devir POST'u 403, posta
+403; `beacon.sites` iki site, `panel_smtp` 0 satır, talep 0.

@@ -145,7 +145,7 @@ func TestTheDiagnosticFileCarriesWhatThePageShows(t *testing.T) {
 	if _, ok := keys[panel.KeySiteName]; ok {
 		t.Errorf("%s is a per-site display setting and the file says it leaves those out", panel.KeySiteName)
 	}
-	if len(got.Omitted) != 4 {
+	if len(got.Omitted) != 5 {
 		t.Errorf("omitted = %q; the file says what it does not carry", got.Omitted)
 	}
 }
@@ -245,7 +245,7 @@ func TestEachSectionOfTheDiagnosticFileFallsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a file with failed sections does not encode: %v", err)
 	}
-	if !strings.Contains(string(body), `"format":"`+diagnosticFormat+`"`) || len(got.Omitted) != 4 {
+	if !strings.Contains(string(body), `"format":"`+diagnosticFormat+`"`) || len(got.Omitted) != 5 {
 		t.Errorf("the sections that need no database did not arrive: %s", body)
 	}
 }

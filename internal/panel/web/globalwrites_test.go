@@ -35,7 +35,11 @@ import (
 //   - every setting key its function names is per-site (resolved against
 //     the registry, so a key whose scope changes moves the call into
 //     question); or
-//   - its function asks mayChangeDeploymentSettings.
+//   - its function asks speaksForDeployment; or
+//   - it writes only through Store.RecordSetting, which since W1 asks the
+//     same question itself (DeploymentAccess for a deployment-wide key,
+//     AccessFor for a site's) - the store, not the page, is where a write
+//     that every wizard shares is refused.
 //
 // Otherwise it is reported, unless it is in deferredGlobalWrites with its
 // reason. A name on that list is a claim about a function on the day it
@@ -56,64 +60,9 @@ func TestEveryDeploymentWideWriteAsksWhoOwnsTheDeployment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		file, err := parser.ParseFile(fset, name, src, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
-			}
-			writes := false
-			asks := false
-			var named []panel.Key
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.CallExpr:
-					if sel, ok := n.Fun.(*ast.SelectorExpr); ok {
-						switch sel.Sel.Name {
-						case "SetSetting", "SetGuardedSetting", "RecordSetting":
-							writes = true
-						}
-					}
-					if id, ok := n.Fun.(*ast.SelectorExpr); ok && id.Sel.Name == "mayChangeDeploymentSettings" {
-						asks = true
-					}
-				case *ast.SelectorExpr:
-					if pkg, ok := n.X.(*ast.Ident); ok && pkg.Name == "panel" {
-						if key, ok := keys[n.Sel.Name]; ok {
-							named = append(named, key)
-						}
-					}
-				}
-				return true
-			})
-			if !writes {
-				continue
-			}
-			where := name + ":" + fn.Name.Name
-			found = append(found, where)
-
-			global := []string{}
-			for _, key := range named {
-				def, ok := panel.DefinitionFor(key)
-				if !ok || def.Scope != panel.ScopeSite {
-					global = append(global, string(key))
-				}
-			}
-			switch {
-			case len(named) == 0:
-				reported = append(reported, where+" writes a setting it does not name; "+
-					"the key cannot be read off the source, so it cannot be shown to be per-site")
-			case len(global) == 0, asks:
-				// Per-site only, or it asks the question.
-			case deferredGlobalWrites[where] != "":
-			default:
-				reported = append(reported, where+" writes "+strings.Join(global, ", ")+
-					", which applies to every site, without asking mayChangeDeploymentSettings")
-			}
-		}
+		f, r := scanSettingWriters(t, fset, keys, name, src)
+		found = append(found, f...)
+		reported = append(reported, r...)
 	}
 	sort.Strings(reported)
 	for _, r := range reported {
@@ -139,16 +88,114 @@ func TestEveryDeploymentWideWriteAsksWhoOwnsTheDeployment(t *testing.T) {
 	}
 }
 
+// scanSettingWriters classifies every setting writer in one source file:
+// found names each function that writes a setting, reported each one that
+// breaks the rule. Split out so the rule can be asked of a source written
+// for the purpose (TestTheWriteRuleTellsAnAskingStoreFromAnUnaskingOne):
+// the package itself has had no SetSetting caller since W1, and a branch
+// no file reaches is a branch no mutation can be caught in.
+func scanSettingWriters(t *testing.T, fset *token.FileSet, keys map[string]panel.Key, name string, src []byte) (found, reported []string) {
+	t.Helper()
+	file, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		writes := false
+		unasked := false // a write the store does not decide for itself
+		asks := false
+		var named []panel.Key
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				if sel, ok := n.Fun.(*ast.SelectorExpr); ok {
+					switch sel.Sel.Name {
+					case "SetSetting", "SetGuardedSetting":
+						writes, unasked = true, true
+					case "RecordSetting":
+						writes = true
+					}
+				}
+				if id, ok := n.Fun.(*ast.SelectorExpr); ok && id.Sel.Name == "speaksForDeployment" {
+					asks = true
+				}
+			case *ast.SelectorExpr:
+				if pkg, ok := n.X.(*ast.Ident); ok && pkg.Name == "panel" {
+					if key, ok := keys[n.Sel.Name]; ok {
+						named = append(named, key)
+					}
+				}
+			}
+			return true
+		})
+		if !writes {
+			continue
+		}
+		where := name + ":" + fn.Name.Name
+		found = append(found, where)
+
+		global := []string{}
+		for _, key := range named {
+			def, ok := panel.DefinitionFor(key)
+			if !ok || def.Scope != panel.ScopeSite {
+				global = append(global, string(key))
+			}
+		}
+		switch {
+		case len(named) == 0:
+			reported = append(reported, where+" writes a setting it does not name; "+
+				"the key cannot be read off the source, so it cannot be shown to be per-site")
+		case len(global) == 0, asks, !unasked:
+			// Per-site only, or it asks the question, or the store does.
+		case deferredGlobalWrites[where] != "":
+		default:
+			reported = append(reported, where+" writes "+strings.Join(global, ", ")+
+				", which applies to every site, without asking speaksForDeployment")
+		}
+	}
+	return found, reported
+}
+
+// TestTheWriteRuleTellsAnAskingStoreFromAnUnaskingOne asks the rule of a
+// source written for it: a deployment-wide write through SetSetting, which
+// cannot ask, is reported; the same write through RecordSetting, which
+// asks in the store, is not; and a SetSetting writer that asks
+// speaksForDeployment itself is not either.
+func TestTheWriteRuleTellsAnAskingStoreFromAnUnaskingOne(t *testing.T) {
+	keys := settingKeyNames(t)
+	src := []byte(`package web
+
+func unasked(s *Server) { s.Store.SetSetting(ctx, panel.KeyBeaconSites, "", v, nil) }
+func recorded(s *Server) { s.Store.RecordSetting(ctx, p, panel.KeyBeaconSites, "", v) }
+func asked(s *Server) {
+	if s.speaksForDeployment(ctx, p) {
+		s.Store.SetSetting(ctx, panel.KeyBeaconSites, "", v, nil)
+	}
+}
+`)
+	found, reported := scanSettingWriters(t, token.NewFileSet(), keys, "fixture.go", src)
+	if len(found) != 3 {
+		t.Fatalf("found %v, want the three writers", found)
+	}
+	if len(reported) != 1 || !strings.HasPrefix(reported[0], "fixture.go:unasked ") {
+		t.Errorf("reported %q, want only fixture.go:unasked", reported)
+	}
+}
+
 // deferredGlobalWrites are the writers of a global setting that do not
 // ask H10's question, each with the decision that left them.
-var deferredGlobalWrites = map[string]string{
-	// The technical setup wizard's site list (beacon.sites). The wizard is
-	// the developer's; an owner reaches it only through the technical
-	// door, which asks ownsAnySite - one of the deployment-wide gates the
-	// owner decided (2026-11-02) to take in a turn of its own rather than
-	// with the settings. PLAN H10 lists it first.
-	"setup.go:saveSites": "H10: the owner's decision, the other gates later",
-}
+//
+// Empty since W1. Its one entry was the setup wizard's site list, excused
+// because the technical door asked ownsAnySite - a gate the owner had
+// decided to take in a turn of its own. The live rig then measured what
+// that gate let through (the owner of one site cut the list to her own,
+// and the beacon refused the other customer's events), and the door, the
+// wizard and RecordSetting itself now ask the deployment's question.
+var deferredGlobalWrites = map[string]string{}
 
 // settingKeyNames maps each exported Key constant of internal/panel to its
 // value, read from that package's source.

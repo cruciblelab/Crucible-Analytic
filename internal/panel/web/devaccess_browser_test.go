@@ -35,7 +35,7 @@ func TestDevAccessInABrowser(t *testing.T) {
 		t.Skip("set CA_BROWSER_TEST=1 to run this; it needs node, playwright and a chromium build")
 	}
 
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	const site = "tarayici-erisim"
 

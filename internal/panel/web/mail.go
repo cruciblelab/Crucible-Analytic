@@ -205,7 +205,11 @@ func (s *Server) requireMailOwner(w http.ResponseWriter, r *http.Request) (panel
 		s.Renderer.ErrorIn(w, r, http.StatusForbidden, lang)
 		return panel.Principal{}, false
 	}
-	if !s.ownsAnySite(r.Context(), p) {
+	// The deployment's, not one site's (W1). On the live rig the owner
+	// of one of two sites saved smtp.ayse-kontrolunde.deneme here (200);
+	// from then on every invitation the other customer sent - a link that
+	// makes its holder a member of their site - went through her server.
+	if !s.speaksForDeployment(r.Context(), p) {
 		s.Renderer.ErrorIn(w, r, http.StatusForbidden, lang)
 		return panel.Principal{}, false
 	}

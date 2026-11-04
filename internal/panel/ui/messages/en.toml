@@ -1261,6 +1261,7 @@ kontrol_yok = "Setup checks are not wired into this panel."
 gunluk = "From the log lines, the client's own claim (claimed) and unclassified fields are removed; network addresses are cut to /24 and /64, email addresses to their domain; only lines about sites the downloader may see are included."
 site = "No per-site settings: all three are display (site name, visible cards, visible breakdowns)."
 sir = "No secrets: passwords and keys live in configuration files, which the panel does not read."
+ayarlar = "Settings as the downloader sees them on the Settings page: a value that names every site, such as the site list, shows somebody who cannot decide for the whole deployment only their own sites."
 beacon_site = "No per-site measurements: the time of each site's last event comes from visits, and this file leaves the machine; the Health page shows it."
 
 [metin.saglik.depolama]

@@ -136,7 +136,13 @@ func (s *Server) page(r *http.Request, lang *ui.Language, access panel.Access, c
 	// same person. Two calls would be two identical membership queries on
 	// every page in the panel.
 	decides := s.decidesDevAccess(r.Context(), access.Principal)
-	p.Nav = s.navFor(lang, access, current, decides)
+	// The health page is read by the owner of any site (its views are
+	// narrowed to their sites), so its link cannot ride on decides once
+	// decides means the whole deployment (W1). Asked only when decides
+	// said no: whoever speaks for the deployment owns something on it.
+	readsHealth := decides || (access.Principal.Kind == panel.PrincipalUser &&
+		s.Store != nil && s.ownsAnySite(r.Context(), access.Principal))
+	p.Nav = s.navFor(lang, access, current, decides, readsHealth)
 	if decides {
 		if n := s.pendingDevAccess(r); n > 0 {
 			p.Notices = append(p.Notices, devAccessNotice(lang, p.F, n))
@@ -152,15 +158,15 @@ func (s *Server) page(r *http.Request, lang *ui.Language, access panel.Access, c
 // The authority is requireDecider, which asks the same two questions
 // again on the page itself.
 //
-// Kind before ownership, here as there. A developer principal carries
-// Superadmin - so ownsAnySite says yes - and drawing them a link to a
-// page that will refuse them is the smaller of the two problems that
-// ordering causes. The larger one is in requireDecider.
+// Kind before authority, here as there. A developer principal carries
+// Superadmin - so speaksForDeployment says yes - and drawing them a link
+// to a page that will refuse them is the smaller of the two problems
+// that ordering causes. The larger one is in requireDecider.
 func (s *Server) decidesDevAccess(ctx context.Context, p panel.Principal) bool {
 	if s.Store == nil || p.Kind != panel.PrincipalUser {
 		return false
 	}
-	return s.ownsAnySite(ctx, p)
+	return s.speaksForDeployment(ctx, p)
 }
 
 // pendingDevAccess counts requests awaiting a decision, for the banner.
@@ -212,19 +218,23 @@ type navItem struct {
 	// site reports whether the URL needs a site to be selected.
 	site bool
 	// health limits the link to somebody entitled to read the health
-	// page: an owner, or a developer. Broader than `decides` by exactly
-	// one principal kind, which is why it is its own field rather than a
-	// reuse.
+	// page: the owner of any site, or a developer. Broader than
+	// `decides` on a deployment shared by several customers, where each
+	// owner reads the page and none of them speaks for the machine -
+	// which is why it is its own field rather than a reuse.
 	health bool
-	// decides limits the link to somebody entitled to decide developer
-	// access. Not a Capability, because a capability is held against a
-	// site and this is a decision about the machine underneath all of
-	// them: the people who make it are the ones who own something on it.
-	// The answer arrives already resolved - see page.
+	// decides limits the link to somebody who speaks for the deployment
+	// (panel.Access.SpeaksForDeployment): the operator, or an owner of
+	// every site. Not a Capability, because a capability is held against
+	// a site and this is a decision about the machine underneath all of
+	// them. Until W1 it was "owns any site", which on a shared deployment
+	// let one customer point the mail server at their own host and
+	// approve a developer into every other customer's data. The answer
+	// arrives already resolved - see page.
 	decides bool
 }
 
-func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, decides bool) []ui.NavItem {
+func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, decides, readsHealth bool) []ui.NavItem {
 	siteID := access.SiteID
 	candidates := []navItem{
 		{id: "siteler", url: "/", label: lang.T("gezinme.siteler")},
@@ -241,15 +251,15 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 			decides: true},
 		// Same gate as the access page and for a related reason: the
 		// mail account belongs to the machine rather than to a site, and
-		// the people who decide about the machine are the ones who own
-		// something on it. `decides` already carries "a signed-in person
-		// who owns a site", which is exactly the audience here.
+		// whoever holds it receives every invitation link the panel
+		// sends - another customer's included.
 		{id: "posta", url: MailPath, label: lang.T("gezinme.posta"),
 			decides: true},
 		// The health page is the one entry a developer sees too, so it
-		// cannot ride on `decides` - that resolves to "a signed-in
-		// person who owns a site", which a developer principal is not.
-		// The link is drawn for both and requireHealthReader is what
+		// cannot ride on `decides` - a developer principal does not
+		// speak for the deployment, and on a shared deployment neither
+		// does the owner of one site, who still reads this page. The
+		// link is drawn for both and requireHealthReader is what
 		// actually decides; a link somebody is refused would be the
 		// smaller mistake, and here nobody is.
 		{id: "saglik", url: HealthPath, label: lang.T("gezinme.saglik"),
@@ -268,7 +278,7 @@ func (s *Server) navFor(lang *ui.Language, access panel.Access, current string, 
 		if c.decides && !decides {
 			continue
 		}
-		if c.health && !decides && access.Principal.Kind != panel.PrincipalDeveloper {
+		if c.health && !readsHealth && access.Principal.Kind != panel.PrincipalDeveloper {
 			continue
 		}
 		items = append(items, ui.NavItem{Label: c.label, URL: c.url, Current: c.id == current})

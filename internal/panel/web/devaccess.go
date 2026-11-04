@@ -182,7 +182,10 @@ func (s *Server) requireDecider(w http.ResponseWriter, r *http.Request) (panel.P
 		s.Renderer.ErrorIn(w, r, http.StatusForbidden, lang)
 		return panel.Principal{}, panel.User{}, false
 	}
-	if !s.ownsAnySite(r.Context(), p) {
+	// The deployment's, not one site's (W1): an approved developer
+	// reaches every customer's data, so the owner of one site approving
+	// would be deciding for the others.
+	if !s.speaksForDeployment(r.Context(), p) {
 		s.Renderer.ErrorIn(w, r, http.StatusForbidden, lang)
 		return panel.Principal{}, panel.User{}, false
 	}

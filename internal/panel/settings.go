@@ -545,6 +545,14 @@ type Definition struct {
 	// account for their own deployment. What the panel offers here is
 	// the value and where it lives, not a control it could not honour.
 	ConfigFileOnly bool
+	// NamesSites marks a deployment-wide setting whose value is a list of
+	// site ids - the beacon's allowlist. Such a value names every
+	// customer on the deployment, so SettingsView gives a reader who does
+	// not speak for the whole deployment only the ids of their own sites
+	// (W1). Kept beside the definition rather than as a key in
+	// SettingsView, and tied to checkSiteList by a test, so that a second
+	// list of sites inherits the rule the day it is added.
+	NamesSites bool
 	// Live marks a setting a running service applies without a restart.
 	//
 	// The panel shows this, because a customer who changes a value and
@@ -684,13 +692,14 @@ var registry = map[Key]Definition{
 	},
 	KeyBeaconSites: {
 		Key: KeyBeaconSites, Scope: ScopeGlobal, Kind: KindStringList,
-		Category:  CatToplama,
-		Default:   []string{},
-		Label:     "Kabul edilen siteler",
-		Help:      "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
-		Developer: true,
-		Live:      true,
-		Check:     checkSiteList,
+		Category:   CatToplama,
+		Default:    []string{},
+		Label:      "Kabul edilen siteler",
+		Help:       "Beacon'ın olay kabul ettiği site kimlikleri. Boş bırakılırsa yapılandırma dosyasındaki liste geçerli olur.",
+		Developer:  true,
+		Live:       true,
+		NamesSites: true,
+		Check:      checkSiteList,
 	},
 	KeyCollectionPausedUntil: {
 		Key: KeyCollectionPausedUntil, Scope: ScopeSite, Kind: KindUntil,

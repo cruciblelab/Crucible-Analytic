@@ -24,6 +24,31 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Birden çok müşterili kurulumda bir sitenin sahibi öbür müşterinin sitesine ulaşabiliyordu
+
+**Kuran kişinin yapması gereken:** tek müşterili kurulumda hiçbir şey.
+Birden çok müşteriye hizmet veren kurulumda posta sunucusu, teknik
+kurulum sihirbazı ve geliştirici erişimi onayı artık yalnız işletmecinin
+(ya da her sitenin sahibinin); bunları bir müşteri yapıyorduysa işletmeci
+üstlenmeli.
+
+Canlı denemede, iki müşterili kurulumda yalnız bir sitenin sahibi:
+- tanı paketinde ve Ayarlar sayfasında öbür müşterinin site kimliğini
+  görüyordu;
+- teknik kurulum sihirbazında site listesini kendi sitesine indirip
+  kaydedebiliyordu — beacon öbür sitenin olaylarını reddetmeye başladı;
+- sihirbazın (artık çizilmeyen) devir formunu göndererek bir sahiplik
+  bağlantısı alabiliyordu — bağlantıyla açılan hesap öbür müşterinin
+  sitesinin de sahibi oldu;
+- kurulumun posta sunucusunu kendi sunucusuna çevirebiliyordu — öbür
+  müşterinin davet bağlantıları oradan geçecekti.
+
+Artık bunların hepsi "işletmeci ya da her sitenin sahibi" kuralına bağlı
+(kurulum geneli ayarlar için zaten geçerli olan kural). Site listesi gibi
+bütün siteleri adlandıran bir değer, kurulum adına karar veremeyen
+okuyucuya yalnız kendi siteleriyle gösteriliyor. Sağlık sayfası her site
+sahibine açık kalıyor.
+
 ### Kurulum sihirbazının "api çalışıyor mu" kontrolü beacon'a soruyordu
 
 **Kuran kişinin yapması gereken:** `panel.toml`'da `[service_urls]`

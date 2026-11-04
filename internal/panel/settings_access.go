@@ -171,10 +171,56 @@ func (a Access) AccessTo(def Definition) SettingAccess {
 	if !a.Can(CapManageSettings) {
 		return SettingReadOnly
 	}
-	if def.Scope == ScopeGlobal && !a.operator() && !(a.Role == RoleOwner && a.OwnsEverySite) {
+	if def.Scope == ScopeGlobal && !a.SpeaksForDeployment() {
 		return SettingShared
 	}
 	return SettingWritable
+}
+
+// ownSitesOnly narrows a list of site ids to the reader's own (W1).
+//
+// The live rig found the beacon's allowlist going out whole: the
+// diagnostic file of the owner of one site carried the other customer's
+// site id, and the settings page drew it too (developer settings are
+// grouped away, not withheld). Narrowed rather than hidden: the reader
+// may still see that their own site is on the list - which is the
+// question they would ask of it - and nothing in the result says whether
+// anything was taken out, so its length is no hint that another customer
+// exists. Only a reader who could not write the setting reaches here
+// (AccessTo answers Shared for them), so a narrowed list is never the
+// starting point of a save.
+func ownSitesOnly(value any, own map[string]bool) []string {
+	var list []string
+	switch v := value.(type) {
+	case []string:
+		list = v
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				list = append(list, s)
+			}
+		}
+	}
+	out := []string{}
+	for _, site := range list {
+		if own[site] {
+			out = append(out, site)
+		}
+	}
+	return out
+}
+
+// SpeaksForDeployment reports whether this principal may act for the
+// whole deployment: the operator, or an owner of every site on it (H10).
+//
+// The one answer every deployment-wide decision asks for - a global
+// setting (AccessTo), and since W1 the technical wizard, the mail server
+// and developer access, each of which reaches every customer at once. On
+// a deployment with one customer it is that customer's owner and nothing
+// changes; on a shared one it is nobody but the operator, because there
+// is no single customer whose decision it is.
+func (a Access) SpeaksForDeployment() bool {
+	return a.operator() || (a.Role == RoleOwner && a.OwnsEverySite)
 }
 
 // MayAttemptDeveloperPassword reports whether it is worth showing this
@@ -306,6 +352,21 @@ func (s *Store) SettingsView(ctx context.Context, a Access, site string) ([]Sett
 		bySource[set.Key] = set
 	}
 
+	// The reader's own sites, for a value that names every customer
+	// (Definition.NamesSites). Read once, and only for a reader who does
+	// not speak for the deployment; nil means "not narrowed".
+	var own map[string]bool
+	if !a.SpeaksForDeployment() {
+		sites, err := s.Sites(ctx, a.Principal, nil)
+		if err != nil {
+			return nil, err
+		}
+		own = make(map[string]bool, len(sites))
+		for _, site := range sites {
+			own[site.SiteID] = true
+		}
+	}
+
 	out := make([]SettingView, 0, len(registry))
 	for _, def := range AllDefinitions() {
 		view := SettingView{
@@ -326,6 +387,9 @@ func (s *Store) SettingsView(ctx context.Context, a Access, site string) ([]Sett
 					view.Source = "site"
 				}
 			}
+		}
+		if def.NamesSites && own != nil {
+			view.Value = ownSitesOnly(view.Value, own)
 		}
 
 		switch view.Access {

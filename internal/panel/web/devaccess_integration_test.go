@@ -40,7 +40,7 @@ func requestAccess(t *testing.T, store *panel.Store, why string) (string, panel.
 
 // TestTheOwnerDecidesAndTheLinkObeys is the whole flow, both ways.
 func TestTheOwnerDecidesAndTheLinkObeys(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	const site = "erisim-testi"
 
@@ -359,7 +359,7 @@ func TestTwoOwnersDecidingAtOnceProduceOneDecision(t *testing.T) {
 // for somebody who is not the one to decide - a banner drawn for
 // everybody is a banner nobody reads.
 func TestABannerReachesTheOwnerOnEveryPage(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	const site = "erisim-afis"
 

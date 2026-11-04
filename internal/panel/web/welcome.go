@@ -425,7 +425,7 @@ func (s *Server) saveTimezone(ctx context.Context, lang *ui.Language, p panel.Pr
 	// ownsAnySite until then: the owner of one customer's site could
 	// move every other customer's day boundaries.
 	access := panel.Access{Principal: p}
-	if !s.mayChangeDeploymentSettings(ctx, p) {
+	if !s.speaksForDeployment(ctx, p) {
 		return welcomePage{Message: lang.T("hosgeldiniz.saat.yetki"), Failed: true}
 	}
 	if err := s.Store.RecordSetting(ctx, access.Principal, panel.KeyPanelTimezone, "", zone); err != nil {
@@ -489,7 +489,7 @@ func (s *Server) renderWelcome(w http.ResponseWriter, r *http.Request, lang *ui.
 		// The form only for somebody whose save would be accepted; the
 		// others read why instead. A field that can be filled in and
 		// never saved is a worse answer than a sentence.
-		data.TimezoneShared = !s.mayChangeDeploymentSettings(ctx, p)
+		data.TimezoneShared = !s.speaksForDeployment(ctx, p)
 		data.Timezone = s.storedTimezone(ctx)
 		data.ConfiguredTimezone = s.ConfiguredTimezone
 		data.Zones = suggestedZones
@@ -597,25 +597,22 @@ func (s *Server) configuredSites(ctx context.Context) ([]string, error) {
 	return toStringList(value), nil
 }
 
-// mayChangeDeploymentSettings reports whether this principal may change a
-// setting that applies to every site: the operator, or an account that
-// owns every site on the deployment (panel.Store.OwnsEverySite, H10).
+// speaksForDeployment reports whether this principal may act for the
+// whole deployment (panel.Access.SpeaksForDeployment): the operator, or
+// an account that owns every site on it (H10). Asked of a setting that
+// applies to every site, and since W1 of every page that acts on the
+// machine rather than on a site - the technical wizard, the mail server,
+// developer access.
 //
-// A read that fails refuses. Widening a deployment-wide write for want
+// A read that fails refuses. Widening a deployment-wide decision for want
 // of an answer is the one direction this must not err in.
-func (s *Server) mayChangeDeploymentSettings(ctx context.Context, p panel.Principal) bool {
-	if p.Superadmin {
-		return true
-	}
-	if p.Kind != panel.PrincipalUser {
-		return false
-	}
-	every, err := s.Store.OwnsEverySite(ctx, p.UserID)
+func (s *Server) speaksForDeployment(ctx context.Context, p panel.Principal) bool {
+	access, err := s.Store.DeploymentAccess(ctx, p)
 	if err != nil {
 		s.logger().Error("panel: asking whether an account owns every site", "err", err)
 		return false
 	}
-	return every
+	return access.SpeaksForDeployment()
 }
 
 // ownsAnySite reports whether this principal owns at least one site.

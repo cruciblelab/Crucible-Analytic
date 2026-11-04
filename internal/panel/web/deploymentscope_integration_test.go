@@ -205,7 +205,7 @@ func TestATenantIsNotOfferedTheDeploymentsClock(t *testing.T) {
 
 // TestAnUnansweredOwnershipQuestionRefuses.
 //
-// mayChangeDeploymentSettings asks the database; when the database does
+// speaksForDeployment asks the database; when the database does
 // not answer, the deployment-wide write is refused. Widening it for want
 // of an answer is the one direction it must not err in, and nothing else
 // in the suite makes the question fail.
@@ -220,7 +220,7 @@ func TestAnUnansweredOwnershipQuestionRefuses(t *testing.T) {
 	if _, err := dead.OwnsEverySite(context.Background(), p.UserID); err == nil {
 		t.Fatal("a closed store answered; this test is not making the question fail")
 	}
-	if srv.mayChangeDeploymentSettings(context.Background(), p) {
+	if srv.speaksForDeployment(context.Background(), p) {
 		t.Error("an ownership question the database did not answer was taken as yes")
 	}
 }

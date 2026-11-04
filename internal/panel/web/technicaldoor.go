@@ -56,7 +56,7 @@ func (s *Server) technicalDoorHandler(w http.ResponseWriter, r *http.Request) {
 	// Owners and the operator, and nobody else. An admin runs a site
 	// day to day; the technical wizard is about the machine underneath
 	// it, and a viewer has no business here at all.
-	if !s.ownsAnySite(r.Context(), p) {
+	if !s.speaksForDeployment(r.Context(), p) {
 		s.Renderer.ErrorIn(w, r, http.StatusForbidden, lang)
 		return
 	}

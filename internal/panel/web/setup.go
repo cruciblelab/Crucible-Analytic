@@ -221,13 +221,22 @@ func (s *Server) developerAccess(w http.ResponseWriter, r *http.Request, lang *u
 	// for why this is a confirmation rather than a hidden page or an
 	// open link. The confirmation is only "have they been warned"; the
 	// authority is still the ownership check, asked here every request.
-	if s.Sessions.TechnicalDoorOpen(ctx) && s.ownsAnySite(ctx, principal) {
+	//
+	// Ownership of every site, not of one (W1). Every step here acts on
+	// the whole deployment, and the last one hands it over: the account
+	// it creates becomes owner of every site on beacon.sites. On the live
+	// rig the owner of one of two sites posted the handover form - drawn
+	// for nobody once accounts exist, but never refused - and the account
+	// her link made was owner of the other customer's site, its members
+	// page open (200). The same visit saved the site list with her site
+	// alone on it, and the beacon refused the other site's events (403).
+	if s.Sessions.TechnicalDoorOpen(ctx) && s.speaksForDeployment(ctx, principal) {
 		return panel.Access{Principal: principal}, true
 	}
 	// An owner who has not confirmed is sent to the door rather than
 	// refused, because they may go through it. Anybody else gets the
 	// page that says what this deployment is waiting for.
-	if s.ownsAnySite(ctx, principal) {
+	if s.speaksForDeployment(ctx, principal) {
 		http.Redirect(w, r, TechnicalDoorPath, http.StatusSeeOther)
 		return panel.Access{}, false
 	}

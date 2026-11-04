@@ -225,6 +225,10 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel
 			lang.T("saglik.tani.disarida.gunluk"),
 			lang.T("saglik.tani.disarida.site"),
 			lang.T("saglik.tani.disarida.sir"),
+			// Drawn for every reader, narrowed or not: a line that
+			// appeared only when something was taken out would itself
+			// say that another customer exists (W1).
+			lang.T("saglik.tani.disarida.ayarlar"),
 			lang.T("saglik.tani.disarida.beacon_site"),
 		},
 	}
@@ -234,7 +238,7 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel
 	out.Disk = diagnosticDiskFrom(s.healthDiskSection(ctx, s.database(), lang))
 	out.API = diagnosticAPIFrom(s.healthAPI(ctx))
 	out.Checks = s.diagnosticChecks(ctx, lang)
-	out.Settings = s.diagnosticSettings(ctx)
+	out.Settings = s.diagnosticSettings(ctx, p)
 	out.Logs = s.diagnosticLogs(ctx, p, now)
 	return out
 }
@@ -363,14 +367,26 @@ func (s *Server) diagnosticChecks(ctx context.Context, lang *ui.Language) diagno
 }
 
 // diagnosticSettings is every deployment-wide setting and where its
-// value came from.
+// value came from, as the person downloading the file would read it on
+// the settings page.
 //
 // Developer settings included: the settings page groups them away for a
 // customer who has not turned developer mode on, but it does not withhold
 // them (see Definition.Developer), and the person this file is sent to is
 // usually the developer.
-func (s *Server) diagnosticSettings(ctx context.Context) diagnosticSettings {
-	views, err := s.Store.SettingsView(ctx, panel.Access{}, "")
+//
+// Read with the downloader's own access (W1). It used to be read with an
+// empty Access - "nobody in particular" - which SettingsView never
+// narrowed, so on the live rig the owner of one of two sites downloaded
+// a file whose beacon.sites named the other customer's site. The same
+// value through the same reader now: their own sites only, unless they
+// speak for the deployment.
+func (s *Server) diagnosticSettings(ctx context.Context, p panel.Principal) diagnosticSettings {
+	access, err := s.Store.DeploymentAccess(ctx, p)
+	if err != nil {
+		return diagnosticSettings{Values: []diagnosticSetting{}, Error: diagnosticError(err)}
+	}
+	views, err := s.Store.SettingsView(ctx, access, "")
 	if err != nil {
 		return diagnosticSettings{Values: []diagnosticSetting{}, Error: diagnosticError(err)}
 	}

@@ -38,7 +38,7 @@ const mailSite = "posta-testi"
 func mailServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store, panel.User) {
 	t.Helper()
 
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 
 	var raw [sealed.KeySize]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -252,7 +252,7 @@ func TestAnUnreachableServerIsNamedAsOne(t *testing.T) {
 // user on the deployment. A redeemed developer link carries Superadmin,
 // so the ownership question alone would have said yes.
 func TestOnlyAnOwnerReachesTheMailPage(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 
 	owner := makeUser(t, store, "posta-yetki-sahip", false)
@@ -379,7 +379,7 @@ func TestEditingWithoutRetypingThePasswordKeepsIt(t *testing.T) {
 // With no key configured the page still renders and says what to do,
 // rather than disappearing or accepting a password it cannot protect.
 func TestWithoutAKeyThePageExplainsItself(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	ctx := context.Background()
 	// srv.SecretKey deliberately left zero.
 

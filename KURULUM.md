@@ -737,9 +737,16 @@ sahibi** olan hesap değiştirebilir; bir sitenin yöneticisi hiçbir
 zaman. Öteki sahipler satırı ve değeri görür, kontrol görmez. "Her site",
 üyeliği olan her site ile `beacon.sites`'taki her site demek: bir
 müşteri için siteyi kurup sahibini henüz davet etmediyseniz o site de
-sayılır. Bu kural bugün ayarlar için geçerli; posta ayarları, geliştirici
-erişimi onayı ve Sağlık'taki işlemler hâlâ herhangi bir sitenin sahibine
-açık (PLAN H10, sahibin kararını bekliyor).
+sayılır. Site listesi gibi bütün siteleri adlandıran bir değeri öteki
+sahipler yalnız kendi siteleriyle görür.
+
+Aynı kural kurulumun tamamına dokunan sayfalar için de geçerli: teknik
+kurulum sihirbazı (son adımı açtığı hesabı **her** sitenin sahibi yapıyor),
+posta sunucusu (panelin gönderdiği davet bağlantıları oradan geçiyor) ve
+geliştirici erişimi onayı (onaylanan geliştirici her müşterinin verisine
+ulaşıyor). Birden çok müşteriniz varsa bunları siz yaparsınız. Sağlık
+sayfası her site sahibine açık; işlemlerinin çoğu geliştirici parolası
+istiyor (PLAN H10).
 
 Yine de bilmeniz gereken şudur: **bu sınır bir uygulama kontrolüdür,
 veritabanı kısıtı değildir.** Düzenleyici bir gereklilik ya da kendi
@@ -2045,7 +2052,9 @@ görüntüsü almaktan da terminalde komut çalıştırmaktan da kolay.
 - tabloların diskte kapladığı yer, disk ve okuma API'sine erişim;
 - kurulum kontrollerinin **tamamı**, geçenler dahil;
 - bütün genel ayarlar ve her değerin nereden geldiği (varsayılan,
-  veritabanı, dosya);
+  veritabanı, dosya), indirenin Ayarlar sayfasında gördüğü hâliyle: kurulum
+  adına karar veremeyen birinin dosyasında site listesi yalnız kendi
+  sitelerini taşır;
 - son **yedi günün uyarı ve hata satırları**, en yeniden başlayarak en
   fazla 200 satır. Sınır aşıldıysa dosya bunu da söylüyor (`truncated`).
 

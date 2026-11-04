@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | ⬜ **0/3** | W1–W3 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **1/4** | W1 ✅; W2–W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -8304,8 +8304,14 @@ kırmızı (ilk turda ikisi sağ kaldı; NOTES'ta). Ekran görüntüsü kilitli 
 anahtarın değerini `true` diye bastığını gösterdi (izleyiciler için de
 öyleydi, H10 onu 28 satıra yaydı) → artık "Açık"/"Kapalı".
 
-**Açık — sahibin kararı, ayrı tur:** `ownsAnySite` hâlâ şu kapıları
-açıyor ve hepsi kurulum geneli:
+**W1'de kapandı (2026-11-04):** aşağıdaki 1–3, canlı düzenekte ölçülünce
+ertelenecek kapı değil ele geçirme yolu çıktı (PLAN W1). Kalan tek madde 4:
+Sağlık işlemleri hâlâ herhangi bir site sahibine açık. Çoğu geliştirici
+parolası istiyor; yedek alma, yedeği geri yükleme ve özet yenileme
+istemiyor → PLAN W1b.
+
+**Açık — sahibin kararı, ayrı tur (2026-11-02'deki hâli):** `ownsAnySite`
+hâlâ şu kapıları açıyor ve hepsi kurulum geneli:
 1. teknik kapıdan kurulum sihirbazı — `siteler` adımı `beacon.sites`'ı
    yazıyor (yapısal testte `deferredGlobalWrites`'ın tek girdisi);
 2. posta ayarları (SMTP, hesabı ele geçirmeye yakın);
@@ -10999,7 +11005,7 @@ systemd'de ayrıca ölçülecek. Z7 bu üst üste binmeyi olağan akıştan
 
 ---
 
-### W grubu — Yanıltmayan panel ⬜ **0/3** *(2026-11-04, canlı denemeden)*
+### W grubu — Yanıltmayan panel 🟡 **1/4** *(2026-11-04, canlı denemeden)*
 
 *Sahip, canlı denemenin raporundan sonra: "Sahte olayların sayılması
 sıkıntı, yanıltıcı, saymamalıyız. Başka sunucu diğer sunucuyu
@@ -11014,10 +11020,147 @@ o düzenekte, aynı simülasyonla yapılır: 90 insan oturumunun gerçek dosyas�
 ve aynı saldırılar. **Ortak ölçüt: insanların sayıları gerçekle birebir
 kalır.** Bir düzeltme bir insanı bot saydıysa, öbür yönden yanıltıyordur.
 
-Sıra sahibin sırası: W1, W2, W3. W3'ün maddeleri birbirinden bağımsız,
-araya girebilir.
+**Planın ikinci okuması (2026-11-04).** Sahip planı bir başka modelin
+değerlendirmesiyle birlikte getirdi: *"Düşün, mantıklı kararları alıp devam
+edebilirsin."* Altı noktanın her biri koda karşı sınandı:
 
-#### W1 — Sahte beacon olayları insan sayılıyor
+1. **"Collector'ın başlığı sahtelenebilir": doğru, ve plandaki önlem
+   yetmiyordu.** Plan, beacon'ın başlığa yalnız `trusted_proxies`'teki
+   eşten inanmasını yazıyordu. Ama beacon'ın güvendiği eş collector değil,
+   önündeki web sunucusu (nginx). KURULUM §9.3'ün örneği beacon'ı collector'ın
+   arkasında olmayan ayrı bir adreste gösteriyor
+   (`https://olcum.musteri.example/_ca/`). O kurulumda istemci nginx'e
+   doğrudan bağlanır, nginx istemcinin başlığını iletir, beacon "güvenilen
+   eşten" diye inanır. → **Karar:** karar başlığı **imzalı**. HMAC; anahtar
+   iki servisin zaten paylaştığı `privacy.ip_hash_key`'den ayrı bir amaçla
+   türetilir. İmza zamanı ve istemci adresini kapsar. İmzası tutmayan
+   başlık "kurcalanmış" diye işaretlenir. Anahtar yoksa collector başlık
+   eklemez, beacon başlığa hiç bakmaz. Başlığın **yokluğu "insan" demek
+   değildir**: "bilinmiyor" demektir ve hız tavanı yine uygulanır.
+2. **"Tanı paketindeki site kimliği küçük madde değil, sızıntı":
+   doğru.** Kiracılar arası bir bilgi sızıntısı. Öbür maddeler yanıltıyor,
+   bu sızdırıyor. → **Karar:** kendi fazı (W1), ilk iş.
+3. **"Kalp atışı anahtarı kalıcı olmalı, bayat satırlar ve güncelleme
+   beklemesi sınırlanmalı": doğru; ilk yarısı planda vardı.** Anahtar
+   PID değil, kalıcı bir ad: collector için `site_id`. Eksik olan iki
+   şey eklendi:
+   - Belli bir süredir atmayan örnek "haber alınamıyor"dan sonra listeden
+     düşer; satırı silinir. Kaldırılmış bir collector sonsuza kadar
+     kırmızı durmaz.
+   - `relupdate` yalnız yeniden başlatmadan önceki son birkaç dakikada atan
+     örnekleri bekler ve zaten bir süre sınırı var (geri alma). Önceden
+     ölmüş bir collector kimsenin güncellemesini kilitlemez. Bu bir test
+     olacak.
+4. **"Sel saldırısında 'işaretle' de her olayı yazdırır": doğru.** →
+   **Karar:** iki eşik. Alttaki eşiği aşan olay işaretlenir ve yazılır.
+   Üstteki, çok daha yüksek eşiği aşan olay **yazılmaz**, yalnız sayaçta
+   tutulur (`reddedilen_hiz`, Sağlık'ta). Bu, özgürlük tadilinin "gerçek
+   bir zarar" durumu: diskin dolması. İki eşik de ölçülerek konur.
+5. **"Ölçüt tek yönlü": kısmen.** W'nin bitti ölçütü zaten iki yönlüydü
+   ("303 sahte olayın 303'ü dışlanıyor"), ama giriş paragrafı yalnız
+   insanları yazıyordu. → İki yön de ortak ölçüte yazıldı (aşağıda). Aşırı
+   uyum riski de gerçek: eşikleri koyduğum simülasyon, eşikleri sınayan
+   simülasyon olmamalı. → Eşikler **bir** simülasyonla konur, **ayrı**
+   yazılmış senaryolarla sınanır (SPA'da hızlı gezinme, çok olay basan
+   sayfa, eşiğin hemen altında kalan yavaş sahteci). Gerçek bir sitenin
+   trafiği bu ortamda yok. Sahip bir örnek verebilirse eklenir; veremezse
+   bu, sonuçta "sentetik trafikle ölçüldü" diye yazılır.
+6. **"Şema kararı şimdi verilsin": doğru.** Karar:
+   - **İki ekleme de şema 24'e girer**, numara atlanmaz.
+   - 24 hiç yayımlanmadı: son etiket `v0.24.0+L4` şema 21 taşıyor ve
+     `TestAReleasedSchemaVersionIsNeverEdited` yalnız yayımlanmışları
+     donduruyor.
+   - Müşteri için bu, 21'den 24'e **tek bir geçiş** demek.
+   - Geliştirme kurulumlarında `State.Matches` parmak izinden
+     uyuşmazlığı görüp yükseltmeyi önerir; ekleme `IF NOT EXISTS`'le
+     tekrarlanabilir.
+
+**Ortak ölçüt, iki yönlü:**
+- İnsanların sayıları gerçekle birebir kalır: yanlış pozitif 0.
+- Sahte olayların hepsi yakalanır: yanlış negatif, adıyla yazılan bilinen
+  sınırın dışında 0.
+- Ayrıca her fazın yanında bir yanlış pozitif senaryosu bulunur.
+
+**Sıra (değerlendirmeden sonra):** W1 (sızıntı), W2 (sahte olaylar), W3
+(collector örnekleri), W4 (kalan küçük maddeler, birbirinden bağımsız).
+
+#### W1 — Tanı paketi öbür müşterinin site kimliğini veriyor ✅ **yapıldı (2026-11-04)**
+
+**Ölçülen (2026-11-03):** Ayşe yalnız `canli-deneme`'nin sahibi.
+İndirdiği tanı paketinin kurulum geneli ayarlar bölümü `beacon.sites`'ı
+tam taşıyordu: `["canli-deneme", "ikinci-site"]`. Panelde bu ayar yalnız
+geliştirici görünümünde. Paketin günlük satırları (B3c-2b) ve beacon
+bölümü (B3g) sahibe zaten yalnız kendi sitelerini veriyordu; ayarlar
+bölümü vermiyordu.
+
+**Tasarım:** paketteki her ayar, okuyanın panelde göreceği biçimde
+gider; değer o kişinin göremeyeceği bir şeyi taşıyamaz. `beacon.sites`
+kurulum geneli ayarı yazamayan okuyucuya (H10'un sorusu) yalnız kendi
+siteleriyle ve "başka siteler de var" bilgisi olmadan gider. Bu sınıfın
+öbür üyeleri sorulur: bir site kimliği ya da başka bir kiracıya ait bir
+değer taşıyan başka ayar var mı (liste kayıt defterinden türetilir).
+
+**Bitti ölçütü:**
+- İki kiracılı kurulumda (gerçek veritabanı) Ayşe'nin paketinde
+  `ikinci-site` hiçbir yerde geçmez, Mehmet'inkinde `canli-deneme` geçmez.
+- İşletmecinin paketi tam listeyi taşır.
+- Canlı düzenekte önce/sonra.
+
+**Yapılan ve ölçülen (2026-11-04).** Düzeltmenin yerini ararken aynı
+değeri yazan yollar ölçüldü ve sızıntıdan ağır çıktı. Ayşe, kendi
+oturumuyla:
+- teknik kapıdan sihirbaza girip site listesini kendi sitesine indirdi
+  (200) → beacon Mehmet'in olaylarına **403 unknown site**;
+- sihirbazın görünüm adımında Mehmet'in sitesinin kartlarını gördü;
+- çizilmeyen devir formunu elle gönderdi (200) → bağlantıyla açılan hesap
+  **`ikinci-site`'ın sahibi** oldu;
+- posta sunucusunu kendi sunucusuna çevirdi (200).
+
+Hepsi geri alındı. Sebep: H10'un ertelediği `ownsAnySite` kapıları (H10
+"Açık" listesi). Karar (sahip "mantıklı kararları alıp devam et" dedi):
+teknik kapı, sihirbaz, posta ve geliştirici erişimi onayı H10'un kuralını
+alıyor. Kural tek yerde: `Access.SpeaksForDeployment`,
+`Store.DeploymentAccess`. `RecordSetting` yetkiyi kendisi soruyor (H13
+çağırana bırakmıştı); parola isteyen bir ayar o yoldan işletmeci için de
+yazılmıyor. `SettingsView`, `NamesSites` taşıyan değeri kurulum adına
+konuşmayan okuyucuya kendi siteleriyle daraltıyor. Tanı paketi okuyanın
+`Access`'iyle okuyor ve her okuyucuda aynı bir not taşıyor. Gezinmede
+Sağlık her site sahibinde kalıyor.
+
+Ölçüm: iki müşterili gerçek veritabanı testi, yolları sayfadan ve
+store'dan soruyor; sonra öbür site devrediliyor ve aynı istekler kabul
+ediliyor. 21 mutasyon, 21'i kırmızı (biri ilk turda sağ kaldı → yapısal
+testin taraması bir işleve ayrıldı ve kendi girdisiyle soruluyor).
+
+Canlı, önce → sonra:
+- Ayşe'nin ve Mehmet'in paketi ve Ayarlar sayfası: iki site → yalnız
+  kendi sitesi.
+- Sihirbaz, devir POST'u, posta: 200 → 403.
+- `beacon.sites`, `panel_smtp` ve talep satırı değişmedi.
+
+Ayrıntı NOTES "Öbür müşterinin sitesi".
+
+##### W1b — Sağlık işlemleri, bir sitenin sahibi ⬜ *(sıradaki)*
+
+**Koddan okunan, canlıda henüz ölçülmedi.** `healthAccess` herhangi bir
+sitenin sahibine sahip rolünü veriyor. `Store.RestoreBackup` yalnız
+`CapManageSettings` soruyor ve geliştirici parolası istemiyor. Yani iki
+müşterili kurulumda bir müşteri, **bütün veritabanının** eski bir yedeğe
+geri yüklenmesini isteyebilir görünüyor: öbür müşterinin verisi geri sarılır.
+Bu, "müşteri alır, geliştirici geri yükler" kararıyla da çelişiyor (H9'da
+"yedek doğrula/yükle parolasız" diye not düşülmüştü). Yedek alma ve özet
+yenileme de kurulumun tamamına dokunuyor.
+
+**Tasarım (ölçümden sonra kesinleşecek):** Sağlık sayfası her site
+sahibine okunur kalır. İşlemler `SpeaksForDeployment` ister. Geri yükleme
+ayrıca kararın dediği gibi geliştiricinin olur.
+
+**Bitti ölçütü:**
+- Düzenekte upgrader çalışırken "önce": Ayşe yedek alıyor ve geri yükleme
+  istiyor; ne kabul ediliyor, upgrader ne yapıyor.
+- "Sonra": aynı istekler 403; tek müşterili kurulumda sahip yedek alabiliyor.
+
+#### W2 — Sahte beacon olayları insan sayılıyor
 
 **Ölçülen (2026-11-03):** OVH'den (51.75.10.10) curl ile `/_ca/event`'e
 303 sahte sayfa görüntülemesi gönderildi. Panonun gösterdikleri:
@@ -11037,34 +11180,41 @@ Snippet herkese açık olduğu için bu kimlik bir sır değil.
 **Tasarım, iki katman.** İkisi de **veriyi silmiyor**, işaretliyor:
 yanlış işaretlenen bir insan geri alınabilir olsun.
 
-- **(a) Collector'ın kararı olayın kendisine.** Tam vekil kipinde collector
-  beacon isteğini zaten taşıyor ve o bağlantının JA4'ünü ve adresin hızını
-  biliyor. İsteğe kendi kararını (puan) bir başlıkla ekler; istemcinin
-  gönderdiği aynı adlı başlığı önce siler. Beacon başlığa yalnız
-  `trusted_proxies`'teki bir eşten inanır ve olaya yazar (`beacon_events`'e
-  bir sütun). Sorgu zamanında adres birleşimi gerekmez. Bu yüzden maskeli
-  kipte aynı /24'ü paylaşan insanlar (Türkiye'de mobil CGNAT) bir botun
-  bedelini ödemez. Okuma tarafındaki birleşim de aday, ama o yan etki
-  ölçülmeden seçilmeyecek.
+- **(a) Collector'ın kararı olayın kendisine, imzalı.** Tam vekil kipinde
+  collector beacon isteğini zaten taşıyor; o bağlantının JA4'ünü ve
+  adresin hızını biliyor (`RecordRequest` isteği iletmeden hemen önce
+  çağrılıyor). Akış:
+  - Collector kararını (puan) bir başlıkla isteğe ekler. Başlık HMAC ile
+    imzalı; imza karar, zaman ve istemci adresini kapsar. Anahtar
+    `privacy.ip_hash_key`'den ayrı bir amaçla türetilir.
+  - İstemcinin gönderdiği aynı adlı başlık her zaman önce silinir.
+  - Beacon imzayı doğrular; eş adresine güvenmez (yukarıda 1. nokta). Kararı
+    olaya yazar: `beacon_events`'e bir sütun.
+  - İmzası tutmayan başlık "kurcalanmış" diye işaretlenir ve sayılmaz.
+  - Başlığın yokluğu "bilinmiyor" demektir, "insan" değil.
+
+  Bu yolda sorgu zamanında adres birleşimi gerekmez. Bu yüzden maskeli kipte
+  aynı /24'ü paylaşan insanlar (Türkiye'de mobil CGNAT) bir botun bedelini
+  ödemez.
 - **(b) Collector'ın göremediği kurulumlar** (geçişli kip, collector'sız
-  beacon) ve UA döndüren sel için: beacon'ın bellekte, **tam adres başına**
-  olay hızı tavanı. Adres diske inmez; kimlik HMAC'i UA'yı da içerdiği için
-  ziyaretçi başına tavan, UA döndüren selde her isteği yeni bir ziyaretçi
-  sayar ve yetmez. Tavanın üstündeki olaylar işaretlenir. Eşik ölçülerek
-  konur: gerçek bir insanın en yüksek olay hızı (SPA, hızlı gezinme) ve
-  ofis NAT'ı (bir adreste çok kişi). Ölçülmeden yazılan bir eşik insanı bot
-  sayar.
+  beacon, kurcalanmış ya da eksik başlık) ve UA döndüren sel için: beacon'ın
+  bellekte, **tam adres başına** olay hızı. Adres diske inmez; kimlik
+  HMAC'i UA'yı da içerdiği için ziyaretçi başına tavan, UA döndüren selde
+  her isteği yeni bir ziyaretçi sayar ve yetmez.
+  - **İki eşik.** Alttakini aşan olay işaretlenir ve yazılır. Çok daha
+    yüksek olan üsttekini aşan olay **yazılmaz**, yalnız sayılır
+    (`reddedilen_hiz`, Sağlık'ta). Sel diski doldurmasın.
+  - **Eşikler ölçülerek konur:** gerçek bir insanın en yüksek olay hızı
+    (SPA, hızlı gezinme) ve ofis NAT'ı (bir adreste çok kişi). Eşikleri koyan
+    simülasyon ile sınayan senaryolar ayrı tutulur.
 - **(c) Okuma ve sayfa:** `bots=exclude` (panonun varsayılanı) üç kaynağı
   da dışlar: UA, collector kararı, hız tavanı. Pano dışlananı ayrıca yazar:
   *"bu dönemde N olay otomatik sayıldı ve sayılara katılmadı"*. `bots=only`
   ile görülebilir kalır. Sessizce dışlanan sayı da yanıltır; müşteri
   trafiğinin neden düştüğünü sorar.
 
-**Şema:** `beacon_events`'e sütun. Hipertabloda `ADD COLUMN`, O1'de ölçülen
-kabul edilen DDL sınıfı. Şema 24 henüz yayımlanmadı (son etiket şema 21
-taşıyor). 24'e mi ekleneceği, 25'e mi çıkılacağı
-`TestAReleasedSchemaVersionIsNeverEdited` kuralıyla fazın başında
-kararlaştırılır.
+**Şema:** `beacon_events`'e sütun, **şema 24'e** (yukarıda 6. nokta).
+Hipertabloda `ADD COLUMN`, O1'de ölçülen kabul edilen DDL sınıfı.
 
 **Bitti ölçütü (canlı düzenekte):**
 - 90 insan oturumunun bütün kırılımları gerçekle birebir: yanlış pozitif 0.
@@ -11074,14 +11224,21 @@ kararlaştırılır.
   - başsız Chrome (UA ile zaten yakalanıyor);
   - aynı /24'te insan ve bot;
   - collector'sız beacon (yalnız (b));
-  - başlığı kendisi gönderen istemci (yok sayılmalı).
+  - başlığı kendisi gönderen istemci: hem collector'ın önünden (silinmeli)
+    hem collector'ı atlayıp beacon'ın web sunucusuna doğrudan (imzası
+    tutmamalı, "kurcalanmış");
+  - başka bir adresten alınmış geçerli bir başlığı tekrar gönderen
+    istemci (imza adresi kapsadığı için tutmamalı);
+  - üst eşiğin üstündeki sel: diske hiç inmez, sayaçta görünür;
+  - yanlış pozitif senaryoları (eşikleri koyan simülasyondan ayrı yazılır):
+    SPA'da hızlı gezinme, çok olay basan sayfa, tek adresteki ofis.
 
 **Bilinen sınır (yazılacak, saklanmayacak):** gerçek bir tarayıcı motorunu
 insan hızında süren otomasyon ayrılamaz (R grubunun sınırı). Ayrıca tek bir
 sahte olay, hız tavanının altında kalan bir curl isteği, collector yoksa
 sayılır. Collector varsa JA4'ü onu yakalar.
 
-#### W2 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
+#### W3 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
 
 **Ölçülen (2026-11-03):** `service_heartbeat`'in anahtarı yalnız rol adı
 (`service TEXT PRIMARY KEY`). README "bir sunucuda site başına bir
@@ -11114,8 +11271,15 @@ collector" dağıtımını anıyor; o dağıtımda iki collector tek satıra yaz
 - **Bir kiracı başka bir kiracının collector'ını görmez:** tek sitenin
   sahibine yalnız kendi sitesinin örneği. B3g'nin okuma kuralı.
 
-**Şema:** anahtar değişikliği küçük, hipertablo olmayan bir tabloda.
-W1'le aynı şema kararına bağlı.
+**Bayat örnekler ve güncelleme (değerlendirmenin 3. noktası):**
+- Belli bir süredir atmayan örnek önce "haber alınamıyor" görünür, sonra
+  satırı silinir ve listeden düşer. Süre bir sabit, testle bağlı.
+- `relupdate` yalnız yeniden başlatmadan önceki son birkaç dakikada atan
+  örnekleri bekler. Önceden ölmüş bir collector kimsenin güncellemesini
+  kilitlemez; bu bir test. Bekleme zaten süre sınırlı (geri alma).
+
+**Şema:** anahtar değişikliği küçük, hipertablo olmayan bir tabloda,
+**şema 24'e** (yukarıda 6. nokta).
 
 **Bitti ölçütü (canlı düzenekte):**
 - collector-b durdurulunca Mehmet'in Sağlık sayfası B'yi *"haber
@@ -11124,16 +11288,13 @@ W1'le aynı şema kararına bağlı.
 - İki sitenin sayaçları ayrı ayrı doğru.
 - Panelden güncellemede (`relupdate`) iki örnek de beklenir.
 
-#### W3 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
+#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
 
 Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
 türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
 
-1. **Tanı paketi kurulum geneli ayarları tek-site sahibine de veriyor.**
-   Ayşe'nin paketinde `beacon.sites` öbür müşterinin site kimliğini
-   taşıyordu; panelde o ayar yalnız geliştirici görünümünde. → Kurulum
-   geneli ayarı yazamayan okuyucuya (H10'un sorusu) `beacon.sites` yalnız
-   kendi siteleriyle, öbürleri "paylaşılan ayar" olarak gider.
+1. ~~Tanı paketi kurulum geneli ayarları tek-site sahibine de veriyor~~ →
+   **W1'e taşındı** (sızıntı, küçük madde değil).
 2. **Sihirbaz ve Sağlık "Yedekleme: Bu sistem yedek almaz" diyor.** Ürünün
    yedek özelliği var (Sağlık → yedek, `panel_backup_policy`). → Kontrol
    yedek politikasını ve son başarılı yedeği sorar; ikisi de yoksa doğru

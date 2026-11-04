@@ -1310,6 +1310,7 @@ kontrol_yok = "Kurulum kontrolleri bu panelde bağlı değil."
 gunluk = "Günlük satırlarından istemcinin kendi iddiası (claimed) ve sınıflandırılmamış alanlar çıkarıldı; ağ adresleri /24 ve /64'e, e-posta adresleri alan adına kısaltıldı; yalnız dosyayı indirenin görebildiği sitelerin satırları var."
 site = "Site başına ayarlar yok: üçü de görünüm (site adı, görünür kartlar, görünür kırılımlar)."
 sir = "Sırlar yok: parolalar ve anahtarlar yapılandırma dosyalarında, panel onları okumuyor."
+ayarlar = "Ayarlar, dosyayı indirenin Ayarlar sayfasında gördüğü hâliyle: site listesi gibi bütün siteleri adlandıran bir değer, kurulumun tamamı adına karar veremeyen birine yalnız kendi sitelerini gösterir."
 beacon_site = "Sitelerden gelen ölçüm yok: site başına son olayın zamanı ziyaretlerden türüyor ve bu dosya makineden çıkıyor; Sağlık sayfasında görünüyor."
 
 [metin.saglik.depolama]

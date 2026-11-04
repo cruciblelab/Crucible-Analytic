@@ -186,6 +186,32 @@ func (s *Store) AccessFor(ctx context.Context, p Principal, siteID string) (Acce
 	return access, nil
 }
 
+// DeploymentAccess resolves what a principal may do with the deployment
+// as a whole, rather than with one site: the Access a deployment-wide
+// decision is made against (Access.SpeaksForDeployment, W1).
+//
+// The operator as AccessFor builds them. An account that owns every
+// site is given the owner's role, because it holds that role on every
+// site there is - which is the only sense in which a role can belong to
+// the deployment. Anybody else gets no role: the zero answer, under which
+// Can refuses everything and AccessTo reads every setting as read-only or
+// shared. A developer or system principal that is not Superadmin is
+// never asked about memberships it cannot have.
+func (s *Store) DeploymentAccess(ctx context.Context, p Principal) (Access, error) {
+	access := Access{Principal: p}
+	if p.Superadmin || p.Kind != PrincipalUser {
+		return access, nil
+	}
+	every, err := s.OwnsEverySite(ctx, p.UserID)
+	if err != nil {
+		return Access{}, err
+	}
+	if every {
+		access.Role, access.OwnsEverySite = RoleOwner, true
+	}
+	return access, nil
+}
+
 // OwnsEverySite reports whether this account holds a live owner
 // membership on every site the deployment knows (H10).
 //

@@ -166,8 +166,7 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 }
 
 // RecordSetting writes an unguarded setting and records the change, for
-// the forms that decide their own entitlement before they write: the
-// setup wizard's site list (operator only), its visibility step, and the
+// the wizards: the setup wizard's site list and visibility step, and the
 // welcome wizard's site names and time zone.
 //
 // Those four called SetSetting, which records nothing (H13). On the live
@@ -175,13 +174,51 @@ func (s *Store) ApplySetting(ctx context.Context, a Access, key Key, site string
 // handover - and panel_audit_log had no row for either; a retention
 // change made a minute earlier through ApplySetting had one. The setting
 // that decides whose events the beacon accepts was the one with no
-// history. The entitlement stays the caller's (the wizards answer it
-// differently from the settings page's per-site AccessTo); the record is
-// not optional, which is why it is here and not beside each caller.
+// history. The record is not optional, which is why it is here and not
+// beside each caller.
+//
+// # Nor is the entitlement (W1)
+//
+// H13 left the entitlement to the callers, and this comment said the
+// site list was "operator only". It was not: the technical door lets the
+// owner of any site into the setup wizard, and on the live rig the owner
+// of one of two sites saved the site list with only her own on it -
+// 200, "Kaydedildi." - after which the beacon refused every event of the
+// other customer's site as unknown (403). The visibility step listed the
+// other site's cards too. So the store asks, as ApplySetting does, with
+// the rule the settings page uses: a site's setting needs authority over
+// that site (AccessFor), a deployment-wide one - or any setting written
+// with no site - needs authority over the deployment (DeploymentAccess).
+// Only SettingWritable passes: a setting that needs the developer
+// password is never written through the path that does not ask for it.
 func (s *Store) RecordSetting(ctx context.Context, p Principal, key Key, site string, value any) error {
 	def, ok := registry[key]
 	if !ok {
 		return fmt.Errorf("%w %q", ErrUnknownSetting, key)
+	}
+	var a Access
+	var err error
+	if site == "" {
+		a, err = s.DeploymentAccess(ctx, p)
+	} else {
+		a, err = s.AccessFor(ctx, p, site)
+	}
+	if err != nil {
+		return err
+	}
+	// A deployment-wide write by somebody who does not speak for the
+	// deployment is refused for that reason, in the words that say it:
+	// DeploymentAccess gives them no role, and AccessTo would otherwise
+	// answer with the viewer's sentence.
+	if site == "" && !a.SpeaksForDeployment() {
+		return fmt.Errorf("%w (%s)", ErrSettingShared, def.Key)
+	}
+	switch access := a.AccessTo(def); access {
+	case SettingWritable:
+	case SettingShared:
+		return fmt.Errorf("%w (%s)", ErrSettingShared, def.Key)
+	default:
+		return fmt.Errorf("%w (%s)", ErrSettingNotWritable, def.Key)
 	}
 	before, err := s.GetSetting(ctx, key, site)
 	if err != nil {

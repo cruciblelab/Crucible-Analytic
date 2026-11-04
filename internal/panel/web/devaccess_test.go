@@ -189,7 +189,7 @@ func TestTheApprovalPageIsNotOfferedToADeveloper(t *testing.T) {
 	items := srv.navFor(lang, panel.Access{Principal: panel.Principal{
 		Kind:       panel.PrincipalDeveloper,
 		Superadmin: true,
-	}}, "siteler", false)
+	}}, "siteler", false, false)
 
 	for _, item := range items {
 		if item.URL == DevAccessRequestsPath {
@@ -207,7 +207,7 @@ func TestAnOwnerIsOfferedThePage(t *testing.T) {
 
 	items := srv.navFor(lang, panel.Access{Principal: panel.Principal{
 		Kind: panel.PrincipalUser, UserID: 1, Label: "sahip@example.invalid",
-	}}, "siteler", true)
+	}}, "siteler", true, true)
 
 	for _, item := range items {
 		if item.URL == DevAccessRequestsPath {

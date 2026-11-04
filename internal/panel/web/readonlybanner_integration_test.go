@@ -62,7 +62,7 @@ const bannerSite = "rozet-testi"
 // first is alive waits for a lock that cannot be released yet - measured,
 // by writing it the other way first and watching it hang.
 func TestTheReadOnlyBannerStaysWhereItExplainsSomething(t *testing.T) {
-	srv, store := setupTestServer(t)
+	srv, store := setupSoleTenantServer(t)
 	withRealAPI(t, srv)
 	server := httptest.NewServer(srv.Handler())
 	defer server.Close()
