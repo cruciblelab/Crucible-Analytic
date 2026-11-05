@@ -25235,3 +25235,58 @@ yazılmıyor ve öbür süitlerin okuduğu kuyruk temiz kalıyor. Var olan beş
 - Çizilen işlem formu 4 → 0.
 - Kabul edilen POST 2 → 0; yedisi de işlem kaydında "refused".
 - Kuyrukta bekleyen istek 1 → 0.
+
+## Disk ve yedekler, birden çok müşterili kurulumda — W1c (2026-11-05)
+
+**Sahibin kararı** (soru açılarak yeniden soruldu, öneri seçildi): birden
+çok müşterili kurulumda tek-site sahibi, kurulumun toplamını gösteren
+bölümlerin yerine bir cümle görür. Kararın sorusu Depolama ve Yedek'ti; Disk
+bölümünü de ekledim, çünkü veritabanının diskteki boyutu aynı toplamı
+taşıyor. İkisini kapatıp üçüncüsünü bırakmak kararın amacını delerdi. Tanı
+paketinin aynı iki bölümü de aynı kurala bağlandı.
+
+Sayfa bu okuyucu için o sayıları **hiç sorgulamıyor**; yalnız
+çizmemekle yetinmiyor. Boş bırakılan bir bölüm hâlâ hesaplanan bir
+sayıdır ve tek bir şablon düzenlemesiyle çizilir.
+
+**Canlı, önce → sonra (Ayşe):**
+- Bölümler: `… | Depolama | Yedek | Disk | …` → `… | Disk ve yedekler | …`.
+- Tanı paketi: `storage` 4 tablo → 0 (`withheld`); `disk.database_bytes`
+  182.033.431 → 0 (`withheld`).
+- Mehmet'te sonra hâli aynı.
+
+**Mutasyon:** 6, 6'sı kırmızı (`$SP/mutasyon-w1c.py`).
+
+**Yolda: W1b'nin bıraktığı, sıraya bağlı on test.** İlk tam koşu iki
+testi düşürdü; aynı testler W1b'nin kapısında ve CI'ında yeşildi.
+Paylaşılan veritabanında hiç üyelik yoktu ama `beacon.sites`
+`["devir-testi"]` taşıyordu. "Her site" bu siteyi de sayıyor, yani paylaşılan
+sunucuda sahip olarak kurulan herkes o an kurulum adına konuşamıyordu.
+Bu bir ürün kusuru değil, test düzeneği kusuru: W1b'den beri bir sahibin
+yedek, sürüm ve yeniden başlatma yapabilmesini bekleyen testler, başka
+bir süitin bıraktığı kalıntıya bağlıydı.
+
+Sınıfı ölçmek için ilk denemem (paylaşılan tabloya başka müşterinin
+üyeliğini koymak) boşa gitti, çünkü bir test üyelik tablosunu
+temizliyor. İkinci deneme `beacon.sites`'a yabancı bir site koydu ve 10
+kırmızı verdi; ama bu zehir de süit ortasında silindi (devir testi ve
+`restoreGlobal`). Sonuncusu her testi tek başına, hemen önce zehir
+kurularak koşturdu: düzeltmeden sonra 378/378 yeşil. Zehrin etkili
+olduğunu da ayrıca gösterdim: düzeltilmemiş bir yardımcıyla zehirli FAIL,
+zehirsiz PASS. *Bir kalıntının testleri ne kadar etkilediğini, kalıntıyı
+her testin önünde yeniden kurmadan ölçemezsin; süitin ortasında onu
+silen bir test, ölçümü de siler.*
+
+Düzeltmeler:
+- 10 test (`backupPage`, `releasePage`, `newRestartPage` ve üç tekil
+  kurulum) tek müşterili sunucuya taşındı.
+- `testdb.SiteCopy` kopyaladığı iki tablonun tablo düzeyindeki yetkilerini
+  katalogdan okuyup kopyaya da veriyor. Yeniden başlatma düğmesinin
+  "bu servis isteği duyar mı" sorusu `has_table_privilege(...,
+  to_regclass('panel_settings'))` ile soruluyor ve arama yolu kopyayı
+  bulunca her servise "duymaz" diyordu. Üründe kopya yok; yanlış olan
+  fikstürdü.
+- Yeniden başlatma fikstürü istek satırlarını sunucunun okuduğu tabloya
+  yazıyor.
+- `TestHandoverCreatesAnOwner` `beacon.sites`'ı geri koyuyor; kalıntının
+  kaynağı oydu.

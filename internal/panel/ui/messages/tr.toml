@@ -1311,7 +1311,12 @@ gunluk = "Günlük satırlarından istemcinin kendi iddiası (claimed) ve sını
 site = "Site başına ayarlar yok: üçü de görünüm (site adı, görünür kartlar, görünür kırılımlar)."
 sir = "Sırlar yok: parolalar ve anahtarlar yapılandırma dosyalarında, panel onları okumuyor."
 ayarlar = "Ayarlar, dosyayı indirenin Ayarlar sayfasında gördüğü hâliyle: site listesi gibi bütün siteleri adlandıran bir değer, kurulumun tamamı adına karar veremeyen birine yalnız kendi sitelerini gösterir."
+disk = "Depolama ve disk yok: tablo boyutları ve veritabanının diskteki boyutu kurulumun tamamına ait; onları kurulumu işleten kişi görür."
 beacon_site = "Sitelerden gelen ölçüm yok: site başına son olayın zamanı ziyaretlerden türüyor ve bu dosya makineden çıkıyor; Sağlık sayfasında görünüyor."
+
+[metin.saglik.disk_isletmecide]
+baslik = "Disk ve yedekler"
+aciklama = "Tablolar, yedekler ve veritabanının diskteki boyutu kurulumun tamamına ait; bu sayıları kurulumu işleten kişi görür ve disk ondan sorulur."
 
 [metin.saglik.depolama]
 baslik = "Depolama"

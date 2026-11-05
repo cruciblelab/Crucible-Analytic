@@ -26,9 +26,8 @@ const (
 	w1Other = "w1-baska"
 )
 
-// diagnosticSites is beacon.sites as one reader's diagnostic file
-// carries it.
-func diagnosticSites(t *testing.T, c *http.Client, base string) []string {
+// diagnosticOf is one reader's diagnostic file, decoded.
+func diagnosticOf(t *testing.T, c *http.Client, base string) diagnosticBundle {
 	t.Helper()
 	status, body := get(t, c, base+DiagnosticPath)
 	if status != http.StatusOK {
@@ -38,6 +37,14 @@ func diagnosticSites(t *testing.T, c *http.Client, base string) []string {
 	if err := json.Unmarshal([]byte(body), &file); err != nil {
 		t.Fatalf("the diagnostic file does not decode: %v", err)
 	}
+	return file
+}
+
+// diagnosticSites is beacon.sites as one reader's diagnostic file
+// carries it.
+func diagnosticSites(t *testing.T, c *http.Client, base string) []string {
+	t.Helper()
+	file := diagnosticOf(t, c, base)
 	for _, v := range file.Settings.Values {
 		if v.Key != panel.KeyBeaconSites {
 			continue
@@ -195,6 +202,29 @@ func TestATenantReachesNothingThatActsOnTheOtherCustomer(t *testing.T) {
 	if status != http.StatusOK {
 		t.Errorf("the owner of one site was refused the health page: %d", status)
 	}
+	// W1c: storage, backups and disk are the deployment's, and their
+	// sizes tell her how large the other customer is. One sentence in
+	// their place, on the page and in the file.
+	lang := srv.Renderer.Catalogs().Base()
+	sections := map[string]string{
+		"storage": shown(lang.T("saglik.depolama.baslik")),
+		"backup":  shown(lang.T("saglik.yedek.baslik")),
+		"disk":    shown(lang.T("saglik.disk.baslik")),
+	}
+	withOperator := shown(lang.T("saglik.disk_isletmecide.baslik"))
+	for name, heading := range sections {
+		if strings.Contains(home, "<h2>"+heading+"</h2>") {
+			t.Errorf("the owner of one site among others is drawn the %s section, whose sizes are every customer's", name)
+		}
+	}
+	if !strings.Contains(home, "<h2>"+withOperator+"</h2>") {
+		t.Error("the owner of one site among others is not told who answers for the disk")
+	}
+	if file := diagnosticOf(t, c, server.URL); !file.Storage.Withheld || len(file.Storage.Tables) != 0 ||
+		!file.Disk.Withheld || file.Disk.DatabaseBytes != 0 || len(file.Disk.Filesystems) != 0 {
+		t.Errorf("the owner of one site among others' diagnostic file carries the deployment's sizes: "+
+			"storage %+v, disk %+v", file.Storage, file.Disk)
+	}
 	if !strings.Contains(home, `href="`+HealthPath+`"`) {
 		t.Error("the owner of one site is not offered the health page in the navigation")
 	}
@@ -260,8 +290,21 @@ func TestATenantReachesNothingThatActsOnTheOtherCustomer(t *testing.T) {
 			t.Errorf("GET %s answered %d to the owner of every site, want 200", path, status)
 		}
 	}
-	if _, page := get(t, c, server.URL+HealthPath); !strings.Contains(page, `name="eylem"`) {
+	_, page := get(t, c, server.URL+HealthPath)
+	if !strings.Contains(page, `name="eylem"`) {
 		t.Error("the owner of every site is drawn no operation on the health page")
+	}
+	for name, heading := range sections {
+		if !strings.Contains(page, "<h2>"+heading+"</h2>") {
+			t.Errorf("the owner of every site is not drawn the %s section", name)
+		}
+	}
+	if strings.Contains(page, "<h2>"+withOperator+"</h2>") {
+		t.Error("the owner of every site is told the disk is somebody else's")
+	}
+	if file := diagnosticOf(t, c, server.URL); file.Storage.Withheld || len(file.Storage.Tables) == 0 || file.Disk.Withheld {
+		t.Errorf("the owner of every site's diagnostic file withholds the sizes: storage %+v, disk withheld %v",
+			file.Storage, file.Disk.Withheld)
 	}
 	if err := store.RecordSetting(ctx, p, panel.KeyBeaconSites, "", both); err != nil {
 		t.Errorf("RecordSetting(beacon.sites) by the owner of every site: %v", err)

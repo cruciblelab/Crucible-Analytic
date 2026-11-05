@@ -749,7 +749,10 @@ sayfası her site sahibine okunur. İşlemleri (yedek, yedek kontrolü, yan
 veritabanına geri yükleme, IP veri kümesi yenileme, yeniden başlatma,
 şema yükseltmesi, sürüm güncellemesi) ve geri yükleme raporu (her tablonun
 satır sayısı) aynı kurala bağlı: tek müşterili kurulumda sahip, birden
-çok müşterili kurulumda siz.
+çok müşterili kurulumda siz. Sağlık'ın Depolama, Yedek ve Disk bölümleri
+(tablo, yedek ve veritabanı boyutları) de kurulumun toplamı olduğu için
+birden çok müşterili kurulumda tek-site sahibine gösterilmez; yerinde
+"kurulumun diski işletmecide" cümlesi durur.
 
 Yine de bilmeniz gereken şudur: **bu sınır bir uygulama kontrolüdür,
 veritabanı kısıtı değildir.** Düzenleyici bir gereklilik ya da kendi
@@ -2052,7 +2055,9 @@ görüntüsü almaktan da terminalde komut çalıştırmaktan da kolay.
 - panelin sürümü;
 - şemanın sürümü ve parmak izi, beklenenle birlikte;
 - her servisin kalp atışı satırı: sürüm, son haber, sayaçlar, son hata;
-- tabloların diskte kapladığı yer, disk ve okuma API'sine erişim;
+- tabloların diskte kapladığı yer, disk ve okuma API'sine erişim (birden
+  çok müşterili kurulumda tek-site sahibinin dosyasında depolama ve disk
+  boş gider, `withheld` işaretiyle);
 - kurulum kontrollerinin **tamamı**, geçenler dahil;
 - bütün genel ayarlar ve her değerin nereden geldiği (varsayılan,
   veritabanı, dosya), indirenin Ayarlar sayfasında gördüğü hâliyle: kurulum

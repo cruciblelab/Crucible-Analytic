@@ -1262,7 +1262,12 @@ gunluk = "From the log lines, the client's own claim (claimed) and unclassified 
 site = "No per-site settings: all three are display (site name, visible cards, visible breakdowns)."
 sir = "No secrets: passwords and keys live in configuration files, which the panel does not read."
 ayarlar = "Settings as the downloader sees them on the Settings page: a value that names every site, such as the site list, shows somebody who cannot decide for the whole deployment only their own sites."
+disk = "No storage or disk: table sizes and the database's size on disk belong to the whole deployment; whoever runs the deployment sees them."
 beacon_site = "No per-site measurements: the time of each site's last event comes from visits, and this file leaves the machine; the Health page shows it."
+
+[metin.saglik.disk_isletmecide]
+baslik = "Disk and backups"
+aciklama = "Tables, backups and the database's size on disk belong to the whole deployment; whoever runs the deployment sees these numbers, and the disk is theirs to answer for."
 
 [metin.saglik.depolama]
 baslik = "Storage"

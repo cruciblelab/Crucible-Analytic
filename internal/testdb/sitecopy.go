@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -60,6 +61,48 @@ func NewSiteCopy(t *testing.T, schema string) *SiteCopy {
 	} {
 		if _, err := admin.Exec(ctx, sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	// And every table-level privilege the shared tables carry, read from
+	// the catalog rather than listed here. LIKE copies columns, not
+	// grants, and a check that asks has_table_privilege of a name the
+	// search path resolves to the copy - the restart button's "can this
+	// service hear a request" - would otherwise answer no for every
+	// service role, and the test would read a fixture's gap as the
+	// product's verdict (W1c: TestTheRestartSectionDrawsEveryState).
+	rows, err := admin.Query(ctx, `
+		SELECT table_name, grantee, privilege_type
+		  FROM information_schema.role_table_grants
+		 WHERE table_schema = 'public'
+		   AND table_name IN ('panel_site_members', 'panel_settings')
+		   AND grantee <> 'PUBLIC'
+		   AND grantee NOT IN (SELECT tableowner FROM pg_tables
+		                        WHERE schemaname = 'public' AND tablename = table_name)`)
+	if err != nil {
+		t.Fatalf("reading the shared tables' grants: %v", err)
+	}
+	type grant struct{ table, grantee, privilege string }
+	var grants []grant
+	for rows.Next() {
+		var g grant
+		if err := rows.Scan(&g.table, &g.grantee, &g.privilege); err != nil {
+			t.Fatal(err)
+		}
+		grants = append(grants, g)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range grants {
+		role := pgx.Identifier{g.grantee}.Sanitize()
+		for _, sql := range []string{
+			`GRANT USAGE ON SCHEMA ` + schema + ` TO ` + role,
+			`GRANT ` + g.privilege + ` ON ` + schema + `.` + g.table + ` TO ` + role,
+		} {
+			if _, err := admin.Exec(ctx, sql); err != nil {
+				t.Fatalf("%s: %v", sql, err)
+			}
 		}
 	}
 	t.Cleanup(func() {

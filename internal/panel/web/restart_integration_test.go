@@ -45,16 +45,26 @@ type restartPage struct {
 
 func newRestartPage(t *testing.T) *restartPage {
 	t.Helper()
-	srv, store := setupTestServer(t) // AccountsLock
+	// A one-customer deployment: the owner here presses a button that acts
+	// on the whole deployment, which only the owner of every site may (W1b).
+	// On the shared tables that depended on what other suites had left in
+	// beacon.sites, and a foreign site there turned ten such tests red (W1c).
+	srv, store := setupSoleTenantServer(t) // AccountsLock
 	admin := testdb.Admin(t)
 	// After AccountsLock and before healthServerOn's HeartbeatLock: the
 	// order testdb declares.
 	testdb.Lock(t, admin, testdb.RestartRequestLock)
+	// Requests live in panel_settings, which setupSoleTenantServer gives
+	// the server a copy of: they are written, read and cleared through the
+	// server's own pool, so the fixture and the page see one table. The
+	// shared table is cleared as well, for what an older run left there.
 	clear := func() {
-		if _, err := admin.Exec(context.Background(),
-			`DELETE FROM panel_settings WHERE scope = 'global' AND site_id = '' AND key LIKE $1`,
-			restartreq.KeyPrefix+"%"); err != nil {
-			t.Errorf("clearing the restart requests: %v", err)
+		for _, pool := range []*pgxpool.Pool{admin, store.Pool()} {
+			if _, err := pool.Exec(context.Background(),
+				`DELETE FROM panel_settings WHERE scope = 'global' AND site_id = '' AND key LIKE $1`,
+				restartreq.KeyPrefix+"%"); err != nil {
+				t.Errorf("clearing the restart requests: %v", err)
+			}
 		}
 	}
 	clear()
@@ -84,19 +94,27 @@ func (p *restartPage) ran(service string, startedAgo, beatAgo time.Duration) {
 }
 
 // startedAfterRequest moves a service's start to d after its request.
+//
+// The request is read through the server's pool (its copy of
+// panel_settings), the heartbeat written through the admin's: the two
+// tables are in different places in a one-customer deployment's test.
 func (p *restartPage) startedAfterRequest(service string, d time.Duration) {
 	p.t.Helper()
-	p.exec(`UPDATE service_heartbeat SET started_at = (
-		  SELECT (value #>> '{}')::timestamptz + make_interval(secs => $3) FROM panel_settings
-		   WHERE scope = 'global' AND site_id = '' AND key = $2)
-		WHERE service = $1`, service, restartreq.Key(service), d.Seconds())
+	var at time.Time
+	if err := p.store.Pool().QueryRow(context.Background(),
+		`SELECT (value #>> '{}')::timestamptz FROM panel_settings
+		  WHERE scope = 'global' AND site_id = '' AND key = $1`, restartreq.Key(service)).Scan(&at); err != nil {
+		p.t.Fatalf("reading %s's request: %v", service, err)
+	}
+	p.exec(`UPDATE service_heartbeat SET started_at = $2::timestamptz + make_interval(secs => $3)
+		WHERE service = $1`, service, at, d.Seconds())
 }
 
 // asked writes a request made ago before the database's now, the shape
 // the panel writes: value and updated_at the same instant.
 func (p *restartPage) asked(service string, ago time.Duration) {
 	p.t.Helper()
-	p.exec(`INSERT INTO panel_settings (scope, site_id, key, value, updated_at)
+	p.execOn(p.store.Pool(), `INSERT INTO panel_settings (scope, site_id, key, value, updated_at)
 		VALUES ('global', '', $1, to_jsonb(now() - make_interval(secs => $2)), now() - make_interval(secs => $2))
 		ON CONFLICT (scope, site_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
 		restartreq.Key(service), ago.Seconds())
@@ -109,7 +127,14 @@ func (p *restartPage) silenced(service string) {
 
 func (p *restartPage) exec(sql string, args ...any) {
 	p.t.Helper()
-	tag, err := p.admin.Exec(context.Background(), sql, args...)
+	p.execOn(p.admin, sql, args...)
+}
+
+// execOn is exec against a chosen pool: the server's, for panel_settings,
+// which the server reads from its own copy.
+func (p *restartPage) execOn(pool *pgxpool.Pool, sql string, args ...any) {
+	p.t.Helper()
+	tag, err := pool.Exec(context.Background(), sql, args...)
 	if err != nil || tag.RowsAffected() != 1 {
 		p.t.Fatalf("%s: %v (%d rows)", sql, err, tag.RowsAffected())
 	}
@@ -119,7 +144,7 @@ func (p *restartPage) exec(sql string, args ...any) {
 func (p *restartPage) requested(service string) bool {
 	p.t.Helper()
 	var n int
-	if err := p.admin.QueryRow(context.Background(), `SELECT count(*) FROM panel_settings
+	if err := p.store.Pool().QueryRow(context.Background(), `SELECT count(*) FROM panel_settings
 		WHERE scope = 'global' AND site_id = '' AND key = $1`, restartreq.Key(service)).Scan(&n); err != nil {
 		p.t.Fatal(err)
 	}
@@ -245,7 +270,7 @@ func TestTheRestartSectionDrawsEveryState(t *testing.T) {
 	// Second: waiting, never asked, never reported.
 	p.ran(testdb.Collector, 10*time.Minute, 5*time.Second)
 	p.asked(testdb.Collector, 5*time.Second)
-	p.exec(`DELETE FROM panel_settings WHERE scope = 'global' AND site_id = '' AND key = $1`,
+	p.execOn(p.store.Pool(), `DELETE FROM panel_settings WHERE scope = 'global' AND site_id = '' AND key = $1`,
 		restartreq.Key(testdb.Beacon))
 	p.ran(testdb.Beacon, 10*time.Minute, 5*time.Second)
 	p.silenced(testdb.Panel)
@@ -475,7 +500,11 @@ func TestAnUnreadableRequestDarkensOnlyItsOwnSection(t *testing.T) {
 // no developer password the button could only be refused, so the section
 // says why instead of drawing it - and still shows every service's state.
 func TestWithoutADeveloperPasswordTheButtonIsNotDrawn(t *testing.T) {
-	srv, store := setupTestServer(t)
+	// A one-customer deployment: the owner here presses a button that acts
+	// on the whole deployment, which only the owner of every site may (W1b).
+	// On the shared tables that depended on what other suites had left in
+	// beacon.sites, and a foreign site there turned ten such tests red (W1c).
+	srv, store := setupSoleTenantServer(t)
 	shut, err := devgate.New(devgate.Config{}, devgate.Options{})
 	if err != nil {
 		t.Fatal(err)

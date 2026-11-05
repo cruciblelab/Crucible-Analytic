@@ -31,7 +31,8 @@ import (
 // same lock, rather than with a list written here: a fixture that named
 // the rows would agree with the file whatever the file did.
 func TestTheDiagnosticFileCarriesWhatThePageShows(t *testing.T) {
-	srv, store := setupTestServer(t)
+	// A one-customer deployment, whose owner reads every section (W1c).
+	srv, store := setupSoleTenantServer(t)
 	server, client, store := healthServerOn(t, srv, store)
 	writeBeat(t, store, "saglik-tani", time.Now().Add(-time.Hour),
 		map[string]int64{heartbeat.CounterWritten: 7, heartbeat.CounterDropped: 2},

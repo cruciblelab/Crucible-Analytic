@@ -543,6 +543,15 @@ prevent. */}}
 </section>
 {{- end}}
 
+{{- if .Data.DiskWithOperator}}
+{{- /* W1c: storage, backups and disk are the whole deployment's, and
+their sizes would tell the owner of one site among others how large the
+others are. One sentence instead of three sections. */}}
+<section class="bolum">
+<h2>{{t "saglik.disk_isletmecide.baslik"}}</h2>
+<p class="ipucu">{{t "saglik.disk_isletmecide.aciklama"}}</p>
+</section>
+{{- else}}
 <section class="bolum">
 <h2>{{t "saglik.depolama.baslik"}}</h2>
 
@@ -776,6 +785,7 @@ in either case and the two situations need different sentences. */}}
 {{- end}}
 {{- end}}
 </section>
+{{- end}}
 
 <section class="bolum">
 <h2>{{t "saglik.api.baslik"}}</h2>

@@ -116,7 +116,11 @@ func TestTheSectionDistinguishesNeverAskedFromUpToDate(t *testing.T) {
 
 // TestABehindDeploymentNamesTheVersionAndPrefillsIt.
 func TestABehindDeploymentNamesTheVersionAndPrefillsIt(t *testing.T) {
-	srv, store := setupTestServer(t)
+	// A one-customer deployment: the owner here presses a button that acts
+	// on the whole deployment, which only the owner of every site may (W1b).
+	// On the shared tables that depended on what other suites had left in
+	// beacon.sites, and a foreign site there turned ten such tests red (W1c).
+	srv, store := setupSoleTenantServer(t)
 	withRealAPI(t, srv)
 	testdb.Lock(t, testdb.Pool(t, testdb.SchemaAdmin), testdb.ReleaseQueueLock)
 	t.Cleanup(func() { clearAvailable(t) })

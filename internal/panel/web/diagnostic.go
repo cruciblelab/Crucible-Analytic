@@ -95,6 +95,10 @@ type diagnosticService struct {
 type diagnosticStorage struct {
 	Tables []diagnosticTable `json:"tables"`
 	Error  string            `json:"error,omitempty"`
+	// Withheld marks a section left empty because its numbers are the
+	// whole deployment's and the downloader does not speak for it (W1c),
+	// so an empty list is not read as "no tables".
+	Withheld bool `json:"withheld,omitempty"`
 }
 
 type diagnosticTable struct {
@@ -113,6 +117,9 @@ type diagnosticDisk struct {
 	UnplacedBackupBytes int64                  `json:"unplaced_backup_bytes"`
 	Filesystems         []diagnosticFilesystem `json:"filesystems"`
 	Error               string                 `json:"error,omitempty"`
+	// Withheld is diagnosticStorage.Withheld, for the same reason: the
+	// database's size is everybody's data on disk.
+	Withheld bool `json:"withheld,omitempty"`
 }
 
 type diagnosticFilesystem struct {
@@ -234,8 +241,16 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel
 	}
 	out.Schema = s.diagnosticSchema(ctx)
 	out.Services = s.diagnosticServices(ctx, now)
-	out.Storage = s.diagnosticStorage(ctx)
-	out.Disk = diagnosticDiskFrom(s.healthDiskSection(ctx, s.database(), lang))
+	// The page's rule (healthPage.DiskWithOperator), and the file's: the
+	// owner of one site among others downloads it too.
+	if s.speaksForDeployment(ctx, p) {
+		out.Storage = s.diagnosticStorage(ctx)
+		out.Disk = diagnosticDiskFrom(s.healthDiskSection(ctx, s.database(), lang))
+	} else {
+		out.Storage = diagnosticStorage{Tables: []diagnosticTable{}, Withheld: true}
+		out.Disk = diagnosticDisk{Filesystems: []diagnosticFilesystem{}, Withheld: true}
+		out.Omitted = append(out.Omitted, lang.T("saglik.tani.disarida.disk"))
+	}
 	out.API = diagnosticAPIFrom(s.healthAPI(ctx))
 	out.Checks = s.diagnosticChecks(ctx, lang)
 	out.Settings = s.diagnosticSettings(ctx, p)

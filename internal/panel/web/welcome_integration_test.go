@@ -34,7 +34,11 @@ func TestHandoverCreatesAnOwner(t *testing.T) {
 	const email = "sahip@devir-testi.invalid"
 
 	// The deployment is configured for a site, as the technical wizard
-	// would have left it.
+	// would have left it - and put back afterwards. Left behind, this
+	// list named a site no other suite's owner owns, and every test that
+	// ran after it with an owner pressing a deployment-wide button read
+	// "not yours" (found in W1c, with the list seeded on purpose).
+	restoreGlobal(t, store, panel.KeyBeaconSites)
 	if err := store.SetSetting(ctx, panel.KeyBeaconSites, "", []string{site}, nil); err != nil {
 		t.Fatal(err)
 	}

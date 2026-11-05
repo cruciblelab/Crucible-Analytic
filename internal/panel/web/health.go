@@ -91,6 +91,18 @@ type healthPage struct {
 	// is running.
 	NoServices bool
 
+	// DiskWithOperator replaces the storage, backup and disk sections
+	// with one sentence, for a reader who does not speak for the
+	// deployment (W1c). Every number in those sections is the whole
+	// deployment's - table sizes, backup sizes, the database's size on
+	// disk - and on a deployment shared by several customers the owner of
+	// one site, who knows roughly what her own site writes, reads the
+	// others' volume off the difference. The owner decided (2026-11-05):
+	// those three are the operator's, and the owner of one site among
+	// others is told so instead. On a one-customer deployment its owner
+	// speaks for it and sees everything, as before.
+	DiskWithOperator bool
+
 	Storage      []healthStorage
 	StorageError string
 	// Disk is the filesystems behind the configured directories.
@@ -491,8 +503,14 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	data.Checks, data.ChecksPassed, data.ChecksError = s.healthChecks(ctx, lang)
 	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
-	data.Storage, data.StorageError = s.healthStorage(ctx, lang)
-	data.Disk = s.healthDiskSection(ctx, s.database(), lang)
+	// Not read at all for somebody who is not shown them: a section
+	// left empty by the template is a number still computed, and one
+	// edit away from being drawn.
+	data.DiskWithOperator = !s.speaksForDeployment(ctx, p)
+	if !data.DiskWithOperator {
+		data.Storage, data.StorageError = s.healthStorage(ctx, lang)
+		data.Disk = s.healthDiskSection(ctx, s.database(), lang)
+	}
 	data.API = s.healthAPI(ctx)
 	data.BeaconSites = s.beaconActivityFor(ctx, lang, p)
 
@@ -520,9 +538,13 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	} else {
 		data.RangeRefresh, data.RangeRefreshError = s.rangeRefreshStatusFor(ctx, s.ranges(), lang, access)
 	}
-	if posted.backup != nil {
+	switch {
+	case data.DiskWithOperator:
+		// The backup list is sizes of everybody's data (W1c), and its
+		// buttons were never this reader's (W1b).
+	case posted.backup != nil:
 		data.Backup, data.BackupError = *posted.backup, posted.backupErr
-	} else {
+	default:
 		data.Backup, data.BackupError = s.backupStatusFor(ctx, s.backups(), lang, access)
 	}
 	if posted.restart != nil {

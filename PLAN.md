@@ -11197,14 +11197,37 @@ yedisi de işlem kaydında "refused". Yedek kuyruğunda bekleyen istek
 
 PLAN H10'un "Açık" listesi böylece kapandı.
 
-**Açık — sahibin kararı:** Sağlık'ın Depolama bölümü (tablo başına disk
-boyutu) ve yedek listesi (yedek boyutları) kurulumun toplamı. Birden çok
-müşterili kurulumda bir müşteri kendi hacmini bildiği için öbürünün
-hacmini kabaca çıkarabilir. Bu bölümler B3g'den beri bilerek her sahibe
-açık birer disk raporu; kapatmak "Sağlık sayfası birden çok müşterili
-kurulumda bir müşteriye ne gösterir" sorusu. Öneri: birden çok
-müşterili kurulumda tek-site sahibine bu iki bölümün yerine "kurulumun
-diski işletmecide" cümlesi; tek müşterili kurulumda değişiklik yok.
+##### W1c — Disk ve yedekler, birden çok müşterili kurulumda ✅ **yapıldı (2026-11-05)**
+
+**Soru ve karar.** Sağlık'ın Depolama (tablo başına boyut), Yedek (yedek
+boyutları) ve Disk (veritabanının diskteki boyutu) bölümleri kurulumun
+toplamını gösteriyor. Birden çok müşterili kurulumda bir müşteri kendi
+hacmini bildiği için öbürünün hacmini kabaca çıkarabilir. Sahip
+(2026-11-05) öneriyi seçti: kurulum adına konuşmayan okuyucu bu bölümlerin
+yerine "kurulumun diski işletmecide" cümlesini görsün; tek müşterili
+kurulumda hiçbir şey değişmesin. Disk bölümü de girdi, çünkü veritabanı
+boyutu aynı toplamı taşıyor. Tanı paketinin Depolama ve Disk bölümleri de
+aynı kurala bağlandı; paket bu okuyucuya boş ve `withheld` işaretli gidiyor.
+
+**Ölçüm:**
+- Canlı, Ayşe ve Mehmet, önce → sonra: Sağlık'ta Depolama | Yedek | Disk →
+  "Disk ve yedekler". Paket: 4 tablo, 182 MB → 0 tablo, 0 bayt, `withheld`.
+- 6 mutasyon, 6'sı kırmızı.
+
+**Yolda bulunan, W1b'nin bıraktığı:** paylaşılan veritabanındaki
+`beacon.sites`'ta başka bir site varken 10 test kırmızı oluyordu. Bu
+testler bir sahibin kurulum işlemi (yedek, sürüm, yeniden başlatma)
+yapabilmesini bekliyordu; sonuçları başka bir süitin bıraktığı kalıntıya
+bağlıydı. Kalıntıyı bırakan da bulundu: devir testi `beacon.sites`'ı
+yazıp geri koymuyordu. Düzeltmeler:
+- 10 test tek müşterili sunucuya taşındı.
+- `testdb.SiteCopy` kopyaladığı tabloların yetkilerini katalogdan türetip
+  kopyaya da veriyor.
+- Devir testi listeyi geri koyuyor.
+
+Ölçüm: web paketinin 378 testi tek tek, her birinden hemen önce yabancı bir
+site kurularak koşturuldu, 0 kırmızı. Zehrin etkili olduğu, düzeltilmemiş
+bir kurulumla kırmızı (zehirsiz yeşil) verdiği gösterilerek doğrulandı.
 
 #### W2 — Sahte beacon olayları insan sayılıyor
 

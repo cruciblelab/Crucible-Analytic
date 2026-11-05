@@ -48,7 +48,11 @@ func healthServer(t *testing.T) (*httptest.Server, *http.Client, *panel.Store) {
 func healthServerTweaked(t *testing.T, tweak func(*Server)) (*httptest.Server, *http.Client, *panel.Store) {
 	t.Helper()
 
-	srv, store := setupTestServer(t)
+	// A one-customer deployment: the page's owner is the owner of every
+	// site, which is who these tests mean. On the shared tables the owner
+	// of healthSite is one customer among every suite's, and the storage,
+	// backup and disk sections are not hers to read (W1c).
+	srv, store := setupSoleTenantServer(t)
 	if tweak != nil {
 		tweak(srv)
 	}

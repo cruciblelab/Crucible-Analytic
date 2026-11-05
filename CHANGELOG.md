@@ -56,6 +56,11 @@ dolu" diye reddedildi), bütün kurulumun satır sayılarını yazan geri
 yükleme raporunu okumak. Geri yükleme canlı veritabanına hiçbir zaman
 yazmıyordu (yalnız yan veritabanına).
 
+Aynı kurulumda tek-site sahibi Sağlık'ın Depolama, Yedek ve Disk
+bölümlerini de artık görmüyor; tanı paketinde de bu bölümler boş gidiyor.
+Hepsi kurulumun toplamını gösteriyordu ve kendi hacmini bilen müşteri
+öbürünün hacmini kabaca çıkarabiliyordu.
+
 ### Kurulum sihirbazının "api çalışıyor mu" kontrolü beacon'a soruyordu
 
 **Kuran kişinin yapması gereken:** `panel.toml`'da `[service_urls]`
