@@ -35,7 +35,7 @@
 # the toolchain differs, and the reason applies here too: a package built
 # with a different Go is not the same package, and the difference shows
 # up as a behaviour change nobody can trace.
-FROM golang:1.26.10-alpine AS build
+FROM golang:1.26.11-alpine AS build
 
 WORKDIR /src
 

@@ -963,7 +963,7 @@ a request would mean collecting more, not less.
 
 ## Running locally
 
-Requires Go 1.26.10+ — the version in `go.mod`, a patch release on
+Requires Go 1.26.11+ — the version in `go.mod`, a patch release on
 purpose: govulncheck finds reachable standard-library vulnerabilities in
 every earlier one it has been run against. An older toolchain does
 not fail at some later feature; it refuses the module outright.

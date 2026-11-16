@@ -25290,3 +25290,28 @@ Düzeltmeler:
   yazıyor.
 - `TestHandoverCreatesAnOwner` `beacon.sites`'ı geri koyuyor; kalıntının
   kaynağı oydu.
+
+## Gecelik, üçüncü kırmızı: üç sebep, biri kalıcı (2026-11-16)
+
+*`main` 5 Kasım'da `6e085a4`'e ileri sarıldı ve gecelik #84–#87 9/9
+yeşildi. #88'den (8 Kasım) #95'e (15 Kasım) her gün kırmızı. Aynı
+commit'in sekiz kırmızısı tek sebep sanılırdı; her koşunun düşen işi
+ayrı okundu ve üç sebep çıktı.*
+
+| gecelik | düşen iş | sebep |
+|---|---|---|
+| #88 (8 Kas) | the fetched datasets | `sapics/ip-location-db` release indirmelerinin altısı HTTP 504 |
+| #89, #90 | the fetched datasets | bot arşivi `tls: bad record MAC` |
+| #91–#95 | govulncheck | GO-2026-6859, `net/http@go1.26.10`, düzeltme 1.26.11 |
+
+İlk ikisi dış kaynağın kesintisi: #91'den beri aynı iş yeşil, ve test
+tam olarak bunu söylemek için var (kaynak kaybolursa kurulum bot
+sinyalini sessizce kaybeder). Kod değişikliği gerektirmiyor.
+
+Üçüncüsü kalıcı ve dalda da aynı: CI'ın kendi `govulncheck` adımı bir
+sonraki push'u da düşürecekti. Yerelde birebir (`go 1.26.10`, 1 ilan,
+47 iz); `go.mod` ve Dockerfile'ın derleme imajı **1.26.11**, sonra **0**
+(çağrılmayan modül açıkları eskisi gibi 21). İmaj Docker Hub'a
+soruldu (`1.26.11-alpine`, 200). Ekim'deki bump'ın aynısı; ders de
+aynı: gecelik kırmızısı "aynı commit, aynı sebep" değildir, iş iş oku.
+

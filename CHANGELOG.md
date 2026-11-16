@@ -24,6 +24,19 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Go 1.26.11 ile derleniyor — `net/http`'te bir açık kapandı
+
+**Kuran kişinin yapması gereken:** bu sürüme geçmek. Şema değişmedi.
+Kaynaktan derliyorsanız Go **1.26.11** gerekiyor (`GOTOOLCHAIN=auto`
+kendisi indirir).
+
+Kod değişmeden, Kasım 2026'da Go 1.26.10'un standart kütüphanesine bir
+güvenlik ilanı yayımlandı (GO-2026-6859: `MaxBytesReader` ile başlıklar
+arasındaki bir yarış HTTP/1 sunucusunu düşürebiliyor) ve `govulncheck`
+ona panelin, beacon'ın ve veri kümesi indirmelerinin kodundan
+ulaşılabildiğini gösterdi. Bu sürümle `govulncheck` yine sıfır buluyor.
+Konteyner imajı da aynı sürümle derleniyor.
+
 ### Birden çok müşterili kurulumda bir sitenin sahibi öbür müşterinin sitesine ulaşabiliyordu
 
 **Kuran kişinin yapması gereken:** tek müşterili kurulumda hiçbir şey.
