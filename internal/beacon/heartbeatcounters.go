@@ -39,6 +39,7 @@ func HeartbeatCounters(s *Server, w writerCounts) map[string]int64 {
 		heartbeat.CounterVerdictTampered:     heartbeat.Count(s.verdicts.tampered.Load()),
 		heartbeat.CounterVerdictOtherAddress: heartbeat.Count(s.verdicts.otherAddress.Load()),
 		heartbeat.CounterVerdictUnchecked:    heartbeat.Count(s.verdicts.unchecked.Load()),
+		heartbeat.CounterRateUntracked:       heartbeat.Count(s.rates.untracked.Load()),
 	}
 	for key, n := range s.RejectionCounters() {
 		out[key] = n

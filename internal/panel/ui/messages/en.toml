@@ -1246,10 +1246,12 @@ cografi_engel = "Turned away by a blocked country or network rule"
 karar_kurcalanmis = "Counted as automated because the collector's verdict did not hold (malformed, signed with another key, or stale)"
 karar_baska_adres = "Counted as automated because the collector's verdict was signed for another address (the beacon's trusted_proxies may not reach the address the collector saw)"
 karar_anahtarsiz = "Collector verdicts the beacon had no key to read (privacy.ip_hash_key differs between the two services)"
+hiz_izlenemeyen = "Not judged for rate because the address table was full (written, counted by the other signals)"
 reddedilen_bilinmeyen_site = "unknown site"
 reddedilen_bozuk = "unreadable request"
 reddedilen_gecersiz = "invalid event"
 reddedilen_kapasite = "over capacity"
+reddedilen_hiz = "event rate from one address (event_rate.drop_*)"
 reddedilen_diger = "other"
 
 [metin.saglik.bilinmeyen_site]

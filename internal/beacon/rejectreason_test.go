@@ -150,6 +150,8 @@ func TestTheHeartbeatCarriesTheReasons(t *testing.T) {
 		heartbeat.CounterVerdictTampered:     0,
 		heartbeat.CounterVerdictOtherAddress: 0,
 		heartbeat.CounterVerdictUnchecked:    0,
+		heartbeat.CounterRejectedRate:        0,
+		heartbeat.CounterRateUntracked:       0,
 	}
 	for key, n := range want {
 		got, present := row[key]

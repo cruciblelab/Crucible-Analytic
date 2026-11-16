@@ -13,6 +13,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
+	"github.com/cruciblelab/crucible-analytic/internal/storage"
 	"github.com/cruciblelab/crucible-analytic/internal/verdict"
 )
 
@@ -40,14 +41,21 @@ func (b *headerBackend) header(t *testing.T, key string) string {
 	return h
 }
 
-// scoreCall is one call the proxy made to Score.
+// scoreCall is one call the proxy made to IdentityScore.
 type scoreCall struct {
-	ip    netip.Addr
-	stats ratestore.WindowStats
-	ja4   string
+	ip  netip.Addr
+	ja4 string
 }
 
 func startVerdictProxy(t *testing.T, key []byte) (addr string, backend *headerBackend, calls func() []scoreCall) {
+	t.Helper()
+	addr, backend, calls, _ = startVerdictProxyWith(t, key, nil)
+	return addr, backend, calls
+}
+
+// startVerdictProxyWith is startVerdictProxy with a last word on the
+// server before it starts, and the rate store it records into.
+func startVerdictProxyWith(t *testing.T, key []byte, edit func(*Server)) (addr string, backend *headerBackend, calls func() []scoreCall, store *ratestore.MemoryRateStore) {
 	t.Helper()
 	backend = &headerBackend{seen: map[string]string{}}
 	be := &http.Server{Handler: backend}
@@ -65,21 +73,26 @@ func startVerdictProxy(t *testing.T, key []byte) (addr string, backend *headerBa
 	if err != nil {
 		t.Fatal(err)
 	}
+	store = ratestore.NewMemoryRateStore(10*time.Second, time.Minute, time.Minute)
+	t.Cleanup(store.Close)
 	srv := &Server{
 		BackendAddr: beLn.Addr().String(),
 		CertFile:    certFile,
 		KeyFile:     keyFile,
-		Store:       ratestore.NewMemoryRateStore(10*time.Second, time.Minute, time.Minute),
+		Store:       store,
 		DialTimeout: 2 * time.Second,
 		VerdictKey:  key,
 		// The score is the call number, so a header can be traced back to
 		// the call that produced it.
-		Score: func(ip netip.Addr, stats ratestore.WindowStats, ja4 string) int {
+		IdentityScore: func(ip netip.Addr, ja4 string) int {
 			mu.Lock()
 			defer mu.Unlock()
-			got = append(got, scoreCall{ip, stats, ja4})
+			got = append(got, scoreCall{ip, ja4})
 			return 60 + len(got)
 		},
+	}
+	if edit != nil {
+		edit(srv)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -92,7 +105,7 @@ func startVerdictProxy(t *testing.T, key []byte) (addr string, backend *headerBa
 		mu.Lock()
 		defer mu.Unlock()
 		return append([]scoreCall(nil), got...)
-	}
+	}, store
 }
 
 func send(t *testing.T, c *http.Client, method, url, forged string) {
@@ -113,8 +126,7 @@ func send(t *testing.T, c *http.Client, method, url, forged string) {
 
 // The visitor's own header never reaches the backend, on any method; a
 // POST arrives carrying the collector's, signed for the visitor's address
-// with the score the collector gave this request - the store's stats for
-// it, not zero.
+// with the identity score the collector gave this request.
 func TestTheProxySignsItsVerdictAndNeverForwardsTheVisitors(t *testing.T) {
 	key := verdict.Key(bytes.Repeat([]byte("k"), privacy.MinHashKeyLen))
 	addr, backend, calls := startVerdictProxy(t, key)
@@ -132,7 +144,7 @@ func TestTheProxySignsItsVerdictAndNeverForwardsTheVisitors(t *testing.T) {
 	}
 	made := calls()
 	if len(made) != 2 {
-		t.Fatalf("Score was called %d times, want 2 (once per POST, never for the GET)", len(made))
+		t.Fatalf("IdentityScore was called %d times, want 2 (once per POST, never for the GET)", len(made))
 	}
 	for i, path := range []string{"POST /_ca/event", "POST /_ca/event2"} {
 		h := backend.header(t, path)
@@ -143,9 +155,8 @@ func TestTheProxySignsItsVerdictAndNeverForwardsTheVisitors(t *testing.T) {
 		if out != verdict.Verified || score != 61+i {
 			t.Errorf("%s: header %q checks as (%d, %v), want (%d, Verified)", path, h, score, out, 61+i)
 		}
-		if made[i].stats.CurrWindowCount != 2+i {
-			t.Errorf("%s: scored with CurrWindowCount %d, want %d - the stats RecordRequest reported for this request",
-				path, made[i].stats.CurrWindowCount, 2+i)
+		if made[i].ip != netip.MustParseAddr("127.0.0.1") {
+			t.Errorf("%s: scored %v, want the visitor's address", path, made[i].ip)
 		}
 	}
 }
@@ -158,6 +169,36 @@ func TestWithoutAKeyTheProxyOnlyRemovesTheHeader(t *testing.T) {
 		t.Errorf("the backend saw %q", h)
 	}
 	if n := len(calls()); n != 0 {
-		t.Errorf("Score was called %d times with no key", n)
+		t.Errorf("IdentityScore was called %d times with no key", n)
+	}
+}
+
+// The rate the store keeps for an address is the collector's own reading
+// and never reaches what it signs: forty requests from one address in a
+// moment - an office, or one person on a page with forty files - are
+// signed exactly as the first one was (W2b, scoring.Result.Identity).
+//
+// Through the real flusher's rule, not a stub's: a stub that ignored the
+// store would pass this whatever the proxy did.
+func TestTheSignedVerdictDoesNotGrowWithTheRate(t *testing.T) {
+	key := verdict.Key(bytes.Repeat([]byte("k"), privacy.MinHashKeyLen))
+	// Every request's fingerprint is a known bot's in this flusher's eyes
+	// except the one this client really has - so the identity part is 0
+	// and whatever the header says above 0 came from the rate.
+	f := &storage.Flusher{KnownBots: map[string]string{"t00d0000h0_000000000000_000000000000": "yok"}}
+	addr, backend, _, store := startVerdictProxyWith(t, key, func(srv *Server) {
+		srv.IdentityScore = f.IdentityScore
+	})
+	c := newInsecureClient()
+	for i := 0; i < 40; i++ {
+		send(t, c, http.MethodGet, "https://"+addr+"/dosya", "")
+	}
+	send(t, c, http.MethodPost, "https://"+addr+"/_ca/event", "")
+	if r := store.Snapshot(time.Time{}, time.Now()); len(r) == 0 || r[0].EstimatedRate < 4 {
+		t.Fatalf("the store holds %+v - the requests were not recorded, so the rate was never there to leak", r)
+	}
+	score, out := verdict.Check(key, backend.header(t, "POST /_ca/event"), netip.MustParseAddr("127.0.0.1"), time.Now())
+	if out != verdict.Verified || score != 0 {
+		t.Errorf("after 41 requests the verdict checks as (%d, %v), want (0, Verified): the rate reached the signature", score, out)
 	}
 }

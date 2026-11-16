@@ -153,3 +153,31 @@ func TestScore_NegativeRateDoesNotGoNegative(t *testing.T) {
 var testKnownBots = KnownBots{
 	"t13d1516h2_8daaf6152771_b186095e22b6": "curl",
 }
+
+// Identity is the fingerprint and the network and never the rate (W2b):
+// a saturated rate adds nothing to it, each of the other two does, and
+// together they are capped like the score. The numbers are written out,
+// not read from the constants they test.
+func TestIdentityLeavesTheRateOut(t *testing.T) {
+	bots := map[string]string{"bot-ja4": "x"}
+	asns := map[int]struct{}{64500: {}}
+	for _, c := range []struct {
+		name string
+		rps  float64
+		ja4  string
+		asn  int
+		want int
+	}{
+		{"a saturated rate alone", 1000, "", 0, 0},
+		{"a known fingerprint", 0, "bot-ja4", 0, 50},
+		{"a known network", 0, "", 64500, 20},
+		{"both, at a saturated rate", 1000, "bot-ja4", 64500, 70},
+	} {
+		if got := Score(c.rps, c.ja4, bots, c.asn, asns).Identity(); got != c.want {
+			t.Errorf("%s: Identity() = %d, want %d", c.name, got, c.want)
+		}
+	}
+	if got := (Result{JA4Score: 90, ASNScore: 90}).Identity(); got != 100 {
+		t.Errorf("Identity() of 90+90 = %d, want the cap 100", got)
+	}
+}

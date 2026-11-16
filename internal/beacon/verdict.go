@@ -18,14 +18,18 @@ import (
 // that failed to check out. Both are excluded from the counts; only one of
 // them is the collector's opinion of the visitor.
 const (
-	// AutoReasonCollector: the collector in front of the site scored this
-	// request at or above scoring.BotCutoff and signed that.
+	// AutoReasonCollector: the collector in front of the site gave this
+	// request's fingerprint and network an identity score at or above
+	// scoring.BotCutoff and signed that.
 	AutoReasonCollector = "collector"
 	// AutoReasonTampered: a verdict header was present and did not hold -
 	// malformed, signed with another key, too old, or signed for another
 	// address. Nobody but the collector writes a header that holds, so a
 	// request carrying one that doesn't is not a browser's.
 	AutoReasonTampered = "tampered"
+	// AutoReasonRate: the address sent events faster than the mark
+	// thresholds of Server.EventRate (W2b).
+	AutoReasonRate = "rate"
 )
 
 // storedAutoReason is the auto_reason column's value: NULL for none.

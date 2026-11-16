@@ -87,15 +87,19 @@ type Server struct {
 	IdleTimeout time.Duration
 	Logger      *slog.Logger
 
-	// VerdictKey and Score sign the collector's opinion of each forwarded
-	// POST onto it, for the beacon behind the site (W2, internal/verdict).
-	// Score is the flusher's ScoreNow in production, so the signed score
-	// and the stored one are one rule. Either nil writes no verdict - but
+	// VerdictKey and IdentityScore sign the collector's opinion of each
+	// forwarded POST onto it, for the beacon behind the site (W2,
+	// internal/verdict). IdentityScore is the flusher's in production, so
+	// the signed score and the stored components are one rule. It takes no
+	// rate: an address's request rate grows with the people behind it and
+	// the files their pages load, and signed onto events it dropped an
+	// office's page views from the dashboard (scoring.Result.Identity).
+	// Either nil writes no verdict - but
 	// a header of that name the visitor sent is removed regardless: the
 	// one guarantee the beacon gets from a collector in front of it is
 	// that whatever arrives under that name, the collector wrote.
-	VerdictKey []byte
-	Score      func(ip netip.Addr, stats ratestore.WindowStats, ja4 string) int
+	VerdictKey    []byte
+	IdentityScore func(ip netip.Addr, ja4 string) int
 
 	// shutdownGrace is ShutdownGrace unless a test set it: a test cannot
 	// spend ten real seconds proving that ten seconds are given.
@@ -333,18 +337,16 @@ func (s *Server) recordingHandler(next http.Handler) http.Handler {
 		// collector forwards under that name is one it wrote.
 		r.Header.Del(verdict.Header)
 
-		var stats ratestore.WindowStats
 		now := time.Now()
 		if decision == limiter.DecisionProceed && haveIP {
-			stats = s.Store.RecordRequest(remoteIP, sc.fingerprint(), now)
+			s.Store.RecordRequest(remoteIP, sc.fingerprint(), now)
 		}
 		// POST only: the beacon's one ingest route is a POST, and every
 		// other request reaches the site's own application, which has no
-		// use for it. A degraded request is still signed - it skipped the
-		// store, so its rate is unknown and scores as nothing, but the
-		// fingerprint and the network still say what they say.
-		if haveIP && r.Method == http.MethodPost && s.VerdictKey != nil && s.Score != nil {
-			score := s.Score(remoteIP, stats, sc.fingerprint())
+		// use for it. A degraded request is signed like any other: what
+		// is signed does not depend on the store it skipped.
+		if haveIP && r.Method == http.MethodPost && s.VerdictKey != nil && s.IdentityScore != nil {
+			score := s.IdentityScore(remoteIP, sc.fingerprint())
 			r.Header.Set(verdict.Header, verdict.Sign(s.VerdictKey, score, now, remoteIP))
 		}
 		next.ServeHTTP(w, r)

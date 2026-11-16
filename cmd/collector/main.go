@@ -614,8 +614,8 @@ func main() {
 			// Full mode refuses to start without a key CanTokenise
 			// accepts, so this is never nil here; the beacon behind the
 			// site checks with the same key (W2, internal/verdict).
-			VerdictKey: beaconverdict.Key(cfg.Privacy.HashKey()),
-			Score:      flusher.ScoreNow,
+			VerdictKey:    beaconverdict.Key(cfg.Privacy.HashKey()),
+			IdentityScore: flusher.IdentityScore,
 		}
 		if lookup != nil {
 			// Same nil-pointer-in-interface guard as flusher.Resolver

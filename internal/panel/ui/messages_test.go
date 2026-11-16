@@ -419,9 +419,11 @@ var (
 		"cografi_engel",
 		// The collector's verdict checks that did not hold (W2).
 		"karar_kurcalanmis", "karar_baska_adres", "karar_anahtarsiz",
+		// The event rate's full address table (W2b).
+		"hiz_izlenemeyen",
 		// The beacon's refusals by reason, drawn under "reddedilen".
 		"reddedilen_bilinmeyen_site", "reddedilen_bozuk", "reddedilen_gecersiz",
-		"reddedilen_kapasite", "reddedilen_diger",
+		"reddedilen_kapasite", "reddedilen_hiz", "reddedilen_diger",
 	}
 	healthTables = []string{
 		"traffic_snapshots", "beacon_events", "ip_asn_ranges", "ip_country_ranges",

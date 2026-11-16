@@ -187,22 +187,22 @@ func (f *Flusher) knownBotASNs() map[int]struct{} {
 	return f.KnownBotASNs
 }
 
-// ScoreNow is the score this collector would write for ip, asked at the
-// moment of one request rather than at the next flush (W2).
+// IdentityScore is what this collector's scoring says about ip and ja4
+// without the request rate: scoring.Result.Identity, asked at the moment
+// of one request (W2).
 //
 // It reads the very inputs a flush reads - the known-bot fingerprints,
 // the resolver's ASN and the live known-bot ASN list - so the verdict the
-// full proxy signs onto a forwarded request and the score this flusher
-// later writes for the same address are one rule, not two that agree
-// today. The difference between them is only time: the rate is the one
-// the store reported for this request, which a flush will see again as a
-// higher one if the address keeps going.
-func (f *Flusher) ScoreNow(ip netip.Addr, stats ratestore.WindowStats, ja4 string) int {
+// full proxy signs onto a forwarded request and the components this
+// flusher later writes for the same address are one rule, not two that
+// agree today. The rate is left out on purpose; see Identity for what it
+// cost when it was not.
+func (f *Flusher) IdentityScore(ip netip.Addr, ja4 string) int {
 	var asn int
 	if f.Resolver != nil {
 		asn = f.Resolver.Resolve(ip).ASN
 	}
-	return scoring.Score(stats.EstimatedRate, ja4, f.KnownBots, asn, f.knownBotASNs()).Score
+	return scoring.Score(0, ja4, f.KnownBots, asn, f.knownBotASNs()).Identity()
 }
 
 // flushTimeout bounds a write that has been detached from cancellation.

@@ -13,7 +13,7 @@ import (
 // Every full proxy that is built signs its verdict (W2).
 //
 // The verdict is wired in main: a fullproxy.Server literal given a
-// VerdictKey and the flusher's ScoreNow. Leave either field out and every
+// VerdictKey and the flusher's IdentityScore. Leave either field out and every
 // functional test still passes - the proxy's tests build their own
 // Server, the beacon's tests sign their own headers - while every
 // deployment forwards events with no verdict and the dashboard counts the
@@ -22,11 +22,27 @@ import (
 // it was missing.
 //
 // The rule, from the tree: outside tests, every composite literal of
-// fullproxy.Server sets both VerdictKey and Score.
+// fullproxy.Server sets both VerdictKey and IdentityScore.
+//
+// And the same for the beacon's half (W2b): every beacon.Server sets
+// EventRate. Its zero value judges nothing, which is what every beacon
+// test builds - so a main that left the field out would pass them all
+// and count every flood as people.
 func TestEveryFullProxySignsItsVerdict(t *testing.T) {
+	rules := []struct {
+		pkg    string
+		fields []string
+		why    string
+	}{
+		{"fullproxy", []string{"VerdictKey", "IdentityScore"}, "every event it forwards " +
+			"reaches the beacon with no verdict, and the dashboard counts what the " +
+			"collector already judged automated (W2)"},
+		{"beacon", []string{"EventRate"}, "it judges no address's event rate, and a flood " +
+			"is counted as people and written to the customer's disk (W2b)"},
+	}
 	root := repoRootFromInvariants(t)
 	fset := token.NewFileSet()
-	var built int
+	built := map[string]int{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -54,23 +70,28 @@ func TestEveryFullProxySignsItsVerdict(t *testing.T) {
 			if !ok || sel.Sel.Name != "Server" {
 				return true
 			}
-			if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "fullproxy" {
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok {
 				return true
 			}
-			built++
-			set := map[string]bool{}
-			for _, e := range lit.Elts {
-				if kv, ok := e.(*ast.KeyValueExpr); ok {
-					if k, ok := kv.Key.(*ast.Ident); ok {
-						set[k.Name] = true
+			for _, rule := range rules {
+				if pkg.Name != rule.pkg {
+					continue
+				}
+				built[rule.pkg]++
+				set := map[string]bool{}
+				for _, e := range lit.Elts {
+					if kv, ok := e.(*ast.KeyValueExpr); ok {
+						if k, ok := kv.Key.(*ast.Ident); ok {
+							set[k.Name] = true
+						}
 					}
 				}
-			}
-			for _, field := range []string{"VerdictKey", "Score"} {
-				if !set[field] {
-					t.Errorf("%s builds a fullproxy.Server without %s: every event it forwards "+
-						"reaches the beacon with no verdict, and the dashboard counts what the "+
-						"collector already judged automated (W2)", fset.Position(lit.Pos()), field)
+				for _, field := range rule.fields {
+					if !set[field] {
+						t.Errorf("%s builds a %s.Server without %s: %s",
+							fset.Position(lit.Pos()), rule.pkg, field, rule.why)
+					}
 				}
 			}
 			return true
@@ -80,7 +101,9 @@ func TestEveryFullProxySignsItsVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if built == 0 {
-		t.Fatal("found no fullproxy.Server literal outside tests; this check has stopped checking anything")
+	for _, rule := range rules {
+		if built[rule.pkg] == 0 {
+			t.Errorf("found no %s.Server literal outside tests; this check has stopped checking anything", rule.pkg)
+		}
 	}
 }

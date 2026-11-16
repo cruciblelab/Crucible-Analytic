@@ -48,6 +48,10 @@ var exportRules = map[string]ExportRule{
 	// in the proxy's one warning, the remote address it could not parse.
 	KeyPeer: ExportAddress,
 	"addr":  ExportAddress,
+	// network is the masked network of an address over the beacon's
+	// event-rate drop threshold (W2b): already masked when written, and
+	// masked again on the way out like any address.
+	"network": ExportAddress,
 
 	// Everything else the tree writes: errors, counts, identifiers of
 	// requests, backups and settings, versions, sizes, timings, and the
@@ -58,6 +62,7 @@ var exportRules = map[string]ExportRule{
 	"accepted":  ExportKept, "action": ExportKept, "actions": ExportKept,
 	"actor_kind": ExportKept, "after_days": ExportKept, "asn": ExportKept,
 	"asns": ExportKept, "attempted_rows": ExportKept, "available": ExportKept,
+	"drop_burst": ExportKept, "drop_per_minute": ExportKept,
 	"backend": ExportKept, "backup": ExportKept, "base": ExportKept,
 	"base_url": ExportKept, "breakdown": ExportKept, "buckets": ExportKept,
 	"build": ExportKept, "by": ExportKept, "bytes": ExportKept, "card": ExportKept,

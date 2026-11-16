@@ -660,12 +660,22 @@ country, ASN and visitor ID.
   that runs JavaScript and admits to being a bot is the most interesting
   row in the table, not noise. Filter on the column when you want humans.
 - **The collector's verdict travels with the event** (`auto_reason`). In
-  full-proxy mode the collector signs its bot score for each forwarded
-  POST into an `X-Crucible-Verdict` header (HMAC under a key derived from
-  the file setting `ip_hash_key`, covering the score, the time and the visitor's
-  address). The beacon checks it and stores `collector` for a score at or
-  above the bot cutoff, `tampered` for a header that does not hold, and
-  NULL when there was none. `bots=exclude` - the default, and what the
+  full-proxy mode the collector signs the identity part of its bot score
+  - TLS fingerprint and network, never the request rate - for each
+  forwarded POST into an `X-Crucible-Verdict` header (HMAC under a key
+  derived from the file setting `ip_hash_key`, covering the score, the
+  time and the visitor's address). The beacon checks it and stores
+  `collector` for a score at or above the bot cutoff, `tampered` for a
+  header that does not hold, and NULL when there was none.
+- **An address that sends too fast is marked, then refused**
+  (`[event_rate]`). The beacon keeps each address's event rate in memory
+  (an IPv6 address by its /64) over 100 ms and over one minute. Over 50
+  per 100 ms or 15,000 a minute an event is stored with
+  `auto_reason = 'rate'`; over 200 per 100 ms or 30,000 a minute it is not
+  stored and is counted as refused for rate. The defaults were measured
+  with a real browser and the real snippet: the fastest single person sent
+  3 and 277, thirty people behind one office address 10 and 1,327, a curl
+  forger about 218 and 305. `bots=exclude` - the default, and what the
   panel reads - leaves out `is_bot_ua OR auto_reason IS NOT NULL`;
   `/beacon/summary` reports how many it left out as `automated_events`,
   and `/beacon/raw` carries each event's `auto_reason`. Nothing is deleted.

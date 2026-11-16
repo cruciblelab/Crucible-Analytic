@@ -1113,11 +1113,11 @@ func TestStore_RealTimescaleDB_CountriesTakeTheMostRecentInsideTheRange(t *testi
 }
 
 // W2: an event is left out of the counts when its User-Agent names a
-// bot, when the collector signed a bot verdict onto it, and when a
-// verdict header did not hold - and the summary says how many it left
+// bot, when the collector signed a bot verdict onto it, when a verdict
+// header did not hold, and when its address sent too fast (W2b) - and the summary says how many it left
 // out, under every filter, so the dashboard can name the number.
 //
-// Four visitors, each its own population, with page paths that name
+// Five visitors, each its own population, with page paths that name
 // them: a breakdown that let one population through would show its path.
 func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
 	const site = "w2-otomatik"
@@ -1132,6 +1132,7 @@ func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
 		{site: site, visitor: "collector-bot", at: at(4), path: "/collector", autoReason: "collector"},
 		{site: site, visitor: "collector-bot", at: at(5), path: "/collector", autoReason: "collector"},
 		{site: site, visitor: "kurcalanmis", at: at(6), path: "/kurcalanmis", autoReason: "tampered"},
+		{site: site, visitor: "sel", at: at(7), path: "/sel", autoReason: "rate"},
 	}
 	store := seedBeacon(t, rows)
 	ctx := context.Background()
@@ -1143,8 +1144,8 @@ func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
 		visitors  int
 	}{
 		{BotsExclude, 3, 1},
-		{BotsOnly, 4, 3},
-		{BotsInclude, 7, 4},
+		{BotsOnly, 5, 4},
+		{BotsInclude, 8, 5},
 	} {
 		sum, err := store.BeaconSummary(ctx, site, from, to, c.bots, campaignFilter{})
 		if err != nil {
@@ -1156,8 +1157,8 @@ func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
 		}
 		// The same under every filter: it is what the default one
 		// leaves out, not what this one shows.
-		if sum.AutomatedEvents != 4 {
-			t.Errorf("bots=%s: automated_events = %d, want 4", c.bots, sum.AutomatedEvents)
+		if sum.AutomatedEvents != 5 {
+			t.Errorf("bots=%s: automated_events = %d, want 5", c.bots, sum.AutomatedEvents)
 		}
 	}
 
@@ -1177,14 +1178,14 @@ func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if total != 4 {
-		t.Fatalf("raw bots=only total = %d, want 4", total)
+	if total != 5 {
+		t.Fatalf("raw bots=only total = %d, want 5", total)
 	}
 	reasons := map[string]string{}
 	for _, e := range events {
 		reasons[e.VisitorID] = e.AutoReason
 	}
-	for visitor, want := range map[string]string{"ua-bot": "", "collector-bot": "collector", "kurcalanmis": "tampered"} {
+	for visitor, want := range map[string]string{"ua-bot": "", "collector-bot": "collector", "kurcalanmis": "tampered", "sel": "rate"} {
 		if got := reasons[visitor]; got != want {
 			t.Errorf("raw auto_reason for %s = %q, want %q", visitor, got, want)
 		}

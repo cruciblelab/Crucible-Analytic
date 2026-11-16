@@ -25450,3 +25450,178 @@ mutasyonun kusuruydu; düzeltilip yeniden koşuldu.
 - Geçiş kipinde ve collector'sız beacon'da karar yok (W2b).
 - İnsan hızında süren gerçek tarayıcı motoru (R grubu).
 - İşaretleme geriye dönük değil.
+
+## Sahte beacon olayları — W2b (2026-11-16)
+
+W2a'nın kapatamadığı yol: collector'ın görmediği kurulumlar (geçiş kipi,
+collector'sız beacon) ve tarayıcı kimliği döndüren sel. Plan iki eşikti,
+adres başına: alttaki işaretler, üstteki yazdırmaz. Eşikler ölçülerek
+konacaktı ve onları koyan simülasyon ile sınayan senaryolar ayrı olacaktı.
+
+### Eşik koyan ölçüm W2a'da bir kusur buldu
+
+Ölçüm düzeneği W2a ikilileriyle (`ace28bb`) canlıydı. "En hızlı insan"
+simülasyonu (`$SP/w2/hizli-insan.mjs`) gerçek Chromium'la, gerçek
+snippet'le, collector'ın arkasından koştu. Senaryolar:
+- galeriyi `pushState` ile saniyede 5 tıklamayla çeviren kişi;
+- kaydırma derinliği ve SSS açılışlarında olay basan rehber sayfası;
+- ikisini durmadan art arda yapan kişi;
+- tek adresin arkasında hızlı gezinen 10 ve 30 kişilik ofis.
+
+30 kişilik ofisin 2.317 olayının **2.290'ı** `auto_reason = 'collector'`
+ile yazıldı. W2b'nin bir satırı yazılmadan önce W2a o ofisi panodan
+silmişti.
+
+Sebep collector'ın hız bileşeni. Adresten gelen her isteği sayıyor:
+sayfa, betik, görseller, beacon POST'ları. Ayrıca 10,7 istek/sn'de tek
+başına 50 puana ulaşıyor (`rateScoreSaturationRPS = 15`, 70 puan). Bu sayı
+adresin arkasındaki kişi sayısıyla da sayfadaki dosya sayısıyla da
+büyüyor. Collector'ın kendi tablolarında yıllardır böyleydi ve oradaki
+bedeli "bot adresi" sayısında. W2a onu bir sayfa görüntülemesinin
+sayılıp sayılmayacağına çevirdi; bedel müşterinin panosu oldu.
+
+Düzeltme: imzalanan şey `scoring.Result.Identity`, yani JA4 + ASN. Collector
+artık `Flusher.IdentityScore` soruyor ve `fullproxy.Server`'ın alanının adı
+da `IdentityScore` (bilerek: alan artık "puan" değil). Sahteci bundan
+etkilenmiyor. R1'den beri bilinen bir JA4 tek başına 50 veriyor, ve
+collector önündeki 305 sahte olayın 305'i "sonra"da da `collector`. Hız
+kararını beacon olaylardan veriyor. Olay, bir kişinin davranışının
+ölçülebildiği birim; sayfanın kaç dosyası olduğundan bağımsız.
+
+Testler:
+- `scoring.TestIdentityLeavesTheRateOut`: doymuş hız 0 ekliyor.
+- `storage.TestIdentityScoreIsTheFlushsScoreWithoutTheRate`: hızsız
+  flush'la aynı sayı, hızlı flush'ın altında.
+- `fullproxy.TestTheSignedVerdictDoesNotGrowWithTheRate`: gerçek
+  flusher'ın kuralıyla, 41 istekten sonra imza 0.
+
+### Neden iki pencere, neden 100 ms
+
+Kayıtlı gönderim anlarından (adres başına, herhangi bir pencerede en çok
+olay):
+
+| | 100 ms | 1 sn | 60 sn |
+|---|---|---|---|
+| En hızlı tek kişi | 3 | 9 | 277 |
+| 10 kişilik ofis | 8 | 15 | 458 |
+| 30 kişilik ofis | 10 | 35 | 1.327 |
+| `curl` sahtecisi (305 olay, 0,14 sn) | ~218 | ~285 | 305 |
+
+Kalabalığın olayları dağınık geliyor, betiğinki arka arkaya. 100 ms'de
+ayrım 22 kat, 1 sn'de 8 kat, 60 sn'de ofis sahtecinin dört katı. Kısa
+pencere tek başına yetmiyor: eşiğin hemen altında hızlanan bir sel bütün
+gün geçerdi. Dakika penceresi sürekli hızı tutuyor.
+
+### İki tur
+
+**Birinci tur** pencereyi 1 sn koydu: işaret 100/sn ve 3.000/dk, yazmama
+1.000/sn ve 30.000/dk. Sınama senaryoları ayrı yazıldı
+(`$SP/w2/w2b-sinama.mjs`, `$SP/w2/olc-w2b.py`):
+- 90 insan;
+- 40 kişilik karışık ofis;
+- galeride geri/ileri tuşlarına basan kişi;
+- collector önünde ve collector'sız sahteci;
+- UA döndüren sel;
+- /64 içinde dönen sel;
+- saniyede 2 olay gönderen yavaş sahteci.
+
+40 kişilik sınama ofisi saniyede 66 olay üretti; eşik koyan ofis kişi
+başına 0,73, bu 1,65. 8.411 olayının **5.413'ü** `rate` diye işaretlendi
+(dakika tepesi 4.351 > 3.000). Eşik koyan simülasyon kalabalığın
+yoğunluğunu az temsil etmişti.
+
+**İkinci tur.** Sınama ofisinin sonucuna bakıp eşiği onun üstüne çekmek,
+sınama verisiyle ayar yapmak olurdu. Eşikler yalnız eşik koyan veriden
+kondu ve karar sınama ofisinin 100 ms tepesine bakılmadan önce not
+alanına yazıldı (`$SP/w2/tasarim.md`):
+- patlama penceresi 100 ms, işaret 50 (ofis-30'un 5 katı);
+- dakika işareti 15.000: "hepsi en hızlı kişi kadar hızlı 50 kişi",
+  50 × 277;
+- yazmama 200 / 30.000.
+
+Yazmama eşiklerini birinci turun sel sonuçlarından sonra bir kez daha
+düşündüm. Dakikada 60.000 olsaydı 3.400/sn'lik /64 seli 12 saniye boyunca
+tümüyle yazılırdı. Yazmama eşiği saldırı verisinden konabilir; insan
+verisi işaret eşiğinin konusu.
+
+İkinci turdan önce, eşikleri hiç görmemiş yeni bir sınama senaryosu
+eklendi: 60 kişilik alışveriş ağırlıklı ofis, saniyede ~109 olay.
+
+| Senaryo | Önce | 1. tur | 2. tur |
+|---|---|---|---|
+| 90 insan | 0 | 0 | 0 / 297 |
+| 40 kişilik ofis | 7.871 / 8.370 `collector` | 5.413 / 8.411 `rate` | 0 / 8.511 |
+| 60 kişilik ofis | — | — | 0 / 13.715 |
+| Geri/ileri kişi | 0 | 0 | 0 / 179 |
+| Sahteci, collector önünde | 305 `collector` | 305 | 305 |
+| Sahteci, collector'sız | 305 sayıldı | 205 `rate`, 100 sızdı | 193 `rate`, 62 yazılmadı, 50 sızdı |
+| UA döndüren sel (3.000, 0,9 sn) | 3.000 sayıldı | 900 / 2.000 yazılmadı / 100 | 176 / 2.774 / 50 |
+| /64 seli (40.000, ~3.400/sn) | 40.000 yazıldı | 1.018 yazıldı | 205 yazıldı |
+| Yavaş sahteci (2/sn, 120) | 120 sayıldı | 120 | 120 |
+
+### Kalp atışı, ve okuyuşumun kusuru
+
+İkinci turun kalp atışı `reddedilen_hiz` 29.661 okudu; gözlenen 429'lar
+42.631'di. Kabul sayısı ise birebir tutuyordu (23.801). Sebep okuma
+anıydı: kalp atışı dakikada bir yazılıyor. Son satır selin ortasındaydı
+(13:10:35.9; sel 13:10:28.9–13:10:40.5); kabul edilenler selin ilk
+milisaniyelerinde geldiği için tamdı, retler yarımdı. 12 saniyelik
+beklemem bir sonraki kalp atışına yetmiyordu. Birinci turda tutması
+zamanlama şansıydı.
+
+Varsayım olarak bırakılmadı: sel tek başına koşturuldu ve sayaç 70 sn
+sonra okundu. 39.770 ret = `reddedilen_hiz` 39.770, kabul 230 = 230.
+*Bir betiğin sonunda okunan durum, ara durumu göstermez* (B3d-1'in
+dersi), ve kalp atışı aralığı da bir ara durumdur.
+
+### Diğer kararlar
+
+- **Anahtar:** IPv4'te tam adres, IPv6'da /64. Tam adres anahtarlı IPv6
+  saldırgana 2^64 yeni adres verirdi. Unmap ilk iş: `::ffff:` adresi
+  `Is6()` der, /64'ü bütün IPv4 uzayı olurdu.
+- **Tablo tavanı 50.000:** dolu tablo 50.000 IPv6 /64 ile ölçüldü, 7,8 MB,
+  adres başına 156 bayt (`TestTheRateTableStaysInItsBudget`). Dolunca yeni
+  adres değerlendirilmiyor ama yazılıyor: tablonun dolması sunucunun
+  sınırı, ziyaretçinin değil.
+- **Süpürme satır içinde**, 30 saniyede bir, kilit altında: `Server`'ın
+  goroutine durduracak bir `Close`'u yok.
+- **Duraklatmadan sonra, ziyaretçi kimliğinden önce:** duraklatılan
+  sitenin olayı hız değil; yazılmayacak olay en az işle reddediliyor.
+- **Düşürmenin günlüğü sel başına bir satır**, maskeli ağla. Olay başına
+  satır seli günlüğe taşırdı; adres de bu tablonun yazmamak için var
+  olduğu tek şey.
+- **Hız yüzünden işaretlenen olayın Sağlık sayacı yok.** W2a'nın
+  doğrulanan kararlar için kuralı: o sayı ziyaretçilere dair bir sayı,
+  Sağlık ziyaretçi sayısı taşımıyor. Pano ve `/beacon/raw` gösteriyor.
+  Yazılmayanlar bir ret; öbür `reddedilen_*` sayaçları gibi Sağlık'ta.
+- **Okuma tarafı değişmedi:** `automatedEvent` `auto_reason IS NOT NULL`
+  diyor, `'rate'` kendiliğinden kapsanıyor. API testi üçüncü nedeni
+  tohumluyor ki "her tür" adına uysun.
+
+### Mutasyonlar
+
+35 mutasyon, 35'i kırmızı (`$SP/w2/mutasyon-w2b.py`). İkisi ilk turda sağ
+kaldı ve ikisi de testin kusuruydu:
+- **Dolu tabloda yeni adres yine değerlendiriliyor.** Test yeni adresi bir
+  kez gönderiyordu; tek olay hiçbir eşiği aşmaz. Artık iki kez gönderiyor
+  ve tablonun büyümediğini soruyor.
+- **Süpürme her adresi siliyor.** Test "adres tabloda mı" diye soruyordu;
+  silinen adres bir sonraki olayla yeniden ekleniyor ve tabloda görünüyor.
+  Sorulması gereken sayının korunmasıydı: süpürmeye denk gelen üç olayın
+  üçüncüsü dakika eşiğini aşmalı.
+
+Bir mutasyonu da ben yanlış yazmıştım (`if true` → `st` kullanılmaz,
+derlenmedi); `|| true` ile yeniden yazıldı.
+
+### Dersler
+
+- *Bir eşiği koyan ölçüm, eşiğin dayandığı bir öncekini de ölçer.* W2b'nin
+  ilk ölçümü W2a'nın kararını sınadı ve kusurunu buldu; W2a'nın kendi
+  ölçümünde ofis yoktu.
+- *Eşik koyan simülasyonun eksikliği, sınama senaryosunun ayrı olmasıyla
+  görünür.* Aynı ofisle sınasaydım birinci tur geçerdi.
+- *Sınama sonucunu görünce eşiği oraya çekmek, sınamayı eşik koymaya
+  çevirmektir.* İkinci tur kararını sınama verisine bakmadan yazdım ve
+  görülmemiş bir senaryo ekledim.
+- *Pencere genişliği bir ayar değil bir ölçüm sorusudur:* aynı veride 1 sn
+  ayrımı 8 kat, 100 ms 22 kat.

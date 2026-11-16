@@ -154,6 +154,32 @@ func Score(estimatedRPS float64, ja4 string, knownBots map[string]string, asn in
 	}
 }
 
+// Identity is the part of the score that says what the client is - its
+// fingerprint and its network - and not how much its address asked.
+//
+// # Why a part of the score has its own name (W2b)
+//
+// The rate component counts every request from an address: every person
+// behind it and every file their pages load. Measured on the live rig
+// (2026-11-16): thirty people browsing from one office address scored
+// past BotCutoff on rate alone, and once the collector signed that score
+// onto the beacon's events (W2a), 2,290 of the office's 2,317 page views
+// left the dashboard as automated. The collector's own tables have always
+// carried that reading; a page view the customer's dashboard drops is a
+// different cost.
+//
+// So what the collector tells the beacon is this part. How fast an
+// address sends *events* - the unit a person's behaviour can be measured
+// in, independent of how many files a page has - the beacon judges
+// itself, against thresholds measured for it.
+func (r Result) Identity() int {
+	n := r.JA4Score + r.ASNScore
+	if n > MaxScore {
+		return MaxScore
+	}
+	return n
+}
+
 func rateComponent(rps float64) int {
 	if rps <= 0 {
 		return 0

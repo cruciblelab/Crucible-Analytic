@@ -211,6 +211,7 @@ func main() {
 		Campaign:       cfg.Campaign.Policy(),
 		IPMode:         cfg.Privacy.IPMode(),
 		IPHashKey:      cfg.Privacy.HashKey(),
+		EventRate:      cfg.EventRate.Limits(),
 		Logger:         logger,
 	}
 	if lookup != nil {

@@ -109,6 +109,26 @@ flush_interval_seconds = 2
 # overload_policy = "fail_open"
 # throttle_queue_size = 0
 
+# How many events one address may send (an IPv6 address: its /64) before
+# they are counted as automated, and before they are not written at all.
+# Marked events are stored with auto_reason 'rate' and left out of the
+# dashboard's counts; dropped ones are refused and counted under Health's
+# "Rejected". Unset or 0 is the default shown; a negative number turns that
+# one limit off. A drop must be above its own window's mark.
+#
+# The burst limits count events in any 100 ms: a crowd's events arrive
+# spread out, a script's back to back. Measured with a real browser and the
+# real snippet: the fastest one person sent 3 in 100 ms and 277 in a minute,
+# thirty people browsing fast behind one office address 10 and 1,327, a curl
+# forger about 218 and 305. Raise the minute mark where more than about fifty
+# people share an address and are on the site at once - a university, a
+# mobile network's shared addresses.
+[event_rate]
+# mark_burst = 50
+# mark_per_minute = 15000
+# drop_burst = 200
+# drop_per_minute = 30000
+
 # Country/ASN enrichment of beacon events. OFF by default, and that is the
 # recommendation whenever a collector runs on the same host: it already
 # resolves and stores country/ASN for every IP it sees, and every beacon

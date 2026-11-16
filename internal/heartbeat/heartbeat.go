@@ -128,6 +128,11 @@ const (
 	// beacon, or the beacon has none. The events were stored as their
 	// User-Agent says, the verdict unread.
 	CounterVerdictUnchecked = "karar_anahtarsiz"
+	// CounterRateUntracked is events the beacon did not judge for rate
+	// because its table of addresses was full (W2b). A limit of this
+	// server, drawn only when it moved: the events were written and
+	// counted as their other signals say.
+	CounterRateUntracked = "hiz_izlenemeyen"
 
 	// The beacon's refusals, by reason. CounterRejected is their sum,
 	// and the beacon derives it from them rather than counting it a
@@ -150,6 +155,10 @@ const (
 	CounterRejectedInvalid = "reddedilen_gecersiz"
 	// CounterRejectedOverCapacity is requests the limiter refused.
 	CounterRejectedOverCapacity = "reddedilen_kapasite"
+	// CounterRejectedRate is events not written because their address sent
+	// faster than the beacon's drop thresholds (W2b) - a flood, or a
+	// threshold set below what that address's people really send.
+	CounterRejectedRate = "reddedilen_hiz"
 	// CounterRejectedOther is every refusal live traffic cannot produce:
 	// an address that did not resolve, which TCP cannot deliver, and a
 	// visitor id the system randomness could not salt, which
@@ -171,6 +180,7 @@ var RejectionCounters = []string{
 	CounterRejectedMalformed,
 	CounterRejectedInvalid,
 	CounterRejectedOverCapacity,
+	CounterRejectedRate,
 	CounterRejectedOther,
 }
 

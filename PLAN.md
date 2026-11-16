@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **1/4** | W1 ✅; W2–W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **2/4** | W1 ✅, W2 ✅; W3–W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11005,7 +11005,7 @@ systemd'de ayrıca ölçülecek. Z7 bu üst üste binmeyi olağan akıştan
 
 ---
 
-### W grubu — Yanıltmayan panel 🟡 **1/4** *(2026-11-04, canlı denemeden)*
+### W grubu — Yanıltmayan panel 🟡 **2/4** *(2026-11-04, canlı denemeden)*
 
 *Sahip, canlı denemenin raporundan sonra: "Sahte olayların sayılması
 sıkıntı, yanıltıcı, saymamalıyız. Başka sunucu diğer sunucuyu
@@ -11229,7 +11229,7 @@ yazıp geri koymuyordu. Düzeltmeler:
 site kurularak koşturuldu, 0 kırmızı. Zehrin etkili olduğu, düzeltilmemiş
 bir kurulumla kırmızı (zehirsiz yeşil) verdiği gösterilerek doğrulandı.
 
-#### W2 — Sahte beacon olayları insan sayılıyor
+#### W2 — Sahte beacon olayları insan sayılıyor ✅ **yapıldı (2026-11-16)**
 
 **Ölçülen (2026-11-03):** OVH'den (51.75.10.10) curl ile `/_ca/event`'e
 303 sahte sayfa görüntülemesi gönderildi. Panonun gösterdikleri:
@@ -11318,6 +11318,7 @@ sayılır. Collector varsa JA4'ü onu yakalar.
   - ziyaretçinin gönderdiği başlığı her istekte siliyor;
   - POST'lara puanını imzalıyor;
   - puan `Flusher.ScoreNow`'dan geliyor, yani yazılan puanla aynı kural.
+    *(W2b'de kimlik puanına indi: `Flusher.IdentityScore`, hız yok.)*
 - Beacon:
   - `beacon_events.auto_reason`: `collector` ya da `tampered`;
   - üç Sağlık sayacı: `karar_kurcalanmis`, `karar_baska_adres`,
@@ -11346,8 +11347,56 @@ Canlı düzenekte, aynı 90 insan oturumu ve aynı sahteciyle, önce → sonra:
 - Kalan tek fazla olay, beacon'a başlıksız giden sahte olay. W2b'nin
   konusu.
 
-**Açık, W2b:** collector'ın göremediği yol, yani geçiş kipi ve
-collector'sız beacon. Adres başına iki eşik ölçülerek konacak.
+##### W2b — Beacon'ın olay hızı, ve imzadan çıkan hız ✅ **yapıldı (2026-11-16)**
+
+(b) katmanı. Ayrıntı NOTES "Sahte beacon olayları — W2b".
+
+**Ölçüm W2a'da bir kusur buldu.** Eşikleri koymak için tek adresin arkasında
+30 kişilik bir ofis koşturuldu. W2a ikilileriyle 2.317 olayının 2.290'ı
+`collector` diye işaretlendi. Collector'ın hız bileşeni adresten gelen her
+isteği sayıyor ve 10,7 istek/sn'de tek başına 50 puana ulaşıyor. Bu sayı
+adresin arkasındaki kişi sayısıyla ve sayfadaki dosya sayısıyla büyüyor;
+W2a onu sayfa görüntülemesini dışlayan karara çevirmişti.
+- `scoring.Result.Identity` (JA4 + ASN, tavanlı) ve `Flusher.IdentityScore`.
+- `fullproxy.Server.IdentityScore`: imzaya hız girmiyor.
+- Collector'ın kendi puanı ve tabloları değişmedi.
+
+**Beacon'ın olay hızı:**
+- adres başına (IPv6'da /64) iki pencere: 100 ms ve 1 dakika;
+- `internal/ratestore.Counter`, `MemoryRateStore` ile aynı aritmetik;
+- işaret `auto_reason = 'rate'`, yazmama 429 + `reddedilen_hiz`;
+- en çok 50.000 adres (ölçüldü 7,8 MB), dolunca `hiz_izlenemeyen`;
+- `[event_rate]`: `mark_burst = 50`, `mark_per_minute = 15000`,
+  `drop_burst = 200`, `drop_per_minute = 30000`.
+
+**İki tur.** İlk tur pencereyi 1 sn, eşikleri 100 / 3.000 koydu. Ayrı
+yazılmış 40 kişilik sınama ofisinin (66 olay/sn) 8.411 olayının 5.413'ü
+işaretlendi. Eşik koyan verinin 100 ms tepeleri ofisi sahteciden 22 kat
+ayırıyordu (1 sn'de 8). İkinci turun eşikleri yalnız eşik koyan veriden,
+sınama ofisinin 100 ms tepesine bakılmadan kondu; karar not alanına önce
+yazıldı. Sonra yeni bir sınama senaryosu (60 kişi) eklendi.
+
+| Senaryo (canlı düzenek) | Önce (`ace28bb`) | 1. tur | 2. tur |
+|---|---|---|---|
+| 90 insan | 0 işaretli | 0 | 0 |
+| 40 kişilik ofis, tek adres | **7.871 / 8.370 işaretli** | **5.413 / 8.411** | 0 / 8.511 |
+| 60 kişilik ofis (yalnız 2. tur) | — | — | 0 / 13.715 |
+| Galeride geri/ileri kişi | 0 | 0 | 0 |
+| Sahteci, collector önünde | 305 `collector` | 305 | 305 |
+| Sahteci, collector'sız (305) | 305 sayıldı | 100 sızdı | **50 sızdı**, 62 yazılmadı |
+| UA döndüren sel (3.000) | 3.000 sayıldı | 100 sızdı, 2.000 yazılmadı | 50 sızdı, 2.774 yazılmadı |
+| /64 seli (40.000, 3.400/sn) | 40.000 yazıldı | 1.018 yazıldı | **205 yazıldı** |
+| Yavaş sahteci (2/sn) | 120 sayıldı | 120 | 120 (bilinen sınır) |
+
+- Kalp atışı: tek başına koşturulan selde 39.770 ret = `reddedilen_hiz`
+  39.770; düşürme günlüğü sel başına bir satır.
+- 35 mutasyon, 35'i kırmızı (`$SP/w2/mutasyon-w2b.py`); ikisi ancak testler
+  güçlendirildikten sonra.
+
+**Bilinen sınırlar:** eşiğin altında kalan betik collector'sız kurulumda
+sayılıyor; patlamanın ilk 50 olayı sızıyor; aynı adresteki saldırgan
+insanların olaylarını da işaretletebilir; 50 kişiden fazlasının aynı anda
+aynı adresten geldiği siteler `mark_per_minute`'i yükseltmeli.
 
 #### W3 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
 

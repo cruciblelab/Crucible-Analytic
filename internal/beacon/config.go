@@ -51,6 +51,7 @@ type Config struct {
 	AllowedOrigins []string        `toml:"allowed_origins"`
 	Buffer         BufferConfig    `toml:"buffer"`
 	Limits         LimitsConfig    `toml:"limits"`
+	EventRate      EventRateConfig `toml:"event_rate"`
 	ASNLookup      ASNLookupConfig `toml:"asn_lookup"`
 	Campaign       CampaignConfig  `toml:"campaign"`
 	Privacy        PrivacyConfig   `toml:"privacy"`
@@ -185,6 +186,45 @@ type LimitsConfig struct {
 	ThrottleQueueSize     int    `toml:"throttle_queue_size"`
 }
 
+// EventRateConfig is the [event_rate] section: the per-address thresholds
+// of EventRateLimits, in events. Unset or 0 takes DefaultEventRate's
+// value; a negative number turns that one limit off - the convention
+// retention.compress_after_days uses.
+//
+// Raise the marks where many people share one address and the site is
+// busy enough for them to be on it at once - a university, a large
+// office, a mobile network's shared addresses. Health's rate refusals,
+// under "Rejected", are the sign the drops are too low; the dashboard's
+// count of automated events, against what the site's own logs say, is
+// the sign the marks are.
+type EventRateConfig struct {
+	// MarkBurst and DropBurst count events in any 100 ms.
+	MarkBurst     int `toml:"mark_burst"`
+	MarkPerMinute int `toml:"mark_per_minute"`
+	DropBurst     int `toml:"drop_burst"`
+	DropPerMinute int `toml:"drop_per_minute"`
+}
+
+// Limits resolves the section against DefaultEventRate.
+func (c EventRateConfig) Limits() EventRateLimits {
+	pick := func(v, def int) int {
+		switch {
+		case v < 0:
+			return 0
+		case v == 0:
+			return def
+		}
+		return v
+	}
+	d := DefaultEventRate
+	return EventRateLimits{
+		MarkBurst:     pick(c.MarkBurst, d.MarkBurst),
+		MarkPerMinute: pick(c.MarkPerMinute, d.MarkPerMinute),
+		DropBurst:     pick(c.DropBurst, d.DropBurst),
+		DropPerMinute: pick(c.DropPerMinute, d.DropPerMinute),
+	}
+}
+
 // ASNLookupConfig controls country/ASN enrichment of beacon events.
 //
 // Off by default, and that default is the recommendation whenever a
@@ -289,6 +329,20 @@ func (c Config) validate() error {
 	}
 	if _, err := logging.ParseLevel(c.Logging.Level); err != nil {
 		return fmt.Errorf("beacon: %w", err)
+	}
+	// A drop at or under its mark means the mark never applies: every
+	// event over it is dropped first. Refused, because the file says two
+	// things and the beacon would do one of them silently.
+	l := c.EventRate.Limits()
+	for _, w := range []struct {
+		name       string
+		mark, drop int
+	}{{"burst", l.MarkBurst, l.DropBurst}, {"per_minute", l.MarkPerMinute, l.DropPerMinute}} {
+		if w.mark > 0 && w.drop > 0 && w.drop <= w.mark {
+			return fmt.Errorf("beacon: event_rate.drop_%s is %d, not above mark_%s %d - "+
+				"no event would ever be marked, every one over the mark would be dropped",
+				w.name, w.drop, w.name, w.mark)
+		}
 	}
 	// Both privacy checks mirror the collector's, and they are here
 	// because they were not: the collector refused these files and this

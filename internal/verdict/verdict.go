@@ -25,6 +25,15 @@
 // MAC means a header copied from one visitor's request does not hold on
 // another's; the time bounds how long one holds at all.
 //
+// # Which score
+//
+// The identity part of the collector's score - fingerprint and network,
+// scoring.Result.Identity - and not its request rate. The first version
+// signed the whole score, and thirty people browsing from one office
+// address crossed the cutoff on rate alone: 2,290 of their 2,317 page
+// views were marked automated (measured 2026-11-16, W2b). How fast an
+// address sends events is the beacon's own judgment, in events.
+//
 // # What the outcomes mean
 //
 // Only Verified carries a score. Everything else that was present is a

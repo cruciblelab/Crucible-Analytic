@@ -354,6 +354,7 @@ var healthCounterOrder = []string{
 	heartbeat.CounterVerdictTampered,
 	heartbeat.CounterVerdictOtherAddress,
 	heartbeat.CounterVerdictUnchecked,
+	heartbeat.CounterRateUntracked,
 	heartbeat.CounterErrors,
 	heartbeat.CounterDeadline,
 	heartbeat.CounterLogLost,
@@ -687,6 +688,11 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 		// And the collector's verdict (W2): a deployment that is wired
 		// right reports three zeros forever.
 		if verdictCounter[key] && value == 0 {
+			continue
+		}
+		// And the event rate's full table (W2b): a limit of the beacon
+		// that a deployment may never reach.
+		if key == heartbeat.CounterRateUntracked && value == 0 {
 			continue
 		}
 		c := healthCounter{

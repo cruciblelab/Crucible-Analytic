@@ -31,7 +31,9 @@ ise bütün kurulumları** ilgilendiriyor.
 collector ile beacon'da **aynı** `privacy.ip_hash_key`. Beacon'ın
 `trusted_proxies`'i collector'ın ve web sunucusunun adresini kapsamalı;
 kapsamıyorsa Sistem sağlığı bunu söyler (KURULUM §6, "Collector'ın
-kararı").
+kararı"). Çok kişinin tek adresi paylaştığı büyük siteler beacon'ın
+`[event_rate]` eşiklerini yükseltmeli (KURULUM §6, "Tek adresten gelen
+olay hızı").
 
 Canlı denemede tek bir adresten curl ile gönderilen 303 sahte sayfa
 görüntülemesi insan sayılıyordu:
@@ -41,8 +43,9 @@ görüntülemesi insan sayılıyordu:
 
 Collector o adrese zaten 74 puan vermişti ama beacon bunu bilmiyordu.
 
-Artık tam vekil kipindeki collector, ilettiği her POST'a puanını imzalı
-bir başlıkla ekliyor. Beacon imzayı doğruluyor:
+Artık tam vekil kipindeki collector, ilettiği her POST'a **kimlik
+puanını** (TLS parmak izi ve ağ; istek hızı değil) imzalı bir başlıkla
+ekliyor. Beacon imzayı doğruluyor:
 - bot diyen kararı ve tutmayan başlığı olayın yanına yazıyor;
 - pano bu olayları sayılara katmıyor;
 - pano kaç olayı dışarıda bıraktığını sayfanın üstünde yazıyor.
@@ -58,11 +61,31 @@ Aynı canlı düzenekte, aynı 90 insan oturumu ve aynı sahteciyle:
 | ikinci-site görüntüleme | 84 | 85 | 84 |
 
 canli-deneme'deki tek fazla olay, collector'ı atlayıp beacon'a başlıksız
-giden bir sahte olaydır ve "bilinmiyor" sayılır. Collector'ı olmayan
-kurulumlar için beacon'ın adres başına hız tavanı ayrı bir fazdır.
+giden bir sahte olaydır ve "bilinmiyor" sayılır.
 
 İnsanların hiçbir olayı işaretlenmedi. Yükseltmeden önce yazılmış olaylar
 geriye dönük işaretlenmez.
+
+**İmzaya hız neden girmiyor:** ilk hâlde collector bütün puanını
+imzalıyordu. Tek adresin arkasında hızlı gezinen 30 kişilik bir ofisin
+2.317 olayının 2.290'ı otomatik sayıldı. Collector'ın hız bileşeni
+adresten gelen her isteği sayıyor; adresin arkasındaki kişi sayısıyla da
+sayfadaki dosya sayısıyla da büyüyor. Bu puan collector'ın kendi
+tablolarında eskisi gibi duruyor; sayfa görüntülemesini dışlayan karara
+artık girmiyor.
+
+**Beacon'ın kendi hız eşikleri.** Collector'ın göremediği kurulumlar (geçiş
+kipi, collector'sız beacon) ve tarayıcı kimliği döndüren sel için beacon
+her adresin (IPv6'da /64'ün) olay hızını bellekte tutuyor:
+- 100 ms'de 50'yi ya da bir dakikada 15.000'i aşan olay
+  `auto_reason = 'rate'` ile yazılıyor ve sayılmıyor;
+- 100 ms'de 200'ü ya da bir dakikada 30.000'i aşan olay hiç yazılmıyor,
+  Sağlık'ta "Reddedilen" altında sayılıyor.
+
+Eşikler gerçek tarayıcıyla ölçülerek kondu (100 ms / dakika): en hızlı
+tek kişi 3/277, 30 kişilik ofis 10/1.327, `curl` sahtecisi ~218/305.
+`beacon.toml`'un `[event_rate]` bölümünden değiştirilebilir. Eşiğin
+altında gönderen bir betik collector'ı olmayan kurulumda yine sayılır.
 
 ### Go 1.26.11 ile derleniyor — `net/http`'te bir açık kapandı
 

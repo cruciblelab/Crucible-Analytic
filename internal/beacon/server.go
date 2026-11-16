@@ -191,7 +191,12 @@ type Server struct {
 	// identifiers, which is DefaultCampaignPolicy - so a Server built
 	// without setting this behaves safely rather than storing nothing.
 	Campaign CampaignPolicy
-	Logger   *slog.Logger
+	// EventRate is how many events one address may send before they are
+	// marked automated, and before they are not written (W2b). The zero
+	// value judges nothing; main.go sets the file's limits, which default
+	// to DefaultEventRate.
+	EventRate EventRateLimits
+	Logger    *slog.Logger
 	// Now supplies event timestamps; nil means time.Now.
 	Now func() time.Time
 
@@ -222,6 +227,9 @@ type Server struct {
 	verdictKeyOnce  sync.Once
 	verdictKeyBytes []byte
 	verdicts        verdictCounts
+
+	// rates is each address's event rate, in memory only (W2b).
+	rates eventRates
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -312,6 +320,7 @@ func (s *Server) RejectionCounters() map[string]int64 {
 		heartbeat.CounterRejectedMalformed:    heartbeat.Count(s.rejected[rejectMalformed].Load()),
 		heartbeat.CounterRejectedInvalid:      heartbeat.Count(s.rejected[rejectInvalid].Load()),
 		heartbeat.CounterRejectedOverCapacity: heartbeat.Count(s.rejected[rejectOverCapacity].Load()),
+		heartbeat.CounterRejectedRate:         heartbeat.Count(s.rejected[rejectRate].Load()),
 		heartbeat.CounterRejectedOther:        heartbeat.Count(s.rejected[rejectOther].Load()),
 	}
 }
@@ -482,6 +491,20 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// How fast this address is sending (W2b). After the pause, so a paused
+	// site's events are not a rate; before the visitor id and the lookups,
+	// so a flood over the drop threshold costs as little as it can.
+	now := s.now()
+	rate := s.judgeRate(ip, now)
+	if rate == rateDrop {
+		s.rejected[rejectRate].Add(1)
+		// No log line per event: a flood would write one per event.
+		// judgeRate logs the moment an address starts being dropped.
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "too many events from this address")
+		return
+	}
+
 	userAgent := r.Header.Get("User-Agent")
 	visitorID, err := s.visitors().ID(event.Site, ip, userAgent)
 	if err != nil {
@@ -506,8 +529,13 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	// resolved - the same address the collector signed, when both see
 	// the visitor alike. Never from the payload: the body is the
 	// visitor's, the header is the collector's.
-	now := s.now()
+	//
+	// The verdict's reason first: it says more than the rate does, and the
+	// column holds one.
 	autoReason := s.judgeVerdict(r, ip, now)
+	if autoReason == "" && rate == rateMark {
+		autoReason = AutoReasonRate
+	}
 
 	mode := s.ipMode()
 	row := BuildRow(event, Enrichment{
@@ -591,6 +619,8 @@ const (
 	rejectMalformed
 	rejectInvalid
 	rejectOverCapacity
+	// rejectRate is events from an address over a drop threshold (W2b).
+	rejectRate
 	// rejectOther is the refusals live traffic cannot produce; see
 	// heartbeat.CounterRejectedOther for why they share one counter.
 	rejectOther

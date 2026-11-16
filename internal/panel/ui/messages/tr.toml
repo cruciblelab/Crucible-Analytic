@@ -1293,12 +1293,14 @@ cografi_engel = "Engellenen ülke ya da ağ kuralıyla geri çevrilen"
 karar_kurcalanmis = "Collector kararı tutmadığı için otomatik sayılan (bozuk, başka anahtarla imzalı ya da eski)"
 karar_baska_adres = "Collector kararı başka bir adres için imzalı olduğundan otomatik sayılan (beacon.trusted_proxies collector'ın gördüğü adrese ulaşmıyor olabilir)"
 karar_anahtarsiz = "Collector kararı gelip beacon anahtarı olmadığı için okunmayan (iki serviste privacy.ip_hash_key aynı değil)"
+hiz_izlenemeyen = "Adres tablosu dolu olduğu için hızına bakılamayan (yazıldı, öbür sinyallere göre sayıldı)"
 # Reddedilenlerin sebepleri: "Reddedilen" satırının altına, yalnız
 # gerçekleşenler çizilir.
 reddedilen_bilinmeyen_site = "bilinmeyen site"
 reddedilen_bozuk = "okunamayan istek"
 reddedilen_gecersiz = "geçersiz olay"
 reddedilen_kapasite = "kapasite dolu"
+reddedilen_hiz = "tek adresten gelen olay hızı (event_rate.drop_*)"
 reddedilen_diger = "diğer"
 
 [metin.saglik.bilinmeyen_site]

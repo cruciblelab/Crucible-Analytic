@@ -1077,12 +1077,18 @@ geri düşüş katmanı.
 
 Collector **tam vekil kipindeyse** (`mode = "full"`), sitenin web
 sunucusuna ilettiği her POST'a imzalı bir başlık ekler:
-`X-Crucible-Verdict`. Başlık, collector'ın o isteğe verdiği bot puanını,
-zamanı ve ziyaretçinin adresini taşır. İmza dosyadaki `ip_hash_key`'den bu
+`X-Crucible-Verdict`. Başlık, collector'ın o isteğin **kimliğine** verdiği
+puanı, zamanı ve ziyaretçinin adresini taşır. Kimlik puanı TLS parmak izi
+(JA4) ile ağdan (ASN) oluşur, **istek hızını içermez**. Adres başına istek
+hızı adresin arkasındaki kişi sayısıyla ve sayfadaki dosya sayısıyla
+büyür. İlk hâlde hız da imzalanıyordu ve tek adresteki 30 kişilik bir
+ofisin 2.317 olayının 2.290'ı otomatik sayıldı. Hızın kararını beacon
+olaylardan kendisi veriyor; aşağıdaki "Tek adresten gelen olay hızı"
+bölümüne bakın. İmza dosyadaki `ip_hash_key`'den bu
 iş için türetilen ayrı bir anahtarla atılır. Beacon imzayı doğrular:
 
-- Puan bot eşiğinin (50) üstündeyse olay `auto_reason = 'collector'` ile
-  yazılır.
+- Kimlik puanı bot eşiğinde (50) ya da üstündeyse olay
+  `auto_reason = 'collector'` ile yazılır.
 - İmza tutmuyorsa olay `auto_reason = 'tampered'` ile yazılır. Başlık
   bozuksa, başka anahtarla imzalıysa, beş dakikadan eskiyse ya da başka
   bir adres için imzalıysa imza tutmaz.
@@ -1116,9 +1122,78 @@ Bunun çalışması için iki şart var, ikisini de Sistem sağlığı gösterir
 - **Gerçek bir tarayıcı motorunu insan hızında süren otomasyon** ayırt
   edilemez (R grubu).
 
-İlk iki durum için beacon'ın adres başına hız tavanı ayrı bir fazdır
-(W2b). Karar, yazıldığı andan itibaren işler; **yükseltmeden önce yazılmış
-olaylar geriye dönük işaretlenmez.**
+İlk iki durum için beacon'ın kendi hız eşikleri var (aşağıda). Karar,
+yazıldığı andan itibaren işler; **yükseltmeden önce yazılmış olaylar
+geriye dönük işaretlenmez.**
+
+### Tek adresten gelen olay hızı (W2b)
+
+Beacon her adresin (IPv6'da /64'ün) olay hızını bellekte tutar. Adres diske
+yazılmaz. İki pencere ve iki eşik vardır:
+
+| | 100 ms'de | 1 dakikada | Sonuç |
+|---|---|---|---|
+| İşaretleme (varsayılan) | 50 | 15.000 | Olay `auto_reason = 'rate'` ile yazılır, panoda sayılmaz |
+| Yazmama (varsayılan) | 200 | 30.000 | Olay yazılmaz; Sağlık'ta "Reddedilen → tek adresten gelen olay hızı" |
+
+İki pencerenin her biri tek başına yeter: 100 ms'de 50'yi aşan da,
+dakikada 15.000'i aşan da işaretlenir.
+
+Eşikler gerçek bir tarayıcıyla, gerçek snippet'le ölçülerek kondu (adres
+başına, herhangi bir pencerede en çok olay):
+
+| | 100 ms | 1 sn | 60 sn |
+|---|---|---|---|
+| En hızlı tek kişi (galeriyi saniyede 5 tıklamayla çeviren) | 3 | 9 | 277 |
+| Tek ofis adresinin arkasında hızlı gezinen 30 kişi | 10 | 35 | 1.327 |
+| `curl` ile 305 sahte olay (0,14 saniyede) | ~218 | ~285 | 305 |
+
+Kalabalığın olayları dağınık gelir, bir betiğinki arka arkaya. Pencere
+kısaldıkça fark büyür: 100 ms'de 22 kat, bir saniyede 8 kat. Bir dakikada
+ise ofis sahtecinin dört katını gönderir. Dakikalık pencere, kısa eşiğin
+hemen altında gönderen sürekli seli tutar. Dakika eşiği "hepsi en hızlı
+kişi kadar hızlı 50 kişi"dir (50 × 277).
+
+İlk denemede pencere bir saniyeydi ve eşikler 100 / 3.000'di. Daha yoğun
+gezinen 40 kişilik bir sınama ofisinin (saniyede 66 olay) 8.411 olayının
+5.413'ü işaretlendi. Bu yüzden değişti.
+
+Eşikler `beacon.toml`'da değiştirilebilir:
+
+```toml
+[event_rate]
+mark_burst = 50
+mark_per_minute = 15000
+drop_burst = 200
+drop_per_minute = 30000
+```
+
+- Yazılmayan ya da 0 olan değer varsayılanı alır.
+- Negatif değer o eşiği kapatır.
+- Bir pencerenin yazmama eşiği kendi işaretleme eşiğinin üstünde olmalı;
+  değilse beacon başlamaz.
+
+**Ne zaman yükseltmeli:** çok kişinin tek adresi paylaştığı ve aynı anda
+sitede olduğu yerler: üniversite, büyük ofis, mobil operatörün paylaşılan
+adresleri. İşaret yanlışsa bunu pano söyler: "otomatik sayılan" olay sayısı
+sitenin kendi günlükleriyle tutmuyorsa işaretleme eşiği düşüktür. Sağlık'ta
+hız yüzünden reddedilen olay görünüyorsa yazmama eşiği düşük olabilir.
+İşaretlenen olay silinmez, `bots=only` ile görünür; eşiği yükseltmek
+geçmişteki işareti kaldırmaz.
+
+**Bellek:** beacon en çok 50.000 adres tutar; dolu tablo ölçüldü, 7,8 MB.
+Tablo doluysa yeni adresin hızına bakılmaz, olay yazılır ve Sağlık'ta
+"Adres tablosu dolu olduğu için hızına bakılamayan" sayacı görünür. İki
+dakika sessiz kalan adres tablodan silinir.
+
+**Bilinen sınırlar:**
+- **Eşiğin altında kalan sahteci** ayırt edilemez. Olaylarını aralıklı ve
+  dakikada 15.000'den az gönderen bir betik, collector'ı olmayan kurulumda
+  insan sayılır. Collector varsa JA4 parmak izi onu çoğunlukla yakalar.
+- **Bir patlamanın ilk 50 olayı** işaretlenmez; eşik aşıldıktan sonrası
+  işaretlenir.
+- **Aynı adresi paylaşan bir saldırgan**, o adresteki insanların olaylarını
+  da işaretletebilir. Adres başına her sınırın bedeli budur.
 
 ### `timezone` — yalnız görüntü değil, günün tanımı
 
