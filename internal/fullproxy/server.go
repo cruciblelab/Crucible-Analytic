@@ -33,6 +33,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/ja4"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
+	"github.com/cruciblelab/crucible-analytic/internal/verdict"
 )
 
 // Resolver resolves an IP to country/ASN info for GeoBlocklist checks.
@@ -85,6 +86,16 @@ type Server struct {
 	// sit with no request in flight. Defaults to defaultIdleTimeout if <= 0.
 	IdleTimeout time.Duration
 	Logger      *slog.Logger
+
+	// VerdictKey and Score sign the collector's opinion of each forwarded
+	// POST onto it, for the beacon behind the site (W2, internal/verdict).
+	// Score is the flusher's ScoreNow in production, so the signed score
+	// and the stored one are one rule. Either nil writes no verdict - but
+	// a header of that name the visitor sent is removed regardless: the
+	// one guarantee the beacon gets from a collector in front of it is
+	// that whatever arrives under that name, the collector wrote.
+	VerdictKey []byte
+	Score      func(ip netip.Addr, stats ratestore.WindowStats, ja4 string) int
 
 	// shutdownGrace is ShutdownGrace unless a test set it: a test cannot
 	// spend ten real seconds proving that ten seconds are given.
@@ -317,8 +328,24 @@ func (s *Server) recordingHandler(next http.Handler) http.Handler {
 			return
 		}
 
+		// Whatever the visitor sent under the verdict's name goes, on
+		// every request and before anything is written: a header the
+		// collector forwards under that name is one it wrote.
+		r.Header.Del(verdict.Header)
+
+		var stats ratestore.WindowStats
+		now := time.Now()
 		if decision == limiter.DecisionProceed && haveIP {
-			s.Store.RecordRequest(remoteIP, sc.fingerprint(), time.Now())
+			stats = s.Store.RecordRequest(remoteIP, sc.fingerprint(), now)
+		}
+		// POST only: the beacon's one ingest route is a POST, and every
+		// other request reaches the site's own application, which has no
+		// use for it. A degraded request is still signed - it skipped the
+		// store, so its rate is unknown and scores as nothing, but the
+		// fingerprint and the network still say what they say.
+		if haveIP && r.Method == http.MethodPost && s.VerdictKey != nil && s.Score != nil {
+			score := s.Score(remoteIP, stats, sc.fingerprint())
+			r.Header.Set(verdict.Header, verdict.Sign(s.VerdictKey, score, now, remoteIP))
 		}
 		next.ServeHTTP(w, r)
 	})

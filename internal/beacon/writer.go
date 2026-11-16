@@ -49,7 +49,7 @@ var columns = []string{
 	colIP, colIPHash, "browser", "os", "device", "is_bot_ua",
 	"screen_w", "screen_h", "language", "country", "asn", "asn_org",
 	"utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-	"ref", "click_source", "click_id",
+	"ref", "click_source", "click_id", "auto_reason",
 }
 
 // Writer buffers rows in memory and batch-writes them with COPY.
@@ -310,7 +310,7 @@ func (w *Writer) WriteRows(ctx context.Context, rows []Row) (int64, error) {
 			r.ScreenW, r.ScreenH, r.Language, r.Country, r.ASN, r.ASNOrg,
 			r.Campaign.Source, r.Campaign.Medium, r.Campaign.Name,
 			r.Campaign.Term, r.Campaign.Content, r.Campaign.Ref,
-			r.Campaign.ClickIDSource, r.Campaign.ClickID,
+			r.Campaign.ClickIDSource, r.Campaign.ClickID, r.storedAutoReason(),
 		}, nil
 	}))
 	if err != nil {

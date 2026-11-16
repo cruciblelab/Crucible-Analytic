@@ -11307,6 +11307,48 @@ insan hızında süren otomasyon ayrılamaz (R grubunun sınırı). Ayrıca tek 
 sahte olay, hız tavanının altında kalan bir curl isteği, collector yoksa
 sayılır. Collector varsa JA4'ü onu yakalar.
 
+##### W2a — Collector'ın imzalı kararı ✅ **yapıldı (2026-11-16)**
+
+(a) ve (c) katmanları. Ayrıntı NOTES "Sahte beacon olayları — W2a".
+
+- `internal/verdict`: başlığın biçimi, anahtarı ve denetimi. Anahtar
+  `privacy.ip_hash_key`'den bu amaç için türetiliyor. MAC şunları
+  kapsıyor: puan, zaman (±5 dk) ve adres.
+- Collector (`fullproxy`):
+  - ziyaretçinin gönderdiği başlığı her istekte siliyor;
+  - POST'lara puanını imzalıyor;
+  - puan `Flusher.ScoreNow`'dan geliyor, yani yazılan puanla aynı kural.
+- Beacon:
+  - `beacon_events.auto_reason`: `collector` ya da `tampered`;
+  - üç Sağlık sayacı: `karar_kurcalanmis`, `karar_baska_adres`,
+    `karar_anahtarsiz`.
+- Okuma:
+  - tek ifade: `automatedEvent = is_bot_ua OR auto_reason IS NOT NULL`;
+  - `/beacon/summary` `automated_events`'i taşıyor, `/beacon/raw` da
+    `auto_reason`'ı;
+  - pano dışladığını yazıyor.
+- Şema 24'e girdi (karar 6).
+- Ana bağlama yapısal testte (`verdictwiring_test.go`).
+- 28 mutasyon, 28'i kırmızı.
+
+Canlı düzenekte, aynı 90 insan oturumu ve aynı sahteciyle, önce → sonra:
+
+| | Gerçek | Önce | Sonra |
+|---|---|---|---|
+| canli-deneme görüntüleme | 189 | 496 | 190 |
+| ikinci-site görüntüleme | 84 | 85 | 84 |
+
+- OVH'nin 305 olayının 305'i `collector` diye işaretlendi.
+- Üç başlık senaryosunun üçü de `tampered`: elle yazılmış, başka adresten
+  ve eski başlık.
+- İnsanların hiçbir olayı işaretlenmedi.
+- Ülkeler'de insanların sayıları önce ve sonra birebir aynı.
+- Kalan tek fazla olay, beacon'a başlıksız giden sahte olay. W2b'nin
+  konusu.
+
+**Açık, W2b:** collector'ın göremediği yol, yani geçiş kipi ve
+collector'sız beacon. Adres başına iki eşik ölçülerek konacak.
+
 #### W3 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
 
 **Ölçülen (2026-11-03):** `service_heartbeat`'in anahtarı yalnız rol adı

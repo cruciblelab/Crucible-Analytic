@@ -35,6 +35,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 	"github.com/cruciblelab/crucible-analytic/internal/settings"
 	"github.com/cruciblelab/crucible-analytic/internal/storage"
+	beaconverdict "github.com/cruciblelab/crucible-analytic/internal/verdict"
 )
 
 // proxyServer is implemented by both proxy.Server (passthrough) and
@@ -610,6 +611,11 @@ func main() {
 			Limiter:     lim,
 			DialTimeout: cfg.Network.DialTimeout(),
 			Logger:      logger,
+			// Full mode refuses to start without a key CanTokenise
+			// accepts, so this is never nil here; the beacon behind the
+			// site checks with the same key (W2, internal/verdict).
+			VerdictKey: beaconverdict.Key(cfg.Privacy.HashKey()),
+			Score:      flusher.ScoreNow,
 		}
 		if lookup != nil {
 			// Same nil-pointer-in-interface guard as flusher.Resolver

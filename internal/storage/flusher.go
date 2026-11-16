@@ -3,12 +3,14 @@ package storage
 import (
 	"context"
 	"log/slog"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/ratestore"
+	"github.com/cruciblelab/crucible-analytic/internal/scoring"
 )
 
 // RowWriter persists rows to durable storage. *Writer implements this;
@@ -183,6 +185,24 @@ func (f *Flusher) knownBotASNs() map[int]struct{} {
 		return *live
 	}
 	return f.KnownBotASNs
+}
+
+// ScoreNow is the score this collector would write for ip, asked at the
+// moment of one request rather than at the next flush (W2).
+//
+// It reads the very inputs a flush reads - the known-bot fingerprints,
+// the resolver's ASN and the live known-bot ASN list - so the verdict the
+// full proxy signs onto a forwarded request and the score this flusher
+// later writes for the same address are one rule, not two that agree
+// today. The difference between them is only time: the rate is the one
+// the store reported for this request, which a flush will see again as a
+// higher one if the address keeps going.
+func (f *Flusher) ScoreNow(ip netip.Addr, stats ratestore.WindowStats, ja4 string) int {
+	var asn int
+	if f.Resolver != nil {
+		asn = f.Resolver.Resolve(ip).ASN
+	}
+	return scoring.Score(stats.EstimatedRate, ja4, f.KnownBots, asn, f.knownBotASNs()).Score
 }
 
 // flushTimeout bounds a write that has been detached from cancellation.

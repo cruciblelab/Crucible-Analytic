@@ -15,14 +15,54 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 
 **Şema sürümü: 24.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Yeni iki tablo ekleniyor (aşağıdaki
-"Uzun aralıklarda ziyaretçi sayısı" maddesi) ve `service_heartbeat`'e
-bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi);
+"Uzun aralıklarda ziyaretçi sayısı" maddesi), `service_heartbeat`'e
+bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi) ve
+`beacon_events`'e bir sütun (aşağıdaki "Sahte olaylar" maddesi);
 var olan verinin hiçbiri yeniden yazılmıyor, servis durmuyor. Sütun
 eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmış parça
 üzerinde **0 bayt** değişiklik, 519 ms.
 **v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
+
+### Sahte beacon olayları artık insan sayılmıyor (collector'ın imzalı kararı)
+
+**Kuran kişinin yapması gereken:** şema yükseltmesi (24, yukarıda) ve
+collector ile beacon'da **aynı** `privacy.ip_hash_key`. Beacon'ın
+`trusted_proxies`'i collector'ın ve web sunucusunun adresini kapsamalı;
+kapsamıyorsa Sistem sağlığı bunu söyler (KURULUM §6, "Collector'ın
+kararı").
+
+Canlı denemede tek bir adresten curl ile gönderilen 303 sahte sayfa
+görüntülemesi insan sayılıyordu:
+- pano 189 yerine **496** görüntüleme gösterdi;
+- Ülkeler'de FR 312'ye çıktı;
+- aynı açıktan öbür müşterinin sitesine de olay yazılabildi.
+
+Collector o adrese zaten 74 puan vermişti ama beacon bunu bilmiyordu.
+
+Artık tam vekil kipindeki collector, ilettiği her POST'a puanını imzalı
+bir başlıkla ekliyor. Beacon imzayı doğruluyor:
+- bot diyen kararı ve tutmayan başlığı olayın yanına yazıyor;
+- pano bu olayları sayılara katmıyor;
+- pano kaç olayı dışarıda bıraktığını sayfanın üstünde yazıyor.
+
+Hiçbir olay silinmiyor: API'de `bots=only`, ham dışa aktarımda
+`auto_reason`.
+
+Aynı canlı düzenekte, aynı 90 insan oturumu ve aynı sahteciyle:
+
+| | Gerçek | Önce | Sonra |
+|---|---|---|---|
+| canli-deneme görüntüleme | 189 | 496 | 190 |
+| ikinci-site görüntüleme | 84 | 85 | 84 |
+
+canli-deneme'deki tek fazla olay, collector'ı atlayıp beacon'a başlıksız
+giden bir sahte olaydır ve "bilinmiyor" sayılır. Collector'ı olmayan
+kurulumlar için beacon'ın adres başına hız tavanı ayrı bir fazdır.
+
+İnsanların hiçbir olayı işaretlenmedi. Yükseltmeden önce yazılmış olaylar
+geriye dönük işaretlenmez.
 
 ### Go 1.26.11 ile derleniyor — `net/http`'te bir açık kapandı
 

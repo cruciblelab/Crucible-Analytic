@@ -42,6 +42,8 @@ type beaconRow struct {
 	query    string
 	device   string
 	country  string
+	// autoReason is beacon_events.auto_reason (W2); empty writes NULL.
+	autoReason string
 }
 
 // seedBeacon writes beacon events for a site inside the range the page
@@ -64,11 +66,13 @@ func seedBeacon(t *testing.T, site string, when time.Time, rows []beaconRow) {
 		_, err := pool.Exec(context.Background(), `
 			INSERT INTO beacon_events
 			  (time, site_id, visitor_id, event_type, event_name, path,
-			   utm_source, query, referrer_host, ip, device, country, is_bot_ua)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false)`,
+			   utm_source, query, referrer_host, ip, device, country, is_bot_ua,
+			   auto_reason)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false,
+			        NULLIF($13, ''))`,
 			when.Add(time.Duration(i)*time.Minute), site, row.visitor,
 			row.kind, row.name, row.path, row.utmSrc, row.query, row.referrer,
-			"198.51.100.20", row.device, row.country,
+			"198.51.100.20", row.device, row.country, row.autoReason,
 		)
 		if err != nil {
 			t.Fatalf("seeding beacon row %d: %v", i, err)

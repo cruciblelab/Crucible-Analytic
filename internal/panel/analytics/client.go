@@ -188,6 +188,10 @@ type BeaconSummary struct {
 	Events    int `json:"events"`
 	Visitors  int `json:"visitors"`
 	Sessions  int `json:"sessions"`
+	// AutomatedEvents is how many events in the range the figures above
+	// leave out as automated (W2); the dashboard says so when it is not
+	// zero.
+	AutomatedEvents int `json:"automated_events"`
 
 	BounceRate        float64 `json:"bounce_rate"`
 	PagesPerSession   float64 `json:"pages_per_session"`

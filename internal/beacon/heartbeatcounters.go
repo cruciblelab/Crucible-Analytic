@@ -34,6 +34,11 @@ func HeartbeatCounters(s *Server, w writerCounts) map[string]int64 {
 		// Always, zero included: its presence is how the panel knows this
 		// build honours a pause.
 		heartbeat.CounterPaused: heartbeat.Count(s.Held()),
+		// Always, zero included, like the pause: present means this
+		// build checks the collector's verdict (W2).
+		heartbeat.CounterVerdictTampered:     heartbeat.Count(s.verdicts.tampered.Load()),
+		heartbeat.CounterVerdictOtherAddress: heartbeat.Count(s.verdicts.otherAddress.Load()),
+		heartbeat.CounterVerdictUnchecked:    heartbeat.Count(s.verdicts.unchecked.Load()),
 	}
 	for key, n := range s.RejectionCounters() {
 		out[key] = n

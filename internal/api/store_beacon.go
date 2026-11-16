@@ -26,8 +26,8 @@ const sessionTimeout = "30 minutes"
 // Every predicate is written against a bound parameter rather than
 // string-built, so nothing about it depends on request text reaching the
 // SQL. Reading the bots line: 'include' passes everything; otherwise the
-// row is kept exactly when its is_bot_ua matches whether the caller asked
-// for 'only'. Reading the campaign lines: an empty string means "no filter on this
+// row is kept exactly when automatedEvent matches whether the caller
+// asked for 'only'. Reading the campaign lines: an empty string means "no filter on this
 // dimension", which is why an empty utm_source cannot be filtered *for* -
 // see beaconParams.
 //
@@ -42,12 +42,32 @@ const beaconFilterCTE = `
 	WITH filtered AS (
 	    SELECT *
 	    FROM beacon_events
-	    WHERE site_id = $1 AND time >= $2 AND time < $3
-	      AND ($4::text = 'include' OR ($4::text = 'only') = is_bot_ua)
+	    WHERE ` + beaconScope + `
+	      AND ($4::text = 'include' OR ($4::text = 'only') = ` + automatedEvent + `)
+	)`
+
+// beaconScope is the site, range and campaign part of beaconFilterCTE,
+// without the bots line: the population the bot filter divides.
+const beaconScope = `site_id = $1 AND time >= $2 AND time < $3
 	      AND ($5::text = '' OR utm_source = $5::text)
 	      AND ($6::text = '' OR utm_medium = $6::text)
-	      AND ($7::text = '' OR utm_campaign = $7::text)
-	)`
+	      AND ($7::text = '' OR utm_campaign = $7::text)`
+
+// automatedEvent is the one definition of an event the counts leave out
+// (W2). Two things say so, and either is enough:
+//
+//   - is_bot_ua: the event's own User-Agent names a bot. The visitor's
+//     claim, which only an honest bot makes.
+//   - auto_reason: the server's verdict, never the payload's - the
+//     collector in front of the site signed a score at or above the bot
+//     cutoff onto the request, or a verdict header arrived that did not
+//     hold (internal/verdict). Measured before this existed: 303 page
+//     views from one curl were counted as people while the collector had
+//     already scored the address 74.
+//
+// One expression, so the filter, the excluded count the dashboard prints
+// and anything else that asks "automated?" cannot come to disagree.
+const automatedEvent = `(is_bot_ua OR auto_reason IS NOT NULL)`
 
 // sessionCTEs sessionizes `filtered` into `sessions`, one row per event
 // tagged with which session of that visitor it belongs to. Appended to
@@ -91,9 +111,15 @@ type BeaconSummary struct {
 
 	Pageviews int `json:"pageviews"`
 	// Events counts named custom events, not pageviews.
-	Events   int `json:"events"`
-	Visitors int `json:"visitors"`
-	Sessions int `json:"sessions"`
+	Events int `json:"events"`
+	// AutomatedEvents is every event in the range (and campaign) counted
+	// as automated, whatever Bots says - the figures above leave them out
+	// under the default filter, and a dashboard that left them out without
+	// saying how many would answer "why did my traffic drop" with nothing
+	// (W2).
+	AutomatedEvents int `json:"automated_events"`
+	Visitors        int `json:"visitors"`
+	Sessions        int `json:"sessions"`
 
 	// BouncedSessions is sessions with one pageview or fewer.
 	BouncedSessions int `json:"bounced_sessions"`
@@ -141,9 +167,11 @@ func (s *Store) BeaconSummary(ctx context.Context, siteID string, from, to time.
 		    (SELECT count(DISTINCT visitor_id) FROM filtered),
 		    (SELECT count(*) FROM per_session),
 		    (SELECT count(*) FROM per_session WHERE pageviews <= 1),
-		    (SELECT COALESCE(avg(extract(epoch FROM duration)), 0) FROM per_session)`,
+		    (SELECT COALESCE(avg(extract(epoch FROM duration)), 0) FROM per_session),
+		    (SELECT count(*) FROM beacon_events WHERE `+beaconScope+` AND `+automatedEvent+`)`,
 		beaconArgs(siteID, p, sessionTimeout)...,
-	).Scan(&out.Pageviews, &out.Events, &out.Visitors, &out.Sessions, &out.BouncedSessions, &out.AvgSessionSeconds)
+	).Scan(&out.Pageviews, &out.Events, &out.Visitors, &out.Sessions, &out.BouncedSessions, &out.AvgSessionSeconds,
+		&out.AutomatedEvents)
 	if err != nil {
 		return BeaconSummary{}, fmt.Errorf("api: beacon summary: %w", err)
 	}
@@ -762,6 +790,9 @@ type BeaconEvent struct {
 	OS      string `json:"os,omitempty"`
 	Device  string `json:"device,omitempty"`
 	IsBotUA bool   `json:"is_bot_ua"`
+	// AutoReason is why the server counted the event as automated beyond
+	// its User-Agent ("collector", "tampered"); absent when nothing did.
+	AutoReason string `json:"auto_reason,omitempty"`
 
 	ScreenW  int    `json:"screen_w,omitempty"`
 	ScreenH  int    `json:"screen_h,omitempty"`
@@ -785,6 +816,7 @@ func (s *Store) BeaconRaw(ctx context.Context, siteID string, p beaconParams) ([
 	rows, err := s.pool.Query(ctx, beaconFilterCTE+`
 		SELECT time, visitor_id, event_type, event_name, path, query, title,
 		       referrer_host, referrer_path, ip, browser, os, device, is_bot_ua,
+		       COALESCE(auto_reason, ''),
 		       screen_w, screen_h, language, country, asn, asn_org
 		FROM filtered
 		-- visitor_id breaks ties within one flush of simultaneous events,
@@ -806,6 +838,7 @@ func (s *Store) BeaconRaw(ctx context.Context, siteID string, p beaconParams) ([
 		)
 		if err := rows.Scan(&e.Time, &e.VisitorID, &e.EventType, &e.EventName, &e.Path, &e.Query, &e.Title,
 			&e.ReferrerHost, &e.ReferrerPath, &ip, &e.Browser, &e.OS, &e.Device, &e.IsBotUA,
+			&e.AutoReason,
 			&e.ScreenW, &e.ScreenH, &e.Language, &e.Country, &e.ASN, &e.ASNOrg); err != nil {
 			return nil, 0, fmt.Errorf("api: scan beacon event: %w", err)
 		}

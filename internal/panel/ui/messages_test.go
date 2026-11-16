@@ -417,6 +417,8 @@ var (
 		"duraklatilan",
 		// What the collector's country and ASN rules turned away (B3f).
 		"cografi_engel",
+		// The collector's verdict checks that did not hold (W2).
+		"karar_kurcalanmis", "karar_baska_adres", "karar_anahtarsiz",
 		// The beacon's refusals by reason, drawn under "reddedilen".
 		"reddedilen_bilinmeyen_site", "reddedilen_bozuk", "reddedilen_gecersiz",
 		"reddedilen_kapasite", "reddedilen_diger",

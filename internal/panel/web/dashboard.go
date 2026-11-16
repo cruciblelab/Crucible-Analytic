@@ -291,6 +291,9 @@ type dashboardPage struct {
 	// Notice is a page-wide problem: the API is unreachable, so no card
 	// has anything. Per-card emptiness is on the card.
 	Notice string
+	// Automated is how many events in the period the figures leave out
+	// as automated (W2), zero when the beacon was not read.
+	Automated int
 }
 
 // rangeChoice is one option in the period picker.
@@ -360,6 +363,7 @@ func (s *Server) dashboardHandler(w http.ResponseWriter, r *http.Request) {
 	if data.Notice != "" {
 		page.Notices = append(page.Notices, ui.Notice{Level: ui.NoticeWarn, Body: data.Notice})
 	}
+	page.Notices = append(page.Notices, automatedNotice(lang, data.Automated)...)
 	page.Notices = append(page.Notices, s.pauseNotice(r.Context(), lang, siteID, now)...)
 	page.Notices = append(page.Notices, s.pastPausesNotice(r.Context(), lang, siteID, from, to, now)...)
 	page.Notices = append(page.Notices, viewerNotice(lang, access)...)
@@ -446,6 +450,9 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 	// beacon cards - exactly the page a customer with no collector has.
 	if failed, err := allRequestedFailed(req, board); failed {
 		data.Notice = s.unreadable(lang, "pano", siteID, from, to, err)
+	}
+	if req.Beacon && board.BeaconErr == nil {
+		data.Automated = board.Beacon.AutomatedEvents
 	}
 
 	// Asked only when something came back empty, and only once for the
@@ -755,6 +762,20 @@ func (s *Server) pauseNotice(ctx context.Context, lang *ui.Language, siteID stri
 		body += " " + lang.Tf("pano.duraklatildi_eski", strings.Join(unaware, ", "))
 	}
 	return []ui.Notice{{Level: ui.NoticeWarn, Body: body}}
+}
+
+// automatedNotice says how many events the figures leave out (W2).
+//
+// A number left out without a word is the dashboard telling a customer
+// their traffic fell. The sentence names the count and that it is still
+// there to look at; it is info, not a warning, because nothing is wrong
+// with the deployment - this is the product doing its job.
+func automatedNotice(lang *ui.Language, n int) []ui.Notice {
+	if n <= 0 {
+		return nil
+	}
+	f := ui.NewFormatter(lang, time.UTC)
+	return []ui.Notice{{Level: ui.NoticeInfo, Body: lang.Tf("pano.otomatik_dislanan", f.Number(int64(n)))}}
 }
 
 // pastPausesNotice says which stretches of the chosen range went

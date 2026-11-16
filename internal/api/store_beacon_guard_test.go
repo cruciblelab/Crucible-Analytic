@@ -75,7 +75,7 @@ func TestBeaconQueries_DoNotReuseTheReservedParameterSlots(t *testing.T) {
 
 	// Then drop the shared CTE constants: they are where $5-$7
 	// legitimately appear in actual SQL.
-	for _, shared := range []string{"const beaconFilterCTE = `", "const sessionCTEs = `,"} {
+	for _, shared := range []string{"const beaconFilterCTE = `", "const beaconScope = `", "const sessionCTEs = `,"} {
 		start := strings.Index(body, shared)
 		if start < 0 {
 			t.Fatalf("could not find %q; this guard needs updating", shared)

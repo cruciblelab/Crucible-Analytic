@@ -107,6 +107,28 @@ const (
 	// a rule in force rather than guessed (B3f).
 	CounterGeoBlocked = "cografi_engel"
 
+	// The collector's signed verdict, as the beacon checked it (W2,
+	// internal/verdict). Only the checks that did not hold: how many
+	// visitors the collector judged automated is a number about visitors,
+	// and the Health page carries none. Reported always, zero included,
+	// like CounterPaused; drawn only when not zero.
+
+	// CounterVerdictTampered is verdict headers that were malformed,
+	// signed with another key or too old. The events were stored as
+	// automated.
+	CounterVerdictTampered = "karar_kurcalanmis"
+	// CounterVerdictOtherAddress is verdict headers signed for another
+	// address than the one the beacon resolved. Rarely an attacker: the
+	// header never leaves the server side, so the usual cause is the
+	// beacon's trusted_proxies not walking back to the visitor the
+	// collector saw. The events were stored as automated.
+	CounterVerdictOtherAddress = "karar_baska_adres"
+	// CounterVerdictUnchecked is verdict headers the beacon had no key to
+	// check: privacy.ip_hash_key differs between the collector and the
+	// beacon, or the beacon has none. The events were stored as their
+	// User-Agent says, the verdict unread.
+	CounterVerdictUnchecked = "karar_anahtarsiz"
+
 	// The beacon's refusals, by reason. CounterRejected is their sum,
 	// and the beacon derives it from them rather than counting it a
 	// second time, so the total and its parts cannot disagree.

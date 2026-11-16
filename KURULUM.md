@@ -1073,6 +1073,53 @@ kendi IP'sini uydurabilir.
 Bu ayar artık **panelden de değiştirilebilir** (A5.1) — dosya yalnız
 geri düşüş katmanı.
 
+### Collector'ın kararı beacon'a nasıl ulaşır (W2)
+
+Collector **tam vekil kipindeyse** (`mode = "full"`), sitenin web
+sunucusuna ilettiği her POST'a imzalı bir başlık ekler:
+`X-Crucible-Verdict`. Başlık, collector'ın o isteğe verdiği bot puanını,
+zamanı ve ziyaretçinin adresini taşır. İmza dosyadaki `ip_hash_key`'den bu
+iş için türetilen ayrı bir anahtarla atılır. Beacon imzayı doğrular:
+
+- Puan bot eşiğinin (50) üstündeyse olay `auto_reason = 'collector'` ile
+  yazılır.
+- İmza tutmuyorsa olay `auto_reason = 'tampered'` ile yazılır. Başlık
+  bozuksa, başka anahtarla imzalıysa, beş dakikadan eskiyse ya da başka
+  bir adres için imzalıysa imza tutmaz.
+- Başlık yoksa hiçbir şey yazılmaz. Bu "insan" demek değildir, "bilinmiyor"
+  demektir.
+
+Pano `auto_reason`'ı dolu olan olayları da, tarayıcı kimliği bot olanlar
+gibi, sayılara katmaz ve kaç olay dışarıda bıraktığını sayfanın üstünde
+yazar. **Hiçbir olay silinmez**: API'de `bots=only` ile görünürler, ham
+dışa aktarımda her olayın `auto_reason`'ı vardır.
+
+Ziyaretçinin kendisi aynı adla bir başlık gönderirse collector onu her
+istekte siler. Beacon'ın web sunucusuna collector'ı atlayarak doğrudan
+gelen biri başlığı yazabilir ama imzalayamaz; olayı `tampered` olur.
+
+Bunun çalışması için iki şart var, ikisini de Sistem sağlığı gösterir:
+
+| Sağlık'ta görünen sayaç | Ne demek | Ne yapmalı |
+|---|---|---|
+| Collector kararı başka bir adres için imzalı | Beacon ziyaretçinin adresini collector'dan farklı çözüyor | Beacon'ın `trusted_proxies`'i collector'ın ve web sunucusunun adresini kapsamalı. Kapsamazsa insanlar da otomatik sayılır |
+| Collector kararı gelip beacon anahtarı olmadığı için okunmayan | İki servisin `ip_hash_key`'i farklı ya da beacon'da yok | İki dosyada aynı anahtar. Bu durumda olaylar dışlanmaz, karar okunmadan kalır |
+| Collector kararı tutmadığı için otomatik sayılan | Biri başlığı elle yazıyor ya da iki makinenin saati beş dakikadan fazla ayrık | Saatleri eşitleyin; ötesi saldırı denemesidir ve doğru işleniyor |
+
+Üçü de sıfırken Sağlık'ta hiç görünmez.
+
+**Bilinen sınırlar:**
+- **Geçiş kipinde** (`mode = "passthrough"`) collector trafiği çözmediği
+  için başlık ekleyemez.
+- **Collector'ı olmayan beacon'a** gelen sahte olay da başlıksız
+  ("bilinmiyor") kalır.
+- **Gerçek bir tarayıcı motorunu insan hızında süren otomasyon** ayırt
+  edilemez (R grubu).
+
+İlk iki durum için beacon'ın adres başına hız tavanı ayrı bir fazdır
+(W2b). Karar, yazıldığı andan itibaren işler; **yükseltmeden önce yazılmış
+olaylar geriye dönük işaretlenmez.**
+
 ### `timezone` — yalnız görüntü değil, günün tanımı
 
 Bu ayar paneldeki tarihlerin nasıl yazıldığını belirlemekle kalmıyor:
@@ -2825,6 +2872,7 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 |---|---|
 | Devir teslim düğmesi hiç çıkmıyor | `panel.toml`'daki `[roles]` boş. Kontroller "bakamadım" diyor, o da bloke ediyor |
 | Panelde her ziyaretçi aynı IP | `trusted_proxies` boş ya da yanlış |
+| Pano "N olay otomatik sayıldı" diyor ve insan trafiği de düşmüş görünüyor | Sağlık'ta "başka bir adres için imzalı" sayacı artıyorsa beacon'ın `trusted_proxies`'i collector'ın gördüğü adrese ulaşmıyor — §6'daki "Collector'ın kararı" |
 | `/beacon/` uçları 500 dönüyor | `analytics_reader`'a yalnız `traffic_snapshots` verilmiş |
 | Kesişim sorguları hiçbir şey bulmuyor | Collector ve beacon'ın `ip_hash_key`'i farklı — ya da `privacy.ip_storage`'ı biri uygularken diğeri uygulamıyor (iki servis farklı sürümdeyse; collector'ın canlı ayarı P5a'da geldi). Jeton ile ağ hiçbir zaman eşit olmaz, o yüzden belirti "az sonuç" değil **hiç sonuç**, ve pano bunu "collector yolda değil" diye anlatır |
 | Panelden ayar değişiyor, servis umursamıyor | `GRANT SELECT ON panel_settings` verilmemiş |

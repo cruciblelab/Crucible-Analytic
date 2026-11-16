@@ -121,6 +121,10 @@ type Row struct {
 	OS      string
 	Device  string
 	IsBotUA bool
+	// AutoReason says why this event is counted as automated by
+	// something other than its User-Agent; empty when nothing said so.
+	// See the AutoReason constants.
+	AutoReason string
 
 	ScreenW  int
 	ScreenH  int
@@ -166,6 +170,9 @@ type Enrichment struct {
 	Country   string
 	ASN       int
 	ASNOrg    string
+	// AutoReason is the server's own verdict on the request, from the
+	// collector's signed header (W2) - never from the payload.
+	AutoReason string
 }
 
 // BuildRow converts a validated Event plus server-side enrichment into a
@@ -204,6 +211,8 @@ func BuildRow(e Event, en Enrichment, policy CampaignPolicy) Row {
 		OS:      en.UserAgent.OS,
 		Device:  en.UserAgent.Device,
 		IsBotUA: en.UserAgent.IsBot,
+
+		AutoReason: en.AutoReason,
 
 		ScreenW:  clampScreen(e.ScreenW),
 		ScreenH:  clampScreen(e.ScreenH),

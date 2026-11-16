@@ -25315,3 +25315,138 @@ sonraki push'u da düşürecekti. Yerelde birebir (`go 1.26.10`, 1 ilan,
 soruldu (`1.26.11-alpine`, 200). Ekim'deki bump'ın aynısı; ders de
 aynı: gecelik kırmızısı "aynı commit, aynı sebep" değildir, iş iş oku.
 
+
+## Sahte beacon olayları — W2a (2026-11-16)
+
+*Canlı denemenin 11. bulgusu, sahibin kararı "sayılmayacak". Plan iki
+katmandı: (a) collector'ın imzalı kararı, (b) beacon'ın adres başına hız
+tavanı. Bu faz (a) ve okuma tarafı (c); (b) W2b.*
+
+**Neden imza.** Başlık collector → sitenin web sunucusu → beacon yolunu
+izliyor. KURULUM §9.3'ün belgelediği düzende beacon'ın ayrı bir adresi
+var ve ziyaretçi web sunucusuna doğrudan bağlanabiliyor. Yani beacon
+collector'ın başlığını ziyaretçinin başlığından eşe bakarak ayıramaz.
+
+Değer bir MAC: puanı, zamanı ve adresi kapsıyor. Anahtar iki servisin
+zaten paylaştığı `ip_hash_key`'den türetiliyor
+(`HMAC(ip_hash_key, "crucible-analytic beacon verdict v1")`). Diskteki
+adres jetonlarıyla aynı anahtar değil, testi de var.
+
+- Adres MAC'in içinde: bir ziyaretçinin başlığı öbürününkünde tutmaz.
+- Zaman ±5 dk: iki makinenin saati için pay. Başlığın gerçek yaşı
+  milisaniye.
+
+**Neden puan istek anında ve neden aynı kural.** Collector puanı yalnız
+yazıcıda (flusher) hesaplıyordu. İstek yolunda yalnız `WindowStats` ve
+JA4 vardı.
+
+- `Flusher.ScoreNow`, flush'ın okuduğu girdilerin aynısını okuyor:
+  `KnownBots`, resolver'ın ASN'i ve canlı ASN listesi.
+- Test, dört girdi bileşiminde ScoreNow ile BuildRows'un aynı sayıyı
+  verdiğini soruyor. Bileşimlerden biri yalnız canlı listeyle 0'dan
+  ayrılıyor.
+- Fark yalnız zamanda: istek anındaki hız, flush'ın göreceğinden düşük
+  olabilir. Bir selin ilk birkaç olayı JA4'süz bir istemcide eşiğin altında
+  kalır. Ölçülen sahteci (Python) bilinen JA4'le ilk olaydan 50'deydi.
+
+**Başlık nerede siliniyor, nerede yazılıyor.**
+- Silme her istekte, her yöntemde. Collector'ın tek vaadi: o adla gelen
+  başlığı o yazdı.
+- Yazma yalnız POST'ta. Beacon'ın tek ingest yolu POST; GET'ler sitenin
+  uygulamasına gidiyor ve ona gerekmiyor.
+- Kısılmış (degrade) istek de imzalanıyor: hızı bilinmiyor (0), parmak
+  izi ve ağ yine söylüyor.
+
+**Beacon'ın sonuçları:**
+- `Verified` ve puan ≥ `scoring.BotCutoff` → `collector`.
+- `Malformed`, `BadSignature`, `Stale` → `tampered` ve sayaç
+  `karar_kurcalanmis`.
+- `OtherAddress` → `tampered` ve ayrı sayaç `karar_baska_adres`. Başlık
+  sunucu tarafından hiç çıkmadığı için en olası sebep saldırgan değil,
+  beacon'ın `trusted_proxies`'inin collector'dan farklı adres çözmesi.
+  Sayacın Sağlık'taki cümlesi bunu söylüyor.
+- Anahtar yoksa ve başlık geldiyse olay **dışlanmıyor**, sayaç
+  `karar_anahtarsiz`. Kurulumun hatası yüzünden bütün ziyaretçileri
+  dışlamak panoyu boşaltırdı.
+
+Bu üç sayaç Sağlık'ta yalnız sıfır değilken çiziliyor. Doğrulanmış bot
+kararlarının sayısı sayaç değil: o ziyaretçiye dair bir sayı, ve Sağlık
+ziyaretçi sayısı taşımıyor (B3g sözü).
+
+**Sütun.** `beacon_events.auto_reason TEXT` nullable; varsayılanı ve
+CHECK'i yok. Sıkıştırılmış hipertablo `ADD CONSTRAINT`'i reddediyor (O1).
+Okuma yalnız `IS NOT NULL` soruyor, yani boş dize bir insanı otomatik
+sayardı. Yazıcının boşu NULL yazdığı ayrı bir testte. Şema 24'e girdi.
+`schemaver` yorumu ve parmak izi birlikte güncellendi. 24 hiçbir etikette
+yok (karar 6).
+
+**Okuma.** `automatedEvent = (is_bot_ua OR auto_reason IS NOT NULL)` tek
+ifade:
+- `beaconFilterCTE` onu kullanıyor.
+- Özetin `automated_events`'i aynı kapsamı (site, aralık, kampanya)
+  `beaconScope` sabitinden alıyor. Bu sayı filtreden bağımsız: varsayılan
+  filtrenin dışarıda bıraktığı.
+- `/beacon/raw` her olayın `auto_reason`'ını taşıyor.
+- Kesişimin `JSBots`'u değişmedi: oradaki `bot_ua` alanı tarayıcı
+  beyanını adlandırıyor, anlamını genişletmek alanın adını yalan yapardı.
+
+**Pano.** "Bu dönemde N olay otomatik (bot) sayıldı ve sayılara
+katılmadı…" bilgi düzeyinde (uyarı değil: kurulumda bir yanlışlık yok).
+Yalnız N > 0 iken. Sessizce dışlanan bir sayı da yanıltır; müşteri
+"trafiğim neden düştü" diye sorar.
+
+**Canlı ölçüm** (`$SP/w2/olc.py`, önce = HEAD ikilileri, sonra = bu ağaç):
+- Her koşu, çalışan sürecin `/proc/<pid>/exe`'sini kopyayla
+  karşılaştırıyor.
+- Aynı 90 insan oturumu (tohum 7), `botlar.py sahteci` ve dört başlık
+  senaryosu web sunucusuna doğrudan gönderildi: elle "insan" yazan,
+  başka adresin geçerli başlığı, on dakikalık geçerli başlık, başlıksız.
+- Sayılar API'nin kendi cevabından okundu.
+
+| | Gerçek | Önce | Sonra |
+|---|---|---|---|
+| canli-deneme görüntüleme (bots=exclude) | 189 | 496 | 190 |
+| ikinci-site görüntüleme | 84 | 85 | 84 |
+| canli-deneme ülkeler, FR | 9 (insan) | 312 | 9 |
+| automated_events | – | – | 307 / 1 |
+
+Satır satır:
+- OVH'nin 304 + 1 olayı `collector`. Öbür müşterinin site kimliğiyle
+  yazılan da dahil.
+- Üç başlık senaryosu `tampered`; Sağlık `karar_kurcalanmis` 2,
+  `karar_baska_adres` 1.
+- İnsanların hiçbir olayı işaretlenmedi. Ülkelerdeki her insan sayısı
+  önce ve sonra aynı.
+- Fazla olan tek olay başlıksız gidendir, "bilinmiyor" sayılıyor (W2b).
+
+**Ekran görüntüsünün söylediği:** betik `aralik=1g` gönderiyordu, panel
+o adı tanımıyor ve 7 günü açtı. Görüntü iki koşuyu birlikte gösterdi:
+686 = 496 + 190. Bu bir sınırı görünür yaptı: eski ikilinin yazdığı 303
+sahte olay **geriye dönük işaretlenmez** ve insan sayılmaya devam eder.
+KURULUM ve CHANGELOG'a yazıldı.
+
+**Yolda:**
+- `cmd/collector`'da `verdict` adlı yerel bir ad vardı; içe aktarma
+  `beaconverdict` takma adıyla.
+- Paylaşılan geliştirme veritabanında kayıtlı parmak izi eskiydi. Tanı
+  paketi testi "recorded=true matches=false" dedi; bu ürün kusuru değil.
+  Kayıt install.sh'ın SQL'iyle, panel ikilisinin `-schema-version`
+  değeriyle güncellendi.
+- Panelin `seedBeacon`'ı ve API'ninki `auto_reason` alanı aldı.
+
+**Ana bağlama.** Kararı `cmd/collector`'ın `main`'i bağlıyor:
+`VerdictKey` ve `Score: flusher.ScoreNow`. Oradaki bir eksikliği hiçbir
+işlevsel test görmez (P5a'nın şekli). Bu yüzden
+`internal/invariants/verdictwiring_test.go` var: testler dışındaki her
+`fullproxy.Server` sabiti iki alanı da yazmak zorunda.
+
+**Mutasyon:** 28 mutasyon, 28'i kırmızı (`$SP/w2/mutasyon-w2a.py`). Her
+mutasyonun yargıcı, W2a için yazılan testlerin tamamı ve aynı kodu
+okuyan komşular; test adları dosyalardan türetildi. İlk turda ikisi
+derlenmedi (kullanılmayan içe aktarma, kullanılmayan değişken). Bunlar
+mutasyonun kusuruydu; düzeltilip yeniden koşuldu.
+
+**Bilinen sınırlar:**
+- Geçiş kipinde ve collector'sız beacon'da karar yok (W2b).
+- İnsan hızında süren gerçek tarayıcı motoru (R grubu).
+- İşaretleme geriye dönük değil.

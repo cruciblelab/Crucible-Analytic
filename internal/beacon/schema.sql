@@ -188,3 +188,16 @@ $$;
 ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS ip_hash BYTEA;
 CREATE INDEX IF NOT EXISTS beacon_events_ip_hash_idx
     ON beacon_events (site_id, ip_hash, time DESC) WHERE ip_hash IS NOT NULL;
+
+-- Why an event is counted as automated beyond its User-Agent (W2, schema
+-- 24): 'collector' when the collector in front of the site signed a score
+-- at or above the bot cutoff onto the request, 'tampered' when a verdict
+-- header was present and did not hold. NULL when nothing said so - which
+-- is not "a person": it is the absence of an opinion, and every event
+-- written before this column existed reads that way.
+--
+-- Nullable and without a default or a CHECK: ADD COLUMN is the one form
+-- of change a compressed hypertable takes on every deployment (O1), and a
+-- CHECK would be ADD CONSTRAINT, which it refuses. The values are the
+-- beacon's AutoReason constants; the read path asks only IS NOT NULL.
+ALTER TABLE beacon_events ADD COLUMN IF NOT EXISTS auto_reason TEXT;

@@ -659,6 +659,16 @@ country, ASN and visitor ID.
 - **Bot user agents are flagged, never dropped** (`is_bot_ua`). A client
   that runs JavaScript and admits to being a bot is the most interesting
   row in the table, not noise. Filter on the column when you want humans.
+- **The collector's verdict travels with the event** (`auto_reason`). In
+  full-proxy mode the collector signs its bot score for each forwarded
+  POST into an `X-Crucible-Verdict` header (HMAC under a key derived from
+  the file setting `ip_hash_key`, covering the score, the time and the visitor's
+  address). The beacon checks it and stores `collector` for a score at or
+  above the bot cutoff, `tampered` for a header that does not hold, and
+  NULL when there was none. `bots=exclude` - the default, and what the
+  panel reads - leaves out `is_bot_ua OR auto_reason IS NOT NULL`;
+  `/beacon/summary` reports how many it left out as `automated_events`,
+  and `/beacon/raw` carries each event's `auto_reason`. Nothing is deleted.
 
 ### Operational shape
 

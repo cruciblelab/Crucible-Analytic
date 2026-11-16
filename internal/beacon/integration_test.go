@@ -102,6 +102,7 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 	want.Query = "utm_source=newsletter"
 	want.Title = "Fiyatlar"
 	want.IsBotUA = true
+	want.AutoReason = AutoReasonCollector
 
 	if _, err := writer.WriteRows(context.Background(), []Row{want}); err != nil {
 		t.Fatalf("WriteRows: %v", err)
@@ -113,12 +114,12 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 	err := pool.QueryRow(context.Background(), `
 		SELECT time, site_id, visitor_id, event_type, event_name,
 		       path, query, title, referrer_host, referrer_path,
-		       ip, browser, os, device, is_bot_ua,
+		       ip, browser, os, device, is_bot_ua, auto_reason,
 		       screen_w, screen_h, language, country, asn, asn_org
 		FROM beacon_events WHERE site_id = $1`, site).Scan(
 		&got.Time, &got.SiteID, &got.VisitorID, &got.EventType, &got.EventName,
 		&got.Path, &got.Query, &got.Title, &got.ReferrerHost, &got.ReferrerPath,
-		&got.IP, &got.Browser, &got.OS, &got.Device, &got.IsBotUA,
+		&got.IP, &got.Browser, &got.OS, &got.Device, &got.IsBotUA, &got.AutoReason,
 		&got.ScreenW, &got.ScreenH, &got.Language, &got.Country, &got.ASN, &got.ASNOrg)
 	if err != nil {
 		t.Fatalf("read back: %v", err)
@@ -134,6 +135,25 @@ func TestWriter_RealTimescaleDB_WritesEveryColumn(t *testing.T) {
 	// slice now, and a slice makes the struct uncomparable.
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round trip changed the row:\n got %+v\nwant %+v", got, want)
+	}
+}
+
+// No verdict is written as NULL, not as an empty string: the read path
+// asks auto_reason IS NOT NULL, so an empty string would count every
+// person as automated (W2).
+func TestWriter_RealTimescaleDB_NoVerdictIsNull(t *testing.T) {
+	site := "beacon-auto-null-test"
+	writer := newTestWriter(t, site, WriterConfig{})
+	if _, err := writer.WriteRows(context.Background(), []Row{testRow(site, "/")}); err != nil {
+		t.Fatalf("WriteRows: %v", err)
+	}
+	var isNull bool
+	if err := testdb.Pool(t, testdb.Reader).QueryRow(context.Background(),
+		`SELECT auto_reason IS NULL FROM beacon_events WHERE site_id = $1`, site).Scan(&isNull); err != nil {
+		t.Fatal(err)
+	}
+	if !isNull {
+		t.Error("a row with no verdict was written with a non-NULL auto_reason")
 	}
 }
 

@@ -42,6 +42,9 @@ type beaconSeed struct {
 	// ipHash is the token full mode stores beside the masked network -
 	// see seedRow.ipHash, which is the same field on the other writer.
 	ipHash []byte
+	// autoReason is beacon_events.auto_reason: the server's verdict
+	// beyond the User-Agent (W2). Empty writes NULL.
+	autoReason string
 
 	// Campaign dimensions. Left empty by tests that do not care, which
 	// is the same "no acquisition context" a plain visit produces.
@@ -103,13 +106,15 @@ func seedBeacon(t *testing.T, rows []beaconSeed) *Store {
 			  (time, site_id, visitor_id, event_type, event_name, path, query, title,
 			   referrer_host, referrer_path, ip, ip_hash, browser, os, device, is_bot_ua,
 			   screen_w, screen_h, language, country, asn, asn_org,
-			   utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, click_source)
+			   utm_source, utm_medium, utm_campaign, utm_term, utm_content, ref, click_source,
+			   auto_reason)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8,'',$9,$10,$11,$12,$13,$14,1920,1080,$15,$16,0,'',
-			        $17,$18,$19,$20,$21,$22,$23)`,
+			        $17,$18,$19,$20,$21,$22,$23,NULLIF($24, ''))`,
 			r.at, r.site, r.visitor, eventType, r.eventName, path, r.query,
 			r.referrer, ip, nilIfEmpty(r.ipHash), r.browser, r.os, r.device, r.botUA,
 			r.language, r.country,
-			r.utmSource, r.utmMedium, r.utmCampaign, r.utmTerm, r.utmContent, r.ref, r.clickSource)
+			r.utmSource, r.utmMedium, r.utmCampaign, r.utmTerm, r.utmContent, r.ref, r.clickSource,
+			r.autoReason)
 		if err != nil {
 			t.Fatalf("seeding beacon row %+v: %v", r, err)
 		}
@@ -1104,5 +1109,84 @@ func TestStore_RealTimescaleDB_CountriesTakeTheMostRecentInsideTheRange(t *testi
 	if byKey[""] != 1 {
 		t.Errorf("unresolved = %d, want 1 - the address with nothing inside the range belongs "+
 			"in the empty group rather than disappearing; got %+v", byKey[""], countries)
+	}
+}
+
+// W2: an event is left out of the counts when its User-Agent names a
+// bot, when the collector signed a bot verdict onto it, and when a
+// verdict header did not hold - and the summary says how many it left
+// out, under every filter, so the dashboard can name the number.
+//
+// Four visitors, each its own population, with page paths that name
+// them: a breakdown that let one population through would show its path.
+func TestTheCountsLeaveOutEveryKindOfAutomatedEvent(t *testing.T) {
+	const site = "w2-otomatik"
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Hour)
+	at := func(i int) time.Time { return base.Add(time.Duration(i) * time.Minute) }
+
+	rows := []beaconSeed{
+		{site: site, visitor: "insan", at: at(0), path: "/insan"},
+		{site: site, visitor: "insan", at: at(1), path: "/insan"},
+		{site: site, visitor: "insan", at: at(2), path: "/insan"},
+		{site: site, visitor: "ua-bot", at: at(3), path: "/ua", botUA: true},
+		{site: site, visitor: "collector-bot", at: at(4), path: "/collector", autoReason: "collector"},
+		{site: site, visitor: "collector-bot", at: at(5), path: "/collector", autoReason: "collector"},
+		{site: site, visitor: "kurcalanmis", at: at(6), path: "/kurcalanmis", autoReason: "tampered"},
+	}
+	store := seedBeacon(t, rows)
+	ctx := context.Background()
+	from, to := base.Add(-time.Minute), base.Add(time.Hour)
+
+	for _, c := range []struct {
+		bots      BotFilter
+		pageviews int
+		visitors  int
+	}{
+		{BotsExclude, 3, 1},
+		{BotsOnly, 4, 3},
+		{BotsInclude, 7, 4},
+	} {
+		sum, err := store.BeaconSummary(ctx, site, from, to, c.bots, campaignFilter{})
+		if err != nil {
+			t.Fatalf("bots=%s: %v", c.bots, err)
+		}
+		if sum.Pageviews != c.pageviews || sum.Visitors != c.visitors {
+			t.Errorf("bots=%s: %d pageviews from %d visitors, want %d from %d",
+				c.bots, sum.Pageviews, sum.Visitors, c.pageviews, c.visitors)
+		}
+		// The same under every filter: it is what the default one
+		// leaves out, not what this one shows.
+		if sum.AutomatedEvents != 4 {
+			t.Errorf("bots=%s: automated_events = %d, want 4", c.bots, sum.AutomatedEvents)
+		}
+	}
+
+	// A breakdown takes the same filter: only the person's page.
+	pages, _, err := store.BeaconPages(ctx, site, testBeaconParams(from, to))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pages) != 1 || pages[0].Key != "/insan" {
+		t.Errorf("pages under bots=exclude = %+v, want only /insan", pages)
+	}
+
+	// The raw export says why, per event.
+	p := testBeaconParams(from, to)
+	p.bots = BotsOnly
+	events, total, err := store.BeaconRaw(ctx, site, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 4 {
+		t.Fatalf("raw bots=only total = %d, want 4", total)
+	}
+	reasons := map[string]string{}
+	for _, e := range events {
+		reasons[e.VisitorID] = e.AutoReason
+	}
+	for visitor, want := range map[string]string{"ua-bot": "", "collector-bot": "collector", "kurcalanmis": "tampered"} {
+		if got := reasons[visitor]; got != want {
+			t.Errorf("raw auto_reason for %s = %q, want %q", visitor, got, want)
+		}
 	}
 }

@@ -197,7 +197,7 @@ import (
 //
 // # 24
 //
-// Two tables and one column, and the reason they share a number is the
+// Two tables and two columns, and the reason they share a number is the
 // rule written under Fingerprint below: no release tag carries 24, so
 // nothing has ever run it.
 //
@@ -212,6 +212,10 @@ import (
 //     an IP token key it could tokenise with. The channel the panel needs
 //     to stop refusing full IP mode on every deployment there has ever
 //     been; the whole of why is in internal/heartbeat/schema.sql.
+//   - beacon_events.auto_reason (W2): why an event is counted as
+//     automated beyond its User-Agent - the collector's signed verdict,
+//     or a verdict header that did not hold. Nullable, no default, no
+//     CHECK: the one shape of change a compressed hypertable takes.
 //
 // Additive in the sense that matters on an upgrade. ADD COLUMN is one of
 // the four DDL forms measured in O1 as accepted on a compressed
@@ -233,7 +237,7 @@ const Version = 24
 // "Together" means the pair moves in one commit, not that the number
 // always goes up. A version no release tag carries has never reached a
 // database outside this tree, so it is still being assembled and may
-// grow again - which is how 24 came to hold three things from two
+// grow again - which is how 24 came to hold four things from three
 // phases. A version a tag *does* carry is frozen: somewhere there is a
 // database recording that number, and State.Matches compares this value
 // against it, so editing a released version's schema would put "your
@@ -248,7 +252,7 @@ const Version = 24
 // fingerprint. That package is where it belongs: it already asks git
 // what each release looked like, and it already fails rather than skips
 // when the tags are missing.
-const Fingerprint = "74770fbbaccf055574fc0716c1172caa33490c1e039fb13d48b19909f8ad326d"
+const Fingerprint = "fba622a1533a882a783a26751b8818dcd1d1e17c70528fb7d872977dea0fb629"
 
 // FingerprintOf hashes a set of schema files.
 //

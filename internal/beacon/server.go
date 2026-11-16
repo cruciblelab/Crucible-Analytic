@@ -216,6 +216,12 @@ type Server struct {
 	// rejected is one counter per reason and no counter for the total:
 	// Counters sums these, so there is no second number to drift.
 	rejected [rejectReasons]atomic.Uint64
+
+	// The collector's signed verdict (W2): its key, derived once from
+	// IPHashKey, and the checks that did not hold.
+	verdictKeyOnce  sync.Once
+	verdictKeyBytes []byte
+	verdicts        verdictCounts
 }
 
 func (s *Server) logger() *slog.Logger {
@@ -496,9 +502,16 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 	// row - and therefore onto the disk - is masked from here on. Moving
 	// this line above either of those would quietly degrade both, and
 	// nothing in the output would say why.
+	// The collector's opinion, read against the address this server
+	// resolved - the same address the collector signed, when both see
+	// the visitor alike. Never from the payload: the body is the
+	// visitor's, the header is the collector's.
+	now := s.now()
+	autoReason := s.judgeVerdict(r, ip, now)
+
 	mode := s.ipMode()
 	row := BuildRow(event, Enrichment{
-		Time: s.now(),
+		Time: now,
 		// The masked network always, and in full mode a keyed token of
 		// the whole address alongside it. The raw address reaches
 		// neither column, in either mode.
@@ -509,6 +522,8 @@ func (s *Server) handleEvent(w http.ResponseWriter, r *http.Request) {
 		Country:   geo.Country,
 		ASN:       geo.ASN,
 		ASNOrg:    geo.ASNName,
+
+		AutoReason: autoReason,
 	}, s.campaignPolicy())
 
 	if s.Sink.Enqueue(row) {

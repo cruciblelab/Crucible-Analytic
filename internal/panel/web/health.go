@@ -351,9 +351,20 @@ var healthCounterOrder = []string{
 	heartbeat.CounterPaused,
 	heartbeat.CounterRejected,
 	heartbeat.CounterGeoBlocked,
+	heartbeat.CounterVerdictTampered,
+	heartbeat.CounterVerdictOtherAddress,
+	heartbeat.CounterVerdictUnchecked,
 	heartbeat.CounterErrors,
 	heartbeat.CounterDeadline,
 	heartbeat.CounterLogLost,
+}
+
+// verdictCounter is the beacon's verdict checks, drawn only when one did
+// not hold.
+var verdictCounter = map[string]bool{
+	heartbeat.CounterVerdictTampered:     true,
+	heartbeat.CounterVerdictOtherAddress: true,
+	heartbeat.CounterVerdictUnchecked:    true,
 }
 
 // healthHandler serves the page.
@@ -671,6 +682,11 @@ func labelledCounters(lang *ui.Language, counters map[string]int64) []healthCoun
 		// by every collector that counts, drawn only when a rule turned
 		// something away.
 		if key == heartbeat.CounterGeoBlocked && value == 0 {
+			continue
+		}
+		// And the collector's verdict (W2): a deployment that is wired
+		// right reports three zeros forever.
+		if verdictCounter[key] && value == 0 {
 			continue
 		}
 		c := healthCounter{
