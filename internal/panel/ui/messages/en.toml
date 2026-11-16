@@ -1208,6 +1208,7 @@ secilecek_yok = "No service can be restarted from the panel right now."
 # PLACEHOLDER (B3e): the outage has not been measured yet. Once it is,
 # the number goes into this sentence (and its Turkish twin).
 uyari_collector = "While the collector restarts your site is unreachable for about 2 seconds. If a download is in progress at that moment this grows to up to 12 seconds, and the download is cut off after 10. Visitors arriving in that time get a connection error."
+hepsi = "all (%d processes)"
 uyari_panel = "If the panel restarts itself, this page does not answer for a few seconds."
 istendi = "A restart of %s was requested. The service should see it and restart within a few seconds; this section refreshes itself."
 parola_gerek = "The developer password was not accepted. A restart asks for it every time."

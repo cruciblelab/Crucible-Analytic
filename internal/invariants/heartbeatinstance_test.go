@@ -16,7 +16,9 @@ import (
 // one writes the role's own row - correct for a host with one collector,
 // and on a host with one per site the stopped collector's "a moment ago"
 // that this phase exists to remove. The rule, from the tree: every
-// heartbeat.Options literal in cmd/collector sets Instance.
+// heartbeat.Options literal in cmd/collector sets Instance - and so does
+// every restartreq.Watcher, or the panel's request to restart one site's
+// collector alone reaches no process (W3b).
 func TestTheCollectorsHeartbeatNamesItsSite(t *testing.T) {
 	root := repoRootFromInvariants(t)
 	fset := token.NewFileSet()
@@ -39,10 +41,12 @@ func TestTheCollectorsHeartbeatNamesItsSite(t *testing.T) {
 				return true
 			}
 			sel, ok := lit.Type.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "Options" {
+			if !ok {
 				return true
 			}
-			if x, ok := sel.X.(*ast.Ident); !ok || x.Name != "heartbeat" {
+			x, isIdent := sel.X.(*ast.Ident)
+			if !isIdent || !(x.Name == "heartbeat" && sel.Sel.Name == "Options" ||
+				x.Name == "restartreq" && sel.Sel.Name == "Watcher") {
 				return true
 			}
 			found++
@@ -53,12 +57,14 @@ func TestTheCollectorsHeartbeatNamesItsSite(t *testing.T) {
 					}
 				}
 			}
-			t.Errorf("%s: the collector's heartbeat.Options sets no Instance - every collector "+
-				"on a host writes one row, and a stopped one reads as alive", fset.Position(lit.Pos()))
+			t.Errorf("%s: the collector's %s.%s sets no Instance - on a host with a collector "+
+				"per site, its row and its restart request are not its own",
+				fset.Position(lit.Pos()), x.Name, sel.Sel.Name)
 			return true
 		})
 	}
-	if found == 0 {
-		t.Error("found no heartbeat.Options in cmd/collector; this check has stopped checking anything")
+	if found != 2 {
+		t.Errorf("found %d heartbeat.Options and restartreq.Watcher literals in cmd/collector, want 2; "+
+			"this check is no longer checking what it was written for", found)
 	}
 }

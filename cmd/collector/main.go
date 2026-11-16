@@ -253,8 +253,11 @@ func main() {
 	restart := &restartreq.Watcher{
 		Pool:    monitor,
 		Started: beat.Started,
-		Exit:    func() { exit(restartreq.ErrRequested) },
-		Logger:  logger,
+		// Its own row's name, so the panel can restart this collector
+		// alone on a host that runs one per site (W3b).
+		Instance: beat.Instance(),
+		Exit:     func() { exit(restartreq.ErrRequested) },
+		Logger:   logger,
 	}
 	go restart.Run(ctx)
 	stopped := restartreq.LogStopping(ctx, logger)

@@ -528,3 +528,36 @@ func TestWithoutADeveloperPasswordTheButtonIsNotDrawn(t *testing.T) {
 	}
 	restartSays(t, restartRowOf(t, section, testdb.Collector), testdb.Collector, "yok")
 }
+
+// TestPressingRestartForOneProcessAsksItAlone (W3b): on a host with a
+// collector per site, the option for one of them writes the request under
+// its own name, and the page says which process was asked.
+func TestPressingRestartForOneProcessAsksItAlone(t *testing.T) {
+	p := newRestartPage(t)
+	t.Cleanup(func() { p.exec(`DELETE FROM service_heartbeat WHERE version LIKE 'w3-%'`) })
+	writeInstanceBeat(t, p.store, "w3yb")
+	one := testdb.Collector + "@w3yb"
+	if !strings.Contains(p.section(), `<option value="`+one+`"`) {
+		t.Fatalf("the select does not offer %s alone", one)
+	}
+
+	status, body := postForm(t, p.client, p.server.URL+HealthPath, url.Values{
+		"eylem":           {eylemYenidenBaslat},
+		restartFormField:  {one},
+		devgate.FormField: {testDevPassword},
+	})
+	if status != http.StatusOK {
+		t.Fatalf("the press answered %d", status)
+	}
+	if !p.requested(one) {
+		t.Fatalf("no request row was written for %s", one)
+	}
+	if p.requested(testdb.Collector) {
+		t.Error("asking one process wrote the role's request, which restarts every collector")
+	}
+	lang := testLang(t)
+	notice := lang.Tf("saglik.yb.istendi", lang.T("saglik.servis.collector")+" w3yb")
+	if !strings.Contains(restartSectionOf(t, body), notice) {
+		t.Errorf("the page does not say which process was asked (%q)", notice)
+	}
+}

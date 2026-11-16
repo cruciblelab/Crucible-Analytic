@@ -79,7 +79,14 @@ func TestInstancesOfOneRoleWriteTheirOwnRows(t *testing.T) {
 func TestAnInstanceThatIsNotASiteIDIsDropped(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
-	New(Options{Pool: pool, Instance: "a@b"}).beat(ctx)
+	dropped := New(Options{Pool: pool, Instance: "a@b"})
+	if got := dropped.Instance(); got != "" {
+		t.Errorf("Instance() = %q for a dropped instance; the restart watcher would answer a request no row names", got)
+	}
+	if got := New(Options{Pool: pool, Instance: "w3-a"}).Instance(); got != "w3-a" {
+		t.Errorf("Instance() = %q, want w3-a", got)
+	}
+	dropped.beat(ctx)
 	beats, err := Read(ctx, pool)
 	if err != nil {
 		t.Fatal(err)

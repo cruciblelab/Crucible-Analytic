@@ -137,7 +137,7 @@ press - so "restarted" cannot be printed about a process that did not. */}}
 <tbody>
 {{- range .Data.Restart.Rows}}
 <tr>
-<th scope="row">{{t (printf "saglik.servis.%s" .Name)}}</th>
+<th scope="row">{{t (printf "saglik.servis.%s" .Role)}}{{with .Instance}} <code>{{.}}</code>{{end}}</th>
 <td>{{if .Requested.IsZero}}<span class="ipucu">—</span>{{else}}{{$.F.Since .Requested}}{{end}}</td>
 <td>
   {{- if eq .State "basladi"}}{{tf "saglik.yb.durum.basladi" ($.F.Since .Started)}}
@@ -170,8 +170,14 @@ list is the collector, and a select that arrived with it chosen would make
 "typed the password and pressed" take the website down. */}}
 <select id="yb-servis" name="servis" required>
 <option value=""{{if not .Data.Restart.Chosen}} selected{{end}}>{{t "saglik.yb.sec"}}</option>
+{{- /* A role that runs more than once is restarted whole by its own
+option, and the option says how many processes that is; each process is
+its own option after it (W3b). */}}
 {{- range .Data.Restart.Choices}}
-<option value="{{.}}"{{if eq . $.Data.Restart.Chosen}} selected{{end}}>{{t (printf "saglik.servis.%s" .)}}</option>
+<option value="{{.Name}}"{{if eq .Name $.Data.Restart.Chosen}} selected{{end}}>
+  {{- t (printf "saglik.servis.%s" .Role)}}
+  {{- if .Instance}} — {{.Instance}}
+  {{- else if gt .Processes 1}} — {{tf "saglik.yb.hepsi" .Processes}}{{end}}</option>
 {{- end}}
 </select>
 <p class="ipucu">{{t "saglik.yb.parola_ipucu"}}</p>

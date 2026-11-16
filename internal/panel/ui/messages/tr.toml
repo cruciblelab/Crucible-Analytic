@@ -1255,6 +1255,7 @@ secilecek_yok = "Şu an panelden yeniden başlatılabilecek bir servis yok."
 # YER TUTUCU (B3e): kesinti süresi henüz ölçülmedi. Ölçülünce sayı bu
 # cümleye yazılacak (en.toml'daki karşılığı da).
 uyari_collector = "Toplayıcı (collector) yeniden başlarken siteniz yaklaşık 2 saniye erişilemez. O anda süren bir indirme varsa bu süre 12 saniyeye kadar uzar ve indirme 10 saniyenin sonunda kesilir. Erişilemeyen sürede gelen ziyaretçiler bağlantı hatası görür."
+hepsi = "hepsi (%d süreç)"
 uyari_panel = "Panel kendini yeniden başlatırsa bu sayfa birkaç saniye cevap vermez."
 istendi = "%s için yeniden başlatma istendi. Servis birkaç saniye içinde görüp yeniden başlamalı; bu bölüm kendini yeniliyor."
 parola_gerek = "Geliştirici parolası kabul edilmedi. Yeniden başlatma her seferinde bu parolayı ister."

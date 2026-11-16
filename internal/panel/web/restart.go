@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
@@ -41,7 +42,7 @@ type restartSection struct {
 	// Choices are the services the select offers: the askable ones,
 	// derived from the same state the rows show - one decision, two
 	// places it is read.
-	Choices []string
+	Choices []restartRow
 	// Chosen is what was selected, echoed back after a refused press.
 	// Empty selects the placeholder: nothing is chosen for anybody.
 	Chosen string
@@ -53,9 +54,18 @@ type restartSection struct {
 	Failed bool
 }
 
-// restartRow is one service.
+// restartRow is one service, or one process of a role that runs once
+// per site (W3b).
 type restartRow struct {
+	// Name is what a request names: the role, or role@instance - the
+	// select's value.
 	Name string
+	// Role and Instance are Name apart; the page labels by them.
+	Role     string
+	Instance string
+	// Processes is, on a role's own row, how many processes a request to
+	// it restarts. The option says so when it is more than one.
+	Processes int
 	// State is the word the template branches on; see panel.RestartState.
 	State     panel.RestartState
 	Requested time.Time
@@ -83,15 +93,36 @@ func (s *Server) restartStatusFor(ctx context.Context, db restartReader, lang *u
 		Allowed:           status.Allowed,
 		AskingForPassword: status.Allowed && s.Gate != nil && s.Gate.Configured(),
 	}
+	// An instance is named after a site, so its row is shown by the rule
+	// the services table follows (W3a): every one to whoever speaks for
+	// the deployment, and the instances of their own sites to anybody
+	// else. Asked only when there is an instance to judge, so a section
+	// built without a database never asks one.
+	var shown func(string) bool
 	for _, svc := range status.Services {
-		out.Rows = append(out.Rows, restartRow{
+		if svc.Instance != "" {
+			if shown == nil {
+				shown = s.instancesShownTo(ctx, access.Principal)
+			}
+			if !shown(svc.Instance) {
+				continue
+			}
+		}
+		row := restartRow{
 			Name:      svc.Service,
+			Role:      svc.Role,
+			Instance:  svc.Instance,
+			Processes: svc.Processes,
 			State:     svc.State,
 			Requested: svc.Requested,
 			Started:   svc.Started,
-		})
+		}
+		if row.Role == "" {
+			row.Role = row.Name
+		}
+		out.Rows = append(out.Rows, row)
 		if svc.State.Askable() {
-			out.Choices = append(out.Choices, svc.Service)
+			out.Choices = append(out.Choices, row)
 		}
 		if svc.State == panel.RestartPending {
 			out.Pending = true
@@ -146,7 +177,12 @@ func (s *Server) restartPost(r *http.Request, db restartStore, lang *ui.Language
 	}
 
 	op.LinkAudit(r.Context(), req.AuditID)
-	section.Notice = lang.Tf("saglik.yb.istendi", lang.T("saglik.servis."+req.Service))
+	role, instance := heartbeat.SplitKey(req.Service)
+	name := lang.T("saglik.servis." + role)
+	if instance != "" {
+		name += " " + instance
+	}
+	section.Notice = lang.Tf("saglik.yb.istendi", name)
 	log.Info("panel: restart requested", "service", req.Service, "requested", req.At)
 	op.Step("istek yaz", true, "")
 	_ = op.Finish(r.Context(), panel.OutcomeSucceeded, nil, nil)

@@ -25736,3 +25736,59 @@ ikisi de aynı kusur:
 - Testte bir closure parametresine paketteki yazan yardımcının adını
   (`beat`) vermek paylaşılan satır değişmezini tetikledi; değişmez ada
   bakıyor.
+
+## Site başına collector — W3b (2026-11-16)
+
+PLAN §W3b. W3a her collector'a kendi satırını verdi; yeniden başlatma isteği
+hâlâ rolün satırına yazılıyordu ve rolün bütün süreçleri onu okuyordu. Yani
+bir sitenin collector'ını yeniden başlatmak, aynı makinedeki her siteyi
+birkaç saniye erişilemez yapıyordu.
+
+### İki anahtar, bir süreç
+
+İsteğin anahtarı satırın adıyla aynı: `process.restart.collector` rolün
+bütün süreçlerine, `process.restart.collector@magaza` yalnız o sürece.
+Örneği olan süreç ikisini de okur ve hangisi kendi başlangıcından yeniyse
+çıkar. Örneği izleyiciye kalp atışı verir (`Reporter.Instance`), yapılandırma
+değil: kalp atışı geçersiz bir örnek adını düşürüyor, ve izleyici başka bir
+adı dinlerse panelin yazdığı isteği hiçbir süreç okumaz. Değişmez
+(`heartbeatinstance_test.go`) collector'ın `restartreq.Watcher`'ını da
+soruyor.
+
+Bir anahtarın satırı bozuksa ya da isteği zamanın ilerisindeyse, öbür
+anahtar yine okunur: rolün bozuk satırı tek sürecin isteğini saklamamalı.
+Uyarı durumu anahtar başına.
+
+### Panelde
+
+- Ad ya rol ya `rol@örnek`; örnek site kimliği; ve ad satırın yazdığı
+  biçimde olmalı. **Test bir kusur buldu:** ilk hâl `collector@`'ı rol diye
+  kabul ediyor ve isteği `process.restart.collector@` anahtarına yazıyordu,
+  yani hiçbir sürecin okumadığı bir isteğe "istendi" diyordu.
+- Örnek için "rapor vermiş mi" sorusu o örneğin kendi satırına soruluyor.
+- Durum: rolün satırı (süreç sayısıyla) ve altında her örnek; örneğin
+  isteği rolünkiyle kendisininkinin geç olanı. Örnek satırları Sağlık'ın
+  okuyucu kuralıyla süzülüyor; süzgeç yalnız örnek varsa soruluyor, yani
+  veritabanısız kurulan bölüm hiç sormuyor.
+- Bildirim örneği adlandırıyor: *"Toplayıcı (collector) magaza için yeniden
+  başlatma istendi."*
+
+### Canlı düzenek
+
+`$SP/w3/olc-w3b.py once|sonra`; iki collector, istek satırı panelin yazdığı
+SQL ile, süreçlerin 20 sn içinde çıkıp çıkmadığı ve günlükteki sebep.
+Gözetmen yok; temiz çıkış ölçülen şey.
+
+| İstek | Önce (W3a) | Sonra |
+|---|---|---|
+| yalnız `ikinci-site` | hiçbiri çıkmadı | yalnız B, 4,7 sn |
+| rol | ikisi, 5,0 sn | ikisi, 4,9 sn |
+
+Panel formunun bu isteği yazdığı ve sayfanın ne dediği entegrasyon
+testinde (`TestPressingRestartForOneProcessAsksItAlone`).
+
+### Mutasyonlar
+
+18 mutasyon, 18'i kırmızı (`$SP/w3/mutasyon-w3b.py`). Biri ilk turda
+derlenmedi (kaldırılan satır bir içe aktarmayı kullanılmaz bıraktı) ve
+`&& false` ile yeniden yazıldı.

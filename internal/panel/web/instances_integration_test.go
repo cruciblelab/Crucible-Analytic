@@ -122,4 +122,16 @@ func TestAnInstanceRowIsShownToWhoeverOwnsItsSite(t *testing.T) {
 	if len(file) != 2 {
 		t.Errorf("the operator's diagnostic file carries instances %v, want both", file)
 	}
+
+	// The restart section (W3b): the operator may restart either process
+	// alone, or the role whole - and that option says it is more than one.
+	for _, site := range []string{w3Own, w3Other} {
+		if !strings.Contains(page, `<option value="`+testdb.Collector+`@`+site+`"`) {
+			t.Errorf("the operator is not offered a restart of the collector for %s alone", site)
+		}
+	}
+	if !strings.Contains(page, `<option value="`+testdb.Collector+`">`) ||
+		!strings.Contains(page, "hepsi (") {
+		t.Error("the operator's option to restart every collector does not say it is all of them")
+	}
 }

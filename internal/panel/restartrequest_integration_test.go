@@ -666,3 +666,63 @@ func TestACollectorRunningAsInstancesCanBeAsked(t *testing.T) {
 		t.Errorf("the collector's state after the request is %q, want pending", got)
 	}
 }
+
+// TestOneProcessOfARoleCanBeAskedAlone (W3b): a host with a collector per
+// site restarts one of them by its heartbeat row's name, and the request
+// is written under that name alone. The section lists the role, how many
+// processes a request to it reaches, and each process with the later of
+// the role's request and its own.
+func TestOneProcessOfARoleCanBeAskedAlone(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	a, b := testdb.Collector+"@w3-a", testdb.Collector+"@w3-b"
+	f.ran(a, 10*time.Minute, 5*time.Second)
+	f.ran(b, 10*time.Minute, 5*time.Second)
+
+	for _, bad := range []string{testdb.Collector + "@a@b", "nosuch@w3-a", testdb.Collector + "@"} {
+		if _, err := f.store.RequestRestart(ctx, f.owner, f.auth(), bad); !errors.Is(err, ErrRestartUnknownService) {
+			t.Errorf("RequestRestart(%q) = %v, want ErrRestartUnknownService", bad, err)
+		}
+	}
+	if _, err := f.store.RequestRestart(ctx, f.owner, f.auth(), testdb.Collector+"@w3-c"); !errors.Is(err, ErrRestartNeverReported) {
+		t.Errorf("a process no row names was asked: %v", err)
+	}
+
+	got, err := f.store.RequestRestart(ctx, f.owner, f.auth(), a)
+	if err != nil {
+		t.Fatalf("asking %s alone: %v", a, err)
+	}
+	if at, _, ok := f.request(a); !ok || !at.Equal(got.At) {
+		t.Errorf("the request row for %s: %v, %v - want the request's own time %v", a, at, ok, got.At)
+	}
+	if _, _, ok := f.request(testdb.Collector); ok {
+		t.Error("asking one process wrote the role's request, which restarts every one")
+	}
+	if n := f.entries(a); n != 1 {
+		t.Errorf("%d audit entries name %s, want 1", n, a)
+	}
+
+	st := f.status()
+	if role := st[testdb.Collector]; role.Processes != 2 || role.Instance != "" || role.State != RestartNone {
+		t.Errorf("the role's row: %+v - want two processes and no request of its own", role)
+	}
+	if one := st[a]; one.Role != testdb.Collector || one.Instance != "w3-a" ||
+		!one.Requested.Equal(got.At) || one.State != RestartPending {
+		t.Errorf("the asked process's row: %+v", one)
+	}
+	if other := st[b]; !other.Requested.IsZero() || other.State != RestartNone {
+		t.Errorf("the other process's row: %+v - nobody asked it", other)
+	}
+
+	// The role's request reaches both, and each row shows the later one.
+	all, err := f.store.RequestRestart(ctx, f.owner, f.auth(), testdb.Collector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st = f.status()
+	for _, key := range []string{a, b} {
+		if !st[key].Requested.Equal(all.At) {
+			t.Errorf("%s shows the request of %v, want the role's later one %v", key, st[key].Requested, all.At)
+		}
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/relupdate"
 	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 // Asking a service to restart, from the health page (B3e, catalogue #38).
@@ -113,14 +115,22 @@ func (s *Store) RequestRestart(ctx context.Context, a Access, auth devgate.Autho
 		return RestartRequest{}, ErrRestartNeedsPassword
 	}
 	// The form offers a select, and a select is a suggestion: the value
-	// arrives as whatever string the browser - or anybody - sent.
-	if !slices.Contains(relupdate.HealthServices, service) {
+	// arrives as whatever string the browser - or anybody - sent. A role
+	// from the closed list, or one process of it by its heartbeat row's
+	// name (W3b) - and that name must be a site id, the only shape an
+	// instance is written in. And spelled as the row spells it: the
+	// first version took "collector@" as the role and wrote its request
+	// under a key no process reads.
+	role, instance := heartbeat.SplitKey(service)
+	if !slices.Contains(relupdate.HealthServices, role) ||
+		instance != "" && !siteid.Valid(instance) ||
+		service != heartbeat.RowKey(role, instance) {
 		return RestartRequest{}, fmt.Errorf("%w: %q", ErrRestartUnknownService, service)
 	}
 
 	out := RestartRequest{Service: service}
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
-		canHear, reported, err := restartAskable(ctx, tx, service)
+		canHear, reported, err := restartAskable(ctx, tx, role, instance)
 		if err != nil {
 			return err
 		}
@@ -181,14 +191,22 @@ func (s *Store) RequestRestart(ctx context.Context, a Access, auth devgate.Autho
 // every collector on it as one that had never reported. split_part, the
 // write policy's own reading of a key, rather than LIKE: an underscore in
 // a role name is a LIKE wildcard.
-func restartAskable(ctx context.Context, q rowQuerier, service string) (canHear, reported bool, err error) {
+//
+// One process of a role (W3b) has reported when its own row exists: a
+// request to a name no process writes would be a request nobody reads,
+// and the page could never say what became of it.
+func restartAskable(ctx context.Context, q rowQuerier, role, instance string) (canHear, reported bool, err error) {
 	err = q.QueryRow(ctx, `
 		SELECT coalesce(has_table_privilege(to_regrole($1)::oid,
 		                                    to_regclass('panel_settings')::oid, 'SELECT'), false),
-		       EXISTS (SELECT 1 FROM service_heartbeat WHERE split_part(service, '@', 1) = $1)`,
-		service).Scan(&canHear, &reported)
+		       CASE WHEN $2 = ''
+		            THEN EXISTS (SELECT 1 FROM service_heartbeat WHERE split_part(service, '@', 1) = $1)
+		            ELSE EXISTS (SELECT 1 FROM service_heartbeat WHERE service = $1 || '@' || $2)
+		       END`,
+		role, instance).Scan(&canHear, &reported)
 	if err != nil {
-		return false, false, fmt.Errorf("panel: ask whether %s can be restarted: %w", service, err)
+		return false, false, fmt.Errorf("panel: ask whether %s can be restarted: %w",
+			heartbeat.RowKey(role, instance), err)
 	}
 	return canHear, reported, nil
 }
@@ -227,10 +245,20 @@ func (st RestartState) Askable() bool {
 	return st != RestartCannotHear && st != RestartNeverReported
 }
 
-// RestartService is one service as the page draws it.
+// RestartService is one service as the page draws it: a role, or one
+// process of a role that runs once per site (W3b).
 type RestartService struct {
+	// Service is what a request names: the role, or role@instance.
 	Service string
-	State   RestartState
+	// Role and Instance are Service apart. Instance is empty on a role's
+	// own row.
+	Role     string
+	Instance string
+	// Processes is, on a role's own row, how many of its processes a
+	// request to the role reaches - every row the role has. The page
+	// says it before the button is pressed.
+	Processes int
+	State     RestartState
 	// Requested is the last request, zero when there has been none.
 	Requested time.Time
 	// Started is the running process's start from its heartbeat, zero
@@ -304,9 +332,42 @@ func (s *Store) RestartStatus(ctx context.Context, a Access) (RestartStatus, err
 		byService[b.Service] = append(byService[b.Service], b)
 	}
 
+	// The requests to single processes (W3b), read in one statement
+	// for every instance the heartbeat table names.
+	var instanceKeys []string
+	for _, b := range beats {
+		if b.Instance != "" {
+			instanceKeys = append(instanceKeys, restartreq.Key(b.Key()))
+		}
+	}
+	own := map[string]time.Time{}
+	if len(instanceKeys) > 0 {
+		rows, err := s.pool.Query(ctx, `
+			SELECT key, value FROM panel_settings
+			 WHERE scope = 'global' AND site_id = '' AND key = ANY($1)`, instanceKeys)
+		if err != nil {
+			return out, fmt.Errorf("panel: restart status: %w", err)
+		}
+		for rows.Next() {
+			var key string
+			var value []byte
+			if err := rows.Scan(&key, &value); err != nil {
+				rows.Close()
+				return out, fmt.Errorf("panel: restart status: %w", err)
+			}
+			if at, err := restartreq.ParseRequest(value); err == nil {
+				own[key] = at
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return out, fmt.Errorf("panel: restart status: %w", err)
+		}
+	}
+
 	for _, row := range list {
 		beat := byService[row.service]
-		svc := RestartService{Service: row.service}
+		svc := RestartService{Service: row.service, Role: row.service, Processes: len(beat)}
 		// Read the way the service reads it, with the service's own
 		// function: a value that is not a time is no request to the
 		// service, so it is none here either - rather than a cast in SQL
@@ -318,6 +379,26 @@ func (s *Store) RestartStatus(ctx context.Context, a Access) (RestartStatus, err
 		}
 		svc.State, svc.Started = restartStateOfAll(row.canHear, beat, svc.Requested, now)
 		out.Services = append(out.Services, svc)
+
+		// Then each process of the role that has an instance, by name.
+		// Its request is the later of the role's and its own: either
+		// reaches it, and the page says what became of the last one.
+		instances := make([]heartbeat.Beat, 0, len(beat))
+		for _, b := range beat {
+			if b.Instance != "" {
+				instances = append(instances, b)
+			}
+		}
+		slices.SortFunc(instances, func(a, b heartbeat.Beat) int { return strings.Compare(a.Instance, b.Instance) })
+		for _, b := range instances {
+			one := RestartService{Service: b.Key(), Role: row.service, Instance: b.Instance,
+				Requested: svc.Requested, Started: b.StartedAt}
+			if at, ok := own[restartreq.Key(b.Key())]; ok && at.After(one.Requested) {
+				one.Requested = at
+			}
+			one.State = restartStateOf(row.canHear, true, b, one.Requested, now)
+			out.Services = append(out.Services, one)
+		}
 	}
 	return out, nil
 }

@@ -98,6 +98,9 @@ type fakeDB struct {
 	found   bool
 	now     time.Time
 	readErr error
+	// byKey, when set, answers per key instead of value/found: a key
+	// it does not hold has no row.
+	byKey map[string][]byte
 
 	whoCalls  int
 	readCalls int
@@ -118,6 +121,10 @@ func (f *fakeDB) request(ctx context.Context, key string) ([]byte, bool, time.Ti
 	f.keys = append(f.keys, key)
 	if f.readErr != nil {
 		return nil, false, time.Time{}, f.readErr
+	}
+	if f.byKey != nil {
+		v, ok := f.byKey[key]
+		return v, ok, f.now, nil
 	}
 	return f.value, f.found, f.now, nil
 }
@@ -783,5 +790,58 @@ func TestNoStoppingLineWhileRunningAndTheWaitDoesNotHang(t *testing.T) {
 	if n := len(log.all()); n != 0 {
 		t.Errorf("%d lines written; a wait that returned before the context ended "+
 			"must leave nothing behind:\n%s", n, log.dump())
+	}
+}
+
+// A process with an instance answers the role's request and its own,
+// and no other instance's (W3b). The key it reads for itself is spelled
+// out: the panel writes it from the heartbeat row's name, and a test that
+// built it from the same function would follow that function anywhere.
+func TestAnInstanceAnswersTheRolesRequestAndItsOwn(t *testing.T) {
+	dbNow := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	started := dbNow.Add(-time.Minute)
+	after, before := jsonTime(dbNow.Add(-time.Second)), jsonTime(started.Add(-time.Hour))
+	const role, own, other = "process.restart.collector", "process.restart.collector@magaza", "process.restart.collector@blog"
+
+	for _, tc := range []struct {
+		name string
+		rows map[string][]byte
+		want bool
+	}{
+		{"nothing asked", map[string][]byte{}, false},
+		{"the role asked, after the start", map[string][]byte{role: after}, true},
+		{"this process asked, after the start", map[string][]byte{own: after}, true},
+		{"another process asked", map[string][]byte{other: after}, false},
+		{"both asked, both before the start", map[string][]byte{role: before, own: before}, false},
+		{"the role before, this process after", map[string][]byte{role: before, own: after}, true},
+		{"a bad role row does not hide this process's request", map[string][]byte{role: []byte(`"x"`), own: after}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.w.Instance = "magaza"
+			h.setStarted(started, true)
+			h.db.set(func(f *fakeDB) { f.byKey, f.now = tc.rows, dbNow })
+			if got := h.step(); got != tc.want {
+				t.Fatalf("step() = %v, want %v\n%s", got, tc.want, h.log.dump())
+			}
+			if tc.want {
+				exits := h.log.lines(slog.LevelInfo, "exiting")
+				if len(exits) != 1 || exits[0].attrs["service"] != "collector@magaza" {
+					t.Errorf("the exit line must name this process; got\n%s", h.log.dump())
+				}
+			}
+		})
+	}
+
+	// Without an instance only the role's key is read: a process that
+	// writes the role's own row is not one of the instances.
+	h := newHarness(t)
+	h.setStarted(started, true)
+	h.db.set(func(f *fakeDB) { f.byKey, f.now = map[string][]byte{own: after}, dbNow })
+	if h.step() {
+		t.Error("a process without an instance answered an instance's request")
+	}
+	if len(h.db.keys) != 1 || h.db.keys[0] != role {
+		t.Errorf("read keys %q, want [%s]", h.db.keys, role)
 	}
 }

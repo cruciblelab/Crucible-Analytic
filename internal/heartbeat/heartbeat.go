@@ -424,6 +424,17 @@ type Reporter struct {
 	startedKnown bool
 }
 
+// Instance is the instance this process writes its row under: the one
+// Options named, or "" when it was dropped for not being a site id. The
+// restart watcher reads it from here rather than from the config, so the
+// request it answers is the row the panel sees (W3b).
+func (r *Reporter) Instance() string {
+	if r == nil {
+		return ""
+	}
+	return r.instance
+}
+
 // Started is when this process started, in the database's clock, and
 // whether that is known yet: false until a heartbeat write has
 // succeeded.

@@ -60,6 +60,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 )
 
 // KeyPrefix is the settings row a request lives under, followed by the
@@ -188,6 +190,15 @@ type Watcher struct {
 	// in every main is cancelling the context the service runs under
 	// (with ErrRequested as the cause). Called at most once.
 	Exit func()
+	// Instance is this process's instance of its role - a collector's
+	// site_id, the name its heartbeat row carries (W3). Empty for a role
+	// that runs once.
+	//
+	// A process with an instance answers two requests: the role's, which
+	// the panel writes to restart every process of the role, and its own
+	// (Key of role@instance), which restarts this one alone (W3b).
+	// Either one newer than the process's start makes it exit.
+	Instance string
 	// Interval is how often to ask. Zero means DefaultInterval.
 	Interval time.Duration
 	// ExitWithin bounds the clean shutdown. Zero means
@@ -231,10 +242,10 @@ type state struct {
 
 	whoWarned  bool
 	readWarned bool
-	// reported is the last unusable value warned about, so one bad row
-	// is one line however long it stays, and a different bad row is a
-	// new one.
-	reported string
+	// reported is the last unusable value warned about, per key, so one
+	// bad row is one line however long it stays, and a different bad row
+	// is a new one.
+	reported map[string]string
 }
 
 // Run asks until ctx ends or a request arrives.
@@ -326,10 +337,36 @@ func (w *Watcher) step(ctx context.Context, st *state, logger *slog.Logger) bool
 	if w.key != "" {
 		key = w.key
 	}
+	keys := []string{key}
+	if w.Instance != "" {
+		// The request for this process alone. heartbeat.RowKey is the
+		// spelling the panel reads the instance from, so the two cannot
+		// name the process differently.
+		keys = append(keys, key+heartbeat.InstanceSeparator+w.Instance)
+		service = heartbeat.RowKey(st.role, w.Instance)
+	}
+	for _, key := range keys {
+		exit, stop := w.check(ctx, st, logger, db, service, key, started)
+		if exit {
+			return true
+		}
+		if stop {
+			return false
+		}
+	}
+	return false
+}
+
+// check reads one request row and reports whether it makes this process
+// exit, or whether the step should stop asking for now - the read failed
+// or the role lost the right to read.
+func (w *Watcher) check(ctx context.Context, st *state, logger *slog.Logger, db database,
+	service, key string, started time.Time) (exit, stop bool) {
+
 	value, found, now, err := db.request(ctx, key)
 	if err != nil {
 		if ctx.Err() != nil {
-			return false
+			return false, true
 		}
 		if mayNotRead(err) {
 			// The grant went away under a running service, or the table
@@ -340,52 +377,55 @@ func (w *Watcher) step(ctx context.Context, st *state, logger *slog.Logger) bool
 				"service", service, "err", err)
 			st.permitted = false
 			st.askedAt = time.Now()
-			return false
+			return false, true
 		}
 		if !st.readWarned {
 			logger.Warn("restart requests: could not read the request; asking again",
 				"service", service, "err", err)
 			st.readWarned = true
 		}
-		return false
+		return false, true
 	}
 	if st.readWarned {
 		logger.Info("restart requests: the request is being read again", "service", service)
 		st.readWarned = false
 	}
+	if st.reported == nil {
+		st.reported = map[string]string{}
+	}
 	if !found {
-		st.reported = ""
-		return false
+		delete(st.reported, key)
+		return false, false
 	}
 
 	requested, err := ParseRequest(value)
 	if err != nil {
-		if st.reported != string(value) {
+		if st.reported[key] != string(value) {
 			logger.Warn("restart requests: the request row does not hold a time; ignoring it "+
 				"until it changes", "service", service, "value", clip(value), "err", err)
-			st.reported = string(value)
+			st.reported[key] = string(value)
 		}
-		return false
+		return false, false
 	}
 	if requested.After(now) {
-		if st.reported != string(value) {
+		if st.reported[key] != string(value) {
 			logger.Warn("restart requests: the request is later than the database's clock; "+
 				"it will be acted on when the clock reaches it", "service", service,
 				"requested", requested.UTC().Format(time.RFC3339Nano),
 				"database_now", now.UTC().Format(time.RFC3339Nano))
-			st.reported = string(value)
+			st.reported[key] = string(value)
 		}
-		return false
+		return false, false
 	}
-	st.reported = ""
+	delete(st.reported, key)
 	if Satisfied(requested, started) {
-		return false
+		return false, false
 	}
 	logger.Info("restart requests: restart requested from the panel; exiting for the "+
 		"supervisor to start this service again", "service", service,
 		"requested", requested.UTC().Format(time.RFC3339Nano),
 		"started", started.UTC().Format(time.RFC3339Nano))
-	return true
+	return true, false
 }
 
 // exit arms the backstop and begins the clean shutdown, in that order:

@@ -51,8 +51,11 @@ arasında gidip geliyordu.
   anmıyor.
 - Panelden güncelleme, yeniden başlatma anında yazmakta olan her
   collector'ı bekliyor; zaten sessiz olanı beklemiyor.
-- Yeniden başlatma isteği hâlâ rolün bütün süreçlerine gidiyor; tek siteyi
-  seçmek sonraki iş.
+- Sağlık → Servisi yeniden başlat listesinde her collector ayrı bir
+  seçenek: bir sitenin collector'ı tek başına yeniden başlatılabiliyor,
+  öbür siteler etkilenmiyor. Rolün seçeneği kaç süreci kapatacağını
+  söylüyor (*"hepsi (2 süreç)"*). Gerçek ikiliyle ölçüldü: yalnız istenen
+  çıktı (4,7 sn), öbürü çalışmaya devam etti.
 
 Eski tek satır tabloda kalıyor ama sayfada görünmüyor; bir site kaldırılınca
 onun satırı 7 gün sonra listeden düşüyor. Ayrıntı KURULUM §"Servisler:

@@ -2381,11 +2381,18 @@ gözetmen):**
   10 saniye bekler, sonra keser; site bu durumda 12 saniye erişilemez.
 - Docker altındaki süre ölçülmedi.
 
-**Site başına collector varsa** düğme o roldeki **bütün** collector'ları
-yeniden başlatır: istek role yazılır ve her süreç kendisi okur. Durum
-satırı en geride olanınkidir (biri yeniden başlamış, biri bekliyorsa
-"Bekleniyor"). İstek anında zaten sessiz olan bir süreç sayılmaz. Tek bir
-siteninkini seçmek henüz yok (PLAN §W3b).
+**Site başına collector varsa** listede her biri ayrı bir seçenektir:
+*Toplayıcı — magaza* yalnız o sitenin collector'ını yeniden başlatır, öbür
+siteler etkilenmez. *Toplayıcı — hepsi (2 süreç)* hepsini birden yeniden
+başlatır ve o sürede bütün siteler erişilemez. Tablo her collector'ı kendi
+satırında gösterir; rolün satırının durumu en geride olanınkidir (biri
+yeniden başlamış, biri bekliyorsa "Bekleniyor"), istek anında zaten sessiz
+olan bir süreç sayılmaz. Bir sitenin sahibi bu tabloda da yalnız kendi
+sitesinin collector'ını görür.
+
+Ölçüldü (gerçek ikili, iki site): yalnız ikinci sitenin collector'ı istendi,
+o 4,7 saniyede çıktı, birincisi çalışmaya devam etti; hepsi istendi, ikisi
+de 4,9 saniyede çıktı.
 
 **Okuma API'si panelden yeniden başlatılamaz.** Rolü panel ayarlarını
 okuyamıyor; okuyabilmesi bir şema kararı. Servis bunu açılışta tek bir

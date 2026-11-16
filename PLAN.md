@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **2/4** | W1 ✅, W2 ✅, W3a ✅; W3b, W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11005,7 +11005,7 @@ systemd'de ayrıca ölçülecek. Z7 bu üst üste binmeyi olağan akıştan
 
 ---
 
-### W grubu — Yanıltmayan panel 🟡 **2/4** *(2026-11-04, canlı denemeden)*
+### W grubu — Yanıltmayan panel 🟡 **3/4** *(2026-11-04, canlı denemeden)*
 
 *Sahip, canlı denemenin raporundan sonra: "Sahte olayların sayılması
 sıkıntı, yanıltıcı, saymamalıyız. Başka sunucu diğer sunucuyu
@@ -11398,7 +11398,7 @@ sayılıyor; patlamanın ilk 50 olayı sızıyor; aynı adresteki saldırgan
 insanların olaylarını da işaretletebilir; 50 kişiden fazlasının aynı anda
 aynı adresten geldiği siteler `mark_per_minute`'i yükseltmeli.
 
-#### W3 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor
+#### W3 — Aynı sunucudaki collector'lar birbirinin sağlığını örtüyor ✅ **yapıldı (2026-11-16)**
 
 **Ölçülen (2026-11-03):** `service_heartbeat`'in anahtarı yalnız rol adı
 (`service TEXT PRIMARY KEY`). README "bir sunucuda site başına bir
@@ -11505,13 +11505,38 @@ oturumları bitmişti); entegrasyon testinde ölçülüyor. 34 mutasyon, 34'ü
 kırmızı (`$SP/w3/mutasyon-w3a.py`); ikisi ancak satırların okunma sırası
 iki yönde de sınandıktan sonra.
 
-##### W3b — Yeniden başlatmada tek collector'ı seçmek ⏳
+##### W3b — Yeniden başlatmada tek collector'ı seçmek ✅ **yapıldı (2026-11-16)**
 
-- İstek bugün role yazılıyor ve rolün bütün süreçleri okuyor; tek siteninkini
-  seçmek yok. Sayfa kaç sürecin, kaç sitenin kapanacağını söylemeli.
-- Yeniden başlatma bölümündeki collector satırı rolün toplamı ve tek sitenin
-  sahibine de öyle çiziliyor (zamanı öbür sürecin başlangıcı olabilir); örnek
-  başına olunca okuyucunun örnekleriyle süzülmeli.
+Ayrıntı NOTES "Site başına collector — W3b".
+- **İstek:** rolün satırı (`process.restart.collector`) bütün süreçleri,
+  örneğin satırı (`process.restart.collector@magaza`) yalnız onu yeniden
+  başlatır. Örneği olan süreç ikisini de okur (`restartreq.Watcher.Instance`,
+  değeri `heartbeat.Reporter.Instance` — kalp atışının yazdığı ad).
+- **Panel:** ad rolün listesinden, örnek bir site kimliği ve satırın
+  yazdığı biçimde olmalı; örneğin kendi kalp atışı satırı yoksa istek
+  "hiç rapor vermemiş" diye reddedilir.
+- **Sayfa:** rolün satırının altında her örnek kendi satırında; rolün
+  seçeneği birden çok süreç varsa *"hepsi (2 süreç)"* der. Örnek satırları
+  Sağlık'ın kuralıyla süzülür (tek sitenin sahibi yalnız kendi sitesininkini
+  görür).
+- **Testin bulduğu kusur:** `collector@` rolün kendisi sayılıyor ve istek
+  hiçbir sürecin okumadığı `process.restart.collector@` anahtarına
+  yazılıyordu. Artık ad satırın yazdığı biçimde olmak zorunda.
+
+**Canlı düzenek** (gerçek collector ikilisi, iki site; istek satırı panelin
+yazdığı biçimde):
+
+| İstek | Önce (W3a, `6901d7c`) | Sonra |
+|---|---|---|
+| `collector@ikinci-site` | 20 sn'de hiçbir süreç çıkmadı | yalnız B, 4,7 sn; A çalışmaya devam etti |
+| `collector` | ikisi de, 5,0 sn | ikisi de, 4,9 sn |
+
+Çıkış sebebi her durumda `restart requested from the panel`. 18 mutasyon,
+18'i kırmızı (`$SP/w3/mutasyon-w3b.py`).
+
+**Bilinen sınır:** W3a ile W3b arasında yayımlanmış bir sürüm yok; örnek
+satırı yazıp örnek isteğini okumayan bir collector yalnız bu dalın ara
+commit'inde var.
 
 #### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
 
