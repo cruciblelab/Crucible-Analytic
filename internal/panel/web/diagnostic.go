@@ -81,6 +81,7 @@ type diagnosticServices struct {
 // diagnosticService is one heartbeat row, as the table holds it.
 type diagnosticService struct {
 	Service     string           `json:"service"`
+	Instance    string           `json:"instance,omitempty"`
 	Version     string           `json:"version"`
 	Profile     string           `json:"profile,omitempty"`
 	TokenKey    string           `json:"token_key,omitempty"`
@@ -240,7 +241,7 @@ func (s *Server) buildDiagnostic(ctx context.Context, lang *ui.Language, p panel
 		},
 	}
 	out.Schema = s.diagnosticSchema(ctx)
-	out.Services = s.diagnosticServices(ctx, now)
+	out.Services = s.diagnosticServices(ctx, now, s.instancesShownTo(ctx, p))
 	// The page's rule (healthPage.DiskWithOperator), and the file's: the
 	// owner of one site among others downloads it too.
 	if s.speaksForDeployment(ctx, p) {
@@ -286,15 +287,22 @@ func (s *Server) diagnosticSchema(ctx context.Context) diagnosticSchema {
 	return out
 }
 
-func (s *Server) diagnosticServices(ctx context.Context, now time.Time) diagnosticServices {
+// diagnosticServices is the heartbeat rows, the ones the page would show
+// this reader: an instance is a site id (W3), so the file follows the
+// page's rule, instancesShownTo.
+func (s *Server) diagnosticServices(ctx context.Context, now time.Time, shown func(instance string) bool) diagnosticServices {
 	beats, err := heartbeat.Read(ctx, s.Store.Pool())
 	if err != nil {
 		return diagnosticServices{Rows: []diagnosticService{}, Error: diagnosticError(err)}
 	}
 	out := diagnosticServices{Rows: make([]diagnosticService, 0, len(beats))}
 	for _, b := range beats {
+		if !shown(b.Instance) {
+			continue
+		}
 		out.Rows = append(out.Rows, diagnosticService{
 			Service:    b.Service,
+			Instance:   b.Instance,
 			Version:    b.Version,
 			Profile:    b.Profile,
 			TokenKey:   string(b.IPTokenKey),

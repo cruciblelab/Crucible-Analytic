@@ -52,22 +52,33 @@ type Collecting struct {
 // function already carries the one thing a second query would get wrong:
 // the profile column arrived with schema 8, and a panel newer than the
 // database has to ask before it selects it.
-func (s *Store) Collecting(ctx context.Context) (Collecting, error) {
+//
+// # Whose collector (W3)
+//
+// For site: a host may run a collector per site, each with its own
+// profile, and the one fronting another site is no evidence about this
+// one. So the collector's level is the instance named site, or else the
+// role's own row - what a collector writes when it is the only one, and
+// what every build before W3 wrote. Never another instance.
+func (s *Store) Collecting(ctx context.Context, site string) (Collecting, error) {
 	beats, err := heartbeat.Read(ctx, s.pool)
 	if err != nil {
 		return Collecting{}, fmt.Errorf("panel: reading what the services collect: %w", err)
 	}
 	var out Collecting
 	roles := s.serviceRoles()
+	var ownInstance bool
 	for _, b := range beats {
 		level, ok := levelOf(b.Profile)
 		if !ok {
 			continue
 		}
-		switch b.Service {
-		case roles.Collector:
+		switch {
+		case b.Service == roles.Collector && b.Instance == site && site != "":
+			out.Collector, ownInstance = level, true
+		case b.Service == roles.Collector && b.Instance == "" && !ownInstance:
 			out.Collector = level
-		case roles.Beacon:
+		case b.Service == roles.Beacon && b.Instance == "":
 			out.Beacon = level
 		}
 	}

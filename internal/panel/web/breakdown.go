@@ -578,7 +578,7 @@ func (s *Server) detailData(ctx context.Context, lang *ui.Language, siteID strin
 
 	presence := s.presence(ctx, summaries, site.Dashboard, siteID)
 	data.Section = s.section(lang, f, def, site, presence,
-		s.collecting(ctx, s.collection()))
+		s.collecting(ctx, s.collection(), siteID))
 
 	b := site.Breakdowns[def.Kind]
 	if b.Err != nil {
@@ -686,8 +686,8 @@ func notBeingCollected(def breakdownDef, collecting panel.Collecting) bool {
 //
 // Logged rather than swallowed, because a heartbeat table the panel
 // cannot read is worth an operator seeing even when no page breaks.
-func (s *Server) collecting(ctx context.Context, db collectingReader) panel.Collecting {
-	c, err := db.Collecting(ctx)
+func (s *Server) collecting(ctx context.Context, db collectingReader, site string) panel.Collecting {
+	c, err := db.Collecting(ctx, site)
 	if err != nil {
 		s.logger().Warn("panel: could not read what the services collect", "err", err)
 		return panel.Collecting{}

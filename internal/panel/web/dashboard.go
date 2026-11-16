@@ -499,7 +499,7 @@ func (s *Server) dashboardData(ctx context.Context, lang *ui.Language,
 		data.Cards = append(data.Cards, view)
 	}
 	data.Sections = s.sections(lang, f, siteID, site, presence,
-		s.collecting(ctx, s.collection()), days, shown.Breakdowns)
+		s.collecting(ctx, s.collection(), siteID), days, shown.Breakdowns)
 	data.Chart, data.ChartEmpty = s.chart(lang, f, req, site, presence, now, from, to)
 	if data.ChartEmpty != hasData {
 		data.ChartEmptyText = lang.T("pano.bos." + string(data.ChartEmpty) + "." + string(sourceBeacon))
@@ -745,6 +745,10 @@ func (s *Server) pauseNotice(ctx context.Context, lang *ui.Language, siteID stri
 	var unaware []string
 	for _, b := range beats {
 		if b.Stale(now, heartbeat.DefaultInterval) {
+			continue
+		}
+		// Another site's collector writes nothing of this site's (W3).
+		if b.Instance != "" && b.Instance != siteID {
 			continue
 		}
 		_, writes := b.Counters[heartbeat.CounterWritten]

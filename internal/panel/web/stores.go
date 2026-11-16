@@ -125,7 +125,7 @@ type diskStore interface {
 // through it would be able to ask a second question with the same
 // handle.
 type collectingReader interface {
-	Collecting(ctx context.Context) (panel.Collecting, error)
+	Collecting(ctx context.Context, site string) (panel.Collecting, error)
 }
 
 // rangeRefreshReader is what drawing the IP-dataset section may ask for.

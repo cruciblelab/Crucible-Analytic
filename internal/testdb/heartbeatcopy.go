@@ -174,6 +174,21 @@ func (h *HeartbeatCopy) Forget(service string) {
 	}
 }
 
+// Runs records a process under key - a role, or role@instance (W3) -
+// running profile, started an hour ago and beating now, with counters.
+func (h *HeartbeatCopy) Runs(key, profile, counters string) {
+	h.t.Helper()
+	if _, err := h.admin.Exec(context.Background(), `
+		INSERT INTO `+h.schema+`.service_heartbeat
+		    (service, version, started_at, beat_at, counters, profile)
+		VALUES ($1, 'fixture', now() - interval '1 hour', now(), $3::jsonb, $2)
+		ON CONFLICT (service) DO UPDATE SET profile = EXCLUDED.profile, counters = EXCLUDED.counters,
+		    started_at = EXCLUDED.started_at, beat_at = now()`,
+		key, profile, counters); err != nil {
+		h.t.Fatalf("recording %s: %v", key, err)
+	}
+}
+
 // Silence empties the table: a deployment where nothing has started yet.
 func (h *HeartbeatCopy) Silence() {
 	h.t.Helper()

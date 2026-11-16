@@ -2242,6 +2242,23 @@ açıldığından beri sayılır; servis yeniden başlayınca sıfırdan başlar
 | Süresi dolan istek | okuma API'si, panel | 55 saniyede bitmediği için `503` alan istek. Bozuk değil, yavaş: aralığı daraltmak ya da havuzu büyütmek. |
 | Kaybolan günlük satırı | okuma API'si, beacon, collector, panel | `panel_logs`'a ulaşamayan WARN/ERROR satırı (tampon dolu ya da yazma başarısız). Satır disk günlüğünde duruyor. |
 
+**Site başına collector.** Bir sunucuda her site için ayrı bir collector
+çalışıyorsa her biri kendi satırını yazar ve satırda sitenin kimliği
+görünür: *Toplayıcı `magaza`*. Durmuş olanı *"haber alınamıyor"* der,
+öbürünün satırı onu örtmez. Bir sitenin sahibi yalnız **kendi sitesinin**
+collector'ını görür; kurulumun bütün sitelerinin sahibi ve işletmeci
+hepsini görür. Tanı paketi de aynı kuralla süzülür. (Bu sürümden önce
+aynı roldeki bütün collector'lar tek satıra yazıyordu, ve durmuş bir
+collector'ın satırını yanındaki "az önce" diye tazeliyordu.)
+
+Yükseltmeden sonra eski tek satır tabloda kalır, ama sayfada görünmez:
+kendisinden sonra başlamış bir örnek onun yerini almıştır. Eski bir
+sürümle çalışan collector hâlâ yazıyorsa satır görünmeye devam eder; o
+süreç gerçekten oradadır. Bir site kaldırılınca onun collector'ının
+satırı, aynı rolün daha taze bir satırının yanında **7 gün** sessiz
+kaldıktan sonra listeden düşer. Bir rolün bütün satırları sessizse hiçbiri
+düşmez: "collector'dan haber yok" cümlesi sayfadan hiç kalkmamalı.
+
 **Son hata**, servisin yazdığı en yeni ERROR satırıdır — mesajı ve
 sebebiyle, ne zaman olduğuyla. Servis düzelse de satırda kalır, çünkü
 aralıklı bir arıza "baktığımda çalışıyordu" diye aylarca yaşar; servis
@@ -2363,6 +2380,12 @@ gözetmen):**
   bağlantı reddeder.** O anda süren bir indirme varsa collector onu
   10 saniye bekler, sonra keser; site bu durumda 12 saniye erişilemez.
 - Docker altındaki süre ölçülmedi.
+
+**Site başına collector varsa** düğme o roldeki **bütün** collector'ları
+yeniden başlatır: istek role yazılır ve her süreç kendisi okur. Durum
+satırı en geride olanınkidir (biri yeniden başlamış, biri bekliyorsa
+"Bekleniyor"). İstek anında zaten sessiz olan bir süreç sayılmaz. Tek bir
+siteninkini seçmek henüz yok (PLAN §W3b).
 
 **Okuma API'si panelden yeniden başlatılamaz.** Rolü panel ayarlarını
 okuyamıyor; okuyabilmesi bir şema kararı. Servis bunu açılışta tek bir
@@ -2814,6 +2837,12 @@ yazmıyor. Bir zil, bir emir değil. Ağdan paket indiren bir programa
 veritabanına bağlanamayan bir collector bu sınavı geçemez. Dördü de
 otuz saniye içinde yazmazsa önceki binary'ler geri konur, tekrar
 başlatılır, tekrar bakılır ve sonuç panele yazılır.
+
+**Site başına collector varsa** yeniden başlatma anında yazmakta olan
+**her** collector beklenir; biri gelmezse güncelleme geri alınır ve
+sonuç onu sitesiyle adlandırır (`collector@magaza`). O anda zaten sessiz
+olan bir collector — kaldırılmış bir sitenin, ya da önceden düşmüş bir
+süreç — beklenmez: yoksa tek bir ölü satır her güncellemeyi geri aldırırdı.
 
 **Dördü — panel dâhil.** Panel eylül sonuna kadarki sürümlerde kalp
 atışı yazmıyordu, yani bu denetim o sürümlerde her güncellemeyi otuz

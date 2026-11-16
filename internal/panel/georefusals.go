@@ -24,13 +24,21 @@ type GeoRefusals struct {
 	Since time.Time
 }
 
-// GeoRefusals reads the collector's count.
+// GeoRefusals reads the collectors' count.
+//
+// Every collector process that reports it, summed (W3): the rules are the
+// deployment's, and the question the preview answers - what has this
+// list turned away - is the deployment's too. The first version took
+// the first collector row it met, which on a host with a collector per
+// site was whichever had beaten last. Since is the earliest start among
+// them, so the sentence's "since" covers every count it adds up.
 func (s *Store) GeoRefusals(ctx context.Context) (GeoRefusals, error) {
 	beats, err := heartbeat.Read(ctx, s.pool)
 	if err != nil {
 		return GeoRefusals{}, fmt.Errorf("panel: reading the collector's refusals: %w", err)
 	}
 	collector := s.serviceRoles().Collector
+	var out GeoRefusals
 	for _, b := range beats {
 		if b.Service != collector {
 			continue
@@ -39,7 +47,11 @@ func (s *Store) GeoRefusals(ctx context.Context) (GeoRefusals, error) {
 		if !ok {
 			continue
 		}
-		return GeoRefusals{Known: true, Refused: n, Since: b.StartedAt}, nil
+		out.Refused += n
+		if !out.Known || b.StartedAt.Before(out.Since) {
+			out.Since = b.StartedAt
+		}
+		out.Known = true
 	}
-	return GeoRefusals{}, nil
+	return out, nil
 }

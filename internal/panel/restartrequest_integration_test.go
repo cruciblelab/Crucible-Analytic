@@ -644,3 +644,25 @@ func TestAValueThatIsNotATimeIsNoRequestHereEither(t *testing.T) {
 		t.Errorf("the beacon's real request reads as %q beside a malformed row, want %q", got.State, RestartPending)
 	}
 }
+
+// TestACollectorRunningAsInstancesCanBeAsked (W3): a host with a
+// collector per site has no row keyed by the role alone, and those
+// collectors have reported. Asked with a prefix trick beside it - a role
+// whose name begins with the collector's is not the collector.
+func TestACollectorRunningAsInstancesCanBeAsked(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+
+	f.ran(testdb.Beacon+"x@w3", 10*time.Minute, 5*time.Second)
+	if _, err := f.store.RequestRestart(ctx, f.owner, f.auth(), testdb.Beacon); !errors.Is(err, ErrRestartNeverReported) {
+		t.Errorf("a row of another role whose name begins with the beacon's counted as the beacon's: %v", err)
+	}
+	f.ran(testdb.Collector+"@w3-a", 10*time.Minute, 5*time.Second)
+	f.ran(testdb.Collector+"@w3-b", 10*time.Minute, 5*time.Second)
+	if _, err := f.store.RequestRestart(ctx, f.owner, f.auth(), testdb.Collector); err != nil {
+		t.Fatalf("a collector running as two instances was refused: %v", err)
+	}
+	if got := f.status()[testdb.Collector].State; got != RestartPending {
+		t.Errorf("the collector's state after the request is %q, want pending", got)
+	}
+}

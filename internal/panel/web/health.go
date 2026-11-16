@@ -231,8 +231,11 @@ type healthSchema struct {
 type healthService struct {
 	// Name is the database role, which is also the identity the
 	// row-level policy checks. The template turns it into a label.
-	Name    string
-	Version string
+	Name string
+	// Instance is which of that role's processes this row is: a
+	// collector's site (W3). Empty for a role that runs once.
+	Instance string
+	Version  string
 	// Stale means the last beat is older than three intervals. Not
 	// "down": this page cannot know that, and a page that says DOWN
 	// about a service having a slow minute is a page somebody stops
@@ -513,7 +516,7 @@ func (s *Server) renderHealth(w http.ResponseWriter, r *http.Request, lang *ui.L
 	// into its own field and none of them returns early - which is the
 	// page's entire reason for existing.
 	data.Checks, data.ChecksPassed, data.ChecksError = s.healthChecks(ctx, lang)
-	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now)
+	data.Services, data.ServicesError, data.NoServices = s.healthServices(ctx, lang, now, s.instancesShownTo(ctx, p))
 	data.Schema, data.SchemaError = s.healthSchema(ctx, lang)
 	// Not read at all for somebody who is not shown them: a section
 	// left empty by the template is a number still computed, and one
@@ -617,8 +620,30 @@ func (s *Server) healthSchema(ctx context.Context, lang *ui.Language) (healthSch
 	return out, ""
 }
 
+// instancesShownTo is which instance rows a reader may see (W3).
+//
+// An instance is named after a site, so a row is a site id: the reader
+// who speaks for the deployment sees every one, and anybody else sees
+// the instances of the sites they own - the rule beaconActivityFor
+// follows, for the same reason (W1). A role's own row names no site and
+// is shown to every reader, as it was before instances existed.
+func (s *Server) instancesShownTo(ctx context.Context, p panel.Principal) func(instance string) bool {
+	if s.speaksForDeployment(ctx, p) {
+		return func(string) bool { return true }
+	}
+	owned, err := s.ownedSites(ctx, p)
+	if err != nil {
+		s.logger().Warn("panel: listing the reader's sites for the service rows", "err", err)
+	}
+	set := make(map[string]bool, len(owned))
+	for _, site := range owned {
+		set[site] = true
+	}
+	return func(instance string) bool { return instance == "" || set[instance] }
+}
+
 // healthServices reads the heartbeat table.
-func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time.Time) ([]healthService, string, bool) {
+func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time.Time, shown func(instance string) bool) ([]healthService, string, bool) {
 	beats, err := heartbeat.Read(ctx, s.Store.Pool())
 	if err != nil {
 		s.logger().Error("panel: reading service heartbeats", "err", err)
@@ -630,8 +655,12 @@ func (s *Server) healthServices(ctx context.Context, lang *ui.Language, now time
 
 	out := make([]healthService, 0, len(beats))
 	for _, b := range beats {
+		if !shown(b.Instance) {
+			continue
+		}
 		row := healthService{
 			Name:        b.Service,
+			Instance:    b.Instance,
 			Version:     b.Version,
 			Stale:       b.Stale(now, heartbeat.DefaultInterval),
 			LastBeat:    b.BeatAt,

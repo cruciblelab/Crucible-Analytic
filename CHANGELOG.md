@@ -16,14 +16,47 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 **Şema sürümü: 24.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Yeni iki tablo ekleniyor (aşağıdaki
 "Uzun aralıklarda ziyaretçi sayısı" maddesi), `service_heartbeat`'e
-bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi) ve
-`beacon_events`'e bir sütun (aşağıdaki "Sahte olaylar" maddesi);
+bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi),
+`beacon_events`'e bir sütun (aşağıdaki "Sahte olaylar" maddesi) ve
+`service_heartbeat`'in yazma kuralı (aşağıdaki "Site başına collector"
+maddesi);
 var olan verinin hiçbiri yeniden yazılmıyor, servis durmuyor. Sütun
 eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmış parça
 üzerinde **0 bayt** değişiklik, 519 ms.
 **v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
+
+### Site başına collector: durmuş olan artık "az önce" görünmüyor
+
+**Kuran kişinin yapması gereken:** şema yükseltmesi (24, yukarıda),
+**ikililerden önce**. Sıra tersine olursa yeni collector'ın kalp atışı
+eski kurala takılır ve Sağlık onu "haber alınamıyor" gösterir; trafik
+etkilenmez. Tek collector'lı kurulumda başka bir şey değişmiyor.
+
+Bir sunucuda her site için ayrı collector çalıştıran kurulumda hepsi tek
+kalp atışı satırına yazıyordu. Canlı denemede ikinci sitenin collector'ı
+durduruldu, site 3,5 dakika erişilemezdi; Sağlık sayfası *"Toplayıcı: az
+önce"* dedi, çünkü satırı öbür collector yazıyordu. Sayaçlar da iki süreç
+arasında gidip geliyordu.
+- Her collector artık kendi satırını sitesinin kimliğiyle yazıyor
+  (`collector@magaza`); yazma kuralı rolün kendi satırına ve örneklerine
+  izin veriyor, başka role vermiyor.
+- Bir sitenin sahibi yalnız kendi sitesinin collector'ını görüyor (Sağlık
+  ve tanı paketi). Kurulum kontrollerindeki IP jetonu cümlesi rolü
+  adlandırıyor, örneği değil: ilk hâli öbür müşterinin site kimliğini o
+  cümleden sızdırıyordu.
+- Pano o sitenin collector'ının profilini okuyor; coğrafi ret sayısı bütün
+  collector'ların toplamı; duraklatma uyarısı başka sitenin collector'ını
+  anmıyor.
+- Panelden güncelleme, yeniden başlatma anında yazmakta olan her
+  collector'ı bekliyor; zaten sessiz olanı beklemiyor.
+- Yeniden başlatma isteği hâlâ rolün bütün süreçlerine gidiyor; tek siteyi
+  seçmek sonraki iş.
+
+Eski tek satır tabloda kalıyor ama sayfada görünmüyor; bir site kaldırılınca
+onun satırı 7 gün sonra listeden düşüyor. Ayrıntı KURULUM §"Servisler:
+Sağlık sayfasındaki satırlar ne söyler".
 
 ### Sahte beacon olayları artık insan sayılmıyor (collector'ın imzalı kararı)
 

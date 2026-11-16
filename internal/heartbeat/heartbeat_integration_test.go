@@ -41,8 +41,10 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	testdb.Lock(t, admin, testdb.HeartbeatLock)
 
 	clean := func() {
+		// The role's own row and its instances' (W3): an instance row left
+		// behind is a collector the next suite's page would draw.
 		if _, err := admin.Exec(context.Background(),
-			`DELETE FROM service_heartbeat WHERE service = $1`, testdb.Collector); err != nil {
+			`DELETE FROM service_heartbeat WHERE split_part(service, '@', 1) = $1`, testdb.Collector); err != nil {
 			t.Logf("clearing the collector's heartbeat row: %v", err)
 		}
 	}

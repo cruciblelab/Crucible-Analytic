@@ -44,6 +44,7 @@ import (
 
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
+	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
 
 // DefaultInterval is how often a service writes its row.
@@ -286,13 +287,52 @@ func TokenKeyStateOf(key []byte) TokenKeyState {
 // accepts it.
 var optionalColumns = []string{"profile", "ip_token_key_state"}
 
+// InstanceSeparator joins a role and an instance in the row's key:
+// `collector@shop`. The schema's write policy compares the part before
+// the first one against current_user (W3).
+const InstanceSeparator = "@"
+
+// RowKey is the service_heartbeat key for one process: the role alone,
+// or the role and its instance.
+func RowKey(role, instance string) string {
+	if instance == "" {
+		return role
+	}
+	return role + InstanceSeparator + instance
+}
+
+// SplitKey is RowKey backwards: the role, and the instance or "".
+//
+// On the first separator, as the policy's split_part reads it, so the
+// role this returns is the role the database checked the writer against.
+func SplitKey(key string) (role, instance string) {
+	role, instance, _ = strings.Cut(key, InstanceSeparator)
+	return role, instance
+}
+
+// ForgetAfter is how long a row may stay silent behind a fresher row of
+// its own role before Read stops returning it (W3).
+//
+// For instances that are gone: a host that ran a collector for a site
+// and no longer does leaves that row behind, and the panel - whose role
+// cannot delete another role's rows - has no way to remove it. Behind a
+// fresher row of the same role only, so a role whose every process has
+// stopped is never forgotten: "nothing heard from the collector" is the
+// one line that must never leave the page. A week, so a collector that
+// crashed is on the page for longer than anyone takes to notice.
+const ForgetAfter = 7 * 24 * time.Hour
+
 // Beat is one service's row.
 type Beat struct {
 	// Service is the database role the service connects as. It is also
 	// what the row-level policy checks, so this field is the identity
 	// rather than a label for one.
 	Service string
-	Version string
+	// Instance tells apart processes of one role on one deployment: a
+	// collector's is its site_id (W3). Empty for a role that runs once,
+	// and for every row an older build wrote.
+	Instance string
+	Version  string
 	// StartedAt is when the process started, in the database's clock -
 	// the same clock as BeatAt. See Reporter.Started for how a process
 	// learns it and why it is not the process's own clock. A row written
@@ -315,6 +355,9 @@ type Beat struct {
 	// production on the page nobody looks at until something is wrong.
 	LastErrorAt time.Time
 }
+
+// Key is the row's key: RowKey of the two fields.
+func (b Beat) Key() string { return RowKey(b.Service, b.Instance) }
 
 // Age is how long ago this service last said anything.
 func (b Beat) Age(now time.Time) time.Duration { return now.Sub(b.BeatAt) }
@@ -339,10 +382,11 @@ func (b Beat) Uptime() time.Duration { return b.BeatAt.Sub(b.StartedAt) }
 
 // Reporter writes one service's row on a timer.
 type Reporter struct {
-	pool    *pgxpool.Pool
-	service string
-	version string
-	started time.Time
+	pool     *pgxpool.Pool
+	service  string
+	instance string
+	version  string
+	started  time.Time
 	// counters is called on every beat. Supplied as a function rather
 	// than a value so the service keeps owning its own numbers - this
 	// package never holds a reference to a counter it did not create.
@@ -431,7 +475,13 @@ type Options struct {
 	// Set only by tests, which need to name a role they are not
 	// connected as.
 	Service string
-	Version string
+	// Instance tells this process apart from others of its role (W3). The
+	// collector sets its site_id; a role that runs once leaves it empty.
+	// It must be a valid site id, which cannot contain the separator; New
+	// drops one that is not, and says so, rather than writing a key the
+	// policy would read differently from this package.
+	Instance string
+	Version  string
 	// Profile is what internal/profile calls this service's resource
 	// configuration. Only the collector has one; everything else leaves
 	// it empty, which the panel renders as nothing.
@@ -479,8 +529,13 @@ func New(o Options) *Reporter {
 	if o.Counters == nil {
 		o.Counters = func() map[string]int64 { return nil }
 	}
+	if o.Instance != "" && !siteid.Valid(o.Instance) {
+		o.Logger.Warn("heartbeat: the instance name is not a valid site id; this process writes the role's own row",
+			"instance_bytes", len(o.Instance))
+		o.Instance = ""
+	}
 	return &Reporter{
-		pool: o.Pool, service: o.Service, version: o.Version,
+		pool: o.Pool, service: o.Service, instance: o.Instance, version: o.Version,
 		profile: o.Profile, ipTokenKey: o.IPTokenKey,
 		started: o.Started, counters: o.Counters, log: o.Log,
 		interval: o.Interval, logger: o.Logger, now: o.Now,
@@ -677,6 +732,7 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 			&raw, &b.LastError, &errAt, &b.Profile, &tokenKey); err != nil {
 			return nil, err
 		}
+		b.Service, b.Instance = SplitKey(b.Service)
 		b.IPTokenKey = ParseTokenKeyState(tokenKey)
 		b.Version = version
 		if errAt != nil {
@@ -692,7 +748,66 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 		}
 		out = append(out, b)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return forgetSilent(forgetReplaced(out)), nil
+}
+
+// forgetReplaced drops a role's own row once an instance of that role
+// has started after its last beat (W3).
+//
+// That row is what this role's processes wrote before they had instances,
+// and after an upgrade nothing writes it again: kept, it would sit on the
+// health page as a collector nobody has heard from, and internal/relupdate
+// would wait for it and roll the upgrade back. Dropped by the readers
+// rather than deleted by the writer: no service holds DELETE on this
+// table, and grants.sql says why - a row that disappears reads as a
+// service that was never installed.
+//
+// "Started after its last beat" is what tells a row that was replaced
+// from one that is still a process: an older build still running beside
+// the new one keeps beating after the instance started, and stays; one
+// that stopped without being replaced - it crashed, say - also beat after
+// the instance started, and stays as the process nobody hears from. Both
+// sides are the database's clock (B3e), so no reader's clock decides it.
+func forgetReplaced(beats []Beat) []Beat {
+	latestStart := map[string]time.Time{}
+	for _, b := range beats {
+		if b.Instance != "" && b.StartedAt.After(latestStart[b.Service]) {
+			latestStart[b.Service] = b.StartedAt
+		}
+	}
+	out := beats[:0]
+	for _, b := range beats {
+		if b.Instance == "" && latestStart[b.Service].After(b.BeatAt) {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// forgetSilent drops the rows that have been silent for ForgetAfter
+// behind a fresher row of their own role (W3).
+//
+// Measured against that row's beat rather than against now: both are the
+// database's clock, so no reader's clock decides what disappears.
+func forgetSilent(beats []Beat) []Beat {
+	newest := map[string]time.Time{}
+	for _, b := range beats {
+		if b.BeatAt.After(newest[b.Service]) {
+			newest[b.Service] = b.BeatAt
+		}
+	}
+	out := beats[:0]
+	for _, b := range beats {
+		if newest[b.Service].Sub(b.BeatAt) > ForgetAfter {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
 }
 
 // truncate bounds a stored error message.
@@ -772,7 +887,7 @@ func (r *Reporter) write(ctx context.Context, counters []byte, lastError string,
 		    counters = EXCLUDED.counters,
 		    last_error = EXCLUDED.last_error,
 		    last_error_at = EXCLUDED.last_error_at`
-	args := []any{r.service, r.version, startedArg, counters, lastError, errAt}
+	args := []any{RowKey(r.service, r.instance), r.version, startedArg, counters, lastError, errAt}
 
 	// And the optional half, assembled from the columns this database
 	// turned out to have.

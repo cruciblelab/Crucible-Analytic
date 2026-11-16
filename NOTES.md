@@ -25625,3 +25625,114 @@ derlenmedi); `|| true` ile yeniden yazıldı.
   görülmemiş bir senaryo ekledim.
 - *Pencere genişliği bir ayar değil bir ölçüm sorusudur:* aynı veride 1 sn
   ayrımı 8 kat, 100 ms 22 kat.
+
+## Site başına collector — W3a (2026-11-16)
+
+PLAN §W3a. Bir sunucuda her site için ayrı collector çalıştıran kurulumda
+iki collector tek kalp atışı satırına yazıyordu. Canlı denemede (2026-11-03)
+durdurulan collector'ın satırını yanındaki tazeliyordu.
+
+### Anahtar: ölçüm planı değiştirdi
+
+PLAN `(service, instance)` birincil anahtarını yazıyordu. Ayrı bir
+veritabanında denendi:
+- eski ikilinin `INSERT ... ON CONFLICT (service)`'i reddediliyor: *"there
+  is no unique or exclusion constraint matching the ON CONFLICT
+  specification"*;
+- `service` üzerinde kısmi tekil indeks (`WHERE instance = ''`) de
+  kurtarmıyor: ON CONFLICT kısmi indeksi ancak aynı `WHERE` yazılırsa
+  seçer, eski ikili yazmıyor.
+
+Yani şemayı önce yükselten kurulumda her eski servis kalp atışını
+kaybederdi: Sağlık hepsini "haber alınamıyor" gösterir, `relupdate` her
+güncellemeyi geri alırdı. Anahtar tek sütun kaldı; değeri `rol` ya da
+`rol@örnek`, collector'ın örneği `site_id`. Değişen yalnız yazma kuralı:
+`split_part(service, '@', 1) = current_user`.
+- LIKE değil: `beacon_writer` ve `analytics_reader`'daki `_` LIKE'ta
+  joker. `split_part` ilk ayırıcıya kadar okur, `SplitKey` de (`strings.Cut`)
+  aynısını yapar; bir anahtar politikanın sınadığından başka bir rol
+  adlandıramaz.
+- Örnek adı `siteid.Valid`'den geçmezse (`@` içerirse) atılır, süreç rol
+  satırını yazar ve bir kez WARN yazar.
+
+### Eski satır: silmek değil, düşürmek
+
+İlk hâl yeni örneğin ilk yazmasından sonra rol satırını siliyordu. Entegrasyon
+testi satırı yerinde buldu: hiçbir servisin bu tabloda DELETE yetkisi yok, ve
+`grants.sql` bunu bilerek yazıyor (kaybolan satır "hiç kurulmamış" okunur).
+Yetki vermek yerine kural okuyana taşındı (`forgetReplaced`):
+- rol satırı, aynı rolün kendi son atışından **sonra** başlamış bir örneği
+  varsa düşer;
+- eski sürümle hâlâ çalışan süreç örnek başladıktan sonra da atar, görünür
+  kalır;
+- düşmüş (çökmüş) eski süreç de örnekten sonra atmıştır, "haber alınamıyor"
+  olarak kalır;
+- iki taraf da veritabanı saati (B3e).
+
+`relupdate` için de aynı kural yetiyor: yükseltmede rol satırı yeniden
+başlatma anında canlıydı, ama yeni örnek başlayınca okuma onu döndürmüyor.
+Geri almada eski ikili rol satırını yazar ve örnekler beklenmez.
+
+### Bir kiracı öbürünün collector'ını görmüyor
+
+Örnek adı bir site kimliği; Sağlık satırı ve tanı paketi, B3g ve W1'in
+kuralıyla süzülüyor (`instancesShownTo`). Web testi önce sayfanın tamamında
+öbür sitenin adını aradı ve **bir sızıntı daha** buldu: kurulum
+kontrollerindeki IP jetonu cümlesi `collector@w3-baska bu bilgiyi hiç
+bildirmiyor` diyordu. Kontroller okuyucudan bağımsız çalışıyor, o yüzden
+düzeltme süzgeç değil: `tokenkey` rol başına tek rapor veriyor, rolün en
+kötü örneğinin durumuyla (anahtarsız, sonra bilinmeyen, sonra var). Hangi
+örneğin eksik olduğu yanındaki servis tablosunda, süzülmüş hâliyle.
+
+### Testin bulduğu ikinci kusur
+
+`restartAskable` "hiç rapor vermiş mi" sorusunu `service = $1` ile
+soruyordu. Yalnız örnek satırları olan bir collector'ı yeniden başlatma
+isteği `ErrRestartNeverReported` ile reddedilirdi. Artık `split_part`;
+`beacon_writerx@w3` gibi önek hilesi testte reddediliyor.
+
+### Canlı düzenek
+
+`$SP/w3/olc-w3.py once|sonra`; iki site, iki collector, B 202 sn durduruldu,
+okuyucular Ayşe ve Mehmet (gerçek Chromium, `$SP/canli/w3-oku.mjs`).
+
+| | Önce (`1292fd3`) | Sonra |
+|---|---|---|
+| Tablo | `collector` | `collector@canli-deneme`, `collector@ikinci-site`, eski `collector` (107 sn sessiz, sayfada yok) |
+| Mehmet, B dururken | "az önce" | `ikinci-site` · "3 dakika önce · haber alınamıyor" |
+| Ayşe, B dururken | "az önce" | yalnız `canli-deneme` · "az önce" |
+| Öbür site sayfada / pakette | — | yok / yok (iki okuyucu) |
+
+**Şema önce:** yeni kural eski ikililer çalışırken uygulandı; collector
+satırı 60 sn sonra ilerlemişti, kalp atışı uyarısı 0. Ters sıra
+(yeni ikili, eski kural) entegrasyon testinin S2 mutasyonunda ölçüldü:
+örnek satırı reddediliyor.
+
+İşletmecinin bütün örnekleri görmesi düzenekte okunamadı: geliştirici
+oturumları bitmişti. `TestAnInstanceRowIsShownToWhoeverOwnsItsSite`
+ölçüyor.
+
+### Mutasyonlar
+
+34 mutasyon, 34'ü kırmızı (`$SP/w3/mutasyon-w3a.py`; politika mutasyonları
+paylaşılan veritabanına uygulanıp geri alınıyor). İkisi ilk turda sağ kaldı,
+ikisi de aynı kusur:
+- **Rol satırı örneğin profilini eziyor:** testte rol satırı hep önce
+  okunuyordu (en yeni atış önce gelir). Artık iki sırada da soruluyor.
+- **Anahtarsız ile bilinmeyen eşit:** anahtarsız satır hep önce okunuyordu.
+  Bilinmeyen satır en son atacak şekilde bir adım eklendi.
+
+### Dersler
+
+- *Bir anahtar değişikliğini yeni ikiliyle değil eski ikiliyle sına:*
+  şema önce gelir, ve o anda yazan eskisidir.
+- *Bir kuralı yazan tarafa koymadan önce yazanın yetkisini sor.* DELETE
+  yoktu, ve yokluğun gerekçesi doğruydu.
+- *Bir okuyucuya göre süzülen bir sayfada, okuyucudan bağımsız üretilen
+  her cümle ayrı bir kanaldır.* Servis tablosu süzülüyordu, kontrol cümlesi
+  aynı adı taşıyordu.
+- *Sırayla toplanan bir değerin testi iki sırayı da kurmalı:* "ilk gelen
+  kazanır" ile "doğru olan kazanır" tek sırada ayırt edilemez.
+- Testte bir closure parametresine paketteki yazan yardımcının adını
+  (`beat`) vermek paylaşılan satır değişmezini tetikledi; değişmez ada
+  bakıyor.

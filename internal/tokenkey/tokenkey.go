@@ -54,8 +54,17 @@ import (
 
 // Report is one service's answer.
 type Report struct {
-	// Service is the database role, which is how the heartbeat table
-	// keys a row and therefore who this is.
+	// Service is the database role. A role that runs more than once - a
+	// collector per site (W3) - is one report, in the state of its
+	// instance furthest from ready (worse).
+	//
+	// Not the instance: an instance is named after a site, and this
+	// report becomes a sentence in the setup checks, which every reader of
+	// the health page is shown and which no reader decides. The first
+	// version named `collector@shop` here, and the owner of one site among
+	// others read the other customer's site off it. Which instance lacks
+	// the key is on the services table beside it, which shows each reader
+	// the instances of their own sites.
 	Service string
 	State   heartbeat.TokenKeyState
 }
@@ -151,18 +160,41 @@ func Reports(ctx context.Context, pool *pgxpool.Pool) ([]Report, error) {
 		return nil, err
 	}
 
-	out := make([]Report, 0, len(beats))
+	byRole := map[string]heartbeat.TokenKeyState{}
 	for _, b := range beats {
 		if b.IPTokenKey == heartbeat.TokenKeyUnknown && !writers[b.Service] {
 			continue
 		}
-		out = append(out, Report{Service: b.Service, State: b.IPTokenKey})
+		if seen, ok := byRole[b.Service]; !ok || worse(b.IPTokenKey, seen) {
+			byRole[b.Service] = b.IPTokenKey
+		}
+	}
+	out := make([]Report, 0, len(byRole))
+	for role, state := range byRole {
+		out = append(out, Report{Service: role, State: state})
 	}
 	// Ordered by service, so a sentence naming two of them reads the
 	// same way twice. heartbeat.Read orders by beat time, which is right
 	// for a health page and arbitrary for a message.
 	sort.Slice(out, func(i, j int) bool { return out[i].Service < out[j].Service })
 	return out, nil
+}
+
+// worse reports whether a is further from ready than b: a key reported
+// absent needs a config file edited, an unknown one a newer build, and
+// either keeps the role from tokenising. Absent first, because its fix is
+// the one the operator can make today.
+func worse(a, b heartbeat.TokenKeyState) bool {
+	rank := func(s heartbeat.TokenKeyState) int {
+		switch s {
+		case heartbeat.TokenKeyAbsent:
+			return 0
+		case heartbeat.TokenKeyPresent:
+			return 2
+		}
+		return 1
+	}
+	return rank(a) < rank(b)
 }
 
 // addressWriters is the set of roles a deployment granted the ability to

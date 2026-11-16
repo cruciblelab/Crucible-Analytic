@@ -233,6 +233,27 @@ func TestTheDashboardNamesAWriterThatWouldGoOnRecording(t *testing.T) {
 	if !strings.Contains(dash, "duraklatıldı") || strings.Contains(dash, "Dikkat:") {
 		t.Error("with both writers honouring the pause the banner should say paused and name nobody")
 	}
+
+	// A collector per site (W3): another site's collector writes nothing
+	// of this one's, so an old build fronting it is not named here - and
+	// this site's own instance is.
+	instance := func(site, version string) {
+		t.Helper()
+		if _, err := admin.Exec(ctx, `INSERT INTO service_heartbeat (service, version, started_at, beat_at, counters)
+			VALUES ($1, $2, now() - interval '1 minute', now(), $3::jsonb)`,
+			heartbeat.RowKey(testdb.Collector, site), version,
+			`{"`+heartbeat.CounterWritten+`": 4}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	instance("duraklat-baska-site", "duraklat-baska")
+	if _, dash = get(t, client, server.URL+sitePath(site)); names(dash, collector) {
+		t.Error("the banner names another site's collector, which records nothing of this site's")
+	}
+	instance(site, "duraklat-kendi")
+	if _, dash = get(t, client, server.URL+sitePath(site)); !names(dash, collector) {
+		t.Error("the banner does not name this site's own collector, which reports no pause counter")
+	}
 }
 
 // TestTheDashboardSaysWhichStretchesWentUnrecorded: once a pause has

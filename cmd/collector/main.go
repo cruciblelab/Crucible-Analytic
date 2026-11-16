@@ -204,6 +204,11 @@ func main() {
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
+		// One row per collector process (W3): a host running a collector
+		// per site wrote them all into one row, and the health page said
+		// "a moment ago" about a stopped collector because its sibling
+		// had just written.
+		Instance: cfg.SiteID,
 		// The row's last error and its log-loss count, from the same
 		// copy of the log the panel's table gets. See heartbeat.LogReport.
 		Log: panelLog,

@@ -37,7 +37,7 @@ replacing the page. */}}
 <tbody>
 {{- range .Data.Services}}
 <tr class="{{if .Stale}}kaldi{{else}}gecti{{end}}">
-<th scope="row">{{t (printf "saglik.servis.%s" .Name)}}</th>
+<th scope="row">{{t (printf "saglik.servis.%s" .Name)}}{{with .Instance}} <code>{{.}}</code>{{end}}</th>
 <td><code>{{if .Version}}{{.Version}}{{else}}{{t "saglik.surum_yok"}}{{end}}</code></td>
 {{- /* A dash rather than a blank: three of the four services have no
 resource profile at all, and an empty cell reads as a missing value

@@ -205,18 +205,7 @@ func (d Doorbell) Healthy(ctx context.Context, since time.Time) ([]string, error
 		if err != nil {
 			return nil, fmt.Errorf("relupdate: reading the heartbeat: %w", err)
 		}
-		seen := map[string]time.Time{}
-		for _, r := range rows {
-			seen[r.Service] = r.BeatAt
-		}
-
-		missing = missing[:0]
-		for _, name := range HealthServices {
-			at, ok := seen[name]
-			if !ok || !at.After(since) {
-				missing = append(missing, name)
-			}
-		}
+		missing = waitingFor(rows, since)
 		if len(missing) == 0 {
 			return nil, nil
 		}
@@ -261,4 +250,68 @@ func (d Doorbell) poll() time.Duration {
 		return d.Poll
 	}
 	return time.Second
+}
+
+// waitingFor is what Healthy is still waiting for: the processes that
+// have not written since the restart, among those it should wait for.
+//
+// # Every instance that was alive (W3)
+//
+// A role can run more than once - a collector per site - and every one
+// of them was restarted, so every one must come back. But only the ones
+// that were writing when the restart began: an instance that went quiet
+// before it, a collector for a site that is no longer served, will not
+// come back because of this restart, and waiting for it would roll back
+// every update for as long as its row is kept.
+//
+// The first version kept one beat per role in a map, overwritten in
+// heartbeat.Read's order - newest first - so it held the oldest
+// instance's, and one long-dead instance was enough to make every update
+// fail.
+//
+// And at least one row per role must be new: a role with no row at all,
+// or with only rows that went quiet before the restart, did not come
+// back, and it is named by its role.
+//
+// # A build that writes the role's own row
+//
+// A build older than instances writes the role's own row, and after a
+// rollback that is what comes back: the instance rows the newer build
+// wrote were alive when the restart began and will never be written
+// again. So once the role's own row is back, the role's instances are
+// not waited for. The other way round needs no rule here: once an
+// instance has started after the role's own row last beat, heartbeat.Read
+// leaves that row out (forgetReplaced), so it stops being waited for as
+// the instances come back.
+//
+// What this cannot see: before instances, two collectors on a host wrote
+// one row between them, so a restart from such a build cannot know there
+// were two. The first one back stands for both - as it did before.
+func waitingFor(rows []heartbeat.Beat, since time.Time) []string {
+	var missing []string
+	for _, role := range HealthServices {
+		var back, ownRowBack bool
+		var stillOut []string
+		for _, b := range rows {
+			if b.Service != role {
+				continue
+			}
+			if b.BeatAt.After(since) {
+				back = true
+				ownRowBack = ownRowBack || b.Instance == ""
+				continue
+			}
+			if !b.Stale(since, heartbeat.DefaultInterval) {
+				stillOut = append(stillOut, b.Key())
+			}
+		}
+		switch {
+		case ownRowBack:
+		case len(stillOut) > 0:
+			missing = append(missing, stillOut...)
+		case !back:
+			missing = append(missing, role)
+		}
+	}
+	return missing
 }

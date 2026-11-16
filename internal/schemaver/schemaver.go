@@ -197,7 +197,7 @@ import (
 //
 // # 24
 //
-// Two tables and two columns, and the reason they share a number is the
+// Two tables, two columns and a policy, and the reason they share a number is the
 // rule written under Fingerprint below: no release tag carries 24, so
 // nothing has ever run it.
 //
@@ -216,6 +216,11 @@ import (
 //     automated beyond its User-Agent - the collector's signed verdict,
 //     or a verdict header that did not hold. Nullable, no default, no
 //     CHECK: the one shape of change a compressed hypertable takes.
+//   - service_heartbeat's write policy (W3): a role may write its own row
+//     and its instances', `role@instance`. A wider policy, not a new key:
+//     changing the key was measured to break every running older binary's
+//     ON CONFLICT, and an older binary writes the role's own row exactly
+//     as before under this one.
 //
 // Additive in the sense that matters on an upgrade. ADD COLUMN is one of
 // the four DDL forms measured in O1 as accepted on a compressed
@@ -237,7 +242,7 @@ const Version = 24
 // "Together" means the pair moves in one commit, not that the number
 // always goes up. A version no release tag carries has never reached a
 // database outside this tree, so it is still being assembled and may
-// grow again - which is how 24 came to hold four things from three
+// grow again - which is how 24 came to hold five things from four
 // phases. A version a tag *does* carry is frozen: somewhere there is a
 // database recording that number, and State.Matches compares this value
 // against it, so editing a released version's schema would put "your
@@ -252,7 +257,7 @@ const Version = 24
 // fingerprint. That package is where it belongs: it already asks git
 // what each release looked like, and it already fails rather than skips
 // when the tags are missing.
-const Fingerprint = "fba622a1533a882a783a26751b8818dcd1d1e17c70528fb7d872977dea0fb629"
+const Fingerprint = "4261482f552a97783e1b665ce42401d3c173e6d988fe4235b9e76d0c6f1aca95"
 
 // FingerprintOf hashes a set of schema files.
 //

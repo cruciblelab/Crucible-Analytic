@@ -138,11 +138,35 @@ CREATE POLICY heartbeat_read ON service_heartbeat
 -- would silently widen what it may write, because the implicit fallback
 -- follows along. Two expressions cannot drift into each other by
 -- accident.
+--
+-- # The key may carry an instance (W3)
+--
+-- A row is the role's own - `collector` - or one of its instances:
+-- `collector@<site>`, one per collector process when a host runs one
+-- collector per site. The part before the first '@' is the role and is
+-- what the policy compares; the rest is a label the writer chose.
+--
+-- Why not a second key column: measured, changing the primary key to
+-- (service, instance) made every running older binary's
+-- `ON CONFLICT (service)` fail - "there is no unique or exclusion
+-- constraint matching the ON CONFLICT specification" - and a partial
+-- unique index on (service) did not rescue it. The schema goes first and
+-- the binaries follow, and a running binary has to keep writing through
+-- the upgrade (see internal/schemaver). One column, one key, and older
+-- binaries keep writing the role's own row.
+--
+-- split_part rather than LIKE: role names contain '_', a LIKE wildcard,
+-- and `current_user || '@%'` would let beacon_writer write a row for any
+-- role spelled beacon<anything>writer.
+--
+-- Instances of one role can write each other's rows. They are one role:
+-- the same password in the same kind of file. The policy keeps roles
+-- apart, which is the boundary the database can see.
 DROP POLICY IF EXISTS heartbeat_write ON service_heartbeat;
 CREATE POLICY heartbeat_write ON service_heartbeat
     FOR ALL
-    USING (service = current_user)
-    WITH CHECK (service = current_user);
+    USING (split_part(service, '@', 1) = current_user)
+    WITH CHECK (split_part(service, '@', 1) = current_user);
 
 -- The resource profile the collector is actually running (A2).
 --

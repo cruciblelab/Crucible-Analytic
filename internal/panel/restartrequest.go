@@ -174,11 +174,18 @@ func (s *Store) RequestRestart(ctx context.Context, a Access, auth devgate.Autho
 // to_regrole and to_regclass so that a role or a table this database does
 // not have is a plain "no" rather than an error: the service's own
 // watcher asks the same question the same way about itself.
+//
+// "Ever reported" is any row of the role, its instances' included (W3):
+// a host running a collector per site has no row keyed by the role alone,
+// and the first version, asking for exactly that, refused to restart
+// every collector on it as one that had never reported. split_part, the
+// write policy's own reading of a key, rather than LIKE: an underscore in
+// a role name is a LIKE wildcard.
 func restartAskable(ctx context.Context, q rowQuerier, service string) (canHear, reported bool, err error) {
 	err = q.QueryRow(ctx, `
 		SELECT coalesce(has_table_privilege(to_regrole($1)::oid,
 		                                    to_regclass('panel_settings')::oid, 'SELECT'), false),
-		       EXISTS (SELECT 1 FROM service_heartbeat WHERE service = $1)`,
+		       EXISTS (SELECT 1 FROM service_heartbeat WHERE split_part(service, '@', 1) = $1)`,
 		service).Scan(&canHear, &reported)
 	if err != nil {
 		return false, false, fmt.Errorf("panel: ask whether %s can be restarted: %w", service, err)
@@ -292,13 +299,13 @@ func (s *Store) RestartStatus(ctx context.Context, a Access) (RestartStatus, err
 	if err != nil {
 		return out, fmt.Errorf("panel: restart status: %w", err)
 	}
-	byService := make(map[string]heartbeat.Beat, len(beats))
+	byService := make(map[string][]heartbeat.Beat, len(beats))
 	for _, b := range beats {
-		byService[b.Service] = b
+		byService[b.Service] = append(byService[b.Service], b)
 	}
 
 	for _, row := range list {
-		beat, reported := byService[row.service]
+		beat := byService[row.service]
 		svc := RestartService{Service: row.service}
 		// Read the way the service reads it, with the service's own
 		// function: a value that is not a time is no request to the
@@ -309,13 +316,59 @@ func (s *Store) RestartStatus(ctx context.Context, a Access) (RestartStatus, err
 				svc.Requested = at
 			}
 		}
-		if reported {
-			svc.Started = beat.StartedAt
-		}
-		svc.State = restartStateOf(row.canHear, reported, beat, svc.Requested, now)
+		svc.State, svc.Started = restartStateOfAll(row.canHear, beat, svc.Requested, now)
 		out.Services = append(out.Services, svc)
 	}
 	return out, nil
+}
+
+// restartStateOfAll is a role's state over all of its rows (W3).
+//
+// A request restarts every process of the role, so the role has
+// restarted when each of them has: the state is the one furthest behind,
+// in the order below. A process that was already silent when the
+// request was made is not counted - it was not there to hear it, and
+// would hold the role at "not reporting" for as long as its row is kept
+// (relupdate's waitingFor makes the same exception). Started is the
+// latest start among the processes counted: when the last one came back.
+func restartStateOfAll(canHear bool, beats []heartbeat.Beat, requested, now time.Time) (RestartState, time.Time) {
+	if len(beats) == 0 {
+		return restartStateOf(canHear, false, heartbeat.Beat{}, requested, now), time.Time{}
+	}
+	behind := []RestartState{RestartIgnored, RestartNotReporting, RestartPending, RestartNone, RestartDone}
+	rank := func(s RestartState) int {
+		for i, r := range behind {
+			if r == s {
+				return i
+			}
+		}
+		return len(behind)
+	}
+	var (
+		state   RestartState
+		started time.Time
+		counted bool
+	)
+	for _, b := range beats {
+		if !requested.IsZero() && b.Stale(requested, heartbeat.DefaultInterval) &&
+			!restartreq.Satisfied(requested, b.StartedAt) {
+			continue
+		}
+		s := restartStateOf(canHear, true, b, requested, now)
+		if !counted || rank(s) < rank(state) {
+			state = s
+		}
+		if b.StartedAt.After(started) {
+			started = b.StartedAt
+		}
+		counted = true
+	}
+	if !counted {
+		// Every process of the role was silent before the request: the
+		// role's newest row says what it says.
+		return restartStateOf(canHear, true, beats[0], requested, now), beats[0].StartedAt
+	}
+	return state, started
 }
 
 // restartStateOf is the one place the states are decided.

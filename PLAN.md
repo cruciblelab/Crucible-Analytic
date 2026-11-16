@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **2/4** | W1 ✅, W2 ✅; W3–W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **2/4** | W1 ✅, W2 ✅, W3a ✅; W3b, W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11411,13 +11411,12 @@ collector" dağıtımını anıyor; o dağıtımda iki collector tek satıra yaz
 - **Toplu yeniden başlatma:** "Yeniden başlat → Toplayıcı" iki süreci de
   kapattı. Sayfa "siteniz 2 saniye erişilemez" diyor; gerçekte iki site.
 
-**Tasarım:**
-- **Tablo:** `service_heartbeat`'e `instance`, anahtar `(service, instance)`.
-  Collector için örnek adı `site_id`; öbür servisler için yapılandırmadan,
-  varsayılan boş (bugünkü tek satır).
-- **Satır güvenliği:** değişmiyor (`service = current_user`). Aynı rolün
-  süreçleri birbirinin satırını yazabilir; aynı rol aynı güven demek, bunu
-  yazacağım.
+**Tasarım (ilk hâli; anahtar kısmı ölçümle değişti, W3a'ya bakın):**
+- ~~**Tablo:** `service_heartbeat`'e `instance`, anahtar `(service, instance)`.~~
+  Collector için örnek adı `site_id`; öbür servisler için boş (bugünkü
+  tek satır).
+- ~~**Satır güvenliği:** değişmiyor (`service = current_user`).~~ Aynı rolün
+  süreçleri birbirinin satırını yazabilir; aynı rol aynı güven demek.
 - **Okuyanlar (bugün 11 dosya) örnek başına:**
   - Sağlık her örneği ayrı satırda gösterir.
   - D5'in "toplanıyor mu"su sitenin collector'ını `site_id`'den bulur.
@@ -11433,7 +11432,9 @@ collector" dağıtımını anıyor; o dağıtımda iki collector tek satıra yaz
 
 **Bayat örnekler ve güncelleme (değerlendirmenin 3. noktası):**
 - Belli bir süredir atmayan örnek önce "haber alınamıyor" görünür, sonra
-  satırı silinir ve listeden düşer. Süre bir sabit, testle bağlı.
+  ~~satırı silinir ve~~ listeden düşer. Süre bir sabit, testle bağlı.
+  (Silme yok: hiçbir servisin bu tabloda DELETE yetkisi yok, gerekçesi
+  `grants.sql`'de. Okuyanlar düşürüyor.)
 - `relupdate` yalnız yeniden başlatmadan önceki son birkaç dakikada atan
   örnekleri bekler. Önceden ölmüş bir collector kimsenin güncellemesini
   kilitlemez; bu bir test. Bekleme zaten süre sınırlı (geri alma).
@@ -11447,6 +11448,70 @@ collector" dağıtımını anıyor; o dağıtımda iki collector tek satıra yaz
 - Yeniden başlatma yalnız seçileni kapatır.
 - İki sitenin sayaçları ayrı ayrı doğru.
 - Panelden güncellemede (`relupdate`) iki örnek de beklenir.
+
+##### W3a — Her collector'ın kendi satırı ✅ **yapıldı (2026-11-16)**
+
+Ayrıntı NOTES "Site başına collector — W3a".
+
+**Anahtar ölçümle değişti.** PLAN'ın `(service, instance)` birincil
+anahtarı gerçek veritabanında denendi. Eski ikilinin
+`ON CONFLICT (service)`'i reddediliyor: *"there is no unique or exclusion
+constraint matching the ON CONFLICT specification"*. Kısmi tekil indeks de
+kurtarmıyor. Yani yükseltilmiş şemada çalışan her eski servis kalp atışını
+kaybederdi; bu, "şema önce, ikili sonra" kuralını bozar.
+- Anahtar tek sütun kalıyor, değeri `rol` ya da `rol@örnek`. Collector'ın
+  örneği `site_id`.
+- Yazma kuralı `split_part(service, '@', 1) = current_user`. LIKE değil:
+  `_` LIKE'ta joker, ve rol adlarında alt çizgi var.
+
+**Eski tek satır silinmiyor, okuyanlar düşürüyor.** İlk hâl onu yazan
+tarafta siliyordu; test reddetti, çünkü hiçbir servisin bu tabloda DELETE
+yetkisi yok (`grants.sql`, bilerek). Kural `forgetReplaced`: kendi son
+atışından sonra başlamış bir örnek varsa rol satırı düşer. Eski sürümle
+hâlâ çalışan süreç yazmaya devam ettiği için görünür kalır. Aynı rolün daha
+taze bir satırının yanında 7 gün sessiz kalan satır da düşer
+(`ForgetAfter`).
+
+**Okuyanlar:**
+- Pano o sitenin collector'ının profilini okuyor; başka örneğinkini hiç.
+- Coğrafi ret sayısı bütün collector'ların toplamı.
+- Duraklatma uyarısı başka sitenin collector'ını anmıyor.
+- `relupdate` yeniden başlatma anında yazmakta olan her örneği bekliyor,
+  zaten sessiz olanı beklemiyor. Rol satırı geri döndüyse (geri alma)
+  örnekleri beklemiyor.
+- Yeniden başlatma durumu rolün en geride kalan sürecininki.
+- Sağlık ve tanı paketi tek sitenin sahibine yalnız kendi sitesinin
+  örneğini gösteriyor.
+
+**Testlerin bulduğu iki kusur:**
+- Kurulum kontrollerindeki IP jetonu cümlesi `collector@w3-baska` diyordu:
+  öbür müşterinin site kimliği. `tokenkey` artık rol başına tek rapor,
+  rolün en kötü örneğinin durumuyla.
+- `restartAskable` `service = $1` arıyordu: yalnız örnek satırları olan
+  collector'ı "hiç rapor vermemiş" sayıp yeniden başlatmayı reddederdi.
+
+**Canlı düzenek** (iki site, iki collector; B 202 sn durduruldu):
+
+| | Önce (`1292fd3`) | Sonra |
+|---|---|---|
+| Satırlar | `collector` (tek) | `collector@canli-deneme`, `collector@ikinci-site` (eski `collector` tabloda, sayfada yok) |
+| Mehmet, B dururken | *"Toplayıcı: az önce"* | *"Toplayıcı `ikinci-site`: 3 dakika önce · haber alınamıyor"* |
+| Ayşe, B dururken | *"az önce"* | yalnız `canli-deneme`, *"az önce"* |
+| Öbür sitenin adı sayfada / tanı paketinde | — | ikisinde de yok, iki okuyucuda da |
+| Eski ikililer yeni kuralla (60 sn) | — | satır yazılmaya devam etti, 0 uyarı |
+
+İşletmecinin bütün örnekleri görmesi düzenekte okunamadı (geliştirici
+oturumları bitmişti); entegrasyon testinde ölçülüyor. 34 mutasyon, 34'ü
+kırmızı (`$SP/w3/mutasyon-w3a.py`); ikisi ancak satırların okunma sırası
+iki yönde de sınandıktan sonra.
+
+##### W3b — Yeniden başlatmada tek collector'ı seçmek ⏳
+
+- İstek bugün role yazılıyor ve rolün bütün süreçleri okuyor; tek siteninkini
+  seçmek yok. Sayfa kaç sürecin, kaç sitenin kapanacağını söylemeli.
+- Yeniden başlatma bölümündeki collector satırı rolün toplamı ve tek sitenin
+  sahibine de öyle çiziliyor (zamanı öbür sürecin başlangıcı olabilir); örnek
+  başına olunca okuyucunun örnekleriyle süzülmeli.
 
 #### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
 

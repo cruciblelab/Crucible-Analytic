@@ -46,7 +46,7 @@ func TestTheHeartbeatReadersFindTheServicesByTheirRoles(t *testing.T) {
 	beats.Silence()
 	row(testdb.Collector)
 	row(testdb.Beacon)
-	c, err := store.Collecting(ctx)
+	c, err := store.Collecting(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestTheHeartbeatReadersFindTheServicesByTheirRoles(t *testing.T) {
 	}
 
 	store.SetServiceRoles(ServiceRoles{Collector: "toplayici", Beacon: "isaretci"})
-	c, _ = store.Collecting(ctx)
+	c, _ = store.Collecting(ctx, "")
 	if c.Collector != "" || c.Beacon != "" {
 		t.Errorf("roles renamed, and the default rows are still read: %+v", c)
 	}
@@ -67,7 +67,7 @@ func TestTheHeartbeatReadersFindTheServicesByTheirRoles(t *testing.T) {
 	}
 	row("toplayici")
 	row("isaretci")
-	c, _ = store.Collecting(ctx)
+	c, _ = store.Collecting(ctx, "")
 	if c.Collector != full.Level || c.Beacon != full.Level {
 		t.Errorf("under the renamed roles Collecting is %+v", c)
 	}
