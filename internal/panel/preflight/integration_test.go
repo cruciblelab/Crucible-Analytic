@@ -411,18 +411,10 @@ func TestPreflightComplete_BlocksOnRequiredFailuresOnly(t *testing.T) {
 	}
 }
 
-// Backups cannot be checked, and saying so is the only honest option.
-func TestPreflight_BackupCheckIsHonestAboutNotBeingAbleToCheck(t *testing.T) {
-	c := newTestChecker(t)
-	got := find(t, c.Run(context.Background(), Config{}), "backup.configured")
-	if got.Status != CheckWarn {
-		t.Errorf("status = %s, want warn - reporting a pass would be a lie and a fail would "+
-			"block handover on something the installer may have handled themselves", got.Status)
-	}
-	if got.Fix == "" {
-		t.Error("the backup warning offers no command")
-	}
-}
+// The backup check's cases live in backupcheck_integration_test.go, in a
+// schema of their own: this one said "backups cannot be checked" and
+// asserted a warning on the shared database, which other suites fill
+// with backups.
 
 // The installer reads top-down and should meet the problem before the
 // reassurance.
@@ -498,15 +490,14 @@ func TestUncheckedSteps_AreTheOnesWithoutACheck(t *testing.T) {
 			t.Errorf("%q is listed as unchecked but names a checker", step.ID)
 		}
 	}
-	// Backups are the clearest case: nothing in this system can see them.
-	found := false
+	// Backups were the clearest case of an unchecked step until W4: the
+	// check said nothing could see them while the backup feature recorded
+	// every one. The step is now checked by backup.configured.
 	for _, step := range unchecked {
 		if step.ID == "backup" {
-			found = true
+			t.Error("the backup directory is listed as unverifiable, and backup.configured " +
+				"reads the catalogue, the queue and the upgrader's policy row")
 		}
-	}
-	if !found {
-		t.Error("backups are not listed as unverifiable, but nothing here can check them")
 	}
 }
 

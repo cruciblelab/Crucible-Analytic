@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/backup"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/diskspace"
@@ -211,7 +212,7 @@ func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 		checkBotData(cfg.BotDataPath, cfg.Now),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
-		checkBackups(),
+		c.checkBackups(ctx, cfg.Now),
 	}
 	if len(cfg.ServiceURLs) == 0 {
 		results = append(results, noServiceURLs())
@@ -1227,21 +1228,132 @@ func checkService(ctx context.Context, client *http.Client, name, url string) Ch
 	return result
 }
 
-// checkBackups is honest rather than useful, and says so.
+// checkBackups asks the backup feature what it has done.
 //
-// Nothing in this system takes backups yet (see PLAN.md group F), so
-// there is no state to inspect and no way to distinguish "backed up
-// elsewhere" from "not backed up at all". Reporting a pass would be a
-// lie, and reporting a failure would block handover on something the
-// installer may well have handled with their own tooling. A warning that
-// states the position exactly is the only honest option.
-func checkBackups() CheckResult {
-	return CheckResult{
-		ID: "backup.configured", Severity: SeverityRecommended, Status: CheckWarn,
-		Label:  "Yedekleme",
-		Detail: "Bu sistem yedek almaz ve alınıp alınmadığını kontrol edemez. Müşterinin analitik geçmişi şu anda tek diske emanet.",
-		Fix:    `Zamanlanmış pg_dump kurun, örn: 0 3 * * * pg_dump "$DSN" | gzip > /yedek/analytics-$(date +\%F).sql.gz`,
+// # What it said before
+//
+// "Bu sistem yedek almaz ve alınıp alınmadığını kontrol edemez", on every
+// deployment. It was true when it was written: nothing in the system took
+// backups. Then F1 built them - a queue the panel writes, the upgrader
+// that takes them, a catalogue - and this check went on saying the
+// feature did not exist, to an installer standing next to a backup taken
+// the day before (W4, item 2).
+//
+// # What it asks
+//
+// The catalogue first: the newest file still on the disk, and what its
+// last check found. Then the queue: whether the newest attempt to take
+// one failed after it, and whether it failed because no directory is
+// configured - the one cause with a fix in a file the panel cannot read.
+// Then the upgrader's policy row, which says whether an upgrader has run
+// at all. A deployment with none of the three has asked for nothing yet,
+// and the check says how to.
+//
+// A warning, never a failure, whatever it finds. Somebody may back the
+// database up with their own tooling, and handover is not this check's
+// to block.
+//
+// Dates and nothing else. No size: the check is on every site owner's
+// health page, and the deployment's backup size is the other customers'
+// volume as well (W1c withheld it for the same reason).
+func (c *Checker) checkBackups(ctx context.Context, now func() time.Time) CheckResult {
+	result := CheckResult{
+		ID: "backup.configured", Severity: SeverityRecommended,
+		Label: "Yedekleme",
+		Fix:   "Panelden: Sağlık → Yedekler → Yedek al",
 	}
+	if c.pool == nil {
+		return noDatabase(result)
+	}
+	if now == nil {
+		now = time.Now
+	}
+	day := func(t time.Time) string { return t.UTC().Format("2006-01-02") }
+
+	list, err := backup.List(ctx, c.pool)
+	if err != nil {
+		result.Status, result.Detail = CheckSkip, "Yedek kataloğu okunamadı: "+err.Error()
+		return result
+	}
+	take, err := backup.LatestTake(ctx, c.pool)
+	if err != nil {
+		result.Status, result.Detail = CheckSkip, "Yedek istekleri okunamadı: "+err.Error()
+		return result
+	}
+
+	var newest *backup.Backup
+	missing := 0
+	for i := range list {
+		switch {
+		case list[i].State != "present":
+			missing++
+		case newest == nil:
+			// List is newest first.
+			newest = &list[i]
+		}
+	}
+
+	failedSince := func(t time.Time) bool {
+		return take != nil && take.State == backup.StateFailed && take.RequestedAt.After(t)
+	}
+
+	if newest != nil {
+		taken := day(newest.TakenAt)
+		switch {
+		case newest.VerifyProblems != "":
+			result.Status = CheckWarn
+			result.Detail = "En yeni yedek (" + taken + ") doğrulamada sorun buldu; ne bulduğu " +
+				"Sağlık → Yedekler'de yazıyor."
+			result.Fix = "Yeni bir yedek alıp doğrulayın: Sağlık → Yedekler"
+		case failedSince(newest.TakenAt):
+			result.Status = CheckWarn
+			result.Detail = "En yeni yedek " + taken + " tarihli; ondan sonraki yedek isteği " +
+				"başarısız oldu. Sebebi Sağlık → Yedekler'de yazıyor."
+			result.Fix = "Sağlık → Yedekler'deki hatayı giderip yeniden yedek alın"
+		case newest.VerifiedAt == nil:
+			result.Status = CheckPass
+			result.Detail = "En yeni yedek " + taken + " tarihli; hiç doğrulanmadı " +
+				"(Sağlık → Yedekler → Doğrula)."
+		default:
+			result.Status = CheckPass
+			result.Detail = "En yeni yedek " + taken + " tarihli ve " +
+				day(*newest.VerifiedAt) + " tarihinde doğrulandı."
+		}
+		return result
+	}
+
+	result.Status = CheckWarn
+	switch {
+	case missing > 0:
+		result.Detail = fmt.Sprintf("Katalogdaki %d yedeğin hiçbirinin dosyası artık diskte değil. "+
+			"Analitik geçmişi şu anda tek kopya.", missing)
+	case take.NotConfigured():
+		result.Detail = "Yedek istendi, ama yükselticide yedek dizini yapılandırılmamış; " +
+			"istek bu sebeple bitti."
+		result.Fix = "upgrader.toml'da [backup] dir yazın (systemd altında " +
+			"/var/lib/crucible-analytic altında), sonra Sağlık → Yedekler → Yedek al"
+	case take != nil && take.State == backup.StateFailed:
+		result.Detail = "Henüz yedek yok; son yedek isteği başarısız oldu. Sebebi " +
+			"Sağlık → Yedekler'de yazıyor."
+		result.Fix = "Sağlık → Yedekler'deki hatayı giderip yeniden yedek alın"
+	case !c.upgraderHasRun(ctx):
+		result.Detail = "Henüz yedek yok, ve yedekleri alan yükseltici bu sürüm " +
+			"kurulduğundan beri hiç çalışmamış."
+		result.Fix = "systemctl enable --now crucible-upgrader.timer"
+	default:
+		result.Detail = "Henüz yedek alınmamış. Bu sistem yedek alabilir: Sağlık → Yedekler'den " +
+			"istenir, yükseltici upgrader.toml'daki [backup] dir dizinine yazar."
+	}
+	return result
+}
+
+// upgraderHasRun reports whether an upgrader has ever written its policy
+// row. A row it cannot read counts as run: the sentence for "never ran"
+// sends somebody to start a timer, and that is the wrong errand to send
+// them on for a read error.
+func (c *Checker) upgraderHasRun(ctx context.Context) bool {
+	policy, err := backup.ReadPolicy(ctx, c.pool)
+	return err != nil || policy.Known()
 }
 
 func humanBytes(n uint64) string {
@@ -1381,11 +1493,12 @@ func ManualSteps() []ManualStep {
 			Command: "nginx: location /_ca/ { proxy_pass http://127.0.0.1:8081; }",
 		},
 		{
-			ID: "backup", Label: "Yedekleme",
-			Why: "Bu sistem yedek almaz ve alınıp alınmadığını göremez. Müşterinin analitik " +
-				"geçmişi aksi hâlde tek diske emanettir.",
-			Command:   `0 3 * * * pg_dump "$DSN" | gzip > /yedek/analytics-$(date +\%F).sql.gz`,
-			CheckedBy: "",
+			ID: "backup", Label: "Yedek dizini",
+			Why: "Yedekleri yükseltici alır ve dosyaları upgrader.toml'daki dizine yazar; " +
+				"panel o dosyayı okuyamaz. Dizin yazılmadan Sağlık → Yedekler'deki istek " +
+				"\"yedek dizini yapılandırılmamış\" diye biter.",
+			Command:   `upgrader.toml: [backup] dir = "/var/lib/crucible-analytic/yedek"`,
+			CheckedBy: "backup.configured",
 		},
 		{
 			ID: "disk", Label: "Disk alanı planlaması",

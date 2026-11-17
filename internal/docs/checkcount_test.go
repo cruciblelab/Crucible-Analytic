@@ -23,6 +23,8 @@ var checkCountSentence = regexp.MustCompile(
 	`7\. adım \*\*(on altı|on beş|on yedi|on dört|on sekiz|yirmi) kontrol\*\* çalıştırır`)
 
 var turkishNumbers = map[string]int{
+	"bir": 1, "iki": 2, "üç": 3, "dört": 4, "beş": 5, "altı": 6, "yedi": 7,
+	"sekiz": 8, "dokuz": 9, "on": 10,
 	"on dört": 14, "on beş": 15, "on altı": 16, "on yedi": 17, "on sekiz": 18,
 	"yirmi": 20,
 }

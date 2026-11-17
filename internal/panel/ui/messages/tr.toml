@@ -1077,6 +1077,11 @@ kaydet = "Kaydet"
 sifirla = "Varsayılana dön"
 kaydedildi = "Ayar kaydedildi."
 sifirlandi = "Ayar varsayılana döndürüldü."
+# Canlı ayarlar: servisler ayar tablosunu aralıkla okur, değişiklik her
+# servise bir sonraki okumasında ulaşır. Sayı saniye; servisin dosyasındaki
+# [settings] interval_seconds değiştirmediyse varsayılan aralık budur.
+kaydedildi_canli = "Ayar kaydedildi. Çalışan servisler ayarları %d saniyede bir okur; değişiklik her birine en geç o kadar sonra ulaşır (servisin dosyasındaki [settings] interval_seconds bu aralığı değiştirmediyse)."
+sifirlandi_canli = "Ayar varsayılana döndürüldü. Çalışan servisler ayarları %d saniyede bir okur; değişiklik her birine en geç o kadar sonra ulaşır (servisin dosyasındaki [settings] interval_seconds bu aralığı değiştirmediyse)."
 acik = "Açık"
 kapali = "Kapalı"
 korumali = "parola ister"

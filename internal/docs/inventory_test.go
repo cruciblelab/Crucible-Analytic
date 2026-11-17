@@ -201,6 +201,14 @@ func topLevelNames(t *testing.T, root string) map[string]bool {
 	return names
 }
 
+// retiredFamilies are setting families the panel once had and no longer
+// does, with where their values went. A document naming one of their
+// keys is describing a setting nobody can change from the panel.
+var retiredFamilies = map[string]string{
+	"analytics": "analytics.retention_days and analytics.compress_after_days moved to " +
+		"the services' config files ([retention]); see internal/settings/live.go",
+}
+
 // TestEverySettingTheDocumentsNameIsARealSetting.
 //
 // One direction, like internal/settings' own key check and for the same
@@ -309,6 +317,14 @@ func checkableDocuments(t *testing.T) map[string]string {
 // quietly stop checking a whole family the day somebody added one.
 func settingPrefixes() map[string]bool {
 	out := map[string]bool{}
+	// A family the registry no longer has at all is still a family. With
+	// only the registry's own, removing a family's last key took every
+	// sentence naming it out of this check: docs/VERI-ENVANTERI.md went
+	// on listing analytics.retention_days as a guarded panel setting for
+	// months after it left the panel (W4, item 8).
+	for family := range retiredFamilies {
+		out[family] = true
+	}
 	for _, def := range panel.AllDefinitions() {
 		key := string(def.Key)
 		if i := strings.Index(key, "."); i > 0 {
@@ -317,3 +333,81 @@ func settingPrefixes() map[string]bool {
 	}
 	return out
 }
+
+// TestTheInventorysGuardedTableIsTheRegistrys holds §8.5 of the data
+// inventory - the table a lawyer reads to learn which settings need the
+// developer password - against the registry.
+//
+// The table had seven rows and the registry six: analytics.retention_days
+// had left the panel for the services' config files and stayed in the
+// table, and the sentence above it said "yedi". The general check above
+// could not see it, because the analytics family had no key left to make
+// it a family (W4, item 8).
+//
+// The rows are the guarded settings in the privacy category; the other
+// guarded ones (the two maintenance locks) decide who may change the
+// software, not what is kept about anybody. The number in the prose is
+// held too, everywhere the document counts them.
+func TestTheInventorysGuardedTableIsTheRegistrys(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(repoRoot(t), "docs", "VERI-ENVANTERI.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	start := strings.Index(text, "### 8.5 ")
+	if start < 0 {
+		t.Fatal("docs/VERI-ENVANTERI.md has no section 8.5; the guarded settings are " +
+			"described somewhere this test does not look")
+	}
+	section := text[start:]
+	if end := strings.Index(section[4:], "\n### "); end >= 0 {
+		section = section[:end+4]
+	}
+
+	listed := map[string]bool{}
+	for _, line := range strings.Split(section, "\n") {
+		if m := guardedRow.FindStringSubmatch(line); m != nil {
+			listed[m[1]] = true
+		}
+	}
+	want := map[string]bool{}
+	for _, def := range panel.AllDefinitions() {
+		if def.RequiresDeveloperPassword && def.Category == panel.CatGizlilik {
+			want[string(def.Key)] = true
+		}
+	}
+	if len(want) == 0 {
+		t.Fatal("the registry has no guarded privacy setting; the comparison would be empty")
+	}
+	for key := range listed {
+		if !want[key] {
+			t.Errorf("§8.5 lists %q as needing the developer password, and the registry "+
+				"does not guard it (or does not define it)", key)
+		}
+	}
+	for key := range want {
+		if !listed[key] {
+			t.Errorf("%q needs the developer password and §8.5 does not list it", key)
+		}
+	}
+
+	counted := 0
+	for _, m := range countedSettings.FindAllStringSubmatch(text, -1) {
+		counted++
+		if n, ok := turkishNumbers[strings.ToLower(m[1])]; !ok || n != len(want) {
+			t.Errorf("the inventory counts the guarded settings as %q; the registry has %d",
+				m[0], len(want))
+		}
+	}
+	if counted == 0 {
+		t.Error("the inventory never counts the guarded settings in words, or the pattern " +
+			"stopped matching the way it does")
+	}
+}
+
+// guardedRow is a §8.5 table row: the key in the first column.
+var guardedRow = regexp.MustCompile("^\\| `([a-z_]+\\.[a-z_.]+)` \\|")
+
+// countedSettings is the prose that counts them: "Aşağıdaki altı ayarın",
+// "Bölüm 8.5'teki altı ayar", "bu altı ayarın".
+var countedSettings = regexp.MustCompile(`(?:Aşağıdaki|8\.5'teki|bu) (\pL+) ayar`)

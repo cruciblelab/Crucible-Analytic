@@ -651,18 +651,30 @@ Yukarıdaki erişim kuralları "panele kim girebilir" sorusunu
 cevaplıyor. Ondan ayrı bir soru daha var: **panele girmiş biri, saklanan
 kişisel verinin kapsamını tek başına değiştirebilmeli mi?**
 
-Cevabımız hayır. Aşağıdaki yedi ayarın her değişikliği, panel
+Cevabımız hayır. Aşağıdaki altı ayarın her değişikliği, panel
 şifresinden **başka** bir şifre ister:
 
 | Ayar | Neye karar verir |
 |---|---|
 | `privacy.ip_storage` | IP tam mı maskeli mi saklanır (Bölüm 1.5) |
-| `analytics.retention_days` | Ziyaret kayıtlarının saklama süresi |
 | `logs.retention_days` | Erişim kayıtlarının (IP içerir) saklama süresi |
 | `logs.important_retention_days` | Güvenlik/kimlik doğrulama kayıtlarının süresi |
 | `campaign.drop_params` | Hangi kampanya parametresi hiç yazılmaz (`utm_term` dâhil) |
 | `campaign.extra_params` | İçeriğini denetlemediğimiz ek alanların saklanması |
 | `campaign.store_click_ids` | Ham reklam tıklama kimliğinin saklanması |
+
+**Ziyaret kayıtlarının saklama süresi bu listede değil, çünkü panelde hiç
+değiştirilemez.** Collector'ın ve beacon'ın yapılandırma dosyasında,
+`[retention]` bölümündeki `days` değeridir; değiştirmek sunucuya erişim
+ister. Bu belgenin önceki hâli onu yedinci ayar olarak sayıyordu; ayar
+panelden kaldırıldıktan sonra tablo güncellenmemişti.
+
+**İki günlük saklama süresi kimin günlüklerine uygulanır:** collector,
+beacon ve panel bu değeri bir dakika içinde uygular. Okuma API'si ile
+yükseltici panel ayarlarını okuyamaz; onların günlükleri sunucudaki
+yapılandırma dosyasının `[logging]` değerini izler. (Bu sürüme kadar bu iki
+ayar hiçbir servise ulaşmıyordu; bütün servisler dosyadaki değeri
+kullanıyordu.)
 
 Bu şifrenin özellikleri, hukuki değerlendirmeyi ilgilendirdiği ölçüde:
 
@@ -688,7 +700,7 @@ parçasıdır.
 **Müşteri de bu ayarlara erişir — ama değiştiremez.** Bu ayrım
 kasıtlıdır ve gerekçesi ikilidir: (1) bunlar normalde doğrudan
 sunucudaki yapılandırmadan verilen ayarlardır, panelden değiştirilmesi
-sistemin işleyişini bozabilir; (2) bir kısmı — Bölüm 8.5'teki yedi
+sistemin işleyişini bozabilir; (2) bir kısmı — Bölüm 8.5'teki altı
 ayar — hangi kişisel verinin ne kadar süre saklandığına karar verir.
 Müşteri değeri ve gerekçesini görür, kilidi ve nedenini okur;
 değişiklik gerekiyorsa geliştiriciye iletir ve geliştirici sunucuya
@@ -697,7 +709,7 @@ değer olabilir: **kapsamı genişletme kararı fiilen geliştiricinin
 katılımını gerektirir.**
 
 **Ama gizlenmiyor.** Bu, hukuki değerlendirme açısından önemli olabilir:
-müşteri bu yedi ayarın **hepsini, güncel değerleriyle ve gerekçeleriyle
+müşteri bu altı ayarın **hepsini, güncel değerleriyle ve gerekçeleriyle
 birlikte** kendi panelinde görür. Göremediği tek şey değiştirme
 kontrolüdür — kilit işareti ve nedeni yazılıdır. Yani müşteri, kendi
 sisteminde hangi kişisel verinin ne kadar süre saklandığını her an

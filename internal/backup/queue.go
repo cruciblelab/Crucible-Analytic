@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -228,6 +229,40 @@ func Latest(ctx context.Context, pool *pgxpool.Pool) (*Request, error) {
 		return nil, fmt.Errorf("backup: latest: %w", err)
 	}
 	return r, nil
+}
+
+// LatestTake is the most recent request to take a backup, nil when
+// there has never been one.
+//
+// Separate from Latest because a check or a restore request is newer than
+// the take it is about, and the question "did the last attempt to make a
+// backup work" is about takes alone. The setup wizard's backup check asks
+// it (W4).
+func LatestTake(ctx context.Context, pool *pgxpool.Pool) (*Request, error) {
+	r, err := scanRequest(pool.QueryRow(ctx,
+		`SELECT `+requestColumns+` FROM panel_backup_requests WHERE kind = $1
+		 ORDER BY id DESC LIMIT 1`, string(WorkTake)))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("backup: latest take: %w", err)
+	}
+	return r, nil
+}
+
+// NotConfigured reports whether this request failed because the
+// deployment has no backup directory.
+//
+// Read from the row's error chain, because that is the only place the
+// reason reaches the panel: the upgrader records it with Finish and the
+// panel cannot read upgrader.toml. The chain carries ErrNotConfigured's
+// own text - Finish writes err.Error() and wrapping keeps the sentinel's
+// words - and TestADeploymentWithNoBackupDirectoryFailsTheRowRatherThanWaiting
+// holds that, on a row the real runner finished.
+func (r *Request) NotConfigured() bool {
+	return r != nil && r.State == StateFailed &&
+		strings.Contains(r.ErrorChain, ErrNotConfigured.Error())
 }
 
 // Claim takes the waiting request, if there is one.

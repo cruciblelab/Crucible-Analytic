@@ -25894,3 +25894,57 @@ vardı; düzeltildi ve kırmızı.
   sildiğini gösterdi. Yön tersine dönünce kusur görünür oldu.
 - **Geri alınamayan işlem, bilinmeyen politikayla yapılmaz.**
   Bilinmeyenin geri alınabilir yarısı (sıkıştırma) yapılır.
+
+## Yedek satırı, canlı ayar cümlesi, envanter — W4b (2026-11-17)
+
+### Yedek satırı
+
+Sihirbazın ve Sağlık'ın `backup.configured` satırı, F1 yedek özelliğini
+kurduktan sonra da "Bu sistem yedek almaz ve alınıp alınmadığını kontrol
+edemez" diyordu. Satırın yorumu doğruydu, ama yedek özelliğinden önce
+yazılmıştı. Artık katalog, kuyruk ve yükselticinin politika satırı
+okunuyor. Panelin rolü `path` sütununu okuyamıyor; kontrol de okumuyor.
+Test kopyasında aynı sütun yetkisi verildi, yani kontrol yolu okumaya
+başlarsa test de reddeder.
+
+Satır uyarıdır, başarısızlık değil: müşteri yedeği kendi aracıyla alıyor
+olabilir. Boyut yazmıyor, çünkü her site sahibinin Sağlık sayfasında
+görünüyor (W1c'nin kuralı).
+
+"Dizin yapılandırılmamış" sebebi panele yalnız istek satırının hata
+zincirinden ulaşıyor. `Request.NotConfigured` zincirde
+`ErrNotConfigured`'ın metnini arıyor. Bu bağ gerçek koşucunun bitirdiği bir
+satırla tutuluyor (dolu disk satırı da "dizin yok" okunmuyor).
+
+Testler kendi şemasında, `LIKE ... INCLUDING ALL` ile türetilmiş üç tablo
+kopyasıyla koşuyor. Eski "uyarı olmalı" testi kaldırıldı: paylaşılan
+veritabanında `internal/backup` süitleri yedek satırı yazdığında o test
+rastgele kırmızı verecekti.
+
+### Canlı ayar cümlesi
+
+`savedNotice`: `Live` ayarda cümle `settings.DefaultInterval` saniyesini
+söylüyor. Panel servislerin dosyasını okuyamadığı için "dosya
+değiştirmediyse" kaydı var. Katalogdaki kullanılmayan anahtar denetimi
+anahtarları harfiyen okuyor, o yüzden iki anahtar çağrı yerinde yazılı
+(birleştirince denetim onları kullanılmıyor saydı).
+
+### Envanter
+
+§8.5 "yedi ayar" diyordu ve listede `analytics.retention_days` vardı. Bu
+ayar aylardır panelde değil, servislerin `[retention] days` değeri. Genel
+belge testi onu göremiyordu: aileleri kayıttan türetiyordu, ve
+`analytics.` ailesinin son anahtarı gidince o ailedeki her başvuru
+denetimden çıktı. *Bir ailenin tamamını kaldırmak, belgesini denetimden
+çıkarır.* `retiredFamilies` gerekçeli bir harita. Birleşik mutasyonla
+ölçüldü: listeyle eski satır kırmızı, listesiz yeşil.
+
+### Dersler
+
+- **Bir özelliği ekleyen faz, o özelliğin "yok" dediği yerleri de
+  aramalı.** F1 yedeği kurdu, sihirbazın "yedek almaz" satırı aylarca
+  kaldı.
+- **Paylaşılan tabloda "şu durumda olmalı" diyen test, başka süitin
+  yazdığı satırla rastgele kırmızı olur.** Durum sınaması kendi şemasında.
+- **"Farklı mı" diye soran iddia, bir dalın silinmesini fark etmeyebilir:**
+  silinen dal da farklı bir cümleye düşüyordu. Cümlenin kendisini sor.

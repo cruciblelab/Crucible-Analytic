@@ -27,6 +27,24 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Sihirbaz yedekleri görüyor; canlı ayar kaydı ne zaman ulaşacağını söylüyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey.
+
+- Kurulum sihirbazının ve Sağlık sayfasının yedek satırı, ürünün kendi
+  yedekleri varken de "Bu sistem yedek almaz" diyordu. Artık en yeni
+  yedeğin tarihini, doğrulanıp doğrulanmadığını, ondan sonra başarısız
+  bir istek olup olmadığını ve yükselticide yedek dizini yapılandırılıp
+  yapılandırılmadığını söylüyor.
+- Servislerin bir dakikaya kadar gecikmeyle uyguladığı bir ayar
+  kaydedildiğinde sayfa artık yalnız "Ayar kaydedildi" demiyor; servislerin
+  ayarları kaç saniyede bir okuduğunu da söylüyor. Canlı denemede engel
+  listesi bir collector'a 2, ötekine 30 saniye sonra ulaşmıştı.
+- Hukuki veri envanteri (`docs/VERI-ENVANTERI.md`) geliştirici
+  parolası isteyen ayarları "yedi" diye sayıyordu ve listede panelde
+  artık olmayan ziyaret saklama süresi vardı. Liste altı ayar; ziyaret
+  saklama süresi sunucudaki yapılandırma dosyasında (`[retention] days`).
+
 ### Günlük saklama ayarları artık uygulanıyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey. Panelde `logs.*` saklama

@@ -16,6 +16,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 )
 
 // settingsPathSuffix is the settings page under a site.
@@ -306,13 +307,13 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	case "sifirla":
 		op.Step("varsayilana dondur", true, "")
 		err = s.Store.ClearSetting(ctx, access, key, site, auth, op)
-		msg = lang.T("ayarlar.sifirlandi")
+		msg = savedNotice(lang, def, "ayarlar.sifirlandi", "ayarlar.sifirlandi_canli")
 	case "kaydet":
 		value, err = parseSettingValue(def, r)
 		op.Step("degeri ayristir", err == nil, "")
 		if err == nil {
 			err = s.Store.ApplySetting(ctx, access, key, site, value, auth, op)
-			msg = lang.T("ayarlar.kaydedildi")
+			msg = savedNotice(lang, def, "ayarlar.kaydedildi", "ayarlar.kaydedildi_canli")
 		}
 	default:
 		err = errors.New("unknown operation")
@@ -348,6 +349,29 @@ func (s *Server) saveSetting(w http.ResponseWriter, r *http.Request, lang *ui.La
 	_ = op.Finish(ctx, panel.OutcomeSucceeded, nil, nil)
 
 	s.renderSettings(w, r, lang, access, settingsPage{Message: msg})
+}
+
+// savedNotice is the sentence after a setting is saved or reset.
+//
+// For a setting the panel reads per request it is "saved", and that is
+// the whole truth: the next page uses it. For a Live one it is not. The
+// running services read the table on an interval and the change reaches
+// each of them on its next read - measured on the live rig: the block
+// list reached one collector after 2 seconds and the other after 30. A
+// customer testing the change in between concludes it does not work; the
+// first measurement of it did (W4, item 7).
+//
+// The interval is settings.DefaultInterval, the services' default, and
+// the sentence says it is a default: a service's file can change it, and
+// the panel cannot read that file.
+//
+// Both keys are written out at the call site rather than built here: the
+// catalogue's dead-key check reads keys as literals.
+func savedNotice(lang *ui.Language, def panel.Definition, key, liveKey string) string {
+	if !def.Live {
+		return lang.T(key)
+	}
+	return lang.Tf(liveKey, int(settings.DefaultInterval/time.Second))
 }
 
 // outcomeFor tells a refusal from a fault.

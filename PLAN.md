@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅, W4b ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11544,14 +11544,14 @@ yazdığı biçimde):
 satırı yazıp örnek isteğini okumayan bir collector yalnız bu dalın ara
 commit'inde var.
 
-#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a yapıldı)*
+#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a, W4b yapıldı; kalan W4c: 3+4, W4d: 5+6)*
 
 Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
 türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
 
 1. ~~Tanı paketi kurulum geneli ayarları tek-site sahibine de veriyor~~ →
    **W1'e taşındı** (sızıntı, küçük madde değil).
-2. **Sihirbaz ve Sağlık "Yedekleme: Bu sistem yedek almaz" diyor.** Ürünün
+2. ✅ *(W4b)* **Sihirbaz ve Sağlık "Yedekleme: Bu sistem yedek almaz" diyor.** Ürünün
    yedek özelliği var (Sağlık → yedek, `panel_backup_policy`). → Kontrol
    yedek politikasını ve son başarılı yedeği sorar; ikisi de yoksa doğru
    cümleyle uyarır.
@@ -11579,13 +11579,13 @@ türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
    bilmiyor.** Beacon dosyadan iki siteyi kabul ederken 4. adım *"Henüz
    site tanımlı değil"* dedi. → Beacon kabul ettiği listeyi ve kaynağını
    (dosya ya da panel) bildirir, adımlar onu gösterir.
-7. **"Ayar kaydedildi" cümlesi canlı ayarların servislere bir dakikaya
+7. ✅ *(W4b; ağır hâli W4a)* **"Ayar kaydedildi" cümlesi canlı ayarların servislere bir dakikaya
    kadar ulaştığını söylemiyor.** Ölçüldü: engel listesi A'ya 2 sn, B'ye
    30 sn sonra ulaştı. Arada test eden biri ayarın çalışmadığını sanar
    (benim ilk ölçümüm sandı). → Canlı ayarlarda cümle bunu söyler.
    **Ağır hâli W4a oldu:** üç ayar için cümle "bir dakika sonra" değil
    "hiçbir zaman" demeliydi.
-8. **Hukuki envanter parolayla korunan ayarları yanlış sayıyor**
+8. ✅ *(W4b)* **Hukuki envanter parolayla korunan ayarları yanlış sayıyor**
    *(W4a'yı yazarken bulundu).* `docs/VERI-ENVANTERI.md` "yedi ayar"
    diyor ve listede `analytics.retention_days` var; o ayar panelden
    çıkalı aylar oldu (servislerin dosyasında, yani sunucuya erişim
@@ -11662,6 +11662,42 @@ bakılacak.
 **Bu grupta olmayan:** tek sitenin sahibinin kurulum geneli geliştirici
 erişimini onaylayabilmesi. Bu, H10'un "şimdilik yalnız ayarlar" kararıyla
 ertelenen kapılardan biri (H10 → Açık); ayrı bir sahip kararı.
+
+##### W4b — Yedek satırı, canlı ayar cümlesi, envanter tablosu ✅ **yapıldı (2026-11-17)**
+
+*(2, 7 ve 8. maddeler.)*
+
+- **Yedek (madde 2).** `preflight.checkBackups` yedek özelliğine soruyor:
+  - en yeni diskteki yedek: tarih, doğrulandı mı, doğrulama sorun buldu mu;
+  - ondan sonra başarısız bir "al" isteği (`backup.LatestTake`);
+  - yapılandırılmamış dizin (`Request.NotConfigured`, gerçek koşucunun
+    bitirdiği satırla bağlı);
+  - yalnız kayıp dosyalar;
+  - yükseltici hiç çalışmamış (politika satırı).
+
+  Hiçbir zaman başarısız değil, yalnız uyarı. Boyut yok (W1c). Elle adım
+  "Yedek dizini", artık `backup.configured` ile denetleniyor. "Önce": altı
+  yeni test, eski kodla altısı kırmızı.
+- **Canlı ayar (madde 7).** `Live` bir ayar kaydedilince ya da
+  sıfırlanınca cümle servislerin ayarları kaç saniyede bir okuduğunu
+  söylüyor; aralık `settings.DefaultInterval`'dan, "dosya değiştirmediyse"
+  kaydıyla. Panelin kendisinin okuduğu ayarda cümle aynı.
+- **Envanter (madde 8).**
+  - §8.5 altı ayar oldu; ziyaret saklamasının dosyada olduğu ve iki günlük
+    süresinin kime uygulandığı yazıldı.
+  - `TestTheInventorysGuardedTableIsTheRegistrys`: tablo = parolalı ve
+    Gizlilik kategorisindeki ayarlar; metindeki sayı da tutuluyor.
+  - Genel belge testi artık emekli aileleri de denetliyor
+    (`retiredFamilies`).
+
+22 mutasyon, 22'si kırmızı (`$SP/w4/mutasyon-w4b.py`). Dördü ilk turda
+sağ kaldı, dördü de test zaafıydı:
+- "Son istek başarısız" dalı yalnız "farklı cümle" diye soruluyordu.
+- Boyut iddiası doğrulanmış dalda yoktu.
+- `LatestTake`'in tür süzgeci daha yeni bir "doğrula" isteği olmadan
+  ölçülemiyordu.
+- Emekli aile listesi tek başına ölçülemiyor. Eski satırla birleşik
+  ölçüldü: liste varken genel test kırmızı, yokken yeşil.
 
 ### Ertelenmiş kararlar
 

@@ -16,17 +16,20 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/panel"
 	"github.com/cruciblelab/crucible-analytic/internal/panel/ui"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 )
 
@@ -148,6 +151,52 @@ func TestAnOwnerCanChangeAnUnguardedSetting(t *testing.T) {
 	}
 	if got != "Yeni Site Adı" {
 		t.Errorf("the stored value is %v, not what was submitted", got)
+	}
+}
+
+// TestALiveSettingSaysWhenItArrives (W4, item 7).
+//
+// "Ayar kaydedildi" is the whole truth for a setting the panel reads per
+// request, and half of it for a Live one: the services read the table on
+// an interval, and on the live rig a block list reached one collector
+// after 2 seconds and the other after 30. Both kinds are saved here and
+// the two sentences are held apart - a page that said the interval for
+// everything would be as wrong as one that said it for nothing.
+//
+// The Live one is collection.paused_until on this suite's own site:
+// writing a deployment-wide Live key would reach the services other
+// suites are testing.
+func TestALiveSettingSaysWhenItArrives(t *testing.T) {
+	server, client, _ := settingsServerAs(t, panel.RoleOwner)
+	interval := fmt.Sprintf("%d saniyede bir", int(settings.DefaultInterval/time.Second))
+
+	_, plain := postSetting(t, client, server.URL, url.Values{
+		"islem": {"kaydet"}, "anahtar": {string(unguardedKey)}, "deger": {"Canlı Olmayan"},
+	})
+	if !strings.Contains(plain, "Ayar kaydedildi.") || strings.Contains(plain, interval) {
+		t.Errorf("a setting the panel reads itself: %s", noticeOf(plain))
+	}
+
+	status, live := postSetting(t, client, server.URL, url.Values{
+		"islem": {"kaydet"}, "anahtar": {string(panel.KeyCollectionPausedUntil)}, "deger": {"360"},
+	})
+	t.Cleanup(func() {
+		_, _ = postSetting(t, client, server.URL, url.Values{
+			"islem": {"kaydet"}, "anahtar": {string(panel.KeyCollectionPausedUntil)}, "deger": {"0"},
+		})
+	})
+	if status != http.StatusOK {
+		t.Fatalf("pausing answered %d: %s", status, noticeOf(live))
+	}
+	if !strings.Contains(live, interval) {
+		t.Errorf("a Live setting was saved without saying when it arrives: %s", noticeOf(live))
+	}
+
+	_, reset := postSetting(t, client, server.URL, url.Values{
+		"islem": {"sifirla"}, "anahtar": {string(panel.KeyCollectionPausedUntil)},
+	})
+	if !strings.Contains(reset, "varsayılana döndürüldü") || !strings.Contains(reset, interval) {
+		t.Errorf("resetting a Live setting: %s", noticeOf(reset))
 	}
 }
 

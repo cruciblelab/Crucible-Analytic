@@ -265,6 +265,19 @@ func TestADeploymentWithNoBackupDirectoryFailsTheRowRatherThanWaiting(t *testing
 	if !strings.Contains(latest.ErrorChain, "upgrader.toml") {
 		t.Errorf("the reason does not say where to configure it: %q", latest.ErrorChain)
 	}
+	// What the setup wizard reads off the row (W4): the reason, from the
+	// row the real runner finished, and only from the take.
+	take, err := backup.LatestTake(ctx, answers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if take == nil || take.ID != latest.ID {
+		t.Fatalf("LatestTake = %+v, want the request just finished (%d)", take, latest.ID)
+	}
+	if !take.NotConfigured() {
+		t.Errorf("a row failed for want of a directory does not read as NotConfigured: %q",
+			take.ErrorChain)
+	}
 }
 
 // TestABackupThatWouldNotFitIsRefusedBeforeAnythingIsWritten.
@@ -294,6 +307,9 @@ func TestABackupThatWouldNotFitIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	}
 	if !strings.Contains(latest.ErrorChain, "short by") {
 		t.Errorf("the reason does not say by how much: %q", latest.ErrorChain)
+	}
+	if latest.NotConfigured() {
+		t.Errorf("a full disk reads as an unconfigured directory: %q", latest.ErrorChain)
 	}
 	// Nothing was written, not even a partial file.
 	left, err := filepath.Glob(filepath.Join(dir, "*"))

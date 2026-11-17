@@ -2052,7 +2052,7 @@ stores, or for how long: `privacy.ip_storage`, `logs.retention_days`,
 `logs.important_retention_days`, `campaign.drop_params`,
 `campaign.extra_params`, `campaign.store_click_ids`.
 
-`analytics.retention_days` was on that list and is no longer a panel
+The visitor-data retention was on that list and is no longer a panel
 setting at all — see below.
 
 Changing any of them from the panel needs a second password, separate

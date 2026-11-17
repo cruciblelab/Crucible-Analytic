@@ -1461,6 +1461,15 @@ listesi eksik olan her satırın yanına çalıştırılacak komutu yazar.
 gerçekten ürettiği kontrol sayısıyla karşılaştırıyor. Bu satır aylarca
 **14** diyordu ve kod on altı üretiyordu.)*
 
+**Yedek satırı yedek özelliğine sorar.** En yeni yedeğin tarihini ve
+doğrulanıp doğrulanmadığını söyler. En yeni yedekten sonra bir yedek
+isteği başarısız olduysa, yükselticide yedek dizini yapılandırılmamışsa ya
+da yükseltici hiç çalışmamışsa uyarır; hiçbiri değilse nasıl yedek
+alınacağını yazar. Hiçbir durumda devri durdurmaz: yedeği kendi aracınızla
+alıyor olabilirsiniz. Boyut yazmaz, çünkü bu satır her site sahibinin
+Sağlık sayfasında da görünür. *(Bu satır bu sürüme kadar her kurulumda
+"Bu sistem yedek almaz" diyordu, yedek özelliği eklendikten sonra da.)*
+
 **Servislerin ayakta olup olmadığı `[service_urls]` ile sorulur:**
 
 ```toml
