@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -915,19 +915,25 @@ kadar yer tutuyor.
 
 - **Yazılmakta olan gün asla ellenmez.** Dosyaları açık; açık bir dosyayı
   sıkıştırmak, sürecin hâlâ eklediği tanıtıcıyı budar.
-- **Arşiv, saklamadan önce gelmeli.** `LogLifecycle`, arşivleme süresi
-  saklama süresini geçerse onu kırpar — aksi hâlde bir gün, hiç
-  sıkıştırılmadan silinir ve bu geri alınamaz.
+- ~~**Arşiv, saklamadan önce gelmeli.** `LogLifecycle`, arşivleme süresi
+  saklama süresini geçerse onu kırpar~~ — **W4a'da kaldırıldı:** o işlevi
+  yalnız bir test çağırıyordu, ve kırpma hiçbir şey değiştirmiyordu
+  (`Maintain` önce silmeyi soruyor; arşiv süresi saklamayı geçtiğinde
+  kırpılsa da kırpılmasa da aynı gün aynı dosya siliniyor).
 - **Sıkıştırma geçici dosyaya yazılıp yeniden adlandırılır.** Orijinalin
   üzerine yazmak, yarıda kalan bir çökmede budanmış bir log bırakır; ve
   sessizce yarısı eksik bir log, büyük bir logdan kötüdür.
 - **Tanınmayan dosya ve dizinlere dokunulmaz.** Bu paketin yazmadığı bir
   şey, başkasının koyduğu bir şeydir.
 
-**Bakım açılışta bir kez çalışır**, arka planda zamanlayıcıyla değil:
+~~**Bakım açılışta bir kez çalışır**, arka planda zamanlayıcıyla değil:
 silme ile yazma yarışmasın diye. Aylarca çalışan süreç için panelin
 onarım operasyonu (§4, B grubu) var — görünmeyen bir zamanlayıcıdan
-iyidir.
+iyidir.~~ **W4a'da yanlış çıktı:** öyle bir onarım operasyonu hiç
+yazılmadı, aylarca çalışan süreç günlüklerini hiç silmiyordu, ve bu
+tablodaki üç ayarı hiçbir servis okumuyordu. Bakım artık ayar
+yenilemesinde (değer değişince hemen, yoksa saatte bir) koşuyor; yarış
+yok, çünkü yazılmakta olan güne hiç dokunulmuyor. Ayrıntı §W4a.
 
 ---
 
@@ -11538,7 +11544,7 @@ yazdığı biçimde):
 satırı yazıp örnek isteğini okumayan bir collector yalnız bu dalın ara
 commit'inde var.
 
-#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler
+#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a yapıldı)*
 
 Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
 türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
@@ -11577,6 +11583,81 @@ türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
    kadar ulaştığını söylemiyor.** Ölçüldü: engel listesi A'ya 2 sn, B'ye
    30 sn sonra ulaştı. Arada test eden biri ayarın çalışmadığını sanar
    (benim ilk ölçümüm sandı). → Canlı ayarlarda cümle bunu söyler.
+   **Ağır hâli W4a oldu:** üç ayar için cümle "bir dakika sonra" değil
+   "hiçbir zaman" demeliydi.
+8. **Hukuki envanter parolayla korunan ayarları yanlış sayıyor**
+   *(W4a'yı yazarken bulundu).* `docs/VERI-ENVANTERI.md` "yedi ayar"
+   diyor ve listede `analytics.retention_days` var; o ayar panelden
+   çıkalı aylar oldu (servislerin dosyasında, yani sunucuya erişim
+   istiyor). Belge testi onu göremedi: `analytics.` ailesinin kayıtta
+   hiç anahtarı kalmadığı için o ailedeki her başvuruyu "bizim aile
+   değil" diye atlıyor — **bir ailenin tamamı kalkınca belgesi
+   denetimden çıkıyor.** → Tablo kayıttan (`RequiresDeveloperPassword`)
+   türetilmiş bir testle tutulur; atlama "kayıtta hiç olmamış aile"ye
+   daraltılır.
+
+##### W4a — Günlük ağacının yaşları: ölü üç ayar, yalnız açılışta bakım ✅ **yapıldı (2026-11-17)**
+
+*(7. maddeyi ölçerken bulundu, maddeden büyük çıktı.)*
+
+**Ölçülen (gerçek beacon ve panel ikilileri, `ca_canli`):**
+
+- `logs.retention_days`, `logs.important_retention_days`,
+  `logs.archive_after_days` 16 Ağustos'tan beri panelde ayardı (ikisi
+  geliştirici parolasıyla, yanında hukuki gerekçesiyle), sihirbazın
+  saklama adımı birini soruyordu. **Hiçbir servis okumuyordu**; servisler
+  yalnız kendi dosyalarındaki `[logging]` değerini kullanıyordu. Panelde
+  saklama 2 gün yazıldı: 3 günlük `access.log` çalışan süreçte de
+  yeniden başlatmadan sonra da duruyordu.
+- **Bakım yalnız açılışta bir kez** koşuyordu. Yorumu "aylarca çalışan
+  süreci panelin onarım operasyonu karşılar" diyordu; öyle bir işlem
+  yoktu. Açılıştan sonra eklenen 30 günlük gün, süreç durana kadar
+  duruyordu. Aylarca yeniden başlamayan bir collector'ın erişim
+  günlükleri diski doldurur; dolan disk collector'ı durdurur.
+- Düzeltmenin ilk turu üçüncü bir kusuru gösterdi: açılış geçişi dosyanın
+  politikasıyla, panelin değeri okunmadan önce koşuyordu. Panelde önemli
+  kayıtlar 400 güne **uzatılmışken** 370 günlük `security.log` her
+  açılışta siliniyordu (HEAD de ilk tur da). Silme geri alınamaz.
+
+**Yapılan:**
+
+- `logging.Controls.Keep`: değer değişince hemen, yoksa saatte bir
+  (`MaintainEvery`) geçiş; başarısız geçiş bir saat bekler.
+- `logging.LiveLifecycle`: panelin değeri varsa o, yoksa dosyanınki,
+  alan alan; sınırlar tek yerde (`MinLifecycleDays`/`MaxLifecycleDays`),
+  kayıt da onları kullanıyor.
+- `logging.KeepLive`: collector, beacon ve panel (panel kendi
+  `settings.Source`'uyla). **Ayarlar bir kez okunmadan silme yok**,
+  yalnız sıkıştırma (`Unknown`).
+- `logging.KeepFile`/`KeepFileOnce`: API (rolü `panel_settings`'i
+  okuyamıyor) ve yükseltici, dosyanın değeriyle.
+- `Setup` artık dosyalara dokunmuyor.
+- Üç ayar `Live`; yardım metni hangi servislerin uyguladığını söylüyor.
+- Ölü köprü `Store.LogLifecycle` ve testi silindi.
+
+**Değişmezler:**
+
+- `TestSettings_EverySettingHasAReader`: `Live` olmayan her ayar panelin
+  bir okuma çağrısında geçmeli. Eski test yalnız `Live`'ları soruyordu,
+  üç ayar o boşluktan geçmişti. İlk koşusu ölü köprüyü okuyucu saydı
+  (R1 sağ kaldı); köprü gidince kırmızı.
+- `TestEveryServiceKeepsItsLogTreeWhileItRuns` (`internal/invariants`).
+
+| ölçüm | önce (`f12da39`) | sonra |
+|---|---|---|
+| beacon çalışırken, panelde saklama 2 | 3 günlük access duruyor | siliniyor, security kalıyor |
+| açılıştan sonra eklenen 30 günlük gün | duruyor | siliniyor |
+| yeniden başlatma, panelde saklama 2 | 3 günlük access duruyor | silinmiş kalıyor |
+| panelde önemli 400, 370 günlük security | açılışta siliniyor | kalıyor (sıkıştırılmış) |
+| panel ikilisi, aynı iki dosya | access duruyor, security siliniyor | access siliniyor, security kalıyor |
+
+20 mutasyon, 20'si kırmızı (`$SP/w4/mutasyon-w4a.py`).
+
+**Açık kalan:** API ve yükseltici panel değerini uygulamıyor (yardım
+metni söylüyor); API'ye `panel_settings` okuma yetkisi şema değişikliği
+ve sahibin kararı. `logs.level` de yalnız collector ve beacon'da canlı
+(panel ve API kendi dosyasındaki düzeyde kalıyor) — 7. maddeyle birlikte
+bakılacak.
 
 **Bu grupta olmayan:** tek sitenin sahibinin kurulum geneli geliştirici
 erişimini onaylayabilmesi. Bu, H10'un "şimdilik yalnız ayarlar" kararıyla

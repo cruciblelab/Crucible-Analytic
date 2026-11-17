@@ -20,6 +20,9 @@ type Controls struct {
 	// base is the configured level to fall back to when a temporary
 	// raise expires.
 	base slog.Level
+	// keep is the tree's retention, nil for a service that logs to
+	// stderr only. See keep.go.
+	keep *keeper
 }
 
 // Level reports the level in force.

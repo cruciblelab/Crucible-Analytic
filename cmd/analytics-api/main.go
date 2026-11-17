@@ -100,7 +100,6 @@ func main() {
 	// exists, so the line saying what it found lands where the
 	// operator reads, not only on stderr. See internal/resources.
 	resources.Apply(logger)
-	_ = logControls
 
 	auth, err := api.NewAuthenticator(cfg.TokenList())
 	if err != nil {
@@ -203,6 +202,11 @@ func main() {
 	})
 
 	go beat.Run(ctx)
+
+	// The log tree's ages, hourly (W4a). The config file's numbers: this
+	// role cannot read the panel's three log settings, and the settings
+	// page says so beside each of them.
+	go logging.KeepFile(ctx, logControls, logger)
 
 	// Restart requests from the panel (PLAN §4, #38), wired like the
 	// other three services'. This one's role cannot read panel_settings

@@ -314,6 +314,11 @@ func main() {
 
 	a.BackupOptional = backupOptional
 
+	// The log tree's ages, from this process's own file (W4a): the pass
+	// logging.Setup used to make at startup, made here instead. Under
+	// the timer this is every run; the loop below keeps it hourly.
+	logging.KeepFileOnce(logControls, logger)
+
 	if *once {
 		if err := runOnce(ctx, a, checker, runner, backups, logger); err != nil {
 			os.Exit(1)
@@ -322,6 +327,10 @@ func main() {
 	}
 
 	logger.Info("upgrader: watching for requests", "interval", cfg.Interval())
+	// Running as a loop rather than under the timer, so this process may
+	// live for months: its log tree is kept hourly with its own file's
+	// numbers (W4a). Under the timer each run's startup pass does it.
+	go logging.KeepFile(ctx, logControls, logger)
 	ticker := time.NewTicker(cfg.Interval())
 	defer ticker.Stop()
 	_ = runOnce(ctx, a, checker, runner, backups, logger)

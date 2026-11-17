@@ -398,7 +398,15 @@ const (
 	KeyCampaignStoreClickID  = "campaign.store_click_ids"
 	KeyLogLevel              = "logs.level"
 	KeyLogVerboseUntil       = "logs.verbose_until"
-	KeyPrivacyIPStorage      = "privacy.ip_storage"
+
+	// W4a: the log tree's three ages. Offered by the panel since the
+	// day panel_settings was added, read by no service until W4a - see
+	// internal/logging/keep.go. internal/logging.LiveLifecycle is the
+	// one reader.
+	KeyLogArchiveAfterDays       = "logs.archive_after_days"
+	KeyLogRetentionDays          = "logs.retention_days"
+	KeyLogImportantRetentionDays = "logs.important_retention_days"
+	KeyPrivacyIPStorage          = "privacy.ip_storage"
 
 	// P3: the visitor-facing surface. The switch decides whether the
 	// beacon serves the disclosure at all; the two addresses are what

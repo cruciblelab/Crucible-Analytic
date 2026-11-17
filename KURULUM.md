@@ -1717,7 +1717,22 @@ saldırı sürerken SSH'a ihtiyaç duymamanız için:
 | `sources.country`, `sources.asn`, `sources.fallback_order` | Hangi IP aralığı veri kümesinin kullanılacağı ve biri erişilemezse sıradakiler. Bir sonraki zamanlanmış yenilemede etkili olur — indirme anında, isteğin ortasında değil |
 | `beacon.trusted_proxies` | Hangi ağların ilettiği başlıklara güvenileceği |
 | `logs.level`, `logs.verbose_until` | Log seviyesi ve kendiliğinden sönen debug penceresi |
+| `logs.retention_days`, `logs.important_retention_days`, `logs.archive_after_days` | Günlük ağacının yaşları; aşağıda |
 | `collection.paused_until` (site başına) | Bir sitenin kaydını bir süre duraklatır; aşağıda |
+
+**Günlük ağacının yaşları.** Collector, beacon ve panel üç değeri ayar
+tablosundan okur; panelde kaydedilmiş değer `[logging]` bölümündekini
+ezer, kaydedilmemişse dosyanınki geçerlidir. Değer değişince bir dakika
+içinde uygulanır, değişmezse ağaç saatte bir gözden geçirilir. Yazılmakta
+olan güne hiç dokunulmaz. API ile yükseltici ayar tablosunu okuyamaz,
+kendi dosyalarındaki değeri saatte bir (yükseltici her çalışmasında)
+uygular.
+
+**Servis veritabanına ulaşamadan açılırsa hiçbir günlük silinmez**, yalnız
+sıkıştırılır. Panelde bir saklama süresi uzatılmış olabilir ve dosyanın
+kısa süresiyle silinen bir günlük geri gelmez. Ayarlar ilk kez
+okunduğunda silme de yapılır. Bu sürüme kadar bakım yalnız açılışta, yalnız
+dosyanın değeriyle koşuyordu; panelin üç ayarı hiçbir yere ulaşmıyordu.
 
 **Engel listesine yeni kural eklerken.** Panelden engellenen ülkelere ya
 da ağlara yeni bir giriş eklediğinizde kayıt bir kez durur ve her yeni

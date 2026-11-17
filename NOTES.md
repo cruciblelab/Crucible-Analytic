@@ -25792,3 +25792,105 @@ testinde (`TestPressingRestartForOneProcessAsksItAlone`).
 18 mutasyon, 18'i kırmızı (`$SP/w3/mutasyon-w3b.py`). Biri ilk turda
 derlenmedi (kaldırılan satır bir içe aktarmayı kullanılmaz bıraktı) ve
 `&& false` ile yeniden yazıldı.
+
+## Günlük ağacının yaşları — W4a (2026-11-17)
+
+PLAN §W4'ün 7. maddesini ("Ayar kaydedildi" cümlesi bir dakikalık
+gecikmeyi söylemiyor) ölçerken ayarların kime ulaştığını kayıttan
+listeledim. `Live` olmayan on dört ayarın on birini panel bir `Get…Setting`
+çağrısıyla okuyordu. Üçünü kimse okumuyordu: `logs.retention_days`,
+`logs.important_retention_days`, `logs.archive_after_days`. 16 Ağustos'tan
+beri panelde ayardılar (ikisi geliştirici parolasıyla, hukuki
+gerekçesiyle). Servisler günlük ağacını yalnız kendi `[logging]`
+bölümüyle tutuyordu.
+
+### Üç kusur, ikisi ölçerken
+
+1. **Ölü ayarlar.** Gerçek beacon, `ca_canli`, ayar aralığı 2 sn. Panelde
+   saklama 2 gün: 3 günlük `access.log` 8 sn sonra da yeniden
+   başlatmadan sonra da duruyor.
+2. **Bakım yalnız açılışta.** `Setup` tek geçiş yapıyordu. Yorumu "aylarca
+   çalışan süreci panelin onarım işlemi karşılar" diyordu; `Maintain`'i
+   çağıran ikinci bir yer yoktu. Açılıştan sonra eklenen 30 günlük gün
+   süreç durana kadar duruyor.
+3. **Açılış geçişi politikayı bilmeden siliyordu.** İlk düzeltme turundan
+   sonraki ölçüm buldu: `Setup` dosyanın 365 gününü, panelin değeri
+   okunmadan uyguluyordu. Panelde önemli kayıtlar 400 güne uzatılmışken
+   370 günlük `security.log` açılışta gidiyordu (HEAD de ilk turum da).
+   Bu ayar hukuki bir karar, silme geri alınamaz.
+
+### Kurallar
+
+- **Panelin değeri kazanır, yoksa dosyanınki**, alan alan
+  (`logging.LiveLifecycle`). Satırı olmayan anahtar bir karar değil.
+- **Politika bilinmeden silme yok.** Ayar tablosu bir kez okunamadıysa
+  (`Source.Loaded()` yanlış) geçiş yalnız sıkıştırır (`logging.Unknown`).
+  Sıkıştırma her satırı okunabilir bırakır, silme geri dönmez.
+  Veritabanına günlerce ulaşamayan servis yine de diski onda bire indirir.
+- **Değişince hemen, yoksa saatte bir** (`Controls.Keep`,
+  `MaintainEvery`). Yazılmakta olan güne dokunulmadığı için çalışan
+  süreçte güvenli; açılış geçişi de aynı özelliğe dayanıyordu.
+- **Başarısız geçiş saati bekler.** Her dakika aynı hatayı yazmasın.
+- **Okuyamayan servis dosyasını izler, sayfa bunu söyler.** API'nin rolü
+  `panel_settings`'i okuyamıyor (grant = şema); yükseltici zamanlayıcıyla
+  koşup çıkıyor. İkisi `KeepFile`/`KeepFileOnce`, ve üç ayarın yardım
+  metni "API ile yükseltici kendi dosyalarındaki değeri kullanır" diyor.
+
+### Değişmezler
+
+- `TestSettings_EverySettingHasAReader` (`internal/panel`): `Live`
+  olmayan her ayar panelin bir okuma çağrısına argüman olmalı. Eski test
+  (`LiveKeysMatchWhatServicesRead`) yalnız `Live`'ları soruyordu; üç ayar
+  `Live` değildi, panelin okuduğu sanılıyordu.
+- **İlk koşusu kendisini kandırdı.** `Store.LogLifecycle` adlı bir köprü
+  üç anahtarı okuyordu ve yalnız bir test onu çağırıyordu. Değişmez onu
+  okuyucu saydı, "saklama canlı değil" mutasyonu (R1) yeni testten sağ
+  çıktı. Köprü silindi, R1 iki testten kırmızı. Köprünün kelepçesi de
+  boştu: `Maintain` önce silmeyi sorduğu için arşiv süresi saklamayı
+  geçtiğinde kırpılsa da kırpılmasa da aynı dosya aynı gün siliniyor.
+  **Bilinen sınır:** değişmez okuma çağrısının üretimde ulaşılabilir
+  olduğunu sormuyor; yalnız testten çağrılan bir işlevin içindeki okuma
+  onu yine kandırır.
+- `TestEveryServiceKeepsItsLogTreeWhileItRuns` (`internal/invariants`):
+  `logging.Setup` çağıran her `cmd/` ikilisi `KeepLive`, `KeepFile` ya da
+  `KeepFileOnce` çağırır; `settings.New` çağıran `KeepLive` çağırır.
+
+Yolda: `internal/settings/keys_test.go` dış test paketine geçti.
+`internal/logging` artık `internal/settings`'i içe aktarıyor, iç test
+paketi `internal/panel` üzerinden döngü kuruyordu.
+
+### Ölçüm
+
+`$SP/w4/olc-w4a.py` (beacon) ve `$SP/w4/olc-w4a-panel.py` (panel).
+"Önce" ikilileri HEAD'in (`f12da39`) depo dışı bir worktree'sinden.
+
+| | önce | sonra |
+|---|---|---|
+| beacon çalışırken, saklama 2 | 3 günlük access duruyor | siliniyor; security kalıyor, sıkıştırılıyor |
+| açılıştan sonra eklenen 30 günlük gün | duruyor | siliniyor |
+| yeniden başlatma | 3 günlük access duruyor | silinmiş kalıyor |
+| panelde önemli 400, 370 günlük security | açılışta siliniyor | kalıyor |
+| panel ikilisi, aynı iki dosya | access duruyor, security siliniyor | access siliniyor, security kalıyor |
+
+Geçiş tek INFO satırı bırakıyor:
+`logging: maintenance archived=1 deleted=3 … retention_days=2`.
+
+### Mutasyonlar
+
+20 mutasyon, 20'si kırmızı (`$SP/w4/mutasyon-w4a.py`). Bunlardan R1 ilk
+turda yeni değişmezden sağ çıktı, sebebi yukarıdaki ölü köprü. E1'in
+metni ilk turda dosyada yoktu: anahtardan sonra boşluk değil satır sonu
+vardı; düzeltildi ve kırmızı.
+
+### Dersler
+
+- *Bir kuralın verilen yarısını sınayan bir süit, alınan yarısını
+  sınamıyordur* — bu sefer "Live olan okunuyor mu" soruluyordu, "Live
+  olmayan okunuyor mu" sorulmuyordu.
+- **Bir okuma çağrısını sayan değişmez, çağrının yaşadığı işlevin
+  çağrıldığını sormuyorsa ölü kodu okuyucu sayar.** Mutasyon gösterdi.
+- **Bir düzeltmeyi ölçerken komşu durumu da ölç.** İlk tur kısaltmayı
+  düzeltti; uzatmayı ölçmek açılış geçişinin politikayı bilmeden
+  sildiğini gösterdi. Yön tersine dönünce kusur görünür oldu.
+- **Geri alınamayan işlem, bilinmeyen politikayla yapılmaz.**
+  Bilinmeyenin geri alınabilir yarısı (sıkıştırma) yapılır.

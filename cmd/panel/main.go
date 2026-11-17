@@ -42,6 +42,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/restartreq"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/sealed"
+	"github.com/cruciblelab/crucible-analytic/internal/settings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -256,6 +257,11 @@ func main() {
 	// than fatal: a deployment whose tables cannot be trimmed should
 	// keep serving pages and say so, not refuse to start.
 	go runHousekeeping(ctx, store, logger)
+
+	// The panel's own log tree, under the same three ages the panel
+	// offers for every service (W4a). The panel writes those settings and
+	// never applied them to itself either.
+	go keepLogs(ctx, store.Pool(), logControls, logger)
 
 	// The read-only API this panel draws its numbers from. An unset
 	// address yields a nil client, which every page renders as "the
@@ -562,6 +568,37 @@ func migrateSettings(ctx context.Context, store *panel.Store, service, path stri
 	fmt.Println("değer odur. Değişiklikler artık panelden yapılır — dosyayı düzenlemek,")
 	fmt.Println("veritabanında bir satır varken hiçbir şeyi değiştirmez.")
 	return nil
+}
+
+// keepLogs keeps the panel's log tree inside the ages the settings name.
+//
+// Through a settings.Source on the panel's own pool rather than through
+// the Store's typed getters, for one reason: a Store getter answers the
+// registry's default when no row exists, and the default is not what
+// this process should apply then - its own config file's [logging]
+// section is. Source.Int answers "no row" as the fallback it is given,
+// which is the file's number, the same as in the collector and the
+// beacon. One reading rule in three processes is logging.LiveLifecycle.
+//
+// Refreshed on the settings package's interval, so a change made on the
+// settings page reaches this process within the same minute it reaches
+// the others - and the page's sentence about it is true for all three.
+func keepLogs(ctx context.Context, pool *pgxpool.Pool, controls *logging.Controls, logger *slog.Logger) {
+	live := settings.New(ctx, pool, settings.Config{Logger: logger})
+	ticker := time.NewTicker(settings.DefaultInterval)
+	defer ticker.Stop()
+	for {
+		logging.KeepLive(controls, live, logger, time.Now())
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := live.Refresh(ctx); err != nil {
+				logger.Warn("settings: read failed, keeping the last known values",
+					"err", err, "consecutive_failures", live.Failures())
+			}
+		}
+	}
 }
 
 // runHousekeeping sweeps the panel's own tables until the context ends.

@@ -70,6 +70,14 @@ var periodicLoops = map[string]string{
 		"URL that can be fetched again",
 	"internal/limiter/limiter.go:throttleWait": "a wait, where cancelling is the " +
 		"behaviour being asked for rather than a loss",
+	"internal/logging/live.go:KeepFile": "files on a disk, and the pass does not " +
+		"watch the context at all: Maintain runs to the end once begun, and the " +
+		"cancel is only seen between passes. A process killed mid-pass leaves " +
+		"either the original or the finished archive - compression writes a " +
+		"temporary file and renames it - and the next pass picks up where the " +
+		"policy says. W4a",
+	"cmd/panel/main.go:keepLogs": "the same pass through KeepLive, and a settings " +
+		"read before it; neither has a copy to lose. W4a",
 
 	"cmd/collector/main.go:main": "two loops, both safe for reasons above: the " +
 		"retention pass is a bounded delete that rolls back and repeats, and the " +

@@ -27,6 +27,31 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Günlük saklama ayarları artık uygulanıyor
+
+**Kuran kişinin yapması gereken:** hiçbir şey. Panelde `logs.*` saklama
+ayarlarını değiştirdiyseniz, yeni ikililer açıldıktan bir dakika sonra
+uygulanır. Günlükleriniz o zamana kadar yazdığınız süreden uzun
+tutulduysa, eski günler ilk geçişte silinir.
+
+Panelin üç günlük ayarı (`logs.retention_days`,
+`logs.important_retention_days`, `logs.archive_after_days`) "Ayar
+kaydedildi" diyordu ama hiçbir servis okumuyordu. Servisler yalnız kendi
+dosyalarındaki `[logging]` değerini kullanıyordu. Günlük ağacının bakımı da
+yalnız açılışta bir kez yapılıyordu: aylarca yeniden başlamayan bir servis
+günlüklerini hiç silmiyordu. Ayrıca açılış geçişi panelin değerini
+okumadan önce koşuyordu, yani panelde **uzatılmış** bir saklama her
+yeniden başlatmada dosyanın kısa süresiyle siliniyordu. Gerçek ikiliyle
+ölçüldü: panelde 400 gün, 370 günlük güvenlik kaydı açılışta gitti.
+
+Şimdi:
+- Collector, beacon ve panel ayarı bir dakika içinde okur, değişince
+  hemen, yoksa saatte bir uygular.
+- Ayarlar bir kez okunmadan hiçbir şey silinmez, yalnız sıkıştırılır.
+- API ile yükseltici panel ayarını okuyamaz, kendi dosyalarındaki değeri
+  saatte bir uygular.
+- Ayarların yardım metni bunu söylüyor.
+
 ### Site başına collector: durmuş olan artık "az önce" görünmüyor
 
 **Kuran kişinin yapması gereken:** şema yükseltmesi (24, yukarıda),

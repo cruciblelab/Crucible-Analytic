@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
+	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/siteid"
 )
@@ -655,6 +656,21 @@ var CategoryOrder = []Category{
 // that goes through review, which is the same rule the panel's repair
 // operations follow and for the same reason: a running system should not
 // be talkable into a setting nobody designed.
+// logLifecycleReach is what the three log ages say about who applies
+// them.
+//
+// Written out because the honest answer is not "every service". The
+// collector, the beacon and the panel read these from the settings
+// table and apply a change within a minute. The analytics API cannot:
+// its role is not granted panel_settings, and granting it is a schema
+// change. The upgrader runs on a timer and keeps its own files at each
+// run. Both of those follow the [logging] section of their own config
+// file - and a page that said "saved" over a setting two processes
+// ignore would be the defect W4a removed, only smaller.
+const logLifecycleReach = "Collector, beacon ve panel bir dakika içinde uygular; " +
+	"değer yazılmamışsa kendi yapılandırma dosyalarındaki [logging] değeri geçerlidir. " +
+	"API ile yükseltici her zaman kendi dosyalarındaki değeri kullanır."
+
 var registry = map[Key]Definition{
 	KeySiteName: {
 		Key: KeySiteName, Scope: ScopeSite, Kind: KindString,
@@ -867,10 +883,12 @@ var registry = map[Key]Definition{
 	KeyLogRetentionDays: {
 		Key: KeyLogRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
 		Category: CatGizlilik,
-		Default:  14, Min: 1, Max: 3650,
+		Default:  logging.DefaultLifecycle().RetentionDays,
+		Min:      logging.MinLifecycleDays, Max: logging.MaxLifecycleDays,
 		Label:     "Günlük kaydı saklama süresi (gün)",
-		Help:      "Sıradan kayıtlar (erişim, alım, uygulama) bu süre sonunda silinir.",
+		Help:      "Sıradan kayıtlar (erişim, alım, uygulama) bu süre sonunda silinir. " + logLifecycleReach,
 		Developer: true,
+		Live:      true,
 
 		RequiresDeveloperPassword: true,
 		GateReason: "Erişim kayıtları IP adresi içerir. Süreyi uzatmak kişisel veriyi " +
@@ -880,10 +898,13 @@ var registry = map[Key]Definition{
 	KeyLogImportantRetentionDays: {
 		Key: KeyLogImportantRetentionDays, Scope: ScopeGlobal, Kind: KindInt,
 		Category: CatGizlilik,
-		Default:  365, Min: 1, Max: 3650,
-		Label:     "Önemli kayıtları saklama süresi (gün)",
-		Help:      "Güvenlik, kimlik doğrulama ve denetim kayıtları. Bunlar bir yıl sonra sorulanlardır.",
+		Default:  logging.DefaultLifecycle().ImportantRetentionDays,
+		Min:      logging.MinLifecycleDays, Max: logging.MaxLifecycleDays,
+		Label: "Önemli kayıtları saklama süresi (gün)",
+		Help: "Güvenlik, kimlik doğrulama ve denetim kayıtları. Bunlar bir yıl sonra sorulanlardır. " +
+			logLifecycleReach,
 		Developer: true,
+		Live:      true,
 
 		RequiresDeveloperPassword: true,
 		GateReason: "\"Kim girdi, ne zaman\" kaydı budur. Kısaltmak, bir olay " +
@@ -926,10 +947,13 @@ var registry = map[Key]Definition{
 	KeyLogArchiveAfterDays: {
 		Key: KeyLogArchiveAfterDays, Scope: ScopeGlobal, Kind: KindInt,
 		Category: CatGizlilik,
-		Default:  7, Min: 1, Max: 3650,
-		Label:     "Kaç gün sonra arşivlensin",
-		Help:      "Bu süreden eski günler sıkıştırılır. Okunabilir kalır, yaklaşık onda bir yer kaplar.",
+		Default:  logging.DefaultLifecycle().ArchiveAfterDays,
+		Min:      logging.MinLifecycleDays, Max: logging.MaxLifecycleDays,
+		Label: "Kaç gün sonra arşivlensin",
+		Help: "Bu süreden eski günler sıkıştırılır. Okunabilir kalır, yaklaşık onda bir yer kaplar. " +
+			logLifecycleReach,
 		Developer: true,
+		Live:      true,
 	},
 	KeyLogLevel: {
 		Key: KeyLogLevel, Scope: ScopeGlobal, Kind: KindEnum,
@@ -1612,36 +1636,6 @@ func (s *Store) resetSetting(ctx context.Context, key Key, site string) error {
 		return fmt.Errorf("panel: reset setting %s: %w", key, err)
 	}
 	return nil
-}
-
-// LogLifecycle reads the log settings and returns the policy a service
-// should maintain its tree against.
-//
-// This is the bridge between the panel and internal/logging, and it is
-// deliberately a plain read rather than an import of the logging package
-// here: internal/panel writes only to panel_* tables and knows nothing
-// about the filesystem, so it returns numbers and lets the caller build
-// the policy. Keeping the dependency pointing one way is what allows the
-// panel's database role to stay as narrow as it is.
-func (s *Store) LogLifecycle(ctx context.Context) (archiveAfter, retention, importantRetention int, err error) {
-	if archiveAfter, err = s.GetIntSetting(ctx, KeyLogArchiveAfterDays, ""); err != nil {
-		return 0, 0, 0, err
-	}
-	if retention, err = s.GetIntSetting(ctx, KeyLogRetentionDays, ""); err != nil {
-		return 0, 0, 0, err
-	}
-	if importantRetention, err = s.GetIntSetting(ctx, KeyLogImportantRetentionDays, ""); err != nil {
-		return 0, 0, 0, err
-	}
-	// A configuration that deletes what it has not yet archived is
-	// almost certainly a mistake, and the consequence - losing a day's
-	// logs before they were compressed - is not recoverable. Clamping is
-	// better than refusing: refusing would leave the service with no
-	// policy at all.
-	if archiveAfter > retention {
-		archiveAfter = retention
-	}
-	return archiveAfter, retention, importantRetention, nil
 }
 
 // checkTimezone refuses a zone name this machine cannot load.

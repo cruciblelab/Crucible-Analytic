@@ -52,6 +52,10 @@ schema_admin_dsn = "postgres://schema_admin:change-me@localhost:5432/analytics"
 [logging]
 # dir = ""
 # level = "info"
+#
+# Günlük ağacının yaşları (retention_days, important_retention_days,
+# archive_after_days) buradan okunur; panelin logs.* ayarları yükselticiye
+# ulaşmaz. Ayrıntı beacon.example.toml'daki [logging] bölümünde.
 
 # ---------------------------------------------------------------------
 # Panelden güncelleme: paketler nereden gelir, ve neyle doğrulanır

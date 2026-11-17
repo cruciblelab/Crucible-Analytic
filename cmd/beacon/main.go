@@ -424,6 +424,13 @@ func main() {
 			// invisible; Info is always written and this is rare.
 			logger.Info("logging level changed", "from", before.String(), "to", after.String())
 		}
+
+		// The log tree's ages (W4a): the panel's values when it has
+		// any, a pass when they change and hourly otherwise. Before W4a
+		// this process maintained its tree once, at startup, with the
+		// config file's numbers, and the panel's three settings went
+		// nowhere. See internal/logging/keep.go.
+		logging.KeepLive(logControls, live, logger, time.Now())
 	}
 	applySettings()
 

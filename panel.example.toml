@@ -171,6 +171,10 @@ password_hash = ""
 [logging]
 dir = "/var/log/crucible-analytic"
 level = "info"
+# Günlük ağacının yaşları burada yazılabilir (retention_days,
+# important_retention_days, archive_after_days); panelde logs.* ayarı
+# kaydedilmişse o geçerlidir ve panel onu bir dakika içinde kendi ağacına
+# da uygular. Ayrıntı beacon.example.toml'daki [logging] bölümünde.
 
 
 # Servislerin ayakta olup olmadığını kurulum sihirbazı buradan sorar.

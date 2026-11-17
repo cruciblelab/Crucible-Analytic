@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -236,31 +237,6 @@ func TestSettings_OutOfBoundsStoredValueFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-// Archiving after deletion would lose a day's logs before they were ever
-// compressed, and that is not recoverable.
-func TestLogLifecycle_ClampsArchiveBeforeRetention(t *testing.T) {
-	store := settingsStore(t)
-	ctx := context.Background()
-
-	if err := setGuarded(t, store, KeyLogRetentionDays, "", 5); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	if err := store.SetSetting(ctx, KeyLogArchiveAfterDays, "", 30, nil); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-
-	archiveAfter, retention, important, err := store.LogLifecycle(ctx)
-	if err != nil {
-		t.Fatalf("LogLifecycle: %v", err)
-	}
-	if archiveAfter > retention {
-		t.Errorf("archiveAfter %d > retention %d; a day would be deleted before it was compressed", archiveAfter, retention)
-	}
-	if important != 365 {
-		t.Errorf("important retention = %d, want 365", important)
-	}
-}
-
 func TestSettings_ListReportsWhatWasStored(t *testing.T) {
 	store := settingsStore(t)
 	ctx := context.Background()
@@ -332,6 +308,127 @@ func TestSettings_LiveKeysMatchWhatServicesRead(t *testing.T) {
 			t.Errorf("%q is marked Live but no service reads it, so the panel promises an "+
 				"immediate effect that never happens", def.Key)
 		}
+	}
+}
+
+// Every setting has a reader: a service, or the panel itself.
+//
+// The test above asks the first half - a Live setting is one a service
+// reads - and never asked anything about the rest. A setting not marked
+// Live was taken to be one the panel reads per request, and for eleven of
+// them that is true. For three it was not: logs.retention_days,
+// logs.important_retention_days and logs.archive_after_days were offered
+// behind the developer password with a legal reason beside each one, and
+// no process read any of them (W4a). The page said "Ayar kaydedildi" and
+// the files stayed - measured on the real beacon binary.
+//
+// The panel's reads are derived from its source: a call to one of the
+// accessors below with the key as an argument. A key the panel only
+// writes - the setup wizard writes logs.retention_days - is not read by
+// writing it.
+func TestSettings_EverySettingHasAReader(t *testing.T) {
+	read := keysThePanelReads(t)
+	if len(read) == 0 {
+		t.Fatal("the scan found no panel reads at all; every setting would look unread " +
+			"and the check below would be about the scan")
+	}
+	for _, def := range AllDefinitions() {
+		switch {
+		case def.Live:
+			// TestSettings_LiveKeysMatchWhatServicesRead.
+		case def.ConfigFileOnly:
+			// Shown, not stored: nothing reads it from the table by design.
+		case !read[def.Key]:
+			t.Errorf("%q is not marked Live and the panel never reads it, so nothing does: "+
+				"a customer who changes it is told it was saved and nothing happens", def.Key)
+		}
+	}
+}
+
+// settingReaders are the panel's ways of reading a stored setting.
+//
+// A list, but a checked one: TestSettings_EverySettingReaderIsListed
+// below derives the Store's accessors from their signatures and refuses
+// one missing here.
+var settingReaders = map[string]bool{
+	"GetSetting": true, "GetIntSetting": true, "GetBoolSetting": true,
+	"GetStringSetting": true, "storedList": true,
+}
+
+// keysThePanelReads is the set of keys passed to a settingReaders call in
+// the panel's non-test source.
+func keysThePanelReads(t *testing.T) map[Key]bool {
+	t.Helper()
+	root := moduleRoot(t)
+	values := keyConstantValues(t, filepath.Join(root, "internal", "panel"))
+	out := map[Key]bool{}
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(filepath.Join(root, "internal", "panel"), func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if skipDirForScan(entry.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			fn, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || !settingReaders[fn.Sel.Name] {
+				return true
+			}
+			for _, arg := range call.Args {
+				var name string
+				switch a := arg.(type) {
+				case *ast.Ident:
+					name = a.Name
+				case *ast.SelectorExpr:
+					name = a.Sel.Name
+				}
+				if value, ok := values[name]; ok {
+					out[Key(value)] = true
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("scanning the panel's source: %v", err)
+	}
+	return out
+}
+
+// TestSettings_EverySettingReaderIsListed holds settingReaders against
+// the Store: every exported Store method whose name starts with Get and
+// ends with Setting is a reader and must be listed, or a setting read
+// only through it would be reported unread.
+func TestSettings_EverySettingReaderIsListed(t *testing.T) {
+	typ := reflect.TypeOf(&Store{})
+	found := 0
+	for i := 0; i < typ.NumMethod(); i++ {
+		name := typ.Method(i).Name
+		if strings.HasPrefix(name, "Get") && strings.HasSuffix(name, "Setting") {
+			found++
+			if !settingReaders[name] {
+				t.Errorf("Store.%s reads a setting and settingReaders does not list it", name)
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no Store method looks like a setting reader; the derivation is broken")
 	}
 }
 

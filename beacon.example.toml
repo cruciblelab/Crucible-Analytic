@@ -243,6 +243,14 @@ enabled = false
 #
 # These are also panel settings (logs.* in developer mode), which is
 # where they are meant to be changed once a deployment is handed over.
+# A value stored in the panel wins over this file; a key the panel has
+# not stored leaves the number here in force. The collector, the beacon
+# and the panel re-read them within a minute and apply a change at once,
+# and otherwise go over the tree hourly. Until the settings have been
+# read once - a service started while the database is down - nothing is
+# deleted, only compressed: the panel may have lengthened a retention.
+# The analytics API and the upgrader cannot read panel settings; they use
+# their own file's numbers.
 
 # How often live settings are re-read from panel_settings.
 #

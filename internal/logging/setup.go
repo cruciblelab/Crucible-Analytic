@@ -83,7 +83,8 @@ func Setup(service string, cfg Config) (*slog.Logger, *Controls, func(), error) 
 	// the next restart.
 	level := &slog.LevelVar{}
 	level.Set(configured)
-	controls := &Controls{level: level, base: configured}
+	controls := &Controls{level: level, base: configured,
+		keep: &keeper{file: cfg.Lifecycle()}}
 
 	if cfg.Dir == "" {
 		return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})), controls, func() {}, nil
@@ -109,21 +110,24 @@ func Setup(service string, cfg Config) (*slog.Logger, *Controls, func(), error) 
 		}
 	}
 
-	// One maintenance pass at startup rather than a background timer. A
-	// service that runs for months rolls day directories as it goes, and
-	// one that restarts daily maintains daily; a goroutine would buy the
-	// remaining case at the cost of a deletion racing a write. The
-	// panel's repair operation covers the long-running case explicitly,
-	// which is better than a timer nobody can see.
-	if report, err := tree.Maintain(cfg.Lifecycle()); err != nil {
-		// Not fatal. A tree that cannot be maintained still logs, and
-		// refusing to start over disk housekeeping would turn a
-		// tidiness problem into an outage.
-		fmt.Fprintf(os.Stderr, "logging: maintenance failed: %v\n", err)
-	} else if report.Archived > 0 || report.Deleted > 0 {
-		fmt.Fprintf(os.Stderr, "logging: archived %d, deleted %d, reclaimed %d bytes\n",
-			report.Archived, report.Deleted, report.BytesReclaimed)
-	}
+	// No maintenance pass here. There was one, with the config file's
+	// numbers, and it was wrong twice over.
+	//
+	// It was the only pass any process ever made - its comment said "the
+	// panel's repair operation covers the long-running case", and nothing
+	// did - so a service that ran for months kept months of logs.
+	//
+	// And it ran before the service could know the panel's policy. A
+	// deployment whose owner had lengthened a retention in the panel lost,
+	// on every restart, the files the panel said to keep: measured on the
+	// real beacon, important retention 400 days in the panel, a 370-day-old
+	// security log, gone at startup. A deletion cannot be taken back, and
+	// these two figures carry legal weight.
+	//
+	// The first pass is now the caller's, through Controls.Keep: KeepLive
+	// once the settings have been read, KeepFile for a service whose file
+	// is the whole policy. See keep.go.
+	controls.keep.tree = tree
 
 	return slog.New(handler), controls, func() { _ = tree.Close() }, nil
 }

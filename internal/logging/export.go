@@ -114,6 +114,9 @@ var exportRules = map[string]ExportRule{
 	"was_asns": ExportKept, "was_countries": ExportKept, "what": ExportKept,
 	"where": ExportKept, "why": ExportKept, "within": ExportKept, "work": ExportKept,
 	"written": ExportKept, "zone": ExportKept,
+	// The log tree's own maintenance (W4a): file counts and day counts.
+	"archived": ExportKept, "deleted": ExportKept, "reclaimed_bytes": ExportKept,
+	"archive_days": ExportKept, "retention_days": ExportKept, "important_days": ExportKept,
 }
 
 // ExportRuleFor is how an attribute under this key leaves the machine.
