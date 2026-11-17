@@ -30,12 +30,14 @@ import (
 	"os/signal"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/asnlookup"
 	"github.com/cruciblelab/crucible-analytic/internal/beacon"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -254,6 +256,12 @@ func main() {
 	defer panelLog.Close()
 	slog.SetDefault(logger)
 
+	// The site list in force, set by applySettings and read by the
+	// heartbeat. Nil until the settings have been applied once: the
+	// first beat can come before that, and saying nothing for a minute
+	// is better than saying the file's list when the panel's is the one
+	// about to be used.
+	var sitesInForce atomic.Pointer[acceptedSites]
 	beat := heartbeat.New(heartbeat.Options{
 		Pool:    monitor,
 		Version: buildinfo.Version(version),
@@ -278,6 +286,12 @@ func main() {
 		Logger:     logger,
 		Counters: func() map[string]int64 {
 			return beacon.HeartbeatCounters(srv, writer)
+		},
+		// What this process loaded, for the setup wizard (PLAN §W4,
+		// item 5), and the site list it is accepting events for now and
+		// where that came from (item 6). See internal/configreport.
+		Config: func() configreport.Report {
+			return beaconConfigReport(cfg, srv.PathPrefixInForce(), sitesInForce.Load())
 		},
 	})
 	go beat.Run(ctx)
@@ -314,11 +328,13 @@ func main() {
 	var lastRefusedSites []string
 	applySettings := func() {
 		srv.SetCampaignPolicy(beacon.CampaignPolicy(cfg.Campaign.Live(live)))
-		sites := live.Strings(settings.KeyBeaconSites, "", cfg.Sites)
+		sites, fromPanel := live.StringsFrom(settings.KeyBeaconSites, "", cfg.Sites)
+		refused := srv.SetSites(sites)
+		sitesInForce.Store(&acceptedSites{sites: withoutRefused(sites, refused), fromPanel: fromPanel})
 		// Said once per change, not once per refresh: the list is read
 		// every interval, and the same refusal every minute is a line
 		// somebody stops reading.
-		if refused := srv.SetSites(sites); !slices.Equal(refused, lastRefusedSites) {
+		if !slices.Equal(refused, lastRefusedSites) {
 			if len(refused) > 0 {
 				logger.Warn("beacon: the site list has entries that cannot be a site's key "+
 					"(longer than 256 bytes, or characters that cannot be stored); they are "+

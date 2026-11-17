@@ -197,7 +197,7 @@ import (
 //
 // # 24
 //
-// Two tables, two columns and a policy, and the reason they share a number is the
+// Two tables, three columns and a policy, and the reason they share a number is the
 // rule written under Fingerprint below: no release tag carries 24, so
 // nothing has ever run it.
 //
@@ -221,6 +221,10 @@ import (
 //     changing the key was measured to break every running older binary's
 //     ON CONFLICT, and an older binary writes the role's own row exactly
 //     as before under this one.
+//   - service_heartbeat.config (W4d): what a process says about the
+//     configuration it loaded, for the setup wizard - which until then
+//     said "panele bildirilmemiş" beside every value it listed. Only the
+//     keys internal/configreport lists as not secret reach it.
 //
 // Additive in the sense that matters on an upgrade. ADD COLUMN is one of
 // the four DDL forms measured in O1 as accepted on a compressed
@@ -257,7 +261,7 @@ const Version = 24
 // fingerprint. That package is where it belongs: it already asks git
 // what each release looked like, and it already fails rather than skips
 // when the tags are missing.
-const Fingerprint = "4261482f552a97783e1b665ce42401d3c173e6d988fe4235b9e76d0c6f1aca95"
+const Fingerprint = "2916e6a8fc650a10f6162b6a225b85b3a4ae8aa41b9c4a917d97f2d1a6e3ad3f"
 
 // FingerprintOf hashes a set of schema files.
 //

@@ -192,7 +192,7 @@ altalan_geri_alinamaz = "Settle this now: it cannot be merged later. A visitor i
 baslik = "What the customer sees"
 govde = "The one step in this wizard that is not a technical question. The person who had the website built does not have to know what a bot, a fingerprint or a DDoS is — their panel should carry only the blocks they asked for."
 ipucu = "An unticked block is not merely hidden: its query is never made, so the page gets that much faster. Untick everything and that site shows no blocks at all. This can be changed again here or in the site's settings."
-site_yok = "No sites are configured yet. Fill in the Sites step first."
+site_yok = "No site list is saved in the panel. Save the list in the Sites step first; the view is chosen per site."
 kartlar = "Summary cards"
 kirilimlar = "Breakdown tables"
 
@@ -203,7 +203,15 @@ servis = "Service"
 anahtar = "Key"
 deger = "Value"
 gizli = "holds a secret — only its presence is recorded"
-bilinmiyor = "not reported to the panel"
+bos = "empty — not set in the file, or set empty"
+bilinmiyor = "not reported: the service is not running, has not written its first heartbeat since it started, or is older than this release"
+
+[metin.kurulum.beacon_siteleri]
+henuz = "The beacon (%s) has not read the list saved here yet and is accepting the sites in beacon.toml: %s. It reads its settings once a minute; if it has been longer, check on the health page whether it is running."
+dosyadan = "No site list is saved in the panel, so the beacon (%s) is accepting the sites in beacon.toml: %s. A list saved here replaces the file's. The handover waits for the list to be saved here: the account it creates becomes owner of every site on it."
+farkli = "The beacon (%s) is accepting these sites right now: %s. That differs from the list saved here. If the list was just saved the beacon reads it within a minute; if it is older, some entries may not be usable as site ids (the beacon's log names them)."
+hicbiri = "no site"
+sessiz = "No beacon has told the panel which sites it accepts: it is not running, has not read its settings yet in its first minute, or is older than this release."
 
 [metin.kurulum.adim.saklama]
 baslik = "Retention"
@@ -456,6 +464,7 @@ baslik = "Handover"
 govde = "The installation is finished. The last step is handing the panel to its owner: enter their email address, let the panel mint a one-time invitation link, and pass that link to them."
 
 [metin.kurulum.devir]
+site_yok = "a site list saved in the Sites step"
 eposta = "The owner's email address"
 eposta_ipucu = "The account will be created with this address. Whoever uses the link sets their own password — you never see it."
 ad = "Display name (optional)"
@@ -467,7 +476,7 @@ bir_kez = "This link is shown here and nowhere else. The panel stored only its h
 eposta_bos = "The email address is empty."
 eposta_gecersiz = "That cannot be an email address: it is longer than 254 bytes or carries characters that cannot be stored."
 eposta_kayitli = "An account already exists for that address. Use the members page to add an existing account to a site."
-engelli_detay = "Handover is closed because required checks are failing: %s. Go back a step and run the checks."
+engelli_detay = "Handover is closed until these are in place: %s. Go back to those steps; the checks are on the step before this one."
 acik_davetler = "Unused invitations"
 acik_ipucu = "Each invitation creates one owner account. If you minted more than you meant to, the unused ones expire on their own."
 gecerlilik = "Valid until"

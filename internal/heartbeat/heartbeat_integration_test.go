@@ -13,9 +13,11 @@ package heartbeat
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/testdb"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -567,6 +569,9 @@ func TestAServiceThatWritesNoAddressesHasNoOpinion(t *testing.T) {
 var emptyWithoutTheColumn = map[string]func(Beat) string{
 	"profile":            func(b Beat) string { return b.Profile },
 	"ip_token_key_state": func(b Beat) string { return string(b.IPTokenKey) },
+	// Read does not select config (beatColumns); its reader is ReadConfig,
+	// which the loop below asks instead.
+	"config": nil,
 }
 
 // TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind.
@@ -643,6 +648,10 @@ func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
 			r := New(Options{
 				Pool: pool, Version: "v-behind-" + column,
 				Profile: "tam", IPTokenKey: TokenKeyPresent,
+				Config: func() configreport.Report {
+					return configreport.Report{Program: configreport.Collector,
+						Values: map[string]string{"site_id": "behind"}}
+				},
 				Now: now, Started: now().Add(-5 * time.Minute),
 			})
 			r.beat(ctx)
@@ -678,7 +687,7 @@ func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
 				t.Fatalf("Read failed against the older schema: %v", err)
 			}
 			for _, b := range beats {
-				if b.Service != testdb.Collector {
+				if b.Service != testdb.Collector || readsBack == nil {
 					continue
 				}
 				if got := readsBack(b); got != "" {
@@ -686,6 +695,117 @@ func TestTheHeartbeatKeepsWritingWhileTheSchemaIsBehind(t *testing.T) {
 						column, got)
 				}
 			}
+			if column != configColumn {
+				return
+			}
+			reports, err := ReadConfig(ctx, admin)
+			if err != nil {
+				t.Fatalf("ReadConfig failed against the older schema: %v", err)
+			}
+			for _, r := range reports {
+				if r.Key() == testdb.Collector && r.Report.Program != "" {
+					t.Errorf("config came back as %+v against a database with no such column", r.Report)
+				}
+			}
 		})
+	}
+}
+
+// What a process says about its configuration goes into the row and comes
+// back through ReadConfig - and not through Read (PLAN §W4, item 5).
+func TestTheConfigReportRoundTrips(t *testing.T) {
+	pool := testPool(t)
+	admin := testdb.Admin(t)
+	ctx := context.Background()
+
+	r := New(Options{
+		Pool: pool, Version: "v-config",
+		Config: func() configreport.Report {
+			return configreport.Report{Program: configreport.Collector,
+				Values: map[string]string{"site_id": "shop", "network.backend_addr": "10.0.0.5:80"}}
+		},
+	})
+	r.beat(ctx)
+
+	reports, err := ReadConfig(ctx, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, rep := range reports {
+		if rep.Key() != testdb.Collector {
+			continue
+		}
+		found = true
+		if rep.Report.Program != configreport.Collector ||
+			rep.Report.Values["network.backend_addr"] != "10.0.0.5:80" || rep.Report.Values["site_id"] != "shop" {
+			t.Errorf("ReadConfig = %+v, want the collector's two values", rep.Report)
+		}
+	}
+	if !found {
+		t.Fatalf("ReadConfig returned no row for %s: %+v", testdb.Collector, reports)
+	}
+
+	// And the same row, read the way the health page reads it, carries
+	// nothing of it. Beat has no field for it; this asks the query.
+	var selected string
+	if err := admin.QueryRow(ctx, `SELECT `+strings.Join(beatColumns, ", ")+` FROM service_heartbeat WHERE service = $1`,
+		testdb.Collector).Scan(new(string), &selected); err != nil {
+		t.Fatalf("reading the row the way Read does: %v", err)
+	}
+	if strings.Contains(selected, "10.0.0.5") {
+		t.Errorf("Read's columns carry the config report: %q", selected)
+	}
+
+	// The role's own row, once an instance of the role has started after
+	// its last beat, is gone from ReadConfig as it is from Read: the two
+	// readers must agree about which processes exist, or the wizard lists
+	// a collector the health page has forgotten - with whatever it last
+	// reported.
+	instance := RowKey(testdb.Collector, "w4d-yeni")
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DELETE FROM service_heartbeat WHERE service = $1`, instance)
+	})
+	if _, err := admin.Exec(ctx, `UPDATE service_heartbeat SET beat_at = now() - interval '10 minutes'
+		WHERE service = $1`, testdb.Collector); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO service_heartbeat (service, version, started_at, beat_at, config)
+		VALUES ($1, 'w4d', now() - interval '1 minute', now(), '{"program":"collector","values":{}}')
+		ON CONFLICT (service) DO UPDATE SET started_at = EXCLUDED.started_at, beat_at = now()`, instance); err != nil {
+		t.Fatal(err)
+	}
+	reports, err = ReadConfig(ctx, admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawInstance bool
+	for _, rep := range reports {
+		if rep.Key() == testdb.Collector {
+			t.Errorf("the role's own row is still read after an instance replaced it: %+v", rep.Report)
+		}
+		sawInstance = sawInstance || rep.Key() == instance
+	}
+	if !sawInstance {
+		t.Errorf("the instance's row is missing from ReadConfig")
+	}
+	r.beat(ctx) // the role's row beats again, after the instance started
+
+	// A row that says something unparseable, or names a program this
+	// build does not know, reads as one that said nothing.
+	for _, raw := range []string{`{"program":"collector2","values":{"site_id":"x"}}`, `[1,2]`} {
+		if _, err := admin.Exec(ctx, `UPDATE service_heartbeat SET config = $2::jsonb WHERE service = $1`,
+			testdb.Collector, raw); err != nil {
+			t.Fatal(err)
+		}
+		reports, err := ReadConfig(ctx, admin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rep := range reports {
+			if rep.Key() == testdb.Collector && rep.Report.Program != "" {
+				t.Errorf("config %s read back as %+v, want nothing", raw, rep.Report)
+			}
+		}
 	}
 }

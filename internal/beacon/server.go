@@ -246,6 +246,12 @@ func (s *Server) now() time.Time {
 	return time.Now()
 }
 
+// PathPrefixInForce is the prefix the routes mount at: PathPrefix with
+// the default and the leading slash applied. What the beacon reports to
+// the setup wizard (PLAN §W4, item 5) - the file's empty value means
+// DefaultPathPrefix, and reporting "" would say the beacon mounts nowhere.
+func (s *Server) PathPrefixInForce() string { return s.pathPrefix() }
+
 func (s *Server) pathPrefix() string {
 	prefix := s.PathPrefix
 	if prefix == "" {

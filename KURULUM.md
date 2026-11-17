@@ -744,7 +744,13 @@ Aynı kural kurulumun tamamına dokunan sayfalar için de geçerli: teknik
 kurulum sihirbazı (son adımı açtığı hesabı **her** sitenin sahibi yapıyor),
 posta sunucusu (panelin gönderdiği davet bağlantıları oradan geçiyor) ve
 geliştirici erişimi onayı (onaylanan geliştirici her müşterinin verisine
-ulaşıyor). Birden çok müşteriniz varsa bunları siz yaparsınız. Sağlık
+ulaşıyor). Birden çok müşteriniz varsa bunları siz yaparsınız.
+**Bugün bunun ölçülmüş bir sınırı var (2026-11-17):** siz panele geliştirici
+bağlantısıyla girersiniz, ve hesap açıldıktan sonra bağlantıyı kurulum adına
+konuşan biri onaylar. Her müşteri yalnız kendi sitesinin sahibiyse böyle
+biri yoktur: bağlantı onaylanamaz ve siz bu işlere ulaşamazsınız.
+Karar bekliyor (PLAN §W4d). O zamana kadar ya bir hesabı bilerek her
+sitenin sahibi yapın, ya da müşterileri ayrı kurulumlara ayırın. Sağlık
 sayfası her site sahibine okunur. İşlemleri (yedek, yedek kontrolü, yan
 veritabanına geri yükleme, IP veri kümesi yenileme, yeniden başlatma,
 şema yükseltmesi, sürüm güncellemesi) ve geri yükleme raporu (her tablonun
@@ -1421,9 +1427,9 @@ Bağlantı sizi sekiz adımlı sihirbaza götürür:
 |---|---|---|
 | 1 | Başlangıç | Kapsamı anlatır |
 | 2 | Veritabanı ve şema | **Hiçbir şey değiştirmez.** Gerçek sorgular atar, bulduğunu söyler |
-| 3 | Siteler | Beacon'ın kabul edeceği site kimlikleri — **yazar** |
+| 3 | Siteler | Beacon'ın kabul edeceği site kimlikleri — **yazar**; beacon'ın şu an hangilerini, nereden (panel/`beacon.toml`) kabul ettiğini de söyler |
 | 4 | Müşteri ne görecek | Panoda hangi blokların görüneceği — **yazar**, aşağıya bakın |
-| 5 | Yapılandırma dosyaları | Dosyalardaki değerleri **gösterir**, değiştiremez |
+| 5 | Yapılandırma dosyaları | Servislerin **yüklediği** değerleri gösterir (her servis kendisi bildirir), değiştiremez |
 | 6 | Saklama süreleri | Saklama sürelerini yazar — **geliştirici şifresini her seferinde sorar** |
 | 7 | Kontrol | Kontrolleri düğmeye basınca **gerçekten çalıştırır** |
 | 8 | Devir teslim | §9.4 |
@@ -1495,7 +1501,9 @@ düştüğünde de kırmızı verir — karar dağıtımı yapanın.
 (*"…/healthz yanıt veriyor"*), kapalı bir porta bakan beacon
 `başarısız` (*"…adresine ulaşılamadı: connection refused"*), ve devir
 teslim adımı **"Zorunlu kontroller geçmediği için devir teslim kapalı:
-beacon servisi çalışıyor mu"** diyerek kapandı.
+beacon servisi çalışıyor mu"** diyerek kapandı. (Cümle 2026-11-17'den beri
+"Devir teslim şunlar tamamlanana kadar kapalı: …" diye başlıyor; listede
+artık kayıtlı site listesi de olabiliyor, bkz. §9.4.)
 
 **Portu kontrol edin.** Bu bölümün örneği ve `panel.example.toml`
 2026-11-03'e kadar API için `8081` yazıyordu. O port beacon'ın; API
@@ -1523,6 +1531,24 @@ Kaybederseniz kabuktan yeniden üretebilirsiniz:
 
 Bağlantı kullanıldığında tek işlemde: hesap oluşturulur, **yapılandırılmış
 her siteye sahiplik** verilir, davet tüketilir. Yarısı olmaz.
+
+"Yapılandırılmış site", **Siteler adımında panele kaydedilmiş** listedir.
+Panelde liste yokken beacon `beacon.toml`'daki `sites`'ı kabul eder. Ama
+devirle açılan hesap o zaman hiçbir sitenin sahibi olmazdı. Bu yüzden
+panelde kayıtlı bir liste yokken devir kapalıdır ve sayfa bunu "Siteler
+adımında kayıtlı site listesi" diye adlandırır. Siteler adımı beacon'ın
+dosyadan kabul ettiği listeyi yazar; aynısını kaydetmeniz yeter.
+
+**5. adımın değerleri servislerden gelir.** Panel servislerin dosyalarını
+okuyamaz (veritabanı parolası taşıyorlar). Her servis yüklediği gizli
+olmayan değerleri dakikada bir kalp atışı satırına yazar; sihirbaz onları
+gösterir. Gösterilen değer dosyada yazan değil, çalışan sürecin
+kullandığıdır: dosyayı değiştirip servisi yeniden başlatmadıysanız eski
+değeri görürsünüz. Birden çok collector varsa her biri ayrı satır
+kümesidir. Bir servis için "bildirilmedi" yazıyorsa servis çalışmıyordur,
+açılışından beri ilk kalp atışını yazmamıştır ya da bu sürümden eskidir.
+Bu değerler yalnız sihirbazda görünür. Sağlık sayfası ve tanı paketi her
+site sahibine açık olduğu için orada yoktur.
 
 **Sahiplenme asla superadmin üretmez.** Siteye sahip olmak ile kurulumu
 işletmek farklı işler; ikincisi kabuktan, bilerek oluşturulur.
@@ -3014,7 +3040,7 @@ kümesi olduğu için kasıtlı olarak dışarıda.
 
 | Belirti | Sebep |
 |---|---|
-| Devir teslim düğmesi hiç çıkmıyor | `panel.toml`'daki `[roles]` boş. Kontroller "bakamadım" diyor, o da bloke ediyor |
+| Devir teslim düğmesi hiç çıkmıyor | `panel.toml`'daki `[roles]` boş (kontroller "bakamadım" diyor, o da bloke ediyor) ya da panelde kayıtlı site listesi yok — sayfadaki cümle hangisi olduğunu adlandırır |
 | Panelde her ziyaretçi aynı IP | `trusted_proxies` boş ya da yanlış |
 | Pano "N olay otomatik sayıldı" diyor ve insan trafiği de düşmüş görünüyor | Sağlık'ta "başka bir adres için imzalı" sayacı artıyorsa beacon'ın `trusted_proxies`'i collector'ın gördüğü adrese ulaşmıyor — §6'daki "Collector'ın kararı" |
 | `/beacon/` uçları 500 dönüyor | `analytics_reader`'a yalnız `traffic_snapshots` verilmiş |

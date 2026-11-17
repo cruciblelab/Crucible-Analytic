@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅, W4b ✅, W4c ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | ✅ **4/4** | — *(W4d bitti (2026-11-17): sihirbazın yapılandırma adımı her kurulumda 13 satırın 10'unu "bildirilmemiş" diyordu, artık servisler kendi yüklediklerini bildiriyor; panelde site listesi yokken devir hiçbir sitenin sahibi olmayan bir hesap açıyordu, artık kapalı. Yolda sahibin kararı bulundu: iki müşterili kurulumda geliştirici erişimini onaylayabilecek kimse yok — §W4d)* — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11544,7 +11544,7 @@ yazdığı biçimde):
 satırı yazıp örnek isteğini okumayan bir collector yalnız bu dalın ara
 commit'inde var.
 
-#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a, W4b, W4c yapıldı; kalan W4d: 5+6)*
+#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler ✅ **yapıldı (2026-11-17)** *(W4a, W4b, W4c, W4d)*
 
 Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
 türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
@@ -11570,12 +11570,12 @@ türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
    yazdı, dosya başka yerdeydi. → Örneklerde açık; `install.sh` üç dosyada
    da `STATE_DIR`'a yazar; bir test üç yolun aynı dosyayı adlandırdığını
    sorar.
-5. **Sihirbazın 5. adımı ("Yapılandırma dosyaları") her anahtar için
+5. ✅ *(W4d)* **Sihirbazın 5. adımı ("Yapılandırma dosyaları") her anahtar için
    "panele bildirilmemiş" diyor.** Sayfa bilgi taşımıyor. → Ya servisler bu
    değerleri sırsız olarak bildirir (kalp atışı), ya da adım neyi neden
    gösteremediğini tek cümleyle söyler ve boş tabloyu çizmez. Önce hangi
    değerin bildirilebileceği ölçülür.
-6. **Sihirbazın 3. ve 4. adımı beacon'ın gerçekte kabul ettiği siteleri
+6. ✅ *(W4d)* **Sihirbazın 3. ve 4. adımı beacon'ın gerçekte kabul ettiği siteleri
    bilmiyor.** Beacon dosyadan iki siteyi kabul ederken 4. adım *"Henüz
    site tanımlı değil"* dedi. → Beacon kabul ettiği listeyi ve kaynağını
    (dosya ya da panel) bildirir, adımlar onu gösterir.
@@ -11740,6 +11740,127 @@ aynı yolları paylaşıyor. Artık her komut kendi yollarıyla sorgulanıyor.
 **Açık kalan:** var olan kurulumlarda `install.sh` yapılandırma dosyasının
 üstüne yazmadığı için panel ve API satırı eklenmez. CHANGELOG kurana bunu
 söylüyor.
+
+##### W4d — Sihirbaz servislerin yüklediğini gösteriyor, devir site listesini bekliyor ✅ **yapıldı (2026-11-17)**
+
+*(5 ve 6. maddeler.)*
+
+**Önce, canlı düzenekte ölçüldü** (`$SP/canli/w4d-oku.mjs`, iki collector,
+bir beacon, API, panel; çıktılar `$SP/w4/w4d-once-*.txt`):
+- 5. adım: 13 satır, **10'u "panele bildirilmemiş", 3'ü gizli, 0 bilinen**.
+  Her kurulumda böyle, çünkü panelin verdiği değerlerin anahtarları
+  (`panel.listen_addr`, `panel.timezone`…) tabloda hiç yoktu; tablodaki tek
+  panel satırı gizliydi. Tabloda iki anahtar da yanlıştı:
+  `developer.password_hash` (tablo `[developer_gate]`) ve tek bir
+  "hepsi `logging.dir`". İki collector'a tek collector satırı düşüyordu.
+- Panelde `beacon.sites` yokken (B durumu) beacon dosyadaki iki siteyi
+  kabul etmeye devam etti; 3. adımın kutusu boştu, 4. adım "Henüz site
+  tanımlı değil" diyordu.
+- **Aynı durumda devir formu açıktı, hiçbir engel yoktu.** Devir hesabı
+  panel listesindeki her sitenin sahibi yapıyor (`RedeemOwnerClaim`); liste
+  boşken hesap **hiçbir sitenin** sahibi olmadan açılırdı. Devirden önce
+  listeyi hiçbir kontrol sormuyordu.
+
+**Karar: değerleri servisler bildiriyor.** Panelin rolü servislerin
+dosyalarını okuyamaz (veritabanı parolası taşıyorlar) ve okumamalı. Dosyayı
+yükleyen süreç değerleri zaten biliyor ve panelin okuduğu bir satır yazıyor.
+`profile` ve `ip_token_key_state` sütunları da aynı gerekçeyle oradaydı.
+- `internal/configreport`: bildirilebilecek anahtarların tek listesi
+  (`Entries`; program, anahtar, `Secret`, `Live`). `Values` listedeki gizli
+  olmayan anahtarları yüklenmiş yapıdan toml etiketleriyle okuyor;
+  listede olmayan alan ya da gizli anahtar hiç okunmuyor. Değer başına
+  2 KB sınırı var.
+- `service_heartbeat.config JSONB` (şema 24'e; 24 hiç yayımlanmadı, yeni
+  parmak izi `2916e6a8…`). İçeriği `{"program", "values"}`. Satırın hangi
+  programdan geldiğini rol söylemiyor: roller yapılandırılabiliyor ve panel
+  yalnız ikisini biliyor.
+- Dört servis `heartbeat.Options.Config` veriyor. Beacon `path_prefix`
+  için yürürlükteki öneki bildiriyor (dosyanın boş değeri `/_ca`
+  demek). Ayrıca kabul ettiği listeyi ve kaynağını bildiriyor
+  (`accepted_sites`, `accepted_sites_source` = `panel`/`file`). Kaynak,
+  değeri seçen çağrının kendisinden geliyor (`settings.Source.StringsFrom`).
+  Ayarlar ilk kez uygulanana kadar beacon site listesi hakkında susuyor.
+- **Okuyucu tek:** `heartbeat.ReadConfig`'i yalnız sihirbaz çağırıyor;
+  sihirbazı kurulum adına konuşan biri açabiliyor. `heartbeat.Read`
+  (Sağlık, pano, tanı paketi; bir sitenin sahibine açık) bu sütunu
+  seçmiyor. İki müşterili kurulumda her müşterinin collector'ı kendi arka
+  ucunu bildiriyor.
+- Panelin tablosu artık `configreport.Entries`'ten türetiliyor; panelde
+  yalnız etiketler var. Rapor veren her süreç için ayrı satır kümesi var
+  (`collector@site`). Rapor vermeyen program "bildirilmedi: servis
+  çalışmıyor, ilk kalp atışını yazmadı ya da bu sürümden eski" diyor. Boş
+  bir değer "boş" diye yazılıyor. Ölü `ConfigFileValues` hattı silindi.
+- **Site adımları (madde 6):** 3. ve 4. adım beacon'ın listesini ve
+  kaynağını söylüyor. Bunu panel listesi boşken her zaman, liste kayıtlıyken
+  beacon'ın kabul ettiği liste ondan farklıysa yapıyor (henüz okunmamış ya
+  da site kimliği olamayan girdiler). Hiçbir beacon bildirmediyse onu
+  söylüyor.
+- **Devir:** `handoverBlockers` hem sayfaya hem POST'a tek işlev. Zorunlu
+  kontrollerin yanında "Siteler adımında kayıtlı site listesi" de
+  gerekiyor. Engel cümlesi genelleşti ("şunlar tamamlanana kadar kapalı").
+
+**Sonra, aynı düzenek** (`$SP/w4/w4d-sonra-*.txt`):
+
+| | önce | sonra |
+|---|---|---|
+| 5. adım satırları (bilinen / bildirilmemiş / gizli) | 13 (0 / 10 / 3) | 28 (22 / 0 / 6) |
+| B: 3. adım | boş kutu | "beacon (beacon_writer) beacon.toml'daki siteleri kabul ediyor: canli-deneme, ikinci-site" |
+| B: 4. adım | "Henüz site tanımlı değil" | aynı cümle + nedeni |
+| B: devir | form açık, engel yok | form yok, "Siteler adımında kayıtlı site listesi" |
+| A: 3/4. adım, devir | — | not yok, iki site çiziliyor, devir açık |
+| Mehmet (tek site) Sağlık + tanı paketi | — | öbür collector'ın adresi, arka ucu, `listen_addr`, `accepted_sites`: 0 |
+
+**Değişmezler ve testler:**
+- `TestEveryEntryResolves`: her anahtar programın gerçek yapılandırma
+  tipinde çözülüyor (eski iki yanlış anahtar bunu geçemezdi).
+- `TestASecretLookingKeyIsMarkedSecret`: adı dsn/password/hash/token/
+  secret/key diyen anahtar gizli işaretli.
+- `TestValuesReportExactlyTheNonSecretKeys`: her alan kendi yolunu taşıyan
+  iz değeriyle dolduruluyor. Rapor tam olarak gizli olmayan anahtarları
+  kendi alanlarından veriyor ve hiçbir değer bir sırrın iz değerini taşımıyor.
+- `TestReadNeverSelectsConfig`, `TestTheConfigReportRoundTrips`.
+- `TestEveryServiceReportsItsConfig` (cmd/ ağacından türetilmiş; her
+  `heartbeat.Options` `Config` veriyor ve kendi programını adlandırıyor)
+  ve `TestOnlyTheWizardReadsConfigReports`.
+- `TestConfigFileLabelsAreTheReportedKeys`,
+  `TestConfigFileSettings_OneSetPerReportingProcess`.
+- `TestTheWizardShowsWhatTheServicesReport`: gerçek veritabanı. 5. adım
+  iki collector'ı çiziyor ve bir raporun taşıdığı DSN'i çizmiyor. 3/4. adım
+  sessizliği, dosya kaynağını ve farkı söylüyor. Devir sayfada ve POST'ta
+  kapalı ve davet yazılmıyor.
+- `TestTheBeaconsReport`, `TestSource_StringsFromSaysWhereTheValueCameFrom`.
+
+32 mutasyon, 32'si kırmızı (`$SP/w4/mutasyon-w4d.py`). İlk turda üçü sağ
+kaldı, dördü derlenmedi (yeniden yazıldı):
+- C6: karakter ortasında kesmeyi test hiç denemiyordu; iki baytlık
+  karakter sınırı tam böldü.
+- H5: `ReadConfig`'in yerine yenisi gelmiş satırı atması sınanmıyordu.
+- W5: "dosyadan" koşulu, listeler farklıyken ölçülemiyordu. Listeler aynı
+  kurulunca **ürün kusuru** çıktı: panelde liste varken beacon henüz
+  okumamışsa sayfa "panelde kayıtlı liste yok" diyordu. Ayrı cümle
+  (`henuz`) ve W8 eklendi.
+
+**Açık (sahibin kararı) — iki müşterili kurulumda geliştirici erişimi
+kilitli.** Ölçerken bulundu. Düzenekte Ayşe yalnız `canli-deneme`'nin,
+Mehmet yalnız `ikinci-site`'ın sahibi. W1'den beri geliştirici erişimini
+kurulum adına konuşan biri onaylıyor, yani her sitenin sahibi ya da
+işletmeci. Böyle bir hesap yok:
+- `panel -dev-link` ile üretilen bağlantı 403;
+- Ayşe'nin `/erisim`'i 403 (onaylayamıyor);
+- işletmeci içeri giremiyor.
+
+KURULUM ise "birden çok müşteriniz varsa [sihirbaz, posta, geliştirici
+erişimi onayı] siz yaparsınız" diyor. Ölçmek için Mehmet, Ayşe'yi kendi
+sitesine sahip olarak ekledi (ürünün kendi yolu); bu kalıcı bir çözüm değil,
+çünkü müşterilerden birine öbürünün sitesinin sahipliğini vermek demek.
+Seçenekler:
+- (a) Kurulum adına konuşan hesap yoksa sunucuda `-dev-link` üretebilmek
+  (yani kök/yapılandırma dosyası erişimi) onay sayılsın.
+- (b) Sahiplerin hepsinin onayı aransın.
+- (c) Yalnız sunucudan verilebilen bir işletmeci hesabı olsun.
+
+"Sahip hesabı açıldıktan sonra geliştirici erişimi sahibin onayına bağlı"
+kuralına dokunduğu için karar sahibin; kod yazılmadı.
 
 ### Ertelenmiş kararlar
 

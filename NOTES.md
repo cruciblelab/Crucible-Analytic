@@ -26015,3 +26015,87 @@ tabloya ait, ve API örneğinde satır bir kez `[[tokens]]` altına kaymıştı.
 - **Var olan bir yapılandırmaya dokunmayan kurulum, yeni bir satırı var
   olan müşteriye ulaştıramaz.** Bunu yapılacak işi söyleyen sürüm notu
   taşır.
+
+## Sihirbaz servislerin yüklediğini gösteriyor — W4d (2026-11-17)
+
+PLAN §W4'ün 5 ve 6. maddeleri. Ayrıntı ve önce/sonra tablosu PLAN §W4d'de.
+
+### Ölçüm, önce
+
+Canlı düzenek (iki collector, beacon, API, panel; `$SP/canli/w4d-oku.mjs`).
+Sihirbaza girmek için kurulum adına konuşan biri gerekiyordu, düzenekte
+yoktu (aşağıda). Mehmet, Ayşe'yi kendi sitesine sahip olarak ekledi;
+böylece Ayşe teknik kapıdan girdi.
+- 5. adım: 13 satır; 10 "panele bildirilmemiş", 3 gizli, 0 bilinen.
+  Panelin kendi verdiği değerlerin anahtarları tabloda yoktu
+  (`panel.listen_addr`…), yani panelin kendi değerleri bile hiç
+  çizilmiyordu. Bir test fikstürü de tam o anahtarı veriyordu ve hiçbir
+  şey onu sormuyordu.
+- `beacon.sites` silinince beacon dosyasındaki iki siteyi kabul etmeye
+  devam etti. 3. adımın kutusu boş, 4. adım "Henüz site tanımlı değil".
+  Eski panel ikilisiyle aynı durumda devir formu açıktı. Devir hesabı
+  panel listesindeki sitelerin sahibi yapıyor; liste boşken hesap hiçbir
+  sitenin sahibi olmuyor (`RedeemOwnerClaim` boş listeyle hata vermiyor).
+
+### Tasarım
+
+- Değerleri dosyayı yükleyen süreç bildiriyor
+  (`service_heartbeat.config`). Panelin rolü servislerin dosyalarını
+  okuyamaz ve okumamalı.
+- Bildirilebilecek anahtarlar tek listede: `internal/configreport.Entries`.
+  `Values` yalnız gizli olmayanları yansımayla okuyor. Listede olmayan bir
+  alan bildirilmiyor; gizli bir alan hiç okunmuyor.
+- Satır kendi programını söylüyor (`{"program", "values"}`). Rolden
+  türetilmiyor, çünkü panel yalnız iki rolün adını biliyor ve roller
+  yapılandırılabiliyor.
+- Beacon iki canlı anahtar ekliyor: kabul ettiği liste ve kaynağı. Kaynak,
+  değeri seçen çağrıdan geliyor (`StringsFrom`). Ayarlar ilk kez
+  uygulanana kadar beacon susuyor. `path_prefix` yürürlükteki önek; ilk
+  canlı ölçüm dosyanın boş değerini gösterdi, oysa beacon `/_ca`'da
+  dinliyordu.
+- Okuyucu tek: `ReadConfig`'i yalnız sihirbaz çağırıyor. `Read` sütunu
+  seçmiyor (`beatColumns`). İki müşterili kurulumda her collector kendi
+  arka ucunu bildiriyor ve Sağlık her site sahibine açık. Canlıda Mehmet'in
+  Sağlık sayfasında ve tanı paketinde öbür collector'ın adresi, arka ucu
+  ve anahtar adları 0 kez geçiyor.
+- Devir engelleri tek işlevde (`handoverBlockers`), sayfa ve POST aynısını
+  soruyor.
+
+### Mutasyonlar
+
+32 mutasyon, 32'si kırmızı (`$SP/w4/mutasyon-w4d.py`). İlk turda üçü sağ
+kaldı, dördü derlenmedi:
+- **C6 (karakter ortasında kesme):** test `ş`'yi tekrarlıyordu. İki baytlık
+  karakterle 2048 tam sınıra düşüyor, yani karakter ortası hiç denenmiyordu.
+  Başa tek baytlık bir harf kondu.
+- **H5 (`ReadConfig` bayat satırları atmıyor):** sınanmıyordu. Yerine yeni
+  örnek gelmiş rol satırı artık testte.
+- **W5 ("dosyadan" koşulu):** testteki beacon listesi panelinkinden zaten
+  farklıydı, koşul tek başına ölçülmüyordu. Aynı listeyle kurunca **ürün
+  kusuru** çıktı: panelde liste varken beacon henüz okumamışsa sayfa "panelde
+  kayıtlı liste yok" diyordu. Ayrı cümle (`henuz`) ve mutasyonu (W8)
+  eklendi.
+
+### Açık: iki müşterili kurulumda geliştirici erişimi
+
+Düzenekte her sitenin sahibi olan hesap yok. W1'den beri geliştirici
+erişimini kurulum adına konuşan biri onaylıyor, yani bağlantı 403 ve
+Ayşe'nin onay sayfası 403. KURULUM bu işleri birden çok müşterili
+kurulumda işletmeciye veriyor, ama işletmeci giremiyor. Seçenekler PLAN
+§W4d'de. Kural sahibin olduğu için kod yazılmadı.
+
+### Dersler
+
+- **İki listenin anahtarlarını birleştirmeyen bir tablo, her kurulumda boş
+  çizilir ve hiçbir test bunu "boş" diye görmez.** Panelin verdiği
+  anahtarların hiçbiri tabloda yoktu. Fikstür değer veriyordu, hiçbir iddia
+  o değerin ekranda olup olmadığını sormuyordu.
+- **"X'ten farklıysa söyle" kuralının sınanması, X'e eşit olan ve yine de
+  söylenmesi gereken durumu ister.** Kaynak koşulu ancak listeler aynıyken
+  görünüyor; o durum kurulunca cümlenin kendisi de yanlış çıktı.
+- **Bir değeri dosyadan okumak, süreçte yürürlükte olanı okumak değildir.**
+  Varsayılanı başka bir katmanda uygulanan bir alan boş görünür.
+- **Ölçmek için kapıdan girmek gerekiyorsa, kapının kendisi de ölçülür.**
+  Sihirbaza girmeye çalışmak, iki müşterili kurulumda işletmecinin hiç
+  giremediğini gösterdi.
+

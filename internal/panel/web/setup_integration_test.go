@@ -235,10 +235,7 @@ func setupTestServerAt(t *testing.T, dsn string) (*Server, *panel.Store) {
 		Sessions:   panel.NewSessions(store, time.Hour, false),
 		Gate:       gate,
 		ConfigPath: "/etc/crucible-analytic/panel.toml",
-		ConfigFileValues: map[string]string{
-			"panel.listen_addr": "127.0.0.1:8090",
-		},
-		Preflight: preflight.New(store.Pool()),
+		Preflight:  preflight.New(store.Pool()),
 		// The role names the isolation checks need. Without them those
 		// checks skip, a skipped required check blocks handover, and
 		// every test that reaches the last step fails for a reason that

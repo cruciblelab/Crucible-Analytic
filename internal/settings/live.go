@@ -362,20 +362,33 @@ func (s *Source) Until(key, site string) time.Time {
 // cached one in place would corrupt every later read, and the bug would
 // look like the settings table changing on its own.
 func (s *Source) Strings(key, site string, fallback []string) []string {
+	value, _ := s.StringsFrom(key, site, fallback)
+	return value
+}
+
+// StringsFrom is Strings, and whether the value came from the settings
+// table - false when it is the fallback, whether because there is no row
+// or because the row could not be used.
+//
+// The beacon reports which of the two its site list is (PLAN §W4, item
+// 6): the setup wizard read only the table, and said "no sites yet" while
+// the beacon accepted two from its file. The answer comes from the same
+// call that picks the value, so it cannot describe a different decision.
+func (s *Source) StringsFrom(key, site string, fallback []string) ([]string, bool) {
 	raw, ok := s.raw(key, site)
 	if !ok {
-		return fallback
+		return fallback, false
 	}
 	var value []string
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return fallback
+		return fallback, false
 	}
 	if len(value) > 1000 {
-		return fallback
+		return fallback, false
 	}
 	out := make([]string, len(value))
 	copy(out, value)
-	return out
+	return out, true
 }
 
 // Setting keys a service reads. These mirror internal/panel's registry,

@@ -6,6 +6,7 @@
 <p>{{t "kurulum.adim.siteler.altalan"}}</p>
 <p>{{t "kurulum.adim.siteler.altalan_geri_alinamaz"}}</p>
 </div>
+{{template "kurulum_beacon_siteleri" .}}
 <form method="post" action="">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 <div class="alan">

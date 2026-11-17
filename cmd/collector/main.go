@@ -22,6 +22,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
 	"github.com/cruciblelab/crucible-analytic/internal/collector"
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/fullproxy"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/limiter"
@@ -229,6 +230,12 @@ func main() {
 		// running process is the only place the question can be asked.
 		IPTokenKey: heartbeat.TokenKeyStateOf(cfg.Privacy.HashKey()),
 		Logger:     logger,
+		// What this process loaded, for the setup wizard (PLAN §W4,
+		// item 5): the non-secret keys internal/configreport lists.
+		Config: func() configreport.Report {
+			return configreport.Report{Program: configreport.Collector,
+				Values: configreport.Values(configreport.Collector, cfg)}
+		},
 		Counters: func() map[string]int64 {
 			written, failed := writer.Counters()
 			return map[string]int64{

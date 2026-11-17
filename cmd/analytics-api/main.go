@@ -33,6 +33,7 @@ import (
 	"github.com/cruciblelab/crucible-analytic/internal/api"
 	"github.com/cruciblelab/crucible-analytic/internal/botdata"
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
 	"github.com/cruciblelab/crucible-analytic/internal/logsink"
@@ -191,6 +192,13 @@ func main() {
 		// The row's last error and its log-loss count. Until Z6 this
 		// service's row carried neither, and no counters at all.
 		Log: panelLog,
+
+		// What this process loaded, for the setup wizard (PLAN §W4,
+		// item 5): the non-secret keys internal/configreport lists.
+		Config: func() configreport.Report {
+			return configreport.Report{Program: configreport.API,
+				Values: configreport.Values(configreport.API, cfg)}
+		},
 
 		Counters: func() map[string]int64 {
 			failed, pastDeadline := srv.Counters()

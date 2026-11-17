@@ -61,11 +61,6 @@ type Server struct {
 	// ConfigPath is the panel's own config file, quoted back in the
 	// command the first-run page tells the installer to run.
 	ConfigPath string
-	// ConfigFileValues are the config-file settings the panel may
-	// display, keyed "service.toml.path". Secrets are never included -
-	// see panel.ConfigFileSettings, which drops them on the entry
-	// itself so a call site cannot pass one by accident.
-	ConfigFileValues map[string]string
 	// StoragePaths are the directories this deployment was configured
 	// with, whose filesystems the health page measures. Derived from the
 	// config by Config.StoragePaths rather than listed at the call site,

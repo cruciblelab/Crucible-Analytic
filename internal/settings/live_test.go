@@ -4,6 +4,7 @@ package settings
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -279,6 +280,46 @@ func TestSource_StringsReturnsACopy(t *testing.T) {
 	if second[0] != "a" {
 		t.Errorf("mutating a returned slice changed the cache: %v", second)
 	}
+}
+
+// StringsFrom says whether the value is the row's: the beacon reports
+// that word to the setup wizard (PLAN §W4, item 6), and a "panel" for a
+// fallback would tell the installer the panel's list is in force when the
+// file's is. Three ways to be the fallback - no row, a row that is not a
+// list, a row too long - and one way to be the row.
+func TestSource_StringsFromSaysWhereTheValueCameFrom(t *testing.T) {
+	pool := testPool(t)
+	const key = "test.settings.strings_from"
+	fallback := []string{"dosya"}
+	// Both ends: the first case is "no row", and a run that died after
+	// writing one would make it a row.
+	if _, err := pool.Exec(context.Background(), `DELETE FROM panel_settings WHERE key = $1`, key); err != nil {
+		t.Fatal(err)
+	}
+	src := New(context.Background(), pool, Config{})
+
+	check := func(name string, wantRow bool, want []string) {
+		t.Helper()
+		if err := src.Refresh(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		got, fromRow := src.StringsFrom(key, "", fallback)
+		if fromRow != wantRow || len(got) != len(want) || (len(want) > 0 && got[0] != want[0]) {
+			t.Errorf("%s: StringsFrom = %v, %v; want %v, %v", name, got, fromRow, want, wantRow)
+		}
+	}
+
+	check("no row", false, fallback)
+	write(t, pool, key, "", `"not a list"`)
+	check("a row that is not a list", false, fallback)
+	long := make([]string, 1001)
+	for i := range long {
+		long[i] = `"x"`
+	}
+	write(t, pool, key, "", "["+strings.Join(long, ",")+"]")
+	check("a row too long", false, fallback)
+	write(t, pool, key, "", `["panel"]`)
+	check("a row", true, []string{"panel"})
 }
 
 // TestSource_UpdatedAtIsTheRowsOwnTime.

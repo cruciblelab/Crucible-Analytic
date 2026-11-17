@@ -221,7 +221,7 @@ altalan_geri_alinamaz = "Bunu şimdi kararlaştırın: sonradan birleştirilemez
 baslik = "Müşteri ne görecek"
 govde = "Bu sihirbazdaki tek teknik olmayan adım. Siteyi yaptıran kişi bot, parmak izi, DDoS gibi şeyleri bilmek zorunda değil — panelinde yalnız istediği bloklar görünsün."
 ipucu = "İşaretlenmeyen blok yalnız gizlenmiyor: sorgusu da hiç atılmıyor, yani sayfa o kadar hızlanıyor. Hepsini kaldırırsanız o site için hiçbir blok gösterilmez. Sonradan buradan ya da site ayarlarından değiştirilebilir."
-site_yok = "Henüz site tanımlı değil. Önce Siteler adımını doldurun."
+site_yok = "Panelde kayıtlı site listesi yok. Önce Siteler adımında listeyi kaydedin; görünüm site başına seçilir."
 kartlar = "Özet kartları"
 kirilimlar = "Kırılım tabloları"
 
@@ -232,7 +232,15 @@ servis = "Servis"
 anahtar = "Anahtar"
 deger = "Değer"
 gizli = "parola taşıyor — yalnızca varlığı yazılıdır"
-bilinmiyor = "panele bildirilmemiş"
+bos = "boş — dosyada yazılmamış ya da boş bırakılmış"
+bilinmiyor = "bildirilmedi: servis çalışmıyor, açılışından beri ilk kalp atışını yazmadı ya da bu sürümden eski"
+
+[metin.kurulum.beacon_siteleri]
+henuz = "Beacon (%s) burada kayıtlı listeyi henüz okumadı ve beacon.toml'daki siteleri kabul ediyor: %s. Ayarları dakikada bir okur; bir dakikadan uzun sürdüyse çalışıp çalışmadığına Sağlık sayfasından bakın."
+dosyadan = "Panelde kayıtlı site listesi yok, bu yüzden beacon (%s) beacon.toml'daki siteleri kabul ediyor: %s. Burada kaydettiğiniz liste dosyadakinin yerine geçer. Devir teslim, listenin burada kayıtlı olmasını bekler: devirle açılan hesap bu listedeki her sitenin sahibi olur."
+farkli = "Beacon (%s) şu an şu siteleri kabul ediyor: %s. Bu, burada kayıtlı listeden farklı. Liste az önce kaydedildiyse beacon onu bir dakika içinde okur; daha eskiyse listedeki bazı girdiler site kimliği olamadığı için alınmıyor olabilir (beacon'ın günlüğü hangileri olduğunu yazar)."
+hicbiri = "hiçbir site"
+sessiz = "Hiçbir beacon hangi siteleri kabul ettiğini panele bildirmedi: çalışmıyor, açılışından sonraki ilk dakikada ayarlarını henüz okumadı ya da bu sürümden eski."
 
 [metin.kurulum.adim.saklama]
 baslik = "Saklama süreleri"
@@ -486,6 +494,7 @@ baslik = "Devir teslim"
 govde = "Kurulum tamamlandı. Son adım, paneli sahibine devretmek: e-posta adresini yazın, panel tek kullanımlık bir davet bağlantısı üretsin, ve o bağlantıyı sahibine iletin."
 
 [metin.kurulum.devir]
+site_yok = "Siteler adımında kayıtlı site listesi"
 eposta = "Sahibin e-posta adresi"
 eposta_ipucu = "Hesap bu adresle açılacak. Bağlantıyı kullanan kişi parolasını kendisi belirler — siz görmezsiniz."
 ad = "Görünen adı (isteğe bağlı)"
@@ -497,7 +506,7 @@ bir_kez = "Bu bağlantı yalnız burada gösterilir. Panel yalnız hash'ini sakl
 eposta_bos = "E-posta adresi boş."
 eposta_gecersiz = "Bu bir e-posta adresi olamaz: 254 bayttan uzun ya da kaydedilemeyen karakterler taşıyor."
 eposta_kayitli = "Bu adrese ait bir hesap zaten var. Var olan bir hesabı siteye eklemek için üye sayfasını kullanın."
-engelli_detay = "Zorunlu kontroller geçmediği için devir teslim kapalı: %s. Önceki adıma dönüp kontrolleri çalıştırın."
+engelli_detay = "Devir teslim şunlar tamamlanana kadar kapalı: %s. İlgili adımlara dönün; kontroller bir önceki adımda."
 acik_davetler = "Kullanılmamış davetler"
 acik_ipucu = "Her davet bir sahip hesabı oluşturur. Yanlışlıkla birden fazla ürettiyseniz, kullanılmayanların süresi kendiliğinden dolar."
 gecerlilik = "Geçerlilik"

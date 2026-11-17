@@ -1,0 +1,15 @@
+{{define "kurulum_beacon_siteleri"}}
+{{- /* What the beacon is accepting, where that is not simply the list
+saved here (PLAN §W4, item 6). The wizard used to read only the panel's
+list, and said "no sites yet" while the beacon accepted two from its file. */}}
+{{- range .Data.BeaconSites}}
+<p class="ipucu" role="note">
+{{- if and .FromFile .PanelHasList}}{{tf "kurulum.beacon_siteleri.henuz" .Reporter (or .SitesText (t "kurulum.beacon_siteleri.hicbiri"))}}
+{{- else if .FromFile}}{{tf "kurulum.beacon_siteleri.dosyadan" .Reporter (or .SitesText (t "kurulum.beacon_siteleri.hicbiri"))}}
+{{- else}}{{tf "kurulum.beacon_siteleri.farkli" .Reporter (or .SitesText (t "kurulum.beacon_siteleri.hicbiri"))}}{{end}}
+</p>
+{{- end}}
+{{- if .Data.BeaconSilent}}
+<p class="ipucu" role="note">{{t "kurulum.beacon_siteleri.sessiz"}}</p>
+{{- end}}
+{{end}}

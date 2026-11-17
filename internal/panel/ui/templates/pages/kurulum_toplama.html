@@ -16,7 +16,8 @@
 <td><code>{{.Key}}</code><br><span class="soluk">{{.Label}}</span></td>
 <td>
 {{- if .Secret}}<span class="soluk">{{t "kurulum.adim.toplama.gizli"}}</span>
-{{- else if .Known}}<code>{{.Value}}</code>
+{{- else if and .Known .Value}}<code>{{.Value}}</code>
+{{- else if .Known}}<span class="soluk">{{t "kurulum.adim.toplama.bos"}}</span>
 {{- else}}<span class="soluk">{{t "kurulum.adim.toplama.bilinmiyor"}}</span>{{end}}
 </td>
 </tr>

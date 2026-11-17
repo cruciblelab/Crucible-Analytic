@@ -243,3 +243,32 @@ ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS profile TEXT NOT NULL DEF
 -- unreachable field refused in, now for a reason an operator can read
 -- on the health page.
 ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS ip_token_key_state TEXT NOT NULL DEFAULT '';
+
+-- What the process says about the configuration it loaded (PLAN §W4,
+-- item 5), as {"program": ..., "values": {key: value}}.
+--
+-- # The defect this closes
+--
+-- The setup wizard's "Yapılandırma dosyaları" step listed the settings
+-- that live in the services' files and said "panele bildirilmemiş" beside
+-- every one it could show - 10 of 13 on the live rig, 0 known, on every
+-- deployment - and its site steps did not know which sites the beacon
+-- accepted when they came from beacon.toml. The panel's role cannot read
+-- those files, for the reason the two columns above give.
+--
+-- # What may go in it
+--
+-- Only the keys internal/configreport lists, and never one it marks
+-- secret: the writer resolves the listed non-secret keys from the loaded
+-- configuration and nothing else, so a DSN or a password hash has no path
+-- here. Values are bounded (configreport.MaxValueBytes).
+--
+-- They are still a deployment's plumbing - which backend a customer's
+-- collector forwards to - so one reader reads this column: the setup
+-- wizard, which only somebody speaking for the whole deployment opens.
+-- internal/heartbeat.Read, which the health page and the diagnostic
+-- bundle use, does not select it.
+--
+-- '{}' for a build older than the column and for a process that reports
+-- nothing; the wizard says "not reported" for both.
+ALTER TABLE service_heartbeat ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'::jsonb;

@@ -42,6 +42,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 	"github.com/cruciblelab/crucible-analytic/internal/schemaver"
 	"github.com/cruciblelab/crucible-analytic/internal/siteid"
@@ -285,7 +286,23 @@ func TokenKeyStateOf(key []byte) TokenKeyState {
 // silent: profile and ip_token_key_state are both text, so a swapped
 // pair writes a profile name into the token-key column and PostgreSQL
 // accepts it.
-var optionalColumns = []string{"profile", "ip_token_key_state"}
+var optionalColumns = []string{"profile", "ip_token_key_state", "config"}
+
+// beatColumns are the optional columns Read selects into a Beat: every
+// optional column but config.
+//
+// config is what a service says about the configuration it loaded
+// (internal/configreport), and Read is what the health page, the
+// dashboard and the diagnostic bundle use - all three open to the owner of
+// one site. On a deployment with two customers that would put one
+// customer's collector backend and listen address on the other's page.
+// So config has its own reader, ReadConfig, which only the setup wizard
+// calls (internal/invariants holds that), and TestReadNeverSelectsConfig
+// holds this list to "optionalColumns without config".
+var beatColumns = []string{"profile", "ip_token_key_state"}
+
+// configColumn is the one optional column Read leaves out.
+const configColumn = "config"
 
 // InstanceSeparator joins a role and an instance in the row's key:
 // `collector@shop`. The schema's write policy compares the part before
@@ -402,9 +419,12 @@ type Reporter struct {
 	// reason profile is: the key is read once, at startup, and a key
 	// added to the file afterwards is not a key this process holds.
 	ipTokenKey TokenKeyState
-	interval   time.Duration
-	logger     *slog.Logger
-	now        func() time.Time
+	// config is called on every beat, like counters: the beacon's
+	// accepted sites change with a live setting. Nil reports nothing.
+	config   func() configreport.Report
+	interval time.Duration
+	logger   *slog.Logger
+	now      func() time.Time
 
 	// columnsOnce guards the one-time check for the optional columns;
 	// see write. present is only written inside it, and only read
@@ -503,6 +523,11 @@ type Options struct {
 	// unknown, which is what the read API means and what the panel
 	// reads as "do not offer full mode on my account".
 	IPTokenKey TokenKeyState
+	// Config is what this process says about the configuration it
+	// loaded, for the setup wizard (internal/configreport). Called on
+	// every beat. Leave it nil and the row says nothing, which the wizard
+	// renders as "not reported".
+	Config func() configreport.Report
 	// Started is when the process started, by this machine's clock; zero
 	// means the moment New is called. Only the time elapsed since it is
 	// used - see Reporter.Started - so give it a value from time.Now,
@@ -547,7 +572,7 @@ func New(o Options) *Reporter {
 	}
 	return &Reporter{
 		pool: o.Pool, service: o.Service, instance: o.Instance, version: o.Version,
-		profile: o.Profile, ipTokenKey: o.IPTokenKey,
+		profile: o.Profile, ipTokenKey: o.IPTokenKey, config: o.Config,
 		started: o.Started, counters: o.Counters, log: o.Log,
 		interval: o.Interval, logger: o.Logger, now: o.Now,
 	}
@@ -708,8 +733,8 @@ func Read(ctx context.Context, pool *pgxpool.Pool) ([]Beat, error) {
 	// Nothing variable reaches the string - the names come from the same
 	// literal list the writer uses. See Reporter.write for the trade
 	// this replaced and why.
-	selected := make([]string, 0, len(optionalColumns))
-	for _, column := range optionalColumns {
+	selected := make([]string, 0, len(beatColumns))
+	for _, column := range beatColumns {
 		has, err := schemaver.HasColumn(ctx, pool, "service_heartbeat", column)
 		if err == nil && has {
 			selected = append(selected, column)
@@ -970,7 +995,32 @@ func (r *Reporter) reported() []struct {
 	}{
 		{"profile", r.profile},
 		{"ip_token_key_state", string(r.ipTokenKey)},
+		{"config", r.configJSON()},
 	}
+}
+
+// configJSON is the config column's value: the report as JSON, or an
+// empty object for a process that reports nothing. Secrets cannot reach
+// it - configreport.Values never reads a key marked Secret - and every
+// value is bounded, so a long site list cannot grow the row without end.
+func (r *Reporter) configJSON() string {
+	if r.config == nil {
+		return "{}"
+	}
+	report := r.config()
+	if !configreport.Known(report.Program) {
+		return "{}"
+	}
+	values := make(map[string]string, len(report.Values))
+	for k, v := range report.Values {
+		values[k] = configreport.Bound(v)
+	}
+	report.Values = values
+	body, err := json.Marshal(report)
+	if err != nil {
+		return "{}"
+	}
+	return string(body)
 }
 
 // detectColumns asks the catalog which optional columns exist.

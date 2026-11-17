@@ -111,6 +111,11 @@ type setupPage struct {
 	Sites []string
 	// SitesRaw is what the form field shows.
 	SitesRaw string
+	// BeaconSites is what each beacon says it accepts, where that is not
+	// simply the panel's list (PLAN §W4, item 6); BeaconSilent is true
+	// when no beacon has said anything.
+	BeaconSites  []beaconSitesView
+	BeaconSilent bool
 
 	// Visible is the per-site choice of blocks, for the step that edits
 	// it.
@@ -382,6 +387,9 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		}
 		data.Sites = toStringList(value)
 		data.SitesRaw = strings.Join(data.Sites, "\n")
+		if err := s.loadBeaconSites(ctx, data); err != nil {
+			return err
+		}
 
 	case "gorunum":
 		rows, err := s.visibilityRows(ctx, lang)
@@ -389,10 +397,22 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 			return err
 		}
 		data.Visible = rows
+		if len(rows) == 0 {
+			// The step draws nothing without a saved list. Which sites the
+			// beacon is accepting meanwhile is the sentence that tells the
+			// installer why, and what to save.
+			if err := s.loadBeaconSites(ctx, data); err != nil {
+				return err
+			}
+		}
 
 	case "toplama":
+		reports, err := s.wizardReports(ctx)
+		if err != nil {
+			return err
+		}
 		data.ConfigNotice = panel.ConfigFileNotice
-		data.ConfigSettings = panel.ConfigFileSettings(s.ConfigFileValues)
+		data.ConfigSettings = panel.ConfigFileSettings(reports)
 
 	case "saklama":
 		rows, err := s.retentionRows(ctx, access)
@@ -430,15 +450,12 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 // when you looked at them" is not the same claim as "the checks pass".
 func (s *Server) loadHandover(ctx context.Context, lang *ui.Language, data *setupPage) error {
 	results := s.Preflight.Run(ctx, s.preflightConfig())
-	ok, blocking := preflight.Complete(results)
-	data.CanHandOver = ok
-	if !ok {
-		names := make([]string, 0, len(blocking))
-		for _, check := range blocking {
-			names = append(names, check.Label)
-		}
-		data.HandoverBlockedBy = strings.Join(names, ", ")
+	blockers, err := s.handoverBlockers(ctx, lang, results)
+	if err != nil {
+		return err
 	}
+	data.CanHandOver = len(blockers) == 0
+	data.HandoverBlockedBy = strings.Join(blockers, ", ")
 
 	claims, err := s.Store.OpenOwnerClaims(ctx)
 	if err != nil {
@@ -788,15 +805,17 @@ func (s *Server) handOver(r *http.Request, lang *ui.Language, access panel.Acces
 	// submitting was drawn from a check that may be minutes old, and
 	// nothing stops it being replayed.
 	results := s.Preflight.Run(ctx, s.preflightConfig())
-	if ok, blocking := preflight.Complete(results); !ok {
+	blockers, err := s.handoverBlockers(ctx, lang, results)
+	if err != nil {
+		s.logger().Error("panel: reading configured sites for the handover", "err", err)
+		data.Message, data.Failed = lang.T("hesap.hata.kaydedilemedi"), true
+		return
+	}
+	if len(blockers) > 0 {
 		// Names them, exactly as the page does when it draws the form
 		// disabled. A refusal that only says "a check is failing" sends
 		// the installer back to a list of fourteen to find out which.
-		names := make([]string, 0, len(blocking))
-		for _, check := range blocking {
-			names = append(names, check.Label)
-		}
-		data.Message = lang.Tf("kurulum.devir.engelli_detay", strings.Join(names, ", "))
+		data.Message = lang.Tf("kurulum.devir.engelli_detay", strings.Join(blockers, ", "))
 		data.Failed = true
 		return
 	}

@@ -24,12 +24,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/cruciblelab/crucible-analytic/internal/buildinfo"
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/devgate"
 	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 	"github.com/cruciblelab/crucible-analytic/internal/logging"
@@ -315,7 +315,6 @@ func main() {
 		Analytics:          analyticsClient,
 		Gate:               gate,
 		ConfigPath:         *configPath,
-		ConfigFileValues:   configFileValues(cfg),
 		// Derived from the config rather than listed here, so a
 		// directory added to panel.toml is measured without anybody
 		// remembering to come back to this call site. An invariant in
@@ -361,6 +360,12 @@ func main() {
 		Logger:   logger,
 		Log:      panelLog,
 		Counters: srv.Counters,
+		// What this process loaded, for the setup wizard (PLAN §W4,
+		// item 5): the non-secret keys internal/configreport lists.
+		Config: func() configreport.Report {
+			return configreport.Report{Program: configreport.Panel,
+				Values: configreport.Values(configreport.Panel, cfg)}
+		},
 	})
 	go beat.Run(ctx)
 
@@ -451,37 +456,6 @@ func printDevLink(ctx context.Context, store *panel.Store, cfg web.Config, baseU
 		fmt.Println("Bu kurulumun bir sahibi var, bu yüzden bağlantı onaylanana kadar çalışmaz.")
 	}
 	return nil
-}
-
-// configFileValues is what the wizard may display from the config
-// files.
-//
-// Only the panel's own values, because the panel reads only its own
-// file. The collector's and the beacon's entries in the registry stay
-// unknown, and the page says "not reported to the panel" rather than
-// leaving a blank - which is the same distinction between "we looked"
-// and "we did not look" that the preflight checks keep.
-//
-// Nothing secret is listed. panel.ConfigFileSettings drops secrets on
-// the entry itself, so this cannot leak one by passing the wrong key,
-// but the DSN is left out here too rather than relying on that.
-func configFileValues(cfg web.Config) map[string]string {
-	values := map[string]string{
-		"panel.listen_addr":            cfg.ListenAddr,
-		"panel.timezone":               cfg.Timezone,
-		"panel.language":               cfg.Language,
-		"panel.analytics_api_url":      cfg.AnalyticsAPIURL,
-		"panel.logging.dir":            cfg.Logging.Dir,
-		"panel.session_lifetime_hours": strconv.Itoa(cfg.SessionLifetimeHours),
-		"panel.hsts":                   strconv.FormatBool(cfg.HSTS),
-		"panel.secure_cookies":         strconv.FormatBool(cfg.CookiesAreSecure()),
-	}
-	for key, value := range values {
-		if value == "" {
-			delete(values, key)
-		}
-	}
-	return values
 }
 
 // guardedKeyNames is the list of settings the developer password

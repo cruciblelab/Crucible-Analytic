@@ -7,6 +7,7 @@
 {{- /* No sites yet. Said plainly rather than drawn as an empty form,
 which reads as a page that failed to load. */}}
 <p class="ipucu">{{t "kurulum.adim.gorunum.site_yok"}}</p>
+{{template "kurulum_beacon_siteleri" .}}
 {{- else}}
 <form method="post" action="">
 <input type="hidden" name="csrf_token" value="{{.CSRF}}">

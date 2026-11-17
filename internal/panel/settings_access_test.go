@@ -1,8 +1,12 @@
 package panel
 
 import (
+	"maps"
 	"strings"
 	"testing"
+
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
+	"github.com/cruciblelab/crucible-analytic/internal/heartbeat"
 )
 
 // The rule, as a table: who sees what, and who may touch it.
@@ -332,16 +336,19 @@ func TestRegistry_GuardedSettingsLiveInDeveloperMode(t *testing.T) {
 
 // --- config-file settings, shown but never editable ---
 
-// A secret must never carry a value, whatever the caller supplies. The
-// check lives on the type rather than at the call sites, because there
-// will be more call sites than people who remember the rule - so this
-// test hands it exactly what a careless caller would.
+// A secret must never carry a value, whatever a report holds. The writer
+// never reads a secret key (configreport.Values), but a row in the table
+// is whatever some binary wrote, and this is the side that draws it - so
+// this hands it exactly what a careless or older writer could.
 func TestConfigFileSettings_NeverRenderASecret(t *testing.T) {
-	careless := map[string]string{
-		"collector.storage.timescale_dsn": "postgres://collector:hunter2@db/analytics",
-		"beacon.timescale_dsn":            "postgres://beacon:hunter2@db/analytics",
-		"panel.developer.password_hash":   "$argon2id$v=19$m=19456,t=2,p=1$abc$def",
-		"beacon.listen_addr":              "127.0.0.1:8081",
+	careless := []heartbeat.ConfigReport{
+		{Service: "collector", Instance: "shop", Report: configreport.Report{Program: configreport.Collector,
+			Values: map[string]string{"storage.timescale_dsn": "postgres://collector:hunter2@db/analytics"}}},
+		{Service: "beacon_writer", Report: configreport.Report{Program: configreport.Beacon,
+			Values: map[string]string{"timescale_dsn": "postgres://beacon:hunter2@db/analytics",
+				"listen_addr": "127.0.0.1:8081"}}},
+		{Service: "panel_user", Report: configreport.Report{Program: configreport.Panel,
+			Values: map[string]string{"developer_gate.password_hash": "$argon2id$v=19$m=19456,t=2,p=1$abc$def"}}},
 	}
 
 	var sawSecret, sawOrdinary bool
@@ -353,7 +360,7 @@ func TestConfigFileSettings_NeverRenderASecret(t *testing.T) {
 			}
 			continue
 		}
-		if setting.Service == "beacon" && setting.Key == "listen_addr" {
+		if setting.Service == "beacon_writer" && setting.Key == "listen_addr" {
 			sawOrdinary = true
 			if setting.Value != "127.0.0.1:8081" || !setting.Known {
 				t.Errorf("an ordinary value did not come through: %q (known %v)", setting.Value, setting.Known)
@@ -368,46 +375,104 @@ func TestConfigFileSettings_NeverRenderASecret(t *testing.T) {
 	}
 }
 
-// "Not visible from here" and "empty in the file" are different facts -
-// one about the deployment, one about the panel - and rendering them the
-// same way would have the customer chasing a value that is set.
+// "Not reported" and "empty in the file" are different facts - one about
+// the deployment, one about the panel - and rendering them the same way
+// would have the customer chasing a value that is set. And a program
+// nobody reported for still gets its rows, marked unknown, rather than
+// vanishing from the list.
 func TestConfigFileSettings_DistinguishUnknownFromEmpty(t *testing.T) {
-	settings := ConfigFileSettings(map[string]string{"collector.mode": ""})
+	settings := ConfigFileSettings([]heartbeat.ConfigReport{{
+		Service: "collector", Instance: "shop",
+		Report: configreport.Report{Program: configreport.Collector, Values: map[string]string{"logging.dir": ""}},
+	}})
 
-	var checkedEmpty, checkedUnknown bool
+	var checkedEmpty, checkedUnreportedKey, checkedSilentProgram bool
 	for _, setting := range settings {
 		switch {
-		case setting.Service == "collector" && setting.Key == "mode":
+		case setting.Service == "collector@shop" && setting.Key == "logging.dir":
 			checkedEmpty = true
 			if !setting.Known {
-				t.Error("a supplied empty value was reported as unknown")
+				t.Error("a reported empty value was shown as unknown")
+			}
+		case setting.Service == "collector@shop" && setting.Key == "mode":
+			checkedUnreportedKey = true
+			if setting.Known {
+				t.Error("a key the report did not carry was shown as known")
 			}
 		case setting.Service == "beacon" && setting.Key == "path_prefix":
-			checkedUnknown = true
+			checkedSilentProgram = true
 			if setting.Known {
-				t.Error("a value nobody supplied was reported as known")
+				t.Error("a program nobody reported for was shown as known")
 			}
 		}
 	}
-	if !checkedEmpty || !checkedUnknown {
-		t.Error("the registry no longer contains the keys this test relies on")
+	if !checkedEmpty || !checkedUnreportedKey || !checkedSilentProgram {
+		t.Errorf("the rows this test relies on are missing (empty %v, unreported key %v, silent program %v)",
+			checkedEmpty, checkedUnreportedKey, checkedSilentProgram)
 	}
 }
 
-// Every entry has to explain itself, or the list is a wall of TOML paths
-// that tells a customer nothing they could not have guessed.
-func TestConfigFileSettings_EveryEntryExplainsItself(t *testing.T) {
-	for _, setting := range ConfigFileSettings(nil) {
-		if setting.Label == "" || setting.Help == "" {
-			t.Errorf("%s.%s has no label or help", setting.Service, setting.Key)
+// Two collectors on one deployment are two sets of rows, each with its
+// own values, named by the row that reported them. On the live rig the
+// list had one collector row for two collectors.
+func TestConfigFileSettings_OneSetPerReportingProcess(t *testing.T) {
+	reports := []heartbeat.ConfigReport{
+		{Service: "collector", Instance: "a", Report: configreport.Report{Program: configreport.Collector,
+			Values: map[string]string{"site_id": "a"}}},
+		{Service: "collector", Instance: "b", Report: configreport.Report{Program: configreport.Collector,
+			Values: map[string]string{"site_id": "b"}}},
+		// An older build's row: no report. It is not a collector the
+		// list can say anything about, and it must not take the place of
+		// the two that did report.
+		{Service: "collector"},
+	}
+	got := map[string]string{}
+	for _, setting := range ConfigFileSettings(reports) {
+		if setting.Key == "site_id" {
+			got[setting.Service] = setting.Value
 		}
 	}
+	want := map[string]string{"collector@a": "a", "collector@b": "b"}
+	if !maps.Equal(got, want) {
+		t.Errorf("site_id rows = %v, want %v", got, want)
+	}
+}
+
+// Every reported file key has words, and every word has a key: the keys
+// are configreport's, the words are the panel's, and one list must not
+// grow without the other.
+func TestConfigFileLabelsAreTheReportedKeys(t *testing.T) {
+	keys := map[string]bool{}
+	for _, entry := range configreport.Entries {
+		if entry.Live {
+			continue
+		}
+		key := entry.Program + "." + entry.Key
+		keys[key] = true
+		label, ok := configFileLabels[key]
+		if !ok || label.Label == "" || label.Help == "" {
+			t.Errorf("%s is reported and has no label or help; the wizard would show a bare TOML path", key)
+		}
+	}
+	for key := range configFileLabels {
+		if !keys[key] {
+			t.Errorf("%s has words and no configreport entry; nothing reports it, so the row would always say \"not reported\"", key)
+		}
+	}
+}
+
+// The notice says the limit applies to everyone and where the values
+// come from.
+func TestConfigFileSettings_TheNoticeSaysWhatItShows(t *testing.T) {
 	if !strings.Contains(ConfigFileNotice, "değiştirilemezler") ||
 		!strings.Contains(ConfigFileNotice, "geliştirici tarafından da") {
 		// The notice must say this is not a permission. A customer told
 		// "you may not" goes looking for who may; told "nobody does this
 		// here", they know the shape of the answer.
 		t.Errorf("the notice does not say the limit applies to everyone:\n%s", ConfigFileNotice)
+	}
+	if !strings.Contains(ConfigFileNotice, "çalışan sürecin yüklediğini") {
+		t.Errorf("the notice does not say the values are what the running process loaded:\n%s", ConfigFileNotice)
 	}
 }
 

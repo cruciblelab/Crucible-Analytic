@@ -16,7 +16,8 @@ Etiketlenmemiş çalışma. Bir sonraki sürüm bunu taşıyacak.
 **Şema sürümü: 24.** **Kuran kişinin yapması gereken:** panelde
 **Sağlık → Şema yükseltmesi**. Yeni iki tablo ekleniyor (aşağıdaki
 "Uzun aralıklarda ziyaretçi sayısı" maddesi), `service_heartbeat`'e
-bir sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" maddesi),
+iki sütun (aşağıdaki "full kipi panelden hiç seçilemiyordu" ve "Sihirbaz
+servislerin yüklediğini gösteriyor" maddeleri),
 `beacon_events`'e bir sütun (aşağıdaki "Sahte olaylar" maddesi) ve
 `service_heartbeat`'in yazma kuralı (aşağıdaki "Site başına collector"
 maddesi);
@@ -26,6 +27,34 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 **v0.20.0 veya daha eskisinden yükselttiyseniz** aşağıdaki yetki
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
+
+### Sihirbaz servislerin yüklediğini gösteriyor; devir site listesini bekliyor
+
+**Kuran kişinin yapması gereken:** şema yükseltmesi (yukarıda). Servisler
+yeni sürüme geçene kadar sihirbazın yapılandırma adımı onlar için
+"bildirilmedi" der; bu doğrudur. Panelde site listesi kaydedilmemiş bir
+kurulumda devir teslim artık listeyi bekliyor: Siteler adımında listeyi
+kaydedin.
+
+- Sihirbazın "Yapılandırma dosyaları" adımı her kurulumda değerlerin
+  çoğunu "panele bildirilmemiş" diyordu (canlı düzenekte 13 satırın 10'u,
+  0 bilinen). İki anahtar da yanlıştı (`developer.password_hash`, tek bir
+  ortak `logging.dir`). Artık her servis yüklediği gizli olmayan değerleri
+  kalp atışı satırında bildiriyor: dosyada yazanı değil, çalışan sürecin
+  kullandığını. Aynı düzenekte 28 satırın 22'si bilinen, 6'sı gizli.
+  Birden çok collector varsa her biri ayrı görünüyor.
+- Değerleri yalnız kurulum sihirbazı okuyor. Sağlık sayfası, pano ve tanı
+  paketi okumuyor; birden çok müşterili kurulumda bir müşterinin
+  collector'ının arka uç adresi öbür müşterinin sahibine gösterilmiyor.
+  Parola taşıyan alanlar hiçbir zaman bildirilmiyor.
+- Panelde site listesi yokken beacon `beacon.toml`'daki siteleri kabul
+  ediyor, ama sihirbazın Siteler ve Görünüm adımları "site yok" diyordu.
+  Artık beacon hangi siteleri kabul ettiğini ve listenin nereden geldiğini
+  bildiriyor, adımlar da bunu yazıyor.
+- **Aynı durumda devir teslim açıktı** ve açtığı hesap hiçbir sitenin
+  sahibi olmazdı (devir, hesabı paneldeki listenin sitelerine sahip
+  yapıyor). Artık panelde kayıtlı bir site listesi olmadan devir kapalı;
+  sayfa da gönderilen form da bunu söylüyor.
 
 ### Sihirbazın komutları paketteki yolları adlandırıyor; bot verisi üç dosyada aynı
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cruciblelab/crucible-analytic/internal/configreport"
 	"github.com/cruciblelab/crucible-analytic/internal/privacy"
 )
 
@@ -30,7 +31,9 @@ func TestTheOptionalColumnsAreOneList(t *testing.T) {
 	// A reporter whose two optional values are distinguishable, so the
 	// pairing is checked and not only the order. Written as the values a
 	// real collector would carry.
-	r := &Reporter{profile: "dengeli", ipTokenKey: TokenKeyPresent}
+	r := &Reporter{profile: "dengeli", ipTokenKey: TokenKeyPresent, config: func() configreport.Report {
+		return configreport.Report{Program: configreport.Beacon, Values: map[string]string{"listen_addr": "x"}}
+	}}
 
 	var order []string
 	got := map[string]any{}
@@ -51,6 +54,7 @@ func TestTheOptionalColumnsAreOneList(t *testing.T) {
 	for column, want := range map[string]any{
 		"profile":            "dengeli",
 		"ip_token_key_state": string(TokenKeyPresent),
+		"config":             `{"program":"beacon","values":{"listen_addr":"x"}}`,
 	} {
 		if got[column] != want {
 			t.Errorf("%s would be written as %v, want %v: this value belongs to another column",
