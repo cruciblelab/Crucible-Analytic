@@ -25948,3 +25948,70 @@ denetimden çıktı. *Bir ailenin tamamını kaldırmak, belgesini denetimden
   yazdığı satırla rastgele kırmızı olur.** Durum sınaması kendi şemasında.
 - **"Farklı mı" diye soran iddia, bir dalın silinmesini fark etmeyebilir:**
   silinen dal da farklı bir cümleye düşüyordu. Cümlenin kendisini sor.
+
+## Sihirbazın komutları ve bot verisi yolu — W4c (2026-11-17)
+
+Canlı denemenin iki bulgusu, ikisi de "ekrandaki komut çalışmıyor" sınıfı.
+
+### Komutlar
+
+Sihirbaz ve birkaç hata mesajı bu deponun yollarını yazıyordu. Müşterinin
+elinde ise paket var: `bin/`, `schema/NN-*.sql`, `systemd/`,
+`release/install.sh`. Kurulu sistemde ikililer `PREFIX/bin`'de,
+yapılandırma `CONF_DIR`'da duruyor. Panel ikisini de kendisinden biliyor:
+- kendi ikilisinin dizini (`os.Executable`, sembolik bağ çözülerek);
+- `-config` dosyasının dizini.
+
+Bunlar `preflight.Config`'e girdi (`BinDir`, `ConfigDir`). Değişmez her
+alanın doldurulmasını istediği için `cmd/panel` ikisini de dolduruyor.
+Şema, rol ve birim komutları paketin `install.sh`'ına gidiyor; betiğin
+başlığı yeniden koşmanın güvenli olduğunu yazıyor (var olan rolün
+parolası ve var olan yapılandırma dosyası korunur).
+
+Yolda bulunanlar:
+- **Collector'ın anahtarları yanlış tablodaydı.** Adım `listen_addr`,
+  `backend_addr` ve `timescale_dsn`'i üst düzey anahtar diye sayıyordu;
+  gerçekte `[network]` ve `[storage]` altındalar. Anahtarları struct
+  etiketlerinden çözen test ilk koşusunda buldu.
+- **devgate'in iki hata mesajı** `[developer]` diyordu. Panel dosyasındaki
+  tablonun adı `[developer_gate]`.
+- Sağlık'ın "servis durumları okunamadı" cümlesi
+  `internal/heartbeat/schema.sql` diyordu.
+
+### Bot verisi
+
+Collector `[bot_data] path`'e yazıyor. Panelin sihirbazı ve API aynı
+dosyayı `bot_data_path` ile okuyor, ama iki örnekte de satır yorumdaydı:
+- sihirbaz her kurulumda "panele bildirilmemiş" diyordu;
+- canlı düzenekte API, dosya collector'ın yazdığı yerde dururken "bot
+  data not present" diyordu.
+
+Satırlar açıldı. `install.sh` ikisini de taşıyor, ama yalnız ilk tablo
+başlığından önceki satırları değiştiriyor: başlığın altındaki anahtar o
+tabloya ait, ve API örneğinde satır bir kez `[[tokens]]` altına kaymıştı.
+
+### Ölçüm
+
+- Ağaç geneli kural HEAD'de (`2d1620e`, depo dışı worktree, yalnız yeni
+  test dosyası) **17** ihlal verdi, şimdi **0**. İlk desen iki yeri
+  kaçırdı (`internal/*/schema.sql` ve "README'deki"); desen genişletildi.
+- Kurulum testi (gerçek `install.sh`, gerçek veritabanı) eski betikle
+  "panel.toml names no bot_data_path" ve aynısını `analytics-api.toml`
+  için verdi; düzeltmeyle yeşil.
+
+### Mutasyonlar
+
+13 mutasyon, 13'ü kırmızı. P1 ve P2 ilk turda sağ kaldı: test bir yolun
+"bütün komutlardan birinde" geçip geçmediğini soruyordu, `devpass` ve
+`collector.toml` iki komutta ortak.
+
+### Dersler
+
+- **Bir kullanım cümlesi yazıldığı yerin yollarını taşır.** Bütün ihlaller
+  bu depodan bakılarak yazılmıştı. Okuyanın elinde olanı soran tek kural,
+  paketin içeriğini yapan betiği okumak.
+- **"Bir yerde geçiyor mu" iddiası, paylaşılan parçaları olan bir listede
+  kendi kendini tatmin eder.** Her öğeye kendi beklentisini sor.
+- **Var olan bir yapılandırmaya dokunmayan kurulum, yeni bir satırı var
+  olan müşteriye ulaştıramaz.** Bunu yapılacak işi söyleyen sürüm notu
+  taşır.

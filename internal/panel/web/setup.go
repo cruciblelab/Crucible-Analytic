@@ -408,8 +408,8 @@ func (s *Server) loadStep(ctx context.Context, lang *ui.Language, access panel.A
 		// the refusal would now block a step that works.
 
 	case "kontrol":
-		data.Manual = preflight.ManualSteps()
-		data.Unchecked = preflight.UncheckedSteps()
+		data.Manual = preflight.ManualSteps(s.PreflightConfig)
+		data.Unchecked = preflight.UncheckedSteps(s.PreflightConfig)
 		if data.Ran {
 			data.Complete, data.Blocking = preflight.Complete(data.Checks)
 		}

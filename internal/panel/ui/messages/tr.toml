@@ -1239,7 +1239,7 @@ sonuc = "Sonuç"
 [metin.saglik.servis]
 baslik = "Servisler"
 hic = "Hiçbir servis henüz haber vermedi. Ya hepsi kalp atışından önceki bir yapıyı çalıştırıyor, ya da hiçbiri çalışmıyor."
-okunamadi = "Servis durumları okunamadı. Kalp atışı tablosu uygulanmamış olabilir: internal/heartbeat/schema.sql."
+okunamadi = "Servis durumları okunamadı. Kalp atışı tablosu uygulanmamış olabilir: paketin açıldığı dizinde sudo ./release/install.sh şemayı uygular."
 ipucu = "Her servis dakikada bir kendi satırını yazar. Üç dakikadır haber alınamayan bir servis \"haber alınamıyor\" işaretlenir — bu \"kapalı\" demek değil, panelin bunu bilme yolu yok."
 collector = "Toplayıcı (collector)"
 beacon_writer = "Beacon"

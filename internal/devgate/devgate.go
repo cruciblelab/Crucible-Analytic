@@ -240,12 +240,14 @@ type Gate struct {
 func New(cfg Config, opts Options) (*Gate, error) {
 	if cfg.Password != "" {
 		return nil, fmt.Errorf(
-			"devgate: [developer] password must not hold a plaintext password - " +
-				"put the hash in password_hash instead, and generate it with: go run ./cmd/devpass")
+			"devgate: [developer_gate] password must not hold a plaintext password - " +
+				"put the hash in password_hash instead, and generate it with the release " +
+				"package's bin/devpass")
 	}
 	if cfg.PasswordHash != "" {
 		if err := argon2id.CheckEncoding(cfg.PasswordHash); err != nil {
-			return nil, fmt.Errorf("devgate: [developer] password_hash is not a valid argon2id hash - regenerate it with: go run ./cmd/devpass")
+			return nil, fmt.Errorf("devgate: [developer_gate] password_hash is not a valid argon2id " +
+				"hash - regenerate it with the release package's bin/devpass")
 		}
 	}
 

@@ -27,6 +27,29 @@ eklemesi sıkıştırılmış hipertabloda ölçüldü: sekiz sıkıştırılmı
 kusurları tam olarak o kurulumlarda duruyor; **satır güvenliği düzeltmesi
 ise bütün kurulumları** ilgilendiriyor.
 
+### Sihirbazın komutları paketteki yolları adlandırıyor; bot verisi üç dosyada aynı
+
+**Kuran kişinin yapması gereken:** var olan bir kurulumda `panel.toml` ve
+`analytics-api.toml`'a `bot_data_path` satırını kendiniz ekleyin (değeri
+`collector.toml`'daki `[bot_data] path` ile aynı; ilk tablo başlığının
+üstüne). Yapılandırma dosyalarının üstüne yazılmadığı için `install.sh`'ı
+yeniden koşmak bu satırı eklemez. Yeni kurulumda bir şey yapmanız
+gerekmiyor.
+
+- Kurulum sihirbazı ve birkaç hata mesajı bu deponun yollarını
+  yazıyordu: `go run ./cmd/devpass`, `psql -f internal/panel/schema.sql`,
+  `deploy/systemd`, `crucible.toml` ve "README'deki CREATE ROLE blokları".
+  Müşterinin elinde bunların hiçbiri yok. Komutlar artık kurulu ikililerin
+  ve yapılandırma dosyalarının gerçek yollarını (panel bunları kendi
+  konumundan okuyor) ve paketteki `release/install.sh`'ı adlandırıyor.
+  "Dört rol" ve "sekiz anahtar" gibi yanlış sayılar da kalktı.
+  Collector'ın dinleme ve veritabanı anahtarları artık doğru tablolarıyla
+  yazılıyor (`[network] listen_addr`, `[storage] timescale_dsn`).
+- Panel ve API örneklerinde `bot_data_path` yorumdaydı: sihirbaz her
+  kurulumda "panele bildirilmemiş" diyordu, ve varsayılan dışı bir
+  `STATE_DIR` ile API dosyayı yanlış yerde arıyordu. Artık açık;
+  `install.sh` üçünü de `STATE_DIR`'a taşıyor.
+
 ### Sihirbaz yedekleri görüyor; canlı ayar kaydı ne zaman ulaşacağını söylüyor
 
 **Kuran kişinin yapması gereken:** hiçbir şey.

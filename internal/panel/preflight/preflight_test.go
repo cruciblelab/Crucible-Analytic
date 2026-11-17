@@ -23,13 +23,13 @@ func TestBotDataCheckDistinguishesNeverFetchedFromMissing(t *testing.T) {
 
 	// Not told where to look: skip, not fail. "We did not look" and "we
 	// looked and it was missing" are different facts.
-	if got := checkBotData("", nil); got.Status != CheckSkip {
+	if got := checkBotData("", nil, Config{}); got.Status != CheckSkip {
 		t.Errorf("an unconfigured path gave %q, want skip", got.Status)
 	}
 
 	// Configured but never fetched: a warning that says what is off.
 	missing := filepath.Join(dir, "nope.json")
-	never := checkBotData(missing, nil)
+	never := checkBotData(missing, nil, Config{})
 	if never.Status != CheckWarn {
 		t.Errorf("a never-fetched set gave %q, want warn", never.Status)
 	}
@@ -54,7 +54,7 @@ func TestBotDataCheckDistinguishesNeverFetchedFromMissing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := checkBotData(fresh, func() time.Time { return now }); got.Status != CheckPass {
+	if got := checkBotData(fresh, func() time.Time { return now }, Config{}); got.Status != CheckPass {
 		t.Errorf("a fresh set gave %q (%s)", got.Status, got.Detail)
 	}
 
@@ -66,7 +66,7 @@ func TestBotDataCheckDistinguishesNeverFetchedFromMissing(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	old := checkBotData(stale, func() time.Time { return now })
+	old := checkBotData(stale, func() time.Time { return now }, Config{})
 	if old.Status != CheckWarn {
 		t.Errorf("a stale set gave %q, want warn", old.Status)
 	}
@@ -79,7 +79,7 @@ func TestBotDataCheckDistinguishesNeverFetchedFromMissing(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("{ truncated"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := checkBotData(broken, nil); got.Status != CheckFail {
+	if got := checkBotData(broken, nil, Config{}); got.Status != CheckFail {
 		t.Errorf("an unreadable file gave %q, want fail", got.Status)
 	}
 }
@@ -117,20 +117,20 @@ func TestDeveloperPasswordCheckNeedsTheKeyList(t *testing.T) {
 
 	// No gate at all: the wizard was not told, which is not the same as
 	// there being no password.
-	if got := checkDeveloperPassword(nil, keys); got.Status != CheckSkip {
+	if got := checkDeveloperPassword(nil, keys, Config{}); got.Status != CheckSkip {
 		t.Errorf("a missing gate gave %q, want skip", got.Status)
 	}
 
 	// A gate but no key list: skip rather than a reassuring count of
 	// nothing.
-	if got := checkDeveloperPassword(configured, nil); got.Status != CheckSkip {
+	if got := checkDeveloperPassword(configured, nil, Config{}); got.Status != CheckSkip {
 		t.Errorf("an empty key list gave %q, want skip - a check that says '0 ayar' has "+
 			"answered a question nobody asked", got.Status)
 	}
 
 	// No password: warn, and name every frozen setting so the reader can
 	// act on it.
-	warn := checkDeveloperPassword(unconfigured, keys)
+	warn := checkDeveloperPassword(unconfigured, keys, Config{})
 	if warn.Status != CheckWarn {
 		t.Fatalf("an unconfigured gate gave %q, want warn", warn.Status)
 	}
@@ -147,7 +147,7 @@ func TestDeveloperPasswordCheckNeedsTheKeyList(t *testing.T) {
 			"is a defensible choice and must not block handover", warn.Severity)
 	}
 
-	if got := checkDeveloperPassword(configured, keys); got.Status != CheckPass {
+	if got := checkDeveloperPassword(configured, keys, Config{}); got.Status != CheckPass {
 		t.Errorf("a configured gate gave %q (%s)", got.Status, got.Detail)
 	}
 }

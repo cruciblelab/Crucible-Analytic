@@ -163,6 +163,76 @@ type Config struct {
 	GuardedKeys []string
 	// Now supplies the clock, for tests.
 	Now func() time.Time
+
+	// BinDir is the directory this deployment's binaries are in, so a
+	// command the wizard prints names the binary the installer has.
+	// cmd/panel fills it from its own executable's directory: install.sh
+	// puts all of them in one place. Empty uses install.sh's default.
+	//
+	// Before W4 the commands said "go run ./cmd/devpass" - a source tree
+	// the customer does not have, a Go toolchain they need not have.
+	BinDir string
+	// ConfigDir is the directory the services' configuration files are
+	// in, filled from the panel's own -config path for the same reason:
+	// install.sh puts all five side by side. Empty uses its default.
+	ConfigDir string
+}
+
+// The release package's install script, as the wizard names it.
+//
+// The schema, the roles and the grants are applied by it, from the
+// unpacked package: none of the three is installed onto the machine, and
+// the commands the wizard printed before W4 named files that only exist
+// in this repository (internal/*/schema.sql, README's CREATE ROLE blocks,
+// deploy/systemd). Re-running it is safe - its header says what it keeps.
+const packageInstall = "Paketin açıldığı dizinde: sudo ./release/install.sh"
+
+// The defaults install.sh uses, for a Config that was not told.
+const (
+	defaultBinDir    = "/opt/crucible-analytic/bin"
+	defaultConfigDir = "/etc/crucible-analytic"
+)
+
+func (cfg Config) binary(name string) string {
+	dir := cfg.BinDir
+	if dir == "" {
+		dir = defaultBinDir
+	}
+	return filepath.Join(dir, name)
+}
+
+func (cfg Config) configFile(name string) string {
+	dir := cfg.ConfigDir
+	if dir == "" {
+		dir = defaultConfigDir
+	}
+	return filepath.Join(dir, name)
+}
+
+// The three commands the wizard prints in two places each - a check's
+// fix and a manual step - written once.
+
+func devpassCommand(cfg Config) string {
+	return cfg.binary("devpass") + "  →  çıktıyı " + cfg.configFile("panel.toml") +
+		" içinde [developer_gate] password_hash alanına yazın"
+}
+
+func ipKeyCommand(cfg Config) string {
+	return cfg.binary("devpass") + " -ipkey  →  aynı değeri " + cfg.configFile("collector.toml") +
+		" ve " + cfg.configFile("beacon.toml") + " içinde [privacy] ip_hash_key alanına yazın"
+}
+
+func logDirCommand(cfg Config) string {
+	dir := cfg.LogDir
+	if dir == "" {
+		dir = "/var/log/crucible-analytic"
+	}
+	return fmt.Sprintf("mkdir -p %s && chown crucible: %s && chmod 700 %s", dir, dir, dir)
+}
+
+func botDataCommand(cfg Config) string {
+	return cfg.binary("collector") + " -config " + cfg.configFile("collector.toml") +
+		" -update-bot-data   (cron'a bağlayın)"
 }
 
 // Roles are the database roles a full deployment has.
@@ -207,9 +277,9 @@ func (c *Checker) Run(ctx context.Context, cfg Config) []CheckResult {
 		c.checkNoBackgroundJobs(ctx),
 		c.checkRetentionPolicies(ctx),
 		c.checkConfiguredRolesExist(ctx, cfg.Roles),
-		checkDeveloperPassword(cfg.DeveloperGate, cfg.GuardedKeys),
-		c.checkIPTokenKey(ctx),
-		checkBotData(cfg.BotDataPath, cfg.Now),
+		checkDeveloperPassword(cfg.DeveloperGate, cfg.GuardedKeys, cfg),
+		c.checkIPTokenKey(ctx, cfg),
+		checkBotData(cfg.BotDataPath, cfg.Now, cfg),
 		checkLogDir(cfg.LogDir),
 		checkFreeSpace(map[string]string{"veri": cfg.DataDir, "kayıt": cfg.LogDir}, cfg.MinFreeBytes),
 		c.checkBackups(ctx, cfg.Now),
@@ -312,7 +382,7 @@ func (c *Checker) checkPanelSchema(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.panel", Severity: SeverityRequired,
 		Label: "Panel tabloları uygulandı mı",
-		Fix:   `psql "$DSN" -f internal/panel/schema.sql`,
+		Fix:   packageInstall + " (şemayı uygular; var olan veriye dokunmaz)",
 	}
 	if c.pool == nil {
 		return noDatabase(result)
@@ -336,7 +406,7 @@ func (c *Checker) checkAnalyticsSchema(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.analytics", Severity: SeverityRequired,
 		Label: "Analitik tabloları ve hypertable'lar",
-		Fix:   `psql "$DSN" -f internal/storage/schema.sql && psql "$DSN" -f internal/beacon/schema.sql`,
+		Fix:   packageInstall + " (şemayı uygular; var olan veriye dokunmaz)",
 	}
 	if c.pool == nil {
 		return noDatabase(result)
@@ -386,7 +456,7 @@ func (c *Checker) checkSelfMigratingColumns(ctx context.Context) CheckResult {
 	result := CheckResult{
 		ID: "schema.columns", Severity: SeverityRequired,
 		Label: "Şema dosyaları yeniden uygulandı mı (yeni sütunlar)",
-		Fix:   `psql "$DSN" -f internal/beacon/schema.sql && psql "$DSN" -f internal/panel/schema.sql`,
+		Fix:   packageInstall + " — kurulu sistemde: Sağlık → Şema yükseltmesi",
 	}
 	if c.pool == nil {
 		return noDatabase(result)
@@ -627,7 +697,7 @@ func (c *Checker) checkNoBackgroundJobs(ctx context.Context) CheckResult {
 		result.Detail = "Bir servis rolüne ait arka plan işi var: " + strings.Join(planted, ", ") +
 			". Bu ürün hiçbir iş zamanlamaz; buradaki bir iş ya yanlışlıkla ya da kasten bırakılmıştır " +
 			"ve süreç yeniden başlatılsa da çalışmaya devam eder."
-		result.Fix = "SELECT delete_job(<job_id>); ve release/sql/harden.sql'i yeniden uygulayın."
+		result.Fix = "SELECT delete_job(<job_id>); sonra " + packageInstall + " (release/sql/harden.sql'i yeniden uygular)"
 		return result
 	}
 	result.Status, result.Detail = CheckPass, "Servis rollerine ait arka plan işi yok."
@@ -842,7 +912,7 @@ func (c *Checker) roleHasPrivilege(ctx context.Context, role, table, privilege s
 // to finish would be pushing the installer to weaken it. What the check
 // must not do is stay quiet: somebody will eventually try to change one
 // of these and needs to know why they cannot.
-func checkDeveloperPassword(gate *devgate.Gate, guarded []string) CheckResult {
+func checkDeveloperPassword(gate *devgate.Gate, guarded []string, paths Config) CheckResult {
 	result := CheckResult{
 		ID: "config.developer_password", Label: "Geliştirici şifresi (hukuki ağırlıklı ayarlar)",
 		Severity: SeverityRecommended,
@@ -866,7 +936,7 @@ func checkDeveloperPassword(gate *devgate.Gate, guarded []string) CheckResult {
 		result.Detail = fmt.Sprintf(
 			"Tanımlı değil. Şu %d ayar varsayılanında donmuş durumda ve panelden değiştirilemez: %s",
 			len(guarded), strings.Join(guarded, ", "))
-		result.Fix = "go run ./cmd/devpass  →  çıktıyı yapılandırma dosyasındaki [developer] password_hash alanına yazın"
+		result.Fix = devpassCommand(paths)
 		return result
 	}
 	result.Status = CheckPass
@@ -890,16 +960,16 @@ const botDataStaleAfter = 30 * 24 * time.Hour
 // Recommended rather than required: the collector works without it, and
 // blocking an installation over a third party's data would be the wrong
 // trade.
-func checkBotData(path string, now func() time.Time) CheckResult {
+func checkBotData(path string, now func() time.Time, paths Config) CheckResult {
 	result := CheckResult{
 		ID: "data.bot_fingerprints", Severity: SeverityRecommended,
 		Label: "Bilinen bot parmak izleri getirildi mi",
-		Fix:   "collector -config <dosya> -update-bot-data   (cron'a bağlayın)",
+		Fix:   botDataCommand(paths),
 	}
 	if path == "" {
 		result.Status = CheckSkip
-		result.Detail = "Panele bildirilmemiş. Collector yapılandırmasındaki bot_data.path " +
-			"burada da tanımlanmadan bu kontrol bakamaz."
+		result.Detail = "Panele bildirilmemiş: panel.toml'da bot_data_path yok. collector.toml'daki " +
+			"[bot_data] path ile aynı dosyayı yazın; install.sh bunu kendisi yapar."
 		return result
 	}
 	set, err := botdata.Load(path)
@@ -942,7 +1012,7 @@ func checkBotData(path string, now func() time.Time) CheckResult {
 // correct and is the case the old version could not express: a
 // collector-only installation is ordinary, and demanding a key from a
 // beacon nobody deployed would be demanding it forever.
-func (c *Checker) checkIPTokenKey(ctx context.Context) CheckResult {
+func (c *Checker) checkIPTokenKey(ctx context.Context, paths Config) CheckResult {
 	result := CheckResult{
 		ID: "config.ip_token_key", Label: "IP jeton anahtarı (yalnız full mod için)",
 		Severity: SeverityRecommended,
@@ -950,8 +1020,7 @@ func (c *Checker) checkIPTokenKey(ctx context.Context) CheckResult {
 	if c.pool == nil {
 		return noDatabase(result)
 	}
-	fix := "go run ./cmd/devpass -ipkey  →  aynı değeri hem collector hem beacon " +
-		"yapılandırmasındaki [privacy] ip_hash_key alanına yazın, sonra servisi yeniden başlatın"
+	fix := ipKeyCommand(paths) + ", sonra servisleri yeniden başlatın"
 
 	reports, err := tokenkey.Reports(ctx, c.pool)
 	if err != nil {
@@ -1369,6 +1438,40 @@ func humanBytes(n uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// bootstrapKeys are the collector.toml keys the database cannot hold,
+// named the way the file spells them. Held against collector.Config's
+// own toml tags by TestTheBootstrapKeysAreTheCollectorsKeys: the step
+// used to say "sekiz anahtar", list six, and name a file called
+// crucible.toml that no installation has.
+//
+// Written as table.key, the way the file nests them: the old list named
+// listen_addr and timescale_dsn as if they were top-level, and they live
+// under [network] and [storage].
+var bootstrapKeys = []string{"site_id", "mode", "network.listen_addr", "network.backend_addr",
+	"tls", "storage.timescale_dsn"}
+
+func bootstrapKeysText() string {
+	parts := make([]string, len(bootstrapKeys))
+	for i, key := range bootstrapKeys {
+		parts[i] = bootstrapKeyText(key)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// bootstrapKeyText is one of bootstrapKeys the way a reader finds it in
+// the file: "[network] listen_addr", "[tls]", "site_id".
+func bootstrapKeyText(key string) string {
+	table, name, nested := strings.Cut(key, ".")
+	switch {
+	case nested:
+		return "[" + table + "] " + name
+	case key == "tls":
+		return "[tls]"
+	default:
+		return key
+	}
+}
+
 // ManualStep is something the panel can never do, listed at the end of
 // the wizard so the installer knows what is still theirs.
 //
@@ -1396,7 +1499,7 @@ type ManualStep struct {
 // Ordered as the work is actually done, not by importance: an installer
 // reads this standing at a terminal, and a list they can work straight
 // down is worth more than one sorted by severity.
-func ManualSteps() []ManualStep {
+func ManualSteps(cfg Config) []ManualStep {
 	return []ManualStep{
 		{
 			ID: "db.install", Label: "PostgreSQL ve TimescaleDB kurulumu",
@@ -1404,17 +1507,17 @@ func ManualSteps() []ManualStep {
 			Command: "apt install postgresql timescaledb-2-postgresql-16",
 		},
 		{
-			ID: "db.roles", Label: "Dört veritabanı rolü ve yetkileri",
+			ID: "db.roles", Label: "Veritabanı rolleri ve yetkileri",
 			Why: "Rol ayrımı bu sistemin güvenlik temelinin yarısı, ve bir rol kendine " +
 				"yetki veremez - verebilseydi ayrımın bir anlamı kalmazdı.",
-			Command:   "README'deki CREATE ROLE / GRANT bloklarını uygulayın",
+			Command:   packageInstall + " (rolleri, var olanın parolasına dokunmadan, ve yetkileri kurar)",
 			CheckedBy: "grants.panel_isolation, grants.api_read_only, grants.live_settings",
 		},
 		{
 			ID: "db.schema", Label: "Şema dosyalarının uygulanması",
 			Why: "Hiçbir servis DDL çalıştırmaz. Bu bilinçli: şema değişikliği, " +
 				"çalışan bir sürecin kendi kendine yapabileceği bir şey olmamalı.",
-			Command:   `for f in internal/*/schema.sql; do psql "$DSN" -f "$f"; done`,
+			Command:   packageInstall + " (şemayı uygular; kurulu sistemde Sağlık → Şema yükseltmesi)",
 			CheckedBy: "schema.panel, schema.analytics, schema.columns",
 		},
 		{
@@ -1423,14 +1526,14 @@ func ManualSteps() []ManualStep {
 				"makinesine, kaynağın kendi şartlarıyla indirir. Ne zaman ve nasıl " +
 				"tazeleneceği de kurulumun kararı; panel bir başkasının sunucusuna sizin " +
 				"adınıza istek atmaz.",
-			Command:   "collector -config <dosya> -update-bot-data   (cron'a bağlayın)",
+			Command:   botDataCommand(cfg),
 			CheckedBy: "data.bot_fingerprints",
 		},
 		{
-			ID: "config.bootstrap", Label: "Yapılandırma dosyasındaki sekiz anahtar",
+			ID: "config.bootstrap", Label: "Collector'ın dosyadaki bağlantı anahtarları",
 			Why: "Veritabanına nasıl ulaşılacağını veritabanına soramazsınız. DSN, dinleme " +
 				"adresleri, TLS yolları ve site kimliği bu yüzden dosyada kalır.",
-			Command: "crucible.toml: timescale_dsn, listen_addr, backend_addr, mode, tls.*, site_id",
+			Command: cfg.configFile("collector.toml") + ": " + bootstrapKeysText(),
 		},
 		{
 			ID: "config.developer_password", Label: "Geliştirici şifresi hash'i",
@@ -1439,7 +1542,7 @@ func ManualSteps() []ManualStep {
 				"veritabanında değil yapılandırma dosyasında durur - kasıtlı olarak: " +
 				"paneli ele geçiren bir şeyin erişemeyeceği tek yer orası. Düz metin " +
 				"değil, hash yazılır.",
-			Command:   "go run ./cmd/devpass  →  [developer] password_hash = \"$argon2id$...\"",
+			Command:   devpassCommand(cfg),
 			CheckedBy: "config.developer_password",
 		},
 		{
@@ -1450,13 +1553,13 @@ func ManualSteps() []ManualStep {
 				"içindeki iki ziyaretçi ayrılabilir, adres yine diske inmez. Bu anahtar " +
 				"iki serviste de birebir aynı olmalıdır; farklı olursa kesişim birleşimi " +
 				"hatasız biçimde boş döner.",
-			Command:   "go run ./cmd/devpass -ipkey  →  [privacy] ip_hash_key (collector + beacon)",
+			Command:   ipKeyCommand(cfg),
 			CheckedBy: "config.ip_token_key",
 		},
 		{
 			ID: "logs.dir", Label: "Günlük dizini ve izinleri",
 			Why:       "Panel, kendi yazacağı dizini oluşturamaz - henüz çalışmıyor olabilir.",
-			Command:   "mkdir -p /var/log/crucible-analytic && chown crucible: /var/log/crucible-analytic && chmod 700 /var/log/crucible-analytic",
+			Command:   logDirCommand(cfg),
 			CheckedBy: "logs.writable",
 		},
 		{
@@ -1464,7 +1567,7 @@ func ManualSteps() []ManualStep {
 			Why: "Panelin süreç başlatma yetkisi yoktur ve olmamalıdır - yalnızca temiz " +
 				"çıkabilir, systemd yeniden başlatır. Başlatabilen bir onarım yüzeyi, " +
 				"rastgele bir şey başlatan bir yüzeye çevrilebilirdi.",
-			Command: "deploy/systemd/*.service dosyalarını /etc/systemd/system/ altına kopyalayın",
+			Command: packageInstall + " (birim dosyalarını paketin systemd/ dizininden kurar)",
 			// service.configured and not the three per-service IDs.
 			//
 			// Those exist only for the services somebody named in
@@ -1514,9 +1617,9 @@ func ManualSteps() []ManualStep {
 // wizard must show them as exactly that. A checklist that presents a
 // verified item and an unverified one identically teaches the reader to
 // trust neither.
-func UncheckedSteps() []ManualStep {
+func UncheckedSteps(cfg Config) []ManualStep {
 	var out []ManualStep
-	for _, step := range ManualSteps() {
+	for _, step := range ManualSteps(cfg) {
 		if step.CheckedBy == "" {
 			out = append(out, step)
 		}

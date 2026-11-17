@@ -76,7 +76,7 @@ func (e TokenKeyUnready) Error() string {
 		}
 	}
 	return fmt.Sprintf("%v: %s - put the same privacy.ip_hash_key in each service's "+
-		"config file and restart it (generate one with: go run ./cmd/devpass -ipkey)",
+		"config file and restart it (generate one with the release package's bin/devpass -ipkey)",
 		ErrPreconditionUnmet, strings.Join(parts, "; "))
 }
 

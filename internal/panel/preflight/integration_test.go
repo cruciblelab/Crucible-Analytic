@@ -455,7 +455,7 @@ func TestManualSteps_ReferenceRealChecks(t *testing.T) {
 		known[r.ID] = true
 	}
 
-	for _, step := range ManualSteps() {
+	for _, step := range ManualSteps(Config{}) {
 		if step.CheckedBy == "" {
 			continue
 		}
@@ -470,7 +470,7 @@ func TestManualSteps_ReferenceRealChecks(t *testing.T) {
 // Every step must say why the panel cannot do it, or the list reads as
 // an arbitrary set of chores.
 func TestManualSteps_EachExplainsWhyItCannotBeAutomated(t *testing.T) {
-	for _, step := range ManualSteps() {
+	for _, step := range ManualSteps(Config{}) {
 		if step.Why == "" {
 			t.Errorf("manual step %q offers no reason it cannot be done from the panel", step.ID)
 		}
@@ -481,7 +481,7 @@ func TestManualSteps_EachExplainsWhyItCannotBeAutomated(t *testing.T) {
 }
 
 func TestUncheckedSteps_AreTheOnesWithoutACheck(t *testing.T) {
-	unchecked := UncheckedSteps()
+	unchecked := UncheckedSteps(Config{})
 	if len(unchecked) == 0 {
 		t.Fatal("no unchecked steps; some of these genuinely cannot be verified")
 	}

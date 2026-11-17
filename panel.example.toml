@@ -109,7 +109,11 @@ timezone = "Europe/Istanbul"
 # sihirbazı yalnızca "hiç getirilmiş mi" sorusunu cevaplayabilsin diye
 # burada tanımlanır. Boş bırakılırsa o kontrol "bakılmadı" der —
 # "baktık ve yoktu" ile aynı şey değil.
-# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
+#
+# Açık geliyor ve collector.toml'daki [bot_data] path ile aynı dosyayı
+# adlandırıyor; install.sh üçünü de STATE_DIR'a taşıyor. Yorumda olduğu
+# sürece sihirbaz her kurulumda "panele bildirilmemiş" diyordu.
+bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
 
 # Kurulumun tercih ettiği dil. Kısıt değil tercih: tarayıcısı bu
 # derlemede bulunan başka bir dili isteyen bir okuyucu onu görür — aynı

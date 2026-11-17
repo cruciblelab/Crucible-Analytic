@@ -1634,12 +1634,34 @@ func TestTheInstallWritesTheDirectoriesItWasGiven(t *testing.T) {
 		t.Fatal("collector.toml no longer carries an uncommented bot_data path, so the " +
 			"state half of this test is blind; find where it went before deleting this")
 	}
-	if want := filepath.Join(stateDir, "known_bots.json"); got != want {
+	want := filepath.Join(stateDir, "known_bots.json")
+	if got != want {
 		t.Errorf("collector.toml: bot_data path = %q, want %q.\n"+
 			"STATE_DIR was given, created and chowned, and then named by nothing - so "+
 			"the collector writes bot data somewhere the install never prepared, and "+
 			"on a systemd host cannot write it at all",
 			got, want)
+	}
+
+	// And the two readers of that file (W4, item 4). The panel's setup
+	// wizard asks whether the collector has fetched it, and the analytics
+	// API labels fingerprints with it; both name it in their own file. In
+	// the examples their key was commented out, so the wizard said "not
+	// reported to the panel" on every install and the API looked nowhere -
+	// and with a STATE_DIR of its own an uncommented one would still have
+	// pointed at the example's directory, because nothing moved it. On the
+	// live rig the API said "bot data not present" while the file sat where
+	// the collector had written it.
+	for _, reader := range []string{"panel.toml", "analytics-api.toml"} {
+		got, found := tomlValue(t, filepath.Join(confDir, reader), "bot_data_path")
+		switch {
+		case !found:
+			t.Errorf("%s names no bot_data_path after the install, so it cannot find "+
+				"the file the collector fetches", reader)
+		case got != want:
+			t.Errorf("%s: bot_data_path = %q, want %q - the file the collector writes",
+				reader, got, want)
+		}
 	}
 }
 

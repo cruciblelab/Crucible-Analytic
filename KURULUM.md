@@ -1658,6 +1658,15 @@ koymak için. Yolu `analytics-api.toml`'da `bot_data_path`, ve **satır
 her anahtar o tabloya aittir, yani aşağıda durursa sessizce yok sayılır.
 Örnek dosya doğru sırada geliyor ve bir test bunu koruyor.
 
+Panel de aynı dosyaya bakar: kurulum sihirbazı "bilinen bot verisi
+getirildi mi" sorusunu `panel.toml`'daki `bot_data_path` ile cevaplar. Üç
+dosyada da (collector'ın `[bot_data] path`'i, API'nin ve panelin
+`bot_data_path`'i) yol açık geliyor ve aynı dosyayı adlandırıyor;
+`install.sh` üçünü de `STATE_DIR`'a taşıyor. Bu sürüme kadar panelin ve
+API'nin satırı yorumdaydı: sihirbaz her kurulumda "panele bildirilmemiş"
+diyordu, ve varsayılan dışı bir `STATE_DIR` ile API dosyayı yanlış yerde
+arıyordu.
+
 ### Kimlik taklidini ne yakalar, ne yakalamaz
 
 Bot skoru **üç** şeyden geliyor: istek hızı, TLS parmak izi (JA4), ve

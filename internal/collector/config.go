@@ -768,7 +768,7 @@ func (c *Config) validate() error {
 	// silently be in masked mode while its config said otherwise.
 	if c.Privacy.IPMode().Tokenises() && !privacy.CanTokenise(c.Privacy.HashKey()) {
 		return fmt.Errorf("config: privacy.ip_hash_key must be at least %d bytes when ip_storage = %q "+
-			"- generate one with: go run ./cmd/devpass -ipkey",
+			"- generate one with the release package's bin/devpass -ipkey",
 			privacy.MinHashKeyLen, privacy.IPFull)
 	}
 

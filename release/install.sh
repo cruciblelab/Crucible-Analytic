@@ -839,6 +839,18 @@ if [ "${DRY_RUN}" -eq 0 ]; then
     sed -i -E "/^\[bot_data\]/,/^\[/ s|^([[:space:]]*)path[[:space:]]*=[[:space:]]*\"[^\"]*/([^\"/]+)\"|\1path = \"${STATE_DIR}/\2\"|" "${f}"
   done
 
+  # And the two files that read it (W4, item 4). The panel's setup wizard
+  # asks whether the collector has fetched it and the analytics API labels
+  # fingerprints with it; both name it as a top-level bot_data_path, so
+  # the rewrite is confined to the lines before the first table header - a
+  # key below one belongs to that table and is not this key. Same rule as
+  # above: only where the key is uncommented, and the basename is kept.
+  for file in panel.toml analytics-api.toml; do
+    f="${CONF_DIR}/${file}"
+    [ -f "${f}" ] || continue
+    sed -i -E "0,/^\[/ s|^([[:space:]]*)bot_data_path[[:space:]]*=[[:space:]]*\"[^\"]*/([^\"/]+)\"|\1bot_data_path = \"${STATE_DIR}/\2\"|" "${f}"
+  done
+
   # ---- the resource profile ----
   #
   # Two keys in two files, and both files have to agree: a beacon that

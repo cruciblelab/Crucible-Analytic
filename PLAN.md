@@ -105,7 +105,7 @@ gerekçe değil bahane olur.
 | **T** Arayüz cilası | 🟡 **4/6** | T3, T4 — *(planda yoktu; müşterinin sorusu açtı — §T)* |
 | **U** Yeni sürüme geçme | ✅ **5/5** | — *(planda yoktu; müşterinin sorusu açtı — §U)* |
 | **V** Panelden güncelleme | 🟡 **10/11** | V8 — *(planda yoktu; müşterinin sorusu açtı — §V. **V8 (2026-09-30):** geri almanın zili, ilk yeniden başlatma sürerken çalındı ve kayboldu — Z7'nin gecelik koşusunun günlüğünden; ölçülecek. V5 ve V6 4 Eylül'de bitmişti, başlıkları öyle demiyordu. **V7:** panelden güncelleme hiçbir systemd kurulumunda tamamlanamıyordu — yükselticinin birimi ikili dizinini ve zili salt-okunur yapıyordu, ve ikili dizini root'un. Gerçek systemd'de önce kırmızı (gecelik 41), düzeltmeden sonra uçtan uca yeşil (gecelik 42): güncelleme kuruldu, dört servis systemd'ce yeniden başlatıldı, kalp atışları döndü)* |
-| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅, W4b ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
+| **W** Yanıltmayan panel (canlı denemeden) | 🟡 **3/4** | W1 ✅, W2 ✅, W3 ✅ (W3a, W3b); W4 🟡 (W4a ✅, W4b ✅, W4c ✅) — *(planda yoktu; canlı deneme açtı, sahip "yanıltıcı, saymamalıyız; bir sunucu ötekini etkilememeli; küçük maddeler de yanıltır" dedi — §W)* |
 
 ### Şema 24 kararı (2026-09-16) — ve bekleyen dört kararın yeri
 
@@ -11544,7 +11544,7 @@ yazdığı biçimde):
 satırı yazıp örnek isteğini okumayan bir collector yalnız bu dalın ara
 commit'inde var.
 
-#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a, W4b yapıldı; kalan W4c: 3+4, W4d: 5+6)*
+#### W4 — Müşteriyi ya da kurulumu yapanı yanıltan küçük maddeler 🟡 *(W4a, W4b, W4c yapıldı; kalan W4d: 5+6)*
 
 Her biri canlı denemede görüldü. Her madde kendi testiyle ve mümkünse
 türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
@@ -11555,7 +11555,7 @@ türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
    yedek özelliği var (Sağlık → yedek, `panel_backup_policy`). → Kontrol
    yedek politikasını ve son başarılı yedeği sorar; ikisi de yoksa doğru
    cümleyle uyarır.
-3. **Sihirbazın önerdiği komutlar kaynak ağacının yollarını yazıyor.**
+3. ✅ *(W4c)* **Sihirbazın önerdiği komutlar kaynak ağacının yollarını yazıyor.**
    Örnekler: `psql -f internal/panel/schema.sql`,
    `for f in internal/*/schema.sql`, `go run ./cmd/devpass`, "README'deki
    CREATE ROLE blokları", `crucible.toml`. Sayılar da yanlış ("dört rol",
@@ -11563,7 +11563,7 @@ türetilerek kapatılır. Bir madde kendi başına büyürse alt faz olur.
    `bin/devpass`, `release/install.sh`. → Komutlar paketin yollarıyla,
    sayılar türetilmiş, ve bir test komutların adlandırdığı dosyaların
    pakette olduğunu sorar.
-4. **"Bilinen bot verisi getirildi mi" kontrolü hiçbir varsayılan kurulumda
+4. ✅ *(W4c)* **"Bilinen bot verisi getirildi mi" kontrolü hiçbir varsayılan kurulumda
    bakmıyor.** `panel.toml`'da `bot_data_path` yorumda, yani sayfa
    *"Panele bildirilmemiş"* diyor. API'ninki de varsayılan dışı bir
    `STATE_DIR` ile yanlış yere bakıyor; canlıda *"bot data not present"*
@@ -11698,6 +11698,48 @@ sağ kaldı, dördü de test zaafıydı:
   ölçülemiyordu.
 - Emekli aile listesi tek başına ölçülemiyor. Eski satırla birleşik
   ölçüldü: liste varken genel test kırmızı, yokken yeşil.
+
+##### W4c — Sihirbazın komutları paketin yollarıyla, bot verisi üç dosyada ✅ **yapıldı (2026-11-17)**
+
+*(3 ve 4. maddeler.)*
+
+- **Komutlar (madde 3).** `preflight.Config` iki yol taşıyor: `BinDir`
+  (panelin kendi ikilisinin dizini, `os.Executable`) ve `ConfigDir`
+  (`-config` dosyasının dizini). `install.sh` beş ikiliyi ve beş dosyayı
+  yan yana koyduğu için ikisi de tahmin değil, kurulumun gerçeği.
+  `devpass`, `-ipkey`, `-update-bot-data` ve günlük dizini komutları bu
+  yollardan kuruluyor. Şema, roller, yetkiler ve birimler paketin
+  `release/install.sh`'ına gidiyor (yeniden koşmak güvenli). Ayrıca:
+  - Sayılar kalktı ("dört rol", "sekiz anahtar").
+  - Collector anahtarları tablolarıyla yazılıyor (`[network] listen_addr`,
+    `[storage] timescale_dsn`). Eskisi onları üst düzey sanıyordu, yeni
+    test ilk koşusunda buldu.
+  - Panelin, collector'ın ve devgate'in hata mesajları da düzeltildi.
+    devgate ayrıca var olmayan bir `[developer]` tablosunu adlandırıyordu.
+- **Bot verisi (madde 4).** Panel ve API örneklerinde `bot_data_path`
+  açık; `install.sh` ikisini de ilk tablo başlığından önceki satırda
+  `STATE_DIR`'a taşıyor.
+
+**Değişmezler:**
+- `TestEveryWizardCommandNamesThePackage`: komutlarda kaynak ağacı yok,
+  adlandırılan paket dosyaları `release/build.sh`'tan okunuyor, ve her
+  komut kendi yollarını taşıyor.
+- `TestTheBootstrapKeysAreTheCollectorsKeys`: adımın anahtarları
+  `collector.Config`'in etiketlerinden çözülüyor.
+- `TestNoServiceTextNamesTheSourceTree`: ağaç geneli kural, gerekçeli üç
+  istisnayla. HEAD'de (`2d1620e`) 17 ihlal buldu, şimdi 0.
+- `TestTheExamplesNameOneBotDataFile`: üç örnek, servislerin kendi
+  tiplerine çözülünce aynı dosya.
+- `TestTheInstallWritesTheDirectoriesItWasGiven`: gerçek `install.sh`
+  sonrası üç yol `STATE_DIR`'da. Eski betikle kırmızıydı.
+
+13 mutasyon, 13'ü kırmızı (`$SP/w4/mutasyon-w4c.py`). İkisi ilk turda sağ
+kaldı: test yolları "bir komutta geçiyor mu" diye soruyordu ve iki komut
+aynı yolları paylaşıyor. Artık her komut kendi yollarıyla sorgulanıyor.
+
+**Açık kalan:** var olan kurulumlarda `install.sh` yapılandırma dosyasının
+üstüne yazmadığı için panel ve API satırı eklenmez. CHANGELOG kurana bunu
+söylüyor.
 
 ### Ertelenmiş kararlar
 

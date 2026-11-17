@@ -59,7 +59,11 @@ timescale_dsn = "postgres://analytics_reader:change-me@localhost:5432/analytics"
 # canlı bir kurulumda yol dosyada yazılıyken API "bilinen-bot dosyası
 # yok" diyordu; satır yukarı alınınca 52 parmak izi yüklendi. Kural
 # artık internal/invariants/exampleconfig_test.go'da.
-# bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
+#
+# Açık geliyor: collector.toml'daki [bot_data] path ile aynı dosya, ve
+# install.sh üçünü de STATE_DIR'a taşıyor. Dosya henüz getirilmemişse API
+# yalnız uyarır ve parmak izlerini isimsiz bildirir.
+bot_data_path = "/var/lib/crucible-analytic/known_bots.json"
 
 # One entry per caller. Generate the token and its hash with:
 #

@@ -86,7 +86,7 @@ func TestCheckerNeedsOnlyAPool(t *testing.T) {
 	// version asserted a *default* here, which is what a passed-in fact
 	// has; this one has no default, so what there is to assert is the
 	// direction: no database, no pass.
-	got := c.checkIPTokenKey(context.Background())
+	got := c.checkIPTokenKey(context.Background(), Config{})
 	if got.Status != CheckSkip {
 		t.Errorf("status = %s, want skip: with no database nothing was examined, and "+
 			"%q is a different fact from a key being absent", got.Status, got.Detail)

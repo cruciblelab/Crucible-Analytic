@@ -23,6 +23,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -327,6 +328,13 @@ func main() {
 			DataDir:     cfg.Logging.Dir,
 			BotDataPath: cfg.BotDataPath,
 			ServiceURLs: cfg.ServiceURLs,
+			// Where the commands the wizard prints point (W4): this
+			// binary's own directory, and the directory of the file it
+			// was started with. install.sh puts the five binaries and the
+			// five config files side by side, so both are facts about the
+			// installation rather than guesses about it.
+			BinDir:      executableDir(),
+			ConfigDir:   absDir(*configPath),
 			GuardedKeys: guardedKeyNames(),
 			Roles: preflight.Roles{
 				Collector: cfg.Roles.Collector,
@@ -672,4 +680,28 @@ func databaseIsLocal(dsn string) bool {
 	host := cfg.ConnConfig.Host
 	return strings.HasPrefix(host, "/") ||
 		host == "localhost" || host == "127.0.0.1" || host == "::1" || host == ""
+}
+
+// executableDir is the directory this binary runs from, or "" when the
+// system will not say - in which case the wizard falls back to install.sh's
+// default and the command it prints is a default rather than a fact.
+func executableDir() string {
+	path, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Dir(path)
+}
+
+// absDir is the absolute directory of path, or "" when it cannot be made
+// absolute.
+func absDir(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	return filepath.Dir(abs)
 }

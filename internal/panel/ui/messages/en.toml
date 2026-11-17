@@ -1189,7 +1189,7 @@ sonuc = "Outcome"
 [metin.saglik.servis]
 baslik = "Services"
 hic = "No service has reported yet. Either they are all running a build from before the heartbeat existed, or none of them is running."
-okunamadi = "The service rows could not be read. The heartbeat table may not have been applied: internal/heartbeat/schema.sql."
+okunamadi = "The service rows could not be read. The heartbeat table may not have been applied: sudo ./release/install.sh, run in the unpacked release package, applies the schema."
 ipucu = "Each service writes its own row every minute. A service that has not reported for three minutes is marked \"not reporting\" - which is not the same as \"down\", and the panel has no way to know the difference."
 collector = "Collector"
 beacon_writer = "Beacon"

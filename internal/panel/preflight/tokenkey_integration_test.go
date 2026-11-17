@@ -61,7 +61,7 @@ func TestTheWizardAsksTheServicesAboutTheIPTokenKey(t *testing.T) {
 
 	// ---- a fresh install: nothing has started ----
 	beats.Silence()
-	got := checker.checkIPTokenKey(ctx)
+	got := checker.checkIPTokenKey(ctx, Config{})
 	if got.Status != CheckSkip {
 		t.Errorf("status = %s, want skip: on a fresh install the services have not run yet, "+
 			"and reporting a missing key there is reporting a fault that does not exist",
@@ -76,7 +76,7 @@ func TestTheWizardAsksTheServicesAboutTheIPTokenKey(t *testing.T) {
 
 	// ---- a deployment with a key ----
 	beats.Says(testdb.Collector, string(heartbeat.TokenKeyPresent))
-	got = checker.checkIPTokenKey(ctx)
+	got = checker.checkIPTokenKey(ctx, Config{})
 	if got.Status != CheckPass {
 		t.Errorf("status = %s, want pass: the one writer that has started reported a usable "+
 			"key (%s)", got.Status, got.Detail)
@@ -92,7 +92,7 @@ func TestTheWizardAsksTheServicesAboutTheIPTokenKey(t *testing.T) {
 
 	// ---- a second writer with none ----
 	beats.Says(testdb.Beacon, string(heartbeat.TokenKeyAbsent))
-	got = checker.checkIPTokenKey(ctx)
+	got = checker.checkIPTokenKey(ctx, Config{})
 	if got.Status != CheckSkip {
 		t.Errorf("status = %s, want skip", got.Status)
 	}
@@ -105,7 +105,7 @@ func TestTheWizardAsksTheServicesAboutTheIPTokenKey(t *testing.T) {
 
 	// ---- and the same writer, too old to answer ----
 	beats.Says(testdb.Beacon, string(heartbeat.TokenKeyUnknown))
-	got = checker.checkIPTokenKey(ctx)
+	got = checker.checkIPTokenKey(ctx, Config{})
 	if got.Status != CheckSkip {
 		t.Errorf("status = %s, want skip", got.Status)
 	}
@@ -128,13 +128,13 @@ func TestTheWizardIgnoresTheServicesThatWriteNoAddresses(t *testing.T) {
 
 	beats.Silence()
 	beats.Says(testdb.Collector, string(heartbeat.TokenKeyPresent))
-	if got := checker.checkIPTokenKey(ctx); got.Status != CheckPass {
+	if got := checker.checkIPTokenKey(ctx, Config{}); got.Status != CheckPass {
 		t.Fatalf("the baseline this test varies from is already %s: %s", got.Status, got.Detail)
 	}
 
 	for _, role := range []string{testdb.Reader, testdb.Panel, testdb.SchemaAdmin, "postgres"} {
 		beats.Says(role, string(heartbeat.TokenKeyUnknown))
-		got := checker.checkIPTokenKey(ctx)
+		got := checker.checkIPTokenKey(ctx, Config{})
 		if got.Status != CheckPass {
 			t.Errorf("a silent heartbeat row for %q turned the check into %s: %s\n"+
 				"That role holds no granted INSERT on an address table, so it is not a "+
